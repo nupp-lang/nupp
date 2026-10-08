@@ -798,7 +798,7 @@ local function openSession(
             local wrote, problem = writeFile(path, source)
             assert(wrote, problem)
         end
-        inc.openDocument(path, source)
+        inc.stageCarriedDocument(name, path, source)
         staged[#staged + 1] = {name = name, replaceTypeOnly = replaceTypeOnly}
         local header = inc.projectHeader(path)
         for _, dependency in ipairs(header and header.dependencies or {}) do

@@ -104,6 +104,11 @@ record incremental.Inc
     --- Installs a compiler-generated replacement of already checked source.
     openGeneratedDocument: function(path: string, text: string)
 
+    --- Puts a build's copy of a compiler-carried module on its staged path. When the
+    --- copy is the carried source itself, it is read from there without joining the
+    --- project; see `answeringPath`.
+    stageCarriedDocument: function(name: string, path: string, text: string)
+
     --- The same thing: an edit is just the newest text for a path.
     changeDocument: function(path: string, text: string)
 
@@ -583,9 +588,57 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return indexView
     end
 
+    -- The session's own environment asks the index one key at a time too, as a
+    -- checked module's does. A bundled module is checked against this environment,
+    -- and reading `byName` off the whole index made it depend on every file in the
+    -- project: staging one carried source mid-build re-checked every bundled module,
+    -- each fresh copy of their types failed the exports cutoff, and every module
+    -- that requires one was checked again -- once per staging.
+    env.projectEntries = function(_: any, name: string): any
+        return q:get("projectEntries", name)
+    end
+    env.projectPathEntries = function(_: any, path: string): any
+        return q:get("projectPathEntries", path)
+    end
+    env.projectModuleBasenames = function(_: any, short: string): any
+        return q:get("projectModuleBasenames", short)
+    end
+    env.projectAnnotations = function(_: any, name: string): any
+        return q:get("projectAnnotations", name)
+    end
+
     --- Where a module name resolves to, preferring project files.
     local function modulePath(self: any, name: string): string?
         return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
+    end
+
+    --- Whether `text` at `path` is a build's staged copy of exactly what `name`
+    --- carries: on the staged path, shadowed by nothing, and the same bytes.
+    local function stagedCarriedText(name: string, path: string, text: string?): boolean
+        if text == nil or not envMod.isStagedBundledSource(env, name, path) then
+            return false
+        end
+        local file = env.bundledImplementation and env.bundledImplementation(name) or nil
+
+        return file ~= nil and require("nupp.compiler.bundled").source(file) == text
+    end
+
+    --- Where the answer for a required name comes from: the path that holds it, or nil
+    --- when the carried copy answers. A build's staged copy of a carried source is that
+    --- same text on a path so it can be linked, and staging is how far the build has
+    --- got rather than a change to what the name means -- a worker, which stages
+    --- nothing, answers with the carried copy throughout. Answering with the staged
+    --- file instead re-checked it into fresh copies of its types the moment it was
+    --- staged, and every module requiring it was checked again to meet them. A staged
+    --- file a project root or a type root shadows is not the carried copy, and answers
+    --- for itself.
+    local function answeringPath(self: any, name: string): string?
+        local path = modulePath(self, name)
+        if path ~= nil and stagedCarriedText(name, path, self:get("fileText", path)) then
+            return nil
+        end
+
+        return path
     end
 
     -- Declaration files are not modules in the project walk, but one reached through
@@ -792,7 +845,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             if imported then
                 return imported.interface
             end
-            local path = modulePath(self, name)
+            local path = answeringPath(self, name)
             if not path then
                 -- project files shadow bundled declarations; see env.resolveModule
                 local bundled = env.bundled and env.bundled[name]
@@ -886,7 +939,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             if imported then
                 return imported.exports
             end
-            local path = modulePath(self, name)
+            local path = answeringPath(self, name)
             if not path then
                 -- Type-side lookups need the bundled declaration's exports just as the
                 -- value side above needs its interface. Project files still shadow the
@@ -913,7 +966,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 return importedExports and importedExports.callGuarantees and importedExports.callGuarantees[member]
                 or nil
             end
-            local path = module and modulePath(self, module) or nil
+            local path = module and answeringPath(self, module) or nil
             local exports
             if path then
                 local checked = self:get("checkModule", path)
@@ -980,6 +1033,21 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             updateProjectFiles()
         end
         q:setInput("fileText", path, text)
+    end
+
+    -- Staging only moves the carried text onto a path so a build can link it. As a
+    -- project file it would join the index, and every name, path and declaration
+    -- query the index answers would move for each module the build stages, checking
+    -- whatever read one of them again; a worker stages nothing and never sees it. So a
+    -- staged copy of exactly the carried source is read through its path and stays
+    -- out of the project, and anything else staged there is a project file as before.
+    local function apiStageCarriedDocument(name: string, path: string, text: string)
+        if stagedCarriedText(name, path, text) then
+            q:setInput("generatedSource", path, false)
+            q:setInput("fileText", path, text)
+        else
+            apiOpenDocument(path, text)
+        end
     end
 
     local function apiOpenGeneratedDocument(path: string, text: string)
@@ -1418,6 +1486,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         changeDocument = apiOpenDocument,
         openDocument = apiOpenDocument,
         openGeneratedDocument = apiOpenGeneratedDocument,
+        stageCarriedDocument = apiStageCarriedDocument,
         closeDocument = apiCloseDocument,
         diskChanged = apiDiskChanged,
         checkFile = apiCheckFile,

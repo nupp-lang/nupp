@@ -1204,4 +1204,75 @@ function M.cycleGuardsKeepDifferentlyTypedKeysSeparate()
     assertEq(q.stats.value, 2, "both differently typed keys compute")
 end
 
+-- A build stages a compiler-carried module by putting its source on a path, so it
+-- can be linked. That is how far the build has got, not a change to what the name
+-- means, and a worker never stages at all: so it moves nothing a checked module
+-- read, and nothing is checked again for it. It used to join the project, which
+-- moved the index and re-checked the carried modules into fresh copies of their
+-- types, and every module requiring one was checked again -- once per staging.
+-- Anything else staged there is a project file, and is seen.
+function M.stagingACarriedModuleChecksNothingAgain()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local staged = dir .. "/build/cache/runtime-source"
+    os.execute("mkdir -p '" .. staged .. "/nupp/io/files'")
+    local mainPath = dir .. "/main.nupp"
+    local file = assert(io.open(mainPath, "wb"))
+    file:write(table.concat(
+        {
+            "const {type Observers} = require('nupp.events')",
+            "local events = require('nupp.events')",
+            "local files = require('nupp.io.files')",
+            "local m = {}",
+            "record m.Holder",
+            "   observers: Observers<integer>",
+            "end",
+            "function m.build(path: string): m.Holder",
+            "   print(files.exists(path))",
+            "   return new m.Holder(observers = events.newObservers())",
+            "end",
+            "return m",
+        },
+        "\n"
+    ))
+    file:close()
+
+    local inc = incremental.new(dir, {cache = false, runtimeSourceRoots = {staged}})
+    assertEq(#inc.checkFile(mainPath).diags, 0, "checks cold")
+    local checks = inc.q.stats.checkModule
+
+    local source = assert(require("nupp.compiler.bundled").source("/nupp/io/files/init.nupp"))
+    inc.env.roots[#inc.env.roots + 1] = staged
+    local stagedPath = staged .. "/nupp/io/files/init.nupp"
+    local copy = assert(io.open(stagedPath, "wb"))
+    copy:write(source)
+    copy:close()
+    inc.stageCarriedDocument("nupp.io.files", stagedPath, source)
+    assertEq(inc.modulePath("nupp.io.files"), stagedPath, "the build finds the staged copy to link")
+    assertEq(#inc.checkFile(mainPath).diags, 0, "still clean with the module staged")
+    assertEq(inc.q.stats.checkModule, checks, "staging the carried copy checks nothing again")
+
+    -- A staged file that is not the carried source is a project file like any other.
+    os.execute("mkdir -p '" .. staged .. "/demo'")
+    local extra = assert(io.open(staged .. "/demo/extra.nupp", "wb"))
+    extra:write("return {value = 1}")
+    extra:close()
+    inc.stageCarriedDocument("demo.extra", staged .. "/demo/extra.nupp", "return {value = 1}")
+    assertEq(inc.modulePath("demo.extra"), staged .. "/demo/extra.nupp", "the staged project file resolves")
+    assert(inc.q.stats.checkModule == checks, "nothing requiring it was checked")
+
+    -- Nor is a staged copy whose text is not what the compiler carries: it answers for
+    -- the name, and what requires the name is checked against it.
+    local events = assert(require("nupp.compiler.bundled").source("/nupp/events.nupp"))
+    os.execute("mkdir -p '" .. staged .. "/nupp'")
+    local changed = assert(io.open(staged .. "/nupp/events.nupp", "wb"))
+    changed:write(events .. "\n-- edited\n")
+    changed:close()
+    inc.stageCarriedDocument("nupp.events", staged .. "/nupp/events.nupp", events .. "\n-- edited\n")
+    assertEq(#inc.checkFile(mainPath).diags, 0, "the edited copy still checks")
+    assert(inc.q.stats.checkModule > checks, "a copy that differs is checked, and so is what requires it")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M
