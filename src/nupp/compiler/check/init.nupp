@@ -2843,6 +2843,30 @@ function checkMod.check(
 
     c.checkStat = checkStat
 
+    -- The module `require("m")` loads when it names one literally, or nil.
+    local function requiredLiteral(expr: any): string?
+        if not expr
+            or expr.kind ~= "call"
+            or not expr.obj
+            or expr.obj.kind ~= "name"
+            or expr.obj.token.text ~= "require"
+            or not expr.args
+            or expr.args.kind ~= "args"
+        then
+            return nil
+        end
+        local tok = expr.args.str
+        local exprs = expr.args.exprs or {}
+        if not tok and #exprs == 1 and exprs[1].kind == "string" then
+            tok = exprs[1].token
+        end
+        if not tok then
+            return nil
+        end
+
+        return tok.text:match('^"(.*)"$') or tok.text:match("^'(.*)'$")
+    end
+
     -- A nominal can outlive the check that declared it: a project-index skeleton keeps
     -- its identity across rechecks, and a nested one is kept on the parse it was
     -- hoisted from, which a recheck reuses. What an earlier check published on it is
@@ -3032,6 +3056,62 @@ function checkMod.check(
         -- a module signature may name a type reached through an earlier local require,
         -- and the require has not been bound during this pre-pass. An assignment to a
         -- module field and a local function remain ordinary flow-sensitive writes.
+        --
+        -- A signature resolved here still names what the statement will see when it is
+        -- reached: the locals this block binds before it. Those are not bound yet, so
+        -- each one stands in a scope of its own while the signature resolves -- a
+        -- `local alias = require("m")` as the module it loads, any other local as a
+        -- name that is not one -- and `alias.T` means m's `T` rather than whatever
+        -- module happens to be called `alias`.
+        --
+        -- A type a binding pattern selects, `const {type T} = require("m")`, is m's `T`
+        -- the same way, looked up only if the signature names it.
+        local earlier: {[string]: string | false} = {}
+        local selected: {[string]: {
+            module: string,
+            name: string
+        }} = {}
+
+        local function selectedField(field: string): any
+            return function(_: any, name: any): any
+                local selection = selected[name]
+                if not selection or not c.env or not c.env.resolveModuleExports then
+                    return nil
+                end
+                local exports: any = c.env.resolveModuleExports(c.env, selection.module)
+                local found = exports and exports[field]
+
+                return found and found[selection.name] or nil
+            end
+        end
+
+        local function resolvedBeforeBinding(body: any, selfType: Type?): Type
+            if next(earlier) == nil and next(selected) == nil then
+                return c.signatureOf(body, selfType)
+            end
+            local outer = c.scope
+            local vars: {[string]: any} = {}
+            for name, module in pairs(earlier) do
+                vars[name] = {t = T.any, requiredModule = module or nil}
+            end
+            local types: any = setmetatable({}, {__index = selectedField("types")})
+            local typeDefs: any = setmetatable({}, {__index = selectedField("typeDefs")})
+            c.scope = {
+                vars = vars,
+                types = types,
+                packTypes = {},
+                typeDefs = typeDefs,
+                pending = {},
+                automaticOwners = {},
+                parent = outer,
+                depth = outer and outer.depth or 0,
+            }
+            local signature = c.signatureOf(body, selfType)
+            c.scope = outer
+
+            return signature
+        end
+
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do
@@ -3046,7 +3126,7 @@ function checkMod.check(
             if decl and decl.exported and (decl.kind == "localFuncStmt" or decl.kind == "funcStmt") then
                 local nameTok = decl.kind == "localFuncStmt" and decl.name or decl.name and decl.name.base
                 if nameTok and decl.body then
-                    local signature = c.signatureOf(decl.body, nil)
+                    local signature = resolvedBeforeBinding(decl.body, nil)
                     local definition = nameTok.definition or c.definition(nameTok, "function")
                     definition.type = signature
                     c.moduleFields[nameTok.text] = signature
@@ -3078,7 +3158,7 @@ function checkMod.check(
                     members = isStatic and nominalOwner.staticByname or nominalOwner.byname
                 end
                 if nominalOwner and members and member and not members[member] then
-                    local signature = c.signatureOf(
+                    local signature = resolvedBeforeBinding(
                         decl.body,
                         fname.method and nominalOwner and generics.ownInstance(nominalOwner) or nil
                     )
@@ -3099,6 +3179,26 @@ function checkMod.check(
                         #declarations + 1
                     ] = {body = decl.body, token = memberTok, definition = definition, scope = c.scope,}
                 end
+            end
+            if decl and decl.kind == "localStmt" and decl.pattern then
+                local module = requiredLiteral(decl.patternSource)
+                for _, entry in ipairs(decl.pattern) do
+                    local nameTok = entry.alias or entry.sourceName
+                    if nameTok and entry.typeOnly then
+                        selected[nameTok.text] = module
+                            and entry.sourceName
+                            and {module = module, name = entry.sourceName.text}
+                            or nil
+                    elseif nameTok then
+                        earlier[nameTok.text] = module or false
+                    end
+                end
+            elseif decl and decl.kind == "localStmt" then
+                for index, nameTok in ipairs(decl.names or {}) do
+                    earlier[nameTok.text] = requiredLiteral(decl.exprs and decl.exprs[index]) or false
+                end
+            elseif decl and decl.kind == "localFuncStmt" and decl.name then
+                earlier[decl.name.text] = false
             end
         end
         c.hoisting = wasHoisting

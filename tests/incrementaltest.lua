@@ -1078,83 +1078,96 @@ end
 --- cycle makes one of those lead back to the entry being validated. The re-entrant
 --- edge has to report what that entry last changed at rather than validating it
 --- again; without that, validation recurses until the stack runs out.
--- A record method's signature is resolved while its block is hoisted, before the
--- file's local requires are bound, so `alias.T` there is looked up as the module
--- `pkg.alias`, and that lookup is a project read the check depends on. A recheck
--- in the same session used to find the method already published on the record's
--- project-index skeleton by the check before, skip it, and record none of those
--- reads. A build persisting that record then reused it after a `pkg/alias.nupp`
--- appeared, while a cold check of the same source answered differently.
-function M.aRecheckRecordsTheProjectReadsOfHoistedMethods()
+-- A record keeps its identity across rechecks through its project-index skeleton,
+-- and it used to keep the members the check before had published on it too. The
+-- first pass skips a method the record already lists, so a recheck neither resolved
+-- those signatures nor recorded the project reads they make, and a method deleted
+-- from the source was still there to call.
+function M.aRecheckSeesOnlyTheMembersItsSourceDeclares()
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "/pkg'")
-    local depPath = dir .. "/pkg/dep.nupp"
-    local bPath = dir .. "/pkg/b.nupp"
+    local path = dir .. "/pkg/b.nupp"
 
-    local function write(path, text)
-        local file = assert(io.open(path, "wb"))
-        file:write(text)
-        file:close()
-    end
-
-    local dep = table.concat({"local dep = {}", "record dep.T", "    n: integer", "end", "return dep",}, "\n")
-    write(depPath, dep)
-    write(
-        bPath,
-        table.concat({
+    local function source(withOld)
+        return table.concat({
             "local m = {}",
-            "local alias = require('pkg.dep')",
             "record m.R",
             "    v: integer",
             "end",
-            "function m.R.first(x: alias.T): integer",
-            "    return m.R.make(x)",
-            "end",
-            "function m.R.make(x: alias.T): integer",
-            "    return x.n",
+            withOld and "function m.R.old(): integer return 1 end" or "",
+            "function m.R.use(): integer",
+            "    return m.R.old()",
             "end",
             "return m",
         }, "\n")
-    )
-
-    local function reads(dependencies)
-        local found = {}
-        for _, dependency in ipairs(dependencies) do
-            found[dependency.name .. " " .. tostring(dependency.key)] = dependency
-        end
-
-        return found
     end
+
+    local file = assert(io.open(path, "wb"))
+    file:write(source(true))
+    file:close()
+    local inc = incremental.new(dir, {cache = false})
+    assertEq(#inc.checkFile(path).diags, 0, "the module checks cold")
+    inc.changeDocument(path, source(false))
+    local rechecked = inc.checkFile(path).diags
+    local cold = incremental.new(dir, {cache = false})
+    cold.openDocument(path, source(false))
+    local fresh = cold.checkFile(path).diags
+    assertEq(#fresh > 0, true, "a cold check refuses the deleted method")
+    assertEq(#rechecked, #fresh, "and so does a recheck")
+    assertEq(rechecked[1] and rechecked[1].code, fresh[1] and fresh[1].code, "with the same diagnostic")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A record method's signature is resolved in the first pass over its block, before
+-- the block's locals are bound. `alias.T` there used to look for a module called
+-- `alias`, or `pkg.alias` beside the file, rather than the module the local requires,
+-- and an unbound `{type Thing}` selection fell through to a project global. The
+-- statement itself then disagreed with what its earlier callers had been checked
+-- against.
+function M.aMethodSignatureNamesWhatItsLocalsRequire()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "/pkg'")
+
+    local function write(name, lines)
+        local file = assert(io.open(dir .. "/pkg/" .. name, "wb"))
+        file:write(table.concat(lines, "\n"))
+        file:close()
+    end
+
+    write("dep.nupp", {
+        "local dep = {}",
+        "record dep.T",
+        "    n: integer",
+        "end",
+        "record dep.Thing",
+        "    n: integer",
+        "end",
+        "return dep",
+    })
+    write("alias.nupp", {"local alias = {}", "record alias.T", "    s: string", "end", "return alias"})
+    write("thing.nupp", {"global record Thing", "    s: string", "end", "return {}"})
+    write("b.nupp", {
+        "local m = {}",
+        "local alias = require('pkg.dep')",
+        "const {type Thing} = require('pkg.dep')",
+        "record m.R",
+        "    v: integer",
+        "end",
+        "function m.R.first(x: alias.T, y: Thing): integer",
+        "    return m.R.make(x, y)",
+        "end",
+        "function m.R.make(x: alias.T, y: Thing): integer",
+        "    return x.n + y.n",
+        "end",
+        "return m",
+    })
 
     local inc = incremental.new(dir, {cache = false})
-    assertEq(#inc.checkFile(bPath).diags, 0, "the module checks cold")
-    local first = reads(inc.projectDependencies(bPath))
-    assertEq(first["projectModulePath pkg.alias"] ~= nil, true, "a first check records the lookup")
-    local coldChecks = inc.q.stats.checkModule
-    inc.changeDocument(depPath, (dep:gsub("n: integer", "n: integer\n    label: string?")))
-    assertEq(#inc.checkFile(bPath).diags, 0, "the module still checks")
-    assertEq(inc.q.stats.checkModule, coldChecks + 2, "an interface edit rechecks the dependent")
-    local recorded = inc.projectDependencies(bPath)
-    assertEq(reads(recorded)["projectModulePath pkg.alias"] ~= nil, true, "the recheck records the lookup too")
-    write(depPath, (dep:gsub("n: integer", "n: integer\n    label: string?")))
-
-    -- What a later process decides from that record: every read it holds still
-    -- answers the same, so the module would be reused, against a cold check that now
-    -- resolves `alias.T` through the new module and rejects the file.
-    write(
-        dir .. "/pkg/alias.nupp",
-        table.concat({"local alias = {}", "record alias.T", "    s: string", "end", "return alias",}, "\n")
-    )
-    local later = incremental.new(dir, {cache = false})
-    local reusable = true
-    for _, dependency in ipairs(recorded) do
-        if later.projectDependencyFingerprint(dependency.name, dependency.key) ~= dependency.fingerprint then
-            reusable = false
-        end
-    end
-    assertEq(#later.checkFile(bPath).diags > 0, true, "a cold check answers differently once the module exists")
-    assertEq(reusable, false, "so the record must not validate")
+    local diags = inc.checkFile(dir .. "/pkg/b.nupp").diags
+    assertEq(#diags, 0, "the methods take pkg.dep's types: " .. tostring(diags[1] and diags[1].msg))
 
     os.execute("rm -rf '" .. dir .. "'")
 end
