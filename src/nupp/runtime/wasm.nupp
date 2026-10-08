@@ -1,5 +1,0 @@
-@!internal
-module nupp.runtime.wasm
-
-local representation = require("nupp.mem.representation")
-export = assert(representation.host, "nupp.runtime.wasm: the target memory representation has no host implementation")

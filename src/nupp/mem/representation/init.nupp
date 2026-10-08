@@ -16,4 +16,3 @@ end
 local tableStructs: contracts.StructvalueProvider = require("nupp.runtime.provider.tablestruct")
 export const structs: contracts.StructvalueProvider = storage and storage.structs or tableStructs
 export const integers = storage and storage.integers or nil
-export const host = storage and storage.host or nil

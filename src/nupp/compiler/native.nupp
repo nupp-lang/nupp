@@ -151,7 +151,6 @@ local FEATURES: {[string]: native.Feature} = {
     [
         "runtime.structvalue"
     ] = {name = "structvalue", runtimeModule = "nupp.runtime.structvalue", portableRuntime = true, requires = {}},
-    ["runtime.wasm"] = {name = "wasm", runtimeModule = "nupp.runtime.wasm", portableRuntime = true, requires = {}},
     [
         "runtime.uuid"
     ] = {

@@ -14,7 +14,6 @@ local function runtime(storage, integers)
             ["nupp.runtime.int64"] = true,
             ["nupp.runtime.storage"] = true,
             ["nupp.runtime.structvalue"] = true,
-            ["nupp.runtime.wasm"] = true,
         },
         {
             ["nupp.spi.index"] = advertised,
@@ -55,19 +54,16 @@ function M.facadesRetainSelectedRepresentationMembers()
     end
     local integers = {}
     local structs = {}
-    local host = {}
     local storage = {
         representation = "native",
         integers = integers,
         structs = structs,
-        host = host,
         allocateBytes = allocateBytes,
     }
     local load = runtime(storage, integers)
 
     assert(load("nupp.runtime.storage").allocateBytes == allocateBytes)
     assert(load("nupp.runtime.structvalue") == structs)
-    assert(load("nupp.runtime.wasm") == host)
     assert(load("nupp.runtime.int64") == integers)
 end
 
@@ -76,11 +72,8 @@ function M.missingStorageMembersFailAtTheirUseBoundary()
     local structs = load("nupp.runtime.structvalue")
     assert(structs.referenceValued)
 
-    local ok, problem = pcall(load, "nupp.runtime.wasm")
-    assert(not ok and tostring(problem):find("no host implementation", 1, true), tostring(problem))
-
     local integers = load("nupp.runtime.int64")
-    ok, problem = pcall(function()
+    local ok, problem = pcall(function()
         return integers.int64
     end)
     assert(not ok and tostring(problem):find("requires an integer provider", 1, true), tostring(problem))

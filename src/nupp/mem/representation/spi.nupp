@@ -12,11 +12,10 @@ export type CastElements = function<T>(element: ctype<T>, pointer: any): any
 
 --- A coherent family of physical storage operations.
 ---
---- `representation` is `native` for native pointers or `linear32` for 32-bit linear
---- memory. The facade checks it against the target before publishing this table.
---- Linear32 implementations must also supply layout, reference, integers, structs,
---- and host. Their structs must be reference-valued. The integer facade must use
---- the exact integer provider attached to this storage family.
+--- `representation` is `native`, the only family Nupp compiles for, and the facade
+--- checks it before publishing this table: a provider built for some other layout
+--- cannot be selected into a program whose layout is already compiled. The integer
+--- facade must use the exact integer provider attached to this storage family.
 ---
 --- Allocation, descriptors, scalar codecs, and copies must agree on byte order,
 --- alignment, width, and pointer units. Decode inputs contain at least the scalar
@@ -31,19 +30,17 @@ export interface CstorageProvider
     --- Callers remain responsible for valid native pointer extents.
     @readonly boundedCount: function(borrows source: any, count: integer): integer
 
-    --- Target pointer/layout convention: native or linear32.
+    --- The storage family this table implements, which must be `native`.
     @readonly representation: string
 
-    --- Integer operations sharing this storage representation; required for linear32.
+    --- Integer operations sharing this storage representation, where it carries them.
     @readonly integers: Int64Provider?
 
     --- Struct descriptors and row operations sharing this storage family.
     @readonly structs: StructvalueProvider?
 
-    --- Opaque memory-host operations sharing these allocations and pointers.
-    @readonly host: WasmProvider?
-
-    --- Returns target layout facts for a type or descriptor; required for linear32.
+    --- Returns target layout facts for a type or descriptor, where the family reports
+    --- them.
     @readonly layout: (function(subject: any): any)?
 
     --- Returns the canonical descriptor for a scalar kind within this provider.
@@ -228,34 +225,4 @@ export interface StructvalueProvider
 
     --- Whether row references address their underlying storage.
     @readonly referenceValued: boolean
-end
-
---- Opaque linear-memory operations belonging to a storage implementation.
----
---- Allocation and pointer values must refer to that implementation's memory host.
---- Offsets and copy lengths are bytes; pointer's index/stride pair locates an
---- element in an allocation. Loads and stores use the scalar kind's width and
---- encoding. Bounds and owner lifetimes must remain valid across every operation.
---- This interface is supplied through CstorageProvider.host, not a separate SPI.
-export interface WasmProvider
-    --- Allocates the requested number of bytes in this memory host.
-    @readonly allocate: function(bytes: integer): any
-
-    --- Locates a zero-based element using index and byte stride.
-    @readonly pointer: function(allocation: any, index: integer, stride: integer): any
-
-    --- Offsets an existing pointer by count bytes.
-    @readonly offset: function(pointer: any, count: integer): any
-
-    --- Reads a scalar kind at a byte offset from the pointer.
-    @readonly load: function(pointer: any, byteOffset: integer, kind: string): any
-
-    --- Writes a scalar kind at a byte offset from the pointer.
-    @readonly store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
-
-    --- Copies bytes between regions belonging to this host.
-    @readonly copy: function(destination: any, source: any, bytes: integer): nil
-
-    --- Returns bounds and layout information for a host value.
-    @readonly descriptor: function(value: any): any
 end
