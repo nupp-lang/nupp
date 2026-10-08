@@ -27,7 +27,7 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
---- The parse one run is checking, plus the places it writes back what it learned: the
+--- The parse a run is checking, plus the places it writes back what it learned: the
 --- symbols an editor reads, the module's name and the local it returns, and the
 --- interface it publishes. Open rather than declared, because
 --- `nupp.compiler.syntax.parser` owns the shape it produced and a run adds to it rather
@@ -40,7 +40,7 @@ type state.Parse = {[string]: any}
 --- several passes, and a run reads whichever pieces are there.
 type state.Env = {[string]: any}
 
---- What a caller may ask of one run: strict checking, the module's name, an annotation
+--- What a caller may ask of a run: strict checking, the module's name, an annotation
 --- registry, a seeded export interface for a recursive project declaration, and the
 --- flags that say a file declares rather than defines.
 type state.Options = {[string]: any}
@@ -327,7 +327,7 @@ record state.Checker
     --- instantiation would snapshot half-built.
     preclaiming: boolean?
 
-    --- Set by a block around one declaration statement written among others. A
+    --- Set by a block around a declaration statement written among others. A
     --- record's bodies are left in it to be checked once every declaration written
     --- beside it is filled.
     deferredBodies: {any}?
@@ -424,7 +424,7 @@ record state.Checker
     --- table can be told from a field that is not there.
     metamethodNames: function(t: Type?): {[string]: boolean}
 
-    --- The contract a receiver declares under one metamethod name, or nil.
+    --- The contract a receiver declares under a metamethod name, or nil.
     metamethodOf: function(t: Type?, name: string): Type?
 
     --- Checks a declared operation contract against arguments already inferred, which
@@ -434,7 +434,7 @@ record state.Checker
     --- Checks a call against its callee: the first result, all of them, and the pack.
     inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any)
 
-    --- Checks a table literal standing where a metatable is expected, and one value
+    --- Checks a table literal standing where a metatable is expected, and a value
     --- against the contract its receiver declares. See nupp.compiler.check.metatable.
     checkMetatableLiteral: function(node: Node?, literalType: Type?, target: Type?)
 
@@ -467,7 +467,7 @@ record state.Checker
 
     borrowRoot: function(entry: any): any
 
-    --- Releases the shared and exclusive lifetime links held by one entry.
+    --- Releases the shared and exclusive lifetime links held by an entry.
     releaseBorrowLinks: function(entry: any)
 
     regionOf: function(node: any): (any, string?)
@@ -532,7 +532,7 @@ record state.Checker
     moduleFieldDefs: {[string]: any}
 
     --- Qualified function declarations visible by their authored value path. Const
-    --- function arguments use this because ordinary lexical lookup accepts one name,
+    --- function arguments use this because ordinary lexical lookup accepts a name,
     --- while a terminal may name `module.close`.
     qualifiedFunctionEntries: {[string]: any}
 
@@ -612,7 +612,7 @@ record state.Checker
     --- defaults the clause states.
     bindGenerics: function(generics: any, role: string, predeclared: any?): (any, any, any, any, any, any)
 
-    --- A fresh type parameter for one binder.
+    --- A fresh type parameter for a binder.
     typevarAt: function(tok: any, role: string): Type
 
     --- The domain a const binder was written with, or nil for a word that is not one.

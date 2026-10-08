@@ -17,7 +17,7 @@ local text = require("nupp.compiler.aot.llvm.text")
 
 local dwarf = {}
 
---- The file and compile unit one module's locations are in.
+--- The file and compile unit a module's locations are in.
 record dwarf.Unit
     file: string
     unit: string

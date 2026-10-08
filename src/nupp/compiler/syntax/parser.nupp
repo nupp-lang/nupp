@@ -205,7 +205,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- Whether a short function's parameter list opens at `at`.
     ---
-    --- `||` lexes as one token, so a list with nothing in it opens and closes at once.
+    --- `||` lexes as a token, so a list with nothing in it opens and closes at once.
     local function startsShortfn(at: integer): boolean
         local tok = tokens[at]
 

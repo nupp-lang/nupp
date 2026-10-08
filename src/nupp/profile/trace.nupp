@@ -205,7 +205,7 @@ function trace.profile(): trace.Profile
     }
 end
 
---- Answers the record filed under one stable identity.
+--- Answers the record filed under a stable identity.
 ---
 --- @param id the identity, as a report or a diagnostic carries it
 --- @return the record, or nil when nothing is filed under it

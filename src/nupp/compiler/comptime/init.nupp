@@ -79,7 +79,7 @@ local function canonicalNode(node): string
     return table.concat(parts, "\0")
 end
 
---- Seals the source-visible helper closure into one stable compiler-only program.
+--- Seals the source-visible helper closure into a stable compiler-only program.
 --- Trivia and source offsets never enter the identity. Helpers are discovered from
 --- name references and ordered by name, so ordinary table allocation cannot affect it.
 function comptime.typeFunctionProgram(helper: any, helpers: any): any
@@ -973,7 +973,7 @@ local function evalArgs(state, argsNode)
     return evalList(state, argsNode and argsNode.exprs or {})
 end
 
---- The value of one expression.
+--- The value of an expression.
 evalExpr = function(state, node)
     if not node or isToken(node) then
         return nil

@@ -388,8 +388,8 @@ end
 --- into a suite containing handwritten cases. Names must be stable and unique.
 ---
 --- @param rows the rows to expand
---- @param name returns the case name for one row
---- @param run runs one row
+--- @param name returns the case name for a row
+--- @param run runs a row
 --- @return the named test cases
 export function cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any
     local rowCount = 0

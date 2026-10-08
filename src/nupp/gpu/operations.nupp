@@ -242,7 +242,7 @@ end
 --- Refuses an allocation bound for reading and for writing in the same binding.
 ---
 --- WebGPU and wgpu track buffer usage per allocation rather than per range, so a read
---- slot and a write slot naming views of one root conflict however far apart the
+--- slot and a write slot naming views of a root conflict however far apart the
 --- views are, and the device drops the dispatch instead of running it. Refused where
 --- it is bound, the same way by every provider.
 ---

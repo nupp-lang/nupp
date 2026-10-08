@@ -473,7 +473,7 @@ local function fieldIndex(ctx: context.Context, layoutName: string, field: strin
     error("layout " .. layoutName .. " has no field " .. field, 0)
 end
 
---- The address of one field of the struct `object` points at.
+--- The address of a field of the struct `object` points at.
 function expressions.fieldAddress(
     ctx: context.Context,
     object: string,

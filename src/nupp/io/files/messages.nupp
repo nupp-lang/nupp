@@ -44,7 +44,7 @@ export record TemporaryOptions
     suffix: string?
 end
 
---- The exact filesystem guarantees supplied by one provider.
+--- The exact filesystem guarantees supplied by a provider.
 export record Capabilities
     --- Whether filesystem access is available at all.
     available: boolean

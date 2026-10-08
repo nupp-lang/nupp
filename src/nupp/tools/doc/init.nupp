@@ -1621,7 +1621,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     return filesMod.writeFile(statePath, json.encode(written) .. "\n")
 end
 
---- Generates the documentation one target asked for. Returns the exit code, and the
+--- Generates the documentation a target asked for. Returns the exit code, and the
 --- path and format it resolved to.
 ---
 --- The command line assembles its overrides out of parsed option values, so they arrive

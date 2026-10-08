@@ -148,7 +148,7 @@ function bundled.staleDeclarations(): {string}
     return staleRelative
 end
 
---- The source of one declaration the compiler carries, or nil when it carries no such
+--- The source of a declaration the compiler carries, or nil when it carries no such
 --- file.
 ---
 --- `relative` is the path under the compiled modules, leading slash and all:

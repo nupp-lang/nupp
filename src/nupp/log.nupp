@@ -622,7 +622,7 @@ local function moduleName(name: string): string
     return name
 end
 
---- The effective threshold for one exact module or named logger: its override, or
+--- The effective threshold for a specific module or named logger: its override, or
 --- the global threshold when it has none.
 ---
 --- @param name the exact module or logger name
@@ -632,7 +632,7 @@ function log.moduleLevel(name: string): log.Level
     return (NAMES[overrides[moduleName(name)] or threshold] or "off") as log.Level
 end
 
---- Overrides the threshold for one exact module or named logger.
+--- Overrides the threshold for a specific module or named logger.
 ---
 --- A name without an override inherits the global threshold. Passing `"inherit"`
 --- removes an override. Existing and future generated module views observe the

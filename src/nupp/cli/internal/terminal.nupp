@@ -189,7 +189,7 @@ export function withColorMode(wanted: ColorMode, body: function(): nil): nil
     end
 end
 
---- Reports whether escapes should be written to one stream.
+--- Reports whether escapes should be written to a stream.
 export function colorEnabled(stream: LuaFile): boolean
     local known = decided[stream]
     if known ~= nil then
@@ -212,7 +212,7 @@ export function colorEnabled(stream: LuaFile): boolean
     return answer
 end
 
---- Reports whether one stream is attached to a terminal.
+--- Reports whether a stream is attached to a terminal.
 export function isTerminal(stream: LuaFile): boolean
     local known = terminals[stream]
     if known == nil then
@@ -223,7 +223,7 @@ export function isTerminal(stream: LuaFile): boolean
     return known
 end
 
---- How many columns one stream's terminal has, or nothing when it has none.
+--- How many columns a stream's terminal has, or nothing when it has none.
 ---
 --- The terminal itself is asked first, because `COLUMNS` is a shell variable
 --- that is usually not exported and is stale whenever it is: a window resized
@@ -238,7 +238,7 @@ export function columns(stream: LuaFile): integer?
     return declared ~= nil and declared > 0 and math.floor(declared) or nil
 end
 
---- Returns a stable style table for one stream.
+--- Returns a stable style table for a stream.
 export function style(stream: LuaFile): Style
     return colorEnabled(stream) and COLORED or PLAIN
 end

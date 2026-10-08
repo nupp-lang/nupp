@@ -91,7 +91,7 @@ local BECAUSE: {
     unsafe = "`@aot` is a checked contract and does not admit unsafe operations",
 }
 
---- Installs the AOT subset walk on one run.
+--- Installs the AOT subset walk on a run.
 ---
 --- @param c the run's state
 --- @return the operation the pragma calls once a body has been checked

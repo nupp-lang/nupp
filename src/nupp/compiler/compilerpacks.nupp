@@ -200,7 +200,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     ), nil
 end
 
---- The verified profile for one target.
+--- The verified profile for a target.
 ---
 --- A pack that carries a descriptor answers for its own target; every other
 --- target gets the built-in answer. The two are the same shape on purpose, so

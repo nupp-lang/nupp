@@ -46,7 +46,7 @@ record reference.Section
     codes: {string}
 
     --- Companion modules the example requires, by filename. A section about reaching
-    --- across a module boundary cannot demonstrate it in one file, and an untested
+    --- across a module boundary cannot demonstrate it in a file, and an untested
     --- example of the thing readers most often get wrong would be the wrong one to
     --- leave unchecked.
     context: {[string]: string}?

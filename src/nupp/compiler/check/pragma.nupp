@@ -25,7 +25,7 @@ local pragma = {}
 --- A node of the tree being checked.
 local type Node = cst.Node
 
---- Installs the pragma statement on one run.
+--- Installs the pragma statement on a run.
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers

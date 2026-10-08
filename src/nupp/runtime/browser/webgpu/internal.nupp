@@ -139,7 +139,7 @@ record gpu.Context is api.KernelContext
         shape: {integer}
     ): affine(api.Buffer<T>) borrows (self)
 
-    --- A tensor passes its dense dimensions and strides; a buffer is one row.
+    --- A tensor passes its dense dimensions and strides; a buffer is a row.
     --- `elementType` only carries the element type; `element` is its C type.
     _allocate: function<T>(
         borrows self: Context,
@@ -395,7 +395,7 @@ function gpu.Context.compileGenerated(
     )
 end
 
---- The allocation states bound on one side of a binding: its read slots or its
+--- The allocation states bound on a side of a binding: its read slots or its
 --- write slots.
 local function boundStates(borrows binding: gpu.Binding, writing: boolean): {any}
     local readonly = binding._kernel._readonlyBuffers

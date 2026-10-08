@@ -373,7 +373,7 @@ function semantic.addSemanticSpan(
     end
 end
 
---- Installs the semantic-token questions on one session. They need no session state;
+--- Installs the semantic-token questions on a session. They need no session state;
 --- the session is taken so the shape matches the other installs.
 ---
 --- @param s the session's state

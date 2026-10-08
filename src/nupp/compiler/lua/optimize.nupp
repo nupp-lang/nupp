@@ -487,7 +487,7 @@ local function denseLiteralLengths(body)
     return lengths
 end
 
---- Proves the loops in one body, and rewrites the ones that hold.
+--- Proves the loops in a body, and rewrites the ones that hold.
 ---
 --- The proof used to live in `nupp.compiler.analysis`, which meant the analysis knew
 --- what

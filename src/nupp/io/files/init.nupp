@@ -45,7 +45,7 @@ end
 --- The kind of filesystem object described by metadata or a directory entry.
 export type Kind = messages.Kind
 
---- A portable name for one conventional user directory.
+--- A portable name for a conventional user directory.
 export type UserFolder = messages.UserFolder
 
 --- A file open mode: read, write, append, or an updating variant.

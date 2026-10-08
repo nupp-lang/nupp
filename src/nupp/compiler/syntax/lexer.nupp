@@ -45,7 +45,7 @@ const TRIVIA_KIND_NAMES = {"whitespace", "comment", "hashbang", "bom"}
 --- lexing. What a token keeps is the index of its first record and how many follow,
 --- which is two numbers where it used to be a list of tables.
 ---
---- The block belongs to one file's token stream and is reachable only from its tokens,
+--- The block belongs to a file's token stream and is reachable only from its tokens,
 --- so it is released when they are. That is what lets an index into it stand alone: an
 --- index outliving its arena would need a generation beside it to be caught, and one
 --- cannot, because there is no way to hold the index without holding a token that holds

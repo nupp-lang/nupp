@@ -57,7 +57,7 @@ record soa.FieldLayout
     --- entry is filed under.
     @readonly identity: string
 
-    --- The C type of one element of this column.
+    --- The C type of an element of this column.
     @readonly ctype: string
 
     --- Where this field sits in the declaration, counted from one.
@@ -85,7 +85,7 @@ record soa.SegmentLayout
     @readonly byteCount: integer
 end
 
---- The count-dependent layout of one complete SoA slab.
+--- The count-dependent layout of a complete SoA slab.
 --- @export
 record soa.InstanceLayout
     --- The row count this layout was computed for.
@@ -576,7 +576,7 @@ end
 --- end
 --- ```
 ---
---- @param element the ctype of one row
+--- @param element the ctype of a row
 --- @param count how many rows to allocate
 --- @return the slab, owned by the caller
 --- @export
@@ -588,7 +588,7 @@ end
 
 --- Answers immutable SoA reflection for a reified struct type without allocating.
 ---
---- Only top-level fields are split, so a nested struct or fixed array is one field
+--- Only top-level fields are split, so a nested struct or fixed array is a field
 --- here whatever it holds.
 ---
 --- ```nupp:fragment
@@ -597,7 +597,7 @@ end
 --- assert(layout.fields[1].name == "position")
 --- ```
 ---
---- @param element the ctype of one row
+--- @param element the ctype of a row
 --- @return the count-independent descriptor
 --- @export
 --- @raises string when compiler lowering is unavailable

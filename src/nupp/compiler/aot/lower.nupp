@@ -69,7 +69,7 @@ end
 -- Types and conversions
 ----------------------------------------------------------------------------
 
---- The IR type one source spelling denotes, or nothing when it denotes none.
+--- The IR type a source form denotes, or nothing when it denotes none.
 ---
 --- `integer` lowers to binary64 rather than to a 32-bit type: it is Nupp's
 --- ordinary number with a range refinement, and giving it an integer
@@ -262,7 +262,7 @@ function lower.compactType(node: cst.Child?): string
     return (cst.textOf(node as cst.Child):gsub("%s+", ""))
 end
 
---- The semantic type the checker published on one type node.
+--- The semantic type the checker published on a type node.
 ---
 --- A checked lowering never falls back to source text. Absence here is a broken
 --- producer/consumer contract, and treating the spelling as an answer would
@@ -303,7 +303,7 @@ local function nominal(t: any?): (any?, any?)
     return raw, raw.origin or raw
 end
 
---- The target-neutral identity carried by one generic SIMD application.
+--- The target-neutral identity carried by a generic SIMD application.
 ---
 --- Element and species are encoded in the IR type because legalization happens
 --- after semantic lowering. This is derived from nominal identities and const
@@ -373,7 +373,7 @@ local function sourceSpelling(t: any): string
     return T.tostring(raw)
 end
 
---- The IR scalar one checked value type denotes.
+--- The IR scalar a checked value type denotes.
 ---
 --- `helper` preserves the established backend contract that helper `float`
 --- signatures carry ordinary binary64 values. Top-level parameters and locals
@@ -468,7 +468,7 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     return simdTypes[origin.name]
 end
 
---- The storage scalar one checked physical type denotes.
+--- The storage scalar a checked physical type denotes.
 local function semanticStorageType(t: any?): scalarIR.Type?
     local raw = semanticRaw(t)
 
@@ -488,7 +488,7 @@ local function annotatedValueType(node: cst.Child?, context: lower.Context, help
     return helper and lower.helperValueType(spelling) or lower.sourceValueType(spelling)
 end
 
---- The bytes one source string token denotes.
+--- The bytes a source string token denotes.
 ---
 --- The bytes, not the spelling: a quoted literal's escapes are the program's, so
 --- `"\1"` is the one byte the running program would have pushed. A long bracket
@@ -522,7 +522,7 @@ end
 -- Layouts and span elements
 ----------------------------------------------------------------------------
 
---- The layouts one kernel reifies, in the order they were first reached.
+--- The layouts a kernel reifies, in the order they were first reached.
 ---
 --- Order matters: it is the order the structs' layout reporters are generated
 --- and checked in, and a set would not have one.
@@ -656,7 +656,7 @@ end
 record lower.Element
     kind: 'scalar' | 'struct'
 
-    --- The IR type of one element.
+    --- The IR type of an element.
     type: string
 
     --- How the source spelled it, for a scalar element.
@@ -774,7 +774,7 @@ end
 -- Reading names out of the tree
 ----------------------------------------------------------------------------
 
---- The name one node writes, if it is a bare name.
+--- The name a node writes, if it is a bare name.
 function lower.nameOf(node: cst.Node?): string?
     if node == nil or node.kind ~= "name" then
         return nil
@@ -785,7 +785,7 @@ function lower.nameOf(node: cst.Node?): string?
     return token ~= nil and (token as lexer.Token).text or nil
 end
 
---- The dotted path one node writes, if it is a chain of names.
+--- The dotted path a node writes, if it is a chain of names.
 ---
 --- `math.sqrt` and `nupp.math.f32.add` are how the admitted intrinsics are
 --- written, and anything with a call or an index in it is not one of them.
@@ -810,7 +810,7 @@ function lower.dottedName(node: cst.Node?): string?
     return nil
 end
 
---- The checked export identity of one call target, including a local alias.
+--- The checked export identity of a call target, including a local alias.
 ---
 --- The checker propagates this sidecar by definition, so lowering never treats
 --- a shadowing local named `simd` as the compiler-owned module and does not lose
@@ -874,7 +874,7 @@ record lower.GuardForm
     discarded: cst.Node?
 end
 
---- The compile-time lifecycle of one source-visible reducer binding.
+--- The compile-time lifecycle of a source-visible reducer binding.
 ---
 --- Reducers are region capabilities, not ordinary copyable values: one binding
 --- belongs to one authored SIMD region and is consumed by one finalization after
@@ -896,7 +896,7 @@ record lower.ReducerDo
     byName: {[string]: boolean}
 end
 
---- What lowering one kernel's body needs to know.
+--- What lowering a kernel's body needs to know.
 record lower.ExpressionFrame
     output: {scalarIR.Statement}
     operands: {scalarIR.Expr} = {}
@@ -1028,7 +1028,7 @@ record lower.Kernel
     --- vector fits at `cursor + 1`.
     cursorBounds: scalarIR.CursorBounds
 
-    --- Immutable uint32 locals initialized from one rooted string's length.
+    --- Immutable uint32 locals initialized from a rooted string's length.
     lengthBounds: {[string]: string}
 
     --- Uint32 locals known to equal one scratch buffer's initialized length.
@@ -1245,7 +1245,7 @@ end
 --- access asks for its whole width.
 ---
 --- Shared by the load and the store for the same reason `provenIndex` is: two
---- spellings of one proof drift apart.
+--- source forms of a proof drift apart.
 local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel, room: string?): string?
     if indexArg == nil or indexArg.kind ~= "binop" then
         return nil
@@ -1528,14 +1528,14 @@ local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lowe
     )
 end
 
---- Family, element, and species encoded in one generic SIMD IR type.
+--- Family, element, and species encoded in a generic SIMD IR type.
 local function genericSimdParts(typeName: string): (string?, scalarIR.Type?, string?)
     local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
 
     return family, element as scalarIR.Type?, shape
 end
 
---- The scalar value carrier for one packed element. Narrow integers remain
+--- The scalar value carrier for a packed element. Narrow integers remain
 --- physical widths inside vectors while ordinary Nupp values use their
 --- established 32-bit carrier.
 local function genericSimdScalar(element: scalarIR.Type?): scalarIR.Type?
@@ -1548,7 +1548,7 @@ local function genericSimdScalar(element: scalarIR.Type?): scalarIR.Type?
     return element
 end
 
---- The packed element identity of one span parameter. Narrow storage retains
+--- The packed element identity of a span parameter. Narrow storage retains
 --- its physical width here even though an ordinary scalar load widens it.
 local function genericSimdSpanElement(param: scalarIR.Param): string
     local physical: {
@@ -3044,7 +3044,7 @@ local function call(
     )
 end
 
---- The packed element identity of one struct field, as `genericSimdSpanElement`
+--- The packed element identity of a struct field, as `genericSimdSpanElement`
 --- gives it for a span: narrow storage keeps its physical width.
 local function genericSimdFieldElement(field: scalarIR.Field): string
     local physical: {
@@ -5127,7 +5127,7 @@ end
 
 --- Lowers a visible pure helper, on first reach.
 ---
---- A helper is a parameter list and one return list over those parameters, and
+--- A helper is a parameter list and a return list over those parameters, and
 --- nothing else. That is what makes inlining it substitution rather than a
 --- transformation.
 function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalarIR.Helper
@@ -5380,7 +5380,7 @@ end
 --- bounds from it.
 ---
 --- A fixed buffer's width belongs to the name it was bound to, because that is
---- what an access names. One map for words and bytes: a name holds one binding
+--- what an access names. One map for words and bytes: a name holds a binding
 --- at a time, and an access carries the type that says which kind it is
 --- reading. Cleared before it is set, and on every binding rather than only on
 --- a buffer's: shadowing is refused, but two disjoint scopes may each bind one
@@ -6685,7 +6685,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return lower.block(block ~= nil and (block as cst.Block).stats or {}, inherit(environment), kernel)
     end
 
-    --- The bounds one comparison establishes: a positive `uint32 cursor <
+    --- The bounds a comparison establishes: a positive `uint32 cursor <
     --- #span` fact authorizes exactly `span[cursor + 1]` in that arm, and
     --- `cursor + s.lanes <= #span` authorizes `s:load(span, cursor + 1)` as
     --- well. Returns the cursor, the root it is bounded against, and the room.
@@ -8551,7 +8551,7 @@ record lower.Declarations
     --- Visible local functions, which is where a pure helper comes from.
     helpers: {[string]: cst.LocalFuncStmt}
 
-    --- The file's own `@aot` declarations, by name. A call from one compiled
+    --- The file's own `@aot` declarations, by name. A call from a compiled
     --- body to another is a real call to that entry's own symbol rather than an
     --- inlined helper, so the callee is compiled once and keeps its contract.
     entries: {[string]: cst.LocalFuncStmt}

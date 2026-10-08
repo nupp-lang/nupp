@@ -72,7 +72,7 @@ function lanes.splat(ctx: context.Context, count: integer, scalar: string, value
     )
 end
 
---- A scalar of IR type `valueType` as one lane of `found`: floats converted
+--- A scalar of IR type `valueType` as a lane of `found`: floats converted
 --- to the element, integers to the carrier and then truncated to the lane.
 function lanes.toLane(ctx: context.Context, found: species.Species, value: string, valueType: string): string
     if found.float then
@@ -117,7 +117,7 @@ function lanes.insert(
     )
 end
 
---- The types one lane-wise operation works in: the value type `t` (a
+--- The types a lane-wise operation works in: the value type `t` (a
 --- scalar or a vector), its comparison result, the integer of its bits, and
 --- the intrinsic suffix (`f32`, `v4f32`).
 record lanes.Shape
@@ -147,7 +147,7 @@ function lanes.vectorShape(found: species.Species): lanes.Shape
     )
 end
 
---- The shape of one lane of `found`.
+--- The shape of a lane of `found`.
 function lanes.scalarShape(found: species.Species): lanes.Shape
     local short = found.scalar == "double" and "f64" or found.scalar == "float" and "f32" or found.scalar
 

@@ -41,7 +41,7 @@ local function aliasedNominalOrigin(t: T.Type): T.Type?
     return current.tag == "nominal" and nominalOrigin(current) or nil
 end
 
---- Installs the private-export-type judgment on one checking run.
+--- Installs the private-export-type judgment on a checking run.
 ---
 --- @param c the run's state
 function privateexport.install(c: state.Checker): privateexport.Ops

@@ -173,7 +173,7 @@ local function declarationToken(tok): any
     return {kind = tok.kind, text = tok.text, offset = tok.offset, line = tok.line, col = tok.col, trivia = trivia}
 end
 
---- Extracts only project-index information from one parse.
+--- Extracts only project-index information from a parse.
 ---
 --- `moduleName` is passed rather than resolved: which module a path names is a
 --- question about the project's include roots, which this module deliberately knows

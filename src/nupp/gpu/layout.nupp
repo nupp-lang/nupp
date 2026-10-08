@@ -65,7 +65,7 @@ record layout.Layout
         return copied(self._strides)
     end
 
-    --- Reports whether the elements occupy one dense row-major range.
+    --- Reports whether the elements occupy a dense row-major range.
     function isDense(borrows self): boolean
         return self._dense
     end

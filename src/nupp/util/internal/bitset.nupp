@@ -71,7 +71,7 @@ local function buildTables(): nil
     CTZ_HALF = trailing
 end
 
---- Set bits in one word.
+--- Set bits in a word.
 ---
 --- The cast is how a word helper reads a table `buildTables` has already filled:
 --- only a set reaches here, and constructing one built them.

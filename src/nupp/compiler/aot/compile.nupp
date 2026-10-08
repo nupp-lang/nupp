@@ -61,7 +61,7 @@ record compile.Site
     to: integer
 end
 
---- Everything compiling one function produces.
+--- Everything compiling a function produces.
 record compile.Artifacts
     --- The verified IR of every `@aot` function in the file, in source order,
     --- which is what the other three were written from.

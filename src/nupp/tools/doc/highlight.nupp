@@ -424,7 +424,7 @@ local function highlightScintilluaLines(source, language)
     return out.lines
 end
 
---- Highlights one source with Scintillua even when the language also has a native
+--- Highlights a source with Scintillua even when the language also has a native
 --- highlighter. This keeps custom lexer integration testable without changing the
 --- public `nupp` fence, whose parser-aware links and contextual colours are richer.
 local function highlightScintillua(source: string, language: string): string?

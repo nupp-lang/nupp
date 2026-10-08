@@ -72,7 +72,7 @@ local function cdefBody(text: string): string?
         or text:match("^%[=+%[(.*)%]=+%]$")
 end
 
---- Installs the FFI intrinsics on one run.
+--- Installs the FFI intrinsics on a run.
 ---
 --- @param c the run's state
 --- @return the intrinsic dispatch the call path asks first

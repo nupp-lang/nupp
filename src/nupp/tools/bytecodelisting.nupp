@@ -19,7 +19,7 @@ local listing = {}
 --- What a listing line stands for, which is what a client synchronizing a cursor
 --- across the two views has to know.
 ---
---- `exact` is one instruction, at the source line it was lowered from. `source`
+--- `exact` is an instruction, at the source line it was lowered from. `source`
 --- is the echoed source line itself. `derived` is a line about a span rather
 --- than a point -- a function header. `synthetic` is the compiler's own, which
 --- the preamble summary is the only instance of.
@@ -154,7 +154,7 @@ local function split(source: string): {string}
 end
 
 --- A function's instructions keep their own order; two functions contributing to
---- one source line are laid out in the order the analysis walked them.
+--- a source line are laid out in the order the analysis walked them.
 local function earlier(left: any, right: any): boolean
     if left.order ~= right.order then
         return left.order < right.order
@@ -374,7 +374,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         return text
     end
 
-    --- A row: a line of the file on the left, one instruction on the right.
+    --- A row: a line of the file on the left, an instruction on the right.
     ---
     --- The source is fitted by the palette rather than here, because a coloured
     --- line is not as long as it looks -- the escapes in it occupy no columns --

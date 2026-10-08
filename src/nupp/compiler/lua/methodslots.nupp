@@ -246,7 +246,7 @@ local function packFingerprint(ft: any, includeLabels: boolean): string
     return "<" .. table.concat(generic, ",") .. ">(" .. table.concat(parts, ",") .. ")"
 end
 
---- The valid Lua identifier used as one overload's hidden runtime member. `ft` is the
+--- The valid Lua identifier used as an overload's hidden runtime member. `ft` is the
 --- callable as seen at a method call, with its receiver removed.
 function methodslots.member(name: string, ft: any): string
     return "__nupp_m_" .. hash.sha256(name .. ":" .. packFingerprint(ft, true))

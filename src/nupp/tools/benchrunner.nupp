@@ -2,7 +2,7 @@ module nupp.tools.benchrunner
 
 --- Runs the benchmark set and merges what each case reported.
 ---
---- A case is one process, and a case here means a `bench.case`, not a file: trace
+--- A case is a process, and a case here means a `bench.case`, not a file: trace
 --- state, the compiler's trace budget, blacklisted traces and the heap are all
 --- process-wide, so two cases sharing a process measure each other. Each file is asked
 --- what cases it defines and then run once per case.
@@ -414,7 +414,7 @@ end
 ---
 --- A listing child pays for compiling the file's module graph before it can say what
 --- that file declares, which is seconds each, so nine of them in series was nearly all
---- of what listing cost. They are independent -- nothing one listing produces is read
+--- of what listing cost. They are independent -- nothing a listing produces is read
 --- by another -- so they run in waves, the same four lines of POSIX `sh` the
 --- ahead-of-time backend uses for external commands, and Windows keeps the serial path
 --- it already had. What each child said is then remembered under `listingKey`, so a
@@ -662,7 +662,7 @@ local function runCase(
     return decoded, nil
 end
 
---- The fixed iteration count in one case record, if it is a throughput case.
+--- The fixed iteration count in a case record, if it is a throughput case.
 local function previousIterations(record: any): integer?
     for _, measurement in ipairs(record and record.cases or {}) do
         if measurement.kind == "case" and type(measurement.n) == "number" and measurement.n >= 1 then
@@ -769,7 +769,7 @@ local function fromPerOperation(measurement: any, value: number): number
     return value
 end
 
---- A sorted, canonical representation of one fork's allocation sites.
+--- A sorted, canonical representation of a fork's allocation sites.
 ---
 --- Site records are tables, so comparing the lists directly compares table identity
 --- and reports every fork after the first as a disagreement. What has to match is the

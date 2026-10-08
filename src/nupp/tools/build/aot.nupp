@@ -697,7 +697,7 @@ function aot.objectKey(unitKey: string, tier: string, chain: aot.Toolchain, flag
     )
 end
 
---- Compiles the emitted units into one shared library.
+--- Compiles the emitted units into a shared library.
 ---
 --- One library for the project rather than one per source, because the loader
 --- opens it once and the wrappers all name the same object. Objects are sorted
@@ -706,7 +706,7 @@ end
 --- Objects are kept. An object whose key matches the one recorded for it and
 --- whose file is still there is not compiled again, so editing one `@aot` body
 --- in a project with several -- or with several target tiers, which are several
---- objects from one body -- recompiles that body's objects and relinks, rather
+--- objects from a body -- recompiles that body's objects and relinks, rather
 --- than recompiling everything the library contains. The ones that do have to be
 --- compiled are compiled side by side: nothing one unit produces is read by
 --- another, and the link that follows reads all of them.

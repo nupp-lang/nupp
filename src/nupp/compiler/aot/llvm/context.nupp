@@ -45,7 +45,7 @@ record context.Accumulator
     vector: string
 end
 
---- The targets `break` and `continue` jump to inside one loop.
+--- The targets `break` and `continue` jump to inside a loop.
 record context.Loop
     breakLabel: string
     continueLabel: string
@@ -135,7 +135,7 @@ record context.Context
     --- The feature tier compiled for.
     tier: string
 
-    --- The inline-asm constraint of one vector register on this target
+    --- The inline-asm constraint of a vector register on this target
     --- (`w` on AArch64, `x` on x86), or empty where there is none to use.
     vectorRegister: string
 
@@ -168,7 +168,7 @@ record context.Context
     lua: context.Lua?
 end
 
---- A fresh context for one function of `program`.
+--- A fresh context for a function of `program`.
 function context.new(
     module: builder.Module,
     f: builder.Function,
@@ -231,7 +231,7 @@ function context.count(ctx: context.Context, span: string): string
     return found as string
 end
 
---- The bytes one register holds for the program's explicit SIMD species.
+--- The bytes a register holds for the program's explicit SIMD species.
 function context.width(ctx: context.Context): integer
     return ctx.program.simdWidth or 16
 end

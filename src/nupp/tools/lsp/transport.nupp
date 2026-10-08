@@ -20,8 +20,8 @@ local json = require("nupp.codec.json")
 
 local transport = {}
 
---- The largest body one frame may declare, in bytes. A document the editor opens
---- travels in one frame, so this is also the largest file the server will take,
+--- The largest body a frame may declare, in bytes. A document the editor opens
+--- travels in a frame, so this is also the largest file the server will take,
 --- and it is far above any source file while still something a process can hold.
 transport.MAX_FRAME = 64 * 1024 * 1024
 

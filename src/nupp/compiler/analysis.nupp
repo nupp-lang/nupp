@@ -1013,7 +1013,7 @@ end
 -- Nodes that own their own body. Every walk below stops at one, because a function
 -- written here runs at a time this walk cannot place.
 
---- The facts that are about one body rather than about the module.
+--- The facts that are about a body rather than about the module.
 ---
 --- Alias classes cost a walk to build, so a body is prepared once and its questions
 --- share the result. The returned table is the thing a pass holds while it decides.
@@ -1139,7 +1139,7 @@ function queries.body(body: any, byDefinition: any): any
     --- summaries cannot see through disqualifies the region outright, which is the
     --- one-sided lattice showing up as a refusal rather than as a guess.
     ---
-    --- `instead` lets a caller redirect the walk at one node -- a loop asking about its
+    --- `instead` lets a caller redirect the walk at a node -- a loop asking about its
     --- own operand has to skip its header, or the `ipairs` call in it answers the
     --- question against itself.
     ---
@@ -1237,7 +1237,7 @@ type analysis.Facts = {
     bodies: {any}
 }
 
---- The questions, as `analysis.queries` binds them to one run's facts.
+--- The questions, as `analysis.queries` binds them to a run's facts.
 type analysis.Queries = {
     visible: function(summary: any): (boolean, string?),
     free: function(summary: any, kinds: {string}): (boolean, string?),
@@ -1258,7 +1258,7 @@ type analysis.Target = {
 --- naming its record here would close the require graph into a loop.
 type analysis.Reporter = {@readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
 
---- The questions, bound to what one run worked out.
+--- The questions, bound to what a run worked out.
 ---
 --- @param facts what `analysis.run` returned
 --- @return the query surface, or nil when the run produced nothing

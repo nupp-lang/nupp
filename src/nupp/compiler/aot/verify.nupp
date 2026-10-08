@@ -470,7 +470,7 @@ const FIXED_WIDTH = "fixed width "
 
 const SCRATCH_LENGTH = "scratch length "
 
---- The `values` key under which a uint32 local initialized from one rooted
+--- The `values` key under which a uint32 local initialized from a rooted
 --- string's length remembers that string. Kept in `values` beside the binding,
 --- as `SCRATCH_LENGTH` is, so the fact is established by the `let` the verifier
 --- saw and retired by the assignment that changes the local -- rather than read
@@ -621,7 +621,7 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
     scalarWalk(node.value, values, scope)
 end
 
---- Checks a read of one scalar element.
+--- Checks a read of a scalar element.
 local function load(node: scalarIR.Load, values: {[string]: string}, scope: verify.Scope): nil
     local root = scope.spans[node.span]
     holds(root ~= nil, "invalid load root")
@@ -662,7 +662,7 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
     end
 end
 
---- Checks a pointer to one struct element.
+--- Checks a pointer to a struct element.
 ---
 --- Whether it may be written is not this expression's claim to make: it follows
 --- from whether the span was declared exclusive, and disagreeing with that is
@@ -948,7 +948,7 @@ local function genericSimdType(typeName: string): (string?, string?, string?)
     return typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
 end
 
---- The ordinary scalar carrier for one packed element identity.
+--- The ordinary scalar carrier for a packed element identity.
 local function genericSimdScalar(element: string?): string?
     if element == "u8" or element == "u16" then
         return "u32"
@@ -1019,7 +1019,7 @@ local function genericSimdFieldElement(scope: verify.Scope, layoutName: string?,
 end
 
 --- Whether two mask types have the same lane count: the same fixed shape, or
---- the preferred shape over elements of one bit width.
+--- the preferred shape over elements of a bit width.
 local function sameLaneCount(left: string, right: string): boolean
     local leftFamily, leftElement, leftShape = genericSimdType(left)
     local rightFamily, rightElement, rightShape = genericSimdType(right)
@@ -2117,7 +2117,7 @@ end
 --- `stored` accumulates which outputs were written, because a kernel whose
 --- output is never assigned is a kernel that silently did nothing.
 --- The reducer operations a masked vector contribution can make, which is all
---- of them. A lane is one logical iteration, so a group of active lanes in
+--- of them. A lane is a logical iteration, so a group of active lanes in
 --- ascending order contributes what those iterations would have contributed
 --- one at a time -- including the position the two argument extrema answer,
 --- which the reducer derives from the contributions it has counted. A
@@ -2140,7 +2140,7 @@ local VECTOR_CONTRIBUTIONS: {
     count = true,
 }
 
---- How many times one pass over a statement sequence contributes to each
+--- How many times a pass over a statement sequence contributes to each
 --- reducer: statements in sequence add and the arms of a branch take the
 --- largest. A nested loop's body is its own sequence -- each of its passes
 --- is one iteration of the region -- so it is held to the rule on its own and

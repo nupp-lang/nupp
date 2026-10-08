@@ -90,7 +90,7 @@ export record Options
 end
 
 --- How many characters at a cut are dimmed before the marker. Enough to read as a
---- fade rather than as one odd-looking character, short enough to leave the words
+--- fade rather than as an odd-looking character, short enough to leave the words
 --- before it plain.
 local FADE = 8
 

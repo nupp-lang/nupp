@@ -33,7 +33,7 @@ local rawType = T.unwrapOwnership
 -- Substitution and probing
 ----------------------------------------------------------------------------
 
---- Materializes and reduces in one evaluation, and reports what the reduction saw.
+--- Materializes and reduces in an evaluation, and reports what the reduction saw.
 ---
 --- The observations have to come from the same evaluation as the type. Reducing
 --- separately and discarding what it observed is how a projection erased to `any`
@@ -452,7 +452,7 @@ end
 --- well, since an operator, an index and a call each reach a different one of them, and
 --- none of those passes is lexically inside this one.
 type calls.Ops = {
-    --- The contract a receiver declares under one metamethod name, or nil.
+    --- The contract a receiver declares under a metamethod name, or nil.
     metamethodOf: function(t: Type?, name: string): Type?,
 
     --- Checks a generic application's arguments against the bounds declared for them.
@@ -466,7 +466,7 @@ type calls.Ops = {
     inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any)
 }
 
---- Installs the call machinery on one run.
+--- Installs the call machinery on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
@@ -900,7 +900,7 @@ function calls.install(c: state.Checker): calls.Ops
     -- Generic instantiation
     ---------------------------------------------------------------------
 
-    --- What to do about a bound one type argument failed. A bound asking to name the
+    --- What to do about a bound a type argument failed. A bound asking to name the
     --- value is the case worth spelling out: the two types print alike apart from the
     --- modifier, so the reason alone does not say what the author should write instead.
     local function boundHelp(wanted: T.Type, actual: T.Type): string?

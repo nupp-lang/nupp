@@ -42,7 +42,7 @@ type unused.Ops = {
     sweep: function()
 }
 
---- Installs the unused-binding judgment on one run.
+--- Installs the unused-binding judgment on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

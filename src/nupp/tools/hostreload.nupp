@@ -46,7 +46,7 @@ type hostreload.Session = {
     --- call in a session that changes a live implementation.
     apply: function(): (hostreload.Verdict, integer, string?),
 
-    --- `prepare` and `apply` at one point, for a host with nothing to gain by
+    --- `prepare` and `apply` at a point, for a host with nothing to gain by
     --- separating them.
     ---
     --- Each answers three values rather than a record, because the caller reads
@@ -139,7 +139,7 @@ end
 
 --- Builds the entry in watch mode, runs its chunk, and leaves the session open.
 ---
---- Returns nil and the diagnostics as one string when there is nothing to run: a
+--- Returns nil and the diagnostics as a string when there is nothing to run: a
 --- host that cannot compile its program has no generation to keep running, which is
 --- the one case here that differs from a reload refusal.
 ---

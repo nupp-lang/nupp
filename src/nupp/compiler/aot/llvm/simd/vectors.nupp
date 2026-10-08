@@ -314,7 +314,7 @@ end
 --- Mask `node` as lanes as wide as they are -- all ones or all zeros, the
 --- register a compare fills -- for a loop's lane-wide slot where masks select
 --- by their bits. There a mask spanning several registers has no `<N x i1>`
---- form: LLVM packs it into one register's narrower lanes and widens it back
+--- form: LLVM packs it into a register's narrower lanes and widens it back
 --- for every use. Built lane
 --- wide from its compares, each pinned so it is not folded back to i1, the
 --- logic is the registers' own `and`/`or`/`xor`. Nil where this is not that

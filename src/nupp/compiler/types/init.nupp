@@ -740,7 +740,7 @@ type types.AssociatedReason = 'unprojectable'
     | 'unfit'
     | 'contradicted'
 
---- What a projection through a head, for one name, resolves to.
+--- What a projection through a head, for a name, resolves to.
 record types.AssociatedLookup
     --- Every distinct requirement of that name, deduplicated by identity.
     requirements: {types.AssociatedReached}
@@ -2449,7 +2449,7 @@ local function obligationAtPath(obligation: types.Obligation, path: {string}): t
 end
 
 --- Replaces only the payload of `source`, retaining its complete static capability.
---- When generic substitution placed the payload in one aggregate field, moves the
+--- When generic substitution placed the payload in an aggregate field, moves the
 --- capability into that field instead of pretending its cleanup accepts the outer
 --- record. Ambiguous or absent placements remain a scalar result and are rejected by
 --- the ordinary return check.

@@ -153,7 +153,7 @@ local function unionRecordNames(t: any, currentModule: string?): {string}?
     return names
 end
 
---- Installs type-annotation resolution on one run. It answers through the run rather
+--- Installs type-annotation resolution on a run. It answers through the run rather
 --- than through a table of its own, because everything that resolves an annotation
 --- already has the run in hand.
 ---

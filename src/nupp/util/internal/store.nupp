@@ -30,7 +30,7 @@ local function nextRegistered(_: any, after: integer): (integer?, string?)
     return nil, nil
 end
 
---- A typed identity for one value in a [](nupp.util.Store).
+--- A typed identity for a value in a [](nupp.util.Store).
 ---
 --- `id` and `name` are all a key holds at runtime. `_valueType` is never
 --- present: it mentions `T` in both positions so that keys are invariant, which

@@ -47,18 +47,18 @@ export type Bitset = bitset.Bitset
 
 export const Bitset = bitset.Bitset
 
---- The bits one word of a [](Bitset) holds.
+--- The bits a word of a [](Bitset) holds.
 export const WORD_BITS = bitset.WORD_BITS
 
---- A pool of instances stamped with one record declaration.
+--- A pool of instances stamped with a record declaration.
 export type Pool<T is table> = pool.Pool<T>
 
 export const Pool = pool.Pool
 
---- Creates a pool of instances of one record type.
+--- Creates a pool of instances of a record type.
 export const newPool = pool.new
 
---- A typed identity for one value in a [](Store).
+--- A typed identity for a value in a [](Store).
 export type Key<T> = store.Key<T>
 
 export const Key = store.Key

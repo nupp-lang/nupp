@@ -113,7 +113,7 @@ local function declarationChildren(stat, source)
 end
 
 --- The declarations a file makes, as a nested outline. A qualified name is written as
---- its path: `record m.Point` is one declaration called `m.Point`, because that is the
+--- its path: `record m.Point` is a declaration called `m.Point`, because that is the
 --- name a reader searches for.
 function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.Symbol}
     local found = wire.array({})

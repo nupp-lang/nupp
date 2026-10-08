@@ -275,7 +275,7 @@ end
 ---
 --- The analysis lists every function in the file rather than nesting them, so the
 --- one a cursor is in is the shortest of those whose span holds it. Trace checking
---- and the artifact inspector both ask this, and a cursor that selects one function
+--- and the artifact inspector both ask this, and a cursor that selects a function
 --- for one of them and a different function for the other would be a bug nobody
 --- could see, so they ask it here.
 ---

@@ -106,7 +106,7 @@ function binding.struct(layout: scalarIR.Layout): {string}
     return lines
 end
 
---- Declaring what the compiled object says one struct's layout is.
+--- Declaring what the compiled object says a struct's layout is.
 ---
 --- The object exports a function per measurement rather than a table of
 --- numbers, so the answers come from the code generator that actually laid the
@@ -332,7 +332,7 @@ const ELEMENT_BYTES: {
     ["uint64"] = 8,
 }
 
---- An expression for the byte width of one element of `param`'s span.
+--- An expression for the byte width of an element of `param`'s span.
 local function elementBytes(param: scalarIR.Param, ffi: string): string
     local layout = param.type:match("^struct:(.+)$")
     if layout ~= nil then
@@ -349,7 +349,7 @@ end
 
 --- Whether two spans need an overlap check before the call: at least one is
 --- written, so the native entry declares them disjoint, and they are not two
---- columns of one SoA view, which are disjoint by construction.
+--- columns of a SoA view, which are disjoint by construction.
 local function needsDisjoint(left: scalarIR.Param, right: scalarIR.Param): boolean
     return (left.kind == "write_span" or right.kind == "write_span") and not scalarIR.sameSoaView(left, right)
 end
@@ -425,7 +425,7 @@ end
 ---
 --- The kernel indexes every span with one loop counter, so spans of differing
 --- lengths would read past the end of the shorter. That the lengths agree is
---- what lets one count stand for all of them here, and it is proved by the
+--- what lets a count stand for all of them here, and it is proved by the
 --- relation checks above rather than restated: this only decides whether the
 --- private ABI carries one count or one per span.
 function binding.spanArguments(
@@ -943,9 +943,9 @@ function binding.numericForGuard(program: scalarIR.Program): {string}
     }
 end
 
---- What stands in for one `@aot` declaration in the source it was written in.
+--- What stands in for an `@aot` declaration in the source it was written in.
 ---
---- Everything `binding.module` emits for one program except the struct
+--- Everything `binding.module` emits for a program except the struct
 --- declarations and the module's exports, both of which the source already has.
 --- Written where the declaration was, so the wrapper is declared under the same
 --- name, at the same point, with the same signature -- and every later reference

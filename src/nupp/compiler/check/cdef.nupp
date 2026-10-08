@@ -65,7 +65,7 @@ local function stringLiteral(token): string?
     return ok and type(value) == "string" and value or nil
 end
 
---- Installs the cdef statements on one run.
+--- Installs the cdef statements on a run.
 ---
 --- @param c the run's state
 --- @param reifiableField whether a field of that type can live in C memory, which the

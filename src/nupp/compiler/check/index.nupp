@@ -85,7 +85,7 @@ local function compilerOnlyValue(t: Type): boolean
     return false
 end
 
---- Installs the index expressions on one run.
+--- Installs the index expressions on a run.
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers

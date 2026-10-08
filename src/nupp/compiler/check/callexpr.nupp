@@ -350,7 +350,7 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
     return {name = owner.name, spec = table.concat(parts, ","), printed = table.concat(printed, ","), nested = nested,}
 end
 
---- Installs the call expressions on one run.
+--- Installs the call expressions on a run.
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers

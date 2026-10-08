@@ -157,7 +157,7 @@ local new: function(size: (integer | table)?, options: table?): Buffer
 local encode: function(v: any): string
 
 --- Deserializes a whole encoded string. Raises on malformed input, and also when
---- anything is left over after one top-level object.
+--- anything is left over after a top-level object.
 ---
 --- @param s the encoded bytes
 --- @return the decoded value, of any supported type

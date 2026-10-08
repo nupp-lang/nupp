@@ -96,7 +96,7 @@ type ownership.Ops = {
     --- that is itself an owner is nobody's root.
     rootsOf: function(expr: any): {any},
 
-    --- The owner one expression came from, and every owner a whole expression did.
+    --- The owner an expression came from, and every owner a whole expression did.
     provenanceOwner: function(expr: any): any,
 
     provenanceOwners: function(expr: any, out: {any}?, seen: any?): {any},
@@ -130,7 +130,7 @@ type ownership.Ops = {
     ): boolean
 }
 
---- Installs the ownership bookkeeping on one run.
+--- Installs the ownership bookkeeping on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

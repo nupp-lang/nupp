@@ -79,7 +79,7 @@ end
 --- nothing about it rules that out.
 ---
 --- Arguments and results are copied between isolated Lua states, so a type no copy can
---- reproduce is a mistake in the signature rather than in one call. Only what can never
+--- reproduce is a mistake in the signature rather than in a call. Only what can never
 --- cross is named here. `any`, a bare `table`, and a record say nothing definite about
 --- the value that will arrive, and identity -- a cycle, a repeated table, depth -- is a
 --- property of values rather than of their types. Both stay with the copy itself.
@@ -253,7 +253,7 @@ local function TaskType(F: type): type
     })
 end
 
---- The typed handle for one started function, which `nupp.tasks` names `Task<F>`.
+--- The typed handle for a started function, which `nupp.tasks` names `Task<F>`.
 ---
 --- Its `await` result pack is the function's, which is why this is derived from the
 --- function type rather than declared once over `any`. `status` answers a

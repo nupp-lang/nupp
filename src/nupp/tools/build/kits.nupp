@@ -28,7 +28,7 @@ local stubs = require("nupp.tools.build.stubs")
 
 local kits = {}
 
---- A catalog's record of one platform's kit.
+--- A catalog's record of a platform's kit.
 type kits.Record = {
     catalogRelease: string,
     platform: string,

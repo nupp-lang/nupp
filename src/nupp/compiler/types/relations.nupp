@@ -869,7 +869,7 @@ end
 -- The subtype check
 ----------------------------------------------------------------------------
 
---- Decides `isA` for one pair, without consulting the cache.
+--- Decides `isA` for a pair, without consulting the cache.
 ---
 --- The order of the rules is the doctrine: ownership first, then unions, then the
 --- numeric and C-boundary conversions, then structure.

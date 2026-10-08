@@ -798,7 +798,7 @@ function derive.debug(value: any, entry: derive.Entry): string
     return serdeRuntime.debugEntry(value, entry) as string
 end
 
---- Writes a derived record as one JSON value.
+--- Writes a derived record as a JSON value.
 ---
 --- The field list, the renaming and the omission rules all come from the recipe
 --- `@derive(JSON)` folded, so the document is what the declaration asked for rather

@@ -38,7 +38,7 @@ Table-backed record instances are [](nupp.util.Pool).
 local storage = require("nupp.runtime.storage")
 local arena = {}
 
---- A paged allocator of rows of one struct type.
+--- A paged allocator of rows of a struct type.
 --- @export
 record arena.Arena<S>
     @private @readonly element: any
@@ -180,7 +180,7 @@ function arena.Arena.live<S>(self: arena.Arena<S>): integer
     return self.liveCount
 end
 
---- Creates an arena of `witness` rows with one page of `pageSize` rows already
+--- Creates an arena of `witness` rows with a page of `pageSize` rows already
 --- allocated.
 ---
 --- ```nupp:fragment

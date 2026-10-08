@@ -139,7 +139,7 @@ local function widthAt(source: string, offset: integer): integer
     return word ~= nil and #(word as string) or 1
 end
 
---- What a build of `target` would refuse about one checked source, as diagnostics.
+--- What a build of `target` would refuse about a checked source, as diagnostics.
 ---
 --- Empty when the target does not compile `@aot` functions, when the source has
 --- none, and when every tier admits every one. Otherwise the refusals of the first

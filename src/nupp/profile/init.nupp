@@ -149,7 +149,7 @@ record profile.Sample
     compiling: integer
 end
 
---- Lua leaf samples attributed to one source line. Native VM states have no
+--- Lua leaf samples attributed to a source line. Native VM states have no
 --- reliable Lua location and are excluded.
 type profile.SourceSample = {
     file: string,

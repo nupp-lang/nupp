@@ -435,7 +435,7 @@ local function dedentLongString(text)
     return body
 end
 
---- Renders closed compiler-owned data as one Lua expression. Keys are sorted so equal
+--- Renders closed compiler-owned data as a Lua expression. Keys are sorted so equal
 --- values produce byte-identical output regardless of table iteration.
 --- @raises string when the value contains a non-data value or a cycle
 function literal.renderData(value: any): string

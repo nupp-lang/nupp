@@ -57,7 +57,7 @@ const LABELS: {[string]: string} = {lua = "Generated Lua", bytecode = "Bytecode"
 const LANGUAGES: {[string]: string} = {lua = "lua", bytecode = "nupp-bytecode",}
 
 --- A kind's scope: `module` artifacts are the whole file however the request was
---- positioned, and `function` artifacts are one body.
+--- positioned, and `function` artifacts are a body.
 const SCOPES: {[string]: string} = {lua = "module", bytecode = "module",}
 
 --- An artifact that could not be produced, said the same way whatever refused it.

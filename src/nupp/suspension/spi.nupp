@@ -116,7 +116,7 @@ export record Handler
     shutdown: function(self: Handler): nil
 end
 
---- Handler restoration state owned by one installation.
+--- Handler restoration state owned by an installation.
 --- Closing it restores the outer context and releases registration state.
 export record Installed is nupp.Closeable
     --- Restores the outer handler and settles every park this installation accepted,
@@ -169,7 +169,7 @@ export interface Provider
     --- Polls registered sources and returns the amount of progress reported.
     @readonly poll: function(): integer
 
-    --- Subscribes once, then waits for one typed result through the active handler.
+    --- Subscribes once, then waits for a typed result through the active handler.
     @readonly suspend: Suspend
 
     --- Installs a handler and returns affine restoration state.

@@ -459,7 +459,7 @@ end
 
 local subsystemMemo: {[string]: string} = {}
 
---- The digest of one part of the compiler: the named modules, and everything they
+--- The digest of a part of the compiler: the named modules, and everything they
 --- require, and nothing else.
 ---
 --- What a stamp is for is saying that an answer kept from last time was computed by

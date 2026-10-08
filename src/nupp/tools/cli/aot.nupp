@@ -243,7 +243,7 @@ end
 --- this tier with, and the IR it compiles. A listing produced any other way
 --- would answer a question about this command rather than about the artifact.
 ---
---- @param wanted one function, named as the source or the symbol spells it
+--- @param wanted a function, named as the source or the symbol spells it
 --- @return the report, or nothing and what stopped it
 local function assembly(artifacts: any, selected: Target, wanted: string?, sourceFile: string): (any?, string?)
     local instructionsMod = require("nupp.compiler.aot.instructions")

@@ -203,7 +203,7 @@ local function moduleForSlots(slots: hotreload.Slots): any
     return module
 end
 
---- Answers the direct implementation array for one loaded watch module.
+--- Answers the direct implementation array for a loaded watch module.
 ---
 --- Outside staging, naming a module that has not executed registers it, because
 --- that is a module about to run its own initial chunk. Inside staging it is a
@@ -306,7 +306,7 @@ function hotreload.abort(name: string): nil
     state.modules[name] = nil
 end
 
---- Registers an initial implementation, or one candidate in the active stage.
+--- Registers an initial implementation, or a candidate in the active stage.
 ---
 --- A candidate must match the live definition's identity, signature, recursive
 --- binding and capture set. Each of those is a change the running process cannot

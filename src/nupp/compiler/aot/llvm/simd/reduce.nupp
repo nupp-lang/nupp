@@ -96,7 +96,7 @@ end
 
 const SWAPPED = {["ge"] = "le", ["le"] = "ge", ["gt"] = "lt", ["lt"] = "gt", ["ne"] = "ne", ["eq"] = "eq",}
 
---- `(x OP splat(s)):any()` over one NEON register of integers, answered
+--- `(x OP splat(s)):any()` over a NEON register of integers, answered
 --- without forming the mask: whether any lane is at least `s` is whether the
 --- largest is (`umaxv`/`smaxv`), and whether any is nonzero is whether the
 --- largest is. Nil for any other shape.
@@ -342,7 +342,7 @@ local function products(ctx: context.Context, found: species.Species, a: {string
     return out
 end
 
---- The fused `a * b + c` of one lane.
+--- The fused `a * b + c` of a lane.
 local function fused(ctx: context.Context, found: species.Species, a: string, b: string, c: string): string
     local t = found.scalar
     local fma = prelude.intrinsic(

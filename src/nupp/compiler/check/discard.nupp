@@ -227,7 +227,7 @@ local function writesOutward(body: any): boolean
     return found
 end
 
---- Installs the discarded-result judgment on one run.
+--- Installs the discarded-result judgment on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

@@ -207,7 +207,7 @@ local function encodeBounds(parameters: any, bounds: any, intern: function(any):
     return encoded
 end
 
---- Encodes a set of completed module semantics as one shared type arena.
+--- Encodes a set of completed module semantics as a shared type arena.
 function interfaceimage.encode(semantics: {[string]: any}, options: interfaceimage.EncodeOptions?): (any?, string?)
     local origins = options and options.origins or nil
     local arenas = options and options.arenas or nil

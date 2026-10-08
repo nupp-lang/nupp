@@ -32,7 +32,7 @@ local type Node = cst.Node
 
 local bindings = {}
 
---- Installs the binding and assignment statements on one run.
+--- Installs the binding and assignment statements on a run.
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers

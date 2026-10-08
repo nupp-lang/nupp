@@ -230,7 +230,7 @@ end
 --- What the manifest at `root` defines, or one named task of it.
 ---
 --- @param root the project directory, "." by default
---- @param requested one task's name, or nil for all of them
+--- @param requested a task's name, or nil for all of them
 --- @param opts `buildOnly` leaves out the test and self-host actions
 --- @return the task, or the whole list
 --- @return why not, ready to print

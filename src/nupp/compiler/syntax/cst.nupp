@@ -109,7 +109,7 @@ interface cst.Hints
     automaticOwnerMoves: any
     automaticOwnerReinit: any
 
-    --- Owned expression results retained through one full statement for cleanup.
+    --- Owned expression results retained through a full statement for cleanup.
     statementCleanupOwners: any
 
     statementCleanupActive: boolean?
@@ -238,7 +238,7 @@ interface cst.Hints
     --- consumes this hint only after deciding that it will emit the node.
     compilerFeatureEffect: string?
 
-    --- Runtime features required by one synthetic construct, such as a derive recipe or
+    --- Runtime features required by a synthetic construct, such as a derive recipe or
     --- suspension handler, rather than by an indexed expression inside it.
     compilerFeatureEffects: {string}?
 
@@ -292,7 +292,7 @@ interface cst.Hints
     zoneIntrinsic: string?
 
     --- True when the call is `keep` on a name statically known to hold the module
-    --- `nupp.bench` returns, with one positional argument. Lowering additionally needs
+    --- `nupp.bench` returns, with a positional argument. Lowering additionally needs
     --- statement position, which is the only position the sink is ever written in.
     keepIntrinsic: boolean?
 
@@ -361,7 +361,7 @@ interface cst.Hints
     --- local binding may shadow.
     resolvedGlobal: string?
 
-    --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
+    --- A call to a stable LuaJIT table builtin, lowered to a module-local binding.
     tableIntrinsic: string?
 
     --- The optimizer's proof and selected lowering for a numeric array loop.
@@ -756,7 +756,7 @@ record cst.ModuleStmt is cst.Hints
     names: {lexer.Token}
 end
 
---- `export` applied to one declaration, or `export = value` for an existing module
+--- `export` applied to a declaration, or `export = value` for an existing module
 --- value. The assignment form lets an established Lua-shaped module adopt a declared
 --- identity without changing its runtime identity or allocating wrappers per member.
 record cst.ExportStmt is cst.Hints
@@ -2923,7 +2923,7 @@ function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
 end
 
 --- Appends a child to `n`'s array part and returns it, so a caller can consume a token
---- and record it in one expression. A nil child is ignored, which lets an optional part
+--- and record it in an expression. A nil child is ignored, which lets an optional part
 --- be added unconditionally.
 ---
 --- The child comes back with the type it went in with, optional or not: adding a token

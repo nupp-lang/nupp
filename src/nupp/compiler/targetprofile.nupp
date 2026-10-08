@@ -271,7 +271,7 @@ function targetProfile.fromDescriptor(target: string, value: any, origin: string
     ), nil
 end
 
---- The profile for one target, preferring a verified vendor descriptor.
+--- The profile for a target, preferring a verified vendor descriptor.
 ---
 --- A descriptor wins over the built-in answer for the same triple, because a
 --- vendor port of a public triple is still that vendor's port: the built-in

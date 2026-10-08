@@ -196,7 +196,7 @@ end
 
 --- Whether following declared interface parents from `from` reaches `target`.
 ---
---- Generic applications are views of one declaration graph, so the origin is the
+--- Generic applications are views of a declaration graph, so the origin is the
 --- identity that closes a cycle. The visited set is keyed the same way: changing type
 --- arguments does not turn a declaration cycle into a valid hierarchy.
 local function inheritsDeclaration(from: Type, target: T.Nominal, seen: {[string]: boolean}?): boolean
@@ -336,7 +336,7 @@ function declare.checkEffectConformance(c: state.Checker): nil
     end
 end
 
---- Installs the declaration checking on one run. It answers through `c.checkTypedecl`
+--- Installs the declaration checking on a run. It answers through `c.checkTypedecl`
 --- and the publishing operations beside it, so there is nothing to hand back.
 ---
 --- The last four are handed in rather than reached through `c`: the reifiability test

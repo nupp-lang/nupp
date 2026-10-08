@@ -114,7 +114,7 @@ local function isLocal(c: state.Checker, name: string): boolean
     return false
 end
 
---- Installs the control-flow statements on one run.
+--- Installs the control-flow statements on a run.
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
@@ -205,7 +205,7 @@ function control.install(c: state.Checker): state.StatHandlers
     -- Rewinds every owner to the state the branch began in, and records the ones this
     -- arm moved so the statement can apply them once the last arm has run.
 
-    --- What the surviving arms of one branching statement did to the owners it began
+    --- What the surviving arms of a branching statement did to the owners it began
     --- with, so the join can tell a move every arm made from one only some did.
     local function ownershipJoin(): any
         return {arms = 0, kept = {}, fieldMoved = {}, nilAtEnd = {}, fieldEmpty = {}}
@@ -492,7 +492,7 @@ function control.install(c: state.Checker): state.StatHandlers
     -- statement uses: moved on any path is moved, known on every path is known, and
     -- unassigned on any path is unassigned.
 
-    --- What the owners look like on one edge, with the consuming parameters and
+    --- What the owners look like on an edge, with the consuming parameters and
     --- audited fields the edge has narrowed to nothing, which it holds no obligation
     --- for.
     local function edgeOwnership(): any
@@ -580,7 +580,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
-    --- Joins what the edges reaching one place know about narrowed paths: a fact
+    --- Joins what the edges reaching a place know about narrowed paths: a fact
     --- survives only when every edge carries one for the same path, and then holds
     --- the union of them. The current facts are the first edge when control can fall
     --- into the place, and are replaced either way.

@@ -303,7 +303,7 @@ local function hardwareMasks(ctx: context.Context, a: memory.Access): boolean
     return ctx.maskedMemory and (a.align == 4 or a.align == 8)
 end
 
---- A loop over lanes `0 .. room - 1`, `step` emitting one lane's work.
+--- A loop over lanes `0 .. room - 1`, `step` emitting a lane's work.
 --- With `carryType`, a value starts at `initial`, `step` answers its next
 --- value, and the loop answers the last.
 local function laneLoop(

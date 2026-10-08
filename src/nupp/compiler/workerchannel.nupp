@@ -32,7 +32,7 @@ type workerchannel.Failure = {
     said: string
 }
 
---- Bounds and hooks for one client channel.
+--- Bounds and hooks for a client channel.
 type workerchannel.Options = {
     --- The longest response body accepted.
     maxFrame: integer,

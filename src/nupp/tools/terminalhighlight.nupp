@@ -30,7 +30,7 @@ local syntaxstyle = require("nupp.tools.syntaxstyle")
 
 local terminalhighlight = {}
 
---- Paints a run of text in one style.
+--- Paints a run of text in a style.
 type terminalhighlight.Paint = function(string): string
 
 --- What a style name is painted with. A name the palette has no entry for is
@@ -81,7 +81,7 @@ function terminalhighlight.palette(colored: boolean): terminalhighlight.Palette
     return colored and COLORED or EMPTY
 end
 
---- Paints text in one style, or returns it unchanged when the palette has no
+--- Paints text in a style, or returns it unchanged when the palette has no
 --- colour for that style.
 ---
 --- @param palette the palette to paint from
@@ -223,7 +223,7 @@ end
 ---
 --- The shape LuaJIT prints is fixed -- a program counter, an optional jump
 --- marker, an opcode, its operands, and a trailing `;` hint. Everything up to
---- the hint is muted as one run, because none of it is what the listing is read
+--- the hint is muted as a run, because none of it is what the listing is read
 --- for. Anything that does not have that shape is muted whole rather than
 --- rearranged by a pattern that did not match.
 ---

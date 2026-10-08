@@ -129,7 +129,7 @@ local type Entry = {
 
 --- Where entries made by this interpreter live, under the cache directory.
 ---
---- A directory rather than a line in one shared index, because a checkout can be
+--- A directory rather than a line in a shared index, because a checkout can be
 --- worked on by more than one LuaJIT -- one on the path and one the toolchain
 --- built -- and a single index would be rewritten by whichever ran last, leaving
 --- the other to find a cache it cannot read. Two directories cost a little disk

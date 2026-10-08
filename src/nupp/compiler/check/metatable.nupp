@@ -44,7 +44,7 @@ type metatable.Ops = {
     checkLiteral: function(node: Node?, literalType: Type?, target: Type?)
 }
 
---- Installs the metatable literal checks on one run.
+--- Installs the metatable literal checks on a run.
 ---
 --- @param c the run's state
 --- @return the operations the other passes call
@@ -73,7 +73,7 @@ function metatable.install(c: state.Checker): metatable.Ops
         return nil
     end
 
-    --- What inference made of one named field, or nil when the literal was not shaped
+    --- What inference made of a named field, or nil when the literal was not shaped
     --- enough to say -- a computed key answers `table` for the whole of it, and there
     --- is nothing here to check against.
     local function fieldOf(literalType: Type?, name: string): Type?

@@ -36,7 +36,7 @@ record species.Species
     --- `<N x i1>`.
     mask: string
 
-    --- Bits in one element.
+    --- Bits in an element.
     bits: integer
 
     float: boolean
@@ -127,7 +127,7 @@ function species.carrier(found: species.Species): string?
     end
 end
 
---- The IR scalar type one lane of this species reads as: the element's own
+--- The IR scalar type a lane of this species reads as: the element's own
 --- for 32 and 64 bits, and the 32-bit integer of its signedness below that,
 --- which is how the IR types a narrow lane it has extracted.
 function species.laneType(found: species.Species): string

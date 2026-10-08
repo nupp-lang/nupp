@@ -57,7 +57,7 @@ interface gpu.Buffer<T> is nupp.Closeable
     --- Returns the canonical tensor layout for this view.
     @readonly layout: function(borrows self: gpu.Buffer<T>): TensorLayout
 
-    --- Reports whether this buffer or view occupies one dense element range.
+    --- Reports whether this buffer or view occupies a dense element range.
     @readonly isDense: function(borrows self: gpu.Buffer<T>): boolean
 
     --- Reports whether every logical element maps to a distinct storage element.

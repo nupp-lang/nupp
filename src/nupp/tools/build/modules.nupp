@@ -527,7 +527,7 @@ typeFingerprint = function(t: Type?, active: {[Type]: boolean}?, binders: Binder
     return value
 end
 
---- What a module's readers depend on, as one digest: its type, the definition
+--- What a module's readers depend on, as a digest: its type, the definition
 --- metadata that changes how an export may be used (deprecations, comptime-only
 --- aliases), the nominal, derive and comptime-function fingerprints the checker
 --- publishes beside it. An external
@@ -921,7 +921,7 @@ type modules.CompileJob = {
     generating: (function(name: string): nil)?
 }
 
---- What compiling one module produced.
+--- What compiling a module produced.
 type modules.Compiled = {
     record: any,
 
@@ -934,7 +934,7 @@ type modules.Compiled = {
     generateMs: number
 }
 
---- Lowers and generates one checked module, unless it is a check, and describes it
+--- Lowers and generates a checked module, unless it is a check, and describes it
 --- as the record a later build reuses.
 ---
 --- The serial build and a parallel build worker both come through here, so what a
@@ -1816,7 +1816,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         return aotBackendKey as string
     end
 
-    --- What a build of this target would refuse about one checked module's `@aot`
+    --- What a build of this target would refuse about a checked module's `@aot`
     --- functions, and whether it was lowered to find out. Asked only by a check, and
     --- only of a module it checked this run: a reused record carries the answer it
     --- was given, keyed like the rest of the record on the source, its dependencies'
@@ -2488,7 +2488,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     }
 end
 
---- The source files one target reaches, or nothing when it reaches the project.
+--- The source files a target reaches, or nothing when it reaches the project.
 ---
 --- A target that names `sources` owns that selection plus whatever its entries
 --- and those sources require; a target that names none retains the

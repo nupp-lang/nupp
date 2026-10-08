@@ -736,7 +736,7 @@ end
 
 --- Decodes a frame's packed values, answering why it could not rather than
 --- raising: a record whose module cannot load here, or an attachment this lane
---- cannot hold, fails the one task or reply that carried it.
+--- cannot hold, fails the task or reply that carried it.
 -- Why a decoded value cannot be used: the reason a record it carries could not
 -- be resolved in this state, found by the stand-in metatable that record's
 -- dictionary slot holds.
@@ -1730,7 +1730,7 @@ local function settleParking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
---- Settles one task for a task scope's `fork`, answering rather than raising.
+--- Settles a task for a task scope's `fork`, answering rather than raising.
 ---
 --- The task scope owns the failure rule -- level, prefix, and what cancels what -- so
 --- this answers the settled state and lets the caller raise in its own terms. The

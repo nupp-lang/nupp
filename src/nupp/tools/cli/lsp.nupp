@@ -1152,7 +1152,7 @@ local function runArtifacts(client, opts)
     return true
 end
 
---- Resolving an artifact is about a file, so it takes one path and no position.
+--- Resolving an artifact is about a file, so it takes a path and no position.
 --- A caller that has a cursor asks `artifacts` first; this is what it does next.
 local function runArtifact(client, opts)
     if #opts.positional ~= 1 then
@@ -1474,7 +1474,7 @@ local record Symbols
     @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
     format: string?
 
-    --- Search one document instead of the workspace.
+    --- Search a document instead of the workspace.
     @cli(value = "FILE")
     file: string?
 
@@ -1552,7 +1552,7 @@ local record Actions
     @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
     format: string?
 
-    --- Narrow the results to one kind of action.
+    --- Narrow the results to a kind of action.
     @cli(value = "KIND", choices = {"quickfix"})
     only: string?
 

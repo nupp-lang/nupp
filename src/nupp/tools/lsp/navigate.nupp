@@ -105,7 +105,7 @@ type navigate.Api = {
     resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
 }
 
---- Installs the navigation questions on one session.
+--- Installs the navigation questions on a session.
 ---
 --- @param s the session's state
 function navigate.install(s: navigate.Session): navigate.Api

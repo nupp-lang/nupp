@@ -203,7 +203,7 @@ local function pending(handle: any): integer
     return tonumber(output[0]) as integer
 end
 
---- Wakes everything waiting on one channel.
+--- Wakes everything waiting on a channel.
 ---
 --- Backwards, because a woken waiter may add itself again and appending while
 --- iterating forwards would wake the new one in the same pass. Every waiter is

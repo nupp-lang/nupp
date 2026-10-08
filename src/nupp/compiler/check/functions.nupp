@@ -94,7 +94,7 @@ local function declarationMismatch(supplied: T.Func, declared: T.Func, from: int
     return nil
 end
 
---- Installs the function statements on one run.
+--- Installs the function statements on a run.
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers

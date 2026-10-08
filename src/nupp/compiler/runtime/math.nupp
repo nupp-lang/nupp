@@ -1106,7 +1106,7 @@ function quat.toAxisAngle(x: number, y: number, z: number, w: number): number, n
     return x / length, y / length, z / length, 2 * math.acos(clamped)
 end
 
---- The shortest rotation carrying one direction onto another.
+--- The shortest rotation carrying a direction onto another.
 ---
 --- Neither direction has to be a unit vector. Opposed directions have no shortest
 --- rotation -- every half turn about an axis across them does it -- so one such axis

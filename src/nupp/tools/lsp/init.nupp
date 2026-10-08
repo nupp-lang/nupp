@@ -197,7 +197,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- Projects and roots
     ---------------------------------------------------------------------
 
-    --- Resolves the pinned type-only dependencies of one project.
+    --- Resolves the pinned type-only dependencies of a project.
     ---
     --- A `kind = "types"` dependency names an exact commit, so resolving one is
     --- fetching a tree the project already chose rather than deciding anything: the

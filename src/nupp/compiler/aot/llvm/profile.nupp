@@ -177,7 +177,7 @@ function profile.features(selected: profile.Profile, tier: string): string
     return table.concat(parts, ",")
 end
 
---- The codegen options for one tier's module.
+--- The codegen options for a tier's module.
 function profile.options(selected: profile.Profile, tier: string): {[string]: string}
     return {triple = selected.llvmTriple, cpu = selected.cpu, features = profile.features(selected, tier), opt = "3"}
 end

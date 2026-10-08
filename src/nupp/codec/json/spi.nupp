@@ -24,7 +24,7 @@ export record EncodedString
     @private _token: any
 end
 
---- Values that can write one complete JSON value through a checked writer.
+--- Values that can write a complete JSON value through a checked writer.
 ---
 --- `nupp.codec.json` names it for callers; it is declared here so the modules
 --- the facade reads, nupp.serde and nupp.derive among them, can name it without
@@ -173,7 +173,7 @@ export interface Writer is nupp.Closeable
     --- @param self the writer
     flush: @nosuspend function(exclusive self: Writer): nil
 
-    --- Verifies and publishes one complete root, then releases backing state.
+    --- Verifies and publishes a complete root, then releases backing state.
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()

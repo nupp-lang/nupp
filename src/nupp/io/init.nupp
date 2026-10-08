@@ -625,7 +625,7 @@ export const newScalarReader = scalars.newScalarReader
 --- @export
 export const newScalarWriter = scalars.newScalarWriter
 
---- Reads a reader to its end and answers everything it held as one string.
+--- Reads a reader to its end and answers everything it held as a string.
 ---
 --- The reader is taken, and closed on every way out. A limit is checked as the
 --- bytes arrive, so a source larger than it answers a reason rather than being

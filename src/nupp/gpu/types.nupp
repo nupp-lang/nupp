@@ -6,7 +6,7 @@ local api = require("nupp.gpu.api")
 local {type Span} = require("nupp.mem.span")
 local gpu = {}
 
---- The provider's release of one root allocation or one compiled kernel's
+--- The provider's release of a root allocation or a compiled kernel's
 --- handle. Each context carries its own, and none of them suspends.
 local type Release = @nosuspend function(context: any, resource: any): nil
 
@@ -14,7 +14,7 @@ local type Release = @nosuspend function(context: any, resource: any): nil
 --- @export
 type gpu.Layout = TensorLayout
 
---- The portable floor reserved for one generated workgroup. Backends may
+--- The portable floor reserved for a generated workgroup. Backends may
 --- support more, but generated kernels deliberately do not depend on it.
 --- @export
 const gpu.PORTABLE_WORKGROUP_THREADS = 256
@@ -66,7 +66,7 @@ record gpu.Buffer<T> is api.Buffer<T>
 
     layout: function(borrows self: gpu.Buffer<T>): TensorLayout
 
-    --- Reports whether this buffer or view occupies one dense element range.
+    --- Reports whether this buffer or view occupies a dense element range.
     isDense: function(borrows self: gpu.Buffer<T>): boolean
 
     --- Reports whether every logical element maps to a distinct storage element.
@@ -106,13 +106,13 @@ record gpu.Kernel is api.Kernel
     end
 end
 
---- The canonical shader artifact emitted for one verified GPU kernel.
+--- The canonical shader artifact emitted for a verified GPU kernel.
 --- @internal
 type gpu.ArtifactSet = api.ArtifactSet
 
 gpu.ArtifactSet = api.ArtifactSet
 
---- Statically sized, zero-based storage shared by one CPU workgroup.
+--- Statically sized, zero-based storage shared by a CPU workgroup.
 ---
 --- GPU AOT replaces this ordinary representation with workgroup address-space
 --- storage. Keeping its indexing zero-based makes the interpreted CPU body and

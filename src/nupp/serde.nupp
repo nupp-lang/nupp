@@ -1166,7 +1166,7 @@ local record WireProfile
     @readonly fieldNames: any
 end
 
---- A prepared JSON traversal for one binding and profile.
+--- A prepared JSON traversal for a binding and profile.
 ---
 --- The recursive prepared traversal handles structures, lists, string-keyed
 --- maps, optionals, scalar constraints, defaults, literals, and document members.
@@ -1176,7 +1176,7 @@ export sealed interface Prepared<T>
 
     --- Appends an encoded root through reserved caller-owned storage.
     ---
-    --- The prepared traversal writes one complete encoded value.
+    --- The prepared traversal writes a complete encoded value.
     write: function(self, value: T, exclusive out: Buffer): nil & function(self, value: T, exclusive out: Writer): nil
 
     decode: function(self, text: string): (T?, string?)

@@ -230,7 +230,7 @@ function compile.writeRemarks(settings: compile.Settings): boolean
     return true
 end
 
---- Reads, parses and checks one file, reporting every diagnostic the way the text
+--- Reads, parses and checks a file, reporting every diagnostic the way the text
 --- form reports them. Returns the parse and the source it came from, or nil once
 --- what stopped it has been said: a command that inspects a checked tree rather than
 --- compiling it starts here, so that it sees the same tree a build would.

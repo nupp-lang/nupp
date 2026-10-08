@@ -621,7 +621,7 @@ local string: {
     --- LuaJIT also accepts a mode string in place of the boolean: `s` discards debug
     --- information as `true` does, and `d` writes the entries of a template table in
     --- sorted order rather than in the order its keys hash, which is what makes two
-    --- dumps of one function compare equal across processes.
+    --- dumps of a function compare equal across processes.
     ---
     --- @param f the function to dump
     --- @param strip whether to discard debug information, or a LuaJIT mode string

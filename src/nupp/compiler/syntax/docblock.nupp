@@ -238,7 +238,7 @@ function docblock.parse(lines: {string}): docblock.Doc
     )
 end
 
---- The tags of the run attached to a node, in one call.
+--- The tags of the run attached to a node, in a call.
 ---
 --- @param node the node whose leading trivia to read
 --- @return what the run said

@@ -96,7 +96,7 @@ end
 
 --- Reads the coverage build state and turns the sites it contains into files with hit
 --- counts. The state is the source of the denominator; the shard only adds execution,
---- so an unloaded source module remains visibly uncovered. The report one run produced:
+--- so an unloaded source module remains visibly uncovered. The report a run produced:
 --- every file it saw, and whatever the runner could not account for. `version` is the
 --- shard format, not the report's.
 type coverage.Model = {

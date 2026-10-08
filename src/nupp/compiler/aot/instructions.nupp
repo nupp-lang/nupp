@@ -257,7 +257,7 @@ end
 ---
 --- Which side of the instruction the memory operand is on decides load from
 --- store, because AT&T puts the destination last. An instruction that reads and
---- writes one address counts as a store; a comparison against memory only
+--- writes an address counts as a store; a comparison against memory only
 --- reads it, whichever side it is on; and `lea` computes an address without
 --- touching it, so it counts as neither. `push` and `pop` name no operand for
 --- the memory they move, and are counted for it anyway.
@@ -349,7 +349,7 @@ end
 --- it. Dropping those is what makes the answer a list of function bodies without
 --- having to track which section each label was declared in.
 ---
---- @param assembly what the code generator wrote for one unit
+--- @param assembly what the code generator wrote for a unit
 --- @param architecture which rules the mnemonics are read under
 --- @param system the target's operating system, which decides whether the
 ---   assembler prefixed every symbol with an underscore
@@ -495,7 +495,7 @@ function instructions.order(listings: {instructions.Listing}): {instructions.Lis
     return ordered
 end
 
---- The listings one name asks for, or nothing when it names none of them.
+--- The listings a name asks for, or nothing when it names none of them.
 ---
 --- Matched against both spellings, because the two are used in different places:
 --- the source says `mix` and a disassembler, a profile or a linker error says

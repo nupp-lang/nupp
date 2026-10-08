@@ -1537,7 +1537,7 @@ end
 -- Instantiation
 ----------------------------------------------------------------------------
 
---- Instantiates a generic function as one monomorphic callable. This is used when a
+--- Instantiates a generic function as a monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
 function generics.instantiateFunction(t: T.Func, map: Bindings, control: generics.ReductionControl?): T.Func, string?

@@ -64,7 +64,7 @@ local EXPANDS: {[string]: boolean} = {call = true, methodCall = true, safeCall =
 
 expr.EXPANDS = EXPANDS
 
---- Installs the expression walk on one run. It answers through `c.infer`, which is what
+--- Installs the expression walk on a run. It answers through `c.infer`, which is what
 --- every other pass already asks, so there is nothing for it to hand back.
 ---
 --- @param c the run's state

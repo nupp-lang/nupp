@@ -1668,7 +1668,7 @@ function extract.extract(
     return result, {}, extraModules
 end
 
---- The modules one module's page is responsible for listing: every module nested under
+--- The modules a module's page is responsible for listing: every module nested under
 --- its name whose nearest documented ancestor is that module.
 ---
 --- The nearest ancestor decides, rather than the immediate one, so that no module goes

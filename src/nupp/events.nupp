@@ -55,7 +55,7 @@ local events = {}
 interface events.Emittable
 end
 
---- An observer of one event type.
+--- An observer of an event type.
 ---
 --- The event is borrowed for the call: it may be read and written, and cannot
 --- be stored or returned. State beyond the event is explicit: capture it in
@@ -234,7 +234,7 @@ local STRIDE = 3
 local function tombstone(): nil
 end
 
---- Observer registrations for one source, keyed by address and event identity.
+--- Observer registrations for a source, keyed by address and event identity.
 ---
 --- A source holds one of these in its `observers` field. Nothing exists for an
 --- address until something observes there, so a world of millions of entities
@@ -491,7 +491,7 @@ local function register<A, S is events.Source<A>, E is events.Emittable>(
     observers.count = observers.count + 1
 end
 
---- Registers an observer of one event type at one address.
+--- Registers an observer of an event type at an address.
 ---
 --- Observers run in registration order. A name lets `stopObserving` remove this
 --- registration by name; a name already registered at the same address and
@@ -536,7 +536,7 @@ function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
     register(source, address, event, callback, id, true)
 end
 
---- Removes registrations at one address and event.
+--- Removes registrations at an address and event.
 ---
 --- Given a name, the first registration with that name goes; given a callback,
 --- every registration of it goes. A removal during a delivery takes effect at
@@ -596,7 +596,7 @@ function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
     return true
 end
 
---- Whether anything observes one event type at one address.
+--- Whether anything observes an event type at an address.
 --- @param source the bus or world
 --- @param address the address to ask about
 --- @param event the event declaration
@@ -672,7 +672,7 @@ end
 -- Storage
 ----------------------------------------------------------------------------
 
---- Installs the storage one event type is constructed into at this source.
+--- Installs storage for constructing an event type at this source.
 ---
 --- The allocator is the caller's: it must outlive the source's use of it, and
 --- the source never resets or closes it. Replacing one while a delivery holds

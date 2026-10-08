@@ -122,7 +122,7 @@ end
 --- end
 --- ```
 ---
---- @param element the ctype of one element
+--- @param element the ctype of an element
 --- @param count how many elements to allocate
 --- @return the array, owned by the caller
 --- @export

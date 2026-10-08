@@ -28,7 +28,7 @@ local cst = require("nupp.compiler.syntax.cst")
 
 local mutation = {}
 
---- The paths written beneath one binding, relative to it.
+--- The paths written beneath a binding, relative to it.
 local type Paths = {[string]: boolean}
 
 --- What a
@@ -54,7 +54,7 @@ record mutation.Summary
     unknown: boolean
 end
 
---- Everything the pass worked out for one file.
+--- Everything the pass worked out for a file.
 record mutation.Summaries
     --- By the callee path a call uses: a name, or a dotted path.
     byKey: {[string]: mutation.Summary}
@@ -438,7 +438,7 @@ local function noteWrite(ctx: Context, root: string?, suffix: string): boolean
     return false
 end
 
---- Merges what `callee` may write into `ctx`, through the arguments of one call.
+--- Merges what `callee` may write into `ctx`, through the arguments of a call.
 ---
 --- @return whether anything changed
 local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
@@ -1043,7 +1043,7 @@ function mutation.callEffects(summaries: mutation.Summaries, node: any): mutatio
     return merged, callee ~= nil
 end
 
---- Tells `note` every path one call writes, as the pass sees it: through the
+--- Tells `note` every path a call writes, as the pass sees it: through the
 --- receiver, through the arguments, and through the names the callee captured,
 --- each as the full path from the binding at the call site and whether only
 --- what lies beneath it changes.

@@ -238,7 +238,7 @@ function markdown.items(items: {Item}, level: integer?): string
     return table.concat(out, "\n")
 end
 
---- Renders modules as one markdown document.
+--- Renders modules as a markdown document.
 ---
 --- `all` is every module the run documented. A page renders one module at a time but
 --- still has to name the ones nested under it, and only the whole set says which those
@@ -246,7 +246,7 @@ end
 --- case where the two arguments are the same list.
 ---
 --- `overview` is the handwritten prose a page opens with, which is why it only makes
---- sense for a single module: it belongs to one page rather than to the set.
+--- sense for a single module: it belongs to a page rather than to the set.
 function markdown.render(modules: {Module}, title: string?, all: {Module}?, overview: string?): string
     local all = all or modules
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string

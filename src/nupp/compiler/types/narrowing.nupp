@@ -167,7 +167,7 @@ end
 --- settle -- counts as overlapping, because a test this cannot rule out is a test the
 --- program is entitled to write.
 ---
---- @param a one type
+--- @param a the first type
 --- @param b the other
 --- @return whether some value could be both
 function narrowing.overlaps(a: Type, b: Type): boolean

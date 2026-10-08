@@ -88,7 +88,7 @@ local function raisesAt(c: state.Checker, node: any): any
     return nil
 end
 
---- Installs the undocumented-raise judgment on one run.
+--- Installs the undocumented-raise judgment on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

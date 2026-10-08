@@ -90,7 +90,7 @@ local function leavesFirstPass(body: any): boolean
     return false
 end
 
---- Installs the loop-closure judgment on one run.
+--- Installs the loop-closure judgment on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

@@ -51,7 +51,7 @@ type nosuspend.Ops = {
     @readonly sweep: function(any)
 }
 
---- Installs the region check on one run.
+--- Installs the region check on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk and the end of the file call

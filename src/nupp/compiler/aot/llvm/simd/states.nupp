@@ -378,7 +378,7 @@ local function elemental(
     return init, addName, valueName
 end
 
---- The operations of one stateful contract: `init(ptr, T)`, `add(ptr, T)`
+--- The operations of a stateful contract: `init(ptr, T)`, `add(ptr, T)`
 --- and `value(ptr)`, and the LLVM types `add` takes and `value` answers.
 record states.Operations
     init: string

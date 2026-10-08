@@ -8,7 +8,7 @@ arity, whether the following word belongs to an option. It deliberately knows
 nothing about commands, field types, help, terminal policy, or process exits.
 ]]
 
---- The kind of one classified argv word.
+--- The kind of a classified argv word.
 export type TokenKind = "shortOption" | "longOption" | "argument" | "terminator"
 
 export const shortOption: TokenKind = "shortOption"

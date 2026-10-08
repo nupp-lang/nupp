@@ -24,21 +24,21 @@ local relations = {}
 --- closure over a contradictory pool still terminates with an answer.
 const relations.INFINITE = 1073741824
 
---- The largest constant one comparison may offset a term by.
+--- The largest constant a comparison may offset a term by.
 ---
 --- Every path weight is a sum of at most as many offsets as there are terms, so
 --- bounding the offset bounds the sum well inside what a double represents
 --- exactly. A comparison against a larger literal is not a bound worth proving.
 const relations.MAX_OFFSET = 1048576
 
---- How many relations one kernel's guards may state.
+--- How many relations a kernel's guards may state.
 ---
 --- Beyond any signature in the tree by a wide margin. The bound exists so the
 --- closure is provably cheap rather than because a kernel is expected to reach
 --- it, and overrunning it declines a kernel -- it never admits one.
 const relations.BUDGET = 128
 
---- The closure of one relation pool, and what it took to build.
+--- The closure of a relation pool, and what it took to build.
 record relations.Closure
     --- Every term the closure is over, which is the whole universe it was
     --- given rather than only the terms the pool mentioned.
@@ -171,7 +171,7 @@ record relations.Keyed
     relation: scalarIR.Relation
 end
 
---- The pool in one order, with exact repetitions dropped.
+--- The pool in an order, with exact repetitions dropped.
 ---
 --- Two guards that normalize alike produce one relation and therefore one IR,
 --- which is what lets a reordered or restated precondition compile to the same

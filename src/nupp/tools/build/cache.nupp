@@ -53,7 +53,7 @@ type cache.ModuleRecord = {
     runtimeModules: {string}?,
 
     --- This artifact was compiled from source carried by the compiler rather than
-    --- from the project. Components may share an identical copy across one runtime.
+    --- from the project. Components may share an identical copy across a runtime.
     compilerRuntime: boolean?,
 
     --- Keyed project declaration lookups made while checking this module. Their

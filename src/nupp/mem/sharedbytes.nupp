@@ -76,7 +76,7 @@ local foreignSpan = rawget(
 
 local sharedbytes = {}
 
---- An immutable extent of one engine-owned block. Crossing a worker boundary
+--- An immutable extent of an engine-owned block. Crossing a worker boundary
 --- moves a reference, never the bytes; reading happens in place through a
 --- borrowed byte view, and `toString` is the one explicit copy into a Lua state.
 record sharedbytes.Region

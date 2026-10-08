@@ -133,7 +133,7 @@ record process.Reader is Reader2
     @private closed: boolean
     @private eof: boolean
 
-    --- Takes what one stream has without waiting, as `poll` answers it: the bytes, or
+    --- Takes what a stream has without waiting, as `poll` answers it: the bytes, or
     --- nil and whether the stream has ended. Shared by every read, so end of stream has
     --- one place that decides it.
     --- @raises string when the provider returns an invalid result

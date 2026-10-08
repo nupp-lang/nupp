@@ -32,7 +32,7 @@ on every backend, which is why it sits here rather than beside the views in
 
 local pool = {}
 
---- A pool of instances stamped with one record declaration.
+--- A pool of instances stamped with a record declaration.
 --- @export
 record pool.Pool<T is table>
     @private @readonly witness: any

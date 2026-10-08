@@ -157,7 +157,7 @@ local function correlateGroup(into: {[string]: Type}, arms: {T.Pack}, group: any
     end
 end
 
---- Installs the narrowing on one run.
+--- Installs the narrowing on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

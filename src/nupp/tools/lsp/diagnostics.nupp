@@ -46,7 +46,7 @@ type diagnostics.Session = {
 
 --- What installing diagnostics gives the session back.
 type diagnostics.Api = {
-    --- The compiler's diagnostics for one file, converted to the protocol's.
+    --- The compiler's diagnostics for a file, converted to the protocol's.
     toLspDiagnostics: function(errors: {any}, source: string?): {any},
 
     --- Rechecks a document and publishes what changed, answering whether it did.
@@ -73,7 +73,7 @@ local PROTOCOL_SEVERITY = {
     note = 3, -- 3 is Information
 }
 
---- Installs diagnostic publication on one session.
+--- Installs diagnostic publication on a session.
 ---
 --- @param s the session's state
 function diagnostics.install(s: diagnostics.Session): diagnostics.Api
@@ -131,7 +131,7 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
         return out
     end
 
-    --- What a build of the project's default target would refuse about one file's
+    --- What a build of the project's default target would refuse about a file's
     --- `@aot` functions, as `nupp check` reports it.
     ---
     --- Worked out once per check result rather than per request: the result is the

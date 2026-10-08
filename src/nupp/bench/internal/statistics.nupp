@@ -397,7 +397,7 @@ local function blockMedians(series: {number}): {number}
     return reduced
 end
 
---- Tests one process's ordered samples for a monotone trend.
+--- Tests a process's ordered samples for a monotone trend.
 ---
 --- Mann-Kendall over block medians, which is distribution-free and cares only about
 --- the order of the values. A detected trend means warmup was insufficient or the

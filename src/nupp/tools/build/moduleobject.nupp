@@ -73,7 +73,7 @@ local function globalRequire(node): string?
     return ok and type(value) == "string" and value as string or nil
 end
 
---- The object for one parsed module. `index.declaredModules` names the modules a
+--- The object for a parsed module. `index.declaredModules` names the modules a
 --- qualified reference can reach; `index.supportedModules` marks the ones this
 --- target cannot load, which are never dependencies.
 function moduleobject.emit(path: string, parsed: any, header: any, index: any): any

@@ -48,7 +48,7 @@ type http.Options = {
     --- name.
     headers: {[string]: string}?,
 
-    --- How long one request may take end to end, 30000 by default.
+    --- How long a request may take end to end, 30000 by default.
     timeoutMs: integer?,
 
     --- How long establishing a connection may take, 10000 by default.
@@ -59,7 +59,7 @@ type http.Options = {
     --- and a streamed upload are bounded by `timeoutMs` alone.
     stallTimeoutMs: integer?,
 
-    --- How many redirects one request may follow, 5 by default.
+    --- How many redirects a request may follow, 5 by default.
     maxRedirects: integer?,
 
     --- How many requests may be in flight at once, 256 by default. A request past
@@ -72,7 +72,7 @@ type http.Options = {
     --- How many connections the pool may hold to one host, 16 by default.
     maxConnectionsPerHost: integer?,
 
-    --- How many response bytes one request may take, 0 for no bound and the
+    --- How many response bytes a request may take, 0 for no bound and the
     --- default.
     maxBytes: integer?,
 

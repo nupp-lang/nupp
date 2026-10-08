@@ -162,7 +162,7 @@ export type EncodedValue = contracts.EncodedValue
 --- @export
 export type EncodedString = contracts.EncodedString
 
---- Values that can write one complete JSON value through a checked writer.
+--- Values that can write a complete JSON value through a checked writer.
 ---
 --- `derive.JSON` answers a contract in terms of it, and a hand-written record
 --- satisfies it with a `writeJSON` member:
@@ -422,7 +422,7 @@ export function encoded(value: any, nullValue: any?): EncodedValue
     return native.encoded(value, nullValue) as EncodedValue
 end
 
---- Encodes and interns one string for trusted use as either a key or value.
+--- Encodes and interns a string for trusted use as either a key or value.
 ---
 --- ```nupp
 --- local key = nupp.codec.json.encodedString("user_id")
@@ -439,14 +439,14 @@ end
 --- ```nupp
 --- local cached = nupp.codec.json.verified([[{"id":41}]])
 --- ```
---- @param text one complete JSON value
+--- @param text a complete JSON value
 --- @return a handle retaining the original immutable string
 --- @export
 export function verified(text: string): EncodedValue
     return native.verified(text) as EncodedValue
 end
 
---- Validates and interns existing bytes containing one complete JSON string.
+--- Validates and interns existing bytes containing a complete JSON string.
 ---
 --- ```nupp
 --- local key = nupp.codec.json.verifiedString([["user_id"]])
@@ -478,7 +478,7 @@ export function newWriter(exclusive out: Buffer, nullValue: any?): Writer
     return new WriterImpl(raw = native.newWriter(out, nullValue))
 end
 
---- Creates a schema-driven JSON codec with one immutable wire profile.
+--- Creates a schema-driven JSON codec with an immutable wire profile.
 ---
 --- The codec prepares a `nupp.serde.Binding<T>` once and then performs each
 --- complete scalar structure traversal in one native call. It is the one typed

@@ -96,7 +96,7 @@ record cliModule.CompletionRequest
     environment: {[string]: string}
 end
 
---- A lazily invoked source of dynamic values for one CLI field.
+--- A lazily invoked source of dynamic values for a CLI field.
 interface cliModule.Completer
     complete: function(self, request: cliModule.CompletionRequest): {cliModule.CompletionCandidate}
 end
@@ -141,22 +141,22 @@ function cliModule.withColorMode(wanted: cliModule.ColorMode, body: function(): 
     return require("nupp.cli.internal.terminal").withColorMode(wanted, body)
 end
 
---- Reports whether escapes should be written to one stream.
+--- Reports whether escapes should be written to a stream.
 function cliModule.colorEnabled(stream: LuaFile): boolean
     return require("nupp.cli.internal.terminal").colorEnabled(stream)
 end
 
---- Reports whether one stream is connected to a terminal.
+--- Reports whether a stream is connected to a terminal.
 function cliModule.isTerminal(stream: LuaFile): boolean
     return require("nupp.cli.internal.terminal").isTerminal(stream)
 end
 
---- Reports how many columns one stream's terminal has, when it has one.
+--- Reports how many columns a stream's terminal has, when it has one.
 function cliModule.columns(stream: LuaFile): integer?
     return require("nupp.cli.internal.terminal").columns(stream)
 end
 
---- Returns the generic styles selected for one stream.
+--- Returns the generic styles selected for a stream.
 function cliModule.style(stream: LuaFile): cliModule.Style
     return require("nupp.cli.internal.terminal").style(stream)
 end

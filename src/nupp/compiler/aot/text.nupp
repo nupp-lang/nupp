@@ -261,7 +261,7 @@ function text.expression(node: scalarIR.Expr): string
         return op .. "(" .. text.expression((node as scalarIR.Unary).value) .. ")"
     end
 
-    --- The operands of one operation, in order.
+    --- The operands of an operation, in order.
     local function operands(args: {any}): string
         local rendered: {string} = {}
         for position, argument in ipairs(args) do
@@ -656,7 +656,7 @@ end
 --- Every program in one file, as text.
 ---
 --- Separated by a blank line and nothing else. Each carries its own header, so
---- a reader can tell where one function ends without a marker between them.
+--- a reader can tell where a function ends without a marker between them.
 function text.programs(programs: {scalarIR.Program}): string
     local parts: {string} = {}
     for position, program in ipairs(programs) do

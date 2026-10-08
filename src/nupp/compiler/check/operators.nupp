@@ -214,7 +214,7 @@ local function customaryOperator(c: state.Checker, opTok: Token)
     )
 end
 
---- Installs the operator expressions on one run.
+--- Installs the operator expressions on a run.
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers

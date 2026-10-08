@@ -169,7 +169,7 @@ export record Application
         return table.concat(out, "\n") .. "\n"
     end
 
-    --- Produces shell-neutral candidates for one cursor position.
+    --- Produces shell-neutral candidates for a cursor position.
     ---
     --- The second result is `"files"` or `"dirs"` when the slot is a path the shell
     --- should complete itself.

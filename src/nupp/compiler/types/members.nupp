@@ -115,7 +115,7 @@ local build
 --- Almost every question put to this module is "what is `t.name`", and asking it
 --- through `members.view` meant ordering every member, sorting them, allocating an
 --- entry for each, and then reading one. Checking a single 791-line module built 84,372
---- views to do that, 99% of them from one member access in `nupp.compiler.check.calls`.
+--- views to do that, 99% of them from a member access in `nupp.compiler.check.calls`.
 ---
 --- So this answers for one name, and the view functions below compose every name's
 --- entry from the same per-name functions, so the two cannot drift; `memberstest`

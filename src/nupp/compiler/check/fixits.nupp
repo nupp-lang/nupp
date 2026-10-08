@@ -18,7 +18,7 @@ local state = require("nupp.compiler.check.state")
 
 local fixits = {}
 
---- The edits one file's diagnostics can offer. Built once per file and asked, since
+--- The edits a file's diagnostics can offer. Built once per file and asked, since
 --- none of it reads the walk's scopes, only the parse and the project index.
 type fixits.Edits = {
     --- A named fix, and the edits applying it makes. Applying one is all-or-nothing.
@@ -46,7 +46,7 @@ type fixits.Edits = {
     --- Establishes one fixed-width value around a complete expression.
     refinementFix: function(expr: any, target: any): {any}?,
 
-    --- Replaces a complete type annotation with one primitive name.
+    --- Replaces a complete type annotation with a primitive name.
     typeFix: function(target: any, replacement: string): any?,
 
     --- An edit adding a require where this file keeps them.
@@ -64,7 +64,7 @@ type fixits.Edits = {
 }
 
 --- Damerau-Levenshtein distance for short language names. Treating an adjacent
---- transposition as one edit catches `__idnex` without making the spelling threshold
+--- transposition as an edit catches `__idnex` without making the spelling threshold
 --- broad enough to guess at unrelated metamethods.
 local function editDistance(left: string, right: string): integer
     local beforePrevious = nil

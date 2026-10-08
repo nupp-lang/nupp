@@ -351,7 +351,7 @@ end
 -- Streams
 ----------------------------------------------------------------------------
 
---- A borrowed view of one direction of a connection.
+--- A borrowed view of a direction of a connection.
 ---
 --- Closing one ends that direction rather than the connection: the writing view
 --- half-closes, and the reading view stops this side reading. Neither is the

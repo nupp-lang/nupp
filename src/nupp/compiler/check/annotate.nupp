@@ -44,7 +44,7 @@ type annotate.Ops = {
     defineAnnotation: function(application: any, declaration: any)
 }
 
---- Installs the annotation checking on one run.
+--- Installs the annotation checking on a run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls

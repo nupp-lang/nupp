@@ -63,7 +63,7 @@ type incremental.Header = {
     dependencies: {string}
 }
 
---- The result of checking one module.
+--- The result of checking a module.
 ---
 --- `syntax` marks a parse that failed, `missing` a file that was not there; in both
 --- cases there is nothing to say about the module's type.
@@ -119,7 +119,7 @@ record incremental.Inc
     --- file was deleted.
     diskChanged: function(path: string, changeType: integer)
 
-    --- Parse and check diagnostics for one file, plus the parse itself.
+    --- Parse and check diagnostics for a file, plus the parse itself.
     checkFile: function(path: string): incremental.CheckResult
 
     --- Checks a module whose dependencies the caller has already made ready.
@@ -131,13 +131,13 @@ record incremental.Inc
     --- Every file in the project, on disk or open.
     projectFiles: function(): {string}
 
-    --- The text one file's parse saw: its open overlay, or disk.
+    --- The text a file's parse saw: its open overlay, or disk.
     fileText: function(path: string): string?
 
     --- Bytes of a non-module filesystem input observed by a checker query.
     externalFile: function(path: string): string?
 
-    --- The exported declaration header for one file.
+    --- The exported declaration header for a file.
     projectHeader: function(path: string): incremental.Header?
 
     --- Where a module name resolves to, or nil when nothing provides it.
@@ -150,14 +150,14 @@ record incremental.Inc
     --- The checked interface a dependency worker needs to consume this module.
     moduleSemantic: function(name: string, path: string?): any
 
-    --- Installs checked dependencies as one query revision.
+    --- Installs checked dependencies as a query revision.
     importModules: function(semantics: {[string]: any})
 
     --- Keyed project-index reads made while checking this module. Persisted by the
     --- build so a later process can reuse the module when unrelated declarations move.
     projectDependencies: function(path: string): {any}
 
-    --- The current semantic digest of one keyed project-index answer.
+    --- The current semantic digest of a keyed project-index answer.
     projectDependencyFingerprint: function(name: string, key: string): string?
 
     --- Source paths that contributed to one keyed project-index answer.
@@ -173,7 +173,7 @@ record incremental.Inc
         fingerprint: string
     }}
 
-    --- The current digest of one external input, in the terms `externalInputs`
+    --- The current digest of an external input, in the terms `externalInputs`
     --- recorded it: absent and present-but-empty are different answers.
     externalInputFingerprint: function(path: string): string
 

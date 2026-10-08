@@ -32,7 +32,7 @@ local scalarIR = {}
 --- older compiler is refused rather than half-understood.
 const scalarIR.VERSION = 43
 
---- The calling convention selected for one complete AOT entry.
+--- The calling convention selected for a complete AOT entry.
 ---
 --- A kernel has no VM authority. A Lua builder is entered as a Lua C function
 --- and may use only the construction operations represented below.
@@ -42,7 +42,7 @@ type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 ---
 --- Separate from `VERSION`, which is the shape of the IR. Two compilers can
 --- agree about every field of a program and disagree about whether an operator
---- contracts, and an artifact built under one contract must not be reused under
+--- contracts, and an artifact built under a contract must not be reused under
 --- another. Bumped when the meaning changes, never when the spelling does.
 const scalarIR.NUMERIC_CONTRACT = 4
 
@@ -403,7 +403,7 @@ record scalarIR.LuaBuilderQuery
     source: scalarIR.Source?
 end
 
---- Validates, converts, and publishes one complete JSON number token.
+--- Validates, converts, and publishes a complete JSON number token.
 ---
 --- The low 31 bits are the byte position at which parsing stopped. Bit 31 is set
 --- on success and clear on a grammar error, so source can preserve its normal
@@ -443,7 +443,7 @@ record scalarIR.Name
     source: scalarIR.Source?
 end
 
---- The checked count of one span parameter.
+--- The checked count of a span parameter.
 record scalarIR.SpanCount
     op: 'span_count'
     span: string
@@ -499,7 +499,7 @@ record scalarIR.Load
     source: scalarIR.Source?
 end
 
---- A pointer to one element of a span holding reified structs.
+--- A pointer to an element of a span holding reified structs.
 record scalarIR.ElementRef
     op: 'element_ref'
     span: string
@@ -1448,7 +1448,7 @@ record scalarIR.Param
     --- pointer representation, so the binding must preserve this distinction.
     spanModule: string?
 
-    --- A scalar column expanded from one authored SoA row-view parameter.
+    --- A scalar column expanded from an authored SoA row-view parameter.
     soa: scalarIR.SoaColumn?
 
     --- Uniforms use their parameter's unique name; Lua-builder scalars use
@@ -1658,7 +1658,7 @@ record scalarIR.Program
     --- The widest vector any value in this program may be built out of, when
     --- the target's frame cannot carry whatever its registers can hold. The
     --- species width is already held to it; this is what a flat vector formed
-    --- inside one operation is held to as well -- a lane conversion's, which
+    --- inside an operation is held to as well -- a lane conversion's, which
     --- spans the whole species however wide that species is.
     vectorCeiling: integer?
 

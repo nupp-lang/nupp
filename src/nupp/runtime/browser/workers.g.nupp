@@ -381,7 +381,7 @@ function TaskImpl:cancel(reason: string?): boolean
     return true
 end
 
---- Asks the pool for one task's reply, at most once per task.
+--- Asks the pool for a task's reply, at most once per task.
 ---
 --- Registering the request is separate from waiting for it so that a scope closing
 --- over many children asks for a window of replies and then waits, the way the
@@ -412,7 +412,7 @@ local function consume(task: any): nil
     settle(task, answered(answer))
 end
 
---- Waits for one task through the installed suspension handler, or on the host
+--- Waits for a task through the installed suspension handler, or on the host
 --- boundary where there is none, exactly as an ordinary browser effect does.
 local function awaitSettlement(task: any): nil
     if task:isDone() then
@@ -447,7 +447,7 @@ local function awaitSettlement(task: any): nil
     end
 end
 
---- Settles one task for a task scope's `fork`, answering rather than raising. The
+--- Settles a task for a task scope's `fork`, answering rather than raising. The
 --- same answer the native provider gives, so the task scope's failure rule holds on
 --- either.
 local function settleForScope(task: any): (string, {any}?, integer, any)

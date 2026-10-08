@@ -55,7 +55,7 @@ interface nupp.ManagedGroup is nupp.Closeable
     remove: function<T>(exclusive self: nupp.ManagedGroup, handle: alias(T)): T
 end
 
---- The unique owner of one independently allocated managed cell.
+--- The unique owner of an independently allocated managed cell.
 --- @internal
 record nupp.Managed<T>
     alias: function(borrows self: nupp.Managed<T>): alias(T)
@@ -305,7 +305,7 @@ local nupp: {
         --- A boxed 64-bit unsigned cdata integer, as LuaJIT's `1ULL`.
         @readonly uint64: @comptime type,
 
-        --- The singleton type inhabited by one value.
+        --- The singleton type inhabited by a value.
         ---
         --- A number must be an exact integer, since a literal type names a value the
         --- checker compares for equality.
@@ -632,7 +632,7 @@ local nupp: {
         --- @raises string when the handle is neither a shape nor an indexer
         @readonly writeKeys: @comptime function(value: type): {type},
 
-        --- The type read at one key: the named field when the key is a string literal
+        --- The type read at a key: the named field when the key is a string literal
         --- naming a readable one, and otherwise the indexer's read value.
         --- @param value the type to project
         --- @param key the key to read at
@@ -641,7 +641,7 @@ local nupp: {
         ---     NUPP2420
         @readonly readAt: @comptime function(value: type, key: type): type,
 
-        --- The type written at one key: the named field when the key is a string
+        --- The type written at a key: the named field when the key is a string
         --- literal naming a writable one, and otherwise the indexer's write value.
         --- @param value the type to project
         --- @param key the key to write at
@@ -687,7 +687,7 @@ local nupp: {
     --- Alignment in bytes under the build target's declared C ABI.
     alignof: function(typeName: any): integer,
 
-    --- Byte offset of one field under the build target's declared C ABI.
+    --- Byte offset of a field under the build target's declared C ABI.
     offsetof: function(typeName: any, fieldName: string): integer,
 
     --- Compiler-internal materialization conformance surface.
@@ -994,7 +994,7 @@ record nupp.derive
     --- `fieldCodec`, and `nupp.codec.json.JSONEncodable` conformance.
     ---
     --- Encoding is deterministic: fields follow declaration order and string map keys
-    --- sort by byte order, so one value always produces the same bytes. A decode error
+    --- sort by byte order, so a value always produces the same bytes. A decode error
     --- names the path that failed rather than saying the document was bad.
     ---
     --- ```nupp
@@ -1034,7 +1034,7 @@ record nupp.derive
 
     --- Semantic configuration visible to providers as `Info` annotations.
     ---
-    --- Each of these is the checked shape of one field annotation. A provider reads
+    --- Each of these is the checked shape of a field annotation. A provider reads
     --- what was written from `Field.annotations` or `Info.annotations`; the shipped
     --- providers read the same projection rather than consulting a second planner.
     --- The checked shape of `@json`, written on a record or on one of its fields.
@@ -1119,7 +1119,7 @@ record nupp.derive
 
     --- The immutable semantic view passed to an `@comptime function` provider.
     ---
-    --- An `Info` describes one owner for one provider, and is built before any
+    --- An `Info` describes an owner for a provider, and is built before any
     --- provider's output is merged, so two providers on the same declaration see the
     --- same thing whichever order they run in. A generic owner is projected once rather
     --- than per instantiation, and a type parameter exposes its bound, or `unknown`, so
@@ -1247,7 +1247,7 @@ record nupp.derive
     --- @return the refusal, as this provider's `Result<I>`
     error: function(message: string, reference: Reference?, code: string?): any
 
-    --- Implements a requirement by calling one runtime helper.
+    --- Implements a requirement by calling a runtime helper.
     ---
     --- `helper` names the function and `arguments` is the closed list it receives, in
     --- order. The interface owns the resulting signature, and the generated call is
@@ -2149,7 +2149,7 @@ record nupp.reflect
         @readonly fields: {SoAField}
     end
 
-    --- An immutable compile-time description of one resolved semantic type.
+    --- An immutable compile-time description of a resolved semantic type.
     ---
     --- `Info` can cross typed comptime helper boundaries. Its fingerprint is suitable
     --- for cache keys because it changes with the canonical type graph, defaults, and
@@ -2215,7 +2215,7 @@ record nupp.reflect
         fingerprint: string
     end
 
-    --- Creates an identity for one lazily derived metadata value.
+    --- Creates an identity for a lazily derived metadata value.
     ---
     --- A descriptor, schema, or binding builds a key's value once, then answers the
     --- same value from its private cache. Key identities and their slot numbers are
@@ -2662,7 +2662,7 @@ record nupp.QuatLibrary
     ---     for negative identity
     toAxisAngle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
 
-    --- Returns the shortest rotation carrying one direction onto another.
+    --- Returns the shortest rotation carrying a direction onto another.
     ---
     --- Neither direction has to be a unit vector. Opposed directions have no shortest
     --- rotation, so one half turn across them is chosen.

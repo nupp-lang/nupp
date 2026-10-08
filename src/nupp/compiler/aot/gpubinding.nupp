@@ -55,7 +55,7 @@ local function parameterName(names: {[string]: string}, name: string?): string
     return generated as string
 end
 
---- Returns the failed form of one span-count relation.
+--- Returns the failed form of a span-count relation.
 local function relationRefusal(relation: scalarIR.Relation, names: {[string]: string}): string
     assert(relation.left.kind == "count" and relation.right.kind == "count", "GPU binding relation is not over counts")
     local left = parameterName(names, relation.left.name) .. ".count"

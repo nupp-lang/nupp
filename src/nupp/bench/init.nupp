@@ -129,7 +129,7 @@ type bench.SuiteCase = {
     data: any?,
     parameters: {[string]: {any}}?,
 
-    --- Operations represented by one call to a variant's `run` callback.
+    --- Operations represented by a call to a variant's `run` callback.
     operations: integer?
 }
 
@@ -145,7 +145,7 @@ type bench.SuiteOptions = {
     --- Calls made before timing begins.
     warmupIterations: integer?,
 
-    --- Calls to `run` inside one timed sample. State is set up once per sample.
+    --- Calls to `run` inside a timed sample. State is set up once per sample.
     sampleIterations: integer?,
 
     --- Stop once both this many samples and this many milliseconds of measured time
@@ -205,7 +205,7 @@ record bench.Measurement
     --- a case, samples for a suite, frames for a frame session.
     p99Ms: number?
 
-    --- Calls to a suite variant inside one timed sample, and the operations one call
+    --- Calls to a suite variant inside a timed sample, and the operations a call
     --- represents.
     sampleIterations: integer?
 
@@ -279,7 +279,7 @@ record bench.Measurement
 
     --- The interquartile range of this measurement's own samples, in milliseconds.
     ---
-    --- Within-process spread. It says how much the samples inside one process varied
+    --- Within-process spread. It says how much the samples inside a process varied
     --- and is not a confidence interval: those samples share a heap, a set of compiled
     --- traces and a thermal state, so they are not independent draws and no interval
     --- may be derived from them. An interval comes from fork summaries, which the
@@ -325,7 +325,7 @@ record bench.Measurement
 
     --- Processes this measurement summarizes, when the runner merged forks into it.
     ---
-    --- Absent on a measurement a child wrote: a child is one process and knows nothing
+    --- Absent on a measurement a child wrote: a child is a process and knows nothing
     --- about the others.
     forkCount: integer?
 

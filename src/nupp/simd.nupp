@@ -1594,7 +1594,7 @@ sealed interface simd.Species<T, S>
     ): nil
 end
 
---- The species for one element where the running code has vectors, and nil
+--- The species for an element where the running code has vectors, and nil
 --- where it does not.
 ---
 --- The element is named by its storage witness -- `array.uint32` is an
@@ -1678,7 +1678,7 @@ end
 
 const simd.transpose = transpose
 
---- Named horizontal operations over one explicit register value.
+--- Named horizontal operations over an explicit register value.
 ---
 --- Ordered operations follow logical lane order. Pairwise operations use the
 --- adjacent-pair tree. Algebraic operations permit reassociation; only
@@ -1788,7 +1788,7 @@ end
 --- of the same name.
 ---
 --- A lane index rather than a lane and its value, because an AOT expression
---- answers one value and `extract` already spells the pair.
+--- answers a value and `extract` already spells the pair.
 --- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer

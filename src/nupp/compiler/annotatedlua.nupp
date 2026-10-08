@@ -652,7 +652,7 @@ local function decorateFunction(
     end
 end
 
---- Decorates the blocks and functions nested inside one statement's child `node`;
+--- Decorates the blocks and functions nested inside a statement's child `node`;
 --- `line` is where that statement starts, so only annotations inside it are seen.
 local decorateNested: function(
     node: any,
@@ -830,7 +830,7 @@ decorateNested = function(
     end
 end
 
---- Attaches the comments of one `.lua` parse as semantic typing facts. This operation
+--- Attaches the comments of a `.lua` parse as semantic typing facts. This operation
 --- is idempotent because incremental checking may reuse a parse result.
 function annotated.decorate(result: any, filename: string?, dialect: string?): {annotated.Warning}
     if result.annotatedLuaDecorated then
