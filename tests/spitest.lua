@@ -644,7 +644,9 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.suspension.spi.Provider",
             native = "nupp.runtime.provider.suspension",
             browser = "nupp.runtime.browser.suspension",
-            member = "source"
+            member = "source",
+            cache = "nupp.suspension.selected",
+            siblings = {"nupp.suspension.host"}
         },
         {
             module = "nupp.text",
@@ -694,6 +696,12 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                             return name
                         end
                     elseif case.module == "nupp.suspension" then
+                        provider.install = function()
+                            return name
+                        end
+                        provider.poll = function()
+                            return name
+                        end
                         provider.installDriver = function()
                             return name
                         end
@@ -735,6 +743,11 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                 if case.cache then
                     owned[case.cache] = true
                 end
+                -- A facade whose siblings read the same selection has to own them too,
+                -- or the sibling answers from whatever this process loaded first.
+                for _, sibling in ipairs(case.siblings or {}) do
+                    owned[sibling] = true
+                end
                 local globals = {}
                 if profile.marker then
                     globals[profile.marker] = {}
@@ -762,21 +775,24 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     assert(call == expected[case.member], label)
                     assert(call() == selectedName and call() == selectedName, label)
                     if case.module == "nupp.suspension" then
-                        local turnAvailable = facade.turnAvailable
-                        local consumeTurn = facade.consumeTurn
-                        local deferTurn = facade.deferTurn
+                        local host = load("nupp.suspension.host")
+                        local turnAvailable = host.turnAvailable
+                        local consumeTurn = host.consumeTurn
+                        local deferTurn = host.deferTurn
                         assert(type(turnAvailable) == "function", label .. ": missing turn availability")
                         assert(type(consumeTurn) == "function", label .. ": missing turn consumption")
                         assert(type(deferTurn) == "function", label .. ": missing turn deferral")
                         assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
-                        for _, member in ipairs({"installDriver", "delegatedCanPark", "delegatedPark", "derive"}) do
+                        for _, member in ipairs({"install", "installDriver", "delegatedCanPark", "delegatedPark", "derive"}) do
                             assert(
-                                facade[member] == expected[member],
+                                host[member] == expected[member],
                                 label .. ": " .. member .. " came from another provider"
                             )
                         end
+                        assert(facade.install == nil, label .. ": the host surface is next door")
+                        assert(facade.poll == expected.poll, label .. ": poll stays beside source")
                     elseif case.module == "nupp.workers" then
                         local hooks = {
                             __scope = "openScope",
@@ -838,7 +854,7 @@ end
 
 function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
     local load = require("providerstate").instance(
-        {['nupp.spi'] = true, ['nupp.suspension'] = true},
+        {['nupp.spi'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
             ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
@@ -869,7 +885,7 @@ end
 
 function M.suspensionProvidersPublishTheirDriverSeam()
     local load = require("providerstate").instance(
-        {['nupp.spi'] = true, ['nupp.suspension'] = true},
+        {['nupp.spi'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
             ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
@@ -966,7 +982,7 @@ local SELECTING_FACADES = {
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
     {"nupp.runtime.uuid", "nupp.util.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
-    {"nupp.suspension", "nupp.suspension.spi.Provider"},
+    {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
     {"nupp.system", "nupp.system.spi.Provider"},
     {"nupp.text", "nupp.text.spi.Provider"},
 }

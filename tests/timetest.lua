@@ -8,6 +8,7 @@ local testAssert = require("nupp.test")
 -- could break it.
 local time = require("nupp.time")
 local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 local tasks = require("nupp.tasks")
 local native = require("nupp.compiler.native")
 
@@ -209,7 +210,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
     }
     local started = time.now()
     do
-        local handling = suspension.install(handler)
+        local handling = suspensionHost.install(handler)
         time.sleep(25)
         handling:close()
     end

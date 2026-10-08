@@ -8,31 +8,36 @@ process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
 ```nupp:fragment
-local frame = require("scheduler")
 local suspension = require("nupp.suspension")
 
-local function application(): nil
-    with installation = suspension.install(frame.handler) do
-        work()
-    end
+local function readLine(reader: Reader): string
+    return suspension.suspend("example.readLine", function(
+        resume: function(string),
+        context: suspension.Context
+    ): function()
+        const subscription = reader:onLine(resume)
+
+        return function(): nil
+            subscription:release()
+        end
+    end)
 end
 ```
 
-`install` puts a handler on the current frame and `handled` says whether there
-is one; without one, a park blocks after all. `source` builds something that
-will be ready later, `suspend` parks on one, `create` makes a coroutine that
-inherits the handler, and `poll` is what a handler calls to make progress.
+`suspend` parks on something that will be ready later, `source` registers the
+pump that makes it ready, `poll` drives every registered pump once, and
+`handled` says whether a handler is listening;
+without one, a park drives the registered pumps on this thread and blocks after
+all. `canSuspend` answers whether a park would be permitted here at all, and
+`create` makes a coroutine that inherits the handler.
 
-A driver -- a scheduler that stands in front of a host rather than being one --
-installs through `installDriver`, and reaches the handler it displaced through
-`delegatedPark` and `delegatedCanPark`, waiting on what `derive` builds. The
-three turn-budget operations bound how long such an aggregate may run before it
-owes its host a turn.
+Installing a handler, and driving the parks it accepts, is the other side of
+this: [](nupp.suspension.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](nupp.tasks); real
-parallelism is [](nupp.workers). Come here directly to write a host
-integration, or a combinator neither of those has.
+parallelism is [](nupp.workers). Come here directly to make a library waitable,
+or to write a combinator neither of those has.
 
 An arbitrary blocking Lua or C call still blocks the thread. A library opts in
 by parking through this module; nothing intercepts calls that do not.
@@ -40,77 +45,47 @@ by parking through this module; nothing intercepts calls that do not.
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
 ]]
 
-local spi = require("nupp.spi")
-local target = require("nupp.runtime.target")
-
 local contract = require("nupp.suspension.spi")
-local provider: contract.Provider = do
-    const chosen = spi.select(spi.load(contract.Provider))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.suspension") as contract.Provider
-    end
-    yield _G.require("nupp.runtime.browser.suspension") as contract.Provider
-end
+local selected = require("nupp.suspension.selected")
+
+local provider = selected.provider
 local suspension = {}
+
+--- A readiness pump, and the handle that owns its lifetime.
 type suspension.Source = contract.Source
+
+--- What a library is handed while it subscribes.
 type suspension.Context = contract.Context
-type suspension.Waiting = contract.Waiting
-type suspension.Handler = contract.Handler
-type suspension.Installed = contract.Installed
+
 suspension.Source = contract.Source
 suspension.Context = contract.Context
-suspension.Waiting = contract.Waiting
-suspension.Handler = contract.Handler
-suspension.Installed = contract.Installed
-suspension.source = provider.source
-suspension.poll = provider.poll
-suspension.suspend = provider.suspend
-suspension.install = provider.install
-suspension.create = provider.create
-suspension.handled = provider.handled
-suspension.canSuspend = provider.canSuspend
--- The driver seam. A driver cannot tell a host barrier from permission to park
--- without these, and a task scope is a driver, so an implementation missing one is
--- refused here rather than reached as a nil call inside somebody's frame. The
--- interface declares them, which catches a typed implementation while compiling;
--- this catches the rest.
-assert(
-    provider.installDriver ~= nil
-    and provider.delegatedCanPark ~= nil
-    and provider.delegatedPark ~= nil
-    and provider.derive ~= nil,
-    "nupp.suspension: an implementation must provide installDriver, delegatedCanPark, delegatedPark and derive"
-)
-suspension.installDriver = provider.installDriver
-suspension.delegatedCanPark = provider.delegatedCanPark
-suspension.delegatedPark = provider.delegatedPark
-suspension.derive = provider.derive
 
--- Turn budgeting is an implementation's to offer. A replacement without it remains
--- correct, with an unbounded aggregate turn, which is what these stand in for; all
--- three or none, because an aggregate that spends a budget it cannot defer against
--- would stall rather than return control.
-local turnAvailable = provider.turnAvailable
-local consumeTurn = provider.consumeTurn
-local deferTurn = provider.deferTurn
-if turnAvailable == nil and consumeTurn == nil and deferTurn == nil then
-    turnAvailable = function(): boolean
-        return true
-    end
-    consumeTurn = function(): nil
-    end
-    deferTurn = function(): nil
-    end
-else
-    assert(
-        turnAvailable ~= nil and consumeTurn ~= nil and deferTurn ~= nil,
-        "nupp.suspension: an implementation must provide every turn-budget operation or none of them"
-    )
-end
-suspension.turnAvailable = turnAvailable as function(): boolean
-suspension.consumeTurn = consumeTurn as function(): nil
-suspension.deferTurn = deferTurn as function(): nil
+--- Registers a readiness pump outside any subscription.
+suspension.source = provider.source
+
+--- Drives every registered pump once, and answers how many things settled.
+---
+--- Beside `source` because they are the two halves of one registry: a scheduler
+--- drains what libraries registered, and so does an embedding host driving a
+--- component that only ever waits.
+suspension.poll = provider.poll
+
+--- Subscribes once, then waits for one typed result through the active handler.
+suspension.suspend = provider.suspend
+
+--- Whether a handler is installed here, which is what `blocking` against
+--- `cooperative` means to a caller deciding before it commits to waiting.
+suspension.handled = provider.handled
+
+--- Whether a suspension performed here would be permitted, handler barriers included.
+suspension.canSuspend = provider.canSuspend
+
+--- Creates a coroutine that inherits the handler installed where it was created.
+---
+--- Here as well as on [](nupp.suspension.host) because the compiler emits it: a
+--- `with` statement's cleanup runs in a coroutine, and generated code names this
+--- module to make it. Scheduler authors want it beside the rest of the host surface;
+--- the emitted call wants it where it has always been.
+suspension.create = provider.create
+
 export = suspension

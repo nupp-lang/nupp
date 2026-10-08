@@ -72,6 +72,8 @@ const {type Task as Task2} = require("nupp.workers.spi")
 const {type Status as Status2} = require("nupp.workers.spi")
 
 local suspension = require("nupp.suspension")
+-- A scope is a driver: it installs a handler in front of whoever hosts the frame.
+local suspensionHost = require("nupp.suspension.host")
 local {type Submittable} = require("nupp.workers.spi")
 local workerModule = require("nupp.runtime.workersprovider").provider
 -- The canonical state-local cancellation identity, taken from the module that owns
@@ -186,7 +188,7 @@ local type ScopeState = {
     failed: boolean,
     cancellation: tasks.Cancellation?,
     deadline: number?,
-    handler: suspension.Handler,
+    handler: suspensionHost.Handler,
     wakers: {function(boolean)},
     settling: boolean,
     workerScope: any,
@@ -586,7 +588,7 @@ local function resumeChild(owner: ScopeState, child: Child): nil
     if child.status == "queued" then
         child.status = "running"
     end
-    suspension.consumeTurn()
+    suspensionHost.consumeTurn()
     const previousScope = activeScope
     const previousChild = activeChild
     activeScope = owner
@@ -693,7 +695,7 @@ end
 local function pump(owner: ScopeState, operation: string, settled: function(): boolean): nil
     while not settled() do
         deadlinePassed(owner)
-        if suspension.turnAvailable() then
+        if suspensionHost.turnAvailable() then
             const child = takeRunnable(owner)
             if child ~= nil then
                 resumeChild(owner, child)
@@ -703,7 +705,7 @@ local function pump(owner: ScopeState, operation: string, settled: function(): b
                 suspension.suspend(parkedOperation(owner, operation), parkScope(owner))
             end
         elseif owner.ready > 0 then
-            suspension.deferTurn()
+            suspensionHost.deferTurn()
         elseif owner.live == 0 then
             return
         else
@@ -722,12 +724,12 @@ end
 --- child's failure cancels the block's wait, exactly as a child's park would be
 --- cancelled, so the block learns of it where it is waiting rather than at its next
 --- task operation.
-local function frameHandler(owner: ScopeState): suspension.Handler
-    const outerCanPark = suspension.delegatedCanPark()
-    const parkOutward = suspension.delegatedPark()
+local function frameHandler(owner: ScopeState): suspensionHost.Handler
+    const outerCanPark = suspensionHost.delegatedCanPark()
+    const parkOutward = suspensionHost.delegatedPark()
 
-    return new suspension.Handler(
-        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+    return new suspensionHost.Handler(
+        park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
             -- The wait handed outward when no child is runnable: ready when the block's
             -- own wait is, when a child becomes runnable and the turn allows it, or
             -- when the scope has something to raise; woken by the deadline so it is
@@ -744,12 +746,12 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                 if owner.settling then
                     -- Draining: what the scope owns is raised once every child has
                     -- settled, not here.
-                    return owner.ready > 0 and suspension.turnAvailable()
+                    return owner.ready > 0 and suspensionHost.turnAvailable()
                 end
                 const deadline = owner.deadline
                 const expired = deadline ~= nil and timeModule.now() >= deadline
 
-                return (owner.ready > 0 and suspension.turnAvailable())
+                return (owner.ready > 0 and suspensionHost.turnAvailable())
                 or owner.failed
                 or expired
                 or (owner.cancellation ~= nil and not owner.deliberate)
@@ -776,7 +778,7 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                 end
             end
 
-            const combined = suspension.derive(waiting, scopeReady, armScope)
+            const combined = suspensionHost.derive(waiting, scopeReady, armScope)
             while not waiting:ready() do
                 deadlinePassed(owner)
                 -- While the scope is settling, the wait parked here is the draining
@@ -794,7 +796,7 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                         error(cancelled as any, 0)
                     end
                 end
-                const child = suspension.turnAvailable() and takeRunnable(owner) or nil
+                const child = suspensionHost.turnAvailable() and takeRunnable(owner) or nil
                 if child ~= nil then
                     resumeChild(owner, child)
                 else
@@ -827,10 +829,10 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                 error(cancelled as any, 0)
             end
         end,
-        canPark = function(_: suspension.Handler): boolean
+        canPark = function(_: suspensionHost.Handler): boolean
             return outerCanPark()
         end,
-        shutdown = function(_: suspension.Handler): nil
+        shutdown = function(_: suspensionHost.Handler): nil
         end
     )
 end
@@ -1097,7 +1099,7 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         releaseUncalled(child)
         error(lends, 0)
     end
-    const co = suspension.create(function(): Packed
+    const co = suspensionHost.create(function(): Packed
         -- Cancelled between being spawned and first being resumed: there is no
         -- installation to undo and no body to call, so this unwinds before either.
         if child.requested then
@@ -1107,7 +1109,7 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         child.release = nil
         local produced: Packed
         do
-            const handling = suspension.install(owner.handler)
+            const handling = suspensionHost.install(owner.handler)
             child.entered = true
             if arguments ~= nil then
                 produced = pack(body(unpack(arguments.values, 1, arguments.count)))
@@ -1464,9 +1466,9 @@ local function newState(deadline: number?, limit: integer?): ScopeState
     -- A private handler so a child's park returns to this driver rather than
     -- blocking it. Scheduling only: `canPark` delegates outward, so a host barrier
     -- stays visible however deeply scopes nest inside it.
-    const outerCanPark = suspension.delegatedCanPark()
-    owner.handler = new suspension.Handler(
-        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+    const outerCanPark = suspensionHost.delegatedCanPark()
+    owner.handler = new suspensionHost.Handler(
+        park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
             const child = activeChild as Child
             const scopeOwner = activeScope as ScopeState
 
@@ -1489,10 +1491,10 @@ local function newState(deadline: number?, limit: integer?): ScopeState
                 end
             end
         end,
-        canPark = function(_: suspension.Handler): boolean
+        canPark = function(_: suspensionHost.Handler): boolean
             return outerCanPark()
         end,
-        shutdown = function(_: suspension.Handler): nil
+        shutdown = function(_: suspensionHost.Handler): nil
         end
     )
 
@@ -1690,7 +1692,7 @@ local function openState(limit: integer?, timeoutMs: number?): ScopeState
     -- The block's own waits drive the children. Installed transparently: a driver in
     -- front of the host, not a host, so where nothing hosts the frame the turn stays
     -- unbounded as it is for any unhosted frame.
-    local handling = suspension.installDriver(frameHandler(owner))
+    local handling = suspensionHost.installDriver(frameHandler(owner))
     owner.frame = @unsafe nupp.release(handling)
 
     return owner
@@ -1820,7 +1822,7 @@ local function familyScope(): ScopeState
     owner.soft = true
     registerOpen(owner)
     -- The call's own frame drives the branches, exactly as a block's does.
-    local handling = suspension.installDriver(frameHandler(owner))
+    local handling = suspensionHost.installDriver(frameHandler(owner))
     owner.frame = @unsafe nupp.release(handling)
 
     return owner

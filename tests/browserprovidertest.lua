@@ -18,6 +18,8 @@ local M = {}
 local BASE = {
     ["nupp.tasks"] = true,
     ["nupp.suspension"] = true,
+    ["nupp.suspension.host"] = true,
+    ["nupp.suspension.selected"] = true,
     ["nupp.runtime.browser.suspension"] = true,
     ["nupp.runtime.browser.effects"] = true,
     ["nupp.runtime.browser.time"] = true,
@@ -79,6 +81,7 @@ local function application(options)
         load = load,
         tasks = load("nupp.tasks"),
         suspension = load("nupp.suspension"),
+        suspensionHost = load("nupp.suspension.host"),
         effects = load("nupp.runtime.browser.effects"),
         time = load("nupp.runtime.browser.time"),
         host = browserHost,
@@ -263,12 +266,12 @@ local function frameHandler(app)
         end,
         shutdown = function()
         end,
-    }, app.suspension.Handler)
+    }, app.suspensionHost.Handler)
 end
 
 function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
     local app = application()
-    local tasks, suspension = app.tasks, app.suspension
+    local tasks, suspension = app.tasks, app.suspensionHost
     local completed = 0
     local ok, answer = app.run(function()
         local installed = suspension.install(frameHandler(app))

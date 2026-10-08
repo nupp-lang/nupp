@@ -112,7 +112,7 @@ function M.tableStructsPreserveValueOperations()
 end
 
 function M.suspensionPreservesOwnershipAndHandlerIdentity()
-    verify("suspension", "nupp.suspension")
+    verify("suspension", "nupp.runtime.provider.suspension")
 end
 
 function M.pathOperationsMatchTheContract()

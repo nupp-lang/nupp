@@ -1898,7 +1898,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
                     "@nosuspend do end",
-                    "with installation = nupp.suspension.install(cancel) do cancel() end",
+                    "with installation = nupp.suspension.host.install(cancel) do cancel() end",
                     "local sealed interface Token end",
                     "interface Matcher",
                     "    associated type Result = R",

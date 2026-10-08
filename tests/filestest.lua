@@ -353,6 +353,7 @@ end
 function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
     local suspension = require("nupp.suspension")
+    local suspensionHost = require("nupp.suspension.host")
     assert(files.createDirectory(inRoot("parking")))
     assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 
@@ -365,7 +366,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local answers = {pcall(files.read, inRoot("parking/payload.bin"))}
     installation:close()
     assert(answers[1], answers[2])

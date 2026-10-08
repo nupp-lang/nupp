@@ -1,0 +1,77 @@
+@!internal
+
+module nupp.suspension.selected
+
+--[[
+The chosen suspension implementation, selected once.
+
+[](nupp.suspension) and [](nupp.suspension.host) are two views of one
+implementation, and selection has to happen in neither of them: a library
+requiring the first must not drag the host surface in behind it, and the host
+surface must answer for the same provider a library already parks through.
+
+Selection and the conformance it insists on live here, so requiring either view
+reaches the same provider and the same refusal.
+]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
+local contract = require("nupp.suspension.spi")
+local chosenProvider: contract.Provider = do
+    const chosen = spi.select(spi.load(contract.Provider))
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.suspension") as contract.Provider
+    end
+    yield _G.require("nupp.runtime.browser.suspension") as contract.Provider
+end
+
+-- The driver seam. A driver cannot tell a host barrier from permission to park
+-- without these, and a task scope is a driver, so an implementation missing one is
+-- refused here rather than reached as a nil call inside somebody's frame. The
+-- interface declares them, which catches a typed implementation while compiling;
+-- this catches the rest.
+assert(
+    chosenProvider.installDriver ~= nil
+    and chosenProvider.delegatedCanPark ~= nil
+    and chosenProvider.delegatedPark ~= nil
+    and chosenProvider.derive ~= nil,
+    "nupp.suspension: an implementation must provide installDriver, delegatedCanPark, delegatedPark and derive"
+)
+
+-- Turn budgeting is an implementation's to offer. A replacement without it remains
+-- correct, with an unbounded aggregate turn, which is what these stand in for; all
+-- three or none, because an aggregate that spends a budget it cannot defer against
+-- would stall rather than return control.
+local available = chosenProvider.turnAvailable
+local consume = chosenProvider.consumeTurn
+local defer = chosenProvider.deferTurn
+if available == nil and consume == nil and defer == nil then
+    available = function(): boolean
+        return true
+    end
+    consume = function(): nil
+    end
+    defer = function(): nil
+    end
+else
+    assert(
+        available ~= nil and consume ~= nil and defer ~= nil,
+        "nupp.suspension: an implementation must provide every turn-budget operation or none of them"
+    )
+end
+
+--- The implementation both views retain their operations from.
+export const provider = chosenProvider
+
+--- Its turn budget, or the unbounded reading where it publishes none.
+export const turnAvailable = available as function(): boolean
+
+--- Records one coroutine activation against the current turn.
+export const consumeTurn = consume as function(): nil
+
+--- Parks until the host has had its turn.
+export const deferTurn = defer as function(): nil

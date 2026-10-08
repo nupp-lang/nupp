@@ -498,6 +498,10 @@ local FEATURES: {[string]: native.Feature} = {
         -- off -- nothing selects this, it is implied by what waits.
         name = "suspension",
         module = "nupp.suspension",
+        -- The host view and the selection beneath both views carry the same effect:
+        -- a program that installs a handler needs the runtime a program that parks
+        -- needs, and it may never name `nupp.suspension` itself.
+        modules = {"nupp.suspension.host", "nupp.suspension.selected"},
         runtimeModule = "nupp.suspension",
         portableRuntime = true,
     },

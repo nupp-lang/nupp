@@ -3172,30 +3172,38 @@ end
 
 -- What a suspension provider keeps on the shared records is its own, so it carries the
 -- `_` prefix private state does elsewhere and no application reads it by the old name.
-function M.suspensionRecordsPrefixProviderState()
+function M.suspensionRecordsHideProviderState()
+    -- Whatever an implementation keeps beside the declared members is its own, so
+    -- neither spelling resolves: not the field, and not the underscored name a
+    -- provider happens to store it under.
     for _, example in ipairs({
-        {"Source", "sequence"},
-        {"Source", "poller"},
-        {"Source", "waiter"},
-        {"Source", "released"},
-        {"Context", "handler"},
-        {"Context", "associated"},
-        {"Waiting", "state"},
-        {"Installed", "co"},
-        {"Installed", "previous"},
-        {"Installed", "restored"},
-        {"Installed", "released"},
-        {"Installed", "parks"},
+        {"nupp.suspension", "Source", "sequence"},
+        {"nupp.suspension", "Source", "poller"},
+        {"nupp.suspension", "Source", "waiter"},
+        {"nupp.suspension", "Source", "released"},
+        {"nupp.suspension", "Context", "handler"},
+        {"nupp.suspension", "Context", "associated"},
+        {"nupp.suspension.host", "Waiting", "state"},
+        {"nupp.suspension.host", "Waiting", "context"},
+        {"nupp.suspension.host", "Installed", "co"},
+        {"nupp.suspension.host", "Installed", "previous"},
+        {"nupp.suspension.host", "Installed", "restored"},
+        {"nupp.suspension.host", "Installed", "released"},
+        {"nupp.suspension.host", "Installed", "parks"},
+        {"nupp.suspension.host", "Installed", "transparent"},
     }) do
-        local diagnostics = diagsOf(
-            (
-                'const suspension = require("nupp.suspension")\nlocal function peek(borrows value: suspension.%s): nil\nlocal hidden = value.%s\nend\n'
-            ):format(example[1], example[2])
-        )
-        assert(
-            diagnostics:find("NUPP2004", 1, true) or diagnostics:find("NUPP2006", 1, true),
-            "suspension." .. table.concat(example, ".") .. " must carry the private prefix: " .. diagnostics
-        )
+        local module, record, field = example[1], example[2], example[3]
+        for _, spelling in ipairs({field, "_" .. field}) do
+            local diagnostics = diagsOf(
+                (
+                    'const suspension = require("%s")\nlocal function peek(borrows value: suspension.%s): nil\nlocal hidden = value.%s\nend\n'
+                ):format(module, record, spelling)
+            )
+            assert(
+                diagnostics:find("NUPP2004", 1, true) or diagnostics:find("NUPP2006", 1, true),
+                module .. "." .. record .. "." .. spelling .. " must not be reachable: " .. diagnostics
+            )
+        end
     end
 end
 

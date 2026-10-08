@@ -2322,10 +2322,10 @@ propagates through resolved calls and across modules, separately from parameter
 and result types. `@nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
-`with installation = suspension.install(HANDLER) do ... end` installs a host's scheduling policy
-for the region and everything called beneath it, per coroutine rather than per
-process. `HANDLER` is an ordinary value satisfying `nupp.suspension.Handler`,
-not a keyword or a global scheduler. Where none is installed a wait drives the
+`with installation = nupp.suspension.host.install(HANDLER) do ... end` installs a
+host's scheduling policy for the region and everything called beneath it, per
+coroutine rather than per process. `HANDLER` is an ordinary value satisfying
+`nupp.suspension.host.Handler`, not a keyword or a global scheduler. Where none is installed a wait drives the
 registered readiness sources on the current thread, which is what a
 command-line program wants. In a browser application only the root coroutine
 can wait on the page; anywhere else a wait with no handler raises "cannot

@@ -5,10 +5,11 @@ local testAssert = require("nupp.test")
 -- checks: a subscription that completes during the call must not build a park, must not
 -- consult a handler, and must answer straight through.
 local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local answers = {pcall(body, ...)}
    installation:close()
    if not answers[1] then error(answers[2], 0) end
@@ -557,7 +558,7 @@ function M.inheritanceIsFixedAtCreationNotResumption()
    local outer = {park = function() end}
    local other = {park = function() end}
    local seen = nil
-   local outerInstallation = suspension.install(outer)
+   local outerInstallation = suspensionHost.install(outer)
    local co = suspension.create(function()
       seen = suspension.handled()
    end)
@@ -576,7 +577,7 @@ function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
    -- the released installation is stepped over.
    local handler = {park = function() end}
    local seen = nil
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local co = suspension.create(function()
       seen = suspension.handled()
    end)
@@ -630,7 +631,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
          coroutine.yield()
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    -- Created through the inheriting form, so the extent installed above is the one
    -- that accepts its park.
    parked = suspension.create(function()
@@ -669,7 +670,7 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
          coroutine.yield()
       end,
    }
-   local outer = suspension.install(handler)
+   local outer = suspensionHost.install(handler)
    parked = suspension.create(function()
       pcall(suspension.suspend, "outer wait", function()
          return function()
@@ -679,7 +680,7 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
    end)
    coroutine.resume(parked)
    -- The same handler again, and then gone.
-   local inner = suspension.install(handler)
+   local inner = suspensionHost.install(handler)
    inner:close()
    testAssert.equal(cancels, 0, "the inner extent left the outer's park alone")
    outer:close()
@@ -692,7 +693,7 @@ function M.aFinishedParkIsNotCancelledLater()
       park = function(_self, _waiting, _cancel)
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    pcall(suspension.suspend, "waiting", function(resume)
       resume(1)
       return function()
@@ -716,7 +717,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
          coroutine.yield()
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local parked = suspension.create(function()
       pcall(suspension.suspend, "stuck", function()
          return function()
@@ -745,7 +746,7 @@ function M.releaseAttemptsEveryCleanupBeforeReporting()
          error("shutdown blew up", 0)
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    pcall(suspension.suspend, "first", function()
       return function()
          cancelled = cancelled + 1
@@ -774,7 +775,7 @@ function M.aFailingParkStillUnsubscribes()
          error("park blew up", 0)
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local ok = pcall(suspension.suspend, "waiting", function()
       return function()
          unsubscribed = true
@@ -824,7 +825,7 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
          coroutine.yield()
       end,
    }
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local firstRelease, secondRelease
    parked = suspension.create(function()
       pcall(suspension.suspend, "retryable", function()

@@ -1039,6 +1039,7 @@ end
         ] = [[
 const jobs = require("jobs")
 const suspension = require("nupp.suspension")
+const suspensionHost = require("nupp.suspension.host")
 const tasks = require("nupp.tasks")
 
 local runnable: {thread} = {}
@@ -1066,7 +1067,7 @@ local function runReady(): nil
     end
 end
 local handler = {
-    park = function(_: any, waiting: suspension.Waiting): nil
+    park = function(_: any, waiting: suspensionHost.Waiting): nil
         const task = assert(coroutine.running())
         while not waiting:ready() do
             local woke = false
@@ -1086,7 +1087,7 @@ local handler = {
 }
 
 const app = coroutine.create(function(): nil
-with handling = suspension.install(handler) do
+with handling = suspensionHost.install(handler) do
 with scope = tasks.open() do
     const running = scope:fork(1000000000, jobs.cancellable)
     while running:status() == "queued" do

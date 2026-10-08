@@ -12,6 +12,7 @@ local testAssert = require("nupp.test")
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
 local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 
 local M = {}
 
@@ -483,7 +484,7 @@ function M.aScopeNestsInsideAHostHandlerWithoutAnsweringItsOwnWaits()
    }
    local answer
    do
-      local handling = suspension.install(handler)
+      local handling = suspensionHost.install(handler)
       scoped(nil, function(scope)
          local child = scope:spawn(function() time.sleep(25) return "parked" end)
          answer = child:await()
@@ -505,7 +506,7 @@ function M.aNamedChildIsTheOperationAStuckHostSees()
       shutdown = function() end,
    }
    do
-      local handling = suspension.install(handler)
+      local handling = suspensionHost.install(handler)
       scoped(nil, function(scope)
          local child = scope:_spawnNamed(function()
             time.sleep(10)
@@ -533,7 +534,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
       shutdown = function() end,
    }
    do
-      local handling = suspension.install(handler)
+      local handling = suspensionHost.install(handler)
 
       -- Forty children leave 24 of this host turn's 64 activations. The next scope
       -- consumes those 24 before it must return to the host.
@@ -553,7 +554,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
    do
       boundaries = {}
       ran = 0
-      local handling = suspension.install(handler)
+      local handling = suspensionHost.install(handler)
       scoped(nil, function(outer)
          outer:spawn(function()
             scoped(nil, function(inner)
@@ -581,7 +582,7 @@ function M.aHostBarrierStaysVisibleThroughAScope()
    }
    local problem
    do
-      local handling = suspension.install(handler)
+      local handling = suspensionHost.install(handler)
       problem = raises(function()
          scoped(nil, function(scope)
             local child = scope:spawn(function() time.sleep(10) return "parked" end)
@@ -640,7 +641,7 @@ local function gate()
 end
 
 local function handled(handler, body, ...)
-   local installation = suspension.install(handler)
+   local installation = suspensionHost.install(handler)
    local answers = {pcall(body, ...)}
    installation:close()
    if not answers[1] then error(answers[2], 0) end

@@ -6,6 +6,7 @@ local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local nativeStage = require("nupp.tools.build.native")
 local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 local tasks = require("nupp.tasks")
 
 local M = {}
@@ -563,7 +564,7 @@ function M.aTecsStyleHandlerOnlyNeedsNonblockingHostPolls()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local ok, response, reason = pcall(function()
         return client:send({url = endpoint("/small")})
     end)
@@ -609,7 +610,7 @@ end
 
 function M.oneReadinessGenerationWakesHttpProcessAndFileWaiters()
     local client = ready()
-    local installation = suspension.install(generationHost())
+    local installation = suspensionHost.install(generationHost())
     local ok, problem = pcall(function()
         local response = assert(client:send({url = endpoint("/small")}))
         test.equal(response.body:read(64), "small response\n")
@@ -659,7 +660,7 @@ function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local ok, second, reason = pcall(function()
         return client:send({url = endpoint("/small")})
     end)

@@ -61,7 +61,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    with installation = nupp.suspension.install(frame.handler) do
+    with installation = nupp.suspension.host.install(frame.handler) do
         printCompilerVersion()
     end
 end
@@ -74,6 +74,12 @@ or a handler built into Nupp. The `application` function defines its dynamic
 scope. Most application code only consumes a handler this way. Framework authors
 and scheduler integrations implement one, as [Writing a frame
 handler](#writing-a-frame-handler) shows.
+
+Installing is `nupp.suspension.host`, and parking is `nupp.suspension`. The two
+jobs belong to different people: a library makes itself waitable and never
+installs a handler, while a host decides what runs meanwhile and never
+subscribes to a readiness source. Keeping them apart means neither reads past
+the other's operations to find its own.
 
 ::: deepdive
 Suspension is one effect with handlers rather than general algebraic effects,
@@ -236,7 +242,7 @@ local function childWork(): nil
 end
 
 local function application(): nil
-    with installation = nupp.suspension.install(frame.handler) do
+    with installation = nupp.suspension.host.install(frame.handler) do
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
         if not ok then
@@ -356,6 +362,7 @@ once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
 local suspension = nupp.suspension
+local host = nupp.suspension.host
 
 local runnable: {thread} = {}
 
@@ -387,8 +394,8 @@ inside a host barrier where yielding would violate a runtime invariant.
 `shutdown` drains work queued while the handled extent is ending.
 
 ```nupp:fragment [scheduler.nupp]
-local scheduler = new suspension.Handler(
-    park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
+local scheduler = new host.Handler(
+    park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
         local task = assert(coroutine.running())
         waiting:onResume(function(): nil
             enqueue(task)
@@ -397,10 +404,10 @@ local scheduler = new suspension.Handler(
             coroutine.yield()
         end
     end,
-    canPark = function(_: suspension.Handler): boolean
+    canPark = function(_: host.Handler): boolean
         return true
     end,
-    shutdown = function(_: suspension.Handler): nil
+    shutdown = function(_: host.Handler): nil
         while #runnable > 0 do
             runReady()
         end
@@ -417,7 +424,7 @@ and the first `ready` check to guard against. The loop remains because a
 scheduler may resume a coroutine for its own reasons, and a park ends only when
 its wait is ready.
 
-A handler is a record, so `new suspension.Handler(...)` constructs it and the
+A handler is a record, so `new host.Handler(...)` constructs it and the
 checker holds each member to its declared signature. There is nothing to cast.
 
 ```nupp:fragment [scheduler.nupp]
@@ -447,7 +454,7 @@ once per frame instead of using this standalone loop.
 
 ## Cancellation unwinds the parked stack
 
-`suspension.install(handler)` returns an owned handler installation, a
+`host.install(handler)` returns an owned handler installation, a
 `nupp.Closeable`. When its extent ends and it is closed, the runtime restores the previous handler, cancels outstanding
 subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
 `suspend` raises inside its parked coroutine, so lexical resource drops run as
@@ -461,7 +468,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    with installation = nupp.suspension.install(frame.handler) do
+    with installation = nupp.suspension.host.install(frame.handler) do
         return 1
     end
 end
@@ -480,7 +487,7 @@ handler installation and the lexical state before the label:
 local frame = require("scheduler")
 
 goto inside
-with installation = nupp.suspension.install(frame.handler) do
+with installation = nupp.suspension.host.install(frame.handler) do
     ::inside::
 end
 ```

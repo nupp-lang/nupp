@@ -7,6 +7,7 @@ local testAssert = require("nupp.test")
 local process = require("nupp.io.process")
 local processTypes = require("nupp.io.process.types")
 local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 
 local function spawnOn(provider, options)
     local instance = require("providerstate").load("process", provider)
@@ -465,7 +466,7 @@ function M.waitingWorksUnderAHandler()
         end,
     }
     local backend = fakeBackend({out = {"handled"}, exitAfter = 2})
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local child = spawnOn(backend, {args = {"echo"}})
     local result = assert(child:communicate())
     child:close()
@@ -533,7 +534,7 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:close()
     installation:close()
@@ -1128,7 +1129,7 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
 
     local function closer(name)
         return coroutine.create(function()
-            local installation = suspension.install(handler)
+            local installation = suspensionHost.install(handler)
             order[#order + 1] = name .. " entered"
             order[name .. " sawTeardown"] = child.state.closing
             child:close()
@@ -1198,7 +1199,7 @@ function M.waitingUnderAHandlerNeverBlocksThePlatform()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local exit = child:wait()
     child:close()
     installation:close()
@@ -1272,7 +1273,7 @@ function M.aQuietChildStillHitsItsDeadline()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local exit = child:wait()
     child:close()
     installation:close()
@@ -1301,7 +1302,7 @@ function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
             end
         end,
     }
-    local installation = suspension.install(handler)
+    local installation = suspensionHost.install(handler)
     local exit = child:wait()
     child:close()
     installation:close()

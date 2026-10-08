@@ -752,6 +752,7 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
    -- timeout means the network never advanced the generation the host sleeps on.
    local ffi = require("ffi")
    local suspension = require("nupp.suspension")
+   local suspensionHost = require("nupp.suspension.host")
    local C = require("nupp.runtime.native").C
    local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
    local sleeps = 0
@@ -770,7 +771,7 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
          end
       end,
    }
-   local installation = suspension.install(host)
+   local installation = suspensionHost.install(host)
    local ok, problem = pcall(function()
       local listener, client, served = pair()
       assert(client:write("ping"), "the client writes")

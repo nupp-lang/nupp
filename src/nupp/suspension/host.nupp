@@ -1,0 +1,87 @@
+module nupp.suspension.host
+
+--[[
+Deciding what runs while something waits.
+
+[](nupp.suspension) is what a library parks through. This is the other side: what
+a host installs to answer those parks, and what a scheduler needs to drive them.
+The two are separate because the two jobs are. A library never installs a handler,
+and a host never subscribes to a readiness source, so neither has to read past the
+other's operations to find its own.
+
+```nupp:fragment
+local host = require("nupp.suspension.host")
+
+local function application(): nil
+    with installation = host.install(frameHandler) do
+        work()
+    end
+end
+```
+
+`install` puts a handler on the current coroutine for the extent of the `with`.
+Driving the readiness pumps while it waits is [](nupp.suspension)'s `poll`: the
+pumps are registered through that module and drained through it, by a scheduler
+here or by an embedding host that never installs a handler at all. `create`
+makes a coroutine that inherits the handler, so work started inside a handled
+extent is handled too.
+
+A *driver* stands in front of a host rather than being one: a task scope opened
+in a frame installs one so the frame's own waits keep its children running.
+`installDriver` says so, `delegatedPark` and `delegatedCanPark` capture the
+handler it displaces so what it cannot satisfy goes outward, `derive` builds the
+wait to hand there, and the turn budget bounds how long it may run before it owes
+its host a turn.
+
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler
+contract and a worked frame handler.
+]]
+
+local contract = require("nupp.suspension.spi")
+local selected = require("nupp.suspension.selected")
+
+local provider = selected.provider
+local host = {}
+
+--- What a host installs to answer suspensions.
+type host.Handler = contract.Handler
+
+--- What a park exposes to the handler driving it.
+type host.Waiting = contract.Waiting
+
+--- An installed handler, and the obligation to put back what it displaced.
+type host.Installed = contract.Installed
+
+host.Handler = contract.Handler
+host.Waiting = contract.Waiting
+host.Installed = contract.Installed
+
+--- Installs a handler for suspensions performed on this coroutine.
+host.install = provider.install
+
+--- Installs a driver's handler, which stands in front of a host rather than being one.
+host.installDriver = provider.installDriver
+
+--- Creates a coroutine that inherits the handler installed where it was created.
+host.create = provider.create
+
+--- Captures the barrier in force here, for a driver about to displace it.
+host.delegatedCanPark = provider.delegatedCanPark
+
+--- Captures how a wait is parked here, for a driver about to displace it.
+host.delegatedPark = provider.delegatedPark
+
+--- Builds a wait that settles when the one a driver was handed does, or when the
+--- driver's own work becomes runnable.
+host.derive = provider.derive
+
+--- Whether the aggregate here may spend another activation before it owes a turn.
+host.turnAvailable = selected.turnAvailable
+
+--- Records one coroutine activation against the current turn.
+host.consumeTurn = selected.consumeTurn
+
+--- Parks until the host has had its turn.
+host.deferTurn = selected.deferTurn
+
+export = host

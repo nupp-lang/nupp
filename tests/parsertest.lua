@@ -900,7 +900,7 @@ function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
         {source = "drop owner", fixed = "nupp.drop(owner)"},
         {
             source = "handle suspension with frame.handler do print('inside') end",
-            fixed = "with installation = suspension.install(frame.handler) do print('inside') end",
+            fixed = "with installation = nupp.suspension.host.install(frame.handler) do print('inside') end",
         },
     }) do
         local parsed = parser.parse(case.source)

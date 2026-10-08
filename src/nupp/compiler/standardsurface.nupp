@@ -101,6 +101,8 @@ local MODULES: {[string]: {
     ["nupp.random"] = facility("host", "runtime.crypto"),
     ["nupp.simd"] = {kind = "common"},
     ["nupp.suspension"] = {kind = "common"},
+    ["nupp.suspension.host"] = {kind = "common"},
+    ["nupp.suspension.selected"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},
     ["nupp.time"] = facility("host", "runtime.time"),
     ["nupp.workers"] = facility("host", "runtime.workers"),

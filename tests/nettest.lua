@@ -393,7 +393,8 @@ function M.abandoningAConnectReleasesItsRequest()
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)
     local suspension = require("nupp.suspension")
-    local installation = suspension.install({
+    local suspensionHost = require("nupp.suspension.host")
+    local installation = suspensionHost.install({
         park = function()
         end,
         canPark = function()

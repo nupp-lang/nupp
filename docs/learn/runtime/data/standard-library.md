@@ -96,6 +96,8 @@ intrinsic namespaces and the declared modules:
   deterministic pseudo-random sequences with explicit, serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
+  [](nupp.suspension.host) is the other side of waiting: what a host installs to
+  decide which coroutine runs while something is parked.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
 - [](nupp.peg) compiles byte-oriented parsing-expression grammars.
 
