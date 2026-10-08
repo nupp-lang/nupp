@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The one clock, and the one timer source behind every wait.
 --
 -- Durations here are deliberately coarse. A test that asserts a sleep took between
@@ -12,50 +13,38 @@ local native = require("nupp.compiler.native")
 
 local M = {}
 
-local function assertTrue(condition, label)
-    if not condition then
-        error(label or "expected true", 2)
-    end
-end
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 function M.monotonicTimeOnlyMovesForward()
     local first = time.now()
     local last = first
     for _ = 1, 200 do
         local reading = time.now()
-        assertTrue(reading >= last, "monotonic time went backwards")
+        assert(reading >= last, "monotonic time went backwards")
         last = reading
     end
-    assertTrue(last >= first, "monotonic time did not advance across the loop")
+    assert(last >= first, "monotonic time did not advance across the loop")
 end
 
 function M.wallTimeIsUnixMillisecondsAndNotTheMonotonicReading()
     local wall = time.wallTime()
     -- Far enough past 2023 to catch a seconds-for-milliseconds mistake, and below
     -- year 5138 to catch the reverse.
-    assertTrue(wall > 1.7e12, "wall time is not Unix milliseconds: " .. tostring(wall))
-    assertTrue(wall < 1.0e14, "wall time is too large to be milliseconds: " .. tostring(wall))
+    assert(wall > 1.7e12, "wall time is not Unix milliseconds: " .. tostring(wall))
+    assert(wall < 1.0e14, "wall time is too large to be milliseconds: " .. tostring(wall))
     -- The monotonic origin is unspecified, so the two are only required to differ.
     -- Sharing an origin would mean `now` was the wall clock under another name.
-    assertTrue(math.abs(wall - time.now()) > 1.0e9, "the two clocks share an origin")
+    assert(math.abs(wall - time.now()) > 1.0e9, "the two clocks share an origin")
 end
 
 function M.sleepWaitsAtLeastTheRequestedDuration()
     local started = time.now()
     time.sleep(25)
-    assertTrue(time.now() - started >= 25, "sleep returned early")
+    assert(time.now() - started >= 25, "sleep returned early")
 end
 
 function M.fractionalSleepKeepsItsSubMillisecondPart()
     local started = time.now()
     time.sleep(1.5)
-    assertTrue(time.now() - started >= 1.5, "fractional sleep returned early")
+    assert(time.now() - started >= 1.5, "fractional sleep returned early")
 end
 
 function M.sleepingForNothingDoesNotPark()
@@ -63,18 +52,18 @@ function M.sleepingForNothingDoesNotPark()
     -- registered raises, so if this parked at all it would not merely be slow.
     local started = time.now()
     time.sleep(0)
-    assertTrue(time.now() - started < 5, "sleeping for zero parked")
+    assert(time.now() - started < 5, "sleeping for zero parked")
 end
 
 function M.sleepUntilTakesTheDeadlineItIsGiven()
     local started = time.now()
     time.sleepUntil(started + 25)
-    assertTrue(time.now() - started >= 25, "sleepUntil returned early")
+    assert(time.now() - started >= 25, "sleepUntil returned early")
 
     -- A deadline already past is not an error and not a park.
     local again = time.now()
     time.sleepUntil(again - 1000)
-    assertTrue(time.now() - again < 5, "a passed deadline still waited")
+    assert(time.now() - again < 5, "a passed deadline still waited")
 end
 
 function M.invalidDurationsAndDeadlinesAreRefused()
@@ -92,8 +81,8 @@ function M.invalidDurationsAndDeadlinesAreRefused()
     }) do
         for _, bad in ipairs({-1, -0.5, math.huge, notANumber}) do
             local ok, problem = pcall(operation.call, bad)
-            assertEq(ok, false, operation.name .. " accepted " .. tostring(bad))
-            assertTrue(
+            testAssert.equal(ok, false, operation.name .. " accepted " .. tostring(bad))
+            assert(
                 tostring(problem):find("finite non-negative", 1, true) ~= nil,
                 operation.name .. " did not explain its refusal: " .. tostring(problem)
             )
@@ -120,13 +109,13 @@ function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
     })
     local elapsed = time.now() - started
 
-    assertTrue(elapsed >= 60, "the longest sleep did not finish")
+    assert(elapsed >= 60, "the longest sleep did not finish")
     -- Serialized, this would be 120. The margin is wide because the point is that
     -- one source drove all three, not what the scheduler's overhead was.
-    assertTrue(elapsed < 110, "the sleeps serialized: " .. tostring(elapsed))
-    assertEq(order[1], 20, "the soonest deadline did not fire first")
-    assertEq(order[2], 40, "the middle deadline did not fire second")
-    assertEq(order[3], 60, "the latest deadline did not fire last")
+    assert(elapsed < 110, "the sleeps serialized: " .. tostring(elapsed))
+    testAssert.equal(order[1], 20, "the soonest deadline did not fire first")
+    testAssert.equal(order[2], 40, "the middle deadline did not fire second")
+    testAssert.equal(order[3], 60, "the latest deadline did not fire last")
 end
 
 function M.anAbandonedWaitTakesItsTimerWithIt()
@@ -141,15 +130,15 @@ function M.anAbandonedWaitTakesItsTimerWithIt()
             return "fast"
         end,
     })
-    assertEq(answer, "fast", "the wrong branch won")
-    assertEq(which, 2, "the winner was reported as the wrong branch")
-    assertTrue(time.now() - started < 500, "the race waited for the loser's timer")
+    testAssert.equal(answer, "fast", "the wrong branch won")
+    testAssert.equal(which, 2, "the winner was reported as the wrong branch")
+    assert(time.now() - started < 500, "the race waited for the loser's timer")
 
     -- The loser's entry must be gone rather than merely ignored: a stale entry
     -- would resume a subscription nobody is waiting on when its time came.
     local again = time.now()
     time.sleep(25)
-    assertTrue(time.now() - again >= 25, "a later sleep was cut short by a dead timer")
+    assert(time.now() - again >= 25, "a later sleep was cut short by a dead timer")
 end
 
 function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
@@ -160,7 +149,7 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     cancel()
     cancel()
     suspension.poll()
-    assertEq(cancelledCalls, 0, "a cancelled deadline still fired")
+    testAssert.equal(cancelledCalls, 0, "a cancelled deadline still fired")
 
     local calls = 0
     local completed
@@ -171,8 +160,8 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     suspension.poll()
     suspension.poll()
     cancelCompleted()
-    assertEq(calls, 1, "one deadline fired more than once")
-    assertEq(completed, true, "the native timer did not report completion")
+    testAssert.equal(calls, 1, "one deadline fired more than once")
+    testAssert.equal(completed, true, "the native timer did not report completion")
 end
 
 function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
@@ -190,15 +179,12 @@ function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
     local second = withOpenScope(100000)
     local firstOpened, firstDeadline = coroutine.resume(first)
     local secondOpened, secondDeadline = coroutine.resume(second)
-    assertTrue(firstOpened, "the first coroutine did not open its scope")
-    assertTrue(secondOpened, "the second coroutine did not open its scope")
-    assertTrue(
-        secondDeadline > firstDeadline + 50000,
-        "an independent coroutine inherited another coroutine's deadline"
-    )
-    assertTrue(coroutine.resume(second), "the second coroutine did not settle its scope")
-    assertTrue(coroutine.resume(first), "the first coroutine did not settle its scope")
-    assertEq(tasks.deadline(), nil, "an independent scope leaked onto the main thread")
+    assert(firstOpened, "the first coroutine did not open its scope")
+    assert(secondOpened, "the second coroutine did not open its scope")
+    assert(secondDeadline > firstDeadline + 50000, "an independent coroutine inherited another coroutine's deadline")
+    assert(coroutine.resume(second), "the second coroutine did not settle its scope")
+    assert(coroutine.resume(first), "the first coroutine did not settle its scope")
+    testAssert.equal(tasks.deadline(), nil, "an independent scope leaked onto the main thread")
 end
 
 function M.aSleepInsideAHandlerParksRatherThanBlocking()
@@ -225,17 +211,17 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
         handling:close()
     end
 
-    assertEq(parked, 1, "the sleep did not reach the installed handler")
-    assertTrue(time.now() - started >= 25, "the parked sleep returned early")
+    testAssert.equal(parked, 1, "the sleep did not reach the installed handler")
+    assert(time.now() - started >= 25, "the parked sleep returned early")
 end
 
 function M.timeSelectsTheRustBaseProvider()
     local feature = assert(native.feature("native.time"))
-    assertEq(feature.provider, "nupp_native", "time provider")
-    assertEq(feature.providerDriver, "native-rust", "time provider driver")
-    assertEq(feature.providerFeature, "base", "time provider feature")
+    testAssert.equal(feature.provider, "nupp_native", "time provider")
+    testAssert.equal(feature.providerDriver, "native-rust", "time provider driver")
+    testAssert.equal(feature.providerFeature, "base", "time provider feature")
     local expanded = native.expand({["native.time"] = true})
-    assertTrue(expanded["runtime.native"], "time omitted the Rust ABI runtime")
+    assert(expanded["runtime.native"], "time omitted the Rust ABI runtime")
 end
 
 return M

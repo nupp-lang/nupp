@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- private-export-type: a valid unnameable nominal in a declared module's public
 -- surface is suspicious, while transparent aliases and intentionally private fields
 -- are not.
@@ -9,16 +10,10 @@ local envMod = require("nupp.compiler.project.env")
 -- exactly this way, and building one means checking the prelude from source.
 local sharedEnv = envMod.new(".", {config = {include = {"."}}})
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function reports(source, opts)
     local filename = "geom/shapes.nupp"
     local result = parser.parse(source, filename)
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, filename, sharedEnv, opts or {moduleName = "geom.shapes"})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -32,7 +27,7 @@ end
 
 local function assertQuiet(source, label)
     local found = reports(source)
-    assertEq(#found, 0, label or "expected no private-export-type report")
+    testAssert.equal(#found, 0, label or "expected no private-export-type report")
 end
 
 local M = {}
@@ -52,14 +47,14 @@ export record Point
 end
 ]]
     )
-    assertEq(#found, 1, "one public declaration exposes Coordinate")
+    testAssert.equal(#found, 1, "one public declaration exposes Coordinate")
     local at = found[1]
-    assertEq(at.lint, "private-export-type", "lint name")
-    assertEq(at.severity, "warning", "default level")
-    assertEq(at.line, 8, "reports at the exported declaration")
+    testAssert.equal(at.lint, "private-export-type", "lint name")
+    testAssert.equal(at.severity, "warning", "default level")
+    testAssert.equal(at.line, 8, "reports at the exported declaration")
     assert(at.msg:find('exported "Point" exposes private record "Coordinate"', 1, true), at.msg)
-    assertEq(#(at.related or {}), 1, "points to the private declaration")
-    assertEq(at.related[1].line, 3, "private declaration line")
+    testAssert.equal(#(at.related or {}), 1, "points to the private declaration")
+    testAssert.equal(at.related[1].line, 3, "private declaration line")
 end
 
 function M.walksFunctionSignaturesAndContainers()
@@ -76,7 +71,7 @@ export function first(values: {Coordinate}): Coordinate
 end
 ]]
     )
-    assertEq(#found, 1, "one export reports one private identity")
+    testAssert.equal(#found, 1, "one export reports one private identity")
     assert(found[1].msg:find('private struct "Coordinate"', 1, true), found[1].msg)
 end
 
@@ -132,7 +127,7 @@ export record Box<T = Coordinate>
 end
 ]]
     )
-    assertEq(#found, 1, "the omitted type argument exposes Coordinate")
+    testAssert.equal(#found, 1, "the omitted type argument exposes Coordinate")
     assert(found[1].msg:find('private record "Coordinate"', 1, true), found[1].msg)
 end
 
@@ -195,8 +190,8 @@ local record Coordinate x: number end
 export record Point coordinate: Coordinate end
 ]]
     local found = reports(source, {moduleName = "geom.shapes", lints = {["private-export-type"] = "note"},})
-    assertEq(#found, 1)
-    assertEq(found[1].severity, "note", "configured level")
+    testAssert.equal(#found, 1)
+    testAssert.equal(found[1].severity, "note", "configured level")
 end
 
 return M

@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -7,15 +8,9 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function compile(source)
     local parsed = parser.parse(source, "soa-test.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "soa-test.g.nupp", env)
     local errors = {}
     for _, diagnostic in ipairs(diagnostics or {}) do
@@ -31,8 +26,8 @@ end
 
 local function runs(source)
     local code, errors, generated, parsed = compile(source)
-    assertEq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "check")
-    assertEq(
+    testAssert.equal(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "check")
+    testAssert.equal(
         #generated,
         0,
         generated[1] and ((generated[1].code or "generation") .. ": " .. (generated[1].msg or "") .. "\n" .. code)
@@ -93,10 +88,14 @@ copied.x = 99
 return rows[1].x + rows[2].x + copied.x + rows.x[4]
 ]]
     )
-    assertEq(value, 115, "direct, gathered and projected values")
+    testAssert.equal(value, 115, "direct, gathered and projected values")
     assert(code:find(".columns[", 1, true), "direct access did not select a column")
-    assertEq(code:find(":checkedIndex(index)", 1, true), nil, "a count-bounded loop retained a per-row bounds helper")
-    assertEq(code:find("rows [ index ] . x", 1, true), nil, "a virtual row survived into generated code")
+    testAssert.equal(
+        code:find(":checkedIndex(index)", 1, true),
+        nil,
+        "a count-bounded loop retained a per-row bounds helper"
+    )
+    testAssert.equal(code:find("rows [ index ] . x", 1, true), nil, "a virtual row survived into generated code")
 end
 
 function M.countBoundedLoopsBindSoaInvariantsOnce()
@@ -113,8 +112,8 @@ end
 return advance
 ]]
     )
-    assertEq(#errors, 0, "checked invariant binding fixture")
-    assertEq(#generated, 0, "generated invariant binding fixture")
+    testAssert.equal(#errors, 0, "checked invariant binding fixture")
+    testAssert.equal(#generated, 0, "generated invariant binding fixture")
     local compact = code:gsub("%s+", "")
     local loopStart = assert(compact:find("forindex=1,rowsdo", 1, true), compact)
     local loopFinish = assert(compact:find("endend", loopStart, true), compact)
@@ -128,8 +127,8 @@ return advance
         )
     end
     assert(loop:find("[" .. physical .. "]", 1, true), "the physical index is not reused: " .. loop)
-    assertEq(loop:find("view.columns", 1, true), nil, "the loop reloads the columns table")
-    assertEq(loop:find("view.offset", 1, true), nil, "the loop reloads the physical base")
+    testAssert.equal(loop:find("view.columns", 1, true), nil, "the loop reloads the columns table")
+    testAssert.equal(loop:find("view.offset", 1, true), nil, "the loop reloads the physical base")
 end
 
 function M.nestedCountBoundedLoopsLeaveCrossLoopHoistingToTheRecorder()
@@ -151,16 +150,20 @@ return advance
     local declined = false
     for _, remark in ipairs(remarks) do
         if remark.msg:find("soa-loop-bindings: declines nested loop", 1, true) then
-            assertEq(remark.status, "declined", "nested binding decision is structured")
+            testAssert.equal(remark.status, "declined", "nested binding decision is structured")
             declined = true
         end
     end
     assert(declined, "the nested-loop decision explains why binding was declined")
-    assertEq(#errors, 0, "checked nested invariant fixture")
-    assertEq(#generated, 0, "generated nested invariant fixture")
+    testAssert.equal(#errors, 0, "checked nested invariant fixture")
+    testAssert.equal(#generated, 0, "generated nested invariant fixture")
     local compact = code:gsub("%s+", "")
     assert(compact:find("view.columns[1][view.offset+", 1, true), compact)
-    assertEq(compact:find("=view.columns;", 1, true), nil, "a nested inner loop repeats explicit invariant bindings")
+    testAssert.equal(
+        compact:find("=view.columns;", 1, true),
+        nil,
+        "a nested inner loop repeats explicit invariant bindings"
+    )
 end
 
 function M.aCommonRangeRelatesSoAAndContiguousViews()
@@ -187,7 +190,7 @@ end
 return particles:read()[3].x
 ]]
     )
-    assertEq(value, 12, "mixed indexed range")
+    testAssert.equal(value, 12, "mixed indexed range")
     assert(code:find(".columns[", 1, true), "SoA range did not select a column")
     local compact = code:gsub("%s+", "")
     assert(not compact:find(".fromCarray(", 1, true), "span root remained materialized")
@@ -210,7 +213,7 @@ nupp.drop(particles)
 return value
 ]]
     )
-    assertEq(value, 2.5, "direct with result")
+    testAssert.equal(value, 2.5, "direct with result")
     local direct = false
 
     local function walk(node)
@@ -248,7 +251,7 @@ end
 return calls * 10 + particles:read()[1].x
 ]]
     )
-    assertEq(value, 17, "one index evaluation and one store")
+    testAssert.equal(value, 17, "one index evaluation and one store")
 end
 
 function M.layoutReflectionDescribesEveryColumn()
@@ -270,11 +273,11 @@ return {
     )
     assert(facts.fingerprint:match("^soa1|"), facts.fingerprint)
     assert(facts.alignment >= 4, "layout alignment is missing")
-    assertEq(facts.names, "xdy", "declaration order")
-    assertEq(facts.identity, "Particle.dy", "stable runtime field identity")
-    assertEq(facts.firstBytes, 16, "four floats in the first segment")
-    assertEq(facts.secondOffset, 16, "the second aligned segment")
-    assertEq(facts.total, 64, "four columns of four floats")
+    testAssert.equal(facts.names, "xdy", "declaration order")
+    testAssert.equal(facts.identity, "Particle.dy", "stable runtime field identity")
+    testAssert.equal(facts.firstBytes, 16, "four floats in the first segment")
+    testAssert.equal(facts.secondOffset, 16, "the second aligned segment")
+    testAssert.equal(facts.total, 64, "four columns of four floats")
 end
 
 function M.aStructKeepsItsAoSLayoutBesideSoAStorage()
@@ -303,7 +306,7 @@ return aos:read()[1].x == 1
     and ordinary.fields[1].name == split.fields[1].name
 ]]
     )
-    assertEq(value, true, "ordinary and column storage coexist")
+    testAssert.equal(value, true, "ordinary and column storage coexist")
 end
 
 function M.nestedStructsAndFixedArraysRemainSingleColumns()
@@ -330,11 +333,11 @@ return {
 }
 ]]
     )
-    assertEq(facts.fields, 2, "only top-level fields split")
-    assertEq(facts.first, "position", "nested struct column")
-    assertEq(facts.second, "history", "fixed array column")
-    assertEq(facts.firstBytes, 16, "two nested struct values")
-    assertEq(facts.secondBytes, 24, "two fixed arrays")
+    testAssert.equal(facts.fields, 2, "only top-level fields split")
+    testAssert.equal(facts.first, "position", "nested struct column")
+    testAssert.equal(facts.second, "history", "fixed array column")
+    testAssert.equal(facts.firstBytes, 16, "two nested struct values")
+    testAssert.equal(facts.secondBytes, 24, "two fixed arrays")
 end
 
 function M.comptimeReflectionPublishesSoAFieldHandles()
@@ -354,7 +357,7 @@ end
 return reflected
 ]]
     )
-    assertEq(value, true, "semantic SoA reflection")
+    testAssert.equal(value, true, "semantic SoA reflection")
 end
 
 function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
@@ -378,7 +381,7 @@ local xs: span.Span<float> = rows.x
 return xs[1] + rows[1].y
 ]]
     )
-    assertEq(value, 8, "typed sibling field spans")
+    testAssert.equal(value, 8, "typed sibling field spans")
 end
 
 function M.fieldTokensCarrySemanticColumnInspectionFacts()
@@ -392,16 +395,16 @@ local projected = rows["dy"]
 print(direct, projected)
 ]]
     )
-    assertEq(#errors, 0, "tooling source checks")
+    testAssert.equal(#errors, 0, "tooling source checks")
     local found = {}
     for _, token in ipairs(parsed.tokens) do
         if token.soaColumn then
             found[token.soaColumn.identity] = token.soaColumn
         end
     end
-    assertEq(found["Particle.x"].ordinal, 1, "direct field identity")
-    assertEq(found["Particle.x"].access, "read-only", "direct field capability")
-    assertEq(found["Particle.dy"].ordinal, 4, "projected field identity")
+    testAssert.equal(found["Particle.x"].ordinal, 1, "direct field identity")
+    testAssert.equal(found["Particle.x"].access, "read-only", "direct field capability")
+    testAssert.equal(found["Particle.dy"].ordinal, 4, "projected field identity")
 end
 
 function M.literalBracketsReachColumnsThatCollideWithViewMembers()
@@ -425,7 +428,7 @@ end
 return values:read()["slice"][1]
 ]]
     )
-    assertEq(value, 6.5, "brackets select the column while dot keeps the method")
+    testAssert.equal(value, 6.5, "brackets select the column while dot keeps the method")
 end
 
 function M.aotBodiesRetainSemanticUnitStrideFieldFacts()
@@ -442,7 +445,7 @@ end
 return advance
 ]]
     )
-    assertEq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "SoA AOT source subset")
+    testAssert.equal(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "SoA AOT source subset")
     local fields = {}
     local seen = {}
 
@@ -460,8 +463,8 @@ return advance
     end
 
     walk(parsed.root)
-    assertEq(fields.x, 1, "x unit-stride field identity")
-    assertEq(fields.dx, 3, "dx unit-stride field identity")
+    testAssert.equal(fields.x, 1, "x unit-stride field identity")
+    testAssert.equal(fields.dx, 3, "dx unit-stride field identity")
 end
 
 function M.writableSlicesKeepOffsetsAndBorrowBarriers()
@@ -483,7 +486,7 @@ local tail = rows:slice(2, 3)
 return rows[1].x + tail[1].x + tail[2].x
 ]]
     )
-    assertEq(value, 44.5, "shared and writable slice offsets")
+    testAssert.equal(value, 44.5, "shared and writable slice offsets")
 end
 
 function M.nonescapingSoaSlicesUseScalarOffsets()
@@ -503,7 +506,7 @@ end
 return particles:read()[3].x
 ]]
     )
-    assertEq(value, 10, "virtual SoA slice offset")
+    testAssert.equal(value, 10, "virtual SoA slice offset")
     assert(code:find("._sliceFinish(", 1, true), code)
     assert(not code:find(":slice(2,3)", 1, true), code)
 end
@@ -532,7 +535,7 @@ end
 return total
 ]]
     )
-    assertEq(value, 20, "virtual projected column")
+    testAssert.equal(value, 20, "virtual projected column")
     assert(not code:find(":fieldBySlot(", 1, true), code)
     assert(not code:find(":slice(2,3)", 1, true), code)
     assert(code:find("columns[1]", 1, true), code)
@@ -560,11 +563,11 @@ local rows = target:read()
 return rows[2].x + rows[3].y + rows[4].dy
 ]]
     )
-    assertEq(value, 19, "one bulk copy per field")
+    testAssert.equal(value, 19, "one bulk copy per field")
 end
 
 function M.fieldProjectionRequiresAResolvedStoredField()
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -578,7 +581,7 @@ print(xs ~= nil)
         "a dynamic field name is not a place"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -592,7 +595,7 @@ print(xs ~= nil)
         "a constant binding is not literal bracket syntax"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -605,7 +608,7 @@ print(xs ~= nil)
         "an unknown field is diagnosed at the projection"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -618,7 +621,7 @@ print(xs ~= nil)
         "an unknown dotted field is diagnosed at the projection"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -674,7 +677,7 @@ return zero.byteSize == 0
     and (jit.os == "Windows" or not okOverflow)
 ]]
     )
-    assertEq(value, true, "zero sentinel and checked failures")
+    testAssert.equal(value, true, "zero sentinel and checked failures")
 end
 
 -- NaN fails every comparison, so a guard written `index < 1 or index > count`
@@ -738,11 +741,11 @@ end
 return "accepted " .. table.concat(accepted, ",") .. "; rows " .. rows[1].x .. rows[2].x .. rows[3].x .. rows[4].x
 ]]
     )
-    assertEq(value, true, "NaN and fractional SoA indexes")
+    testAssert.equal(value, true, "NaN and fractional SoA indexes")
 end
 
 function M.sharedRowsRejectWrites()
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -755,7 +758,7 @@ rows[1].x = 2
         "shared field store"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -770,7 +773,7 @@ rows[1] = new Particle(1, 2, 3, 4)
 end
 
 function M.nonStructElementsAreRejectedAtTheCall()
-    assertEq(
+    testAssert.equal(
         codes(
             [[
 local soa = require("nupp.mem.soa")
@@ -791,7 +794,7 @@ local aotVerify = require("nupp.compiler.aot.verify")
 
 local function native(source, target)
     local parsed = parser.parse(source, "soa-native.g.nupp")
-    assertEq(#parsed.errors, 0, "native syntax")
+    testAssert.equal(#parsed.errors, 0, "native syntax")
     for _, diagnostic in ipairs(check.check(parsed, "soa-native.g.nupp", env)) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
@@ -823,19 +826,19 @@ return advance
 function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
     local selected = assert(aotTargets.select("aarch64-apple-darwin", "neon"))
     local programs, diagnostics = native(DIRECT, selected)
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
     local program = assert(programs[1])
-    assertEq(#program.params, 5, "four columns and a uniform")
+    testAssert.equal(#program.params, 5, "four columns and a uniform")
     for ordinal = 1, 4 do
         local param = program.params[ordinal]
-        assertEq(param.soa.ordinal, ordinal, "ordered columns")
-        assertEq(param.soa.view, "rows", "source view")
-        assertEq(param.soa.field, ({"x", "y", "dx", "dy"})[ordinal], "field identity")
-        assertEq(param.spanModule, "nupp.mem.soa", "sealed column origin")
+        testAssert.equal(param.soa.ordinal, ordinal, "ordered columns")
+        testAssert.equal(param.soa.view, "rows", "source view")
+        testAssert.equal(param.soa.field, ({"x", "y", "dx", "dy"})[ordinal], "field identity")
+        testAssert.equal(param.spanModule, "nupp.mem.soa", "sealed column origin")
     end
     for _, fact in ipairs(program.aliasFacts) do
-        assertEq(fact.proof, "soa_columns", "sibling layout proof")
-        assertEq(fact.relation, "disjoint", "sibling columns do not alias")
+        testAssert.equal(fact.proof, "soa_columns", "sibling layout proof")
+        testAssert.equal(fact.relation, "disjoint", "sibling columns do not alias")
     end
     local binding = table.concat(aotBinding.wrapper(program), "\n")
     assert(binding:find("exclusive rows: soa.WriteToken&soa.WriteSpan<Particle>", 1, true), binding)
@@ -862,19 +865,19 @@ end
 return counts
 ]]
     )
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
     local program = programs[1]
-    assertEq(#program.params, 9, "both views expanded even without field access")
-    assertEq(program.params[5].name, "value", "authored argument order")
-    assertEq(program.params[6].soa.sourceType, "Reader", "authored type alias")
+    testAssert.equal(#program.params, 9, "both views expanded even without field access")
+    testAssert.equal(program.params[5].name, "value", "authored argument order")
+    testAssert.equal(program.params[6].soa.sourceType, "Reader", "authored type alias")
     local regions = {}
     for _, param in ipairs(program.params) do
         regions[param.region or "uniform"] = param
     end
     for _, fact in ipairs(program.aliasFacts) do
         local siblings = regions[fact.left].soa.view == regions[fact.right].soa.view
-        assertEq(fact.relation, siblings and "disjoint" or "may_alias", "shared alias relation")
-        assertEq(fact.proof, siblings and "soa_columns" or "shared_borrows", "shared alias proof")
+        testAssert.equal(fact.relation, siblings and "disjoint" or "may_alias", "shared alias relation")
+        testAssert.equal(fact.proof, siblings and "soa_columns" or "shared_borrows", "shared alias proof")
     end
 end
 
@@ -897,7 +900,7 @@ end
 return read
 ]]
         local programs, diagnostics = native(source)
-        assertEq(#programs, 0, "unsupported shape")
+        testAssert.equal(#programs, 0, "unsupported shape")
         assert(
             diagnostics[1] and diagnostics[1].message:find(example[2], 1, true),
             (diagnostics[1] and diagnostics[1].message or "missing diagnostic") .. " in " .. example[1]
@@ -906,7 +909,7 @@ return read
 end
 
 function M.dynamicNativeRowFieldsRemainATypeError()
-    assertEq(
+    testAssert.equal(
         codes(
             PRELUDE
             .. [[
@@ -926,7 +929,7 @@ end
 function M.nativeSoaAdmissionRemainsNativeCpuOnly()
     local wasm = assert(aotTargets.select("wasm32-unknown-emscripten", "scalar"))
     local programs, diagnostics = native(DIRECT, wasm)
-    assertEq(#programs, 0, "Wasm row views rejected")
+    testAssert.equal(#programs, 0, "Wasm row views rejected")
     assert(diagnostics[1].message:find("only by native CPU AOT", 1, true), diagnostics[1].message)
     local _, _, parsed = native(DIRECT)
 
@@ -944,7 +947,7 @@ function M.nativeSoaAdmissionRemainsNativeCpuOnly()
 
     gpu(parsed.root)
     programs, diagnostics = aotCompile.lower(DIRECT, "soa-native.g.nupp", parsed)
-    assertEq(#programs, 0, "GPU row views rejected")
+    testAssert.equal(#programs, 0, "GPU row views rejected")
     assert(diagnostics[1].message:find("only by native CPU AOT", 1, true), diagnostics[1].message)
 end
 
@@ -960,9 +963,9 @@ end
 return read
 ]]
     )
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
     local program = programs[1]
-    assertEq(program.params[5].uniqueName, "p_cursor", "cursor names the actual native parameter")
+    testAssert.equal(program.params[5].uniqueName, "p_cursor", "cursor names the actual native parameter")
     aotVerify.program(program)
     program.body[1].clauses[1].condition.op = "le"
     local ok, why = pcall(aotVerify.program, program)
@@ -1076,7 +1079,7 @@ return count
     }
     for _, example in ipairs(sources) do
         local programs, diagnostics = native(example[1])
-        assertEq(#programs, 0, "unsupported SoA entry: " .. example[2])
+        testAssert.equal(#programs, 0, "unsupported SoA entry: " .. example[2])
         assert(
             diagnostics[1] and diagnostics[1].message:find(example[2], 1, true),
             diagnostics[1] and diagnostics[1].message or "missing native refusal"
@@ -1096,10 +1099,10 @@ end
 return count
 ]]
     )
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
-    assertEq(programs[1].params[1].soa.sourceType, "Writer", "affine alias preserved")
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
+    testAssert.equal(programs[1].params[1].soa.sourceType, "Writer", "affine alias preserved")
     assert(programs[1].params[2].name ~= "__nuppSoa_1_2", "generated column collides with source parameter")
-    assertEq(programs[1].params[5].name, "__nuppSoa_1_2", "authored scalar retained")
+    testAssert.equal(programs[1].params[5].name, "__nuppSoa_1_2", "authored scalar retained")
 end
 
 return M

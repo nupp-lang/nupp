@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- S5: the platform-neutral process state machine.
 --
 -- Driven by a fake backend, on purpose. What is being checked here is the lifecycle,
@@ -10,18 +11,6 @@ local suspension = require("nupp.suspension")
 local function spawnOn(provider, options)
     local instance = require("providerstate").load("process", provider)
     return assert(instance.spawn(options))
-end
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
-local function assertTrue(cond, label)
-    if not cond then
-        error(label or "expected true", 2)
-    end
 end
 
 -- A backend whose child is a script, with backpressure. Nothing here blocks, which is
@@ -291,10 +280,10 @@ function M.drainsBothPipesAndWaits()
     local child = spawnOn(backend, {args = {"echo"}})
     local result = assert(child:communicate())
     child:close()
-    assertEq(result.output, "hello world", "stdout was drained to the end")
-    assertEq(result.errorOutput, "warning", "and stderr alongside it, not after it")
-    assertEq(result.exit.exitCode, 0, "the exit came back")
-    assertTrue(result:succeeded(), "and it succeeded")
+    testAssert.equal(result.output, "hello world", "stdout was drained to the end")
+    testAssert.equal(result.errorOutput, "warning", "and stderr alongside it, not after it")
+    testAssert.equal(result.exit.exitCode, 0, "the exit came back")
+    assert(result:succeeded(), "and it succeeded")
 end
 
 function M.writesAndClosesStandardInput()
@@ -302,20 +291,20 @@ function M.writesAndClosesStandardInput()
     local child = spawnOn(backend, {args = {"cat"}})
     local result = assert(child:communicate({input = "payload"}))
     child:close()
-    assertEq(backend.state.written[1], "payload", "the input went")
-    assertTrue(backend.state.closed["in"], "and stdin was closed, which is how EOF is sent")
-    assertEq(result.output, "ok", "the output came back")
+    testAssert.equal(backend.state.written[1], "payload", "the input went")
+    assert(backend.state.closed["in"], "and stdin was closed, which is how EOF is sent")
+    testAssert.equal(result.output, "ok", "the output came back")
 end
 
 function M.aKilledChildDidNotSucceed()
     local backend = fakeBackend({out = {}, exitAfter = nil})
     local child = spawnOn(backend, {args = {"sleep"}})
-    assertTrue(child:isRunning(), "it is running")
-    assertTrue(child:kill(true), "the kill was requested")
+    assert(child:isRunning(), "it is running")
+    assert(child:kill(true), "the kill was requested")
     local exit = child:wait()
     child:close()
-    assertTrue(exit.killed, "it was killed")
-    assertEq(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
+    assert(exit.killed, "it was killed")
+    testAssert.equal(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
 end
 
 function M.aDeadlineIsMeasuredFromTheStart()
@@ -326,9 +315,9 @@ function M.aDeadlineIsMeasuredFromTheStart()
     backend:advance(150)
     local exit = child:wait()
     child:close()
-    assertTrue(exit.killed, "the deadline killed it")
-    assertTrue(exit.timedOut, "and said that is why")
-    assertEq(exit:succeeded(), false, "a timeout is not a success")
+    assert(exit.killed, "the deadline killed it")
+    assert(exit.timedOut, "and said that is why")
+    testAssert.equal(exit:succeeded(), false, "a timeout is not a success")
 end
 
 function M.aDeadlineThatHasNotPassedDoesNotFire()
@@ -337,9 +326,9 @@ function M.aDeadlineThatHasNotPassedDoesNotFire()
     backend:advance(10)
     local result = assert(child:communicate())
     child:close()
-    assertEq(result.output, "done", "it finished on its own")
-    assertEq(result.exit.timedOut, false, "well inside its deadline")
-    assertTrue(result:succeeded(), "and succeeded")
+    testAssert.equal(result.output, "done", "it finished on its own")
+    testAssert.equal(result.exit.timedOut, false, "well inside its deadline")
+    assert(result:succeeded(), "and succeeded")
 end
 
 function M.isRunningEnforcesAnElapsedDeadline()
@@ -347,19 +336,19 @@ function M.isRunningEnforcesAnElapsedDeadline()
     local child = spawnOn(backend, {args = {"sleep"}, timeoutMs = 100})
     backend:advance(150)
 
-    assertTrue(not child:isRunning(), "the elapsed deadline is observed")
-    assertEq(backend.state.kills, 1, "the elapsed deadline requested termination")
+    assert(not child:isRunning(), "the elapsed deadline is observed")
+    testAssert.equal(backend.state.kills, 1, "the elapsed deadline requested termination")
     local exit = child:wait()
     child:close()
-    assertTrue(exit.timedOut, "the resulting exit records the deadline")
+    assert(exit.timedOut, "the resulting exit records the deadline")
 end
 
 function M.closingEndsAChildStillRunning()
     local backend = fakeBackend({out = {}, exitAfter = nil})
     local child = spawnOn(backend, {args = {"sleep"}})
     child:close()
-    assertTrue(backend.state.killed, "a child outliving the scope that started it is a leak nobody sees")
-    assertTrue(backend.state.reaped, "and it was released")
+    assert(backend.state.killed, "a child outliving the scope that started it is a leak nobody sees")
+    assert(backend.state.reaped, "and it was released")
 end
 
 function M.closingIsIdempotent()
@@ -368,15 +357,15 @@ function M.closingIsIdempotent()
     child:wait()
     child:close()
     child:close()
-    assertTrue(backend.state.reaped, "closed once, and again without complaint")
+    assert(backend.state.reaped, "closed once, and again without complaint")
 end
 
 function M.readsAnswerNilAtEndOfStream()
     local backend = fakeBackend({out = {"only"}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"echo"}})
-    assertEq(child.stdout:read(65536), "only", "the one chunk")
-    assertEq(child.stdout:read(65536), "", "then end of stream")
-    assertTrue(child.stdout:isEnded(), "and it says so")
+    testAssert.equal(child.stdout:read(65536), "only", "the one chunk")
+    testAssert.equal(child.stdout:read(65536), "", "then end of stream")
+    assert(child.stdout:isEnded(), "and it says so")
     child:close()
 end
 
@@ -387,17 +376,17 @@ function M.pollTellsNothingYetFromTheEnd()
     local backend = fakeBackend({out = {"late"}, err = {}, outDelay = 1, exitAfter = 1})
     local child = spawnOn(backend, {args = {"slow"}})
     local chunk, ended = child.stdout:poll()
-    assertEq(chunk, nil, "nothing was ready yet")
-    assertEq(ended, false, "and that is not the end")
+    testAssert.equal(chunk, nil, "nothing was ready yet")
+    testAssert.equal(ended, false, "and that is not the end")
     chunk, ended = child.stdout:poll()
-    assertEq(chunk, "late", "the bytes when they came")
-    assertEq(ended, false, "with the stream still open")
+    testAssert.equal(chunk, "late", "the bytes when they came")
+    testAssert.equal(ended, false, "with the stream still open")
     repeat
         chunk, ended = child.stdout:poll()
     until chunk ~= nil or ended
-    assertEq(chunk, nil, "then no bytes")
-    assertEq(ended, true, "because the stream ended")
-    assertTrue(child.stdout:isEnded(), "which the stream reports as well")
+    testAssert.equal(chunk, nil, "then no bytes")
+    testAssert.equal(ended, true, "because the stream ended")
+    assert(child.stdout:isEnded(), "which the stream reports as well")
     child:close()
 end
 
@@ -405,9 +394,9 @@ function M.pollWaitsOnlyAsLongAsItWasToldTo()
     local backend = fakeBackend({out = {}, err = {}, eofWhenExited = true})
     local child = spawnOn(backend, {args = {"quiet"}})
     local chunk, ended = child.stdout:poll(nil, 30)
-    assertEq(chunk, nil, "a quiet stream gave nothing")
-    assertEq(ended, false, "and has not ended")
-    assertTrue(backend.state.waits > 0, "so the wait slept in the platform rather than spinning")
+    testAssert.equal(chunk, nil, "a quiet stream gave nothing")
+    testAssert.equal(ended, false, "and has not ended")
+    assert(backend.state.waits > 0, "so the wait slept in the platform rather than spinning")
     child:close()
 end
 
@@ -418,16 +407,16 @@ function M.sendStopsAtAStallOrAtItsDeadline()
     stalled.state.pendingOut = 1000
     local child = spawnOn(stalled, {args = {"full"}})
     local started = stalled:now()
-    assertEq(child.stdin:send("abcdef", nil, 50), 0, "a pipe that takes nothing sends nothing")
-    assertTrue(stalled:now() - started >= 50, "after waiting out the stall bound")
-    assertTrue(child:isRunning(), "and the child is left alone")
+    testAssert.equal(child.stdin:send("abcdef", nil, 50), 0, "a pipe that takes nothing sends nothing")
+    assert(stalled:now() - started >= 50, "after waiting out the stall bound")
+    assert(child:isRunning(), "and the child is left alone")
     child:close()
 
     local steady = fakeBackend({out = {}, err = {}, inputChunk = 1})
     local second = spawnOn(steady, {args = {"cat"}})
-    assertEq(second.stdin:send("abcdef", steady:now() - 1), 0, "a deadline already past sends nothing")
-    assertEq(second.stdin:send("abcdef", nil, 10), 6, "a pipe that keeps taking bytes outlasts a stall bound")
-    assertEq(second.stdin.setTimeout, nil, "the stream timeout setter is gone")
+    testAssert.equal(second.stdin:send("abcdef", steady:now() - 1), 0, "a deadline already past sends nothing")
+    testAssert.equal(second.stdin:send("abcdef", nil, 10), 6, "a pipe that keeps taking bytes outlasts a stall bound")
+    testAssert.equal(second.stdin.setTimeout, nil, "the stream timeout setter is gone")
     second:close()
 end
 
@@ -435,15 +424,15 @@ function M.streamsReportEndedAndReleasedLikeEveryOtherStream()
     local backend = fakeBackend({out = {}, err = {}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"quiet"}})
     local stdin, stdout = child.stdin, child.stdout
-    assertTrue(not stdin:isReleased() and not stdin:isEnded(), "an open writer is neither")
-    assertTrue(not stdout:isReleased(), "an open reader is not released")
+    assert(not stdin:isReleased() and not stdin:isEnded(), "an open writer is neither")
+    assert(not stdout:isReleased(), "an open reader is not released")
     stdin:close()
-    assertTrue(stdin:isReleased(), "a closed writer is released")
-    assertTrue(stdin:isEnded(), "and can take nothing more")
+    assert(stdin:isReleased(), "a closed writer is released")
+    assert(stdin:isEnded(), "and can take nothing more")
     stdout:close()
-    assertTrue(stdout:isReleased() and stdout:isEnded(), "a closed reader is both")
-    assertEq(stdin.isClosed, nil, "the old closed-ness spelling is gone")
-    assertEq(stdout.isEOF, nil, "and so is the old end-of-stream one")
+    assert(stdout:isReleased() and stdout:isEnded(), "a closed reader is both")
+    testAssert.equal(stdin.isClosed, nil, "the old closed-ness spelling is gone")
+    testAssert.equal(stdout.isEOF, nil, "and so is the old end-of-stream one")
     child:close()
 end
 
@@ -452,12 +441,13 @@ function M.aChildThatCannotStartIsAnAnswerNotARaise()
     function backend:spawn(_options)
         return nil, nil, nil, nil, 0, "no such program"
     end
+
     local instance = require("providerstate").load("process", backend)
     local ok, child, reason = pcall(instance.spawn, {args = {"missing"}})
-    assertTrue(ok, "spawn did not raise: " .. tostring(child))
-    assertEq(child, nil, "there is no child")
-    assertTrue(tostring(reason):find("no such program", 1, true) ~= nil, "and the reason says why: " .. tostring(reason))
-    assertEq(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
+    assert(ok, "spawn did not raise: " .. tostring(child))
+    testAssert.equal(child, nil, "there is no child")
+    assert(tostring(reason):find("no such program", 1, true) ~= nil, "and the reason says why: " .. tostring(reason))
+    testAssert.equal(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
 end
 
 function M.waitingWorksUnderAHandler()
@@ -481,8 +471,8 @@ function M.waitingWorksUnderAHandler()
     local result = assert(child:communicate())
     child:close()
     installation:close()
-    assertEq(result.output, "handled", "the output came back through a handled wait")
-    assertTrue(drove > 0, "and the handler is what drove it")
+    testAssert.equal(result.output, "handled", "the output came back through a handled wait")
+    assert(drove > 0, "and the handler is what drove it")
 end
 
 function M.makesProgressOnAllThreeStreamsTogether()
@@ -505,15 +495,15 @@ function M.makesProgressOnAllThreeStreamsTogether()
     local child = spawnOn(backend, {args = {"filter"}})
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:close()
-    assertEq(result.output, "onetwothree", "stdout arrived in full")
-    assertEq(result.errorOutput, "ab", "and so did stderr, interleaved rather than after")
-    assertEq(
+    testAssert.equal(result.output, "onetwothree", "stdout arrived in full")
+    testAssert.equal(result.errorOutput, "ab", "and so did stderr, interleaved rather than after")
+    testAssert.equal(
         table.concat(backend.state.written),
         "a longer payload than one chunk",
         "every byte of input went, four at a time"
     )
-    assertTrue(#backend.state.written > 1, "and it took several writes, so backpressure was really exercised")
-    assertTrue(result:succeeded(), "the child finished")
+    assert(#backend.state.written > 1, "and it took several writes, so backpressure was really exercised")
+    assert(result:succeeded(), "the child finished")
 end
 
 function M.drainingUnderAHandlerNeverBlocksThePlatform()
@@ -548,10 +538,10 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:close()
     installation:close()
-    assertEq(result.output, "onetwo", "everything arrived")
-    assertEq(result.errorOutput, "a", "on both streams")
-    assertTrue(result:succeeded(), "and the child finished")
-    assertEq(backend.state.waits, 0, "without ever asking the platform to block")
+    testAssert.equal(result.output, "onetwo", "everything arrived")
+    testAssert.equal(result.errorOutput, "a", "on both streams")
+    assert(result:succeeded(), "and the child finished")
+    testAssert.equal(backend.state.waits, 0, "without ever asking the platform to block")
 end
 
 function M.communicateClosesStdinWhenTheChildEndsEarly()
@@ -574,9 +564,9 @@ function M.communicateClosesStdinWhenTheChildEndsEarly()
     local closedOnTheWayOut = backend.state.closed["in"]
     local delivered = #table.concat(backend.state.written)
     child:close()
-    assertEq(result.output, "bye", "what it did say arrived")
-    assertTrue(delivered < #payload, "the child really did end with input still undelivered")
-    assertTrue(closedOnTheWayOut, "and communicate closed its stdin before returning")
+    testAssert.equal(result.output, "bye", "what it did say arrived")
+    assert(delivered < #payload, "the child really did end with input still undelivered")
+    assert(closedOnTheWayOut, "and communicate closed its stdin before returning")
 end
 
 function M.aGoneStdinIsLeftOutOfTheWriteInterest()
@@ -605,8 +595,8 @@ function M.aGoneStdinIsLeftOutOfTheWriteInterest()
     child = spawnOn(backend, {args = {"head"}})
     local result = assert(child:communicate({input = "abc"}))
     child:close()
-    assertEq(result.output, "data", "the outputs were still drained to the end")
-    assertTrue(not waitedOnGoneStdin, "and no wait named a stdin whose far end had gone")
+    testAssert.equal(result.output, "data", "the outputs were still drained to the end")
+    assert(not waitedOnGoneStdin, "and no wait named a stdin whose far end had gone")
 end
 
 function M.aStepThatAnswersFailureIsNotMistakenForSuccess()
@@ -624,14 +614,14 @@ function M.aStepThatAnswersFailureIsNotMistakenForSuccess()
     local ok, reported = pcall(function()
         child:close()
     end)
-    assertTrue(not ok, "the answered failure was reported, not swallowed")
-    assertTrue(
+    assert(not ok, "the answered failure was reported, not swallowed")
+    assert(
         tostring(reported):find("declined", 1, true) ~= nil,
         "and it said what the platform said, got: " .. tostring(reported)
     )
-    assertTrue(not backend.state.reaped, "nothing was marked released")
+    assert(not backend.state.reaped, "nothing was marked released")
     child:close()
-    assertTrue(backend.state.reaped, "and the retry finished it")
+    assert(backend.state.reaped, "and the retry finished it")
 end
 
 function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
@@ -643,10 +633,10 @@ function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
     local backend = fakeBackend({out = {"abcdefgh"}, err = {}, eofWhenExited = true, exitAfter = 9, code = 0})
     local child = spawnOn(backend, {args = {"talkative"}})
     local first = child.stdout:poll(4)
-    assertEq(first, "abcd", "the first read took exactly its limit")
+    testAssert.equal(first, "abcd", "the first read took exactly its limit")
     local second = child.stdout:poll(4)
-    assertEq(second, "efgh", "and the next took up where it left off")
-    assertEq(first .. second, "abcdefgh", "losing nothing between them")
+    testAssert.equal(second, "efgh", "and the next took up where it left off")
+    testAssert.equal(first .. second, "abcdefgh", "losing nothing between them")
     child:close()
 end
 
@@ -656,10 +646,10 @@ function M.aNonPositiveLimitReadsOneByte()
     -- read that reads as end of stream or an enormous one.
     local backend = fakeBackend({out = {"abcdefgh"}, err = {}, eofWhenExited = true, exitAfter = 9, code = 0})
     local child = spawnOn(backend, {args = {"talkative"}})
-    assertEq(child.stdout:poll(0), "a", "zero read one byte")
-    assertEq(backend.state.lastReadLimit, 1, "and the platform was asked for one")
-    assertEq(child.stdout:poll(-5), "b", "a negative one did too")
-    assertEq(backend.state.lastReadLimit, 1, "asking for one again")
+    testAssert.equal(child.stdout:poll(0), "a", "zero read one byte")
+    testAssert.equal(backend.state.lastReadLimit, 1, "and the platform was asked for one")
+    testAssert.equal(child.stdout:poll(-5), "b", "a negative one did too")
+    testAssert.equal(backend.state.lastReadLimit, 1, "asking for one again")
     child:close()
 end
 
@@ -672,14 +662,14 @@ function M.processStreamsRejectMalformedProviderResults()
     end
 
     local ok, problem = pcall(child.stdout.poll, child.stdout, 2)
-    assertTrue(not ok and tostring(problem):find("non-string read result", 1, true), tostring(problem))
+    assert(not ok and tostring(problem):find("non-string read result", 1, true), tostring(problem))
 
     function backend:read(_handle, _limit)
         return "too many"
     end
 
     ok, problem = pcall(child.stdout.poll, child.stdout, 2)
-    assertTrue(not ok and tostring(problem):find("more bytes than requested", 1, true), tostring(problem))
+    assert(not ok and tostring(problem):find("more bytes than requested", 1, true), tostring(problem))
 
     local writeResults = {
         {-1, false, "invalid write count"},
@@ -695,7 +685,7 @@ function M.processStreamsRejectMalformedProviderResults()
     for _, result in ipairs(writeResults) do
         writeResult = result
         ok, problem = pcall(child.stdin.offer, child.stdin, "input")
-        assertTrue(not ok and tostring(problem):find(result[3], 1, true), tostring(problem))
+        assert(not ok and tostring(problem):find(result[3], 1, true), tostring(problem))
     end
 
     child:close()
@@ -712,11 +702,11 @@ function M.aComplainingStreamCloseStillReapsTheChild()
     local ok, reported = pcall(function()
         child:close()
     end)
-    assertTrue(not ok, "the complaint was still reported")
-    assertTrue(tostring(reported):find("complained", 1, true) ~= nil, "got: " .. tostring(reported))
-    assertTrue(backend.state.reaped, "and the child was reaped anyway")
-    assertTrue(child.state.childReleased, "which the child records as its handle being gone")
-    assertTrue(child.state.reaped, "and with every piece released, the teardown is complete")
+    assert(not ok, "the complaint was still reported")
+    assert(tostring(reported):find("complained", 1, true) ~= nil, "got: " .. tostring(reported))
+    assert(backend.state.reaped, "and the child was reaped anyway")
+    assert(child.state.childReleased, "which the child records as its handle being gone")
+    assert(child.state.reaped, "and with every piece released, the teardown is complete")
 end
 
 function M.aRunningChildIsNotReapedByAFailedTeardown()
@@ -734,14 +724,14 @@ function M.aRunningChildIsNotReapedByAFailedTeardown()
     local ok = pcall(function()
         child:close()
     end)
-    assertTrue(not ok, "the refusal was reported")
-    assertTrue(not backend.state.reaped, "and nothing reaped a child that never exited")
-    assertTrue(not child.state.reaped, "so the teardown is not complete")
+    assert(not ok, "the refusal was reported")
+    assert(not backend.state.reaped, "and nothing reaped a child that never exited")
+    assert(not child.state.reaped, "so the teardown is not complete")
     -- Retrying with a platform that cooperates finishes the job.
     backend.kill = realKill
     backend.state.killLag = 0
     child:close()
-    assertTrue(backend.state.reaped and child.state.reaped, "the retry finished it")
+    assert(backend.state.reaped and child.state.reaped, "the retry finished it")
 end
 
 function M.aReapThatReleasedAndComplainedIsStillAReap()
@@ -755,12 +745,12 @@ function M.aReapThatReleasedAndComplainedIsStillAReap()
     local ok, reported = pcall(function()
         child:close()
     end)
-    assertTrue(not ok, "the complaint was reported")
-    assertTrue(
+    assert(not ok, "the complaint was reported")
+    assert(
         tostring(reported):find("complained", 1, true) ~= nil,
         "carrying the platform's words, got: " .. tostring(reported)
     )
-    assertTrue(child.state.reaped, "and the child counts as released, because it was")
+    assert(child.state.reaped, "and the child counts as released, because it was")
     local calls = 0
     local realReap = backend.reap
     function backend:reap(handle)
@@ -769,7 +759,7 @@ function M.aReapThatReleasedAndComplainedIsStillAReap()
     end
 
     child:close()
-    assertEq(calls, 0, "a released child is never offered to the platform again")
+    testAssert.equal(calls, 0, "a released child is never offered to the platform again")
 end
 
 function M.aRefusalWithNoReasonIsStillARefusal()
@@ -782,9 +772,9 @@ function M.aRefusalWithNoReasonIsStillARefusal()
     local ok, reported = pcall(function()
         child.stdin:close()
     end)
-    assertTrue(not ok, "the silent refusal was still an error")
-    assertTrue(tostring(reported):find("did not say why", 1, true) ~= nil, "and said so, got: " .. tostring(reported))
-    assertTrue(not child.stdin.closed, "with the stream still open, since it is still ours")
+    assert(not ok, "the silent refusal was still an error")
+    assert(tostring(reported):find("did not say why", 1, true) ~= nil, "and said so, got: " .. tostring(reported))
+    assert(not child.stdin.closed, "with the stream still open, since it is still ours")
 
     local other = fakeBackend({out = {}, err = {}, exitAfter = 1, code = 0})
     other.state.reapSilentlyRefuses = true
@@ -792,9 +782,9 @@ function M.aRefusalWithNoReasonIsStillARefusal()
     local reapOk, reapReported = pcall(function()
         second:close()
     end)
-    assertTrue(not reapOk, "and the same for a reap")
-    assertTrue(tostring(reapReported):find("did not say why", 1, true) ~= nil, "got: " .. tostring(reapReported))
-    assertTrue(not second.state.reaped, "the child is not released")
+    assert(not reapOk, "and the same for a reap")
+    assert(tostring(reapReported):find("did not say why", 1, true) ~= nil, "got: " .. tostring(reapReported))
+    assert(not second.state.reaped, "the child is not released")
     second:close()
 end
 
@@ -814,12 +804,12 @@ function M.aStreamReleasedWithAComplaintStaysClosed()
         local ok, reported = pcall(function()
             stream:close()
         end)
-        assertTrue(not ok, which .. ": the complaint was reported")
-        assertTrue(
+        assert(not ok, which .. ": the complaint was reported")
+        assert(
             tostring(reported):find("complained", 1, true) ~= nil,
             which .. ": carrying the platform's words, got: " .. tostring(reported)
         )
-        assertTrue(stream.closed, which .. ": this end is shut, because the descriptor really was given up")
+        assert(stream.closed, which .. ": this end is shut, because the descriptor really was given up")
         -- The second call must do nothing at all: no second closeStream, no second
         -- raise.
         local calls = 0
@@ -830,7 +820,7 @@ function M.aStreamReleasedWithAComplaintStaysClosed()
         end
 
         stream:close()
-        assertEq(calls, 0, which .. ": a released descriptor is never offered to the platform again")
+        testAssert.equal(calls, 0, which .. ": a released descriptor is never offered to the platform again")
         child:close()
     end
 end
@@ -846,15 +836,15 @@ function M.aRefusedStreamCloseBecomesAnErrorAtTheStreamEdge()
     local ok, reported = pcall(function()
         child.stdin:close()
     end)
-    assertTrue(not ok, "the refusal was raised")
-    assertTrue(
+    assert(not ok, "the refusal was raised")
+    assert(
         tostring(reported):find("declined", 1, true) ~= nil,
         "carrying the platform's reason, got: " .. tostring(reported)
     )
-    assertTrue(not child.stdin.closed, "and this end is still open, not pretending")
+    assert(not child.stdin.closed, "and this end is still open, not pretending")
     backend.state.refuseClose = nil
     child.stdin:close()
-    assertTrue(child.stdin.closed, "the retry closed it for real")
+    assert(child.stdin.closed, "the retry closed it for real")
     child:close()
 end
 
@@ -873,11 +863,11 @@ function M.closeCanBeRetriedAfterItFails()
     local ok = pcall(function()
         child:close()
     end)
-    assertTrue(not ok, "the failure was reported rather than swallowed")
-    assertTrue(not backend.state.reaped, "and nothing was reaped")
-    assertTrue(not child.state.childReleased, "the child is still ours, which is why a retry is safe")
+    assert(not ok, "the failure was reported rather than swallowed")
+    assert(not backend.state.reaped, "and nothing was reaped")
+    assert(not child.state.childReleased, "the child is still ours, which is why a retry is safe")
     child:close()
-    assertTrue(backend.state.reaped, "the retry went through and finished the job")
+    assert(backend.state.reaped, "the retry went through and finished the job")
 end
 
 function M.aBackendThatRaisesIsReadAsHavingReleased()
@@ -894,9 +884,9 @@ function M.aBackendThatRaisesIsReadAsHavingReleased()
     local ok, reported = pcall(function()
         child.stdin:close()
     end)
-    assertTrue(not ok, "the broken contract was still reported")
-    assertTrue(tostring(reported):find("raised", 1, true) ~= nil, "and named as a raise, got: " .. tostring(reported))
-    assertTrue(child.stdin.closed, "with the descriptor treated as gone, since nothing said otherwise")
+    assert(not ok, "the broken contract was still reported")
+    assert(tostring(reported):find("raised", 1, true) ~= nil, "and named as a raise, got: " .. tostring(reported))
+    assert(child.stdin.closed, "with the descriptor treated as gone, since nothing said otherwise")
 
     local other = fakeBackend({out = {}, err = {}, exitAfter = 1, code = 0})
     function other:reap(handle)
@@ -907,8 +897,8 @@ function M.aBackendThatRaisesIsReadAsHavingReleased()
     local reapOk = pcall(function()
         second:close()
     end)
-    assertTrue(not reapOk, "the same for a reap")
-    assertTrue(second.state.childReleased, "the child is treated as gone too")
+    assert(not reapOk, "the same for a reap")
+    assert(second.state.childReleased, "the child is treated as gone too")
 end
 
 function M.aRaiseWithNothingToSayIsStillAFailure()
@@ -924,11 +914,8 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
     local ok, reported = pcall(function()
         child.stdin:close()
     end)
-    assertTrue(not ok, "the silent raise was still an error")
-    assertTrue(
-        tostring(reported):find("without saying why", 1, true) ~= nil,
-        "and said so, got: " .. tostring(reported)
-    )
+    assert(not ok, "the silent raise was still an error")
+    assert(tostring(reported):find("without saying why", 1, true) ~= nil, "and said so, got: " .. tostring(reported))
 
     -- And through the teardown, where a nil would have been stored as the first error
     -- and then compared against nil to decide whether anything went wrong at all.
@@ -941,15 +928,15 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
     local reapOk, reapReported = pcall(function()
         second:close()
     end)
-    assertTrue(not reapOk, "a reap that raised nothing was reported")
-    assertTrue(tostring(reapReported):find("without saying why", 1, true) ~= nil, "got: " .. tostring(reapReported))
+    assert(not reapOk, "a reap that raised nothing was reported")
+    assert(tostring(reapReported):find("without saying why", 1, true) ~= nil, "got: " .. tostring(reapReported))
     -- Complete, and rightly so: the conservative reading says the child was released,
     -- every stream was, and the pump is gone -- there is nothing left to hold. The
     -- failure is reported once and a retry has no work, which is the difference between
     -- an aggregate derived from the pieces and one that just tracks whether anything
     -- ever went wrong.
-    assertTrue(second.state.childReleased, "the child is treated as gone")
-    assertTrue(second.state.reaped, "so nothing is still held and the teardown is complete")
+    assert(second.state.childReleased, "the child is treated as gone")
+    assert(second.state.reaped, "so nothing is still held and the teardown is complete")
 
     -- And through the generic step judge, which is a separate path: a stream close
     -- synthesizes at its own edge, so only a step like the kill reaches `attempt` with
@@ -964,8 +951,8 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
     local killOk, killReported = pcall(function()
         running:close()
     end)
-    assertTrue(not killOk, "a step that raised nothing was still a failure")
-    assertTrue(tostring(killReported):find("without saying why", 1, true) ~= nil, "got: " .. tostring(killReported))
+    assert(not killOk, "a step that raised nothing was still a failure")
+    assert(tostring(killReported):find("without saying why", 1, true) ~= nil, "got: " .. tostring(killReported))
 end
 
 function M.aWriteEndsWhenTheChildDoesRatherThanWaitingForever()
@@ -978,11 +965,11 @@ function M.aWriteEndsWhenTheChildDoesRatherThanWaitingForever()
     child:wait()
     local payload = "input for a child that is no longer there"
     local sent = child.stdin:send(payload)
-    assertEq(sent, 0, "nothing went, because nobody was reading")
-    assertTrue(child.stdin.gone, "and the writer knows the far end has gone")
-    assertTrue(not child.stdin.closed, "while this end is still open, since the descriptor is still ours to close")
+    testAssert.equal(sent, 0, "nothing went, because nobody was reading")
+    assert(child.stdin.gone, "and the writer knows the far end has gone")
+    assert(not child.stdin.closed, "while this end is still open, since the descriptor is still ours to close")
     child:close()
-    assertTrue(backend.state.closed["in"], "and closing the child does release it")
+    assert(backend.state.closed["in"], "and closing the child does release it")
 end
 
 function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
@@ -1016,8 +1003,8 @@ function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
     child:wait()
     local sent, how = drainInto(child.stdin, "input for a child that is no longer there")
     child:close()
-    assertEq(how, "gone", "the loop ended because it was told to, not by giving up")
-    assertEq(sent, 0, "having sent nothing to a child that had already left")
+    testAssert.equal(how, "gone", "the loop ended because it was told to, not by giving up")
+    testAssert.equal(sent, 0, "having sent nothing to a child that had already left")
 end
 
 function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
@@ -1027,8 +1014,8 @@ function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
     local child = spawnOn(backend, {args = {"head"}})
     local sent = child.stdin:send("far more input than this child will ever read")
     child:close()
-    assertEq(sent, 8, "the two chunks that landed before it stopped reading")
-    assertEq(table.concat(backend.state.written), "far more", "and those are the bytes the child actually got")
+    testAssert.equal(sent, 8, "the two chunks that landed before it stopped reading")
+    testAssert.equal(table.concat(backend.state.written), "far more", "and those are the bytes the child actually got")
 end
 
 function M.aRefusedStreamCloseCanBeRetried()
@@ -1044,11 +1031,11 @@ function M.aRefusedStreamCloseCanBeRetried()
     local ok = pcall(function()
         child.stdin:close()
     end)
-    assertTrue(not ok, "the refusal was reported")
+    assert(not ok, "the refusal was reported")
     backend.state.refuseClose = nil
-    assertTrue(not child.stdin.closed, "and this end is still open, not pretending")
+    assert(not child.stdin.closed, "and this end is still open, not pretending")
     child.stdin:close()
-    assertTrue(child.stdin.closed and backend.state.closed["in"], "the retry closed it for real")
+    assert(child.stdin.closed and backend.state.closed["in"], "the retry closed it for real")
     child:close()
 end
 
@@ -1078,10 +1065,10 @@ function M.closeReenteredFromItsOwnTeardownJustReturns()
         child:close()
     end)
     local ok, err = coroutine.resume(frame)
-    assertTrue(ok, "the teardown finished: " .. tostring(err))
-    assertTrue(reentries > 0, "the teardown really was reentered")
-    assertEq(backend.state.kills, 1, "and did not start over: one kill")
-    assertTrue(backend.state.reaped, "one reap, and the child released")
+    assert(ok, "the teardown finished: " .. tostring(err))
+    assert(reentries > 0, "the teardown really was reentered")
+    testAssert.equal(backend.state.kills, 1, "and did not start over: one kill")
+    assert(backend.state.reaped, "one reap, and the child released")
 end
 
 function M.aSecondCloserWithNothingToScheduleItIsToldSoRatherThanHanging()
@@ -1111,8 +1098,8 @@ function M.aSecondCloserWithNothingToScheduleItIsToldSoRatherThanHanging()
     end
 
     child:close()
-    assertTrue(backend.state.reaped, "the first caller finished its teardown")
-    assertTrue(
+    assert(backend.state.reaped, "the first caller finished its teardown")
+    assert(
         secondResult ~= nil and tostring(secondResult):find("another coroutine", 1, true) ~= nil,
         "and the second was told why it could not wait, got: " .. tostring(secondResult)
     )
@@ -1167,10 +1154,10 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
         end
         suspension.poll()
     end
-    assertTrue(order["second sawTeardown"], "the second really did arrive mid-teardown")
-    assertEq(backend.state.kills, 1, "the child was ended once, not once per caller")
-    assertTrue(backend.state.reaped, "and released")
-    assertEq(order[#order], "second returned", "with the second returning only after the teardown it waited on")
+    assert(order["second sawTeardown"], "the second really did arrive mid-teardown")
+    testAssert.equal(backend.state.kills, 1, "the child was ended once, not once per caller")
+    assert(backend.state.reaped, "and released")
+    testAssert.equal(order[#order], "second returned", "with the second returning only after the teardown it waited on")
 end
 
 function M.waitingWithoutAHandlerAsksThePlatformToSleep()
@@ -1181,10 +1168,10 @@ function M.waitingWithoutAHandlerAsksThePlatformToSleep()
     local child = spawnOn(backend, {args = {"quiet"}})
     local exit = child:wait()
     child:close()
-    assertTrue(exit.exitCode == 0, "it finished")
-    assertTrue(backend.state.waits > 0, "and got there by waiting, not by spinning")
-    assertEq(backend.state.lastWait.child, "child", "the child is what it waited on")
-    assertEq(
+    assert(exit.exitCode == 0, "it finished")
+    assert(backend.state.waits > 0, "and got there by waiting, not by spinning")
+    testAssert.equal(backend.state.lastWait.child, "child", "the child is what it waited on")
+    testAssert.equal(
         backend.state.lastWait.reads,
         0,
         "and not its output, which nobody is reading and which is therefore always ready"
@@ -1213,8 +1200,8 @@ function M.waitingUnderAHandlerNeverBlocksThePlatform()
     local exit = child:wait()
     child:close()
     installation:close()
-    assertTrue(exit.exitCode == 0, "it finished")
-    assertEq(backend.state.waits, 0, "and never asked the platform to block")
+    assert(exit.exitCode == 0, "it finished")
+    testAssert.equal(backend.state.waits, 0, "and never asked the platform to block")
 end
 
 function M.aBlockingWaitNeverSleepsPastTheDeadline()
@@ -1227,12 +1214,12 @@ function M.aBlockingWaitNeverSleepsPastTheDeadline()
     -- Read before closing, which waits again on its own account.
     local whenItNoticed = backend:now()
     child:close()
-    assertTrue(exit.timedOut, "the deadline fired")
-    assertTrue(backend.state.waits > 1, "after several bounded sleeps rather than one long one")
+    assert(exit.timedOut, "the deadline fired")
+    assert(backend.state.waits > 1, "after several bounded sleeps rather than one long one")
     -- The clock only moves when this sleeps, so where it stopped is the sum of the
     -- budgets. A final sleep that ignored the time remaining would land past the
     -- deadline by up to a whole `BLOCKING_WAIT_MS`, and this is what notices.
-    assertEq(whenItNoticed, 30, "and stopped exactly on it rather than overshooting")
+    testAssert.equal(whenItNoticed, 30, "and stopped exactly on it rather than overshooting")
 end
 
 function M.theBackpressureScriptReallyModelsTheDeadlock()
@@ -1261,7 +1248,7 @@ function M.theBackpressureScriptReallyModelsTheDeadlock()
         sent = sent + child.stdin:offer(payload:sub(sent + 1))
     end
     child:close()
-    assertTrue(sent < #payload, "writing stdin without draining the outputs must stall, not finish")
+    assert(sent < #payload, "writing stdin without draining the outputs must stall, not finish")
 end
 
 function M.aQuietChildStillHitsItsDeadline()
@@ -1287,8 +1274,8 @@ function M.aQuietChildStillHitsItsDeadline()
     local exit = child:wait()
     child:close()
     installation:close()
-    assertTrue(exit.timedOut, "the deadline fired while suspended")
-    assertTrue(exit.killed, "and killed it")
+    assert(exit.timedOut, "the deadline fired while suspended")
+    assert(exit.killed, "and killed it")
 end
 
 function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
@@ -1316,8 +1303,8 @@ function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
     local exit = child:wait()
     child:close()
     installation:close()
-    assertTrue(exit.timedOut, "the deadline fired")
-    assertEq(backend.state.kills, 1, "and asked exactly once, however many polls dying took")
+    assert(exit.timedOut, "the deadline fired")
+    testAssert.equal(backend.state.kills, 1, "and asked exactly once, however many polls dying took")
 end
 
 function M.waitsKeepBlockingWhileAKilledChildTakesItsTimeToDie()
@@ -1338,8 +1325,8 @@ function M.waitsKeepBlockingWhileAKilledChildTakesItsTimeToDie()
     local child = spawnOn(backend, {args = {"stubborn"}, timeoutMs = 30})
     local exit = child:wait()
     child:close()
-    assertTrue(exit.timedOut, "the deadline fired")
-    assertEq(zeroBudgets, 0, "and the waits for the dying child kept their full budget")
+    assert(exit.timedOut, "the deadline fired")
+    testAssert.equal(zeroBudgets, 0, "and the waits for the dying child kept their full budget")
 end
 
 function M.closeWaitsForAKilledChildToFinish()
@@ -1349,17 +1336,17 @@ function M.closeWaitsForAKilledChildToFinish()
     backend.state.killLag = 3
     local child = spawnOn(backend, {args = {"stubborn"}})
     child:close()
-    assertTrue(backend.state.reaped, "it was reaped")
-    assertTrue(backend.state.exited ~= nil, "and only after it had actually exited, not merely been asked to")
+    assert(backend.state.reaped, "it was reaped")
+    assert(backend.state.exited ~= nil, "and only after it had actually exited, not merely been asked to")
 end
 
 function M.readersAndWritersAreSeparateSurfaces()
     local backend = fakeBackend({out = {"x"}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"echo"}})
-    assertEq(child.stdout.write, nil, "stdout cannot be written")
-    assertEq(child.stdin.read, nil, "stdin cannot be read")
-    assertTrue(child.stdout.read ~= nil, "stdout reads")
-    assertTrue(child.stdin.write ~= nil, "stdin writes")
+    testAssert.equal(child.stdout.write, nil, "stdout cannot be written")
+    testAssert.equal(child.stdin.read, nil, "stdin cannot be read")
+    assert(child.stdout.read ~= nil, "stdout reads")
+    assert(child.stdin.write ~= nil, "stdin writes")
     child:close()
 end
 
@@ -1369,13 +1356,13 @@ function M.sharedViewsCompleteAndCloseTheBorrowedStreams()
     local reader = child.stdout:asReader()
     local writer = child.stdin:asWriter()
 
-    assertEq(assert(reader:read(2)), "ab", "the reader honours its count")
-    assertEq(assert(reader:read(2)), "c", "and keeps no adapter-side surplus")
-    assertTrue(writer:write("payload"), "the writer completes its whole value")
+    testAssert.equal(assert(reader:read(2)), "ab", "the reader honours its count")
+    testAssert.equal(assert(reader:read(2)), "c", "and keeps no adapter-side surplus")
+    assert(writer:write("payload"), "the writer completes its whole value")
     writer:close()
-    assertTrue(backend.state.closed["in"], "and delivers EOF to the child")
+    assert(backend.state.closed["in"], "and delivers EOF to the child")
     reader:close()
-    assertTrue(backend.state.closed["out"], "through the one concrete stream")
+    assert(backend.state.closed["out"], "through the one concrete stream")
     child:close()
 end
 
@@ -1391,13 +1378,13 @@ function M.plainLuaInputsAreValidatedBeforeTheyReachTheProvider()
     }
     for _, case in ipairs(invalidOptions) do
         local ok, problem = pcall(spawnOn, backend, case[1])
-        assertTrue(not ok and tostring(problem):find(case[2], 1, true), tostring(problem))
+        assert(not ok and tostring(problem):find(case[2], 1, true), tostring(problem))
     end
 
     local child = spawnOn(backend, {args = {"echo"}})
     local result, reason = child:communicate({maxOutputBytes = 1.5})
-    assertEq(result, nil, "a fractional byte limit is rejected")
-    assertTrue(tostring(reason):find("non%-negative integer") ~= nil, tostring(reason))
+    testAssert.equal(result, nil, "a fractional byte limit is rejected")
+    assert(tostring(reason):find("non%-negative integer") ~= nil, tostring(reason))
     child:close()
 end
 
@@ -1413,6 +1400,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
+
     local child = spawnOn(backend, {args = {"quiet"}})
     local scope = tasks.open()
     local waited = scope:spawn(function()
@@ -1420,8 +1408,8 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     end)
     local exit = waited:await()
     scope:close()
-    assertEq(exit.exitCode, 0, "the child's exit")
-    assertTrue(sleeps > 0, "the driver slept in the platform between quiet passes")
+    testAssert.equal(exit.exitCode, 0, "the child's exit")
+    assert(sleeps > 0, "the driver slept in the platform between quiet passes")
     child:close()
 end
 
@@ -1436,7 +1424,7 @@ function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
     local chunk = read:await()
     scope:close()
     child:close()
-    assertEq(chunk, "first", "the readiness probe's bytes reach the waiting read")
+    testAssert.equal(chunk, "first", "the readiness probe's bytes reach the waiting read")
 end
 
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
@@ -1449,6 +1437,7 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
+
     local child = spawnOn(backend, {args = {"slow"}})
     local scope = tasks.open()
     local drained = scope:spawn(function()
@@ -1457,8 +1446,8 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     local result = drained:await()
     scope:close()
     child:close()
-    assertEq(result.output, "onetwo", "everything arrived")
-    assertTrue(sleeps > 0, "the driver slept in the platform between quiet passes")
+    testAssert.equal(result.output, "onetwo", "everything arrived")
+    assert(sleeps > 0, "the driver slept in the platform between quiet passes")
 end
 
 return M

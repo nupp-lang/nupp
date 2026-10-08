@@ -1,11 +1,6 @@
+local testAssert = require("nupp.test")
 local rock = require("nupp.tools.rock")
 local template = require("nupp.tools.template")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function exists(path)
     local file = io.open(path, "rb")
@@ -53,8 +48,8 @@ function M.aNamedRockspecStaysInTheProjectRoot()
     outside:write('package = "outside"\nversion = "1.0-1"\n')
     outside:close()
     local packed, err = rock.pack(dir .. "/project", "../outside.rockspec")
-    assertEq(packed, nil, "an outside rockspec is refused")
-    assertEq(err, "the rockspec must be in the project root", "the boundary is named")
+    testAssert.equal(packed, nil, "an outside rockspec is refused")
+    testAssert.equal(err, "the rockspec must be in the project root", "the boundary is named")
     remove(dir)
 end
 
@@ -66,7 +61,7 @@ function M.packAndTestAProjectFromACleanRockTree()
     assert(exists(packed), "pack wrote the rock LuaRocks named")
     local checked, checkErr = rock.test(dir)
     assert(checked, checkErr)
-    assertEq(checked, packed, "the clean consumer checked the packed artifact")
+    testAssert.equal(checked, packed, "the clean consumer checked the packed artifact")
     remove(dir)
 end
 

@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -8,12 +9,6 @@ local cwdPipe = assert(io.popen("pwd"))
 local currentDir = assert(cwdPipe:read("*l"))
 cwdPipe:close()
 local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/..") or (currentDir .. "/" .. HERE .. "/..")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function readFile(path)
     local file = assert(io.open(path, "rb"))
@@ -103,8 +98,8 @@ function M.ambiguousGlobalsCarryBothDeclarationLocations()
         },
         function(dir)
             local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2102")
-            assertEq(#(diags[1].related or {}), 2, "both conflicting declarations are related")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2102")
+            testAssert.equal(#(diags[1].related or {}), 2, "both conflicting declarations are related")
             assert(diags[1].related[1].filename:match("[ab]%.g%.nupp$"), "related location names its file")
             assert(diags[1].help:find("module tables", 1, true), "diagnostic gives a repair direction")
         end
@@ -119,7 +114,7 @@ function M.rejectsADeclarationWithNoVisibility()
         {["src/model.g.nupp"] = "local model = {}\nrecord Loose\n    id: uint32\n" .. "end\nreturn model\n",},
         function(dir)
             local diags = checkFile(projectEnv(dir), dir .. "/src/model.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2119", "a declaration naming no visibility is refused")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2119", "a declaration naming no visibility is refused")
             assert(
                 diags[1].msg:find("model.Loose", 1, true),
                 "the message names the table it would attach to: " .. diags[1].msg
@@ -149,9 +144,13 @@ return model
         },
         function(dir)
             local env = projectEnv(dir)
-            assertEq(#checkFile(env, dir .. "/src/model.g.nupp"), 0, "attaching to a file-local table is fine")
+            testAssert.equal(#checkFile(env, dir .. "/src/model.g.nupp"), 0, "attaching to a file-local table is fine")
             local diags = checkFile(env, dir .. "/src/use.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2101", "a declaration on another table is not a module member")
+            testAssert.equal(
+                diags[1] and diags[1].code,
+                "NUPP2101",
+                "a declaration on another table is not a module member"
+            )
         end
     )
 end
@@ -176,7 +175,11 @@ return setmetatable(model, {})
             ] = "local model = require(\"model\")\n" .. "local w: model.Wrapped = new model.Wrapped(id = 1)\n",
         },
         function(dir)
-            assertEq(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "setmetatable(M, ...) still returns M")
+            testAssert.equal(
+                #checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"),
+                0,
+                "setmetatable(M, ...) still returns M"
+            )
         end
     )
 end
@@ -213,7 +216,7 @@ local value: number = model.value
         },
         function(dir)
             local path = dir .. "/src/feature/use.g.nupp"
-            assertEq(
+            testAssert.equal(
                 #checkFile(projectEnv(dir), path),
                 0,
                 "project links through the module a declaration was attached to"
@@ -227,7 +230,7 @@ function M.keepsLocalTypesFilePrivate()
         {["src/model.g.nupp"] = "local type Secret = string\n", ["src/use.g.nupp"] = "local value: Secret\n",},
         function(dir)
             local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2101", "local type visibility")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "local type visibility")
         end
     )
 end
@@ -247,9 +250,9 @@ local right: b.shared.Item = 1
         },
         function(dir)
             local env = projectEnv(dir)
-            assertEq(#checkFile(env, dir .. "/src/main.g.nupp"), 0, "qualified project types")
+            testAssert.equal(#checkFile(env, dir .. "/src/main.g.nupp"), 0, "qualified project types")
             local diags = checkFile(env, dir .. "/src/unqualified.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2101", "an unqualified project type is simply unknown")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "an unqualified project type is simply unknown")
         end
     )
 end
@@ -275,9 +278,13 @@ function M.refusesAModuleUsedWithoutRequiringIt()
         },
         function(dir)
             local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-            assertEq(#diags, 1, "reported once, not per use")
-            assertEq(diags[1].code, "NUPP2120", "a missing require is reported")
-            assertEq(diags[1].severity, "error", "a build refuses it rather than deferring the failure to run time")
+            testAssert.equal(#diags, 1, "reported once, not per use")
+            testAssert.equal(diags[1].code, "NUPP2120", "a missing require is reported")
+            testAssert.equal(
+                diags[1].severity,
+                "error",
+                "a build refuses it rather than deferring the failure to run time"
+            )
             assert(
                 diags[1].msg:find('require("mathutil")', 1, true),
                 "the message names the require to write: " .. diags[1].msg
@@ -303,8 +310,12 @@ function M.givesNoRequireAdviceWhenThereIsNothingToFix()
         },
         function(dir)
             local env = projectEnv(dir)
-            assertEq(#checkFile(env, dir .. "/src/fixed.g.nupp"), 0, "a written require leaves nothing to advise")
-            assertEq(#checkFile(env, dir .. "/src/selfref.g.nupp"), 0, "a file is not told to require itself")
+            testAssert.equal(
+                #checkFile(env, dir .. "/src/fixed.g.nupp"),
+                0,
+                "a written require leaves nothing to advise"
+            )
+            testAssert.equal(#checkFile(env, dir .. "/src/selfref.g.nupp"), 0, "a file is not told to require itself")
         end
     )
 end
@@ -327,7 +338,7 @@ function M.strictReportsUnknownNamesThatAreNotModules()
             for j, d in ipairs(diags) do
                 codes[j] = d.code
             end
-            assertEq(
+            testAssert.equal(
                 table.concat(codes, " "),
                 "NUPP2120 NUPP2105",
                 "one advice for the module, one unknown for the name nothing answers to"
@@ -343,7 +354,7 @@ function M.linksGlobalTypesWithoutImports()
             ["src/use.g.nupp"] = "local id: ProjectId = 9\n",
         },
         function(dir)
-            assertEq(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "global project type")
+            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "global project type")
         end
     )
 end
@@ -370,7 +381,7 @@ end
         function(dir)
             local path = dir .. "/src/model/user.g.nupp"
             local env = projectEnv(dir)
-            assertEq(#checkFile(env, path), 0, "project annotation links must check")
+            testAssert.equal(#checkFile(env, path), 0, "project annotation links must check")
             local formatEnv = projectEnv(dir)
             local formatted, errors = fmt.format(readFile(path), path, {
                 annotations = formatEnv.annotations,
@@ -378,7 +389,7 @@ end
                     return formatEnv.resolveProjectAnnotation(formatEnv, path, name)
                 end,
             })
-            assertEq(#errors, 0, "project annotation format diagnostics")
+            testAssert.equal(#errors, 0, "project annotation format diagnostics")
             assert(formatted:find('@documentation("A user")', 1, true), formatted)
         end
     )
@@ -406,7 +417,7 @@ record Item end
         },
         function(dir)
             local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-            assertEq(diags[1] and diags[1].code, "NUPP2111", "ambiguous annotation name diagnostic")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2111", "ambiguous annotation name diagnostic")
             assert(diags[1].msg:find("ambiguous project annotation", 1, true), diags[1].msg)
         end
     )
@@ -462,8 +473,8 @@ end
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            assertEq(status, 0, "required project run: " .. readFile(errors))
-            assertEq(readFile(output), "42\t7\t5\n", "required project output")
+            testAssert.equal(status, 0, "required project run: " .. readFile(errors))
+            testAssert.equal(readFile(output), "42\t7\t5\n", "required project output")
         end
     )
 end
@@ -512,8 +523,8 @@ return shapes
             local command = (
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
-            assertEq(os.execute(command), 0, "cross-module record run: " .. readFile(errors))
-            assertEq(readFile(output), "7\torigin\t0\ttrue\n", "cross-module record output")
+            testAssert.equal(os.execute(command), 0, "cross-module record run: " .. readFile(errors))
+            testAssert.equal(readFile(output), "7\torigin\t0\ttrue\n", "cross-module record output")
         end
     )
 end
@@ -562,21 +573,21 @@ return res
             local checkCommand = (
                 "cd '%s' && '%s/bin/nupp' check --strict main.nupp " .. "> /dev/null 2> '%s'"
             ):format(dir, ROOT, checkErrors)
-            assertEq(os.execute(checkCommand), 0, "the initial check: " .. readFile(checkErrors))
+            testAssert.equal(os.execute(checkCommand), 0, "the initial check: " .. readFile(checkErrors))
 
             local buildErrors = dir .. "/build-errors.txt"
             local buildCommand = (
                 "cd '%s' && '%s/bin/nupp' build main.nupp " .. "> /dev/null 2> '%s'"
             ):format(dir, ROOT, buildErrors)
-            assertEq(os.execute(buildCommand), 0, "the dependency recheck: " .. readFile(buildErrors))
+            testAssert.equal(os.execute(buildCommand), 0, "the dependency recheck: " .. readFile(buildErrors))
 
             local output = dir .. "/output.txt"
             local runErrors = dir .. "/run-errors.txt"
             local runCommand = (
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, runErrors)
-            assertEq(os.execute(runCommand), 0, "the cross-module drop operation run: " .. readFile(runErrors))
-            assertEq(readFile(output), "false\n", "the resource is usable")
+            testAssert.equal(os.execute(runCommand), 0, "the cross-module drop operation run: " .. readFile(runErrors))
+            testAssert.equal(readFile(output), "false\n", "the resource is usable")
         end
     )
 end
@@ -646,8 +657,8 @@ return use
             local command = (
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
-            assertEq(os.execute(command), 0, "cross-module automatic cleanup: " .. readFile(errors))
-            assertEq(readFile(output), "hello\n\t1\n", "the private cleanup ran")
+            testAssert.equal(os.execute(command), 0, "cross-module automatic cleanup: " .. readFile(errors))
+            testAssert.equal(readFile(output), "hello\n\t1\n", "the private cleanup ran")
         end
     )
 end
@@ -713,8 +724,8 @@ return use
             local command = (
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
-            assertEq(os.execute(command), 0, "cross-module explicit cleanup: " .. readFile(errors))
-            assertEq(readFile(output), "1\n", "the private cleanup ran")
+            testAssert.equal(os.execute(command), 0, "cross-module explicit cleanup: " .. readFile(errors))
+            testAssert.equal(readFile(output), "1\n", "the private cleanup ran")
         end
     )
 end
@@ -742,7 +753,7 @@ return res
             local diags = checkFile(projectEnv(dir), dir .. "/src/res.g.nupp")
             -- The terminal is a const function argument of the result type, so an
             -- undeclared name is caught resolving that argument, where it is written.
-            assertEq(
+            testAssert.equal(
                 diags[1] and diags[1].code,
                 "NUPP2131",
                 "an unresolvable cleanup is still caught where it is written"
@@ -782,16 +793,16 @@ end
         function(dir, env)
             local path = dir .. "/src/holder.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the holder parses")
+            testAssert.equal(#parsed.errors, 0, "the holder parses")
             local diags = check.check(parsed, path, env)
-            assertEq(
+            testAssert.equal(
                 #diags,
                 1,
                 "the alias still resolves once an exported signature names it: " .. (
                     diags[1] and diags[1].msg or "nothing reported"
                 )
             )
-            assertEq(diags[1] and diags[1].code, "NUPP2001", "the wrong initializer is what is reported")
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2001", "the wrong initializer is what is reported")
         end
     )
 end
@@ -833,10 +844,10 @@ local invalid: schema.Field = nil as any
         function(dir)
             local path = dir .. "/src/use.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the consumer parses")
+            testAssert.equal(#parsed.errors, 0, "the consumer parses")
             local diags = check.check(parsed, path, projectEnv(dir))
-            assertEq(#diags, 1, diags[1] and diags[1].msg or "missing runtime-use diagnostic")
-            assertEq(diags[1].code, "NUPP2421")
+            testAssert.equal(#diags, 1, diags[1] and diags[1].msg or "missing runtime-use diagnostic")
+            testAssert.equal(diags[1].code, "NUPP2421")
             assert(diags[1].msg:find("schema.Field", 1, true), diags[1].msg)
         end
     )
@@ -883,9 +894,9 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the caller parses")
+            testAssert.equal(#parsed.errors, 0, "the caller parses")
             local diags = check.check(parsed, path, env)
-            assertEq(#diags, 0, "a well-formed task submission checks: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(#diags, 0, "a well-formed task submission checks: " .. (diags[1] and diags[1].msg or ""))
         end
     )
 end
@@ -929,7 +940,7 @@ end
             for index, diag in ipairs(diags) do
                 codes[index] = diag.code
             end
-            assertEq(
+            testAssert.equal(
                 table.concat(codes, ","),
                 "NUPP2006,NUPP2004,NUPP2006,NUPP2004",
                 "a misspelled function, a wrong argument, and a wrong result are each reported"
@@ -964,7 +975,11 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            assertEq(#diags, 0, "a task retains every result type and position: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(
+                #diags,
+                0,
+                "a task retains every result type and position: " .. (diags[1] and diags[1].msg or "")
+            )
         end
     )
 end
@@ -1052,7 +1067,7 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            assertEq(#diags, 0, "a copyable signature checks: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(#diags, 0, "a copyable signature checks: " .. (diags[1] and diags[1].msg or ""))
         end
     )
 end
@@ -1091,10 +1106,17 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            assertEq(#diags, 3, "each submission is refused once: " .. (diags[1] and diags[1].msg or "nothing reported"))
+            testAssert.equal(
+                #diags,
+                3,
+                "each submission is refused once: " .. (diags[1] and diags[1].msg or "nothing reported")
+            )
             -- The path names the field rather than the argument, since a signature can
             -- bury what cannot cross several levels down.
-            assert(diags[1].msg:find("argument 1.hook is a function", 1, true), "the nested field is named: " .. diags[1].msg)
+            assert(
+                diags[1].msg:find("argument 1.hook is a function", 1, true),
+                "the nested field is named: " .. diags[1].msg
+            )
             assert(diags[2].msg:find("argument 1 is a thread", 1, true), "the thread is named: " .. diags[2].msg)
             assert(diags[3].msg:find("result 1 is a function", 1, true), "the result is named: " .. diags[3].msg)
         end
@@ -1121,7 +1143,11 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            assertEq(#diags, 0, "a task scope is discharged on structured exit: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(
+                #diags,
+                0,
+                "a task scope is discharged on structured exit: " .. (diags[1] and diags[1].msg or "")
+            )
         end
     )
 end
@@ -1131,13 +1157,13 @@ end
 -- case across test workers would turn the standard-library cold load back into
 -- the dominant work and test process isolation rather than any contract below.
 function M.workerTaskContractsCrossProjectBoundaries()
-   exportedSignatureDoesNotFreezeAnAliasItNames()
-   workerTaskChecksLikeAnOrdinaryFunctionCall()
-   workerTaskReportsArgumentAndResultMistakes()
-   workerTaskPreservesCompleteResultPacks()
-   workerTaskAcceptsWhatACopyCanReproduce()
-   workerTaskRefusesASignatureNoCopyCanCross()
-   taskScopeCarriesAutomaticCleanup()
+    exportedSignatureDoesNotFreezeAnAliasItNames()
+    workerTaskChecksLikeAnOrdinaryFunctionCall()
+    workerTaskReportsArgumentAndResultMistakes()
+    workerTaskPreservesCompleteResultPacks()
+    workerTaskAcceptsWhatACopyCanReproduce()
+    workerTaskRefusesASignatureNoCopyCanCross()
+    taskScopeCarriesAutomaticCleanup()
 end
 
 -- An affine type is only usable by another module if the terminal it names
@@ -1147,10 +1173,13 @@ end
 -- exported type rather than in this file's summaries, and the key both sides
 -- compare under has to be the declaring module's.
 function M.aTerminalIsNamedThroughAModuleAlias()
-   -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
-   -- same cleanup as the type `gate.issue` exports, through the alias or without.
-   withProject({
-      ["src/gate.nupp"] = [[
+    -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
+    -- same cleanup as the type `gate.issue` exports, through the alias or without.
+    withProject(
+        {
+            [
+                "src/gate.nupp"
+            ] = [[
 module gate
 
 export record Ticket
@@ -1181,9 +1210,9 @@ end
         function(dir)
             local path = dir .. "/src/hall.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the consumer parses")
+            testAssert.equal(#parsed.errors, 0, "the consumer parses")
             local diags = check.check(parsed, path, projectEnv(dir))
-            assertEq(
+            testAssert.equal(
                 #diags,
                 0,
                 "a terminal reached through an alias resolves, " .. "qualifies, and compares equal: " .. (
@@ -1237,9 +1266,9 @@ return 0
             local env = projectEnv(dir)
             local path = dir .. "/src/use.g.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the consumer parses")
+            testAssert.equal(#parsed.errors, 0, "the consumer parses")
             local diags = check.check(parsed, path, env)
-            assertEq(#diags, 0, "the consumer checks: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(#diags, 0, "the consumer checks: " .. (diags[1] and diags[1].msg or ""))
 
             local gen = require("nupp.compiler.lua.gen")
             local code = gen.generate(parsed, path)
@@ -1255,7 +1284,7 @@ return 0
                 badPath
             )
             local badDiags = check.check(bad, badPath, projectEnv(dir))
-            assertEq(
+            testAssert.equal(
                 badDiags[1] and badDiags[1].code,
                 "NUPP2006",
                 "a constructor's parameters are checked across the boundary"
@@ -1301,9 +1330,9 @@ return Person
             local env = projectEnv(dir)
             local path = dir .. "/src/use.g.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "the implementor parses")
+            testAssert.equal(#parsed.errors, 0, "the implementor parses")
             local diags = check.check(parsed, path, env)
-            assertEq(#diags, 0, "the implementor checks: " .. (diags[1] and diags[1].msg or ""))
+            testAssert.equal(#diags, 0, "the implementor checks: " .. (diags[1] and diags[1].msg or ""))
 
             local gen = require("nupp.compiler.lua.gen")
             local code = gen.generate(parsed, path)
@@ -1344,8 +1373,11 @@ end
 -- from the one its binding carried, so `issue(): affine(Ticket, release)` there and
 -- `affine(gate.Ticket, gate.release)` in a consumer never compared equal.
 function M.aConsumerNamesAnotherModulesTerminal()
-    withProject({
-        ["src/gate.nupp"] = [[
+    withProject(
+        {
+            [
+                "src/gate.nupp"
+            ] = [[
 module gate
 
 export record Ticket
@@ -1360,7 +1392,9 @@ export function issue(): affine(Ticket, release)
     return nil as any
 end
 ]],
-        ["src/hall.nupp"] = [[
+            [
+                "src/hall.nupp"
+            ] = [[
 module hall
 
 local gate = require("gate")
@@ -1370,12 +1404,18 @@ export function admit(): nil
     print(ticket.id)
 end
 ]],
-    }, function(dir)
-        local path = dir .. "/src/hall.nupp"
-        local parsed = parser.parse(readFile(path), path)
-        local diags = check.check(parsed, path, projectEnv(dir))
-        assertEq(#diags, 0, "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or ""))
-    end)
+        },
+        function(dir)
+            local path = dir .. "/src/hall.nupp"
+            local parsed = parser.parse(readFile(path), path)
+            local diags = check.check(parsed, path, projectEnv(dir))
+            testAssert.equal(
+                #diags,
+                0,
+                "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or "")
+            )
+        end
+    )
 end
 
 return M

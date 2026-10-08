@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The textual PEG compiler at both phases, typed static materialization, Nupp
 -- specialization templates, and native LPeg lowering.
 local parser = require("nupp.compiler.syntax.parser")
@@ -49,15 +50,9 @@ local function officialRe(lpeg)
     return re
 end
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function compile(source)
     local parsed = parser.parse(source, "peg_materialize_test.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "peg_materialize_test.g.nupp", env)
     local code, generated = gen.generate(parsed, "peg_materialize_test")
     for _, diagnostic in ipairs(generated) do
@@ -105,7 +100,7 @@ local matcher: nupp.peg.Peg<any> = library.compile("[a-z]+ -> upper !.", options
 return matcher("hello")
 ]]
     )
-    assertEq(value, "HELLO", "module-level PEG types")
+    testAssert.equal(value, "HELLO", "module-level PEG types")
 
     local codes = errorsOf("local old: nupp.Peg.Matcher<integer> = nil as any")
     assert(#codes > 0, "the old nupp.Peg namespace must not remain public")
@@ -126,7 +121,7 @@ local result: string? = match(Word, "hello")
 return result
 ]]
     )
-    assertEq(value, "hello", "the matcher declaration chooses its result")
+    testAssert.equal(value, "hello", "the matcher declaration chooses its result")
 
     local codes = errorsOf(
         [[
@@ -138,7 +133,11 @@ local Word: nupp.peg.Peg<string> = nupp.peg.compile("{ [a-z]+ }")
 local wrong: integer? = match(Word, "hello")
 ]]
     )
-    assertEq(table.concat(codes, " "), "NUPP2001", "the recovered result cannot be assigned as another capture type")
+    testAssert.equal(
+        table.concat(codes, " "),
+        "NUPP2001",
+        "the recovered result cannot be assigned as another capture type"
+    )
 end
 
 function M.returnsMultipleCapturesAsNativeTypedResults()
@@ -152,8 +151,8 @@ local typedRight: string = right
 return typedLeft, typedRight
 ]]
     )
-    assertEq(left, "age", "first native capture")
-    assertEq(right, "42", "second native capture")
+    testAssert.equal(left, "age", "first native capture")
+    testAssert.equal(right, "42", "second native capture")
 end
 
 function M.multipleCapturesWorkInForcedLpegAndComptimeCodegen()
@@ -171,10 +170,10 @@ local staticLeft, staticRight = Static("age:42")
 return lpegLeft, lpegRight, staticLeft, staticRight
 ]]
     )
-    assertEq(lpegLeft, "age", "LPeg first capture")
-    assertEq(lpegRight, "42", "LPeg second capture")
-    assertEq(staticLeft, "age", "codegen first capture")
-    assertEq(staticRight, "42", "codegen second capture")
+    testAssert.equal(lpegLeft, "age", "LPeg first capture")
+    testAssert.equal(lpegRight, "42", "LPeg second capture")
+    testAssert.equal(staticLeft, "age", "codegen first capture")
+    testAssert.equal(staticRight, "42", "codegen second capture")
 end
 
 function M.multipleCapturesFlowThroughSearchTraversalAndReplacement()
@@ -199,12 +198,12 @@ local replaced = Pair:replaceAll(
 return first, nextPosition, left, right, count, replaced
 ]]
     )
-    assertEq(first, 2, "find first")
-    assertEq(nextPosition, 8, "find exclusive end")
-    assertEq(left, "age", "find first capture")
-    assertEq(right, "42", "find second capture")
-    assertEq(count, 2, "visited matches")
-    assertEq(replaced, "42age 7x", "callback replacement")
+    testAssert.equal(first, 2, "find first")
+    testAssert.equal(nextPosition, 8, "find exclusive end")
+    testAssert.equal(left, "age", "find first capture")
+    testAssert.equal(right, "42", "find second capture")
+    testAssert.equal(count, 2, "visited matches")
+    testAssert.equal(replaced, "42age 7x", "callback replacement")
 end
 
 function M.typedActionsMayReturnSeveralNativeResults()
@@ -233,10 +232,10 @@ local runtimeText, runtimeLength = runtime("other")
 return text, length, runtimeText, runtimeLength
 ]]
     )
-    assertEq(text, "word", "action first result")
-    assertEq(length, 4, "action second result")
-    assertEq(runtimeText, "other", "runtime action first result")
-    assertEq(runtimeLength, 5, "runtime action second result")
+    testAssert.equal(text, "word", "action first result")
+    testAssert.equal(length, 4, "action second result")
+    testAssert.equal(runtimeText, "other", "runtime action first result")
+    testAssert.equal(runtimeLength, 5, "runtime action second result")
 end
 
 function M.dynamicSearchDoesNotCollapseNestedCaptures()
@@ -247,10 +246,10 @@ local Nested: nupp.peg.Peg<(string, string)> = nupp.peg.compile(source)
 return Nested:find("!word!")
 ]]
     )
-    assertEq(first, 2, "nested capture start")
-    assertEq(nextPosition, 6, "nested capture end")
-    assertEq(outer, "word", "outer capture")
-    assertEq(inner, "word", "inner capture")
+    testAssert.equal(first, 2, "nested capture start")
+    testAssert.equal(nextPosition, 6, "nested capture end")
+    testAssert.equal(outer, "word", "outer capture")
+    testAssert.equal(inner, "word", "inner capture")
 end
 
 function M.keepsAStaticIdentifierOnTheSpecializedRuntime()
@@ -261,14 +260,18 @@ end
 return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
 ]]
     local matched, missed, called = run(source)
-    assertEq(matched, 7, "recognition returns the next byte position")
-    assertEq(missed, nil, "a failed match returns nil")
-    assertEq(called, 3, "the matcher call contract reaches the same machine")
+    testAssert.equal(matched, 7, "recognition returns the next byte position")
+    testAssert.equal(missed, nil, "a failed match returns nil")
+    testAssert.equal(called, 3, "the matcher call contract reaches the same machine")
     local code = compile(source)
     assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-    assertEq(code:find("__nuppPegReInstall", 1, true), nil, "ordinary static PEG excludes the runtime frontend")
+    testAssert.equal(code:find("__nuppPegReInstall", 1, true), nil, "ordinary static PEG excludes the runtime frontend")
     assert(code:find("require(\"nupp.compiler.runtime.peg\")", 1, true), code)
-    assertEq(code:find("package.preload.re", 1, true), nil, "ordinary static PEG excludes the textual runtime frontend")
+    testAssert.equal(
+        code:find("package.preload.re", 1, true),
+        nil,
+        "ordinary static PEG excludes the textual runtime frontend"
+    )
 end
 
 function M.searchesForMatchesWithoutBuildingAMatchResult()
@@ -299,13 +302,13 @@ return Word:isMatch("123 hello"), Word:isMatch("hello 123", 2),
     ReturnsFalse:isMatch("---x")
 ]==]
     )
-    assertEq(found, true, "static specialized search")
-    assertEq(skipped, false, "search respects init")
-    assertEq(negative, true, "negative search position")
-    assertEq(missing, false, "out-of-range search")
-    assertEq(emptySuffix, true, "search includes the final empty position")
-    assertEq(runtime, true, "runtime-compiled search")
-    assertEq(falseResult, true, "false capture result still denotes a match")
+    testAssert.equal(found, true, "static specialized search")
+    testAssert.equal(skipped, false, "search respects init")
+    testAssert.equal(negative, true, "negative search position")
+    testAssert.equal(missing, false, "out-of-range search")
+    testAssert.equal(emptySuffix, true, "search includes the final empty position")
+    testAssert.equal(runtime, true, "runtime-compiled search")
+    testAssert.equal(falseResult, true, "false capture result still denotes a match")
 end
 
 function M.rejectsNonfiniteMatchPositions()
@@ -320,10 +323,10 @@ end
 return rejects(math.huge), rejects(-math.huge), rejects(0 / 0), rejects(1.5)
 ]]
     )
-    assertEq(positive, true, "positive infinity is not an integer position")
-    assertEq(negative, true, "negative infinity is not an integer position")
-    assertEq(nan, true, "NaN is not an integer position")
-    assertEq(fraction, true, "a fractional position is not an integer position")
+    testAssert.equal(positive, true, "positive infinity is not an integer position")
+    testAssert.equal(negative, true, "negative infinity is not an integer position")
+    testAssert.equal(nan, true, "NaN is not an integer position")
+    testAssert.equal(fraction, true, "a fractional position is not an integer position")
 end
 
 function M.findsWithPositionsAndNoMatchRecord()
@@ -359,21 +362,21 @@ return first, nextPosition, value, recognizerFirst, recognizerNext, recognizerVa
     nilFirst, nilNext, nilValue
 ]==]
     )
-    assertEq(first, 5, "capture search first byte")
-    assertEq(nextPosition, 10, "capture search exclusive next byte")
-    assertEq(value, "hello", "capture search value")
-    assertEq(recognizerFirst, 5, "recognizer search first byte")
-    assertEq(recognizerNext, 10, "recognizer search exclusive next byte")
-    assertEq(recognizerValue, 10, "recognizer search result")
-    assertEq(emptyFirst, 4, "empty search first byte")
-    assertEq(emptyNext, 4, "empty search has equal positions")
-    assertEq(emptyValue, 4, "empty recognizer result")
-    assertEq(missingFirst, nil, "failed search first byte")
-    assertEq(missingNext, nil, "failed search next byte")
-    assertEq(missingValue, nil, "failed search result")
-    assertEq(nilFirst, 4, "nil action still reports success")
-    assertEq(nilNext, 5, "nil action reports its end")
-    assertEq(nilValue, nil, "nil action result remains nil")
+    testAssert.equal(first, 5, "capture search first byte")
+    testAssert.equal(nextPosition, 10, "capture search exclusive next byte")
+    testAssert.equal(value, "hello", "capture search value")
+    testAssert.equal(recognizerFirst, 5, "recognizer search first byte")
+    testAssert.equal(recognizerNext, 10, "recognizer search exclusive next byte")
+    testAssert.equal(recognizerValue, 10, "recognizer search result")
+    testAssert.equal(emptyFirst, 4, "empty search first byte")
+    testAssert.equal(emptyNext, 4, "empty search has equal positions")
+    testAssert.equal(emptyValue, 4, "empty recognizer result")
+    testAssert.equal(missingFirst, nil, "failed search first byte")
+    testAssert.equal(missingNext, nil, "failed search next byte")
+    testAssert.equal(missingValue, nil, "failed search result")
+    testAssert.equal(nilFirst, 4, "nil action still reports success")
+    testAssert.equal(nilNext, 5, "nil action reports its end")
+    testAssert.equal(nilValue, nil, "nil action result remains nil")
 end
 
 function M.findsWithASpecializedCollectionResult()
@@ -385,9 +388,9 @@ end
 return Words:find("invalid;one,two,three")
 ]]
     )
-    assertEq(first, 9, "collection search first byte")
-    assertEq(nextPosition, 22, "collection search exclusive next byte")
-    assertEq(table.concat(values, ":"), "one:two:three", "collection search value")
+    testAssert.equal(first, 9, "collection search first byte")
+    testAssert.equal(nextPosition, 22, "collection search exclusive next byte")
+    testAssert.equal(table.concat(values, ":"), "one:two:three", "collection search value")
 end
 
 function M.visitsNonOverlappingMatchesWithoutIteratorObjects()
@@ -426,13 +429,13 @@ return count, table.concat(positions, "|"), table.concat(values, "|"),
     emptyCount, table.concat(emptyPositions, "|"), laterCount, dynamicCount
 ]==]
     )
-    assertEq(count, 3, "visitor count")
-    assertEq(positions, "1:4|6:9|11:16", "half-open visitor positions")
-    assertEq(values, "one|two|three", "typed visitor values")
-    assertEq(emptyCount, 3, "empty matcher visits every boundary once")
-    assertEq(emptyPositions, "1:1:1|2:2:2|3:3:3", "empty match progress")
-    assertEq(laterCount, 2, "empty iteration respects init")
-    assertEq(dynamicCount, 3, "runtime grammar iteration")
+    testAssert.equal(count, 3, "visitor count")
+    testAssert.equal(positions, "1:4|6:9|11:16", "half-open visitor positions")
+    testAssert.equal(values, "one|two|three", "typed visitor values")
+    testAssert.equal(emptyCount, 3, "empty matcher visits every boundary once")
+    testAssert.equal(emptyPositions, "1:1:1|2:2:2|3:3:3", "empty match progress")
+    testAssert.equal(laterCount, 2, "empty iteration respects init")
+    testAssert.equal(dynamicCount, 3, "runtime grammar iteration")
 end
 
 function M.generatesByteTraversalForRepeatedAtoms()
@@ -478,14 +481,14 @@ return recognizerCount, table.concat(recognizerValues, "|"),
     runtimeCount, lpegCount
 ]==]
     )
-    assertEq(recognizerCount, 3, "generated traversal count")
-    assertEq(recognizerValues, "1:2:2|3:6:6|7:8:8", "generated recognizer traversal values")
-    assertEq(captured, "1|22|333", "generated traversal capture values")
-    assertEq(fromSecond, 2, "generated traversal respects init")
-    assertEq(eofCount, 1, "EOF traversal ignores earlier failed runs")
-    assertEq(eofPosition, 5, "EOF traversal finds the final run")
-    assertEq(runtimeCount, 3, "runtime programs generate traversal")
-    assertEq(lpegCount, recognizerCount, "LPeg traversal retains parity")
+    testAssert.equal(recognizerCount, 3, "generated traversal count")
+    testAssert.equal(recognizerValues, "1:2:2|3:6:6|7:8:8", "generated recognizer traversal values")
+    testAssert.equal(captured, "1|22|333", "generated traversal capture values")
+    testAssert.equal(fromSecond, 2, "generated traversal respects init")
+    testAssert.equal(eofCount, 1, "EOF traversal ignores earlier failed runs")
+    testAssert.equal(eofPosition, 5, "EOF traversal finds the final run")
+    testAssert.equal(runtimeCount, 3, "runtime programs generate traversal")
+    testAssert.equal(lpegCount, recognizerCount, "LPeg traversal retains parity")
 end
 
 function M.replacesFirstAndAllMatchesWithLiteralOrComputedText()
@@ -518,14 +521,14 @@ return first, every, computed, unchanged, fromSecond, runtime, literalPercent,
     punctuation
 ]==]
     )
-    assertEq(first, "room #, floor 3", "first literal replacement")
-    assertEq(every, "room #, floor #", "all literal replacements")
-    assertEq(computed, "1=ONE@4, 6=TWO@9", "typed replacement callback")
-    assertEq(unchanged, "none", "missing match returns original text")
-    assertEq(fromSecond, "1 # #", "replacement respects init")
-    assertEq(runtime, "_-_", "runtime grammar replacement")
-    assertEq(literalPercent, "a%1 b%1", "replacement strings stay literal")
-    assertEq(punctuation, "x axb x", "literal search stays literal in generated replacement")
+    testAssert.equal(first, "room #, floor 3", "first literal replacement")
+    testAssert.equal(every, "room #, floor #", "all literal replacements")
+    testAssert.equal(computed, "1=ONE@4, 6=TWO@9", "typed replacement callback")
+    testAssert.equal(unchanged, "none", "missing match returns original text")
+    testAssert.equal(fromSecond, "1 # #", "replacement respects init")
+    testAssert.equal(runtime, "_-_", "runtime grammar replacement")
+    testAssert.equal(literalPercent, "a%1 b%1", "replacement strings stay literal")
+    testAssert.equal(punctuation, "x axb x", "literal search stays literal in generated replacement")
 end
 
 function M.specializesStaticallyKnownReplacementKinds()
@@ -555,11 +558,11 @@ return Digits:replace("a12b", "#"), Digits:replace("a12b", callback),
     assert(code:find("Digits : replaceAll ( \"1 22\" , dynamic )", 1, true), code)
 
     local literalFirst, callbackFirst, literalAll, callbackAll, dynamicAll = run(source)
-    assertEq(literalFirst, "a#b", "literal replace fast path")
-    assertEq(callbackFirst, "a<4>b", "callback replace fast path")
-    assertEq(literalAll, "# #", "literal replaceAll fast path")
-    assertEq(callbackAll, "<2> <5>", "callback replaceAll fast path")
-    assertEq(dynamicAll, "! !", "union replacement retains dynamic dispatch")
+    testAssert.equal(literalFirst, "a#b", "literal replace fast path")
+    testAssert.equal(callbackFirst, "a<4>b", "callback replace fast path")
+    testAssert.equal(literalAll, "# #", "literal replaceAll fast path")
+    testAssert.equal(callbackAll, "<2> <5>", "callback replaceAll fast path")
+    testAssert.equal(dynamicAll, "! !", "union replacement retains dynamic dispatch")
 end
 
 function M.replacementMakesProgressAfterEmptyMatches()
@@ -576,11 +579,11 @@ return Empty:replace("ab", "-"), Empty:replaceAll("ab", "-"),
     End:replaceAll("ab", "!")
 ]==]
     )
-    assertEq(first, "-ab", "first empty replacement inserts once")
-    assertEq(every, "-a-b-", "empty replacement visits every boundary")
-    assertEq(later, "a-b-", "empty replacement preserves prefix before init")
-    assertEq(emptySubject, "-", "empty subject has one boundary")
-    assertEq(endOnly, "ab!", "end assertion replaces final empty match")
+    testAssert.equal(first, "-ab", "first empty replacement inserts once")
+    testAssert.equal(every, "-a-b-", "empty replacement visits every boundary")
+    testAssert.equal(later, "a-b-", "empty replacement preserves prefix before init")
+    testAssert.equal(emptySubject, "-", "empty subject has one boundary")
+    testAssert.equal(endOnly, "ab!", "end assertion replaces final empty match")
 end
 
 function M.scansOnlyBytesThatCanBeginANonemptyMatch()
@@ -616,15 +619,15 @@ return staticFirst, staticNext, staticValue, lpegFirst, runtimeFirst, replaced,
     recursiveFirst, predicateFirst, specialFirst
 ]==]
     )
-    assertEq(staticFirst, 10001, "static first-byte scan")
-    assertEq(staticNext, 10003, "static scan result end")
-    assertEq(staticValue, "42", "static scan capture")
-    assertEq(lpegFirst, staticFirst, "forced LPeg first-byte scan")
-    assertEq(runtimeFirst, staticFirst, "runtime first-byte scan")
-    assertEq(replaced, "a# b# c#", "replacement uses the shared scan")
-    assertEq(recursiveFirst, 4, "recursive first set")
-    assertEq(predicateFirst, 2, "predicate before consuming prefix")
-    assertEq(specialFirst, 4, "Lua-pattern punctuation is escaped")
+    testAssert.equal(staticFirst, 10001, "static first-byte scan")
+    testAssert.equal(staticNext, 10003, "static scan result end")
+    testAssert.equal(staticValue, "42", "static scan capture")
+    testAssert.equal(lpegFirst, staticFirst, "forced LPeg first-byte scan")
+    testAssert.equal(runtimeFirst, staticFirst, "runtime first-byte scan")
+    testAssert.equal(replaced, "a# b# c#", "replacement uses the shared scan")
+    testAssert.equal(recursiveFirst, 4, "recursive first set")
+    testAssert.equal(predicateFirst, 2, "predicate before consuming prefix")
+    testAssert.equal(specialFirst, 4, "Lua-pattern punctuation is escaped")
 
     local code = compile(
         [==[
@@ -660,14 +663,14 @@ return emptyFirst, emptyNext, anyFirst, anyNext, positionFirst, positionNext,
     positionValue, possessiveFirst
 ]==]
     )
-    assertEq(emptyFirst, 3, "nullable search retains its requested boundary")
-    assertEq(emptyNext, 3, "nullable search remains empty")
-    assertEq(anyFirst, 2, "any-byte search retains its requested byte")
-    assertEq(anyNext, 3, "any-byte search consumes one byte")
-    assertEq(positionFirst, 3, "position capture search start")
-    assertEq(positionNext, 4, "position capture match end")
-    assertEq(positionValue, 3, "direct recognition does not replace position captures")
-    assertEq(possessiveFirst, nil, "Lua-pattern backtracking does not replace PEG repetition")
+    testAssert.equal(emptyFirst, 3, "nullable search retains its requested boundary")
+    testAssert.equal(emptyNext, 3, "nullable search remains empty")
+    testAssert.equal(anyFirst, 2, "any-byte search retains its requested byte")
+    testAssert.equal(anyNext, 3, "any-byte search consumes one byte")
+    testAssert.equal(positionFirst, 3, "position capture search start")
+    testAssert.equal(positionNext, 4, "position capture match end")
+    testAssert.equal(positionValue, 3, "direct recognition does not replace position captures")
+    testAssert.equal(possessiveFirst, nil, "Lua-pattern backtracking does not replace PEG repetition")
 end
 
 function M.typesRepeatedMatchingAndReplacementCallbacksFromTheGrammarResult()
@@ -681,7 +684,7 @@ Word:forEachMatch("hello", function(_: integer, _: integer, value: integer)
 end)
 ]==]
     )
-    assertEq(codes[1], "NUPP2006", "visitor result type")
+    testAssert.equal(codes[1], "NUPP2006", "visitor result type")
 
     codes = errorsOf(
         [==[
@@ -714,9 +717,9 @@ local words: {string} = assert(Words("one,two"))
 return identifier, word, words
 ]==]
     )
-    assertEq(identifier, 5, "inferred recognizer result")
-    assertEq(word, "hello", "inferred capture result")
-    assertEq(table.concat(words, ":"), "one:two", "inferred collection result")
+    testAssert.equal(identifier, 5, "inferred recognizer result")
+    testAssert.equal(word, "hello", "inferred capture result")
+    testAssert.equal(table.concat(words, ":"), "one:two", "inferred collection result")
 
     local codes = errorsOf(
         [==[
@@ -726,7 +729,7 @@ end
 local wrong: integer = assert(Word("hello"))
 ]==]
     )
-    assertEq(codes[1], "NUPP2001", "inferred matcher remains precise")
+    testAssert.equal(codes[1], "NUPP2001", "inferred matcher remains precise")
 end
 
 function M.requiresAFactoryBoundaryWhenStaticActionsNeedResultTypes()
@@ -737,7 +740,7 @@ const Number = comptime do
 end
 ]==]
     )
-    assertEq(codes[1], "NUPP2414", "action inference boundary")
+    testAssert.equal(codes[1], "NUPP2414", "action inference boundary")
     assert(diagnostics[1].msg:find("declared matcher factory type", 1, true), diagnostics[1].msg)
 end
 
@@ -750,7 +753,7 @@ end
 return Word("Hello")
 ]]
     )
-    assertEq(value, "Hello", "substring capture")
+    testAssert.equal(value, "Hello", "substring capture")
 end
 
 function M.collectsRepeatedCapturesExplicitly()
@@ -762,9 +765,9 @@ end
 return Words("one,two,three"), Words:isMatch("invalid;one,two,three")
 ]]
     )
-    assertEq(#values, 3, "collection length")
-    assertEq(table.concat(values, ":"), "one:two:three", "collection values")
-    assertEq(found, true, "specialized collection search")
+    testAssert.equal(#values, 3, "collection length")
+    testAssert.equal(table.concat(values, ":"), "one:two:three", "collection values")
+    testAssert.equal(found, true, "specialized collection search")
 end
 
 function M.groupsRepeatedCapturesExplicitly()
@@ -776,13 +779,13 @@ end
 return matcher("one,two,three")
 ]]
     )
-    assertEq(table.concat(values, ":"), "one:two:three", "grouped values")
+    testAssert.equal(table.concat(values, ":"), "one:two:three", "grouped values")
 end
 
 function M.excludesPegSupportFromUnrelatedPrograms()
     local code = compile("return 42")
-    assertEq(code:find("__nuppPegVM", 1, true), nil, "unused helper")
-    assertEq(code:find("__nuppPegCodegen", 1, true), nil, "unused code generator")
+    testAssert.equal(code:find("__nuppPegVM", 1, true), nil, "unused helper")
+    testAssert.equal(code:find("__nuppPegCodegen", 1, true), nil, "unused code generator")
 end
 
 function M.buildsATypedMatcherFactoryForRuntimeActions()
@@ -806,8 +809,8 @@ local matcher = Number(new NumberActions(
 return matcher("1234"), calls
 ]]
     )
-    assertEq(result, 1234, "action result")
-    assertEq(calls, 1, "one successful action")
+    testAssert.equal(result, 1234, "action result")
+    testAssert.equal(calls, 1, "one successful action")
 end
 
 function M.defersActionsUntilTheWholeMatchSucceeds()
@@ -829,8 +832,8 @@ local matcher = Build(new Actions(
 return matcher("ab"), calls
 ]]
     )
-    assertEq(value, "ab", "winning action value")
-    assertEq(calls, 1, "failed alternative did not run its action")
+    testAssert.equal(value, "ab", "winning action value")
+    testAssert.equal(calls, 1, "failed alternative did not run its action")
 end
 
 function M.collectsTypedActionResults()
@@ -852,8 +855,8 @@ local matcher = Build(new Actions(
 return matcher("10,20,30")
 ]]
     )
-    assertEq(#values, 3, "action collection length")
-    assertEq(values[1] + values[2] + values[3], 60, "typed action collection")
+    testAssert.equal(#values, 3, "action collection length")
+    testAssert.equal(values[1] + values[2] + values[3], 60, "typed action collection")
 end
 
 function M.requiresTheExactDefinitionSlotRecord()
@@ -865,7 +868,7 @@ const Build: function(Empty): nupp.peg.Peg<string> = comptime do
 end
 ]]
     )
-    assertEq(missing[1], "NUPP2415", "missing action slot")
+    testAssert.equal(missing[1], "NUPP2415", "missing action slot")
 
     local extra = errorsOf(
         [[
@@ -878,7 +881,7 @@ const Build: function(Actions): nupp.peg.Peg<string> = comptime do
 end
 ]]
     )
-    assertEq(extra[1], "NUPP2415", "unknown definition slot")
+    testAssert.equal(extra[1], "NUPP2415", "unknown definition slot")
 end
 
 function M.matchesARecursiveGrammar()
@@ -889,8 +892,8 @@ end
 return Nested("(((x)))"), Nested("((x)")
 ]]
     local matched, missed = run(source)
-    assertEq(matched, 8, "recursive match")
-    assertEq(missed, nil, "unclosed recursion fails")
+    testAssert.equal(matched, 8, "recursive match")
+    testAssert.equal(missed, nil, "unclosed recursion fails")
 end
 
 function M.runsDeepTailRecursiveGrammarsInLpeg()
@@ -904,7 +907,7 @@ local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
 return Nested(subject)
 ]]
     )
-    assertEq(matched, 4002, "deep recursive match")
+    testAssert.equal(matched, 4002, "deep recursive match")
 end
 
 -- The same grammar, with the LPeg oracle opened first. Re-entering `luaopen_lpeg`
@@ -923,7 +926,7 @@ local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
 return Nested(subject)
 ]]
     )
-    assertEq(matched, 4002, "deep recursive match after the oracle was opened")
+    testAssert.equal(matched, 4002, "deep recursive match after the oracle was opened")
 end
 
 function M.supportsPositionAnyAndOptionalPatterns()
@@ -935,16 +938,16 @@ end
 return Located(""), Located("x"), Located("xy")
 ]]
     )
-    assertEq(empty, 1, "empty position")
-    assertEq(byte, 1, "position before optional byte")
-    assertEq(tooLong, nil, "optional consumes at most one byte")
+    testAssert.equal(empty, 1, "empty position")
+    testAssert.equal(byte, 1, "position before optional byte")
+    testAssert.equal(tooLong, nil, "optional consumes at most one byte")
 end
 
 function M.exposesOnlyTextualGrammarCompilation()
     local codes = errorsOf([[
 local pattern = nupp.peg.literal("x")
 ]])
-    assertEq(codes[1], "NUPP2004", "node constructors are not public")
+    testAssert.equal(codes[1], "NUPP2004", "node constructors are not public")
 end
 
 function M.supportsDifferenceAndPredicates()
@@ -956,9 +959,9 @@ end
 return Name("item"), Name("if"), Name("7")
 ]]
     )
-    assertEq(good, 5, "predicate match")
-    assertEq(keyword, nil, "negative predicate")
-    assertEq(digit, nil, "difference")
+    testAssert.equal(good, 5, "predicate match")
+    testAssert.equal(keyword, nil, "negative predicate")
+    testAssert.equal(digit, nil, "difference")
 end
 
 function M.usesLpegExponentSemantics()
@@ -973,10 +976,10 @@ end
 return AtLeastTwo("aa"), AtLeastTwo("a"), AtLeastTwo("aaa"), AtMostTwo("aa")
 ]]
     )
-    assertEq(twice, 3, "positive exponent minimum")
-    assertEq(once, nil, "positive exponent rejects fewer")
-    assertEq(thrice, 4, "positive exponent accepts more")
-    assertEq(capped, 3, "negative exponent maximum")
+    testAssert.equal(twice, 3, "positive exponent minimum")
+    testAssert.equal(once, nil, "positive exponent rejects fewer")
+    testAssert.equal(thrice, 4, "positive exponent accepts more")
+    testAssert.equal(capped, 3, "negative exponent maximum")
 end
 
 function M.keepsLiteralWhitespaceInsideByteClasses()
@@ -988,16 +991,16 @@ end
 return Class(" "), Class("4"), Class("x")
 ]]
     )
-    assertEq(space, 2, "a leading class space is a member")
-    assertEq(digit, 2, "a predefined member remains in the class")
-    assertEq(letter, nil, "the class still rejects other bytes")
+    testAssert.equal(space, 2, "a leading class space is a member")
+    testAssert.equal(digit, 2, "a predefined member remains in the class")
+    testAssert.equal(letter, nil, "the class still rejects other bytes")
 
     local codes = errorsOf([[
 const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("% d")
 end
 ]])
-    assertEq(table.concat(codes, " "), "NUPP2417", "a predefined name starts immediately after percent")
+    testAssert.equal(table.concat(codes, " "), "NUPP2417", "a predefined name starts immediately after percent")
 end
 
 function M.agreesWithLpegOnTheOverlappingFloor()
@@ -1013,7 +1016,7 @@ return Identifier
     local alpha = lpeg.R("az", "AZ") + lpeg.P("_")
     local reference = alpha * (alpha + lpeg.R("09")) ^ 0 * -lpeg.P(1)
     for _, subject in ipairs({"name", "_name9", "A0", "", "9x", "a-b"}) do
-        assertEq(matcher(subject), lpeg.match(reference, subject), "LPeg differential subject " .. subject)
+        testAssert.equal(matcher(subject), lpeg.match(reference, subject), "LPeg differential subject " .. subject)
     end
 end
 
@@ -1127,9 +1130,9 @@ return {
     lpeg.setmaxstack(10000)
 
     for _, name in ipairs({"direct", "transformed", "matchTime"}) do
-        assertEq(got[name].n, want[name].n, name .. " result count")
+        testAssert.equal(got[name].n, want[name].n, name .. " result count")
         for index = 1, want[name].n do
-            assertEq(got[name][index], want[name][index], name .. " result " .. index)
+            testAssert.equal(got[name][index], want[name][index], name .. " result " .. index)
         end
     end
     for _, name in ipairs({
@@ -1151,7 +1154,7 @@ return {
         "printableNewline",
         "invalidStack",
     }) do
-        assertEq(got[name], want[name], "LPeg facade " .. name)
+        testAssert.equal(got[name], want[name], "LPeg facade " .. name)
     end
     assert(got.rewindError:find("invalid position returned by match%-time capture"), got.rewindError)
 end
@@ -1189,14 +1192,14 @@ return checkedFirst, checkedSecond, checkedThird, checkedLiteralText,
     checkedRuntimeNumber
 ]==]
     )
-    assertEq(first, "name", "typed first constant capture")
-    assertEq(second, 42, "typed second constant capture")
-    assertEq(third, true, "typed third constant capture")
-    assertEq(literalText, "word", "typed nested pattern capture")
-    assertEq(transformedText, "A", "typed callback text result")
-    assertEq(transformedNumber, 7, "typed callback integer result")
-    assertEq(runtimeText, "runtime", "typed runtime capture text")
-    assertEq(runtimeNumber, 9, "typed runtime capture integer")
+    testAssert.equal(first, "name", "typed first constant capture")
+    testAssert.equal(second, 42, "typed second constant capture")
+    testAssert.equal(third, true, "typed third constant capture")
+    testAssert.equal(literalText, "word", "typed nested pattern capture")
+    testAssert.equal(transformedText, "A", "typed callback text result")
+    testAssert.equal(transformedNumber, 7, "typed callback integer result")
+    testAssert.equal(runtimeText, "runtime", "typed runtime capture text")
+    testAssert.equal(runtimeNumber, 9, "typed runtime capture integer")
 
     local codes = errorsOf(
         [==[
@@ -1205,7 +1208,11 @@ local first, second = lpeg.Cc("name", 42):match("")
 local wrong: boolean? = second
 ]==]
     )
-    assertEq(table.concat(codes, " "), "NUPP2001", "heterogeneous captures cannot be assigned as the wrong slot type")
+    testAssert.equal(
+        table.concat(codes, " "),
+        "NUPP2001",
+        "heterogeneous captures cannot be assigned as the wrong slot type"
+    )
 end
 
 function M.matchesLpegConstructionUtfAndRepresentationSemantics()
@@ -1261,25 +1268,25 @@ return {
 }
 ]==]
     )
-    assertEq(got.luaType, "userdata", "patterns are opaque userdata")
-    assertEq(got.lpegType, "pattern", "lpeg.type recognizes facade userdata")
-    assertEq(got.tostringPrefix, true, "pattern reflection matches LPeg's shape")
-    assertEq(got.mutable, false, "pattern state cannot be mutated")
-    assertEq(got.selfField, nil, "LPeg does not expose a nonstandard self field")
-    assertEq(got.emptyLoop, false, "empty repetition fails during construction")
-    assertEq(got.captureLoop, false, "capture-only repetition fails during construction")
-    assertEq(got.undefined, false, "undefined rules fail during construction")
-    assertEq(got.left, false, "left recursion fails during construction")
-    assertEq(got.right, true, "right recursion remains valid")
-    assertEq(got.missingLookup, 8, "a missing query capture produces zero values")
-    assertEq(got.overlong, nil, "utfR rejects overlong UTF-8")
-    assertEq(got.tooLarge, nil, "utfR rejects code points above Unicode")
-    assertEq(got.surrogate, 4, "utfR retains LPeg's code-point range semantics")
-    assertEq(got.invalidLow, false, "utfR rejects a negative lower bound")
-    assertEq(got.invalidHigh, false, "utfR rejects a bound above Unicode")
-    assertEq(got.invalidOrder, false, "utfR rejects an inverted range")
-    assertEq(got.flat, 5, "flat AST depth does not consume backtrack stack")
-    assertEq(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
+    testAssert.equal(got.luaType, "userdata", "patterns are opaque userdata")
+    testAssert.equal(got.lpegType, "pattern", "lpeg.type recognizes facade userdata")
+    testAssert.equal(got.tostringPrefix, true, "pattern reflection matches LPeg's shape")
+    testAssert.equal(got.mutable, false, "pattern state cannot be mutated")
+    testAssert.equal(got.selfField, nil, "LPeg does not expose a nonstandard self field")
+    testAssert.equal(got.emptyLoop, false, "empty repetition fails during construction")
+    testAssert.equal(got.captureLoop, false, "capture-only repetition fails during construction")
+    testAssert.equal(got.undefined, false, "undefined rules fail during construction")
+    testAssert.equal(got.left, false, "left recursion fails during construction")
+    testAssert.equal(got.right, true, "right recursion remains valid")
+    testAssert.equal(got.missingLookup, 8, "a missing query capture produces zero values")
+    testAssert.equal(got.overlong, nil, "utfR rejects overlong UTF-8")
+    testAssert.equal(got.tooLarge, nil, "utfR rejects code points above Unicode")
+    testAssert.equal(got.surrogate, 4, "utfR retains LPeg's code-point range semantics")
+    testAssert.equal(got.invalidLow, false, "utfR rejects a negative lower bound")
+    testAssert.equal(got.invalidHigh, false, "utfR rejects a bound above Unicode")
+    testAssert.equal(got.invalidOrder, false, "utfR rejects an inverted range")
+    testAssert.equal(got.flat, 5, "flat AST depth does not consume backtrack stack")
+    testAssert.equal(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
 end
 
 function M.bundlesTheReferenceReModuleOverTheLpegFacade()
@@ -1292,12 +1299,12 @@ local first, last = re.find("-- item:42 --", "[a-z]+ ':' [0-9]+")
 return captured, first, last, re.gsub("a1b22", "[0-9]+", "#"), type(pattern)
 ]==]
     )
-    assertEq(captured[1], "item", "bundled re first capture")
-    assertEq(captured[2], "42", "bundled re second capture")
-    assertEq(first, 4, "bundled re find start")
-    assertEq(last, 10, "bundled re find inclusive end")
-    assertEq(replaced, "a#b#", "bundled re global substitution")
-    assertEq(patternType, "userdata", "re compiles to the same opaque pattern")
+    testAssert.equal(captured[1], "item", "bundled re first capture")
+    testAssert.equal(captured[2], "42", "bundled re second capture")
+    testAssert.equal(first, 4, "bundled re find start")
+    testAssert.equal(last, 10, "bundled re find inclusive end")
+    testAssert.equal(replaced, "a#b#", "bundled re global substitution")
+    testAssert.equal(patternType, "userdata", "re compiles to the same opaque pattern")
 end
 
 function M.agreesWithLpegReOnTheCaptureSurface()
@@ -1346,13 +1353,13 @@ return Same, Fields, Substitution, Selected, Formatted, Upper, MatchTime,
 
     local sameOracle = re.compile("{:word: { [a-z]+ } :} '=' =word !.")
     for _, subject in ipairs({"abc=abc", "abc=abd", "x=x"}) do
-        assertEq(same(subject), sameOracle:match(subject), "named back capture oracle for " .. subject)
+        testAssert.equal(same(subject), sameOracle:match(subject), "named back capture oracle for " .. subject)
     end
 
     local fieldsOracle = re.compile("{| {:name: { [a-z]+ } :} ':' { [0-9]+ } |} !.")
     local gotFields, wantFields = fields("age:42"), fieldsOracle:match("age:42")
-    assertEq(gotFields.name, wantFields.name, "named table field oracle")
-    assertEq(gotFields[1], wantFields[1], "positional table field oracle")
+    testAssert.equal(gotFields.name, wantFields.name, "named table field oracle")
+    testAssert.equal(gotFields[1], wantFields[1], "positional table field oracle")
 
     local cases = {
         {substitution, re.compile("{~ (({ [0-9]+ } -> '#') / .)* ~} !."), "a12b"},
@@ -1407,7 +1414,7 @@ return Same, Fields, Substitution, Selected, Formatted, Upper, MatchTime,
         {externalClass, re.compile("[%token] !.", {token = "ok"}), "ok"},
     }
     for index, case in ipairs(cases) do
-        assertEq(case[1](case[3]), case[2]:match(case[3]), "LPeg re capture oracle case " .. index)
+        testAssert.equal(case[1](case[3]), case[2]:match(case[3]), "LPeg re capture oracle case " .. index)
     end
     local gotMultiple = multiple("hi")
     local wantMultiple = re.compile("{| {[a-z]+} -> both |} !.", {
@@ -1415,12 +1422,12 @@ return Same, Fields, Substitution, Selected, Formatted, Upper, MatchTime,
             return value, value:upper()
         end,
     }):match("hi")
-    assertEq(gotMultiple[1], wantMultiple[1], "first transformed capture")
-    assertEq(gotMultiple[2], wantMultiple[2], "second transformed capture")
+    testAssert.equal(gotMultiple[1], wantMultiple[1], "first transformed capture")
+    testAssert.equal(gotMultiple[2], wantMultiple[2], "second transformed capture")
     local gotNested = nestedCapture("a")
     local wantNested = re.compile("{| { {'a'} } |} !."):match("a")
-    assertEq(gotNested[1], wantNested[1], "outer substring capture")
-    assertEq(gotNested[2], wantNested[2], "nested substring capture")
+    testAssert.equal(gotNested[1], wantNested[1], "outer substring capture")
+    testAssert.equal(gotNested[2], wantNested[2], "nested substring capture")
 end
 
 function M.searchesGeneralRecognitionProgramsWithoutLosingTheirEndPosition()
@@ -1430,9 +1437,9 @@ local Suppressed = nupp.peg.compile("({.}) -> 0")
 return Suppressed:find("x")
 ]]
     )
-    assertEq(first, 1, "general recognizer first position")
-    assertEq(nextPosition, 2, "general recognizer exclusive end")
-    assertEq(value, 2, "general recognizer result")
+    testAssert.equal(first, 1, "general recognizer first position")
+    testAssert.equal(nextPosition, 2, "general recognizer exclusive end")
+    testAssert.equal(value, 2, "general recognizer result")
 end
 
 function M.compilesReNotationAtComptime()
@@ -1445,12 +1452,12 @@ end
 return Identifier("_name9"), Identifier("9name"), Identifier("name!")
 ]==]
     local matched, badHead, badTail = run(source)
-    assertEq(matched, 7, "re notation static match")
-    assertEq(badHead, nil, "re notation static head rejection")
-    assertEq(badTail, nil, "re notation static eof rejection")
+    testAssert.equal(matched, 7, "re notation static match")
+    testAssert.equal(badHead, nil, "re notation static head rejection")
+    testAssert.equal(badTail, nil, "re notation static eof rejection")
     local code = compile(source)
     assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-    assertEq(code:find("__nuppPegReInstall", 1, true), nil, "static re grammar excludes the runtime frontend")
+    testAssert.equal(code:find("__nuppPegReInstall", 1, true), nil, "static re grammar excludes the runtime frontend")
 end
 
 function M.compilesTheSameReNotationAtRuntime()
@@ -1467,7 +1474,7 @@ return Static, Dynamic
 ]==]
     )
     for _, subject in ipairs({"GET /users/42", "POST /items", "PUT /items", "GET /Users"}) do
-        assertEq(dynamic(subject), static(subject), "static/runtime re parity for " .. subject)
+        testAssert.equal(dynamic(subject), static(subject), "static/runtime re parity for " .. subject)
     end
 end
 
@@ -1487,10 +1494,10 @@ return Static("name9"), Dynamic("name9"), LPEG("name9"),
     staticCode == dynamicCode, dynamicCode == lpegCode
 ]==]
     )
-    assertEq(dynamicResult, staticResult, "runtime specialization result")
-    assertEq(lpegResult, staticResult, "forced LPeg result")
-    assertEq(sameTemplate, true, "static and runtime use the same matcher template")
-    assertEq(sameLpegShell, true, "kernels and LPeg share one matcher shell")
+    testAssert.equal(dynamicResult, staticResult, "runtime specialization result")
+    testAssert.equal(lpegResult, staticResult, "forced LPeg result")
+    testAssert.equal(sameTemplate, true, "static and runtime use the same matcher template")
+    testAssert.equal(sameLpegShell, true, "kernels and LPeg share one matcher shell")
 end
 
 function M.supportsRuntimeReCapturesCollectionsAndActions()
@@ -1507,8 +1514,8 @@ local number = nupp.peg.compile("%d+ -> number !.", {
 return words("one,two,three"), number("1234")
 ]==]
     )
-    assertEq(table.concat(words, ":"), "one:two:three", "runtime re collection")
-    assertEq(number, 1234, "runtime re action")
+    testAssert.equal(table.concat(words, ":"), "one:two:three", "runtime re collection")
+    testAssert.equal(number, 1234, "runtime re action")
 end
 
 function M.infersLiteralRuntimeMatcherAndActionResults()
@@ -1532,10 +1539,10 @@ local number: integer = assert(Number("42"))
 return word, constWord, words, number
 ]==]
     )
-    assertEq(word, "hello", "literal runtime capture result")
-    assertEq(constWord, "hello", "const runtime capture result")
-    assertEq(table.concat(words, ":"), "one:two", "literal runtime collection result")
-    assertEq(number, 42, "literal runtime action result")
+    testAssert.equal(word, "hello", "literal runtime capture result")
+    testAssert.equal(constWord, "hello", "const runtime capture result")
+    testAssert.equal(table.concat(words, ":"), "one:two", "literal runtime collection result")
+    testAssert.equal(number, 42, "literal runtime action result")
 end
 
 function M.supportsRuntimeRecursiveReGrammars()
@@ -1553,10 +1560,10 @@ local Dynamic = nupp.peg.compile(grammar)
 return Static("(((x)))"), Dynamic("(((x)))"), Static("((x)"), Dynamic("((x)")
 ]==]
     )
-    assertEq(staticMatched, 8, "static recursive re match")
-    assertEq(dynamicMatched, staticMatched, "recursive re phase parity")
-    assertEq(staticMissed, nil, "static recursive re rejection")
-    assertEq(dynamicMissed, staticMissed, "recursive re rejection parity")
+    testAssert.equal(staticMatched, 8, "static recursive re match")
+    testAssert.equal(dynamicMatched, staticMatched, "recursive re phase parity")
+    testAssert.equal(staticMissed, nil, "static recursive re rejection")
+    testAssert.equal(dynamicMissed, staticMissed, "recursive re rejection parity")
 end
 
 function M.rejectsUnsafeRuntimeReGrammars()
@@ -1570,9 +1577,9 @@ end
 return rejected("('')*"), rejected("value <- value / 'x'"), rejected("value <- missing")
 ]==]
     )
-    assertEq(nullable, true, "runtime nullable repetition rejection")
-    assertEq(leftRecursive, true, "runtime left recursion rejection")
-    assertEq(undefined, true, "runtime undefined rule rejection")
+    testAssert.equal(nullable, true, "runtime nullable repetition rejection")
+    testAssert.equal(leftRecursive, true, "runtime left recursion rejection")
+    testAssert.equal(undefined, true, "runtime undefined rule rejection")
 end
 
 function M.reportsReSyntaxLocationsAtBothPhases()
@@ -1586,7 +1593,7 @@ const Broken: nupp.peg.Peg<integer> = comptime do
 end
 ]==]
     )
-    assertEq(codes[1], "NUPP2417", "static re diagnostic code")
+    testAssert.equal(codes[1], "NUPP2417", "static re diagnostic code")
     assert(diagnostics[1].msg:find("line 2, column", 1, true), diagnostics[1].msg)
 
     local ok, why = run(
@@ -1597,7 +1604,7 @@ end)
 return ok, tostring(why)
 ]==]
     )
-    assertEq(ok, false, "runtime re syntax rejection")
+    testAssert.equal(ok, false, "runtime re syntax rejection")
     assert(why:find("pattern error near", 1, true), why)
 end
 
@@ -1623,9 +1630,13 @@ return FastIdentifier, RefIdentifier, FastList, RefList
     local fastIdentifier, refIdentifier, fastList, refList = run(source)
     local inputs = {"", "a", "_ok9", "9bad", "alpha,beta", "one,two,three", "one,", ",two"}
     for _, input in ipairs(inputs) do
-        assertEq(fastIdentifier(input), refIdentifier(input), "identifier backend parity for " .. input)
+        testAssert.equal(fastIdentifier(input), refIdentifier(input), "identifier backend parity for " .. input)
         local fast, ref = fastList(input), refList(input)
-        assertEq(fast and table.concat(fast, ":"), ref and table.concat(ref, ":"), "list backend parity for " .. input)
+        testAssert.equal(
+            fast and table.concat(fast, ":"),
+            ref and table.concat(ref, ":"),
+            "list backend parity for " .. input
+        )
     end
 end
 
@@ -1648,11 +1659,11 @@ rawset(_G, "loadstring", original)
 return afterFirst, afterCached, afterForced, Auto("hello"), Forced("hello")
 ]==]
     )
-    assertEq(afterFirst, 0, "runtime LPeg compilation generates no Lua source")
-    assertEq(afterCached, afterFirst, "runtime code generation is cached")
-    assertEq(afterForced, afterCached, "forced LPeg compilation generates no Lua source")
-    assertEq(autoMatched, 6, "cached matcher remains usable")
-    assertEq(forcedMatched, 6, "forced LPeg matcher remains usable")
+    testAssert.equal(afterFirst, 0, "runtime LPeg compilation generates no Lua source")
+    testAssert.equal(afterCached, afterFirst, "runtime code generation is cached")
+    testAssert.equal(afterForced, afterCached, "forced LPeg compilation generates no Lua source")
+    testAssert.equal(autoMatched, 6, "cached matcher remains usable")
+    testAssert.equal(forcedMatched, 6, "forced LPeg matcher remains usable")
 end
 
 function M.emitsAndRunsFixedWidthRecognitionPrograms()
@@ -1664,12 +1675,12 @@ return Date("2026-08-10"), Date("2026/08/10"), Date:match("x2026-08-10", 2)
 ]]
     local code = compile(source)
     assert(code:find("fastFixed={", 1, true), code)
-    assertEq(code:find("program.code", 1, true), nil, "no PEG bytecode program")
-    assertEq(code:find("unknown PEG opcode", 1, true), nil, "no PEG opcode dispatcher")
+    testAssert.equal(code:find("program.code", 1, true), nil, "no PEG bytecode program")
+    testAssert.equal(code:find("unknown PEG opcode", 1, true), nil, "no PEG opcode dispatcher")
     local matched, missed, offset = run(source)
-    assertEq(matched, 11, "fixed-width call match")
-    assertEq(missed, nil, "fixed-width byte rejection")
-    assertEq(offset, 12, "fixed-width explicit start position")
+    testAssert.equal(matched, 11, "fixed-width call match")
+    testAssert.equal(missed, nil, "fixed-width byte rejection")
+    testAssert.equal(offset, 12, "fixed-width explicit start position")
 end
 
 function M.emitsAndRunsPackedPrefixScanPrograms()
@@ -1688,11 +1699,11 @@ return Route("GET /users/42 HTTP/1.1"), Route("HEAD /users/42 HTTP/1.1"),
     assert(code:find("fastScan={", 1, true), code)
     assert(code:find("packedKeys={", 1, true), code)
     local matched, methodMiss, pathMiss, offset, searched = run(source)
-    assertEq(matched, 23, "packed scan call match")
-    assertEq(methodMiss, nil, "packed scan prefix rejection")
-    assertEq(pathMiss, nil, "packed scan class rejection")
-    assertEq(offset, 22, "packed scan explicit start position")
-    assertEq(searched, true, "packed scan search")
+    testAssert.equal(matched, 23, "packed scan call match")
+    testAssert.equal(methodMiss, nil, "packed scan prefix rejection")
+    testAssert.equal(pathMiss, nil, "packed scan class rejection")
+    testAssert.equal(offset, 22, "packed scan explicit start position")
+    testAssert.equal(searched, true, "packed scan search")
 end
 
 function M.fallsBackForScanProgramsOutsideThePackedShape()
@@ -1708,10 +1719,10 @@ return Command("OPTIONS value!"), Command("OPTION value!"),
     Label("GET::value!"), Label("GET:value!")
 ]]
     )
-    assertEq(longMatched, 15, "long prefix scan fallback")
-    assertEq(longMissed, nil, "long prefix fallback rejection")
-    assertEq(separatorMatched, 12, "multi-byte separator fallback")
-    assertEq(separatorMissed, nil, "multi-byte separator rejection")
+    testAssert.equal(longMatched, 15, "long prefix scan fallback")
+    testAssert.equal(longMissed, nil, "long prefix fallback rejection")
+    testAssert.equal(separatorMatched, 12, "multi-byte separator fallback")
+    testAssert.equal(separatorMissed, nil, "multi-byte separator rejection")
 end
 
 function M.rejectsNullableRepetition()
@@ -1720,7 +1731,7 @@ const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("('')*")
 end
 ]])
-    assertEq(codes[1], "NUPP2417", "nullable repetition is rejected while finalizing")
+    testAssert.equal(codes[1], "NUPP2417", "nullable repetition is rejected while finalizing")
 end
 
 function M.rejectsLeftRecursion()
@@ -1731,7 +1742,7 @@ const Bad: nupp.peg.Peg<integer> = comptime do
 end
 ]]
     )
-    assertEq(codes[1], "NUPP2417", "left recursion is rejected")
+    testAssert.equal(codes[1], "NUPP2417", "left recursion is rejected")
 end
 
 function M.reportsUnwrappedRepetitionInsideChoiceAndRules()
@@ -1740,13 +1751,13 @@ const Bad = comptime do
     return nupp.peg.compile("{'a'}* / 'b'")
 end
 ]])
-    assertEq(codes[1], "NUPP2417", "a choice alternative reports its unwrapped repetition")
+    testAssert.equal(codes[1], "NUPP2417", "a choice alternative reports its unwrapped repetition")
     local ruleCodes = errorsOf([[
 const Bad = comptime do
     return nupp.peg.compile("S <- A 'x'  A <- {'a'}*")
 end
 ]])
-    assertEq(ruleCodes[1], "NUPP2417", "a rule reference reports its unwrapped repetition")
+    testAssert.equal(ruleCodes[1], "NUPP2417", "a rule reference reports its unwrapped repetition")
 end
 
 function M.keepsGreedyScansOffThePackedPrefixKernel()
@@ -1760,11 +1771,11 @@ end
 return Fast("a=abcdefghi"), Native("a=abcdefghi"), Fast("a=-abcdefghi"), Native("a=-abcdefghi")
 ]==]
     local code = compile(source)
-    assertEq(code:find("fastScan={", 1, true), nil, "a suffix the scan class accepts is not specialized")
+    testAssert.equal(code:find("fastScan={", 1, true), nil, "a suffix the scan class accepts is not specialized")
     local fast, native, fastMiss, nativeMiss = run(source)
-    assertEq(fast, native, "greedy repetition agrees with LPeg")
-    assertEq(fast, nil, "the greedy scan swallows the suffix")
-    assertEq(fastMiss, nativeMiss, "a rejected byte agrees with LPeg")
+    testAssert.equal(fast, native, "greedy repetition agrees with LPeg")
+    testAssert.equal(fast, nil, "the greedy scan swallows the suffix")
+    testAssert.equal(fastMiss, nativeMiss, "a rejected byte agrees with LPeg")
 end
 
 function M.typesNestedCollectsAsNestedArrays()
@@ -1781,10 +1792,10 @@ local inner: {{string}} = assert(Inferred("x"))
 return #rows, rows[1][1], rows[1][2], rows[2][1] .. inner[1][1]
 ]==]
     )
-    assertEq(outer, 2, "outer collect length")
-    assertEq(first, "a", "first inner capture")
-    assertEq(second, "b", "second inner capture")
-    assertEq(third, "cx", "nested captures under both backends")
+    testAssert.equal(outer, 2, "outer collect length")
+    testAssert.equal(first, "a", "first inner capture")
+    testAssert.equal(second, "b", "second inner capture")
+    testAssert.equal(third, "cx", "nested captures under both backends")
     local codes = errorsOf(
         [[
 const Bad: nupp.peg.Peg<{string}> = comptime do
@@ -1792,7 +1803,7 @@ const Bad: nupp.peg.Peg<{string}> = comptime do
 end
 ]]
     )
-    assertEq(codes[1], "NUPP2415", "a flattened declaration does not fit a nested collect")
+    testAssert.equal(codes[1], "NUPP2415", "a flattened declaration does not fit a nested collect")
 end
 
 function M.rejectsAComptimeMatcherDeclaredAsAnotherType()
@@ -1801,7 +1812,7 @@ const Wrong: string = comptime do
     return nupp.peg.compile("'a'")
 end
 ]])
-    assertEq(codes[1], "NUPP2415", "a non-matcher declaration is rejected")
+    testAssert.equal(codes[1], "NUPP2415", "a non-matcher declaration is rejected")
     assert(diagnostics[1].msg:find("nupp.peg.Peg", 1, true), diagnostics[1].msg)
 end
 
@@ -1811,7 +1822,7 @@ const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("{ 'x' }")
 end
 ]])
-    assertEq(codes[1], "NUPP2415", "capture result and matcher type must agree")
+    testAssert.equal(codes[1], "NUPP2415", "capture result and matcher type must agree")
 end
 
 return M

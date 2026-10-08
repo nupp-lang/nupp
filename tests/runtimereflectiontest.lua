@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- First-class record type witnesses and lazy runtime descriptors.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -7,19 +8,13 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function compile(source)
     local parsed = parser.parse(source, "runtime_reflection.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "runtime_reflection.g.nupp", env)
-    assertEq(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
+    testAssert.equal(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
     local code, generated = gen.generate(parsed, "runtime_reflection")
-    assertEq(#generated, 0, "generation diagnostics")
+    testAssert.equal(#generated, 0, "generation diagnostics")
 
     return code
 end
@@ -54,11 +49,11 @@ return {
 }
 ]]
     )
-    assertEq(result.witness, true, "Type<T> witness")
-    assertEq(result.distinct, true, "type is not an instance")
-    assertEq(result.cached, true, "reflect cache")
-    assertEq(result.name, "User", "descriptor name")
-    assertEq(result.field, "id", "descriptor fields")
+    testAssert.equal(result.witness, true, "Type<T> witness")
+    testAssert.equal(result.distinct, true, "type is not an instance")
+    testAssert.equal(result.cached, true, "reflect cache")
+    testAssert.equal(result.name, "User", "descriptor name")
+    testAssert.equal(result.field, "id", "descriptor fields")
     assert(code:find("_G.nupp.__reflect.register", 1, true), code)
 end
 
@@ -72,7 +67,7 @@ local quiet = new Quiet(value = 1)
 return quiet.value
 ]]
     )
-    assertEq(code:find("__nupp.__reflect", 1, true), nil, "unused reflection runtime")
+    testAssert.equal(code:find("__nupp.__reflect", 1, true), nil, "unused reflection runtime")
 end
 
 function M.jsonCodecIsAllocatedByTheRuntimeExtensionCache()
@@ -84,12 +79,12 @@ end
 return User
 ]])
     local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
-    assertEq(entry.codec, nil, "derive eagerly allocated a JSON codec")
+    testAssert.equal(entry.codec, nil, "derive eagerly allocated a JSON codec")
     local info = User:reflect()
     local first = info:extension(_G.nupp.__reflect.json)
     local second = info:extension(_G.nupp.__reflect.json)
-    assertEq(first, second, "extension cache")
-    assertEq(entry.codec, first, "JSON extension owns codec allocation")
+    testAssert.equal(first, second, "extension cache")
+    testAssert.equal(entry.codec, first, "JSON extension owns codec allocation")
 end
 
 -- The JSON codec's extension key is a typed key like any other, so reading
@@ -104,14 +99,20 @@ end
 return User
 ]])
     local key = _G.nupp.__reflect.json
-    assertEq(type(key.id), "number", "the JSON extension key has no typed id")
+    testAssert.equal(type(key.id), "number", "the JSON extension key has no typed id")
     local info = User:reflect()
     local codec = info:extension(key)
-    assertEq(codec, _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec, "the key read back the codec")
-    local ok, problem = pcall(info.extension, info, {build = function()
-        return "untyped"
-    end})
-    assertEq(ok, false, "an untyped extension token was resolved")
+    testAssert.equal(
+        codec,
+        _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec,
+        "the key read back the codec"
+    )
+    local ok, problem = pcall(info.extension, info, {
+        build = function()
+            return "untyped"
+        end
+    })
+    testAssert.equal(ok, false, "an untyped extension token was resolved")
     assert(tostring(problem):find("not an extension key", 1, true), tostring(problem))
 end
 
@@ -129,10 +130,10 @@ end
 return User
 ]])
     local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
-    assertEq(entry.codec, nil, "the codec is allocated on demand")
+    testAssert.equal(entry.codec, nil, "the codec is allocated on demand")
 
     local derive = require("nupp.derive")
-    assertEq(
+    testAssert.equal(
         type(derive.fieldCodec(entry)),
         "table",
         "the module answered no codec when it was asked before anything else"
@@ -159,7 +160,7 @@ return User
     local kind = entry.schema.fields[1]
     assert(kind.encodedName ~= nil, "the derived key was not cached")
     assert(kind.jsonType.encoded ~= nil, "the literal value was not cached")
-    assertEq(
+    testAssert.equal(
         kind.encodedName,
         require("nupp.codec.json").encodedString("kind"),
         "the derived key did not use the interned representation"
@@ -198,11 +199,11 @@ return {
 }
 ]]
     )
-    assertEq(result.explicitWrite, 'prefix:{"id":7}', "explicit JSON write")
-    assertEq(result.memberWrite, '{"id":7}', "member JSON write")
-    assertEq(result.text, '{"id":7}', "explicit JSON encode")
-    assertEq(result.id, 7, "type witness decode")
-    assertEq(result.problem, nil, "type witness decode error")
+    testAssert.equal(result.explicitWrite, 'prefix:{"id":7}', "explicit JSON write")
+    testAssert.equal(result.memberWrite, '{"id":7}', "member JSON write")
+    testAssert.equal(result.text, '{"id":7}', "explicit JSON encode")
+    testAssert.equal(result.id, 7, "type witness decode")
+    testAssert.equal(result.problem, nil, "type witness decode error")
 end
 
 return M

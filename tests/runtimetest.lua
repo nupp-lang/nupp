@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
@@ -9,12 +10,6 @@ local cwdPipe = assert(io.popen("pwd"))
 local currentDir = assert(cwdPipe:read("*l"))
 cwdPipe:close()
 local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/..") or (currentDir .. "/" .. HERE .. "/..")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function readFile(path)
     local file = assert(io.open(path, "rb"))
@@ -87,7 +82,7 @@ return M
             local answer = require("runtimeanswer")
             removeLoader()
             package.loaded.runtimeanswer = nil
-            assertEq(answer.double(21), 42, "required nupp module")
+            testAssert.equal(answer.double(21), 42, "required nupp module")
         end
     )
 end
@@ -112,7 +107,7 @@ return { loads = _G.runtimeFolderLoads }
             package.loaded.runtimefolder = nil
             _G.runtimeFolderLoads = nil
             assert(first == second, "require must return the cached module")
-            assertEq(first.loads, 1, "init module execution count")
+            testAssert.equal(first.loads, 1, "init module execution count")
         end
     )
 end
@@ -133,8 +128,8 @@ function M.preservesPreloadAndPlainLuaLoaders()
             package.preload.runtimepreferred = nil
             package.loaded.runtimepreferred = nil
             package.loaded.runtimeplain = nil
-            assertEq(preferred, "preload", "package.preload priority")
-            assertEq(plain, "lua", "plain Lua project module")
+            testAssert.equal(preferred, "preload", "package.preload priority")
+            testAssert.equal(plain, "lua", "plain Lua project module")
         end
     )
 end
@@ -188,8 +183,8 @@ function M.declinesRequiresIssuedWhileCompiling()
             removeLoader()
             package.loaded.runtimemain = nil
             package.loaded.runtimelazy = nil
-            assertEq(main.ok, true, "compiled module loads")
-            assertEq(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
+            testAssert.equal(main.ok, true, "compiled module loads")
+            testAssert.equal(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
         end
     )
 end
@@ -210,8 +205,8 @@ print(type(time.now()))
                 "cd '%s' && '%s/bin/nupp' run main.lua " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            assertEq(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
-            assertEq(readFile(output), "number\n", "nupp run stdlib output")
+            testAssert.equal(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
+            testAssert.equal(readFile(output), "number\n", "nupp run stdlib output")
         end
     )
 end
@@ -233,8 +228,8 @@ print(answer.value)
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            assertEq(status, 0, "nupp run exit status: " .. readFile(errors))
-            assertEq(readFile(output), "42\n", "nupp run module output")
+            testAssert.equal(status, 0, "nupp run exit status: " .. readFile(errors))
+            testAssert.equal(readFile(output), "42\n", "nupp run module output")
         end
     )
 end
@@ -279,7 +274,7 @@ return M
                 said:find("error checking lua module 'runtimelyingcats'", 1, true),
                 "the run was not refused for the dependency: " .. said
             )
-            assertEq(readFile(output), "", "the program ran anyway")
+            testAssert.equal(readFile(output), "", "the program ran anyway")
         end
     )
 end
@@ -326,7 +321,7 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             assert(status == 0, "the run was refused: " .. readFile(errors))
-            assertEq(readFile(output), "claimed\n", "the claiming module did not run")
+            testAssert.equal(readFile(output), "claimed\n", "the claiming module did not run")
         end
     )
 end
@@ -367,8 +362,8 @@ return models
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             package.loaded.runtime_derive_models = nil
-            assertEq(status, 0, "nupp run derive exit status: " .. readFile(errors))
-            assertEq(
+            testAssert.equal(status, 0, "nupp run derive exit status: " .. readFile(errors))
+            testAssert.equal(
                 readFile(output),
                 "Outer { inner = Inner { value = 0 } }\n{\"inner\":{\"value\":0}}\n",
                 "nupp run derive output"
@@ -431,8 +426,8 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            assertEq(status, 0, "nupp run --watch exit status: " .. stderr)
-            assertEq(readFile(output), "1\n2\n2\n2\n", "watch generation output")
+            testAssert.equal(status, 0, "nupp run --watch exit status: " .. stderr)
+            testAssert.equal(readFile(output), "1\n2\n2\n2\n", "watch generation output")
             assert(stderr:find("committed hot generation 2", 1, true), stderr)
             assert(stderr:find("NUPP2002", 1, true), stderr)
             assert(stderr:find("generation 2 remains running", 1, true), stderr)
@@ -492,8 +487,8 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            assertEq(status, 0, "header watch exit status: " .. stderr)
-            assertEq(readFile(output), "no-change\nrestart-required\n")
+            testAssert.equal(status, 0, "header watch exit status: " .. stderr)
+            testAssert.equal(readFile(output), "no-change\nrestart-required\n")
             assert(stderr:find("header api.h at", 1, true), stderr)
         end
     )
@@ -515,12 +510,12 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             local current = "libmini" .. extension
             local replacement = "libmini-next" .. extension
             local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-            assertEq(
+            testAssert.equal(
                 os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(flags, dir, current, dir)),
                 0,
                 "compile first library"
             )
-            assertEq(
+            testAssert.equal(
                 os.execute(("cc %s -o '%s/%s' '%s/second.c'"):format(flags, dir, replacement, dir)),
                 0,
                 "compile replacement library"
@@ -548,8 +543,8 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            assertEq(status, 0, "native watch exit status: " .. stderr)
-            assertEq(readFile(output), "1\nrestart-required\n")
+            testAssert.equal(status, 0, "native watch exit status: " .. stderr)
+            testAssert.equal(readFile(output), "1\nrestart-required\n")
             assert(stderr:find("native artifact for mini at", 1, true), stderr)
         end
     )
@@ -559,8 +554,11 @@ end
 -- ARM64 stack arguments exposed this as a halfword store for a uint32_t.
 function M.tracedFfiPreservesStackArgumentWidths()
     local ffi = require("ffi")
-    withProject({
-        ["echo.c"] = [==[
+    withProject(
+        {
+            [
+                "echo.c"
+            ] = [==[
 #include <stddef.h>
 #include <stdint.h>
 int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length,
@@ -573,7 +571,9 @@ int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length
  return 0;
 }
 ]==],
-        ["echo.lua"] = [==[
+            [
+                "echo.lua"
+            ] = [==[
 local ffi=require('ffi')
 ffi.cdef[[int32_t ffiWidthEcho(uint64_t,const uint8_t*,size_t,const char*,size_t,uint32_t,uint32_t,uint64_t,uint32_t,uint32_t,uint32_t,uint64_t*);]]
 local C=ffi.load(arg[2])
@@ -603,24 +603,27 @@ end
 if arg[1] ~= 'off' then assert(traced, 'loop never traced') end
 print('300000 calls passed',total)
 ]==],
-    }, function(dir)
-        local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-        local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
-        local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
-        assertEq(os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1")
-            :format(cc, flags, dir, library, dir)), 0, "build FFI width oracle")
-        for _, mode in ipairs({"off", "on"}) do
-            local output = dir .. "/" .. mode .. ".log"
-            local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1")
-                :format(dir, mode, library, output)
-            local status = os.execute(command)
-            local result = readFile(output)
-            assertEq(status, 0, mode .. " FFI calls: " .. result)
-            assert(result:find("300000 calls passed", 1, true), result)
+        },
+        function(dir)
+            local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+            local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
+            local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
+            testAssert.equal(
+                os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1"):format(cc, flags, dir, library, dir)),
+                0,
+                "build FFI width oracle"
+            )
+            for _, mode in ipairs({"off", "on"}) do
+                local output = dir .. "/" .. mode .. ".log"
+                local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1"):format(dir, mode, library, output)
+                local status = os.execute(command)
+                local result = readFile(output)
+                testAssert.equal(status, 0, mode .. " FFI calls: " .. result)
+                assert(result:find("300000 calls passed", 1, true), result)
+            end
         end
-    end)
+    )
 end
-
 
 -- Once a numeric for loop has a trace, ARM64 enters it through JFORI, whose
 -- floating-point path left PC at the loop body when the loop ran no
@@ -629,8 +632,11 @@ end
 -- build carries the fix. A fresh interpreter, so the loop's trace is this
 -- script's own, and the same answers with the JIT off.
 function M.aTracedNumericForLoopRunsNoIterationsForAnEmptyRange()
-    withProject({
-        ["loops.lua"] = [==[
+    withProject(
+        {
+            [
+                "loops.lua"
+            ] = [==[
 if arg[1] == 'off' then jit.off() end
 local function count(first, last) local n = 0 for _ = first, last do n = n + 1 end return n end
 local answers = {count(0, 1000)}
@@ -641,16 +647,18 @@ answers[#answers + 1] = count(2.5, 5)
 answers[#answers + 1] = count(0, 2.5)
 print(table.concat(answers, ' '))
 ]==],
-    }, function(dir)
-        for _, mode in ipairs({"off", "on"}) do
-            local output = dir .. "/" .. mode .. ".log"
-            local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
-            -- Windows writes the interpreter's print with CRLF.
-            local result = readFile(output):gsub("\r\n", "\n")
-            assertEq(status, 0, mode .. ": " .. result)
-            assertEq(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
+        },
+        function(dir)
+            for _, mode in ipairs({"off", "on"}) do
+                local output = dir .. "/" .. mode .. ".log"
+                local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
+                -- Windows writes the interpreter's print with CRLF.
+                local result = readFile(output):gsub("\r\n", "\n")
+                testAssert.equal(status, 0, mode .. ": " .. result)
+                testAssert.equal(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
+            end
         end
-    end)
+    )
 end
 
 return M

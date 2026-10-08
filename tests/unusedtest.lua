@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- unused-binding: a `local` this file introduces that nothing reads. The
 -- interesting half is what it declines to say -- a parameter, a loop variable,
 -- an `_`, an owned value with a rule of its own -- since a lint that reported
@@ -7,18 +8,12 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 -- Every diagnostic the source produces, with the lint left at its default. This
 -- file asks for the real checker rather than the tests' fragment wrapper, which
 -- turns this lint off for everything that is not about it.
 local function diagnostics(src, config)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     return check.check(result, "test.g.nupp", envMod.new("."), config or {})
 end
 
@@ -35,8 +30,8 @@ end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    assertEq(#found, 1, (label or "expected one report") .. "\n" .. src)
-    assertEq(found[1].lint, "unused-binding", "lint name")
+    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.equal(found[1].lint, "unused-binding", "lint name")
     return found[1]
 end
 
@@ -65,10 +60,10 @@ end
 return shout
 ]]
     )
-    assertEq(at.line, 2, "reported at the binding")
-    assertEq(at.col, 10, "and at the name, not the statement")
-    assertEq(at.severity, "warning", "suspicious lints warn by default")
-    assertEq(at.msg, "nothing uses prefix")
+    testAssert.equal(at.line, 2, "reported at the binding")
+    testAssert.equal(at.col, 10, "and at the name, not the statement")
+    testAssert.equal(at.severity, "warning", "suspicious lints warn by default")
+    testAssert.equal(at.msg, "nothing uses prefix")
 end
 
 -- The other half of missing-require: that lint says a module name is used
@@ -79,8 +74,8 @@ local strutil = require("strutil")
 
 return 1
 ]])
-    assertEq(at.msg, 'nothing reads strutil after requiring "strutil"')
-    assertEq(
+    testAssert.equal(at.msg, 'nothing reads strutil after requiring "strutil"')
+    testAssert.equal(
         at.help,
         "delete the require, or call require without binding its result when loading it is intentional",
         "the help preserves intentional load effects"
@@ -95,8 +90,8 @@ end
 
 return 2
 ]])
-    assertEq(at.msg, "nothing uses helper")
-    assertEq(at.help, "delete it, or return it from the module")
+    testAssert.equal(at.msg, "nothing uses helper")
+    testAssert.equal(at.help, "delete it, or return it from the module")
 end
 
 -- A use written below the declaration is still a use, which is why the
@@ -200,7 +195,7 @@ return work
     ) do
         codes[#codes + 1] = diag.code
     end
-    assertEq(table.concat(codes, " "), "", "automatic cleanup is meaningful use and needs no ownership repair")
+    testAssert.equal(table.concat(codes, " "), "", "automatic cleanup is meaningful use and needs no ownership repair")
 end
 
 function M.aDeclarationFileDeclaresWhatLivesElsewhere()
@@ -211,7 +206,7 @@ function M.aDeclarationFileDeclaresWhatLivesElsewhere()
             found[#found + 1] = diag
         end
     end
-    assertEq(#found, 0, "nothing in a declaration file has a reader here")
+    testAssert.equal(#found, 0, "nothing in a declaration file has a reader here")
 end
 
 function M.anAllowSilencesIt()
@@ -230,10 +225,16 @@ return 1
 end
 
 function M.aProjectMovesItsLevel()
-    assertEq(#lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "off"}}), 0, "off is not reported")
+    testAssert.equal(
+        #lint("local prefix = 1\nreturn 2\n", {
+            lints = {["unused-binding"] = "off"}
+        }),
+        0,
+        "off is not reported"
+    )
     local raised = lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "error"}})
-    assertEq(raised[1] and raised[1].severity, "error", "raised by name")
-    assertEq(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")
+    testAssert.equal(raised[1] and raised[1].severity, "error", "raised by name")
+    testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")
 end
 
 function M.anFfiIntrinsicCountsAsUsingTheRequire()

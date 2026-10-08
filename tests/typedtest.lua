@@ -1,24 +1,19 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local fmt = require("nupp.tools.fmt")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 -- Parses src, asserts clean parse + byte round-trip, returns the result.
 local function clean(src)
     local result = parser.parse(src)
-    assertEq(
+    testAssert.equal(
         #result.errors,
         0,
         "unexpected errors for " .. (
             "%q"
         ):format(src) .. (result.errors[1] and (" (" .. result.errors[1].msg .. ")") or "")
     )
-    assertEq(cst.textOf(result.root), src, "round-trip")
+    testAssert.equal(cst.textOf(result.root), src, "round-trip")
 
     return result
 end
@@ -36,39 +31,39 @@ local M = {}
 
 function M.localAnnotations()
     local s = firstStat("local x: number = 1")
-    assertEq(s.kind, "localStmt")
-    assertEq(cst.dump(s.types[1]), "(tname number)")
+    testAssert.equal(s.kind, "localStmt")
+    testAssert.equal(cst.dump(s.types[1]), "(tname number)")
     -- annotation on a middle binding only
     local s2 = firstStat("local a, b: string, c = 1, 's', 2")
-    assertEq(s2.types[1], nil)
-    assertEq(cst.dump(s2.types[2]), "(tname string)")
-    assertEq(s2.types[3], nil)
-    assertEq(#s2.names, 3)
+    testAssert.equal(s2.types[1], nil)
+    testAssert.equal(cst.dump(s2.types[2]), "(tname string)")
+    testAssert.equal(s2.types[3], nil)
+    testAssert.equal(#s2.names, 3)
 end
 
 function M.typeExpressions()
-    assertEq(typeDump("integer?"), "(topt (tname integer) ?)")
-    assertEq(typeDump("S*?"), "(topt (tptr (tname S) *) ?)")
-    assertEq(typeDump("number | string | nil"), "(tunion (tname number) | (tname string) | (tname nil))")
-    assertEq(typeDump("{number}"), "(tarray { (tname number) })")
-    assertEq(typeDump("{number, string}"), "(ttuple { (tname number) , (tname string) })")
-    assertEq(typeDump("{[string]: number}"), "(tmap { [ (tname string) ] : (tname number) })")
-    assertEq(
+    testAssert.equal(typeDump("integer?"), "(topt (tname integer) ?)")
+    testAssert.equal(typeDump("S*?"), "(topt (tptr (tname S) *) ?)")
+    testAssert.equal(typeDump("number | string | nil"), "(tunion (tname number) | (tname string) | (tname nil))")
+    testAssert.equal(typeDump("{number}"), "(tarray { (tname number) })")
+    testAssert.equal(typeDump("{number, string}"), "(ttuple { (tname number) , (tname string) })")
+    testAssert.equal(typeDump("{[string]: number}"), "(tmap { [ (tname string) ] : (tname number) })")
+    testAssert.equal(
         typeDump("{x: number, y: number}"),
         "(tshape { (tshapeField x : (tname number)) , " .. "(tshapeField y : (tname number)) })"
     )
     clean("local x: {@readonly value: string, @writeonly value: string | integer}")
     clean("local x: {@readonly [string]: string, @writeonly [string]: string | integer}")
     clean("local x: {name: string, [string]: string}")
-    assertEq(typeDump("a.b.C<K, V?>"), "(tname a . b . C < (tname K) , (topt (tname V) ?) >)")
+    testAssert.equal(typeDump("a.b.C<K, V?>"), "(tname a . b . C < (tname K) , (topt (tname V) ?) >)")
 end
 
 function M.functionTypes()
-    assertEq(
+    testAssert.equal(
         typeDump("function(number): boolean"),
         "(tfunc function ( (tfuncParam (tname number)) ) : (tname boolean))"
     )
-    assertEq(
+    testAssert.equal(
         typeDump("function(x: number, ...: string): (number, string)"),
         "(tfunc function ( (tfuncParam x : (tname number)) , "
         .. "(tfuncParam ... : (tname string)) ) : "
@@ -84,7 +79,7 @@ function M.functionStatementAnnotations()
     -- with an expression statement
     local r = clean("local function g(): number return 1 end")
     local body = r.root.blocks[1].stats[1].body
-    assertEq(cst.dump(body.rets[1]), "(tname number)")
+    testAssert.equal(cst.dump(body.rets[1]), "(tname number)")
 end
 
 function M.recordDeclarations()
@@ -102,10 +97,10 @@ function M.recordDeclarations()
         "\n"
     )
     local s = firstStat(src)
-    assertEq(s.kind, "recordDecl")
-    assertEq(s.declKind, "record")
-    assertEq(#s.entries, 4)
-    assertEq(s.entries[4].kind, "recordDecl")
+    testAssert.equal(s.kind, "recordDecl")
+    testAssert.equal(s.declKind, "record")
+    testAssert.equal(#s.entries, 4)
+    testAssert.equal(s.entries[4].kind, "recordDecl")
     clean("local interface Shape\n   area: function(Shape): number\nend")
     clean("local struct Vec3\n   x: float\n   y: float\n   z: float\nend")
     clean("local record Box<T>\n   value: T\nend")
@@ -125,8 +120,8 @@ function M.recordDeclarations()
     local mixed = firstStat(
         table.concat({"local interface Opt", "   secret: string", "   [string]: integer", "end",}, "\n")
     )
-    assertEq(mixed.entries[1].kind, "fieldDecl")
-    assertEq(mixed.entries[2].kind, "indexerDecl")
+    testAssert.equal(mixed.entries[1].kind, "fieldDecl")
+    testAssert.equal(mixed.entries[2].kind, "indexerDecl")
 end
 
 function M.contractDeclarationsAndInlineMethods()
@@ -143,85 +138,85 @@ function M.contractDeclarationsAndInlineMethods()
             "\n"
         )
     )
-    assertEq(#s.generics.names, 1)
-    assertEq(s.generics.names[1].text, "T")
-    assertEq(cst.dump(s.generics.bounds[1]), "(tname Value)")
-    assertEq(#s.supertypes, 2)
-    assertEq(s.entries[1].kind, "metamethodDecl")
-    assertEq(s.entries[2].kind, "inlineMethod")
+    testAssert.equal(#s.generics.names, 1)
+    testAssert.equal(s.generics.names[1].text, "T")
+    testAssert.equal(cst.dump(s.generics.bounds[1]), "(tname Value)")
+    testAssert.equal(#s.supertypes, 2)
+    testAssert.equal(s.entries[1].kind, "metamethodDecl")
+    testAssert.equal(s.entries[2].kind, "inlineMethod")
 end
 
 function M.literalUnionAndTypeAlias()
     local s = firstStat("local type Color = 'red' | 'green' | 'blue'")
-    assertEq(s.kind, "typeAlias")
-    assertEq(cst.dump(s.value), "(tunion (tliteral 'red') | (tliteral 'green') | (tliteral 'blue'))")
+    testAssert.equal(s.kind, "typeAlias")
+    testAssert.equal(cst.dump(s.value), "(tunion (tliteral 'red') | (tliteral 'green') | (tliteral 'blue'))")
     local n = firstStat("local type EntityId = uint32")
-    assertEq(n.kind, "typeAlias")
-    assertEq(cst.dump(n.value), "(tname uint32)")
+    testAssert.equal(n.kind, "typeAlias")
+    testAssert.equal(cst.dump(n.value), "(tname uint32)")
     assert(#parser.parse("def Legacy = uint32").errors > 0, "the former module alias syntax must be rejected")
 end
 
 function M.declarationVisibility()
     local private = firstStat("local type Private = string")
-    assertEq(private.visibility, "local")
+    testAssert.equal(private.visibility, "local")
     local exported = firstStat("type Exported = string")
-    assertEq(exported.kind, "typeAlias")
-    assertEq(exported.visibility, "module")
+    testAssert.equal(exported.kind, "typeAlias")
+    testAssert.equal(exported.visibility, "module")
     local global = firstStat("global record Shared\n   value: number\nend")
-    assertEq(global.kind, "recordDecl")
-    assertEq(global.visibility, "global")
+    testAssert.equal(global.kind, "recordDecl")
+    testAssert.equal(global.visibility, "global")
 end
 
 function M.contextualKeywordsStayNames()
     -- [CS-5]: none of the introducers are reserved words.
-    assertEq(firstStat("local record = 5").kind, "localStmt")
-    assertEq(firstStat("local def = 1").kind, "localStmt")
-    assertEq(firstStat("local type = 1").kind, "localStmt")
-    assertEq(firstStat("local newtype = 1").kind, "localStmt")
-    assertEq(firstStat("global = 1").kind, "assignStmt")
-    assertEq(firstStat("type(x)").kind, "callStmt")
-    assertEq(firstStat("local x = struct").kind, "localStmt")
-    assertEq(firstStat("local read = 1").kind, "localStmt")
-    assertEq(firstStat("local write = 1").kind, "localStmt")
-    assertEq(firstStat("local readonly = 1").kind, "localStmt")
-    assertEq(firstStat("local writeonly = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local record = 5").kind, "localStmt")
+    testAssert.equal(firstStat("local def = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local type = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local newtype = 1").kind, "localStmt")
+    testAssert.equal(firstStat("global = 1").kind, "assignStmt")
+    testAssert.equal(firstStat("type(x)").kind, "callStmt")
+    testAssert.equal(firstStat("local x = struct").kind, "localStmt")
+    testAssert.equal(firstStat("local read = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local write = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local readonly = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local writeonly = 1").kind, "localStmt")
     clean("local record Words\n   readonly: string\n   writeonly: string\nend")
     local explicit = clean("local type; Alias = number")
-    assertEq(explicit.root.blocks[1].stats[1].kind, "localStmt")
-    assertEq(explicit.root.blocks[1].stats[3].kind, "assignStmt")
+    testAssert.equal(explicit.root.blocks[1].stats[1].kind, "localStmt")
+    testAssert.equal(explicit.root.blocks[1].stats[3].kind, "assignStmt")
 end
 
 function M.optionalTypeVsTernary()
     -- [CS-8]: 'T?' in type position and '? :' in the initializer coexist.
     local s = firstStat("local x: T? = a ? b : c")
-    assertEq(cst.dump(s.types[1]), "(topt (tname T) ?)")
-    assertEq(s.exprs[1].kind, "ternary")
+    testAssert.equal(cst.dump(s.types[1]), "(topt (tname T) ?)")
+    testAssert.equal(s.exprs[1].kind, "ternary")
 end
 
 function M.castAndIs()
     local s = firstStat("local n = x as number + 1")
-    assertEq(cst.dump(s.exprs[1]), "(binop (castExpr (name x) as (tname number)) + (number 1))")
+    testAssert.equal(cst.dump(s.exprs[1]), "(binop (castExpr (name x) as (tname number)) + (number 1))")
     local s2 = firstStat("if v is string then end")
-    assertEq(cst.dump(s2.clauses[1].cond), "(isExpr (name v) is (tname string))")
+    testAssert.equal(cst.dump(s2.clauses[1].cond), "(isExpr (name v) is (tname string))")
 end
 
 function M.contextualOpsNeedSameLine()
     -- [CS-6]: across a newline, 'is' stays a plain call statement.
     local r = clean("x = a\nis(b)")
     local stats = r.root.blocks[1].stats
-    assertEq(#stats, 2)
-    assertEq(stats[1].kind, "assignStmt")
-    assertEq(stats[2].kind, "callStmt")
+    testAssert.equal(#stats, 2)
+    testAssert.equal(stats[1].kind, "assignStmt")
+    testAssert.equal(stats[2].kind, "callStmt")
     -- and as ordinary identifiers they are untouched
-    assertEq(firstStat("local as = 1").kind, "localStmt")
+    testAssert.equal(firstStat("local as = 1").kind, "localStmt")
     clean("f(as, is)")
 end
 
 function M.pragmas()
     local s = firstStat("@jit local function hot() end")
-    assertEq(s.kind, "pragmaStmt")
-    assertEq(s.name.text, "jit")
-    assertEq(s.stat.kind, "localFuncStmt")
+    testAssert.equal(s.kind, "pragmaStmt")
+    testAssert.equal(s.name.text, "jit")
+    testAssert.equal(s.stat.kind, "localFuncStmt")
     clean("@nojit function m.f(cb: function(): nil) end")
 end
 
@@ -230,25 +225,25 @@ function M.formattingTypedCode()
         return (fmt.format(src))
     end
 
-    assertEq(fmt1("local x:number=1"), "local x: number = 1\n")
-    assertEq(fmt1("local m:{[string]:{number}}={}"), "local m: {[string]: {number}} = {}\n")
-    assertEq(
+    testAssert.equal(fmt1("local x:number=1"), "local x: number = 1\n")
+    testAssert.equal(fmt1("local m:{[string]:{number}}={}"), "local m: {[string]: {number}} = {}\n")
+    testAssert.equal(
         fmt1("local function f< T >( x : T ) : T return x end"),
         "local function f<T>(x: T): T\n    return x\nend\n"
     )
-    assertEq(
+    testAssert.equal(
         fmt1("local function f< A... , R... >( ... : A... ) : R... " .. "return ... end"),
         "local function f<A..., R...>(...: A...): R...\n    return ...\nend\n"
     )
-    assertEq(
+    testAssert.equal(
         fmt1("local f:function(A...):( (true,R...) | (false,any) )"),
         "local f: function(A...): ((true, R...) | (false, any))\n"
     )
-    assertEq(fmt1("local f:function():... string"), "local f: function(): ...string\n")
-    assertEq(fmt1("local x : S * ? = nil"), "local x: S*? = nil\n")
-    assertEq(fmt1("@jit local function h() end"), "@jit\nlocal function h()\nend\n")
-    assertEq(fmt1("local record P\nx: number\nend"), "local record P\n    x: number\nend\n")
-    assertEq(
+    testAssert.equal(fmt1("local f:function():... string"), "local f: function(): ...string\n")
+    testAssert.equal(fmt1("local x : S * ? = nil"), "local x: S*? = nil\n")
+    testAssert.equal(fmt1("@jit local function h() end"), "@jit\nlocal function h()\nend\n")
+    testAssert.equal(fmt1("local record P\nx: number\nend"), "local record P\n    x: number\nend\n")
+    testAssert.equal(
         fmt1(
             table.concat(
                 {
@@ -283,7 +278,7 @@ function M.formattingTypedCode()
         "if v is string then p(v) end",
     }) do
         local once = fmt1(src)
-        assertEq(fmt1(once), once, "not idempotent: " .. src)
+        testAssert.equal(fmt1(once), once, "not idempotent: " .. src)
     end
 end
 

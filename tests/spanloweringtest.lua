@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- Trusted indexed-view range proof and contiguous-span lowering.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
@@ -8,25 +9,19 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function checked(src)
     local result = parser.parse(src, "test.nupp")
-    assertEq(#result.errors, 0, "syntax errors")
+    testAssert.equal(#result.errors, 0, "syntax errors")
     local diagnostics = check.check(result, "test.nupp", env)
     return result, diagnostics
 end
 
 local function compile(src, options)
     local result = checked(src)
-    assertEq(#result.errors, 0, "checker errors")
+    testAssert.equal(#result.errors, 0, "checker errors")
     local remarks = optimize.run(result, options or {level = 1})
     local code, diags = gen.generate(result, "test")
-    assertEq(#diags, 0, "generation diagnostics")
+    testAssert.equal(#diags, 0, "generation diagnostics")
 
     return code:gsub("%s+", ""), remarks, code
 end
@@ -186,7 +181,7 @@ return work
     )
     assert(not code:find(":slice(", 1, true), code)
     assert(not code:find("outer.count", 1, true), "the slice count is computed from its bounds:\n" .. code)
-    assertEq(select(2, code:gsub("start%(%)", "")), 2, "start() is declared once and called once:\n" .. code)
+    testAssert.equal(select(2, code:gsub("start%(%)", "")), 2, "start() is declared once and called once:\n" .. code)
 end
 
 function M.anEscapingSliceKeepsItsSafeWrapper()
@@ -481,7 +476,7 @@ return Runtime
     local runtime = assert(loadstring(raw, "@virtual-root-runtime"))()
     local ffi = require("ffi")
     local storage = ffi.new("int32_t[2]", {17, 23})
-    assertEq(runtime.read(storage, 2, 2), 23, "virtual checked read")
+    testAssert.equal(runtime.read(storage, 2, 2), 23, "virtual checked read")
     local inBounds, boundsError = pcall(runtime.read, storage, 2, 0)
     assert(not inBounds and tostring(boundsError):find("span index out of bounds", 1, true), tostring(boundsError))
     local validCount, countError = pcall(runtime.read, storage, -1, 1)
@@ -825,10 +820,10 @@ return R3
     local ffi = require("ffi")
     local xs = ffi.new("float[4]", {1, 2, 3, 4})
     local ys = ffi.new("float[4]", {5, 6, 7, 8})
-    assertEq(module.readOnly(xs, 4), 10, "shared acquisition result")
-    assertEq(module.mutate(xs, ys, 4), 11, "dirty component mask")
-    assertEq(tonumber(xs[3]), 5, "direct x store")
-    assertEq(tonumber(ys[3]), 10, "direct y store")
+    testAssert.equal(module.readOnly(xs, 4), 10, "shared acquisition result")
+    testAssert.equal(module.mutate(xs, ys, 4), 11, "dirty component mask")
+    testAssert.equal(tonumber(xs[3]), 5, "direct x store")
+    testAssert.equal(tonumber(ys[3]), 10, "direct y store")
 end
 
 function M.fixedSpansUseTheCommonAdapter()
@@ -969,7 +964,7 @@ return Probe
                     ("-O%d %s(%s): %s"):format(level, name, tostring(bad), tostring(got))
                 )
                 for at = 0, 3 do
-                    assertEq(
+                    testAssert.equal(
                         storage[at],
                         at + 1,
                         ("-O%d %s(%s) left element %d"):format(level, name, tostring(bad), at + 1)

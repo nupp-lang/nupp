@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The compiler reference, held to what the compiler actually does.
 --
 -- A reference is read as authoritative, so an example that stopped compiling is
@@ -31,12 +32,6 @@ local function runCommand(directory, arguments)
     os.remove(output)
 
     return text, status == 0
-end
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
 end
 
 --- Where a section's example belongs inside its project.
@@ -132,7 +127,7 @@ end
 
 function M.theSkillCarriesLoadableFrontmatter()
     local skill = reference.skill()
-    assertEq(skill:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.equal(skill:sub(1, 4), "---\n", "opens with frontmatter")
     assert(skill:find("\nname: nupp\n", 1, true), "names itself")
     assert(skill:find("description:", 1, true), "says when to load it")
     local closing = skill:find("\n---\n", 4, true)
@@ -147,13 +142,13 @@ end
 function M.aSectionCanBeEjectedAsASkill()
     local text, ok = runCommand(HERE .. "/..", "--section types --format skill")
     assert(ok, "the section renders as a skill: " .. text)
-    assertEq(text:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.equal(text:sub(1, 4), "---\n", "opens with frontmatter")
     assert(text:find("\nname: nupp-types\n", 1, true), "names itself after the section")
     local closing = text:find("\n---\n", 4, true)
     assert(closing, "closes its frontmatter")
     assert(text:find("# Types", closing, true), "the section follows the frontmatter")
     local byCode = runCommand(HERE .. "/..", "--for NUPP2004 --skill")
-    assertEq(byCode:sub(1, 4), "---\n", "--for honours the format too")
+    testAssert.equal(byCode:sub(1, 4), "---\n", "--for honours the format too")
 end
 
 function M.chaptersAreDiscoverableAndFocused()
@@ -221,7 +216,7 @@ function M.allJsonListsEverySectionItsMarkdownContains()
     for _, chapter in ipairs(reference.chapters) do
         expected = expected + #chapter.sections
     end
-    assertEq(#payload.sections, expected, "the flat section index agrees with the chapter index")
+    testAssert.equal(#payload.sections, expected, "the flat section index agrees with the chapter index")
     local byTitle = {}
     for _, section in ipairs(payload.sections) do
         byTitle[section.title] = true

@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The scaffolder: what a TEMPLATE argument means, what substitution does, what
 -- the sandbox refuses, and what never reaches the disk.
 --
@@ -15,12 +16,6 @@ if not HERE:match("^/") then
 end
 local ROOT = HERE .. "/.."
 local NUPP = os.getenv("NUPP_TEST_BIN") or ROOT .. "/bin/nupp"
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function exists(path)
     local file = io.open(path, "rb")
@@ -87,19 +82,19 @@ local M = {}
 
 function M.aBareNameIsABuiltIn()
     local source = assert(template.resolve("app"))
-    assertEq(source.kind, "builtin", "app is a built-in")
-    assertEq(source.name, "app", "and keeps its name")
+    testAssert.equal(source.kind, "builtin", "app is a built-in")
+    testAssert.equal(source.name, "app", "and keeps its name")
 end
 
 function M.noArgumentIsTheDefaultTemplate()
     local source = assert(template.resolve(nil))
-    assertEq(source.kind, "builtin", "the default is a built-in")
-    assertEq(source.name, "app", "and it is app")
+    testAssert.equal(source.kind, "builtin", "the default is a built-in")
+    testAssert.equal(source.name, "app", "and it is app")
 end
 
 function M.anUnknownBareNameNamesTheBuiltInsRatherThanGuessing()
     local source, err = template.resolve("nosuchtemplate")
-    assertEq(source, nil, "an unknown name resolves to nothing")
+    testAssert.equal(source, nil, "an unknown name resolves to nothing")
     assert(err:find("no built-in template is called", 1, true), err)
     assert(err:find("app", 1, true), "the complaint lists what there is: " .. err)
 end
@@ -107,35 +102,35 @@ end
 function M.aLeadingDotOrSlashIsADirectory()
     for _, spelling in ipairs({"./here", "../there", "/abs/path"}) do
         local source = assert(template.resolve(spelling))
-        assertEq(source.kind, "directory", spelling .. " is a directory")
+        testAssert.equal(source.kind, "directory", spelling .. " is a directory")
     end
 end
 
 function M.ownerRepoIsGitHub()
     local source = assert(template.resolve("nupp-lang/templates"))
-    assertEq(source.kind, "remote", "owner/repo is remote")
-    assertEq(source.url, "https://github.com/nupp-lang/templates", "expanded to GitHub")
-    assertEq(source.subdir, nil, "with no subdirectory")
+    testAssert.equal(source.kind, "remote", "owner/repo is remote")
+    testAssert.equal(source.url, "https://github.com/nupp-lang/templates", "expanded to GitHub")
+    testAssert.equal(source.subdir, nil, "with no subdirectory")
 end
 
 function M.ownerRepoCarriesASubdirectoryAndARevision()
     local source = assert(template.resolve("tecs-engine/tecs/templates/game@v2.0"))
-    assertEq(source.url, "https://github.com/tecs-engine/tecs", "the repository")
-    assertEq(source.subdir, "templates/game", "the path within it")
-    assertEq(source.rev, "v2.0", "the revision")
+    testAssert.equal(source.url, "https://github.com/tecs-engine/tecs", "the repository")
+    testAssert.equal(source.subdir, "templates/game", "the path within it")
+    testAssert.equal(source.rev, "v2.0", "the revision")
 end
 
 function M.aFullUrlIsUsedAsGiven()
     local source = assert(template.resolve("git@github.com:owner/repo.git"))
-    assertEq(source.kind, "remote", "an ssh spelling is remote")
-    assertEq(source.url, "git@github.com:owner/repo.git", "and is not rewritten")
+    testAssert.equal(source.kind, "remote", "an ssh spelling is remote")
+    testAssert.equal(source.url, "git@github.com:owner/repo.git", "and is not rewritten")
     -- An `@` is ordinary punctuation in a URL, so it is not read as a revision.
-    assertEq(source.rev, nil, "the @ in the URL is not a revision")
+    testAssert.equal(source.rev, nil, "the @ in the URL is not a revision")
 end
 
 function M.aRevisionGivenTwiceIsRefused()
     local source, err = template.resolve("owner/repo@v1", nil, "v2")
-    assertEq(source, nil, "two revisions resolve to nothing")
+    testAssert.equal(source, nil, "two revisions resolve to nothing")
     assert(err:find("given twice", 1, true), err)
 end
 
@@ -148,7 +143,7 @@ end
 
 function M.aBuiltInHasNoRevisions()
     local source, err = template.resolve("app", nil, "v1")
-    assertEq(source, nil, "a pinned built-in resolves to nothing")
+    testAssert.equal(source, nil, "a pinned built-in resolves to nothing")
     assert(err:find("no revisions", 1, true), err)
 end
 
@@ -156,17 +151,17 @@ end
 
 function M.substitutionFillsDeclaredNames()
     local got = assert(template.substitute("${a}-${b}", {a = "one", b = "two"}, "x"))
-    assertEq(got, "one-two", "both names were filled")
+    testAssert.equal(got, "one-two", "both names were filled")
 end
 
 function M.aDoubledDollarIsALiteralOpener()
     local got = assert(template.substitute("$${name} and ${name}", {name = "x"}, "y"))
-    assertEq(got, "${name} and x", "the escape is not re-read as an opener")
+    testAssert.equal(got, "${name} and x", "the escape is not re-read as an opener")
 end
 
 function M.anUndeclaredNameIsRefusedWithItsFile()
     local got, err = template.substitute("${nope}", {name = "x"}, "src/main.nupp")
-    assertEq(got, nil, "an undeclared name substitutes to nothing")
+    testAssert.equal(got, nil, "an undeclared name substitutes to nothing")
     assert(err:find("src/main.nupp", 1, true), err)
     assert(err:find("${nope}", 1, true), err)
 end
@@ -182,8 +177,8 @@ function M.aManifestDeclaresVariablesWithPatterns()
             "template.lua"
         )
     )
-    assertEq(manifest.description, "d", "the description came through")
-    assertEq(manifest.variables.who.default, "world", "and the default")
+    testAssert.equal(manifest.description, "d", "the description came through")
+    testAssert.equal(manifest.variables.who.default, "world", "and the default")
 end
 
 function M.theSandboxRefusesEveryWayOut()
@@ -196,14 +191,14 @@ function M.theSandboxRefusesEveryWayOut()
     }
     for name, text in pairs(reaches) do
         local manifest, err = template.manifest(text, "template.lua")
-        assertEq(manifest, nil, name .. " is not reachable from a template")
+        testAssert.equal(manifest, nil, name .. " is not reachable from a template")
         assert(err, "and the refusal says so for " .. name)
     end
 end
 
 function M.aTemplateThatLoopsIsRefusedRatherThanWaitedFor()
     local manifest, err = template.manifest("while true do end", "template.lua")
-    assertEq(manifest, nil, "a loop returns no manifest")
+    testAssert.equal(manifest, nil, "a loop returns no manifest")
     assert(err:find("too long", 1, true), err)
 end
 
@@ -217,8 +212,8 @@ function M.loadingATemplateLeavesTheHostHookInPlace()
     local hook, mask = debug.gethook()
     debug.sethook(before[1], before[2], before[3])
     assert(manifest, "the template loaded")
-    assertEq(hook, hostHook, "the host's hook survives a template load")
-    assertEq(mask, "r", "with its mask")
+    testAssert.equal(hook, hostHook, "the host's hook survives a template load")
+    testAssert.equal(mask, "r", "with its mask")
 end
 
 function M.anUnknownFieldIsRefusedByName()
@@ -234,7 +229,7 @@ function M.manifestFieldsKeepTheirDeclaredTypes()
         {text = [[return {variables = {x = {required = "yes"}}}]], field = "variables.x.required", kind = "boolean"},
     }) do
         local manifest, err = template.manifest(case.text, "template.lua")
-        assertEq(manifest, nil, case.field .. " is refused")
+        testAssert.equal(manifest, nil, case.field .. " is refused")
         assert(err:find(case.field, 1, true), err)
         assert(err:find(case.kind, 1, true), err)
     end
@@ -243,7 +238,7 @@ end
 function M.manifestListsMustBeDense()
     for _, field in ipairs({"raw", "after"}) do
         local manifest, err = template.manifest("return {" .. field .. " = {[2] = 'x'}}", "template.lua")
-        assertEq(manifest, nil, field .. " with a hole is refused")
+        testAssert.equal(manifest, nil, field .. " with a hole is refused")
         assert(err:find("dense list", 1, true), err)
     end
 end
@@ -276,17 +271,17 @@ function M.aDeclaredPatternIsEnforcedInTheTemplatesOwnWords()
         )
     )
     local values, err = template.values(manifest, "Not Lower", "d")
-    assertEq(values, nil, "a value outside the pattern is refused")
-    assertEq(err, "lowercase only, please", "in the template's own sentence")
+    testAssert.equal(values, nil, "a value outside the pattern is refused")
+    testAssert.equal(err, "lowercase only, please", "in the template's own sentence")
     assert(template.values(manifest, "fine", "d"), "and a matching one is not")
 end
 
 function M.moduleNameIsTheProjectNameInLuacase()
     local manifest = assert(template.manifest("return {}", "template.lua"))
     local values = assert(template.values(manifest, "my-lib", "somewhere/my-lib"))
-    assertEq(values.name, "my-lib", "the name is as given")
-    assertEq(values.moduleName, "mylib", "the module name is canonical luacase")
-    assertEq(values.directory, "somewhere/my-lib", "the directory is the destination")
+    testAssert.equal(values.name, "my-lib", "the name is as given")
+    testAssert.equal(values.moduleName, "mylib", "the module name is canonical luacase")
+    testAssert.equal(values.directory, "somewhere/my-lib", "the directory is the destination")
 end
 
 function M.settingADerivedNameIsRefusedRatherThanIgnored()
@@ -351,7 +346,7 @@ function M.aSymlinkIsReportedRatherThanFollowed()
 
     local into = tempDirectory()
     local plan, err = template.plan({kind = "directory", path = dir}, into)
-    assertEq(plan, nil, "a tree holding a link produces no plan")
+    testAssert.equal(plan, nil, "a tree holding a link produces no plan")
     assert(err:find("symbolic link", 1, true), err)
     assert(not exists(into), "and nothing was written")
     remove(dir)
@@ -360,7 +355,7 @@ end
 function M.aDirectoryWithoutATemplateManifestIsNotATemplate()
     local dir = templateDirectory({["some.txt"] = "x"})
     local plan, err = template.plan({kind = "directory", path = dir}, tempDirectory())
-    assertEq(plan, nil, "no manifest, no plan")
+    testAssert.equal(plan, nil, "no manifest, no plan")
     assert(err:find("template.lua", 1, true), err)
     remove(dir)
 end
@@ -371,7 +366,7 @@ local function planRefuses(files, label, needle, name)
     local dir = templateDirectory(files)
     local into = tempDirectory()
     local plan, err = template.plan({kind = "directory", path = dir}, into, {name = name})
-    assertEq(plan, nil, label)
+    testAssert.equal(plan, nil, label)
     assert(err:find(needle, 1, true), err)
     assert(not exists(into), "and the destination was left alone")
     remove(dir)
@@ -482,8 +477,8 @@ function M.aTemplateCannotRebindThePlannersLibraries()
       return {variables = {up = {default = ".."}}}
     ]]
     local plan, err, into, changed = planWhileTampered({["template.lua"] = blind, ["${up}/escaped.txt"] = "x"})
-    assertEq(table.concat(changed, ", "), "", "what the template changed in the host's libraries")
-    assertEq(plan, nil, "a template blinding the string library produces no plan")
+    testAssert.equal(table.concat(changed, ", "), "", "what the template changed in the host's libraries")
+    testAssert.equal(plan, nil, "a template blinding the string library produces no plan")
     assert(err:find("leaves the destination", 1, true), err)
     assert(not exists(into), "and the destination was left alone")
 end
@@ -496,15 +491,18 @@ function M.thePathCheckDoesNotAskTheSharedStringLibrary()
         {["template.lua"] = [[return {variables = {up = {default = ".."}}}]], ["a/${up}/${up}/escaped.txt"] = "x"},
         function()
             local real = {gmatch = string.gmatch, find = string.find, match = string.match, sub = string.sub}
+
             local function hides(s)
                 return type(s) == "string" and real.find(s, "/..", 1, true) ~= nil
             end
+
             string.gmatch = function(s, p)
                 if hides(s) then
                     return function()
                         return nil
                     end
                 end
+
                 return real.gmatch(s, p)
             end
             string.find = function(s, ...)
@@ -527,7 +525,7 @@ function M.thePathCheckDoesNotAskTheSharedStringLibrary()
             end
         end
     )
-    assertEq(plan, nil, "a path check asking a blinded string library produces no plan")
+    testAssert.equal(plan, nil, "a path check asking a blinded string library produces no plan")
     assert(err:find("leaves the destination", 1, true), err)
     assert(not exists(into), "and the destination was left alone")
 end
@@ -568,7 +566,7 @@ function M.aDestinationIsFreeWhenItHoldsNothingButGit()
     os.execute("mkdir -p '" .. occupied .. "'")
     write(occupied .. "/something.txt", "x")
     local no, occupiedErr = template.plan(source, occupied)
-    assertEq(no, nil, "a directory with a file in it is refused")
+    testAssert.equal(no, nil, "a directory with a file in it is refused")
     assert(occupiedErr:find("not empty", 1, true), occupiedErr)
 
     remove(dir)
@@ -604,7 +602,7 @@ function M.everyBuiltInTemplateFileIsStagedByTheManifest()
             missing[#missing + 1] = relative
         end
     end
-    assertEq(
+    testAssert.equal(
         #missing,
         0,
         "template files missing from the resource list in nupp.lua:\n  " .. table.concat(missing, "\n  ")
@@ -613,12 +611,12 @@ end
 
 function M.theBuiltInsAreTheTemplatesThatAreThere()
     local names = template.builtins()
-    assertEq(#names, 5, "five built-ins ship")
-    assertEq(names[1], "app", "app is one")
-    assertEq(names[2], "browser", "browser is one")
-    assertEq(names[3], "browser-simd", "browser SIMD is one")
-    assertEq(names[4], "lib", "lib is one")
-    assertEq(names[5], "love", "and love is the other")
+    testAssert.equal(#names, 5, "five built-ins ship")
+    testAssert.equal(names[1], "app", "app is one")
+    testAssert.equal(names[2], "browser", "browser is one")
+    testAssert.equal(names[3], "browser-simd", "browser SIMD is one")
+    testAssert.equal(names[4], "lib", "lib is one")
+    testAssert.equal(names[5], "love", "and love is the other")
     assert(#template.builtinDescription("app") > 0, "each says what it is for")
 end
 
@@ -638,7 +636,7 @@ function M.aBuiltInReadsTheSameFromTheCarriedTreeAsFromTheDirectory()
         )
     )
     local _, diff = shell("diff -r '" .. carried .. "' '" .. fromDisk .. "'")
-    assertEq(diff, "", "the carried tree and the directory scaffold identically")
+    testAssert.equal(diff, "", "the carried tree and the directory scaffold identically")
     remove(carried)
     remove(fromDisk)
 end
@@ -681,7 +679,7 @@ function M.aRemoteScaffoldsIdenticallyToTheSameTreeOnDisk()
     assert(template.write(assert(template.plan(source, fetched, {name = "sample"}))))
 
     local _, diff = shell("diff -r '" .. fromDisk .. "' '" .. fetched .. "'")
-    assertEq(diff, "", "a fetched tree scaffolds exactly as the directory does")
+    testAssert.equal(diff, "", "a fetched tree scaffolds exactly as the directory does")
     remove(dir)
     remove(scratch)
     remove(fromDisk)
@@ -700,8 +698,8 @@ function M.aRemoteTemplateCanLiveInASubdirectory()
     assert(template.fetch(source, scratch))
     local into = tempDirectory()
     local plan = assert(template.plan(source, into, {name = "mygame"}))
-    assertEq(#plan.files, 1, "only the subdirectory was taken")
-    assertEq(plan.files[1].output, "main.nupp", "and it is the template's own file")
+    testAssert.equal(#plan.files, 1, "only the subdirectory was taken")
+    testAssert.equal(plan.files[1].output, "main.nupp", "and it is the template's own file")
     remove(dir)
     remove(scratch)
     remove(into)
@@ -712,7 +710,7 @@ function M.aTreeThatIsNotATemplateIsRefusedAfterFetching()
     local scratch = tempDirectory()
     os.execute("mkdir -p '" .. scratch .. "'")
     local fetched, err = template.fetch({kind = "remote", url = url}, scratch)
-    assertEq(fetched, nil, "a repository without a manifest is not a template")
+    testAssert.equal(fetched, nil, "a repository without a manifest is not a template")
     assert(err:find("template.lua", 1, true), err)
     remove(dir)
     remove(scratch)
@@ -742,17 +740,17 @@ function M.aRemoteTemplateNeverCausesItsOwnManifestToBeLoaded()
     local dir, url = repository(files)
 
     local localPlan = assert(template.plan({kind = "directory", path = dir}, tempDirectory()))
-    assertEq(#localPlan.steps, 1, "a local template keeps its step")
-    assertEq(localPlan.steps[1], "check", "and it is check")
-    assertEq(#localPlan.dropped, 0, "with nothing dropped")
+    testAssert.equal(#localPlan.steps, 1, "a local template keeps its step")
+    testAssert.equal(localPlan.steps[1], "check", "and it is check")
+    testAssert.equal(#localPlan.dropped, 0, "with nothing dropped")
 
     local scratch = tempDirectory()
     os.execute("mkdir -p '" .. scratch .. "'")
     local source = assert(template.resolve(url))
     assert(template.fetch(source, scratch))
     local remotePlan = assert(template.plan(source, tempDirectory()))
-    assertEq(#remotePlan.steps, 0, "a fetched template keeps no step that loads it")
-    assertEq(remotePlan.dropped[1], "check", "and says which one it lost")
+    testAssert.equal(#remotePlan.steps, 0, "a fetched template keeps no step that loads it")
+    testAssert.equal(remotePlan.dropped[1], "check", "and says which one it lost")
 
     -- And the step itself, run for real, is what would have written the sentinel.
     local into = tempDirectory()
@@ -777,9 +775,9 @@ function M.gitIsTheOneStepARemoteKeeps()
     local source = assert(template.resolve(url))
     assert(template.fetch(source, scratch))
     local plan = assert(template.plan(source, tempDirectory()))
-    assertEq(#plan.steps, 1, "one step survives")
-    assertEq(plan.steps[1], "git", "and it is the one that runs no supplied code")
-    assertEq(#plan.dropped, 3, "the other three are dropped")
+    testAssert.equal(#plan.steps, 1, "one step survives")
+    testAssert.equal(plan.steps[1], "git", "and it is the one that runs no supplied code")
+    testAssert.equal(#plan.dropped, 3, "the other three are dropped")
     remove(dir)
     remove(scratch)
 end
@@ -846,7 +844,7 @@ local function withDevelopmentRocks(into)
         'kind = "luarocks",\n         tree = ' .. string.format("%q", ROOT .. "/.rocks") .. ",",
         1
     )
-    assertEq(count, 1, "the generated project has one rock dependency")
+    testAssert.equal(count, 1, "the generated project has one rock dependency")
     write(path, changed)
 end
 
@@ -864,9 +862,17 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
     scaffoldAndVerify("browser-simd", "sample-browser-simd", nil, function(into)
         withDevelopmentRocks(into)
         local config = assert(loadfile(into .. "/nupp.lua"))()
-        assertEq(config.build.targets.scalar.aotFeatures.maximum, "scalar", "the fallback is scalar Wasm AOT")
-        assertEq(config.build.targets.simd.aotFeatures.minimum, "simd128", "the fast package requires Wasm SIMD128")
-        assertEq(config.build.targets.simd.aotFeatures.maximum, nil, "and names no ceiling above the tier it requires")
+        testAssert.equal(config.build.targets.scalar.aotFeatures.maximum, "scalar", "the fallback is scalar Wasm AOT")
+        testAssert.equal(
+            config.build.targets.simd.aotFeatures.minimum,
+            "simd128",
+            "the fast package requires Wasm SIMD128"
+        )
+        testAssert.equal(
+            config.build.targets.simd.aotFeatures.maximum,
+            nil,
+            "and names no ceiling above the tier it requires"
+        )
 
         local prefix = "NUPP_CACHE_DIR='"
             .. SCAFFOLD_STORE
@@ -949,14 +955,14 @@ function M.aGameShapedManifestNeedsNoFieldsTheBuildDoesNotHave()
     end
     assert(assets, "the asset was carried")
     assert(assets.verbatim, "a raw glob keeps a binary file out of substitution")
-    assertEq(assets.text, "\0\1\2\3", "byte for byte")
+    testAssert.equal(assets.text, "\0\1\2\3", "byte for byte")
 
     assert(template.write(plan))
     local config, err = manifest.load(into)
     assert(config, "the scaffolded manifest does not validate: " .. tostring(err))
-    assertEq(config.dependencies.host.kind, "cargo", "the cargo dependency stands")
-    assertEq(config.build.targets.game.stub, "tecs", "and so does a non-default stub")
-    assertEq(config.build.targets.game.output, "build/mygame", "with the project name substituted into it")
+    testAssert.equal(config.dependencies.host.kind, "cargo", "the cargo dependency stands")
+    testAssert.equal(config.build.targets.game.stub, "tecs", "and so does a non-default stub")
+    testAssert.equal(config.build.targets.game.output, "build/mygame", "with the project name substituted into it")
     remove(dir)
     remove(into)
 end

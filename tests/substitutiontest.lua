@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- Substitution has two jobs. Rebinding `self` over a member must preserve every
 -- other binder; specializing a call must materialize the ones inference never
 -- reached, as `any`. One operation did both, and the preserving callers silently
@@ -12,16 +13,10 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function diagnostics(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test.g.nupp", env)
 end
 
@@ -35,11 +30,11 @@ local function codes(source)
 end
 
 local function clean(source)
-    assertEq(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local function reports(source, want)
-    assertEq(codes(source), want, "for:\n" .. source)
+    testAssert.equal(codes(source), want, "for:\n" .. source)
 end
 
 local M = {}
@@ -390,11 +385,11 @@ function M.anUninferredResultParameterIsAnError()
     -- leaves it, is a different binder: the diagnostic below names T, not A.
     local renamed = body:gsub("<T>%(%): T", "<A>(): A")
     local earlier = diagnostics(renamed .. "local value = make()\nreturn value\n")
-    assertEq(#earlier, 1, "one uninferred parameter")
+    testAssert.equal(#earlier, 1, "one uninferred parameter")
     assert(earlier[1].msg:find("parameter A ", 1, true), earlier[1].msg)
     local found = diagnostics(body .. "local value = make()\nreturn value\n")
-    assertEq(#found, 1, "one uninferred parameter")
-    assertEq(found[1].code, "NUPP2148")
+    testAssert.equal(#found, 1, "one uninferred parameter")
+    testAssert.equal(found[1].code, "NUPP2148")
     assert(found[1].msg:find("parameter T ", 1, true), "diagnostic names the parameter: " .. found[1].msg)
     assert(found[1].msg:find("make", 1, true), "diagnostic names the callee")
     assert(found[1].help and found[1].help:find("make<T>(...)", 1, true), "help shows the explicit form")
@@ -429,7 +424,8 @@ function M.aConstructedFieldIsADestination()
     clean(body .. "local s = 'x'\nlocal box = new Box(items = make(), default = s)\nreturn box\n")
     -- one that has to run first does not: it is inferred where it is written
     reports(
-        body .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
+        body
+        .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
         "NUPP2148"
     )
 end
@@ -668,11 +664,11 @@ end
     for index, source in ipairs(revisions) do
         local parsed = parser.parse(source, "generic-bound-edit.g.nupp")
         retained[index] = parsed
-        assertEq(#parsed.errors, 0, "revision syntax")
+        testAssert.equal(#parsed.errors, 0, "revision syntax")
         local diagnostics = check.check(parsed, "generic-bound-edit.g.nupp", revisionEnv)
-        assertEq(#diagnostics, 0, "revision " .. index .. ": " .. (diagnostics[1] and diagnostics[1].msg or ""))
+        testAssert.equal(#diagnostics, 0, "revision " .. index .. ": " .. (diagnostics[1] and diagnostics[1].msg or ""))
     end
-    assertEq(#retained, 2, "both checked revisions remain live")
+    testAssert.equal(#retained, 2, "both checked revisions remain live")
 end
 
 -- A table written with positional entries where a tuple result is declared is that
