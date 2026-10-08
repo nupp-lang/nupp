@@ -2,7 +2,7 @@ module nupp.tools.benchrunner
 
 --- Runs the benchmark set and merges what each case reported.
 ---
---- One case is one process, and a case here means a `bench.case`, not a file: trace
+--- A case is one process, and a case here means a `bench.case`, not a file: trace
 --- state, the compiler's trace budget, blacklisted traces and the heap are all
 --- process-wide, so two cases sharing a process measure each other. Each file is asked
 --- what cases it defines and then run once per case.
@@ -288,7 +288,7 @@ local function listingWidth(count: integer): integer
     return cores as integer
 end
 
---- Reads one child's case listing into benchmarks, or says why it is not one.
+--- Reads a child's case listing into benchmarks, or says why it is not one.
 local function parseListing(text: string): ({Benchmark}, string?)
     local names: {Benchmark} = {}
     local seen: {[string]: boolean} = {}
@@ -332,7 +332,7 @@ local function compilerFingerprint(): any?
     return loaded
 end
 
---- What one listed file's own contents come to. Nil when it cannot be read, which
+--- What a
 --- keeps it out of the cache rather than storing it under a key nothing can match.
 local function sourceDigest(path: string): string?
     local fingerprint = compilerFingerprint()
@@ -601,7 +601,7 @@ local function casesFor(
     return answers, problems
 end
 
---- Runs one named case in its own process and returns the record it wrote.
+--- Runs a named case in its own process and returns the record it wrote.
 local function runCase(
     executable: string,
     path: string,
@@ -735,7 +735,7 @@ local function usableRecord(record: any): boolean
     return measurement.p50Ms ~= nil
 end
 
---- One measurement's score in milliseconds per represented operation.
+--- A measurement's score in milliseconds per represented operation.
 ---
 --- The three kinds store their score differently, and everything statistical below
 --- compares across benchmarks, so they are brought to one scale here and put back
@@ -862,7 +862,7 @@ local function mergeAbortSites(forks: {any}): ({string}?, {any})
     return unanimous, flaky
 end
 
---- Builds one merged record for a benchmark from its forks.
+--- Builds a merged record for a benchmark from its forks.
 ---
 --- The forks themselves are kept beside the summary rather than reduced to it. A
 --- reader recomputing the interval needs the summaries, and a later warmup classifier
@@ -1060,7 +1060,7 @@ end
 -- Duration verdicts
 ----------------------------------------------------------------------------
 
---- Compares one benchmark's fork summaries against a baseline's.
+--- Compares a benchmark's fork summaries against a baseline's.
 ---
 --- Returns the relative change, its interval, and the p-value behind it. Paired when
 --- the two sets came from one interleaved session, where fork `k` of each ran under

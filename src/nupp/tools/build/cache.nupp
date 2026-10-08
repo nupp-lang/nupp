@@ -33,7 +33,7 @@ local cache = {}
 -- damaged rather than unusual, and `loadState` answers a damaged one with an empty
 -- state and a full rebuild.
 
---- What one module's last build left behind.
+--- What a
 ---
 --- Every field is optional because the state is read back from a file: this version
 --- writes all of them, and a file that turns out to be missing one is a cache miss
@@ -130,7 +130,7 @@ type cache.ModuleRecord = {
     optimizationAccounted: boolean?
 }
 
---- What one dependency's last build produced, as its provider described it.
+--- What a
 ---
 --- The providers hand back different things -- a native build has an output and a
 --- binding, a rock has a tree and the search path it adds -- so this is the union of
@@ -182,7 +182,7 @@ type cache.DependencyRecord = {
     typesRoot: string?
 }
 
---- Everything one build wrote down about what it did.
+--- Everything a
 ---
 --- `compilerHash` and `configHash` are absent from a state that has just been emptied
 --- and filled in by the run that is about to compare them.

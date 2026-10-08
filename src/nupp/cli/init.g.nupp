@@ -78,7 +78,7 @@ end
 --- A record type deriving `Command`.
 type cliModule.CommandType = Type<cliModule.Runnable>
 
---- One shell-neutral completion candidate.
+--- A shell-neutral completion candidate.
 record cliModule.CompletionCandidate
     value: string
     description: string?

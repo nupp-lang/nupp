@@ -24,7 +24,7 @@ local join, readFile, normalize = filesMod.join, filesMod.readFile, filesMod.nor
 local listMarkdown = filesMod.listMarkdown
 local cleanRoute = urlsMod.cleanRoute
 
---- One page a glob found.
+--- A page a glob found.
 ---
 --- Everything here is either the file's path or something the file said about itself,
 --- which is the point: the manifest supplied none of it.

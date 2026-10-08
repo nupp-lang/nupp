@@ -230,7 +230,7 @@ local function normalize(text: string, keepLayout: boolean?): string
     return text
 end
 
---- One statement of a header: its text, the header line it starts on, and whether a
+--- A statement of a header: its text, the header line it starts on, and whether a
 --- `#pragma pack` was in force while it was written.
 type importc.Statement = {
     text: string,
@@ -654,7 +654,7 @@ end
 
 local EXACT = 2 ^ 53
 
---- One C constant: an integer of a C integer type, a double or float, or a string.
+--- A C constant: an integer of a C integer type, a double or float, or a string.
 type importc.CValue = {
     kind: string,
     value: number?,

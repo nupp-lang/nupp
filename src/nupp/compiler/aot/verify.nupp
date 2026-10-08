@@ -108,7 +108,7 @@ record verify.Scope
     region: verify.Region?
 end
 
---- One `reducer_region` as its body sees it: the reducers it accumulates.
+--- A `reducer_region` as its body sees it: the reducers it accumulates.
 record verify.Region
     reducers: {[string]: scalarIR.ReducerRegionAccumulator}
 end
@@ -165,7 +165,7 @@ local function refuse(why: string): nil
     error(why, 0)
 end
 
---- Asserts one rule.
+--- Asserts a rule.
 ---
 --- @raises string when the rule does not hold
 local function holds(condition: boolean, why: string): nil
@@ -320,7 +320,7 @@ local MATH: {[string]: admit.Math} = (function(): {[string]: admit.Math}
     return names
 end)()
 
---- Whether one math operation carries the argument count its admitted source
+--- Whether a
 --- call has. The scalar and lane-wise forms share this rule because the latter
 --- emits one ordinary math call per lane.
 local function mathArity(intrinsic: string?, count: integer): boolean
@@ -364,7 +364,7 @@ local function validInteger64(value: string, valueType: string): boolean
         or not negative and integerMagnitude(magnitude, "9223372036854775807", "7fffffffffffffff")
 end
 
---- Whether one finite-number token has a source form the lowerer can carry.
+--- Whether a
 --- Int32 constants are rendered back as canonical decimal, while binary64
 --- constants retain this text, but neither admits whitespace or a sign that
 --- would have been a separate unary source node.
@@ -396,7 +396,7 @@ local function numericSpelling(value: string): boolean
     return (mantissa as string):match("^%d+%.?%d*$") ~= nil or (mantissa as string):match("^%.%d+$") ~= nil
 end
 
---- One walk, declared before it is written, because several of the helpers it
+--- A walk, declared before it is written, because several of the helpers it
 --- reaches call back into it.
 local scalarWalk: function(scalarIR.Expr, {[string]: string}, verify.Scope): nil
 
@@ -414,7 +414,7 @@ local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: s
     return spans ~= nil and root ~= nil and spans[root as string] or nil
 end
 
---- Records one bound, replacing the inner table an enclosing scope shares
+--- Records a bound, replacing the inner table an enclosing scope shares
 --- rather than writing into it. A vector's room implies an element's, so an
 --- element bound never narrows one.
 local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
@@ -442,7 +442,7 @@ end
 --- very cursor local -- by name and by the unique name generated code addresses --
 --- the cursor is a uint32, and a dominating check bounded it against `root`.
 ---
---- One rule for every read that names a cursor, so the scratch read and the
+--- A rule for every read that names a cursor, so the scratch read and the
 --- rooted byte read cannot come to require different proofs.
 local function cursorRead(
     index: scalarIR.Expr,
@@ -486,7 +486,7 @@ const ASSIGNED = "assigned "
 
 const DECLARED_AT = "declared at "
 
---- One loop being checked: what it says it carries, and which of those names
+--- A loop being checked: what it says it carries, and which of those names
 --- its body has been seen to assign.
 record verify.LoopFrame
     carried: {[string]: scalarIR.Carried}
@@ -852,7 +852,7 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
         )
 end
 
---- Checks one binary64 operation, comparison, or bitwise operation.
+--- Checks a binary64 operation, comparison, or bitwise operation.
 local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: verify.Scope): nil
     local op = node.op
     if op == "add" or op == "sub" or op == "mul" or op == "div" or op == "mod" or op == "pow" then
@@ -1969,7 +1969,7 @@ local function inherit(values: {[string]: string}): {[string]: string}
     return copied
 end
 
---- Checks one assignment target and the value going into it.
+--- Checks an assignment target and the value going into it.
 local function assignment(
     entry: scalarIR.Assignment,
     values: {[string]: string},
@@ -2112,7 +2112,7 @@ local function invalidateCursors(scope: verify.Scope, nested: verify.Scope): nil
     end
 end
 
---- Checks one block of scalar statements, and everything under it.
+--- Checks a block of scalar statements, and everything under it.
 ---
 --- `stored` accumulates which outputs were written, because a kernel whose
 --- output is never assigned is a kernel that silently did nothing.
@@ -3088,7 +3088,7 @@ local function termUniverse(params: {scalarIR.Param}): ({scalarIR.Term}, {string
     return terms, spans
 end
 
---- Whether one term names something this signature actually declares.
+--- Whether a
 local function namedTerm(term: scalarIR.Term, byName: {[string]: scalarIR.Param}): boolean
     local isOrigin = term.kind == "zero"
     local isCount = term.kind == "count"
@@ -3447,7 +3447,7 @@ function verify.builderStack(program: scalarIR.Program): integer
     return roots + depth + 4
 end
 
---- Checks one whole AOT program, and everything under it.
+--- Checks a whole AOT program, and everything under it.
 ---
 --- @param program the lowered function
 --- @return the same program, so a caller may verify and use it in one step

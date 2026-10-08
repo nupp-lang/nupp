@@ -275,7 +275,7 @@ local function maskedStore(
     )
 end
 
---- One partial access's shape: `count` lanes of `scalar` at `address`.
+--- A partial access's shape: `count` lanes of `scalar` at `address`.
 record memory.Access
     vector: string
     scalar: string
@@ -904,7 +904,7 @@ local function uniformField(ctx: context.Context, simd: scalarIR.Simd, scalar: s
     return index, #layout.fields
 end
 
---- One field of `N` struct elements. Where the struct is a run of one scalar
+--- A field of `N` struct elements. Where the struct is a run of one scalar
 --- type, the elements are read whole, as one wide load, and the field's lanes
 --- picked out of it -- the shape LLVM makes one de-interleaving load (NEON's
 --- `ld2`..`ld4`) of, and that every sibling field's load shares. Elsewhere,

@@ -14,7 +14,7 @@ local text = require("nupp.tools.lsp.text")
 
 local symbols = {}
 
---- One entry of the outline, as the protocol shapes it: what it is called, which
+--- An entry of the outline, as the protocol shapes it: what it is called, which
 --- SymbolKind paints it, the span it covers and the span selecting it names, and the
 --- members it holds.
 interface symbols.Symbol

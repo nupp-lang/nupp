@@ -37,7 +37,7 @@ local derive = {}
 interface derive.JSONContract is JSONEncodable
 end
 
---- One derived type, as the registry holds it.
+--- A derived type, as the registry holds it.
 record derive.Entry
     --- The recipe fingerprint the entry is filed under.
     key: string?
@@ -1341,7 +1341,7 @@ function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<JSONEncodable>
     }
 end
 
---- Derives one format-neutral schema and physical binding blueprint.
+--- Derives a format-neutral schema and physical binding blueprint.
 ---
 --- Unlike `JSON`, this provider admits both records and fixed-layout structs and
 --- generates no per-format traversal methods.

@@ -49,7 +49,7 @@ local codeHtml = highlightMod.codeHtml
 
 local html = {}
 
---- One heading of a rendered document: the slug it is reachable at, the text as it
+--- A heading of a rendered document: the slug it is reachable at, the text as it
 --- reads once its markup is stripped, and how deep it sits.
 type html.Heading = {
     path: string,

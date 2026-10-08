@@ -62,7 +62,7 @@ type narrow.Facts = {
 --- What the walk and the statement families ask narrowing. Four of these are promoted
 --- onto the run, since every family applies facts; the rest are reached through
 --- `c.facts` by the ones that branch, join, or invalidate what was proved.
---- What one call was found to write: whole references, everything beneath a
+--- What a
 --- reference, and captured bindings.
 type narrow.Cleared = {
     whole: {[string]: boolean},
@@ -71,7 +71,7 @@ type narrow.Cleared = {
 }
 
 type narrow.Ops = {
-    --- One map holding everything two maps held, the second winning a collision.
+    --- A map holding everything two maps held, the second winning a collision.
     mergeFacts: function(a: {[string]: Type}, b: {[string]: Type}): {[string]: Type},
 
     --- The key narrowing tracks a reference under, or nil when it has none.

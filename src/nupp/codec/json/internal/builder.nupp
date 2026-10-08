@@ -53,7 +53,7 @@ function stream.newSerde(
     error("newSerde exists only inside an @aot function", 2)
 end
 
---- Publishes one escaped source slice using backslash positions retained by
+--- Publishes an escaped source slice using backslash positions retained by
 --- the structural scan. Internal to AOT JSON stage two.
 --- @raises string outside an AOT-compiled function
 function stream.stringEscapes(
@@ -68,7 +68,7 @@ function stream.stringEscapes(
     error("stringEscapes exists only inside an @aot function", 2)
 end
 
---- Selects one escaped object key using retained backslash positions. Internal
+--- Selects an escaped object key using retained backslash positions. Internal
 --- to AOT JSON stage two.
 --- @raises string outside an AOT-compiled function
 function stream.keyEscapes(
@@ -166,7 +166,7 @@ function stream.numberToken(builder: any, borrows source: any, start: uint32, li
     return nupp.math.u32.wrap(at + 2147483648)
 end
 
---- Reads one retained escape position in source order.
+--- Reads a retained escape position in source order.
 --- @raises string outside an AOT-compiled function
 function stream.scratchEscapeWord(scratch: any, index: uint32): uint32
     error("scratchEscapeWord exists only inside an @aot function", 2)

@@ -43,7 +43,7 @@ export interface Provider
     --- Zero bytes with false means backpressure; true means the pipe is closed.
     @readonly write: function(Provider, any, string): (integer, boolean)
 
-    --- Releases one pipe handle; repeated release must be harmless.
+    --- Releases a pipe handle; repeated release must be harmless.
     @readonly closeStream: function(Provider, any): (boolean, string?)
 
     --- Releases the settled child owner; repeated release must be harmless.

@@ -33,7 +33,7 @@ local hash = {}
 
 --- A mutable incremental digest. Final reads snapshot the current state.
 interface hash.Hasher
-    --- Adds one chunk and returns this same hasher for chaining.
+    --- Adds a chunk and returns this same hasher for chaining.
     update: function(self: Hasher, bytes: string): Hasher
 
     --- Returns the current raw 32-byte digest without changing the hasher.

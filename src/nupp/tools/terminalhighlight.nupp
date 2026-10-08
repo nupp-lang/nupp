@@ -30,7 +30,7 @@ local syntaxstyle = require("nupp.tools.syntaxstyle")
 
 local terminalhighlight = {}
 
---- Paints one run of text in one style.
+--- Paints a run of text in one style.
 type terminalhighlight.Paint = function(string): string
 
 --- What a style name is painted with. A name the palette has no entry for is
@@ -100,10 +100,10 @@ function terminalhighlight.paint(palette: terminalhighlight.Palette, style: stri
     return paint(text)
 end
 
---- One line of source, as the runs of text that make it up.
+--- A line of source, as the runs of text that make it up.
 type terminalhighlight.Row = {syntaxstyle.Span}
 
---- Classifies one Nupp source into rows, a row per line.
+--- Classifies a Nupp source into rows, a row per line.
 ---
 --- The whole source is classified at once because Nupp's syntax needs it: a name
 --- is a type or a call by what surrounds it, and a long comment spans lines. The
@@ -151,7 +151,7 @@ function terminalhighlight.rows(source: string): {terminalhighlight.Row}
     return rows
 end
 
---- Paints one row, cut to the columns it has been given.
+--- Paints a row, cut to the columns it has been given.
 ---
 --- The marker is the caller's, because what marks a line the listing had to cut
 --- is the listing's decision and has to match however it marks anything else it
@@ -219,7 +219,7 @@ local function hint(text: string, palette: terminalhighlight.Palette): string
     return table.concat(out)
 end
 
---- Colours one line of a bytecode listing.
+--- Colours a line of a bytecode listing.
 ---
 --- The shape LuaJIT prints is fixed -- a program counter, an optional jump
 --- marker, an opcode, its operands, and a trailing `;` hint. Everything up to

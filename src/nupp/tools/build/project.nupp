@@ -40,7 +40,7 @@ type project.BuildOptions = {
     --- Which target to build; the manifest's default when absent.
     target: string?,
 
-    --- One configured binary platform, or "all" at the public build boundary.
+    --- A configured binary platform, or "all" at the public build boundary.
     platform: string?,
 
     --- Relink a compiler-owned binary host with its static native closure.
@@ -116,10 +116,10 @@ type project.TestOptions = {
 
 --- What `clean` was asked for.
 type project.CleanOptions = {
-    --- One target's output directory rather than every target's.
+    --- A target's output directory rather than every target's.
     target: string?,
 
-    --- One configured platform or "all". Meaningful only with `target`.
+    --- A configured platform or "all". Meaningful only with `target`.
     platform: string?,
 
     --- Say what would go, and remove nothing.
@@ -1860,7 +1860,7 @@ local function stage0Compiler(root: string, config: manifest.Config): string?, s
     return path, nil
 end
 
---- Runs one compiler to build this project into `outDir`.
+--- Runs a compiler to build this project into `outDir`.
 ---
 --- `packageRoot` is the output tree that compiler's own modules live in, or nil for a
 --- stage zero, which is one self-contained file and loads nothing beside it.

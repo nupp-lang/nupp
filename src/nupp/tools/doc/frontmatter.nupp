@@ -60,7 +60,7 @@ end
 
 --- A comma-separated field as its items, or nil when the field is absent or empty.
 ---
---- One line holds every list a page needs -- the routes it used to answer at -- so a
+--- A line holds every list a page needs -- the routes it used to answer at -- so a
 --- list is written the way it is spoken rather than as a block of dashes.
 function frontmatter.list(value: string?): {string}?
     if not value then

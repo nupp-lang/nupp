@@ -274,7 +274,7 @@ function report.encodePretty(value: unknown): string
     return indented(report.encode(value))
 end
 
---- Writes one line of JSON to stdout. Never colored: the reader is a program,
+--- Writes a line of JSON to stdout. Never colored: the reader is a program,
 --- and an escape code in a JSON string is a bug in whatever printed it.
 function report.write(value: unknown): nil
     io.write(report.encode(value) .. "\n")
@@ -431,7 +431,7 @@ local EDIT = {
     required = {"file", "range", "newText"},
 }
 
---- One diagnostic, as `--json` reports it.
+--- A diagnostic, as `--json` reports it.
 report.DIAGNOSTIC = {
     type = "object",
     properties = {

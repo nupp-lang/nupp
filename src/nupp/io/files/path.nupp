@@ -44,7 +44,7 @@ local function hex(byte: integer): string
     return ("%%%02X"):format(byte)
 end
 
---- Encodes one application identity component reversibly for every native host.
+--- Encodes an application identity component reversibly for every native host.
 export function encodeIdentity(value: any, what: string?): string
     local text = validText(value, what or "application identity", 3)
     local reserved = reservedDevice(text)

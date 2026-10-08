@@ -21,7 +21,7 @@ See [hot-reload.md](docs/learn/projects/hot-reload.md) for what a watch build do
 local hotreload = {}
 local debugAny: any = debug
 
---- One function body a slot can hold.
+--- A function body a slot can hold.
 ---
 --- Generated code writes these and generated code calls them, so no two slots need
 --- agree about what a call takes or answers. What this module does with one is join
@@ -55,7 +55,7 @@ type hotreload.Definition = {
     captures: hotreload.Captures
 }
 
---- One slot a prepared patch will fill, and the implementation to fill it with.
+--- A slot a prepared patch will fill, and the implementation to fill it with.
 type hotreload.Candidate = {
     --- The registration record the slot belongs to, which is private to this module.
     module: any,
@@ -230,7 +230,7 @@ function hotreload.module(name: string): hotreload.Slots
     return module.slots
 end
 
---- Records one managed-cell cleanup policy a generated module uses.
+--- Records a managed-cell cleanup policy a generated module uses.
 ---
 --- During staging the candidate set stays private until every live managed cell
 --- admits the change, so a policy that still owns a payload cannot be changed out

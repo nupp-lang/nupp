@@ -104,7 +104,7 @@ local function openContext(init: any): any
     return context
 end
 
---- Checks one dependency-ready component in this worker's session.
+--- Checks a dependency-ready component in this worker's session.
 ---
 --- Imported interfaces are installed before any assigned source is checked. The
 --- records stay plain data; the component's interface goes back as encoded bytes
@@ -304,7 +304,7 @@ local function checkBatch(request: any): any
     }
 end
 
---- Answers one request in a worker process. The first request names the lane's
+--- Answers a request in a worker process. The first request names the lane's
 --- type-identity namespace, before any session that would mint an identity opens.
 local function serve(request: any): any
     local lane = request.initializer

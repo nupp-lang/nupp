@@ -82,7 +82,7 @@ function relations.key(term: scalarIR.Term): string
     end
 end
 
---- One atom as a diagnostic spells it.
+--- An atom as a diagnostic spells it.
 function relations.termText(term: scalarIR.Term): string
     if term.kind == "zero" then
         return "0"
@@ -137,7 +137,7 @@ function relations.withSoaCounts(pool: {scalarIR.Relation}, params: {scalarIR.Pa
     return result
 end
 
---- One relation as a diagnostic spells it.
+--- A relation as a diagnostic spells it.
 function relations.text(relation: scalarIR.Relation): string
     local left = relations.termText(relation.left)
     local right = relations.termText(relation.right)
@@ -160,7 +160,7 @@ end
 -- Canonical order
 ----------------------------------------------------------------------------
 
---- One relation with its ordering keys already worked out.
+--- A relation with its ordering keys already worked out.
 ---
 --- Separate from the sort because a comparator runs inside `table.sort`, which
 --- is a C call nothing may yield across, and deriving a key is a call.

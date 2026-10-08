@@ -192,10 +192,10 @@ record gpu.Context is api.KernelContext
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
 
-    --- Releases one root buffer's device storage; a closed context already has.
+    --- Releases a root buffer's device storage; a closed context already has.
     _releaseBuffer: function(borrows self: Context, buffer: any): nil
 
-    --- Releases one compiled kernel; a closed context already has.
+    --- Releases a compiled kernel; a closed context already has.
     _releaseKernel: function(borrows self: Context, handle: any): nil
 
     --- Copies a complete shared span into a resident buffer or view and

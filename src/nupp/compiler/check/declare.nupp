@@ -756,7 +756,7 @@ function declare.install(
         return written
     end
 
-    --- One `associated type` member, once the body's names are known.
+    --- An `associated type` member, once the body's names are known.
     ---
     --- An interface states a requirement, and a `=` on it states a default. Anything
     --- else answers one, so it needs the `=` and may not restate the bound: what may

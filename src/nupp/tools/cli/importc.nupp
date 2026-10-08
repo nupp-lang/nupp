@@ -36,7 +36,7 @@ local REPORT_SCHEMA = {
     required = {"ok", "diagnostics"},
 }
 
---- One importer message as a diagnostic: a warning at the header line it names, when
+--- An importer message as a diagnostic: a warning at the header line it names, when
 --- it names one.
 local function warningDiagnostic(header: string, warning: string): {[string]: any}
     local line, message = warning:match("^[^:]+:(%d+): (.*)$")

@@ -41,7 +41,7 @@ type stdlib.Settings = {
     title: string?
 }
 
---- One declaration file the page renders, and how a program reaches what it declares.
+--- A declaration file the page renders, and how a program reaches what it declares.
 ---
 --- `required` is the name that loads it, and its absence is what says the declarations
 --- are intrinsic: the prelude's globals are there before a program asks for anything.

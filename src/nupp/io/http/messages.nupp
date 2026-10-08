@@ -135,7 +135,7 @@ end
 --- immutable snapshot rather than borrowing mutable storage.
 type http.RequestBody = string | http.ReaderBody | http.FileBody
 
---- One request, as `http.Client:send` takes it.
+--- A request, as `http.Client:send` takes it.
 ---
 --- Only `url` is required, and it must be `http` or `https`. The three limits
 --- here override the client's for this request alone. A request is an affine owner;

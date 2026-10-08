@@ -125,7 +125,7 @@ end
 -- Registry
 ----------------------------------------------------------------------------
 
---- One event type as this runtime knows it.
+--- An event type as this runtime knows it.
 local record Info
     --- The identity every source keys observer lists by, assigned on first use.
     id: integer

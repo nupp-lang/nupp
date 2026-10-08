@@ -63,7 +63,7 @@ local REPORT_SCHEMA = {
     },
 }
 
---- One node or token as plain data. Recursive, because the tree is.
+--- A node or token as plain data. Recursive, because the tree is.
 local function syntaxTreeValue(cst: any, value: any): any
     if cst.isToken(value) then
         local trivia: {any} = {}

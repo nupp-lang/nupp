@@ -48,7 +48,7 @@ const instructions.ARCHITECTURES = {"aarch64", "x86_64"}
 --- means an arithmetic helper the compiler declined to inline.
 const instructions.ROLES = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"}
 
---- What one symbol is, when a compiled program claims it.
+--- What a
 record instructions.Claim
     --- The `@aot` function it belongs to.
     name: string
@@ -57,7 +57,7 @@ record instructions.Claim
     role: string
 end
 
---- One instruction, as the assembler was given it.
+--- An instruction, as the assembler was given it.
 record instructions.Instruction
     sourceFile: string?
     sourceLine: integer?
@@ -100,7 +100,7 @@ record instructions.Counts
     stack: integer
 end
 
---- What one symbol compiled to.
+--- What a
 record instructions.Listing
     --- The symbol, which is the physical name a single-tier build links. A
     --- multiversion build suffixes it with the tier; the tier is reported once
@@ -227,7 +227,7 @@ local function classifyArm(mnemonic: string, operands: string): {string}
     return kinds
 end
 
---- Whether one x86 operand names memory.
+--- Whether a
 ---
 --- Every addressing mode the code generator produces goes through a register or
 --- `%rip`, so a parenthesised register is what memory looks like. An operand

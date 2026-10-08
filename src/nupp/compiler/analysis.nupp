@@ -32,7 +32,7 @@ local analysis = {}
 -- What a summary is
 ----------------------------------------------------------------------------
 
---- One function's facts. Every entry `LISTS` names is a set of parameter-rooted paths,
+--- A function's facts. Every entry `LISTS` names is a set of parameter-rooted paths,
 --- every entry `FLAGS` names is a boolean that widens to true and never back, and `top`
 --- is the top of the lattice: nothing is known, so nothing may be assumed.
 ---
@@ -1227,7 +1227,7 @@ end
 -- Running the analysis
 ----------------------------------------------------------------------------
 
---- What one run worked out, and what a pass is handed to ask about.
+--- What a
 type analysis.Facts = {
     functions: {any},
     byDefinition: {[any]: any},
@@ -1290,7 +1290,7 @@ function analysis.queries(facts: analysis.Facts?): analysis.Queries?
         return knownCall(call, facts.byDefinition)
     end
 
-    --- One body prepared once, however many passes ask about it.
+    --- A body prepared once, however many passes ask about it.
     function bound.body(body: any): any
         if not prepared[body] then
             prepared[body] = queries.body(body, facts.byDefinition)

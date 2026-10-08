@@ -15,7 +15,7 @@ A lint's level lives here and nowhere else, so changing a default is one edit an
 
 local lints = {}
 
---- One lint: what to call it, what it is about, and how loud it is by default.
+--- A lint: what to call it, what it is about, and how loud it is by default.
 record lints.Lint
     --- What a person writes in an `@allow`.
     name: string
@@ -29,7 +29,7 @@ record lints.Lint
     --- The level it runs at when a project says nothing.
     level: string
 
-    --- One line, for `nupp lints`.
+    --- A line, for `nupp lints`.
     summary: string
 end
 

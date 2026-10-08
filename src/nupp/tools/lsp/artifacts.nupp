@@ -278,7 +278,7 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     ---
     --- A row of buttons would have to be right about which kinds apply before the
     --- work that knows is done, and most of them do not apply to most functions.
-    --- One lens that opens what is actually available is O(1) to render and never
+    --- A lens that opens what is actually available is O(1) to render and never
     --- offers a dead link.
     local function lenses(params: any): any
         local uri, doc = documentFor(params)

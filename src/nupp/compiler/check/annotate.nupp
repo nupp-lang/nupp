@@ -36,7 +36,7 @@ type annotate.Ops = {
     --- A stable dotted annotation argument represented as a type name.
     annotationType: function(expr: any): cst.Tname?,
 
-    --- Checks one application against the definition it names, answering that
+    --- Checks an application against the definition it names, answering that
     --- definition and whether the application held up.
     validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean),
 

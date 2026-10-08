@@ -44,7 +44,7 @@ type complete.Context = {
     path: {string}?
 }
 
---- One thing a receiver offers after its dot, and which completion kind paints it.
+--- A thing a receiver offers after its dot, and which completion kind paints it.
 type complete.Member = {
     type: T.Type,
     kind: string,

@@ -193,7 +193,7 @@ function aot.libraryKey(keys: {string}, chain: aot.Toolchain, flags: {string}, l
     return hash.digest(stable({artifacts = ordered, toolchain = chain.version, flags = flags, linkage = linkage,}))
 end
 
---- What one source produced.
+--- What a
 record aot.Emitted
     --- The source it came from.
     source: string
@@ -278,7 +278,7 @@ end
 
 local mentionsGpuTarget = aot.mentionsGpuTarget
 
---- One source's checked tree, or nothing when there is no sound one to lower.
+--- A source's checked tree, or nothing when there is no sound one to lower.
 ---
 --- The tree the checker produced rather than a fresh parse of the same bytes.
 --- What the backend needs from a parameter, a call target or an annotation is
@@ -437,7 +437,7 @@ function aot.wasmDispatch(
     return rewritten
 end
 
---- One Wasm module a previous build produced.
+--- A Wasm module a previous build produced.
 record aot.WasmModule
     --- What it was compiled from and by, which decides whether it is reused.
     key: string
@@ -663,7 +663,7 @@ function aot.libraryReference(name: string, suffix: string): string
     return "@lib/" .. aot.libraryFile(name, suffix)
 end
 
---- What one build of a target's native objects and library produced.
+--- What a
 record aot.LinkOutcome
     --- Unit identity -> the key its object file was compiled under.
     objects: {[string]: string}
@@ -1142,7 +1142,7 @@ function aot.emit(
     return emitted, nil, produced, authoredUnused, constSelection, gpuSources
 end
 
---- What one build of the policy produced.
+--- What a
 record aot.Result
     --- The IR units, one per source and tier that carried an `@aot` function.
     emitted: {aot.Emitted}
@@ -1201,7 +1201,7 @@ record aot.Result
     facts: aot.Facts?
 end
 
---- What one run of the ahead-of-time policy did, in numbers a report can carry.
+--- What a
 ---
 --- `externalCommands` is the one that answers a question nothing else can:
 --- whether a build that reused everything started a compiler anyway. It counts
@@ -1414,7 +1414,7 @@ function aot.archiveIdentity(name: string): string
     return hash.digest(name):sub(1, 16)
 end
 
---- What one archive's contents come to.
+--- What a
 ---
 --- Over the units' content keys rather than over the linked file, so a host
 --- build that archives the objects itself arrives at the same number the

@@ -435,7 +435,7 @@ scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): ni
     end
 end
 
---- Visits one block of statements and everything under it, in order.
+--- Visits a block of statements and everything under it, in order.
 function visit.block(block: {scalarIR.Statement}, visitor: visit.Visitor): nil
     scalarBlock(block, visitor)
 end

@@ -16,7 +16,7 @@ local T = require("nupp.compiler.types")
 
 local semantic = {}
 
---- One coloured span, before the protocol's relative encoding flattens it. A token that
+--- A coloured span, before the protocol's relative encoding flattens it. A token that
 --- spans lines contributes one of these per line, because the protocol has no way to
 --- say a span crosses one.
 type semantic.Entry = {

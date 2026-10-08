@@ -66,7 +66,7 @@ local doc = {}
 -- What a site is built from
 ----------------------------------------------------------------------------
 
---- One page a manifest configured. `path` is the route it is written to; `source` is
+--- A page a manifest configured. `path` is the route it is written to; `source` is
 --- the markdown read into it.
 ---
 --- `glob` names the files instead of the routes, and the entry then stands for every
@@ -180,7 +180,7 @@ type doc.Config = {
     name: string?
 }
 
---- What one run was asked for beyond what the manifest said. Every field overrides its
+--- What a
 --- counterpart in the settings, and `written` collects the paths the run wrote.
 type doc.BuildOptions = {
     checkOnly: boolean?,
@@ -198,7 +198,7 @@ type doc.BuildOptions = {
 -- Extracting one file
 ----------------------------------------------------------------------------
 
---- Reads one source file as its documented declarations. Returns the module, or nil and
+--- Reads a source file as its documented declarations. Returns the module, or nil and
 --- the parse errors that stopped it. A third result carries the modules an `@namespace`
 --- declaration implied, empty when the file held none.
 function doc.extract(

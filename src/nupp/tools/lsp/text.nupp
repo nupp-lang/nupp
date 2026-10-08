@@ -29,7 +29,7 @@ type text.Range = {
     ["end"]: text.Position
 }
 
---- One run of lines replaced wholesale, where `from`..`to` is a half-open span
+--- A run of lines replaced wholesale, where `from`..`to` is a half-open span
 --- of the original's 1-based line numbers and `lines` is what takes its place.
 type text.Hunk = {
     from: integer,

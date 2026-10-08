@@ -23,7 +23,7 @@ local parser = require("nupp.compiler.syntax.parser")
 
 local header = {}
 
---- One exported declaration, as a file's header records it.
+--- An exported declaration, as a file's header records it.
 type header.Declaration = {
     name: string,
     kind: string,
@@ -44,7 +44,7 @@ type header.Declaration = {
     token: any
 }
 
---- What one file exports, in the form the project index is built from.
+--- What a
 type header.Header = {
     path: string,
     moduleName: string?,

@@ -68,7 +68,7 @@ local function mix32(value: int32): int32
     return nupp.math.i32.xorBits(mixed, shifted)
 end
 
---- Expands one seed into four state words without xoshiro's all-zero state.
+--- Expands a seed into four state words without xoshiro's all-zero state.
 local function expand(seed: integer): (int32, int32, int32, int32)
     local counter = nupp.math.i32.wrap(seed)
     counter = nupp.math.i32.add(counter, GOLDEN)

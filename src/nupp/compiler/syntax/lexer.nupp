@@ -88,7 +88,7 @@ type lexer.Trivia = {
 -- Tokens
 ----------------------------------------------------------------------------
 
---- One token, carrying the trivia that preceded it. The final "eof" token carries the
+--- A token, carrying the trivia that preceded it. The final "eof" token carries the
 --- file's trailing trivia, so every byte of the input belongs to exactly one token.
 type lexer.Token = {
     --- "name", "number", "string", "error", "eof", a keyword, or an operator.
@@ -937,7 +937,7 @@ function lexer.triviaText(tok: lexer.Token, index: integer): string
     return sub(arena.source, offset, offset + length - 1)
 end
 
---- One trivia as scalar fields, without constructing a record.
+--- A trivia item as scalar fields, without constructing a record.
 function lexer.triviaFields(tok: lexer.Token, index: integer): string, string, integer, integer, integer
     local arena = tok.trivia
     local kind, offset, length, line, col = arena:record(triviaIndex(tok, index))
@@ -945,8 +945,8 @@ function lexer.triviaFields(tok: lexer.Token, index: integer): string, string, i
     return TRIVIA_KIND_NAMES[kind] as string, sub(arena.source, offset, offset + length - 1), offset, line, col
 end
 
---- One trivia as an ordinary record, for a caller that has to hand it on as plain data
---- rather than read it where it lies.
+--- A trivia item as an ordinary record, for a caller that has to hand it on as plain
+--- data rather than read it where it lies.
 function lexer.triviaRecord(tok: lexer.Token, index: integer): lexer.Trivia
     local kind, text, offset, line, col = lexer.triviaFields(tok, index)
 

@@ -126,7 +126,7 @@ local function apply(source: string, edits: {migrate.Edit}): string
     return source
 end
 
---- Plans one source-family migration. Extension dispatch belongs here, not in a
+--- Plans a source-family migration. Extension dispatch belongs here, not in a
 --- command, so the editor gets the same refusal for unsupported inputs.
 ---
 --- @return the plan

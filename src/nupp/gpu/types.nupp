@@ -24,7 +24,7 @@ const gpu.PORTABLE_WORKGROUP_THREADS = 256
 --- @export
 const gpu.PORTABLE_SCRATCH_BYTES = 16384
 
---- One typed resident device range. A root buffer owns an allocation; a
+--- A typed resident device range. A root buffer owns an allocation; a
 --- subview shares it with a checked element offset. Storage is not
 --- CPU-addressable, so upload and download explicitly cross that boundary.
 --- @export
@@ -82,7 +82,7 @@ record gpu.Buffer<T> is api.Buffer<T>
     ): affine(gpu.Buffer<T>) borrows (self)
 end
 
---- One compiled compute entry owned by its context.
+--- A compiled compute entry owned by its context.
 --- @internal
 record gpu.Kernel is api.Kernel
     @readonly _anchor: any
@@ -135,14 +135,14 @@ record gpu.Phases is api.Phases
     --- Allocates fresh zero-based scratch for this workgroup.
     scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
 
-    --- Runs one stage to completion in ascending local-index order.
+    --- Runs a stage to completion in ascending local-index order.
     run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
 
     --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
     --- tree. The sum is left in element zero.
     reduceSum: function(borrows self: gpu.Phases, exclusive values: api.Shared<float>): nil
 
-    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- Computes a deterministic inclusive u32 prefix sum. `temporary` is a
     --- same-sized scratch array used for disjoint ping-pong stages; the result
     --- is left in `values`.
     inclusiveScan: function(

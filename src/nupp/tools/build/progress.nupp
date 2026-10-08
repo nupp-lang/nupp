@@ -31,14 +31,14 @@ local ansi = require("nupp.cli")
 
 local progress = {}
 
---- One activity and what it cost. Activities are the timeline's buckets, so these sum
+--- An activity and what it cost. Activities are the timeline's buckets, so these sum
 --- to the whole run.
 type progress.Span = {
     name: string,
     durationMs: number
 }
 
---- One module and the time charged to it, exclusive of its dependencies.
+--- A module and the time charged to it, exclusive of its dependencies.
 type progress.ModuleSpan = {
     module: string,
     durationMs: number

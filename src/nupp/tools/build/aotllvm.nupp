@@ -75,7 +75,7 @@ function aotllvm.version(): string
     return codegen.version()
 end
 
---- Appends one line to the report NUPP_AOT_LLVM_REPORT names, if any: each
+--- Appends a line to the report NUPP_AOT_LLVM_REPORT names, if any: each
 --- unit the code generator compiled, and where the time went.
 function aotllvm.note(line: string): nil
     local path = os.getenv("NUPP_AOT_LLVM_REPORT")
@@ -89,7 +89,7 @@ function aotllvm.note(line: string): nil
     end
 end
 
---- One unit's programs as LLVM IR, or nil and why this backend cannot emit
+--- A unit's programs as LLVM IR, or nil and why this backend cannot emit
 --- them (the build then fails, naming the unit). `logical` keeps each entry's
 --- logical symbol rather than its tier's, the way an inspection names them,
 --- and `sourceFile` gives the unit line tables pointing into that file.
@@ -179,7 +179,7 @@ function aotllvm.flags(triple: string, tier: string): {string}
     return flags
 end
 
---- One unit's programs as target assembly, or nil and why not: the IR
+--- A unit's programs as target assembly, or nil and why not: the IR
 --- this backend emits for them, compiled as a build would.
 function aotllvm.assembly(
     programs: {scalarIR.Program},
@@ -202,7 +202,7 @@ function aotllvm.assembly(
     return compiled.assembly as string, nil
 end
 
---- One emitted unit to compile: its IR file, and the object to install.
+--- An emitted unit to compile: its IR file, and the object to install.
 record aotllvm.Unit
     ir: string
     triple: string

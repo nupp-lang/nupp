@@ -21,20 +21,20 @@ preserves.
 
 local hostreload = {}
 
---- What one step decided about the running generation.
+--- What a
 ---
 --- `prepared` is only `prepare`'s: a complete patch is staged and nothing in the
 --- running process has changed yet. `committed` is only `apply`'s and `poll`'s.
 type hostreload.Verdict = 'no-change' | 'prepared' | 'committed' | 'rejected' | 'restart-required'
 
---- One open host session: the entry's value, and the three things a host does with
+--- An open host session: the entry's value, and the three things a host does with
 --- it. They are plain fields rather than methods because the caller is C, which
 --- reaches a function through the table and calls it with what it has.
 type hostreload.Session = {
     --- Whatever the entry module's chunk answered, for a caller already in Lua.
     entry: any,
 
-    --- One member of the entry, by dotted name. A watch build dispatches a named
+    --- A member of the entry, by dotted name. A watch build dispatches a named
     --- function through a slot, so what comes back stays valid across every commit.
     member: function(name: string): any,
 

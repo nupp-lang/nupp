@@ -98,7 +98,7 @@ local BECAUSE: {
 function aot.install(c: state.Checker): aot.Ops
     local ops = {}
 
-    --- Reports one declined construct.
+    --- Reports a declined construct.
     local function decline(node: Node, kind: string): nil
         local at = cst.firstToken(node) or node
         c.diag("NUPP2903", at, ("%s has no AOT IR representation; %s"):format(DECLINED[kind], BECAUSE[kind]))

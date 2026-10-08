@@ -621,7 +621,7 @@ local function requestService(request: any, executable: string, host: any?): any
     return response, nil
 end
 
---- Evaluates one sealed type program through the persistent isolated service.
+--- Evaluates a sealed type program through the persistent isolated service.
 function worker.evaluateTypeFunction(
     program: any,
     arguments: {any},
@@ -665,7 +665,7 @@ function worker.evaluateTypeFunction(
     return response.materialized, nil
 end
 
---- Evaluates one sealed derive provider through the persistent isolated service.
+--- Evaluates a sealed derive provider through the persistent isolated service.
 function worker.evaluateDeriveProvider(
     program: any,
     input: any,

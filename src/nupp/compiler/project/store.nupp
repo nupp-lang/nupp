@@ -153,7 +153,7 @@ end
 --- every time somebody switches back.
 local KEEP_COLD = 2048
 
---- One kind of entry, and the file it lives in.
+--- A kind of entry, and the file it lives in.
 record store.Store
     --- Where the file is. Nil when the store could not be opened, which is not an
     --- error: every method still works and every lookup misses.
@@ -260,7 +260,7 @@ function store.open(path: string?, stamp: string): store.Store
     return new store.Store(path = path, stamp = stamp, stats = stats, get = get, put = put, save = save)
 end
 
---- One value, kept in a file, under the same guards as a keyed store.
+--- A value, kept in a file, under the same guards as a keyed store.
 ---
 --- For state that is looked up by name rather than by content: the check results are
 --- keyed by module name, because comparing this run's interface against the last run's

@@ -27,10 +27,10 @@ type fixits.Edits = {
     --- An edit that puts text in front of a token, leaving the token alone.
     insertBefore: function(tok: any, text: string): any,
 
-    --- Replaces one token without disturbing its leading trivia.
+    --- Replaces a token without disturbing its leading trivia.
     replaceToken: function(tok: any, text: string): any,
 
-    --- Replaces one token with a word, adding a space on a side where the word would
+    --- Replaces a token with a word, adding a space on a side where the word would
     --- otherwise run into a neighbouring name or number.
     replaceWithWord: function(tok: any, text: string): any,
 
@@ -92,7 +92,7 @@ local function editDistance(left: string, right: string): integer
     return previous[#right]
 end
 
---- What one file's diagnostics can offer to fix.
+--- What a
 ---
 --- @param result the parse the diagnostics are about
 --- @param env the project environment, when there is one
@@ -109,12 +109,12 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
         return {offset = tok.offset, length = 0, newText = text}
     end
 
-    --- Replaces one token without disturbing its leading trivia.
+    --- Replaces a token without disturbing its leading trivia.
     function self.replaceToken(tok: any, text: string): any
         return {offset = tok.offset, length = #tok.text, newText = text}
     end
 
-    --- Replaces one token with a word. `!ready` becomes `not ready` and `a&&b`
+    --- Replaces a token with a word. `!ready` becomes `not ready` and `a&&b`
     --- becomes `a and b`: written flush against a name, the word would fuse with it.
     function self.replaceWithWord(tok: any, text: string): any
         local source = result and result.source or nil

@@ -10,7 +10,7 @@ their manifests.
 
 local native = {}
 
---- One compiler-recognized runtime feature: what it is called, where its implementation
+--- A compiler-recognized runtime feature: what it is called, where its implementation
 --- comes from, and how a build has to stage it.
 type native.Feature = {
     name: string,

@@ -93,7 +93,7 @@ end
 -- Records
 ----------------------------------------------------------------------------
 
---- One case handed to a measured body.
+--- A case handed to a measured body.
 record bench.Case
     --- The case's name, as `case` was given it.
     name: string
@@ -103,7 +103,7 @@ record bench.Case
     n: integer
 end
 
---- One expanded suite case handed to setup, run and teardown callbacks.
+--- An expanded suite case handed to setup, run and teardown callbacks.
 record bench.Invocation
     --- The unqualified case name from the suite declaration.
     name: string
@@ -115,7 +115,7 @@ record bench.Invocation
     parameters: {[string]: any}
 end
 
---- One implementation of every case in a suite.
+--- An implementation of every case in a suite.
 type bench.Variant = {
     name: string,
     setup: (function(bench.Invocation): any)?,
@@ -123,7 +123,7 @@ type bench.Variant = {
     teardown: (function(any, bench.Invocation): nil)?
 }
 
---- One workload in a suite. Parameter lists are expanded as a Cartesian product.
+--- A workload in a suite. Parameter lists are expanded as a Cartesian product.
 type bench.SuiteCase = {
     name: string,
     data: any?,
@@ -174,7 +174,7 @@ type bench.FormatOptions = {
     notes: {string}?
 }
 
---- What one measured case contributes to a record.
+--- What a
 record bench.Measurement
     --- The case's name.
     name: string
@@ -823,7 +823,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
     )
 end
 
---- Measures one case and adds it to the record this program will report.
+--- Measures a case and adds it to the record this program will report.
 ---
 --- The body is handed the case and runs its own loop. Calling a one-iteration closure
 --- `n` times instead would put a call boundary inside the measurement and change what
@@ -1485,7 +1485,7 @@ local function listDifference(current: {string}, previous: {string}): {string}
     return added
 end
 
---- Compares one record against one baseline record and returns what moved.
+--- Compares a record against one baseline record and returns what moved.
 ---
 --- Exported because the runner owns the baseline for a whole set and has to apply the
 --- same rules a standalone case applies to its own. Two copies of these rules would

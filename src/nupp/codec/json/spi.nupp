@@ -98,7 +98,7 @@ export interface Writer is nupp.Closeable
     key: function(exclusive self: Writer, name: string): Writer borrows (self)
         & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
 
-    --- Appends one complete Lua value.
+    --- Appends a complete Lua value.
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()

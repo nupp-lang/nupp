@@ -88,7 +88,7 @@ type hotSession.WatchedInput = {
 --- Loader names whose binary identity the session could not pin, reported once each.
 type hotSession.Notices = {unverifiedLibraries: {string}}
 
---- One compiler-side hot reload session, owning one incremental query graph.
+--- A compiler-side hot reload session, owning one incremental query graph.
 ---
 --- The baseline only advances when the host says a commit landed, so a session and a
 --- running process cannot disagree about which generation is live.

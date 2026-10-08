@@ -26,7 +26,7 @@ local vmdef = require("jit.vmdef")
 
 local trace = {}
 
---- One stable reason the JIT declined to record, however it was observed.
+--- A stable reason the JIT declined to record, however it was observed.
 ---
 --- `class` is what the reason is worth acting on: a `blocker` cannot record at
 --- all, a `risk` may or may not sit on a hot path, and a `stop` is trace formation
@@ -241,7 +241,7 @@ function trace.opcodeName(opcode: integer): string
     return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
 
---- Interprets one raw abort the VM reported.
+--- Interprets a raw abort the VM reported.
 ---
 --- An abort naming an unrecordable bytecode is routed by that opcode rather than
 --- by its text, so it lands on the same record a static check would have found.

@@ -469,13 +469,13 @@ export type Mode = messages.Mode
 --- @export
 export type Origin = messages.Origin
 
---- One resolved path's attributes.
+--- A resolved path's attributes.
 --- @export
 export type Info = messages.Info
 
 local Info = messages.Info
 
---- One directory child, as the directory itself describes it.
+--- A directory child, as the directory itself describes it.
 --- @export
 export type Entry = messages.Entry
 
@@ -953,7 +953,7 @@ scratch = function(borrows self: File, count: integer): any
     return state._scratch
 end
 
---- Describes one path, following symbolic links unless asked not to.
+--- Describes a path, following symbolic links unless asked not to.
 local function described(path: string | paths.Path, follow: boolean, level: integer): any
     local text = named(path, "path", level + 1)
     local record = ffi.new<NuppNativeFilesInfo[1]>()
@@ -1175,7 +1175,7 @@ end
 -- Asking about a path
 ----------------------------------------------------------------------------
 
---- Describes one path, following symbolic links.
+--- Describes a path, following symbolic links.
 ---
 --- #### Examples
 ---

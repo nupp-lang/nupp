@@ -26,7 +26,7 @@ local join, readFile, listMarkdown = filesMod.join, filesMod.readFile, filesMod.
 local normalize = filesMod.normalize
 local cleanRoute = urlsMod.cleanRoute
 
---- One page a collection produced.
+--- A page a collection produced.
 ---
 --- `title` is what navigation shows and `name` is the document's own title without the
 --- number folded into it, which is what a list of documents wants in its cell.

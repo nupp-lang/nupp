@@ -59,7 +59,7 @@ type state.ModuleExports = {
     callGuarantees: {[string]: any}?
 }
 
---- One thing to report about a file.
+--- A thing to report about a file.
 type state.Diagnostic = {
     --- The stable NUPP code, which is what an @allow names.
     code: string,
@@ -90,7 +90,7 @@ type state.Facts = {
     exhausted: string?
 }
 
---- Everything one run of the checker carries: what it is checking, what it has found,
+--- Everything a
 --- and where it currently is. Declaring it is what lets the walk be split across
 --- modules, so a pass reaches the run through this rather than through a closure it has
 --- to be lexically inside of.
@@ -347,7 +347,7 @@ record state.Checker
     -- The operations a pass reaches the run through. They are fields rather than locals
     -- so that a pass can live in its own module and still call them.
 
-    --- Reports one diagnostic, unless a surrounding `@allow` or a project's lint levels
+    --- Reports a diagnostic, unless a surrounding `@allow` or a project's lint levels
     --- asked not to hear it.
     diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)
 
@@ -427,7 +427,7 @@ record state.Checker
     --- The contract a receiver declares under one metamethod name, or nil.
     metamethodOf: function(t: Type?, name: string): Type?
 
-    --- Checks one declared operation contract against arguments already inferred, which
+    --- Checks a declared operation contract against arguments already inferred, which
     --- is what an operator has and a call does not.
     applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any, operation: string): Type
 
@@ -683,7 +683,7 @@ record state.Checker
 
     -- The walk itself, for the families that recur into it.
 
-    --- Checks one statement, dispatching on its kind.
+    --- Checks a statement, dispatching on its kind.
     checkStat: function(stat: Node)
 
     --- The types of an expression list, expanding a trailing call's extra results.

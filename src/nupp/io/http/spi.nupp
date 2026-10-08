@@ -41,7 +41,7 @@ export interface Response is nupp.Closeable
     --- Reports whether the status is in the successful 2xx range.
     @readonly ok: function(self: Response): boolean
 
-    --- Returns one header value by case-insensitive name, or nil if absent.
+    --- Returns a header value by case-insensitive name, or nil if absent.
     @readonly header: function(self: Response, name: string): string?
 
     --- Returns all values for a case-insensitive header name.

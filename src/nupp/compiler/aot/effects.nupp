@@ -316,7 +316,7 @@ local CONTROL_OPS: {
     reducer_region = true,
 }
 
---- Classifies one expression opcode. Unknown means compiler bug, never pure.
+--- Classifies an expression opcode. Unknown means compiler bug, never pure.
 --- @raises string when the opcode is not in the closed AOT vocabulary
 function effects.expression(op: string): effects.Facts
     if PURE_OPS[op] == true then
@@ -336,7 +336,7 @@ function effects.expression(op: string): effects.Facts
     error("unclassified AOT expression opcode " .. op, 2)
 end
 
---- Classifies one statement opcode. Unknown means compiler bug, never pure.
+--- Classifies a statement opcode. Unknown means compiler bug, never pure.
 --- @raises string when the opcode is not in the closed AOT vocabulary
 function effects.statement(op: string): effects.Facts
     if STATEMENT_LUA_MUTATE_OPS[op] == true then

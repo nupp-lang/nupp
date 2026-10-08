@@ -42,61 +42,61 @@ export interface ScalarReader is nupp.Closeable
     --- @raises string when there are not that many
     readBytes: function(self: ScalarReader, count: integer): string
 
-    --- Reads one unsigned 8-bit integer.
+    --- Reads a unsigned 8-bit integer.
     --- @param self this reader
     --- @return the value, 0 through 255
     --- @raises string when the source has no bytes left
     readUint8: function(self: ScalarReader): uint32
 
-    --- Reads one signed 8-bit integer.
+    --- Reads a signed 8-bit integer.
     --- @param self this reader
     --- @return the value, -128 through 127
     --- @raises string when the source has no bytes left
     readInt8: function(self: ScalarReader): int32
 
-    --- Reads one unsigned 16-bit integer in the machine's byte order.
+    --- Reads a unsigned 16-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, 0 through 65535
     --- @raises string when fewer than 2 bytes are left
     readUint16: function(self: ScalarReader): uint32
 
-    --- Reads one signed 16-bit integer in the machine's byte order.
+    --- Reads a signed 16-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, -32768 through 32767
     --- @raises string when fewer than 2 bytes are left
     readInt16: function(self: ScalarReader): int32
 
-    --- Reads one unsigned 32-bit integer in the machine's byte order.
+    --- Reads a unsigned 32-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, 0 through 4294967295
     --- @raises string when fewer than 4 bytes are left
     readUint32: function(self: ScalarReader): uint32
 
-    --- Reads one signed 32-bit integer in the machine's byte order.
+    --- Reads a signed 32-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value
     --- @raises string when fewer than 4 bytes are left
     readInt32: function(self: ScalarReader): int32
 
-    --- Reads one unsigned 64-bit integer in the machine's byte order.
+    --- Reads a unsigned 64-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, as `uint64` cdata
     --- @raises string when fewer than 8 bytes are left
     readUint64: function(self: ScalarReader): uint64
 
-    --- Reads one signed 64-bit integer in the machine's byte order.
+    --- Reads a signed 64-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, as `int64` cdata
     --- @raises string when fewer than 8 bytes are left
     readInt64: function(self: ScalarReader): int64
 
-    --- Reads one 32-bit float in the machine's byte order.
+    --- Reads a 32-bit float in the machine's byte order.
     --- @param self this reader
     --- @return the value, widened to a Lua number
     --- @raises string when fewer than 4 bytes are left
     readFloat32: function(self: ScalarReader): float
 
-    --- Reads one 64-bit float in the machine's byte order.
+    --- Reads a 64-bit float in the machine's byte order.
     --- @param self this reader
     --- @return the value
     --- @raises string when fewer than 8 bytes are left
@@ -245,61 +245,61 @@ export interface ScalarWriter is nupp.Closeable
     --- @raises string when bytes is not a string
     writeBytes: function(borrows self: ScalarWriter, bytes: string): ScalarWriter borrows (self)
 
-    --- Writes one unsigned 8-bit integer.
+    --- Writes a unsigned 8-bit integer.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeUint8: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
-    --- Writes one signed 8-bit integer.
+    --- Writes a signed 8-bit integer.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeInt8: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
-    --- Writes one unsigned 16-bit integer in the machine's byte order.
+    --- Writes a unsigned 16-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeUint16: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
-    --- Writes one signed 16-bit integer in the machine's byte order.
+    --- Writes a signed 16-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeInt16: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
-    --- Writes one unsigned 32-bit integer in the machine's byte order.
+    --- Writes a unsigned 32-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeUint32: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
-    --- Writes one signed 32-bit integer in the machine's byte order.
+    --- Writes a signed 32-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeInt32: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
-    --- Writes one unsigned 64-bit integer in the machine's byte order.
+    --- Writes a unsigned 64-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeUint64: function(borrows self: ScalarWriter, value: uint64): ScalarWriter borrows (self)
 
-    --- Writes one signed 64-bit integer in the machine's byte order.
+    --- Writes a signed 64-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeInt64: function(borrows self: ScalarWriter, value: int64): ScalarWriter borrows (self)
 
-    --- Writes one 32-bit float in the machine's byte order.
+    --- Writes a 32-bit float in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
     writeFloat32: function(borrows self: ScalarWriter, value: float): ScalarWriter borrows (self)
 
-    --- Writes one 64-bit float in the machine's byte order.
+    --- Writes a 64-bit float in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer

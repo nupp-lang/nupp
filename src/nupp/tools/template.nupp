@@ -94,7 +94,7 @@ record template.Source
     commit: string?
 end
 
---- One variable a template declares.
+--- A variable a template declares.
 record template.Variable
     description: string?
     default: string?
@@ -117,7 +117,7 @@ record template.Manifest
     after: {string}
 end
 
---- One file a scaffold is going to write.
+--- A file a scaffold is going to write.
 record template.File
     --- Relative to the template root, before substitution.
     source: string
@@ -190,7 +190,7 @@ function template.builtins(): {string}
     return names
 end
 
---- One built-in's own description, for the list `nupp init --list` prints.
+--- A built-in's own description, for the list `nupp init --list` prints.
 ---
 --- Reads that template's `template.lua` and nothing else, so the list says what
 --- each template says about itself rather than what a table here remembers.
@@ -1010,7 +1010,7 @@ end
 
 --- Post-init steps
 
---- Runs one template-requested step in the scaffolded project.
+--- Runs a template-requested step in the scaffolded project.
 ---
 --- A step that fails is reported and does not fail the scaffold: the project was
 --- written, and a `check` that found something is news about the project rather

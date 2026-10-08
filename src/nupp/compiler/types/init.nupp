@@ -170,7 +170,7 @@ record types.CArray
     countTerm: types.ConstTerm?
 end
 
---- One value admitted in a closed const domain.
+--- A value admitted in a closed const domain.
 record types.ConstLiteral
     id: string = ""
     tag: 'constLiteral'
@@ -187,7 +187,7 @@ record types.ConstVar
     identity: string?
 end
 
---- One operation in the deliberately closed const expression grammar.
+--- An operation in the deliberately closed const expression grammar.
 record types.ConstOp
     id: string = ""
     tag: 'constOp'
@@ -216,7 +216,7 @@ type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimePackArg
 
 type types.TemplatePart = string | types.Type
 
---- One operation that can discharge an owned value. Function references carry the
+--- An operation that can discharge an owned value. Function references carry the
 --- binding resolved where the contract was declared; the other forms reach through
 --- the owned value itself and therefore need no module linkage.
 record types.Cleanup
@@ -265,7 +265,7 @@ record types.Pinned
     inner: types.Type
 end
 
---- One statically accountable resource obligation. Aggregate children retain their
+--- A statically accountable resource obligation. Aggregate children retain their
 --- component path so a partial move removes one subtree rather than flattening away a
 --- transfer-only leaf.
 record types.Obligation
@@ -275,7 +275,7 @@ record types.Obligation
     component: string?
 end
 
---- One rooted access relation carried by a flow value.
+--- A rooted access relation carried by a flow value.
 record types.Loan
     roots: {any}
     access: 'shared' | 'exclusive'
@@ -290,7 +290,7 @@ record types.PinnedAnchor
     component: string?
 end
 
---- One outstanding foreign retain/release contract.
+--- An outstanding foreign retain/release contract.
 record types.ForeignRetention
     identity: any
     component: string?
@@ -332,7 +332,7 @@ record types.Capability
     retentions: {types.ForeignRetention}
 end
 
---- One value slot, independent of whether it came from a scalar expression or pack.
+--- A value slot, independent of whether it came from a scalar expression or pack.
 record types.ValueSlot
     payload: types.Type
     capability: types.Capability
@@ -666,7 +666,7 @@ record types.Projection
     name: string
 end
 
---- One associated type a declaration states as a requirement.
+--- An associated type a declaration states as a requirement.
 ---
 --- An identity rather than a name. Two contracts may choose the same name without
 --- meaning the same thing, and one contract reached twice through a diamond is one
@@ -689,7 +689,7 @@ end
 --- How firmly an associated answer is held.
 type types.AssociatedKind = 'default' | 'fixed' | 'answer'
 
---- One answer to an associated type: what it stands for, and enough about where it was
+--- An answer to an associated type: what it stands for, and enough about where it was
 --- written to rebind it later.
 ---
 --- An answer is not just a type, because `= self` means whatever answered rather than
@@ -715,7 +715,7 @@ record types.AssociatedAnswer
     definition: any
 end
 
---- One requirement a head reaches, with the contract that stated it.
+--- A requirement a head reaches, with the contract that stated it.
 record types.AssociatedReached
     requirement: types.AssociatedRequirement
 
@@ -745,7 +745,7 @@ record types.AssociatedLookup
     --- Every distinct requirement of that name, deduplicated by identity.
     requirements: {types.AssociatedReached}
 
-    --- What one answer has to satisfy: every non-empty bound intersected, or united
+    --- What a
     --- across the alternatives of a union head. Absent when nothing constrained it.
     bound: types.Type?
 
@@ -1043,7 +1043,7 @@ type types.Type = types.Prim
     | types.ProtocolThread
     | types.GenericAlias
 
---- One field of a structural shape. `type` is shorthand for `read = write = type`,
+--- A field of a structural shape. `type` is shorthand for `read = write = type`,
 --- an ordinary read-write property.
 type types.Field = {
     name: string,
@@ -3298,7 +3298,7 @@ end
 --- `t` with any constraint taken off, which is the type it behaves as everywhere the
 --- constraint does not decide the answer.
 ---
---- One level: a constrained type's base is never itself constrained, because narrowing
+--- A level: a constrained type's base is never itself constrained, because narrowing
 --- one conjoins into a single predicate rather than stacking a second wrapper.
 function types.unconstrained(t: types.Type): types.Type
     if t.tag == "constrained" then
@@ -3388,7 +3388,7 @@ function types.packResult(pack: types.Pack): types.Type
     return intern(key, new types.PackResult(tag = "packResult", pack = pack))
 end
 
---- Interns one blocked type-level operation.  The reducer decides whether a
+--- Interns a blocked type-level operation.  The reducer decides whether a
 --- constructor is closed before calling this; this function only gives identical
 --- symbolic terms identical object identity.
 function types.neutral(
@@ -3452,7 +3452,7 @@ function types.neutral(
     )
 end
 
---- Interns one deferred comptime type-function application. The helper descriptor is
+--- Interns a deferred comptime type-function application. The helper descriptor is
 --- transport data, not part of identity; its stable program identity and canonical
 --- arguments are. Closed calls never need this term.
 function types.comptimeCall(

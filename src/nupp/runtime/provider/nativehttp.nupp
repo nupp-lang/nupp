@@ -598,7 +598,7 @@ end
 -- Responses
 ----------------------------------------------------------------------------
 
---- One response, with its body still arriving.
+--- A response, with its body still arriving.
 ---
 --- A status is an answer, so 4xx and 5xx come back here rather than as a reason.
 --- Closing the response closes the body with it, which is what a caller that only
@@ -644,7 +644,7 @@ record http.Response is contracts.Response
         return self.status >= 200 and self.status < 300
     end
 
-    --- Reads one header, matched without regard to case.
+    --- Reads a header, matched without regard to case.
     ---
     --- Repeats are joined with `, `, which is what HTTP says they mean. The one
     --- exception is `set-cookie`, where joining would corrupt the values, so the
@@ -786,7 +786,7 @@ end
 -- The client
 ----------------------------------------------------------------------------
 
---- One connection pool, and every request in flight through it.
+--- A connection pool, and every request in flight through it.
 ---
 --- A client is worth keeping: connections, the TLS session cache and the default
 --- headers all live on it, so one client per program beats one per request.
@@ -912,7 +912,7 @@ local function readUpload(
     return #chunk
 end
 
---- Sends one request and waits for its response headers.
+--- Sends a request and waits for its response headers.
 ---
 --- Suspends until the headers arrive, so the body is still being produced when
 --- this returns. Redirects are followed up to the client's `maxRedirects`: a 303,

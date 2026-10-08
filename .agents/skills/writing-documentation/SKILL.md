@@ -470,6 +470,10 @@ the guarantee.
   and none of them is `argv[0]`" tells the reader a number before it says what
   is being counted. Write "The three platforms discover the executable path
   differently; none uses `argv[0]`" instead.
+- **Use "a" or "an" for an unspecified singular thing.** Write "A named or
+  positional edge in the indexed semantic type graph", not "One named or
+  positional edge". Keep "one" when the number matters, as in "one entry per
+  field", "one or more", or "from one pass to the next".
 - **No marketing.** "Powerful", "elegant", "blazing", and "seamless" say
   nothing checkable. State what Nupp does, the condition that enables it, and
   its cost.

@@ -110,7 +110,7 @@ local type ViewMemo = {[T.Type]: members.View}
 
 local build
 
---- One member by name, without building the view it would sit in.
+--- A member by name, without building the view it would sit in.
 ---
 --- Almost every question put to this module is "what is `t.name`", and asking it
 --- through `members.view` meant ordering every member, sorting them, allocating an
@@ -196,7 +196,7 @@ local function intersectionEntry(t: T.Intersection, name: string): members.Entry
     }
 end
 
---- One method standing for the same method on each alternative of a union.
+--- A method standing for the same method on each alternative of a union.
 ---
 --- A method is reached through the value itself, so the alternative a union turns out
 --- to be is the alternative whose method runs and the receiver it runs on. That makes

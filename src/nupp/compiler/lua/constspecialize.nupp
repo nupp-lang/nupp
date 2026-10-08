@@ -349,7 +349,7 @@ function constspecialize.collectGraph(checked: {any}): {any}
     return plans
 end
 
---- Selects one sorted body list against a class budget: a class already holding
+--- Selects a sorted body list against a class budget: a class already holding
 --- a representative coalesces onto it, a new class within the budget becomes its
 --- own physical body, and everything past the budget is declined.
 local function selectBodies(bodies: {any}, maximum: integer, accepted: {any}, declined: {any}): nil

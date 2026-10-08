@@ -120,7 +120,7 @@ end
 --- `info` is trace formation working as designed.
 type profile.Severity = "blacklist" | "warn" | "info"
 
---- One distinct stack, and what landed on it.
+--- A distinct stack, and what landed on it.
 ---
 --- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
 record profile.Sample
@@ -218,7 +218,7 @@ record profile.SampleSession is profile.Session, nupp.Closeable
     close: function(takes self: profile.SampleSession): nil
 end
 
---- One place the JIT gave up, and how often it did.
+--- A place the JIT gave up, and how often it did.
 ---
 --- A row of a `TraceReport`, built at `stop`.
 record profile.AbortSite

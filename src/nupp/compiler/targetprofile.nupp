@@ -32,7 +32,7 @@ local layouts = require("nupp.compiler.targetlayout")
 
 local targetProfile = {}
 
---- What one target admits, and what its linker needs to be told.
+--- What a
 record targetProfile.Profile
     --- The triple this describes.
     target: string
@@ -151,7 +151,7 @@ local function builtin(target: string): targetProfile.Profile?
     )
 end
 
---- Reads one boolean capability, which a descriptor must state outright.
+--- Reads a boolean capability, which a descriptor must state outright.
 ---
 --- No default. A descriptor that omits a capability has not been verified for
 --- it, and inferring the permissive answer is exactly the mistake this module

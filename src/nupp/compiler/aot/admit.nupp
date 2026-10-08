@@ -99,7 +99,7 @@ local COMPARISON: {
 
 const admit.COMPARISON = COMPARISON
 
---- One admitted fixed-width intrinsic.
+--- An admitted fixed-width intrinsic.
 record admit.Fixed
     --- The canonical identity `scalarintrinsics` gives this member.
     identity: string
@@ -288,7 +288,7 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
     return byIdentity
 end)()
 
---- One admitted operation from the closed math set.
+--- An admitted operation from the closed math set.
 record admit.Math
     --- The path the source writes.
     path: string

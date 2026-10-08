@@ -251,7 +251,7 @@ function builder.label(f: builder.Function, hint: string): string
     return hint .. "." .. tostring(f.labelSerial)
 end
 
---- Appends one instruction to the current block. An instruction after a
+--- Appends an instruction to the current block. An instruction after a
 --- terminator starts an unreachable block of its own, so emission never has to
 --- ask whether a path fell through.
 function builder.emit(f: builder.Function, instruction: string): nil

@@ -10,7 +10,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 --- accepting one particular element type is not sufficient.
 export type CastElements = function<T>(element: ctype<T>, pointer: any): any
 
---- One coherent family of physical storage operations.
+--- A coherent family of physical storage operations.
 ---
 --- `representation` is `native` for native pointers or `linear32` for 32-bit linear
 --- memory. The facade checks it against the target before publishing this table.
@@ -82,64 +82,64 @@ export interface CstorageProvider
     --- Copies count source bytes into an independent Lua string.
     @readonly string: function(borrows source: any, count: integer): string
 
-    --- Decodes one unsigned 8-bit integer using the target storage byte order.
+    --- Decodes a unsigned 8-bit integer using the target storage byte order.
     @readonly decodeUint8: function(bytes: string): uint32
 
-    --- Encodes one unsigned 8-bit integer using the target storage byte order.
+    --- Encodes a unsigned 8-bit integer using the target storage byte order.
     @readonly encodeUint8: function(value: uint32): string
 
-    --- Decodes one signed 8-bit integer using the target storage byte order.
+    --- Decodes a signed 8-bit integer using the target storage byte order.
     @readonly decodeInt8: function(bytes: string): int32
 
-    --- Encodes one signed 8-bit integer using the target storage byte order.
+    --- Encodes a signed 8-bit integer using the target storage byte order.
     @readonly encodeInt8: function(value: int32): string
 
-    --- Decodes one unsigned 16-bit integer using the target storage byte order.
+    --- Decodes a unsigned 16-bit integer using the target storage byte order.
     @readonly decodeUint16: function(bytes: string): uint32
 
-    --- Encodes one unsigned 16-bit integer using the target storage byte order.
+    --- Encodes a unsigned 16-bit integer using the target storage byte order.
     @readonly encodeUint16: function(value: uint32): string
 
-    --- Decodes one signed 16-bit integer using the target storage byte order.
+    --- Decodes a signed 16-bit integer using the target storage byte order.
     @readonly decodeInt16: function(bytes: string): int32
 
-    --- Encodes one signed 16-bit integer using the target storage byte order.
+    --- Encodes a signed 16-bit integer using the target storage byte order.
     @readonly encodeInt16: function(value: int32): string
 
-    --- Decodes one unsigned 32-bit integer using the target storage byte order.
+    --- Decodes a unsigned 32-bit integer using the target storage byte order.
     @readonly decodeUint32: function(bytes: string): uint32
 
-    --- Encodes one unsigned 32-bit integer using the target storage byte order.
+    --- Encodes a unsigned 32-bit integer using the target storage byte order.
     @readonly encodeUint32: function(value: uint32): string
 
-    --- Decodes one signed 32-bit integer using the target storage byte order.
+    --- Decodes a signed 32-bit integer using the target storage byte order.
     @readonly decodeInt32: function(bytes: string): int32
 
-    --- Encodes one signed 32-bit integer using the target storage byte order.
+    --- Encodes a signed 32-bit integer using the target storage byte order.
     @readonly encodeInt32: function(value: int32): string
 
-    --- Decodes one unsigned 64-bit integer using the target storage byte order.
+    --- Decodes a unsigned 64-bit integer using the target storage byte order.
     @readonly decodeUint64: function(bytes: string): uint64
 
-    --- Encodes one unsigned 64-bit integer using the target storage byte order.
+    --- Encodes a unsigned 64-bit integer using the target storage byte order.
     @readonly encodeUint64: function(value: uint64): string
 
-    --- Decodes one signed 64-bit integer using the target storage byte order.
+    --- Decodes a signed 64-bit integer using the target storage byte order.
     @readonly decodeInt64: function(bytes: string): int64
 
-    --- Encodes one signed 64-bit integer using the target storage byte order.
+    --- Encodes a signed 64-bit integer using the target storage byte order.
     @readonly encodeInt64: function(value: int64): string
 
-    --- Decodes one IEEE-754 binary32 value using the target storage byte order.
+    --- Decodes an IEEE-754 binary32 value using the target storage byte order.
     @readonly decodeFloat32: function(bytes: string): float
 
-    --- Encodes one IEEE-754 binary32 value using the target storage byte order.
+    --- Encodes an IEEE-754 binary32 value using the target storage byte order.
     @readonly encodeFloat32: function(value: number): string
 
-    --- Decodes one IEEE-754 binary64 value using the target storage byte order.
+    --- Decodes an IEEE-754 binary64 value using the target storage byte order.
     @readonly decodeFloat64: function(bytes: string): number
 
-    --- Encodes one IEEE-754 binary64 value using the target storage byte order.
+    --- Encodes an IEEE-754 binary64 value using the target storage byte order.
     @readonly encodeFloat64: function(value: number): string
 end
 

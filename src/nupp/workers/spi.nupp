@@ -36,7 +36,7 @@ instances. Provider objects and Lua closures are never transferred between lanes
 --- can hold its `fork` to the same bound without linking this module.
 export type Submittable = @sendable function(...: any): any
 
---- Whether one type is an engine-backed owner a lane boundary moves rather than
+--- Whether a
 --- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
 --- neither Lua heap, so handing its pointer to another lane is sound, and the affine
 --- layer consumes the sender's binding where the move is written. The element names
@@ -75,7 +75,7 @@ local function movableOwner(T: type): boolean
     return movable[element.name as string] == true
 end
 
---- Why one type in a submitted signature can never cross a lane boundary, or nil when
+--- Why a
 --- nothing about it rules that out.
 ---
 --- Arguments and results are copied between isolated Lua states, so a type no copy can
@@ -270,7 +270,7 @@ export record Scope
     _deadline: number?
     _observer: any
 
-    --- Starts one sendable function with copied arguments.
+    --- Starts a sendable function with copied arguments.
     spawn: function<F is Submittable>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
     --- Waits for every child, raising the first failure nothing observed. Idempotent.

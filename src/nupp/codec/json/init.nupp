@@ -263,7 +263,7 @@ end
 rawset(WriterImpl, "key", writerKey)
 rawset(WriterImpl, "write", writerWrite)
 
---- Decodes one complete JSON document.
+--- Decodes a complete JSON document.
 ---
 --- Null members are dropped unless a replacement value is supplied. Text that is
 --- not one JSON document is an ordinary answer: the result is nil and the second
@@ -319,7 +319,7 @@ export function pull(text: string, shape: any, nullValue: any?): (any, string?)
     return value, nil
 end
 
---- Applies one pull shape to every member of an array.
+--- Applies a pull shape to every member of an array.
 ---
 --- ```nupp
 --- const json = nupp.codec.json

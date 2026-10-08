@@ -220,7 +220,7 @@ local function aotDiagnostic(problem: any): {[string]: any}
     }
 end
 
---- One line saying what happened, for a person.
+--- A line saying what happened, for a person.
 local function summarise(path: string, program: any, artifacts: any): string
     local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
     local what: string
@@ -319,7 +319,7 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     }, nil
 end
 
---- One symbol's listing, for a person.
+--- A symbol's listing, for a person.
 local function writeListing(listing: Listing): nil
     local counts = listing.counts
     io.write(

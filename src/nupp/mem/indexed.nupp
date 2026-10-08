@@ -37,7 +37,7 @@ record indexed.Range
     @readonly last: integer
 end
 
---- Validates one inclusive range against every view supplied after it.
+--- Validates an inclusive range against every view supplied after it.
 ---
 --- At least one view is required: bounds nothing was checked against are not
 --- bounds. The views are borrowed for the call, so this may be written inline in

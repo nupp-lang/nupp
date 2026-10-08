@@ -24,7 +24,7 @@ local explain = {}
 record explain.Entry
     code: string
 
-    --- One line: what the diagnostic is about.
+    --- A line: what the diagnostic is about.
     summary: string
 
     --- The general statement the code enforces, in a sentence or two.

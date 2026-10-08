@@ -19,7 +19,7 @@ between modules terminates.
 
 local query = {}
 
---- One query a computation depended on, recorded while it ran.
+--- A query a computation depended on, recorded while it ran.
 type query.Dep = {
     --- The query's name.
     name: string,

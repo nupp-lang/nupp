@@ -196,7 +196,7 @@ record scalarIR.LuaConcat
     source: scalarIR.Source?
 end
 
---- Copies one Lua-style inclusive substring into ordinary Lua-owned storage.
+--- Copies a Lua-style inclusive substring into ordinary Lua-owned storage.
 record scalarIR.LuaSubstring
     op: 'lua_substring'
     bytes: scalarIR.Expr
@@ -206,7 +206,7 @@ record scalarIR.LuaSubstring
     source: scalarIR.Source?
 end
 
---- Reads one Lua-style one-based byte from rooted string storage.
+--- Reads a Lua-style one-based byte from rooted string storage.
 record scalarIR.LuaStringByte
     op: 'lua_string_byte_lua'
     bytes: scalarIR.Expr
@@ -215,7 +215,7 @@ record scalarIR.LuaStringByte
     source: scalarIR.Source?
 end
 
---- Reads one numeric entry from a fresh, rooted Lua table.
+--- Reads a numeric entry from a fresh, rooted Lua table.
 record scalarIR.LuaTableGet
     op: 'lua_table_get_index'
     table: scalarIR.Expr
@@ -232,7 +232,7 @@ record scalarIR.LuaStringBuffer
     source: scalarIR.Source?
 end
 
---- Publishes one Lua-owned byte accumulator as a string.
+--- Publishes a Lua-owned byte accumulator as a string.
 record scalarIR.LuaStringBufferFinish
     op: 'lua_string_buffer_finish'
     buffer: scalarIR.Expr
@@ -240,7 +240,7 @@ record scalarIR.LuaStringBufferFinish
     source: scalarIR.Source?
 end
 
---- One authored field of a fresh table literal.
+--- An authored field of a fresh table literal.
 record scalarIR.LuaField
     key: scalarIR.Expr
     value: scalarIR.Expr
@@ -262,7 +262,7 @@ record scalarIR.LuaNewTable
     source: scalarIR.Source?
 end
 
---- Starts one bounded, stack-rooted stream of ordinary Lua values.
+--- Starts a bounded, stack-rooted stream of ordinary Lua values.
 ---
 --- The handle is native construction state, not a Lua value. It may be used
 --- only by the value-stream statements below and finished exactly once.
@@ -281,7 +281,7 @@ record scalarIR.LuaBuilder
     source: scalarIR.Source?
 end
 
---- One bounded, stack-rooted native uint32 work buffer.
+--- A bounded, stack-rooted native uint32 work buffer.
 ---
 --- The handle is local construction state. Its storage is Lua-owned userdata,
 --- so a builder entry may use it across allocations without exposing a raw
@@ -311,7 +311,7 @@ record scalarIR.LuaScratchU32
     source: scalarIR.Source?
 end
 
---- Reads one word from a local native scratch buffer.
+--- Reads a word from a local native scratch buffer.
 record scalarIR.LuaScratchU32Get
     op: 'lua_scratch_u32_get' | 'lua_scratch_u32_escape_get'
     scratch: scalarIR.Expr
@@ -469,7 +469,7 @@ record scalarIR.WorkgroupIndex
     source: scalarIR.Source?
 end
 
---- One value read from statically sized workgroup scratch.
+--- A value read from statically sized workgroup scratch.
 record scalarIR.SharedLoad
     op: 'shared_load'
     shared: string
@@ -478,7 +478,7 @@ record scalarIR.SharedLoad
     source: scalarIR.Source?
 end
 
---- One element of a span holding scalars.
+--- An element of a span holding scalars.
 record scalarIR.Load
     op: 'load'
     span: string
@@ -517,7 +517,7 @@ record scalarIR.ElementRef
     source: scalarIR.Source?
 end
 
---- One field of a struct element.
+--- A field of a struct element.
 record scalarIR.FieldLoad
     op: 'field_load'
     object: scalarIR.Expr
@@ -576,7 +576,7 @@ record scalarIR.Unary
     source: scalarIR.Source?
 end
 
---- One operation from the closed math set.
+--- An operation from the closed math set.
 record scalarIR.Math
     op: 'math'
     intrinsic: string
@@ -585,7 +585,7 @@ record scalarIR.Math
     source: scalarIR.Source?
 end
 
---- One explicitly binary32 or wrapping fixed-width integer operation.
+--- An explicitly binary32 or wrapping fixed-width integer operation.
 ---
 --- A binary32 operation over binary32 operands computed in binary64 and rounded
 --- once is bit-identical to the native single-precision instruction, because 53
@@ -725,7 +725,7 @@ record scalarIR.HelperCall
     source: scalarIR.Source?
 end
 
---- One source-visible SIMD operation. Its abstract vector and mask types are
+--- A source-visible SIMD operation. Its abstract vector and mask types are
 --- specialized to the selected artifact tier only when code is generated.
 record scalarIR.Simd
     op: 'simd_species'
@@ -795,7 +795,7 @@ record scalarIR.Simd
     source: scalarIR.Source?
 end
 
---- Creates one closed reducer before its authored SIMD region.
+--- Creates a closed reducer before its authored SIMD region.
 record scalarIR.ReducerInit
     op: 'reducer_init'
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
@@ -844,7 +844,7 @@ record scalarIR.ReducerAdd
     source: scalarIR.Source?
 end
 
---- One masked vector contribution to a reducer, inside a `reducer_region`.
+--- A masked vector contribution to a reducer, inside a `reducer_region`.
 ---
 --- Active lanes contribute in ascending lane order; inactive lanes contribute
 --- nothing. A reducer takes at most one contribution per region iteration.
@@ -873,7 +873,7 @@ record scalarIR.VectorReducerAdd
     source: scalarIR.Source?
 end
 
---- One reducer a `reducer_region` accumulates.
+--- A reducer a `reducer_region` accumulates.
 record scalarIR.ReducerRegionAccumulator
     name: string
     uniqueName: string
@@ -990,7 +990,7 @@ type scalarIR.Expr = scalarIR.Constant
 -- Assignments
 ----------------------------------------------------------------------------
 
---- Where one assignment puts its value: a local, or one field of a struct
+--- Where a
 --- element reached through a span.
 record scalarIR.Target
     kind: 'local' | 'field'
@@ -1003,7 +1003,7 @@ record scalarIR.Target
     sourceType: string?
 end
 
---- One target and the value going into it.
+--- A target and the value going into it.
 record scalarIR.Assignment
     target: scalarIR.Target
     value: scalarIR.Expr
@@ -1029,7 +1029,7 @@ record scalarIR.Let
     source: scalarIR.Source?
 end
 
---- One local a loop carries from one iteration into the next: bound before
+--- A local a loop carries from one iteration into the next: bound before
 --- the loop and assigned somewhere in its body, so the value entering an
 --- iteration is whatever the previous one left. The loop names these once so
 --- that no reader has to scan the body to learn which facts its entry
@@ -1104,7 +1104,7 @@ record scalarIR.LuaSet
     source: scalarIR.Source?
 end
 
---- Appends one string expression to a Lua-owned byte accumulator.
+--- Appends a string expression to a Lua-owned byte accumulator.
 record scalarIR.LuaStringBufferAppend
     op: 'lua_string_buffer_append'
     buffer: scalarIR.Expr
@@ -1112,7 +1112,7 @@ record scalarIR.LuaStringBufferAppend
     source: scalarIR.Source?
 end
 
---- One direct construction event applied to a bounded value stream.
+--- A direct construction event applied to a bounded value stream.
 ---
 --- `sourceBytes`, `start`, `length`, and `escaped` belong to string/key and
 --- number-slice events. `value` belongs to boolean/number events. `capacity`
@@ -1154,7 +1154,7 @@ record scalarIR.LuaBuild
     source: scalarIR.Source?
 end
 
---- Writes one word in a local native scratch buffer.
+--- Writes a word in a local native scratch buffer.
 record scalarIR.LuaScratchU32Set
     op: 'lua_scratch_u32_set'
     scratch: scalarIR.Expr
@@ -1185,7 +1185,7 @@ end
 -- Control flow
 ----------------------------------------------------------------------------
 
---- One arm of a conditional.
+--- An arm of a conditional.
 --- The cursor bounds a branch or loop condition proves for its body, by
 --- cursor and then by span: `cursorBounds[cursor][span]` is the room the
 --- condition established below the span's count -- `"1"` for one element,
@@ -1199,7 +1199,7 @@ type scalarIR.CursorBounds = {[string]: {[string]: string}}
 --- The room a one-element bound records.
 const scalarIR.ONE_ELEMENT = "1"
 
---- One arm of a conditional.
+--- An arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
@@ -1294,7 +1294,7 @@ record scalarIR.Return
     source: scalarIR.Source?
 end
 
---- One structurally disjoint write to workgroup scratch. Admission requires
+--- A structurally disjoint write to workgroup scratch. Admission requires
 --- `index` to be the stage's exact `local_index` expression.
 record scalarIR.SharedStore
     op: 'shared_store'
@@ -1304,7 +1304,7 @@ record scalarIR.SharedStore
     source: scalarIR.Source?
 end
 
---- One stage in a workgroup controller. Each backend completes the body for
+--- A stage in a workgroup controller. Each backend completes the body for
 --- every local lane before any lane enters the following statement.
 record scalarIR.Phase
     op: 'phase'
@@ -1345,7 +1345,7 @@ type scalarIR.Statement = scalarIR.Simd
 -- Layouts and parameters
 ----------------------------------------------------------------------------
 
---- One stored field of a reified struct.
+--- A stored field of a reified struct.
 record scalarIR.Field
     name: string
     type: scalarIR.Type
@@ -1376,7 +1376,7 @@ record scalarIR.Layout
     source: scalarIR.Source?
 end
 
---- One atom a guard relation is stated about.
+--- An atom a guard relation is stated about.
 ---
 --- An atom and nothing else: every constant a source comparison wrote is folded
 --- into the relation's offset instead, so two source forms of one fact normalize to
@@ -1391,7 +1391,7 @@ record scalarIR.Term
     name: string?
 end
 
---- One normalized relation the source guards established, `left <= right + offset`.
+--- A normalized relation the source guards established, `left <= right + offset`.
 ---
 --- Every admitted comparison becomes one of these, or two for an equality. The
 --- wrapper checks exactly this list and nothing else about bounds, which is what
@@ -1432,7 +1432,7 @@ record scalarIR.SoaColumn
     ordinal: integer
 end
 
---- One parameter of an admitted signature.
+--- A parameter of an admitted signature.
 ---
 --- `type` is the physical storage the code generator and the foreign
 --- declaration use; `sourceType` preserves the authored type in the checked
@@ -1472,7 +1472,7 @@ record scalarIR.Param
     source: scalarIR.Source?
 end
 
---- One span's borrow, restated as something the backend can name.
+--- A span's borrow, restated as something the backend can name.
 record scalarIR.Region
     id: string
     param: string
@@ -1506,7 +1506,7 @@ record scalarIR.Guard
     source: scalarIR.Source?
 end
 
---- One visible pure helper the body may call.
+--- A visible pure helper the body may call.
 record scalarIR.Helper
     name: string
     uniqueName: string
@@ -1542,7 +1542,7 @@ record scalarIR.Loop
     source: scalarIR.Source?
 end
 
---- One statically allocated workgroup scratch array.
+--- A statically allocated workgroup scratch array.
 record scalarIR.Shared
     name: string
     element: scalarIR.Type
@@ -1567,7 +1567,7 @@ end
 -- A whole program
 ----------------------------------------------------------------------------
 
---- One whole admitted `@aot` function.
+--- A whole admitted `@aot` function.
 ---
 --- Everything downstream -- the generated code, the generated wrapper, the
 --- verifier -- is written from this and only this, so none of them can disagree

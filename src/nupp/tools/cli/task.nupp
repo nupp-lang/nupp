@@ -95,7 +95,7 @@ local function writeItems(out: {string}, style: any, label: string, items: {stri
     end
 end
 
---- One task's configuration, field by field. Only the fields a task actually has are
+--- A task's configuration, field by field. Only the fields a task actually has are
 --- printed, so the shape of the output says what kind of task it is.
 local function writeTask(out: {string}, style: any, task: any)
     local function field(label: string, value: any)

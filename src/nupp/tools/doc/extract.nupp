@@ -26,7 +26,7 @@ local extract = {}
 -- What extraction produces
 ----------------------------------------------------------------------------
 
---- One argument: its name and type as the source spelled them, and what `@param` said.
+--- An argument: its name and type as the source spelled them, and what `@param` said.
 type extract.Param = {
     name: string,
     type: string,
@@ -34,13 +34,13 @@ type extract.Param = {
     text: string
 }
 
---- One result: a type and a description, with no name to hang them on.
+--- A result: a type and a description, with no name to hang them on.
 type extract.Result = {
     type: string,
     text: string
 }
 
---- One type parameter, and what `@typearg` said about it.
+--- A type parameter, and what `@typearg` said about it.
 type extract.TypeArg = {
     name: string,
     text: string
@@ -77,7 +77,7 @@ record extract.Member
     annotations: {string}?
 end
 
---- One documented declaration: what it is called, how it is spelled, and everything its
+--- A documented declaration: what it is called, how it is spelled, and everything its
 --- `---` run said about it.
 type extract.Item = {
     name: string,
@@ -101,7 +101,7 @@ type extract.Item = {
     comptimeKind: string?
 }
 
---- One source file, read as its documented declarations.
+--- A source file, read as its documented declarations.
 type extract.Module = {
     name: string,
     path: string?,

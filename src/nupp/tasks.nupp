@@ -158,7 +158,7 @@ local type Child = {
     after: any
 }
 
---- One scope's scheduling state.
+--- A scope's scheduling state.
 ---
 --- What the scope holds is what is live: `first`..`last` links the children still
 --- queued or running in the order they started, and a child leaves that list when it

@@ -25,7 +25,7 @@ local listing = {}
 --- the preamble summary is the only instance of.
 type listing.Role = 'exact' | 'source' | 'derived' | 'synthetic'
 
---- One listing line, and the source line it speaks for. Lines the listing writes
+--- A listing line, and the source line it speaks for. Lines the listing writes
 --- for shape alone -- the blank between functions -- have no entry.
 type listing.Mapping = {
     generatedLine: integer,
@@ -255,7 +255,7 @@ function listing.group(
     return byLine, preamble, built
 end
 
---- Renders one analysed chunk, and says where every line of it came from.
+--- Renders an analysed chunk, and says where every line of it came from.
 ---
 --- The file runs down the left, one row per line, and what each line compiled to
 --- runs down the right. That is the shape of the question `bc` is asked -- what
@@ -374,7 +374,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         return text
     end
 
-    --- One row: a line of the file on the left, one instruction on the right.
+    --- A row: a line of the file on the left, one instruction on the right.
     ---
     --- The source is fitted by the palette rather than here, because a coloured
     --- line is not as long as it looks -- the escapes in it occupy no columns --

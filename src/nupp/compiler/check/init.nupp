@@ -90,13 +90,13 @@ local type Child = cst.Child
 -- What a run produces
 ----------------------------------------------------------------------------
 
---- One thing to report about a file.
+--- A thing to report about a file.
 type checkMod.Diagnostic = state.Diagnostic
 
 --- What a condition proves, on each side of it.
 type checkMod.Facts = state.Facts
 
---- Everything one run of the checker carries. See nupp.compiler.check.state.
+--- Everything a
 type checkMod.Checker = state.Checker
 
 -- The type algebra and the generic machinery moved out of this file; the names the
@@ -2492,7 +2492,7 @@ function checkMod.check(
     -- Module fields and exports
     ---------------------------------------------------------------------
 
-    --- Checks one statement, in the scope it stands in.
+    --- Checks a statement, in the scope it stands in.
     ---
     --- @param stat the statement node
     -- A module is written `local M = {}` and filled in one statement at a time, so the

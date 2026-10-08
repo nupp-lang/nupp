@@ -117,7 +117,7 @@ type ownership.Ops = {
     --- Related-location details for the first live borrow overlapping a region.
     conflictDetails: function(root: any, path: string?, exclusiveOnly: boolean?): any,
 
-    --- Requires one primitive indexed write receiver to be exclusively usable now.
+    --- Requires a primitive indexed write receiver to be exclusively usable now.
     checkExclusiveReceiver: function(receiver: any, at: any): nil,
 
     --- Records that an expression's owner has been handed over.

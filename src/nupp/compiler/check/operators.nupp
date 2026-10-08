@@ -446,7 +446,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
         return nil
     end
 
-    --- Whether one operand of a bitwise operator is already a fixed 32-bit value.
+    --- Whether a
     ---
     --- The same condition `nupp.compiler.aot.lower` puts on them, spelled here
     --- against the checker's establishment facts rather than against lowered IR.

@@ -14,7 +14,7 @@ local ansi = require("nupp.cli")
 local cliModule = ansi
 local usageError = require("nupp.tools.cli.error").forCommand("test")
 
---- What one phase of a parallel run was predicted to cost, which the report puts
+--- What a
 --- beside what its busiest lane actually cost. Written once and used for both
 --- phases: two copies of a shape are two chances for them to drift apart.
 local phasePrediction = {

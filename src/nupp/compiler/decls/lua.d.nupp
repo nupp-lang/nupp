@@ -1198,7 +1198,7 @@ local package: {
 -- Layouts and file handles
 ----------------------------------------------------------------------------
 
---- One field of a reified `struct`, as it is actually laid out in C memory.
+--- A field of a reified `struct`, as it is actually laid out in C memory.
 ---
 --- `size` is the field's own, from its C type. `padding` is what follows it before the
 --- next field starts, or before the struct ends. They are separate because they answer
@@ -1672,7 +1672,7 @@ local debug: {
     --- @return the upvalue's name, or nil past the last one
     setupvalue: function(f: any, idx: number, v: any): string?,
 
-    --- Makes one function's upvalue refer to the same lexical cell as another's.
+    --- Makes a function's upvalue refer to the same lexical cell as another's.
     ---
     --- @param f the function whose upvalue is replaced
     --- @param idx its 1-based upvalue index

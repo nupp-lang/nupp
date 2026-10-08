@@ -22,7 +22,7 @@ local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 local rearrange = {}
 
 --- @raises string always
---- One `shufflevector` of `first` (and `second`, lanes N.. of the pair)
+--- A `shufflevector` of `first` (and `second`, lanes N.. of the pair)
 --- picking `picks`, zero-based.
 local function shuffle(
     ctx: context.Context,
@@ -127,7 +127,7 @@ local function swizzle(ctx: context.Context, found: species.Species, simd: scala
     return out
 end
 
---- One result of a two-row interleave or deinterleave, or one column of a
+--- A result of a two-row interleave or deinterleave, or one column of a
 --- square transpose, as `emit.rearrange` defined them.
 local function rearranged(ctx: context.Context, found: species.Species, simd: scalarIR.Simd): string
     local rows: {string} = {}

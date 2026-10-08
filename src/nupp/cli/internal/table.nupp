@@ -24,7 +24,7 @@ const {type Style} = require("nupp.cli.internal.terminal")
 --- How a cell sits in its column.
 export type Alignment = "left" | "right"
 
---- One cell.
+--- A cell.
 export record Cell
     --- What the cell says.
     text: string
@@ -43,7 +43,7 @@ export record Cell
     notePaint: (function(string): string)?
 end
 
---- One column.
+--- A column.
 export record Column
     --- What prints above it. An empty heading still reserves the column's width.
     heading: string

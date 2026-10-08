@@ -104,7 +104,7 @@ export const debugSkip: MetadataKey<boolean> = metadataKey()
 --- @export
 export const debugRedact: MetadataKey<boolean> = metadataKey()
 
---- One structure member with a stable dense index.
+--- A structure member with a stable dense index.
 --- @export
 export record Member
     @readonly index: integer
@@ -122,7 +122,7 @@ export record Member
     end
 end
 
---- One immutable logical schema node.
+--- An immutable logical schema node.
 --- @export
 export record Schema
     @readonly kind: Kind
@@ -1174,7 +1174,7 @@ end
 export sealed interface Prepared<T>
     encode: function(self, value: T): string
 
-    --- Appends one encoded root through reserved caller-owned storage.
+    --- Appends an encoded root through reserved caller-owned storage.
     ---
     --- The prepared traversal writes one complete encoded value.
     write: function(self, value: T, exclusive out: Buffer): nil & function(self, value: T, exclusive out: Writer): nil
@@ -1874,12 +1874,12 @@ export record JsonCodec
         return self:prepare(binding):encode(value)
     end
 
-    --- Appends one complete encoded root to caller-owned storage in one chunk.
+    --- Appends a complete encoded root to caller-owned storage in one chunk.
     function write<T>(self, binding: Binding<T>, value: T, exclusive out: Buffer): nil
         self:prepare(binding):write(value, out)
     end
 
-    --- Streams one prepared value at the writer's current value position.
+    --- Streams a prepared value at the writer's current value position.
     function write<T>(self, binding: Binding<T>, value: T, exclusive out: Writer): nil
         self:prepare(binding):write(value, out)
     end

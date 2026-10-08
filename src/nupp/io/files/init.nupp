@@ -57,7 +57,7 @@ export type Origin = messages.Origin
 --- Metadata about one filesystem object.
 export type Info = messages.Info
 
---- One immediate child returned by a directory listing.
+--- An immediate child returned by a directory listing.
 export type Entry = messages.Entry
 
 --- Naming and placement options for a native temporary path.
@@ -316,7 +316,7 @@ export function writeAtomic(path: Path, borrows bytes: string | io.ByteView): (b
     return answered(provider.writeAtomic(path, bytes))
 end
 
---- Copies one file over another.
+--- Copies a file over another.
 --- @param from the source file
 --- @param to the destination file
 --- @return whether the file was copied
@@ -402,7 +402,7 @@ export function createTemporaryDirectory(
     return owner, nil
 end
 
---- Resolves one conventional native user folder.
+--- Resolves a conventional native user folder.
 --- @param which the folder to resolve
 --- @return its native path, or nil when unavailable
 --- @return a failure reason, when unsuccessful

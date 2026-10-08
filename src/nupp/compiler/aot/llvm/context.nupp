@@ -19,7 +19,7 @@ local types = require("nupp.compiler.aot.llvm.types")
 
 local context = {}
 
---- One local: the stack slot it lives in and its IR type.
+--- A local: the stack slot it lives in and its IR type.
 record context.Slot
     pointer: string
     type: string
@@ -29,7 +29,7 @@ record context.Slot
     carried: boolean
 end
 
---- One span parameter as the function receives it.
+--- A span parameter as the function receives it.
 record context.Span
     pointer: string
     param: scalarIR.Param

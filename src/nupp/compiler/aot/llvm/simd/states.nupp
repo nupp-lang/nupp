@@ -385,7 +385,7 @@ record states.Operations
     add: string
     value: string
 
-    --- What one contribution is passed as.
+    --- What a
     input: string
 
     --- What `value` answers.

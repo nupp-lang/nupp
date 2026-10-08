@@ -609,7 +609,7 @@ end
 local BREAK = {}
 local RETURN = {}
 
---- One evaluation in progress: the scopes, the budget, and the answer.
+--- An evaluation in progress: the scopes, the budget, and the answer.
 local function newState()
     return {
         env = {},
@@ -767,7 +767,7 @@ local function arith(op, left, right, node)
     return nil, false
 end
 
---- Calls one of the allowlisted library functions. Everything a block can call is a
+--- Calls an of the allowlisted library functions. Everything a block can call is a
 --- real
 --- Lua function reached through the environment, so the call itself is ordinary; what
 --- this adds is turning its error into a diagnostic sited at the call.
@@ -1493,7 +1493,7 @@ local function execStats(state, block)
     end
 end
 
---- Runs one statement.
+--- Runs a statement.
 ---
 --- @raises any `RETURN` when the statement is a `return` and `BREAK` when it is a
 ---     `break`,
@@ -1902,7 +1902,7 @@ local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessag
     return main.node, parsedHelpers, nil
 end
 
---- Executes one already-checked private type function with closed arguments.
+--- Executes an already-checked private type function with closed arguments.
 --- Type and pack arguments enter through the versioned semantic graph and become
 --- opaque evaluator handles; no checker object is reachable from user code.
 --- A checked helper, unsealed if it arrived sealed, with a fresh evaluator state
@@ -2077,7 +2077,7 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     )
 end
 
---- Executes one checked derive provider and returns its closed recipe envelope.
+--- Executes a checked derive provider and returns its closed recipe envelope.
 --- The immutable Info projection is transported as plain semantic data; every type
 --- edge is imported as an opaque `nupp.types` handle before provider code sees it.
 function comptime.evaluateDeriveProviderDirect(

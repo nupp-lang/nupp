@@ -153,7 +153,7 @@ function values.substringOperands(ctx: context.Context, sliced: scalarIR.LuaSubs
     return ("ptr %s, %s %s, double %s, double %s"):format(bytes.pointer, runtime.size(ctx), bytes.length, first, last)
 end
 
---- Pushes one construction value on the Lua stack.
+--- Pushes a construction value on the Lua stack.
 --- @raises string for a value the construction verifier does not admit
 function values.push(ctx: context.Context, value: scalarIR.Expr): nil
     local state = runtime.state(ctx)

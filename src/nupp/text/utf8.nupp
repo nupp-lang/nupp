@@ -316,7 +316,7 @@ function utf8.decodeBefore(borrows value: string | ByteView, byteOffset: integer
     return codepoint, start
 end
 
---- Encodes one codepoint as UTF-8 bytes.
+--- Encodes a codepoint as UTF-8 bytes.
 ---
 --- ```nupp
 --- const utf8 = nupp.text.utf8

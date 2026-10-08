@@ -482,7 +482,7 @@ local function ifStatement(ctx: context.Context, statement: scalarIR.If): nil
     builder.start(f, done)
 end
 
---- Stores one element of a span, narrowed to the span's storage.
+--- Stores an element of a span, narrowed to the span's storage.
 --- @raises string when the entry has no span by that name
 local function spanStore(ctx: context.Context, statement: scalarIR.Store): nil
     local span = ctx.spans[statement.span]
@@ -592,7 +592,7 @@ local function returnStatement(ctx: context.Context, statement: scalarIR.Return)
     builder.terminate(ctx.f, ("ret %s %s"):format(types.require(resultType), converted))
 end
 
---- Emits one statement.
+--- Emits a statement.
 --- @raises string for a statement this backend does not emit yet
 --- Lowerings of statements defined outside this module (SIMD stores,
 --- reducers), by operation. Installed by `llvmProgram`.

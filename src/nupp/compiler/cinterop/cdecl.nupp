@@ -23,7 +23,7 @@ local bit = require("bit") as {
 
 local cdecl = {}
 
---- One member of a struct. An unnamed one is counted on its struct rather than
+--- A member of a struct. An unnamed one is counted on its struct rather than
 --- modelled, so a member that is here has a name.
 interface cdecl.Member
     name: string
@@ -40,7 +40,7 @@ interface cdecl.Member
     bitPos: integer?
 end
 
---- One parameter of a function. C lets a declaration leave a parameter unnamed, and a
+--- A parameter of a function. C lets a declaration leave a parameter unnamed, and a
 --- header commonly does.
 interface cdecl.Param
     name: string?
@@ -141,7 +141,7 @@ interface cdecl.Struct
     unit: integer?
 end
 
---- One enumerator, in the order the header declared it.
+--- An enumerator, in the order the header declared it.
 interface cdecl.Enumerator
     name: string
     value: number
@@ -173,7 +173,7 @@ interface cdecl.Layout
     fields: {cdecl.Member}
 end
 
---- What one pass over a blob of C declared.
+--- What a
 interface cdecl.Inspection
     structs: {cdecl.Struct}
     functions: {cdecl.Function}

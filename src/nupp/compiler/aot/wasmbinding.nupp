@@ -42,7 +42,7 @@ local function cast(value: string, named: string): string
     return value .. " as " .. named
 end
 
---- Replaces one source declaration with a call into its independent Wasm
+--- Replaces a source declaration with a call into its independent Wasm
 --- module. `units` holds each tier's unit, widest first; the host runs the
 --- first it loaded.
 function wasmbinding.replacement(program: scalarIR.Program, units: {string}): string

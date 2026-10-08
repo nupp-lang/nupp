@@ -22,7 +22,7 @@ local types = require("nupp.compiler.types")
 
 local syntaxstyle = {}
 
---- One run of source and the style it carries, in source order and covering
+--- A run of source and the style it carries, in source order and covering
 --- every byte. `style` is absent for text that carries no colour of its own:
 --- whitespace, and the separators between tokens.
 type syntaxstyle.Span = {

@@ -3625,7 +3625,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     return remarks, specializedBodies
 end
 
---- One allocation left in the tree generation will emit.
+--- An allocation left in the tree generation will emit.
 record optimize.AllocationSite
     --- `table` for a constructor, `closure` for a function value.
     kind: string

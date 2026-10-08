@@ -101,7 +101,7 @@ local function take(handle: any): string?
     return native.bytes(handle)
 end
 
---- One compiled module.
+--- A compiled module.
 record codegen.Compiled
     object: string
     report: string
@@ -156,14 +156,14 @@ function codegen.compile(ir: string, name: string, options: {[string]: string}):
     return result as codegen.Compiled, nil
 end
 
---- One module `codegen.compileFiles` compiles.
+--- A module `codegen.compileFiles` compiles.
 record codegen.Job
     ir: string
     object: string
     options: {[string]: string}
 end
 
---- One job's outcome: its report, or why it failed.
+--- A job's outcome: its report, or why it failed.
 record codegen.Outcome
     report: string?
     error: string?

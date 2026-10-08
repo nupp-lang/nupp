@@ -19,7 +19,7 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 -- Resources and aliases
 ----------------------------------------------------------------------------
 
---- Declares one consuming cleanup for an affine owner.
+--- Declares a consuming cleanup for an affine owner.
 interface nupp.Affine<const cleanup: function>
 end
 
@@ -784,7 +784,7 @@ end
 -- Hot reload
 ----------------------------------------------------------------------------
 
---- What one poll did, discriminated by `kind`.
+--- What a
 ---
 --- The four answers are `"prepared"`, when a patch was staged and committed and
 --- `generation` is now the live one; `"no-change"`, when no watched input moved;
@@ -1017,7 +1017,7 @@ record nupp.derive
     --- ```
     JSON: Provider
 
-    --- Derives one format-neutral schema and physical binding for a record or struct.
+    --- Derives a format-neutral schema and physical binding for a record or struct.
     --- It generates no per-format methods; codecs prepare and cache the binding.
     ---
     --- ```nupp
@@ -1080,7 +1080,7 @@ record nupp.derive
     record Reference
     end
 
-    --- One written stored field in the immutable derive input projection.
+    --- A written stored field in the immutable derive input projection.
     ---
     --- Fields arrive in declaration order. A generated member never reaches one by
     --- name; pass this value to `field` to read it.
@@ -1119,7 +1119,7 @@ record nupp.derive
 
     --- The immutable semantic view passed to an `@comptime function` provider.
     ---
-    --- One `Info` describes one owner for one provider, and is built before any
+    --- An `Info` describes one owner for one provider, and is built before any
     --- provider's output is merged, so two providers on the same declaration see the
     --- same thing whichever order they run in. A generic owner is projected once rather
     --- than per instantiation, and a type parameter exposes its bound, or `unknown`, so
@@ -1172,7 +1172,7 @@ record nupp.derive
         @readonly fingerprint: string
     end
 
-    --- One value a generated call passes.
+    --- A value a generated call passes.
     ---
     --- Built by `receiver`, `entry`, `argument`, `field`, `constant`, `witness`,
     --- or `array`.
@@ -1188,7 +1188,7 @@ record nupp.derive
     record RuntimeHelper
     end
 
-    --- One requirement's implementation, from `forward`, to be placed in `implement`
+    --- A requirement's implementation, from `forward`, to be placed in `implement`
     --- under the name of the requirement it fills.
     record Forward
     end
@@ -1224,7 +1224,7 @@ record nupp.derive
     --- @return the recipe, as this provider's `Result<I>`
     implement: function(specification: any): any
 
-    --- Reads one immutable filesystem input admitted to this provider invocation.
+    --- Reads an immutable filesystem input admitted to this provider invocation.
     ---
     --- The path must be a string literal in the provider's checked source. It resolves
     --- from the consumer project root, becomes an incremental query dependency, and is
@@ -1247,7 +1247,7 @@ record nupp.derive
     --- @return the refusal, as this provider's `Result<I>`
     error: function(message: string, reference: Reference?, code: string?): any
 
-    --- Implements one requirement by calling one runtime helper.
+    --- Implements a requirement by calling one runtime helper.
     ---
     --- `helper` names the function and `arguments` is the closed list it receives, in
     --- order. The interface owns the resulting signature, and the generated call is
@@ -1286,14 +1286,14 @@ record nupp.derive
     --- @return the argument recipe
     entry: function(): Argument
 
-    --- Passes one parameter of the generated method, under the name the interface
+    --- Passes a parameter of the generated method, under the name the interface
     --- requirement declares for it.
     ---
     --- @param name the parameter's declared name
     --- @return the argument recipe
     argument: function(name: string): Argument
 
-    --- Reads one stored field of the receiver directly. The field must be readable.
+    --- Reads a stored field of the receiver directly. The field must be readable.
     ---
     --- @param field one of `Info.fields`
     --- @return the argument recipe
@@ -1308,7 +1308,7 @@ record nupp.derive
     --- @return the argument recipe
     constant: function(value: any): Argument
 
-    --- Resolves one `@ref` annotation argument to its transported type handle.
+    --- Resolves a `@ref` annotation argument to its transported type handle.
     ---
     --- The argument must come from `Info.annotations` or one of its fields. The
     --- returned handle can be inspected with `nupp.types` and passed to `witness`.
@@ -1963,7 +1963,7 @@ record nupp.reflect
         @readonly _valueType: (function(value: T?): T?)?
     end
 
-    --- One checked member supplied to a reflected typed annotation.
+    --- A checked member supplied to a reflected typed annotation.
     ---
     --- `value` is present for `kind = "value"`; `type` is an index into the owning
     --- `Info.types` graph for `kind = "type"`. `kind = "nil"` preserves an explicitly
@@ -2003,13 +2003,13 @@ record nupp.reflect
         @readonly type: integer?
     end
 
-    --- One typed annotation application, retaining source order.
+    --- A typed annotation application, retaining source order.
     record Annotation
         @readonly name: string
         @readonly arguments: {AnnotationArgument}
     end
 
-    --- One stored field projected directly from the reflected root type.
+    --- A stored field projected directly from the reflected root type.
     ---
     --- The projection preserves declaration order, access capabilities, defaults, and
     --- annotations without requiring a lookup in `Info.types`.
@@ -2041,7 +2041,7 @@ record nupp.reflect
         @readonly annotations: {Annotation}
     end
 
-    --- One named or positional edge in the indexed semantic type graph.
+    --- A named or positional edge in the indexed semantic type graph.
     record Entry
         @readonly name: string?
         @readonly type: integer?
@@ -2059,7 +2059,7 @@ record nupp.reflect
         @readonly [string]: any
     end
 
-    --- One node in an `Info` semantic type graph.
+    --- A node in an `Info` semantic type graph.
     ---
     --- Fields, parameters, results, union members, generic arguments, and wrappers
     --- point to other nodes by their integer index. Resolve only the edges relevant to
@@ -2111,7 +2111,7 @@ record nupp.reflect
         @readonly [string]: any
     end
 
-    --- One top-level stored struct field available as a SoA column.
+    --- A top-level stored struct field available as a SoA column.
     record SoAField
         @readonly name: string
         @readonly identity: string

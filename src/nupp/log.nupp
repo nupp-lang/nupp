@@ -250,7 +250,7 @@ type log.LevelOverride = log.Level | "inherit"
 --- @export
 type log.Severity = integer
 
---- Receives one emitted line, already formatted.
+--- Receives an emitted line, already formatted.
 ---
 --- Replacing this replaces the back end, so a host logging through its own
 --- facility pays for nothing it discards. No timestamp is passed, because a sink
@@ -258,7 +258,7 @@ type log.Severity = integer
 --- @export
 type log.Sink = function(level: log.Severity, module: string, line: integer, message: string): nil
 
---- Renders one line for a file-like destination. Only consulted when the target is
+--- Renders a line for a file-like destination. Only consulted when the target is
 --- file-like; a sink function formats however it likes.
 --- @export
 type log.Formatter = function(
@@ -390,7 +390,7 @@ end
 --- @internal
 log.on = on
 
---- Emits one line. Lowering calls it behind a level test.
+--- Emits a line. Lowering calls it behind a level test.
 --- @internal
 log.emit = emit
 

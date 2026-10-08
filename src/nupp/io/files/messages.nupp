@@ -23,7 +23,7 @@ export record Info
     readOnly: boolean
 end
 
---- One immediate child of a listed directory.
+--- An immediate child of a listed directory.
 export record Entry
     --- The child's name relative to the listed directory.
     name: string
@@ -70,7 +70,7 @@ export record Capabilities
     --- Whether temporary path owners can be created.
     temporaryPaths: boolean
 
-    --- Whether one path may have multiple open handles.
+    --- Whether a
     concurrentOpenHandles: boolean
 
     --- Whether a process working directory exists.

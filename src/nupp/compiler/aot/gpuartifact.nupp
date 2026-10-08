@@ -147,7 +147,7 @@ local function outsideSubset(
     return nil
 end
 
---- Emits one verified GPU program, or says which subset rule it violates.
+--- Emits a verified GPU program, or says which subset rule it violates.
 ---
 --- Browser builds require the narrower WGSL profile; native builds retain WGSL
 --- only when the same program happens to satisfy it.

@@ -24,7 +24,7 @@ local visit = require("nupp.compiler.aot.visit")
 
 local compile = {}
 
---- One reason a source was not admitted, at the position it was written.
+--- A reason a source was not admitted, at the position it was written.
 record compile.Diagnostic
     file: string
     line: integer
@@ -45,7 +45,7 @@ compile.REFUSED_GPU = "NUPP2907"
 compile.REFUSED_SPECIALIZATION = "NUPP2908"
 compile.NO_AOT_FUNCTION = "NUPP2909"
 
---- Where one `@aot` declaration sits in the source it came from.
+--- Where a
 ---
 --- The whole declaration: the annotations and the function they decorate, from
 --- the first byte of the outermost `@aot` to the last byte of its `end`.
@@ -89,7 +89,7 @@ record compile.Artifacts
     constFamilies: {any}?
 end
 
---- One diagnostic, as a line a person reads.
+--- A diagnostic, as a line a person reads.
 function compile.renderDiagnostic(problem: compile.Diagnostic): string
     return ("%s:%d:%d: aot: %s: %s"):format(problem.file, problem.line, problem.column, problem.code, problem.message)
 end
@@ -125,7 +125,7 @@ local function qualifySymbols(programs: {scalarIR.Program}, filename: string): n
     end
 end
 
---- Where one `@aot` declaration was written, as byte offsets.
+--- Where a
 ---
 --- From the first annotation rather than from the function, because replacing
 --- the declaration means replacing the annotations that decorate it too. A
@@ -191,7 +191,7 @@ function compile.vectors(selected: targets.Target?): boolean
     return selected == nil or (targets.TIERS[(selected as targets.Target).tier] or 0) > 0
 end
 
---- Lowers one source to verified scalar IR.
+--- Lowers a source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
 --- @param filename what diagnostics name
@@ -727,7 +727,7 @@ function compile.legalizeVectors(
     return nil
 end
 
---- Compiles one source to everything a build would need from it.
+--- Compiles a source to everything a build would need from it.
 ---
 --- @param library where the compiled object will be found, which the generated
 ---   module loads

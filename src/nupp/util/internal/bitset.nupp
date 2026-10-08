@@ -413,7 +413,7 @@ record data.Bitset
         return self.used
     end
 
-    --- One stored word. Word `w` holds positions `w * WORD_BITS` through
+    --- A stored word. Word `w` holds positions `w * WORD_BITS` through
     --- `w * WORD_BITS + WORD_BITS - 1`, lowest position first.
     --- @param index a word index counting from 0, bounded by `wordCount`
     --- @return the word as a signed value, so one with its top bit set reads

@@ -31,7 +31,7 @@ local mutation = {}
 --- The paths written beneath one binding, relative to it.
 local type Paths = {[string]: boolean}
 
---- What one function may write to, as far as the source says.
+--- What a
 record mutation.Summary
     --- Parameter positions written through, and the paths written beneath each.
     params: {[integer]: Paths}
@@ -278,7 +278,7 @@ mutation.joinPaths = joinPaths
 mutation.keyOf = keyOf
 mutation.bodyOf = bodyOf
 
---- One function being scanned: its summary and what it will need to fold in.
+--- A function being scanned: its summary and what it will need to fold in.
 local type Context = {
     summary: mutation.Summary,
 
@@ -529,7 +529,7 @@ local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
     return changed
 end
 
---- Scans one file.
+--- Scans a file.
 ---
 --- @param root the parsed chunk
 --- @return what every function it declares may write
@@ -981,7 +981,7 @@ function mutation.calleeSummary(summaries: mutation.Summaries, node: any): mutat
     return nil
 end
 
---- What one call may write, as the pass sees it: the callee's summary, and what
+--- What a
 --- any function handed to the call would write if the call ran it. Nil when the
 --- pass knows neither the callee nor anything handed to it.
 ---

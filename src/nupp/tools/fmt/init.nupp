@@ -1956,7 +1956,7 @@ function fmt.new(opts: fmt.Options?): fmt.Formatter
     )
 end
 
---- Formats one file. Returns the source unchanged, with what stopped it, when the file
+--- Formats a file. Returns the source unchanged, with what stopped it, when the file
 --- does not parse or the result would not be the same program.
 function fmt.Formatter:format(source: string, filename: string?): string, {any}
     local result = parser.parse(source, filename)

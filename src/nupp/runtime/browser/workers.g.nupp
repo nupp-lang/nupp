@@ -167,7 +167,7 @@ local nextTaskId: integer = 1
 -- risking a lane that waits on itself.
 local laneActive: boolean = false
 
---- Issues one pool request and answers with the value the host returned.
+--- Issues a pool request and answers with the value the host returned.
 --- @raises string where the pool refused the request or answered nothing
 local function answered(item: any): any
     if item == nil then
@@ -303,7 +303,7 @@ local function settle(task: any, value: any): nil
     leave(task)
 end
 
---- Queues one pool request. The browser effect layer sends it with whatever else is
+--- Queues a pool request. The browser effect layer sends it with whatever else is
 --- queued at the next park, so submission itself never waits.
 local function poolRequest(payload: any, resume: function(any): nil): function()
     return browserEffects.request("workers", payload, resume)
@@ -326,7 +326,7 @@ local type SubmissionBatch = {
 }
 local pendingSubmission: SubmissionBatch? = nil
 
---- Adds one submission to the batch this park will carry.
+--- Adds a submission to the batch this park will carry.
 local function submit(entry: Submission): nil
     local batch = pendingSubmission
     if batch == nil then
@@ -404,7 +404,7 @@ local function ensureAwait(task: any): nil
     end)
 end
 
---- Turns one delivered reply into the task's settled state.
+--- Turns a delivered reply into the task's settled state.
 local function consume(task: any): nil
     local answer = task._answer
     task._answer = nil
@@ -654,7 +654,7 @@ end)
 -- The lane
 ----------------------------------------------------------------------------
 
---- Exchanges one lane frame with the host: an optional reply, then the next task.
+--- Exchanges a lane frame with the host: an optional reply, then the next task.
 local function laneExchange(payload: any): any
     local answer: any = suspension.suspend("worker lane", function(resume: function(any): nil): function()
         return browserEffects.request("lane", payload, resume)
@@ -677,7 +677,7 @@ local function laneCheckpoint(): (boolean, boolean)
     return checkpointCancelled, checkpointDeadline
 end
 
---- Runs one task frame and answers the reply the pool should carry back.
+--- Runs a task frame and answers the reply the pool should carry back.
 local function runFrame(frame: any): any
     checkpointCancelled = false
     checkpointDeadline = false

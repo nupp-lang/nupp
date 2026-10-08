@@ -233,7 +233,7 @@ local function physical(type_: string, sourceType: string?): (string, integer, i
     return type_, 0, 0
 end
 
---- Emits one canonical SPIR-V compute module.
+--- Emits a canonical SPIR-V compute module.
 function spirv.program(
     program: scalarIR.Program,
     readonly: {scalarIR.Param},

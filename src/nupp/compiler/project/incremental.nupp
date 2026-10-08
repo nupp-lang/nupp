@@ -32,7 +32,7 @@ local hostServices = require("nupp.compiler.hostservices")
 -- What the index holds
 ----------------------------------------------------------------------------
 
---- One exported declaration, as a project header records it. Headers are compared field
+--- An exported declaration, as a project header records it. Headers are compared field
 --- by field to decide whether a reparse changed anything a dependent could see.
 type incremental.Decl = {
     name: string,
@@ -48,7 +48,7 @@ type incremental.Decl = {
     token: any
 }
 
---- What one file exports, in the form the project index takes.
+--- What a
 type incremental.Header = {
     path: string,
     moduleName: string?,

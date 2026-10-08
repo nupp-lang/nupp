@@ -146,7 +146,7 @@ export function algorithms(): {string}
     return result
 end
 
---- Computes one raw digest.
+--- Computes a raw digest.
 --- @param name the canonical algorithm name
 --- @param bytes the message bytes
 --- @return the raw fixed-size digest bytes
@@ -157,7 +157,7 @@ export function digest(name: string, bytes: string): string
     return context:digest()
 end
 
---- Computes one lowercase hexadecimal digest.
+--- Computes a lowercase hexadecimal digest.
 --- @param name the canonical algorithm name
 --- @param bytes the message bytes
 --- @return the lowercase hexadecimal digest

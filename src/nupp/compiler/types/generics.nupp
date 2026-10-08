@@ -384,7 +384,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     return t
 end
 
---- One projection, reduced as far as it goes.
+--- A projection, reduced as far as it goes.
 ---
 --- Three answers rather than one. A gradual head makes the projection `any`, and says
 --- so, because that `any` is the feature declining to say anything rather than somebody
@@ -638,7 +638,7 @@ type generics.ReductionControl = {
     evaluateTypeFunction: (function(any, {any}): (Type | T.Pack | nil, any))?
 }
 
---- One evaluation's state.
+--- An evaluation's state.
 ---
 --- Neutral reduction and associated projection are one traversal because they nest:
 --- `T.Item.["name"]` needs the projection reduced before the member can be, an answer
@@ -1305,7 +1305,7 @@ end
 --- Rebinds the supplied arguments and then normalizes every decidable neutral term.
 --- The memo belongs to one checker/project revision; callers must not share it through
 --- the process-global type arena.
---- What one evaluation produced: the type, the neutral reducer's error, and what the
+--- What a
 --- associated half observed on the way.
 ---
 --- The observations have to come from the same evaluation as the type. A projection

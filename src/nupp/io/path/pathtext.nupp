@@ -172,7 +172,7 @@ function pathtext.isAbsolute(text: string, windows: boolean): boolean
     return prefix ~= 0 or rooted
 end
 
---- One answer on its way out.
+--- An answer on its way out.
 ---
 --- Windows writes a separator either way and answers with one, so what it wrote
 --- is rewritten here. POSIX does not, and must not: a backslash there is an
@@ -425,7 +425,7 @@ local function splitNameAt(text: string, start: integer, length: integer): (inte
     return length, nil, 0
 end
 
---- Appends one part, replacing what came before when the part says so.
+--- Appends a part, replacing what came before when the part says so.
 ---
 --- An absolute part names a place of its own, and on Windows a part with a
 --- prefix does too, while a rooted part without one keeps the prefix and nothing
@@ -751,7 +751,7 @@ function pathtext.with(text: string, replacement: string, extension: boolean, wi
     return pathtext.finish(head .. replacement, windows)
 end
 
---- One named piece of a path: its parent, its file name, the stem of that name,
+--- A named piece of a path: its parent, its file name, the stem of that name,
 --- or the extension on it.
 ---
 --- Each is a slice of what the caller wrote rather than a rebuild, because

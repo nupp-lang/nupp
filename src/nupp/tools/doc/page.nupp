@@ -32,14 +32,14 @@ type page.Settings = {
     name: string?
 }
 
---- One call to action beside the hero copy.
+--- A call to action beside the hero copy.
 type page.HeroAction = {
     path: string?,
     text: string,
     theme: string?
 }
 
---- One illustrated capability on a home page.
+--- An illustrated capability on a home page.
 type page.Feature = {
     code: string?,
     codeLanguage: string?,

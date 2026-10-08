@@ -219,7 +219,7 @@ local function refuse(ctx: context.Context, failed: string, message: string): ni
     end)
 end
 
---- One entry a registrar registers: its Lua name and its function.
+--- An entry a registrar registers: its Lua name and its function.
 record entry.Registered
     name: string
     fn: string

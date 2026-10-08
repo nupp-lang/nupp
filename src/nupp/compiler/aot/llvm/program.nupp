@@ -310,7 +310,7 @@ local function luaAttributes(selected: profile.Profile): string
     return table.concat(parts, " ")
 end
 
---- One Lua-builder entry, as the `lua_CFunction` its registrar registers.
+--- A Lua-builder entry, as the `lua_CFunction` its registrar registers.
 local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): luaEntry.Registered
     local name = "@" .. physical(program.symbol, unit.tier) .. "_lua"
     local attrs = builder.attributes(unit.module, luaAttributes(unit.target))
@@ -425,7 +425,7 @@ local function assumeExtents(ctx: context.Context, program: scalarIR.Program): n
     end
 end
 
---- One kernel entry.
+--- A kernel entry.
 local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle: boolean): nil
     local module = unit.module
     local selected = unit.target

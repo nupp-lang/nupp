@@ -96,7 +96,7 @@ local function freshName(reserved: {[string]: boolean}, preferred: string): stri
     return name
 end
 
---- Replaces one authored `@aot(target = "gpu")` declaration.
+--- Replaces an authored `@aot(target = "gpu")` declaration.
 function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
     local reserved: {[string]: boolean} = {[program.name] = true, self = true,}
     local names: {[string]: string} = {}

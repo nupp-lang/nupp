@@ -241,7 +241,7 @@ local record SpanImpl<T> is span.Span<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    --- Returns one element after checking the one-based index.
+    --- Returns an element after checking the one-based index.
     --- @raises string when index is not an integer from 1 through count
     function get(self: SpanImpl<T>, index: integer): T
         if index % 1 ~= 0 or index < 1 or index > self.count then

@@ -781,7 +781,7 @@ record cst.WithStmt is cst.Hints
     endTok: lexer.Token?
 end
 
---- One left-to-right acquisition in a `with` statement.
+--- A left-to-right acquisition in a `with` statement.
 record cst.WithBinding is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1036,7 +1036,7 @@ record cst.LocalStmt is cst.Hints
     patternSource: cst.Node?
 end
 
---- One field selected by a shallow local or const binding pattern.
+--- A field selected by a shallow local or const binding pattern.
 record cst.BindingEntry is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1227,7 +1227,7 @@ record cst.AnnotationApply is cst.Hints
     propertyCapabilityAttachment: boolean?
 end
 
---- One argument of an annotation: `value` or `name = value`.
+--- An argument of an annotation: `value` or `name = value`.
 record cst.AnnotationArg is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1495,7 +1495,7 @@ record cst.CdefFunc is cst.Hints
 
     physicalSignatureType: any
 
-    --- One checked signature rendered as the typed header prototype and the
+    --- A checked signature rendered as the typed header prototype and the
     --- physically erased LuaJIT declaration.
     cAbiSignature: any
 
@@ -1554,7 +1554,7 @@ record cst.Generics is cst.Hints
     defaults: {cst.Node}
 end
 
---- One parameter of a function body, a short function, or a cdef.
+--- A parameter of a function body, a short function, or a cdef.
 record cst.Param is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2213,7 +2213,7 @@ record cst.OrExitExpr is cst.Hints
     exitKind: 'return' | 'break' | 'continue'
 end
 
---- One directly destructured field in a switch type pattern.
+--- A directly destructured field in a switch type pattern.
 record cst.SwitchField is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2222,7 +2222,7 @@ record cst.SwitchField is cst.Hints
     alias: lexer.Token?
 end
 
---- One `case` in a switch expression.
+--- A `case` in a switch expression.
 record cst.SwitchCase is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2408,7 +2408,7 @@ record cst.Tshape is cst.Hints
     fields: {cst.Node}
 end
 
---- One field of a shape type.
+--- A field of a shape type.
 record cst.TshapeField is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2524,7 +2524,7 @@ record cst.Tfunc is cst.Hints
     captureBorrows: cst.Node?
 end
 
---- One parameter of a function type.
+--- A parameter of a function type.
 record cst.TfuncParam is cst.Hints
     {cst.Node | lexer.Token}
 

@@ -58,14 +58,14 @@ type tree.Definition = {
     generatedHelper: string?
 }
 
---- One use of a module member, with the statement that declares it when this use is the
+--- A use of a module member, with the statement that declares it when this use is the
 --- declaration.
 type tree.Occurrence = {
     token: lexer.Token,
     stat: cst.FuncStmt?
 }
 
---- One plain member a module declares, and where.
+--- A plain member a module declares, and where.
 type tree.MemberDeclaration = {
     name: string,
     token: lexer.Token,

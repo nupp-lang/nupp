@@ -7,7 +7,7 @@ The checker reads them to rotate a call and record its effect; the documentation
 generator reads them to print a rotated member in the order a caller writes it.
 ]]
 
---- What one compiler-owned call surface asks of the checker and the generator.
+--- What a
 local type CompilerSurface = {
     --- The feature effect calling it records, so a target packages the runtime it
     --- needs.

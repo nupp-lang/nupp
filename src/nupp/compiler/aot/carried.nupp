@@ -11,7 +11,7 @@ module nupp.compiler.aot.carried
 local scalarIR = require("nupp.compiler.aot.scalar")
 local carried = {}
 
---- One loop being walked: what it has been found to carry, in the order the
+--- A loop being walked: what it has been found to carry, in the order the
 --- assignments were met, and whether an entry is already there.
 record carried.Frame
     node: any
@@ -130,7 +130,7 @@ walk = function(statements: {scalarIR.Statement}, state: carried.State): nil
     end
 end
 
---- Annotates one body in place. Names declared in an earlier body of the same
+--- Annotates a body in place. Names declared in an earlier body of the same
 --- program (a workgroup prelude before its statements) are visible to a later
 --- one through the shared state, so a program passes each of its bodies to
 --- the same state in order.

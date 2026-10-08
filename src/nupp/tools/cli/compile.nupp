@@ -270,7 +270,7 @@ function compile.check(path: string, env: table, opts: {[string]: any}?, collect
     return result, source
 end
 
---- Compiles one file to Lua source. Returns the generated code, or nil and a short
+--- Compiles a file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it. When generation
 --- itself is what failed, the text it wrote comes third: it is what a reader needs
 --- to see why it does not load.

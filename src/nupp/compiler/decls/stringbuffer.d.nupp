@@ -130,7 +130,7 @@ record Buffer
     --- @return `b`
     encode: function(exclusive b: Buffer, obj: any): Buffer borrows (b)
 
-    --- Deserializes one object from the front of the buffer, leaving any data after it
+    --- Deserializes an object from the front of the buffer, leaving any data after it
     --- in place. Raises on malformed or truncated input.
     ---
     --- @param b the buffer to read from

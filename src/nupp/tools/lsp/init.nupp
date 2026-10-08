@@ -148,7 +148,7 @@ local json = wire.json
 -- Opening a session
 ----------------------------------------------------------------------------
 
---- Creates one language-server session whose outgoing protocol messages are handed to
+--- Creates a language-server session whose outgoing protocol messages are handed to
 --- `emit`. The stdio server and the command-line language operations share this session
 --- so there is only one implementation of semantic behavior.
 function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?): lsp.Session
@@ -182,7 +182,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     local send = emit
 
-    --- Sends one notification. Defined here rather than beside `respond`, because
+    --- Sends a notification. Defined here rather than beside `respond`, because
     --- building a graph reports what it is fetching and that happens first.
     local function notify(method: string, params: any): nil
         send({jsonrpc = "2.0", method = method, params = params})
@@ -2064,7 +2064,7 @@ function lsp.readerMain(): integer
     end
 end
 
---- Serves one client over stdio until it exits.
+--- Serves a client over stdio until it exits.
 ---
 --- @return 0 when the client shut the session down before it ended, 1 when it
 --- exited without `shutdown`, its input ended without one, or the input could not

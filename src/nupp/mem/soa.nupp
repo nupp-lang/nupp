@@ -47,7 +47,7 @@ local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
 
 local MAX_EXACT_INTEGER = 9007199254740991
 
---- One stored top-level field in a SoA descriptor.
+--- A stored top-level field in a SoA descriptor.
 --- @export
 record soa.FieldLayout
     --- The field's name, as the struct declared it.
@@ -72,7 +72,7 @@ record soa.FieldLayout
     @private @readonly pointerType: any
 end
 
---- One field segment for a particular element count.
+--- A field segment for a particular element count.
 --- @export
 record soa.SegmentLayout
     --- Which field this segment holds.
@@ -451,7 +451,7 @@ function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
     end
 end
 
---- One owned native slab whose top-level struct fields occupy separate segments.
+--- An owned native slab whose top-level struct fields occupy separate segments.
 --- @export
 record soa.Array<T> is soa.ArrayToken
     @private raw: voidptr
@@ -563,7 +563,7 @@ function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): 
     end
 end
 
---- Allocates one SoA slab for a reified struct type.
+--- Allocates a SoA slab for a reified struct type.
 ---
 --- The compiler injects the descriptor, and aliases of this exact function retain
 --- the intrinsic identity. The result owns the slab and frees it at its lexical

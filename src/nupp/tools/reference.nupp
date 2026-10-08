@@ -28,7 +28,7 @@ local trace = require("nupp.profile.trace")
 
 local reference = {}
 
---- One section: a construct, what it is for, and what catches it being misused.
+--- A section: a construct, what it is for, and what catches it being misused.
 record reference.Section
     --- The heading, which is also the anchor a `docs` pointer can name.
     title: string
@@ -56,7 +56,7 @@ record reference.Section
     origin: string?
 end
 
---- One chapter groups related reference sections under a stable top-level heading.
+--- A chapter groups related reference sections under a stable top-level heading.
 record reference.Chapter
     --- The word accepted by `nupp reference <chapter>`.
     name: string
@@ -64,7 +64,7 @@ record reference.Chapter
     --- The top-level heading readers use to orient themselves in the reference.
     title: string
 
-    --- One line for the chapter catalog and an agent skill's description.
+    --- A line for the chapter catalog and an agent skill's description.
     summary: string
 
     --- A more explicit agent trigger when the catalog summary is not enough.
@@ -1152,7 +1152,7 @@ writing `a or continue` now means the suffix.
         example = [=[
 local m = {}
 
---- Reads one field, or nothing and why not.
+--- Reads a field, or nothing and why not.
 ---
 --- @param source where to look
 --- @param name which field
@@ -3397,7 +3397,7 @@ function reference.catalog(): string
     return table.concat(out, "\n")
 end
 
---- Renders one section at a caller-chosen heading depth. Both a whole reference and a
+--- Renders a section at a caller-chosen heading depth. Both a whole reference and a
 --- focused chapter use this, keeping the examples and diagnostic links identical.
 local function renderSection(out: {string}, section: reference.Section, level: integer, includeHeading: boolean?)
     if includeHeading ~= false then
@@ -3474,7 +3474,7 @@ function reference.markdown(opts: {level: integer?}?): string
     return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
---- One section on its own, titled so a reader can see which chapter it came from.
+--- A section on its own, titled so a reader can see which chapter it came from.
 ---
 --- What `--section` and `--for` print. The whole point is that this is the small
 --- answer: a chapter is thousands of words, and a reader who knows which construct
@@ -3492,7 +3492,7 @@ function reference.sectionMarkdown(section: reference.Section, chapter: referenc
     return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
---- One focused chapter as a standalone Markdown reference.
+--- A focused chapter as a standalone Markdown reference.
 ---
 --- @param chapter the chapter to render
 --- @return standalone Markdown for the chapter

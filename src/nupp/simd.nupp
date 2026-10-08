@@ -1322,7 +1322,7 @@ sealed interface simd.Vector<T, S>
 
     rotateRight: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
 
-    --- Selects one species-width window from `previous .. self`. Offset zero
+    --- Selects a species-width window from `previous .. self`. Offset zero
     --- returns `self`; positive offsets bring trailing lanes of `previous` into
     --- the beginning. The offset is compile-time constant.
     align: function(borrows self: simd.Vector<T, S>, previous: simd.Vector<T, S>, offset: integer): simd.Vector<T, S>
@@ -1398,7 +1398,7 @@ sealed interface simd.Species<T, S>
     mask: function(borrows self: simd.Species<T, S>, value: boolean): simd.Mask<T, S>
         & function<U>(borrows self: simd.Species<T, S>, value: simd.Mask<U, S>): simd.Mask<T, S>
 
-    --- One scalar operation on every lane: a closed-set math operation such as
+    --- A scalar operation on every lane: a closed-set math operation such as
     --- `math.sqrt` over a floating species, one of the corrected binary32
     --- operations `nupp.math.f32.fma`, `min` and `max` over a `float` species,
     --- or a pure helper of this element taking one argument per vector. The

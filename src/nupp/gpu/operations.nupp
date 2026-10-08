@@ -239,7 +239,7 @@ function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
     return copied(self._strides)
 end
 
---- Refuses one allocation bound for reading and for writing in the same binding.
+--- Refuses an allocation bound for reading and for writing in the same binding.
 ---
 --- WebGPU and wgpu track buffer usage per allocation rather than per range, so a read
 --- slot and a write slot naming views of one root conflict however far apart the

@@ -71,7 +71,7 @@ function time.sleepUntil(deadline: number): nil
     time.sleep(remaining)
 end
 
---- Registers one cancellable timer without suspending its subscriber.
+--- Registers a cancellable timer without suspending its subscriber.
 function time.wakeAt(deadline: number, resume: function(boolean): nil): function(): nil
     return effects.request(
         "time",

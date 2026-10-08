@@ -14,7 +14,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 export interface Provider
     @readonly priority: integer?
 
-    --- Schedules one deadline callback and returns its cancellation function.
+    --- Schedules a deadline callback and returns its cancellation function.
     --- Registration itself must not suspend the subscriber.
     @readonly wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil
 

@@ -90,7 +90,7 @@ local function entryModule(root: string, outDir: string, target: Target): string
     return mainName, join(root, join(outDir, mainName:gsub("%.", "/") .. ".lua"))
 end
 
---- One target as a single Lua chunk: every module it built preloaded, every rock module
+--- A target as a single Lua chunk: every module it built preloaded, every rock module
 --- it asked to carry preloaded beside them, every resource it declared alongside those,
 --- and the entry's own code last.
 ---
@@ -567,7 +567,7 @@ local function componentOutput(root: string, target: Target, name: string, built
     return join(root, target.output or join(target.outDir or "build", name .. ".nuppc"))
 end
 
---- Where one binary platform writes its raw stamped executable.
+--- Where a
 local function binaryOutput(
     root: string,
     target: Target,

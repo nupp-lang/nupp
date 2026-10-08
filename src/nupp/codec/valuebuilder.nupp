@@ -79,7 +79,7 @@ local function sourceSlice(borrows source: any, first: integer, length: integer,
     return text:sub(first + 1, first + length)
 end
 
---- Resolves one string recipe into a Lua string.
+--- Resolves a string recipe into a Lua string.
 ---
 --- A recipe is a source range plus whether that range may hold backslash
 --- escapes. Both forms exist because most strings in a document hold no escape
@@ -368,7 +368,7 @@ function valuebuilder.bytes(borrows bytes: any): ByteSpan borrows (bytes)
     return require("nupp.mem.span").fromString(bytes as string)
 end
 
---- Reads one byte at a zero-based offset.
+--- Reads a byte at a zero-based offset.
 ---
 --- The scanning counterpart of [](nupp.codec.valuebuilder.length); read whole words
 --- with [](nupp.codec.valuebuilder.word) when the bytes are a packed side table rather
@@ -386,7 +386,7 @@ function valuebuilder.byte(borrows bytes: any, offset: uint32): uint32
     return nupp.math.u32.wrap(value)
 end
 
---- Reads one byte under a dominating `offset < length(bytes)` proof.
+--- Reads a byte under a dominating `offset < length(bytes)` proof.
 ---
 --- Ordinary Lua performs the same checked read as [](nupp.codec.valuebuilder.byte).
 --- In an AOT entry the verifier requires this call to be inside the true arm or
@@ -401,7 +401,7 @@ function valuebuilder.byteAt(borrows bytes: any, offset: uint32): uint32
     return valuebuilder.byte(bytes, offset)
 end
 
---- Reads one native-endian uint32 at a zero-based word index.
+--- Reads a native-endian uint32 at a zero-based word index.
 ---
 --- This is how a parser reads a packed side table, a structural index or a tape,
 --- back out of a rooted string instead of a Lua array of numbers. The word at
@@ -477,7 +477,7 @@ function valuebuilder.newWordScratch(capacity: uint32): any
     return {capacity = capacity, length = 0, words = {}}
 end
 
---- Reads one word from a local work buffer.
+--- Reads a word from a local work buffer.
 ---
 --- Only initialized words can be read, so an index at or past the buffer's
 --- current length raises rather than answering whatever was there.
@@ -578,7 +578,7 @@ function valuebuilder.newByteScratch(capacity: uint32): any
     return {capacity = capacity, length = 0, bytes = {}}
 end
 
---- Reads one initialized byte from a local work buffer.
+--- Reads an initialized byte from a local work buffer.
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index
 --- @return the byte, 0 through 255

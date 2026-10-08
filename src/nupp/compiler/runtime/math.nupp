@@ -702,7 +702,7 @@ function f32.fromF16Bits(value: number): number
     return putbits(sign + (exponent + 112) * 8388608 + mantissa * 8192)
 end
 
---- Rounds one binary32 to IEEE-754 binary16 bits, ties to even.
+--- Rounds a binary32 to IEEE-754 binary16 bits, ties to even.
 function f32.toF16Bits(value: number): number
     local bits = bits32(round32(value))
     local sign = bits >= 2147483648 and 32768 or 0
@@ -753,7 +753,7 @@ function f32.fromBF16Bits(value: number): number
     return putbits(bits)
 end
 
---- Rounds one binary32 to IEEE bfloat16 bits, ties to even.
+--- Rounds a binary32 to IEEE bfloat16 bits, ties to even.
 function f32.toBF16Bits(value: number): number
     local bits = bits32(round32(value))
     local magnitude = bits % 2147483648

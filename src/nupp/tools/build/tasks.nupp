@@ -23,7 +23,7 @@ local tasks = {}
 -- with `jsonArray` and stays `[]` when empty; an unmarked empty table is an object.
 -- Nothing here is a measurement, so a NaN would be a fault rather than a value.
 
---- One thing a project can be asked to do.
+--- A thing a project can be asked to do.
 ---
 --- A build target, or one of the actions a manifest configures beside them. The fields
 --- past the first four depend on which: a docs target has `sources` where a bundle has

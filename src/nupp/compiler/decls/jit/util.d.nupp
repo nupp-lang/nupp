@@ -26,7 +26,7 @@ local record JitUtil
     --- @return a freshly allocated description table
     funcinfo: function(func: any, pc: integer?): {[string]: any}
 
-    --- Reads one bytecode instruction.
+    --- Reads a bytecode instruction.
     ---
     --- @param func the function to read from
     --- @param pc the bytecode index, counting from 0
@@ -57,7 +57,7 @@ local record JitUtil
     --- @return the description table, or nil when no such trace exists
     traceinfo: function(tr: integer): {[string]: any}?
 
-    --- Reads one IR instruction from a trace.
+    --- Reads an IR instruction from a trace.
     ---
     --- @param tr the trace number
     --- @param idx the IR reference

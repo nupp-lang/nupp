@@ -94,7 +94,7 @@ local function fix(c: state.Checker, body: any): {any}?
     }
 end
 
---- Reports one ordinary function declaration when explicit comptime evaluation can
+--- Reports an ordinary function declaration when explicit comptime evaluation can
 --- replace meaningful runtime work with a materially smaller scalar literal.
 function prefercomptime.check(c: state.Checker, declaration: any, body: any, receiver: boolean): nil
     local lint = lints.get("prefer-comptime")

@@ -19,7 +19,7 @@ export const terminator: TokenKind = "terminator"
 --- How an option obtains a value.
 export type ValueArity = "none" | "required" | "optionalAttached" | "attachedOnly"
 
---- One whole-word option form, such as `-O2`.
+--- A whole-word option form, such as `-O2`.
 export type Pattern = {
     --- Lua pattern matched against the complete argv word.
     pattern: string,

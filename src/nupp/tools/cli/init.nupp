@@ -168,7 +168,7 @@ local function warnStaleDeclarations(): nil
     io.stderr:write(table.concat(lines, "\n") .. "\n")
 end
 
---- Runs one command line and returns the process exit status.
+--- Runs a command line and returns the process exit status.
 -- Commands that keep LuaJIT's own thresholds. Every command, these included, runs with
 -- the raised capacity limits `nupp.tools.main` applies first: those are not about the
 -- program's shape (`nupp.tools.jitlimits`).

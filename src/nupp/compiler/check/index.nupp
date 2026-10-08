@@ -286,7 +286,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         return T.borrowed(t)
     end
 
-    --- Resolves one SoA column to its typed span and records the borrow from the row
+    --- Resolves a SoA column to its typed span and records the borrow from the row
     --- view. Dot access reaches this only after real view members have failed;
     --- bracket access calls it first for a literal string.
     local function soaColumn(node: any, target: any, descriptor: indexedViews.Descriptor, name: string, at: any): Type

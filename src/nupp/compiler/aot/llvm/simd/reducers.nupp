@@ -44,7 +44,7 @@ local function slotOf(ctx: context.Context, node: scalarIR.Expr): context.Slot
     return slot as context.Slot
 end
 
---- One scalar contribution `value` (of IR type `valueType`) to the state in
+--- A scalar contribution `value` (of IR type `valueType`) to the state in
 --- `slot`.
 local function contribute(
     ctx: context.Context,

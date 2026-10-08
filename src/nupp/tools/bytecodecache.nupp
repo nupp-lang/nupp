@@ -120,7 +120,7 @@ local function checksum(bytes: string): string?
     return bit.tohex(bxor(a, rol(b, 8), rol(c, 16), rol(d, 24)))
 end
 
---- One index line: where the entry is, and what it held when it was written.
+--- An index line: where the entry is, and what it held when it was written.
 local type Entry = {
     digest: string,
     length: integer,

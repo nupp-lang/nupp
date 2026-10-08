@@ -87,7 +87,7 @@ function lanes.toLane(ctx: context.Context, found: species.Species, value: strin
     return carried
 end
 
---- One lane value leaving the vector, as the IR scalar it is carried as.
+--- A lane value leaving the vector, as the IR scalar it is carried as.
 function lanes.fromLane(ctx: context.Context, found: species.Species, value: string): (string, string)
     local carrier = species.laneType(found)
     if not found.float and found.bits < 32 then

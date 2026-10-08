@@ -208,7 +208,7 @@ function process.command(argv: {string}, opts: process.Options?): string
     return testMarker and (testMarker .. command) or command
 end
 
---- One argument, spelled so the shell that will read it sees exactly it.
+--- An argument, spelled so the shell that will read it sees exactly it.
 ---
 --- Exposed because a caller composing several commands into one shell script --
 --- which is how `toolruns` runs compilations side by side -- has to quote the
@@ -282,7 +282,7 @@ local function boundedArgs(argv: {string}, opts: process.Options): {string}
     return args
 end
 
---- Runs one command in its own process and bounds how long the caller waits. Output is
+--- Runs a command in its own process and bounds how long the caller waits. Output is
 --- drained through the portable process provider, leaving the caller free to service
 --- protocol input and cancel the child on every quiet wait.
 --- @raises string when the command cannot be started

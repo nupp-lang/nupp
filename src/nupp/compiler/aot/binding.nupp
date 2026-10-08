@@ -95,7 +95,7 @@ function binding.resultStruct(program: scalarIR.Program): {string}
     return lines
 end
 
---- One reified struct, declared in Nupp so `layoutof` has something to measure.
+--- A reified struct, declared in Nupp so `layoutof` has something to measure.
 function binding.struct(layout: scalarIR.Layout): {string}
     local lines: {string} = {"local struct " .. layout.name}
     for _, field in ipairs(layout.fields) do
@@ -135,7 +135,7 @@ function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
     local name = symbol .. "_" .. layout.name .. "Layout"
     local reporter = symbol .. "_layout_" .. layout.name
 
-    --- One comparison, raising with `mismatch` when the two sides disagree.
+    --- A comparison, raising with `mismatch` when the two sides disagree.
     local function agrees(measured: string, reported: string, mismatch: string): string
         local raise = "error(\"native struct " .. mismatch .. " mismatch\", 0)"
 
@@ -198,7 +198,7 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
     return lines
 end
 
---- One wrapper parameter, preserving the source declaration.
+--- A wrapper parameter, preserving the source declaration.
 local function logical(param: scalarIR.Param): string
     if param.soa ~= nil then
         return (
@@ -222,7 +222,7 @@ local function logical(param: scalarIR.Param): string
     end
 end
 
---- One term in the wrapper's source form.
+--- A term in the wrapper's source form.
 local function termSource(term: scalarIR.Term): string
     if term.kind == "count" then
         return "#" .. tostring(term.name)
@@ -308,7 +308,7 @@ function binding.relations(program: scalarIR.Program): {string}
     return lines
 end
 
---- One span a wrapper took the pointer of: the parameter, and the names the
+--- A span a wrapper took the pointer of: the parameter, and the names the
 --- pointer and its element count were taken into.
 record binding.TakenSpan
     param: scalarIR.Param
@@ -606,7 +606,7 @@ local function builderType(program: scalarIR.Program): string
     return "function(" .. table.concat(params, ", ") .. "): " .. result
 end
 
---- Loads one VM-aware entry through the platform's supported Lua module path.
+--- Loads a VM-aware entry through the platform's supported Lua module path.
 ---
 --- `@lib/` has the same relocatable meaning as it does for generated FFI
 --- bindings. `package.loadlib` needs the resolved filesystem path, so this
@@ -1051,7 +1051,7 @@ local function specializedLiteral(value: scalarIR.Expr): string
     error("const specialization carries a non-scalar value", 0)
 end
 
---- One public const-generic declaration backed by several private native bodies.
+--- A public const-generic declaration backed by several private native bodies.
 --- The source signature remains the authored signature.  Only the body changes: a
 --- checked tuple tail-dispatches to its private wrapper and an unchecked tuple that
 --- was not part of the deliverable fails instead of silently crossing to Lua.

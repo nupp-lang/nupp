@@ -27,7 +27,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 
 local predicate = {}
 
---- One node of a refinement. `op` says which of the shapes this is; the fields a shape
+--- A node of a refinement. `op` says which of the shapes this is; the fields a shape
 --- does not use are absent.
 record predicate.Node
     --- `and`, `or`, `not`, `len`, `integral`, `cmp`, `truthy`, `typeis`, or `const`.
@@ -225,7 +225,7 @@ local function typeCallPath(node: cst.Node?): {string}?
     return pathOf(args[1])
 end
 
---- Reads one expression into a refinement node, or says why it cannot.
+--- Reads an expression into a refinement node, or says why it cannot.
 ---
 --- The failure is a sentence naming what was found, because "not supported" sends a
 --- reader looking for a list that does not exist, while "a call" tells them what to
@@ -498,7 +498,7 @@ local function truthinessOf(t: any): boolean?
     return nil
 end
 
---- One comparison between two values the subset can spell, or nothing when the pair is
+--- A comparison between two values the subset can spell, or nothing when the pair is
 --- not ordered by Lua's own rules. Mixed types compare only for equality: `3 < "3"`
 --- raises at run time rather than answering, so it is not something to answer here.
 local function compare(cmp: string?, left: any, right: any): boolean?
@@ -882,7 +882,7 @@ record predicate.Decomposition
     others: {[string]: boolean}
 end
 
---- Applies one comparison against `value` to the bounds in `into`, under `field`
+--- Applies a comparison against `value` to the bounds in `into`, under `field`
 --- (`min`/`max`) naming the pair. Returns false when the comparison is not one that
 --- moves a bound.
 local function narrowBound(

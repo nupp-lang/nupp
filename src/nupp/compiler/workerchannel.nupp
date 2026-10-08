@@ -50,7 +50,7 @@ type workerchannel.Options = {
     cancelled: (function(): boolean)?
 }
 
---- Frames one payload.
+--- Frames a payload.
 function workerchannel.frame(payload: string): string
     return tostring(#payload) .. "\n" .. payload
 end
@@ -96,7 +96,7 @@ function workerchannel.drain(channel: any): nil
     end
 end
 
---- Sends one payload. Answers false when the worker stopped taking it before the
+--- Sends a payload. Answers false when the worker stopped taking it before the
 --- deadline.
 function workerchannel.send(channel: any, payload: string, deadline: number): boolean
     local frame = workerchannel.frame(payload)
@@ -199,7 +199,7 @@ function workerchannel.receive(channel: any, deadline: number): (string?, worker
     end
 end
 
---- Sends one payload and waits for its response.
+--- Sends a payload and waits for its response.
 function workerchannel.request(channel: any, payload: string, deadline: number): (string?, workerchannel.Failure?)
     if not workerchannel.send(channel, payload, deadline) then
         return failure(channel, "stopped")

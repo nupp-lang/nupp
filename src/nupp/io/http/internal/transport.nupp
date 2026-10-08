@@ -276,7 +276,7 @@ end
 -- A transfer in flight
 ----------------------------------------------------------------------------
 
---- One request in flight.
+--- A request in flight.
 ---
 --- `_client` is deliberately loose: the client's own record names this one, so typing
 --- the back-pointer would have the two name each other.
@@ -492,7 +492,7 @@ end
 -- The native client
 ----------------------------------------------------------------------------
 
---- One connection pool, and the transfers it is carrying.
+--- A connection pool, and the transfers it is carrying.
 local record Client is NativeClient
     _handle: any
     _closed: boolean

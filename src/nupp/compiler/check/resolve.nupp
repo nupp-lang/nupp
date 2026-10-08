@@ -46,7 +46,7 @@ local type Node = cst.Node
 -- Shapes
 ----------------------------------------------------------------------------
 
---- One indexer capability of a shape, set or reported as already taken.
+--- An indexer capability of a shape, set or reported as already taken.
 ---
 --- Declared here rather than beside the loop over a shape's fields, because a function
 --- built inside a loop is one LuaJIT never compiles.
@@ -73,7 +73,7 @@ local function setIndexer(
     end
 end
 
---- One named property of a shape, set or reported as already taken.
+--- A named property of a shape, set or reported as already taken.
 ---
 --- Declared beside `setIndexer` and for the same reason: the loop over a shape's
 --- fields must not build a function.

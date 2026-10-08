@@ -98,7 +98,7 @@ function indexed.spanElement(t: Type): Type?
     return nominal.typeArgs and nominal.typeArgs[1] or nil
 end
 
---- Describes one sealed standard module function which creates a root view.
+--- Describes a sealed standard module function which creates a root view.
 --- The call checker supplies the already-resolved export identity. A matching
 --- source name alone is deliberately insufficient.
 function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?

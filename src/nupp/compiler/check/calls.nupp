@@ -458,7 +458,7 @@ type calls.Ops = {
     --- Checks a generic application's arguments against the bounds declared for them.
     validateTypeBounds: function(params: any, bounds: any, map: any, node: any),
 
-    --- Checks one declared operation contract against arguments already inferred.
+    --- Checks a declared operation contract against arguments already inferred.
     --- Unlike `inferCall` this never evaluates an expression again.
     applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any, operation: string): Type,
 

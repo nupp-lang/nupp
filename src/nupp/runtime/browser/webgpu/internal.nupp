@@ -168,11 +168,11 @@ record gpu.Context is api.KernelContext
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
 
-    --- Queues one root buffer's destruction without waiting; a closed context
+    --- Queues a root buffer's destruction without waiting; a closed context
     --- already queued it. A queued readback of it is discarded.
     _releaseBuffer: function(borrows self: Context, buffer: any): nil
 
-    --- Queues one compiled kernel's destruction without waiting; a closed
+    --- Queues a compiled kernel's destruction without waiting; a closed
     --- context already queued it.
     _releaseKernel: function(borrows self: Context, handle: any): nil
 

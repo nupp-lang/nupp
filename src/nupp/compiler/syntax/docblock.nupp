@@ -20,7 +20,7 @@ local syntax = require("nupp.compiler.syntax.docsyntax")
 
 local docblock = {}
 
---- One `@raises` entry: what a function raises, and when.
+--- An `@raises` entry: what a function raises, and when.
 ---
 --- A raise is written `@raises Type when the condition holds`. The type is the value
 --- `error` is called with, so a caller reading the page knows what a `pcall` around
@@ -33,7 +33,7 @@ record docblock.Raise
     text: string
 end
 
---- One `---` run, read as its prose and its tags.
+--- A `---` run, read as its prose and its tags.
 record docblock.Doc
     --- The prose, with every tag line taken out of it.
     text: string
@@ -125,7 +125,7 @@ function docblock.linesOf(node: cst.Child?): {string}
     return lines
 end
 
---- One `---` run read as its prose and its tags.
+--- A `---` run read as its prose and its tags.
 ---
 --- A line opening with `@name` starts a tag and runs until the next tag or the next
 --- unindented line, so a description may be wrapped across as many lines as it needs.

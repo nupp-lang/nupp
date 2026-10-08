@@ -197,7 +197,7 @@ record modules.Session
     --- is what makes the number the module's own.
     checkMs: {[string]: number}
 
-    --- Materializes one compiler-carried module into this build's staging tree and
+    --- Materializes a compiler-carried module into this build's staging tree and
     --- answers where it landed, or nil when the compiler carries no such module. A
     --- module the project can already reach answers its own path and stages nothing.
     ---
@@ -883,7 +883,7 @@ local function aotFamilies(path: string, checked: any): {string}?
     return jsonArray(names)
 end
 
---- One checked module, and what a build needs to say about it.
+--- A checked module, and what a build needs to say about it.
 type modules.CompileJob = {
     name: string,
     path: string,

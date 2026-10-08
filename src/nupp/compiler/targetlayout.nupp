@@ -130,7 +130,7 @@ local FIXED: {
     uint32 = scalar(4),
 }
 
---- Computes one complete runtime layout for `t` under `key`.
+--- Computes a complete runtime layout for `t` under `key`.
 ---
 --- The accepted types are exactly the runtime shapes nupp can reify into a C struct:
 --- fixed-width scalars, pointers (including nullable pointers), fixed arrays and

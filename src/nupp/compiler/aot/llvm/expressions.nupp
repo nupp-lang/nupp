@@ -270,7 +270,7 @@ const EXACT_INTRINSIC: {
     [string]: string
 } = {["sqrt"] = "llvm.sqrt.f64", ["abs"] = "llvm.fabs.f64", ["floor"] = "llvm.floor.f64", ["ceil"] = "llvm.ceil.f64",}
 
---- One operation from the closed math set, over arguments already emitted as
+--- An operation from the closed math set, over arguments already emitted as
 --- doubles.
 function expressions.math(ctx: context.Context, intrinsic: string, args: {string}): string
     if intrinsic == "min" or intrinsic == "max" then
@@ -590,7 +590,7 @@ function expressions.helperResult(ctx: context.Context, resultTypes: {scalarIR.T
     return "{ " .. table.concat(fields, ", ") .. " }"
 end
 
---- One call of a helper, evaluated once; a helper with several results
+--- A call of a helper, evaluated once; a helper with several results
 --- answers the struct `helperResult` names, which `multi_let` takes apart.
 --- @raises string when the helper was not declared or takes SIMD values
 function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall): string

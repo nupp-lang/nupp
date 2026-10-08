@@ -30,7 +30,7 @@ call site nobody is standing at. What the fields here say is the part the build 
 reads, so a consumer that asks for one gets an answer rather than `any`.
 ]]
 
---- One build target: what it compiles and what it produces.
+--- A build target: what it compiles and what it produces.
 ---
 --- Everything is optional because a target inherits the `build` table's keys and
 --- overrides the ones it names, so the merged result is what has to be complete.
@@ -101,7 +101,7 @@ type manifest.Target = {
     [string]: any
 }
 
---- One resource copied to an explicit target-relative path. The string shorthand keeps
+--- A resource copied to an explicit target-relative path. The string shorthand keeps
 --- deriving its destination from the source path.
 type manifest.Resource = {
     source: string,
@@ -163,7 +163,7 @@ type manifest.SelfHost = {
     [string]: any
 }
 
---- One named `tasks` entry: a command the project runs by hand often enough to want a
+--- A named `tasks` entry: a command the project runs by hand often enough to want a
 --- name for, and optionally a target to build before it.
 type manifest.Task = {
     description: string?,
@@ -175,7 +175,7 @@ type manifest.Task = {
     [string]: any
 }
 
---- One explicit use of a generator capability exported by a host dependency.
+--- An explicit use of a generator capability exported by a host dependency.
 type manifest.Generator = {
     description: string?,
     using: string,

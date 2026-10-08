@@ -91,7 +91,7 @@ function zone.acquire(): nil
     zone.__nuppActive = true
 end
 
---- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
+--- Releases an `acquire`; the last empties the stack. Releasing nothing is ignored, so
 --- a teardown that runs twice is harmless.
 function zone.release(): nil
     if references == 0 then

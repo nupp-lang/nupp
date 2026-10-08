@@ -58,7 +58,7 @@ deps.targetNames = projectconfig.targetNames
 --- this, so the two cannot disagree on what a declaration is.
 deps.rockspecField = projectconfig.rockspecField
 
---- One rock module a bundle carries: the name `require` reaches it by, and the file it
+--- A rock module a bundle carries: the name `require` reaches it by, and the file it
 --- was installed as.
 type deps.RockModule = {
     name: string,

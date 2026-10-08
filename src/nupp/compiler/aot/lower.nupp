@@ -207,7 +207,7 @@ local function exactWidthConstant(value: scalarIR.Expr, wanted: scalarIR.Type): 
     )
 end
 
---- One argument brought to the type a helper parameter takes.
+--- An argument brought to the type a helper parameter takes.
 ---
 --- A helper takes ordinary Nupp values, so a fixed-width argument widens into it
 --- exactly as it would at any other binary64 operator. Nothing narrows: a helper
@@ -252,7 +252,7 @@ function lower.site(node: cst.Child?): scalarIR.Source
     return new scalarIR.Source(line = (token as lexer.Token).line, column = (token as lexer.Token).col)
 end
 
---- One written type, with its whitespace removed, so two spellings of the same
+--- A written type, with its whitespace removed, so two spellings of the same
 --- type compare equal.
 function lower.compactType(node: cst.Child?): string
     if node == nil then
@@ -531,7 +531,7 @@ record lower.Layouts
     byName: {[string]: scalarIR.Layout}
 end
 
---- Admits one local struct as a span element layout.
+--- Admits a local struct as a span element layout.
 ---
 --- Reifying a struct is a claim about memory, so the shape is deliberately
 --- small: no generics, no supertypes, stored fields only, and every field type
@@ -652,7 +652,7 @@ function lower.layout(
     return layout
 end
 
---- What one span parameter holds.
+--- What a
 record lower.Element
     kind: 'scalar' | 'struct'
 
@@ -849,7 +849,7 @@ end
 -- The lowering environment
 ----------------------------------------------------------------------------
 
---- One name in scope, as the environment records it.
+--- A name in scope, as the environment records it.
 record lower.Bound
     kind: 'local' | 'uniform' | 'helper_param'
     name: string
@@ -861,7 +861,7 @@ record lower.Bound
     source: scalarIR.Source?
 end
 
---- One admitted precondition, and the polarity it was written in.
+--- An admitted precondition, and the polarity it was written in.
 ---
 --- `if not ok then error(m) end` states what must not happen; `assert(ok, m)`
 --- states what must hold. They carry the same fact, so lowering reads either
@@ -888,7 +888,7 @@ record lower.ReducerState
     source: scalarIR.Source
 end
 
---- One `do` block that masked reducer contributions may turn into an
+--- A `do` block that masked reducer contributions may turn into an
 --- explicit SIMD region: its identity, and the reducers contributed so far.
 record lower.ReducerDo
     region: integer
@@ -1091,7 +1091,7 @@ const lower.INT32_MAX = admit.INT32_MAX
 
 local bitOperand = admit.bitOperand
 
---- One operand of ordinary arithmetic, which is binary64.
+--- An operand of ordinary arithmetic, which is binary64.
 ---
 --- A fixed-width value widens here, which is the same thing ordinary Nupp does:
 --- an operator is binary64 and a narrower value entering one is a conversion,
@@ -1225,7 +1225,7 @@ local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: s
     return spans ~= nil and root ~= nil and spans[root as string] or nil
 end
 
---- Records one bound in a map of cursor bounds. The inner table is replaced
+--- Records a bound in a map of cursor bounds. The inner table is replaced
 --- rather than written, because an enclosing scope's map shares it. A vector's
 --- room implies an element's, so an element bound never narrows one.
 local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
@@ -1400,7 +1400,7 @@ local function laneBound(
     return nil, nil, nil
 end
 
---- One indexed span read.
+--- An indexed span read.
 ---
 --- The index has to be the loop's own, exactly. Consecutive access is the whole
 --- of the licence to run several iterations at once, and an index this backend
@@ -1494,7 +1494,7 @@ local function soaColumn(node: cst.Node, kernel: lower.Kernel): scalarIR.Param?
     return nil
 end
 
---- One field of a struct element.
+--- A field of a struct element.
 local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
     local layoutName = object.type:match("^ref:(.+)$")
@@ -1569,7 +1569,7 @@ local function genericSimdSpanElement(param: scalarIR.Param): string
     return physical[param.sourceType or ""] or param.type
 end
 
---- Makes one scalar operand lane-shaped for an intrinsic operator.
+--- Makes a scalar operand lane-shaped for an intrinsic operator.
 local function simdOperand(
     value: scalarIR.Expr,
     vectorType: string,
@@ -1807,7 +1807,7 @@ local function exactLaneSum(sum: scalarIR.Expr, source: scalarIR.Source?): scala
     )
 end
 
---- One binary operator.
+--- A binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
     local written = (node.op as lexer.Token).text
@@ -2037,7 +2037,7 @@ const FIXED_UNARY: {
     ["u64_prefix_xor"] = true,
 }
 
---- One call to a fixed-width intrinsic.
+--- A call to a fixed-width intrinsic.
 ---
 --- This is where the front end refuses to invent establishment the source never
 --- performed: an operand has to already carry the refinement, or be an exact
@@ -2188,7 +2188,7 @@ local function fixedCall(
     )
 end
 
---- One call into the closed math set, whose operands are all binary64.
+--- A call into the closed math set, whose operands are all binary64.
 local function mathCall(
     node: cst.Node,
     path: string,
@@ -2296,7 +2296,7 @@ function lower.rearrange(
     )
 end
 
---- One call, which is an intrinsic or a visible pure helper and nothing else.
+--- A call, which is an intrinsic or a visible pure helper and nothing else.
 local function call(
     node: cst.Call,
     environment: {[string]: any},
@@ -3410,7 +3410,7 @@ local function rootedLoad(
     )
 end
 
---- One operation on a source-visible AOT-only SIMD value.
+--- An operation on a source-visible AOT-only SIMD value.
 --- The species methods that move two to four vectors through one run of
 --- `ways * lanes` elements, lane `i` of vector `j` at element `(i - 1) * ways +
 --- j` of the run.
@@ -3420,7 +3420,7 @@ local INTERLEAVED: {
 
 local INTERLEAVED_NAMES: {[integer]: string} = {[2] = "pairs", [3] = "triples", [4] = "quads"}
 
---- One result of an interleaved load, or a whole interleaved store.
+--- A result of an interleaved load, or a whole interleaved store.
 ---
 --- A load lowers once for each local it binds, as `kernel.interleavedPart`
 --- says, and every result is a load of the whole run: each carries the
@@ -4101,7 +4101,7 @@ local function simdMethod(
     return nil
 end
 
---- One unary operator.
+--- A unary operator.
 local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local written = (node.op as lexer.Token).text
     local source = lower.site(node)
@@ -4210,7 +4210,7 @@ function lower.constantNumber(node: cst.Node): string?
     return tostring(resolved.constant)
 end
 
---- One compile-time byte table, as the rooted-string name its readers expect.
+--- A compile-time byte table, as the rooted-string name its readers expect.
 function lower.constantBytes(value: string, kernel: lower.Kernel, source: scalarIR.Source?): scalarIR.Expr
     local shared = kernel.context.constantNames[value]
     if shared == nil then
@@ -5125,7 +5125,7 @@ function lower.helperValueType(spelling: string): scalarIR.Type?
     return nil
 end
 
---- Lowers one visible pure helper, on first reach.
+--- Lowers a visible pure helper, on first reach.
 ---
 --- A helper is a parameter list and one return list over those parameters, and
 --- nothing else. That is what makes inlining it substitution rather than a
@@ -5320,7 +5320,7 @@ local function inherit(environment: {[string]: any}): {[string]: any}
     return copied
 end
 
---- Introduces one local, refusing a name already in scope.
+--- Introduces a local, refusing a name already in scope.
 ---
 --- Shadowing is refused rather than renamed: the code generator keeps one slot
 --- per name and has no scope to tell two bindings of one name apart, and quietly
@@ -6005,7 +6005,7 @@ function lower.stringAccumulators(statements: {cst.Node}): {[string]: boolean}
     return found
 end
 
---- One `local` declaration, which may bind several names from one call.
+--- A `local` declaration, which may bind several names from one call.
 local function localStmt(
     stat: cst.LocalStmt,
     out: {scalarIR.Statement},
@@ -6237,7 +6237,7 @@ local function localStmt(
     end
 end
 
---- Where one assignment puts its value.
+--- Where a
 local function assignTarget(target: cst.Node, environment: {[string]: any}, kernel: lower.Kernel): scalarIR.Target
     local context = kernel.context
     if target.kind == "name" then
@@ -6293,7 +6293,7 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
     )
 end
 
---- One checked scalar column store, preserving compound read-before-write order.
+--- A checked scalar column store, preserving compound read-before-write order.
 local function soaStore(
     target: cst.Node,
     valueNode: cst.Node,
@@ -6343,7 +6343,7 @@ local function soaStore(
     return true
 end
 
---- One assignment, which may write several targets at once.
+--- An assignment, which may write several targets at once.
 local function assignStmt(
     stat: cst.AssignStmt,
     out: {scalarIR.Statement},
@@ -6568,7 +6568,7 @@ local function assignStmt(
     end
 end
 
---- One numeric `for` bound.
+--- A numeric `for` bound.
 ---
 --- An integer literal stays an integer rather than being written as a double
 --- for the code generator to cast back.
@@ -6670,7 +6670,7 @@ end
 -- Lowering a block
 ----------------------------------------------------------------------------
 
---- One block of admitted statements, and everything under it.
+--- A block of admitted statements, and everything under it.
 function lower.block(statements: {cst.Node}, environment: {[string]: any}, kernel: lower.Kernel): {scalarIR.Statement}
     local context = kernel.context
     local out: {scalarIR.Statement} = {}
@@ -6678,7 +6678,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
     local previous, parent = kernel.pending, kernel.expressionFrame
     kernel.pending, kernel.expressionFrame = out, nil
 
-    --- One nested block, under its own scope.
+    --- A nested block, under its own scope.
     local function nested(body: cst.Node?): {scalarIR.Statement}
         local block = body as cst.Block?
 
@@ -7826,7 +7826,7 @@ local function inertGuardArgument(node: cst.Node?): boolean
         or node.kind == "falseExpr"
 end
 
---- One precondition and the polarity it was written in, or nothing.
+--- A precondition and the polarity it was written in, or nothing.
 ---
 --- Nothing rather than a refusal. A statement that is not a guard is how a
 --- function says it is not a map kernel, and lowering answers that by compiling
@@ -7885,7 +7885,7 @@ function lower.guardForm(stat: cst.Node?): lower.GuardForm?
     return new lower.GuardForm(cond = clause.cond, asserted = false, discarded = discarded)
 end
 
---- One written clause as a diagnostic quotes it: on one line, spaced as it was.
+--- A written clause as a diagnostic quotes it: on one line, spaced as it was.
 local function quoted(node: cst.Node?): string
     if node == nil then
         return ""
@@ -7895,7 +7895,7 @@ local function quoted(node: cst.Node?): string
     return (collapsed:match("^%s*(.-)%s*$") or collapsed) as string
 end
 
---- One integer literal, as a guard may offset a term by it.
+--- An integer literal, as a guard may offset a term by it.
 local function guardLiteral(node: cst.Node?): integer?
     if node == nil then
         return nil
@@ -7994,7 +7994,7 @@ function lower.guardTerm(node: cst.Node?, signature: lower.Signature): (scalarIR
     return nil, 0
 end
 
---- What one comparison means once the polarity it sits under is applied.
+--- What a
 local NEGATED: {
     [string]: string
 } = {["<="] = ">", ["<"] = ">=", [">="] = "<", [">"] = "<=", ["=="] = "~=", ["~="] = "=="}
@@ -8275,7 +8275,7 @@ function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.Loo
     return new lower.LoopShape(index = index, first = startName, last = stopName)
 end
 
---- One bound a map loop needs, and the relation that would establish it.
+--- A bound a map loop needs, and the relation that would establish it.
 record lower.Obligation
     --- What the diagnostic calls it, in the source's own terms.
     needed: string
@@ -8331,7 +8331,7 @@ function lower.loopObligations(shape: lower.LoopShape, primary: string): {lower.
     }
 end
 
---- Whether one body is a map kernel, and everything deciding it took.
+--- Whether a
 ---
 --- Three outcomes, and the difference between the last two is the whole of the
 --- admission policy. Admitted: the facts imply the loop's bounds. Declined: the
@@ -8520,7 +8520,7 @@ end
 -- Scanning a module into a program
 ----------------------------------------------------------------------------
 
---- One `@aot` application: the annotation chain, and what it decorates.
+--- An `@aot` application: the annotation chain, and what it decorates.
 record lower.Application
     --- The annotations, outermost first. They stack, so `@aot` may be written
     --- above or below `@relax` and both orders mean the same thing.
@@ -8534,7 +8534,7 @@ record lower.Application
     at: cst.PragmaStmt
 end
 
---- One checked const-generic application lowered as its own native body.
+--- A checked const-generic application lowered as its own native body.
 --- Discovery and budgeting happen once for the deliverable; this carries the
 --- selected private ABI and constant environment into ordinary AOT lowering.
 record lower.Specialization
@@ -8544,7 +8544,7 @@ record lower.Specialization
     omitted: {[integer]: boolean}
 end
 
---- What one module offers this backend.
+--- What a
 record lower.Declarations
     applications: {lower.Application}
 
@@ -8694,7 +8694,7 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
     return found
 end
 
---- What one `@aot` application asks the backend for.
+--- What a
 record lower.Contract
     --- Which execution family consumes this program.
     target: 'cpu' | 'gpu'
@@ -8709,7 +8709,7 @@ record lower.Contract
 
 end
 
---- Reads one application's contract.
+--- Reads an application's contract.
 ---
 --- From the checked body where there is one, because the checker resolved the
 --- annotations; from the written annotations otherwise, which is what lets the
@@ -8886,7 +8886,7 @@ local function validateReducers(kernel: lower.Kernel): nil
     end
 end
 
---- Lowers one whole `@aot` function to AOT IR.
+--- Lowers a whole `@aot` function to AOT IR.
 ---
 --- The IR is what everything downstream is written from -- the verifier, the
 --- code generator, the wrapper -- so this is where the source stops being

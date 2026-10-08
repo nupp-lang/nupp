@@ -37,7 +37,7 @@ local type Node = cst.Node
 --- What the other passes call into the metatable checks with. Both are also promoted
 --- onto the run, since a metatable is written in more places than one pass reaches.
 type metatable.Ops = {
-    --- Checks one metamethod value against the contract its receiver declares.
+    --- Checks a metamethod value against the contract its receiver declares.
     checkContract: function(at: any, name: string, valueT: Type, contract: Type, of: Type?),
 
     --- Checks a table literal standing where a metatable is expected.

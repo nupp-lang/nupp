@@ -127,7 +127,7 @@ const MAX_NESTING = 1000
 -- Raised to abandon a parse that nested too deeply; caught in `parser.parse`.
 local TOO_DEEP = {}
 
---- Parses one file into a lossless tree.
+--- Parses a file into a lossless tree.
 ---
 --- Never throws and never drops a token: every token, garbage included, ends up in
 --- exactly one node's array part, so printing the root reproduces the input for
@@ -689,7 +689,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return body
     end
 
-    --- One argument to a generic application or a type function. `C...` and `...T`
+    --- An argument to a generic application or a type function. `C...` and `...T`
     --- are value sequences; everything else is one type, since `(A|B)` is a
     --- parenthesized union rather than a pack of one, and only the spelling that
     --- carries dots says otherwise.
@@ -3026,7 +3026,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- Statements
     ---------------------------------------------------------------------
 
-    --- One statement of any kind.
+    --- A statement of any kind.
     parseStatement = function(): Node
         local kind = cur().kind
 

@@ -235,7 +235,7 @@ local function writeValue(out: {string}, value: any): nil
     end
 end
 
---- Encodes one value pack, retaining its nil positions, into opaque bytes.
+--- Encodes a value pack, retaining its nil positions, into opaque bytes.
 function codec.encode(packed: Packed): string
     local out: {string} = {("%d:"):format(packed.count)}
     for index = 1, packed.count do
@@ -339,7 +339,7 @@ local function readValue(bytes: string, cursor: Cursor, depth: integer): any
     error("nupp: a worker message is malformed", 0)
 end
 
---- Decodes one value pack, retaining its nil positions.
+--- Decodes a value pack, retaining its nil positions.
 --- @raises string where the bytes are not a pack this codec wrote
 function codec.decode(bytes: string): Packed
     local cursor: Cursor = {at = 1}

@@ -138,7 +138,7 @@ type net.DatagramOptions = {
 --- Where a datagram came from, and where one may be sent.
 type net.Address = shared.Address
 
---- What one received datagram was.
+--- What a
 ---
 --- The bytes are not here: they went into the storage the receive named. What
 --- is here is everything a caller cannot get from those bytes -- how many of
@@ -504,7 +504,7 @@ record net.DirectionView is Reader, Writer
     end
 end
 
---- One connection.
+--- A connection.
 ---
 --- The owner of the socket, and the only cleanup obligation: a direction view
 --- borrows this and ends a direction, while `close` here ends the connection.
@@ -1022,7 +1022,7 @@ record net.Datagram is nupp.Closeable
         )
     end
 
-    --- Sends one datagram.
+    --- Sends a datagram.
     ---
     --- Answers whether the platform took it, which is not a delivery receipt and
     --- never could be: a datagram that goes is a datagram that may still not

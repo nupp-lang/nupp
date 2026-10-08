@@ -63,7 +63,7 @@ const target.DEFAULT_TIERS = {
     ["wasm32"] = "scalar",
 }
 
---- One target the backend may compile for.
+--- A target the backend may compile for.
 record target.Target
     --- The triple, from `targetlayout`'s vocabulary.
     triple: string

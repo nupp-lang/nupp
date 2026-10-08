@@ -124,7 +124,7 @@ export interface Provider
         maximum: integer
     ): (string?, string?, integer?, boolean?, string?)
 
-    --- Sends one datagram to the destination or reports an error.
+    --- Sends a datagram to the destination or reports an error.
     @readonly sendTo: function(
         self: Provider,
         socket: any,

@@ -131,7 +131,7 @@ local function providerFilePaths(program)
     return paths, dynamic
 end
 
---- Installs one run's derive merger and finalizer.
+--- Installs a run's derive merger and finalizer.
 function derive.install(c: state.Checker): derive.Ops
     c.result.cancelled = nil
     c.result.deriveAborted = nil
