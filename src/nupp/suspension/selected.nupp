@@ -6,12 +6,12 @@ module nupp.suspension.selected
 The chosen suspension implementation, selected once.
 
 [](nupp.suspension) and [](nupp.suspension.host) are two views of one
-implementation, and selection has to happen in neither of them: a library
-requiring the first must not drag the host surface in behind it, and the host
-surface must answer for the same provider a library already parks through.
+implementation, and selecting it belongs in neither of them: a library requiring
+the one must not drag the other in behind it, and the host view has to answer
+for the provider a library is already parking through.
 
-Selection and the conformance it insists on live here, so requiring either view
-reaches the same provider and the same refusal.
+So selection lives here, with the conformance it insists on, and both views read
+it. Requiring either reaches the same provider, and the same refusal.
 ]]
 
 local spi = require("nupp.spi")

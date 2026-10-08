@@ -25,11 +25,11 @@ end
 ```
 
 `suspend` parks on something that will be ready later, `source` registers the
-pump that makes it ready, `poll` drives every registered pump once, and
-`handled` says whether a handler is listening;
-without one, a park drives the registered pumps on this thread and blocks after
-all. `canSuspend` answers whether a park would be permitted here at all, and
-`create` makes a coroutine that inherits the handler.
+pump that makes it ready, and `poll` drives every registered pump once.
+`handled` says whether a handler is listening; without one a park drives those
+pumps on this thread and blocks after all. `canSuspend` answers whether a park
+would be permitted here at all, and `create` makes a coroutine that inherits
+the handler.
 
 Installing a handler, and driving the parks it accepts, is the other side of
 this: [](nupp.suspension.host). A library needs none of it.
