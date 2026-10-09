@@ -191,7 +191,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         entry = own.ownershipState(entry)
         local seen = {}
         local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
-        while entry and roots and roots[1] and not seen[entry] do
+        while entry and not entry.withBinding and roots and roots[1] and not seen[entry] do
             seen[entry] = true
             entry = own.ownershipState(roots[1])
             roots = entry and own.capabilityFacts(entry, nil, false).roots or nil

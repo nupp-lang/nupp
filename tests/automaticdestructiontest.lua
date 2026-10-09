@@ -215,6 +215,127 @@ function M.withBindingCannotEscapeOrBeDroppedEarly()
     )
 end
 
+function M.withOwnersCanBeReborrowedExclusively()
+    local chunk = compile(
+        PRELUDE
+        .. "\n"
+        .. [[
+local function rename(exclusive value: Resource): nil
+    value.name = 'changed'
+end
+with value = open_resource('fresh') do
+    rename(value)
+end
+local owner = open_resource('named')
+with value = owner do
+    rename(value)
+end
+return calls
+]]
+    )
+    testAssert.equal(chunk(), "changedchanged")
+end
+
+function M.withReborrowsRejectLiveAliasesAndRecoverAtScopeExit()
+    local source = PRELUDE
+        .. "\n"
+        .. [[
+local function rename(exclusive value: Resource): nil value.name = 'changed' end
+with value = open_resource('fresh') do
+    do
+        local alias = value
+        rename(value)
+        print(alias.name)
+    end
+    rename(value)
+end
+]]
+    testAssert.equal(codes(source), "NUPP2607")
+    testAssert.equal(codes((source:gsub("        rename%(value%)\n", ""))), "")
+end
+
+local WITH_SPAN = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+@aot
+local function fill(exclusive values: span.WriteSpan<float>): nil
+    for i = 1, #values do values[i] = 3.0 end
+end
+local values = array.scalar(array.float, 4)
+]]
+
+function M.withWritableSpansKeepTheirSourceLoansUntilExit()
+    testAssert.equal(
+        codes(
+            WITH_SPAN
+            .. [[
+with writable = values:write() do
+    fill(writable)
+end
+local owner = values:write()
+with writable = owner do
+    fill(writable)
+end
+local result = values:read()
+print(result[1])
+]]
+        ),
+        ""
+    )
+
+    for _, operation in ipairs({"local other = values:write()", "local other = values:read()", "nupp.drop(values)",}) do
+        local actual = codes(WITH_SPAN .. "\nwith writable = values:write() do\n" .. operation .. "\nend")
+        assert(actual:find("NUPP260[27]"), operation .. ": " .. actual)
+    end
+end
+
+function M.withWritableSpansRejectOverlappingAcquisitions()
+    local actual = codes(
+        WITH_SPAN .. [[
+with left = values:write(), right = values:write() do
+    fill(left)
+    fill(right)
+end
+]]
+    )
+    assert(actual:find("NUPP2607", 1, true), actual)
+end
+
+function M.withWritableSpansRejectLiveDerivedViews()
+    for _, derive in ipairs({"writable", "writable:shared()", "writable:slice(1, 2)"}) do
+        local source = WITH_SPAN
+            .. [[
+with writable = values:write() do
+    do
+        local child = ]]
+            .. derive
+            .. [[
+
+        fill(writable)
+        print(child[1])
+    end
+    fill(writable)
+end
+]]
+        testAssert.equal(codes(source), "NUPP2607", derive)
+        testAssert.equal(codes((source:gsub("        fill%(writable%)\n", ""))), "", derive)
+    end
+end
+
+function M.withWritableSpanViewsCannotEscapeTheirExtent()
+    local actual = codes(
+        WITH_SPAN
+        .. [[
+local function escape(exclusive owner: array.Array<float>): span.Span<float> borrows (owner)
+    with writable = owner:write() do
+        return writable:shared()
+    end
+end
+]]
+    )
+    testAssert.equal(actual, "NUPP2619")
+end
+
 function M.gotoCannotEnterAWithScope()
     testAssert.equal(
         codes(

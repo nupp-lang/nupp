@@ -36,7 +36,9 @@ local function compile(src)
 end
 
 function M.theSpeciesIsOneLaneWideAndOverVisitsEveryElementOnce()
-    local run = compile(PRELUDE .. [[
+    local run = compile(
+        PRELUDE
+        .. [[
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
     assert(#output == #input, "length mismatch")
@@ -48,14 +50,14 @@ end
 return function(n: integer): (number, number)
     const values = array.scalar(array.float, n)
     const scaled = array.scalar(array.float, n)
-    const w = values:write()
-    for i = 1, n do
-        w[i] = i * 0.25
+    with w = values:write() do
+        for i = 1, n do
+            w[i] = i * 0.25
+        end
     end
-    nupp.drop(w)
-    const out = scaled:write()
-    scale(out, values:read(), 2.0)
-    nupp.drop(out)
+    with out = scaled:write() do
+        scale(out, values:read(), 2.0)
+    end
     const got = scaled:read()
     local bad = 0
     for i = 1, n do
@@ -65,7 +67,8 @@ return function(n: integer): (number, number)
     end
     return bad, simd.species(array.float).lanes
 end
-]])
+]]
+    )
     for _, n in ipairs({0, 1, 7, 64}) do
         local bad, lanes = run(n)
         testAssert.equal(bad, 0, "count " .. n)
@@ -74,7 +77,9 @@ end
 end
 
 function M.laneOperatorsWrapToTheElementAndMasksAreBooleans()
-    local run = compile(PRELUDE .. [[
+    local run = compile(
+        PRELUDE
+        .. [[
 @aot
 local function probe(borrows bytes: span.Span<uint8>): (number, number, number, number, number, number)
     local s = simd.species(array.uint8)
@@ -94,7 +99,8 @@ return function(value: integer): (number, number, number, number, number, number
     nupp.drop(w)
     return probe(bytes:read())
 end
-]])
+]]
+    )
     local sum, shifted, hit, miss, neg, notted = run(10)
     testAssert.equal(sum, 4, "10 + 250 wraps to 4 in a byte lane")
     testAssert.equal(shifted, 5, "(10 << 7) | (10 >> 1) in a byte lane")
@@ -105,7 +111,9 @@ end
 end
 
 function M.earlyExitAndReductionsRunInOneLane()
-    local run = compile(PRELUDE .. [[
+    local run = compile(
+        PRELUDE
+        .. [[
 @aot
 local function findByte(borrows text: span.Span<uint8>, needle: uint32): uint32
     local s = simd.species(array.uint8)
@@ -145,7 +153,8 @@ return function(n: integer, where: integer): (uint32, uint32, number)
     nupp.drop(wv)
     return findByte(bytes:read(), 0x7A), findByte(bytes:read(), 0), total(values:read())
 end
-]])
+]]
+    )
     local found, none, sum = run(37, 23)
     testAssert.equal(found, 23)
     testAssert.equal(none, 0)
@@ -156,7 +165,9 @@ end
 end
 
 function M.vectorsIsNilAsLuaAndTheScalarContinuationRuns()
-    local run = compile(PRELUDE .. [[
+    local run = compile(
+        PRELUDE
+        .. [[
 @aot
 local function count(borrows text: span.Span<uint8>, needle: uint32): uint32
     local found: uint32 = 0
@@ -184,14 +195,17 @@ return function(): (uint32, boolean)
     nupp.drop(w)
     return count(bytes:read(), 7), simd.vectors(array.uint8) == nil
 end
-]])
+]]
+    )
     local found, absent = run()
     testAssert.equal(found, 4)
     testAssert.equal(absent, true, "simd.vectors is nil as Lua")
 end
 
 function M.theLaneVocabularyAndWidthCouplingRunInOneLane()
-    local run = compile(PRELUDE .. [[
+    local run = compile(
+        PRELUDE
+        .. [[
 @aot
 local function probe(borrows bytes: span.Span<uint8>, borrows reals: span.Span<float>): (number, number, number, number, number, number, number, number)
     local s = simd.species(array.uint8)
@@ -220,7 +234,8 @@ return function(value: integer, real: number): (number, number, number, number, 
     nupp.drop(wr)
     return probe(bytes:read(), reals:read())
 end
-]])
+]]
+    )
     local mod, div, sat, pop, high, widened, root, fused = run(200, 2.25)
     testAssert.equal(mod, 4, "200 % 7")
     testAssert.equal(div, 66, "200 // 3")

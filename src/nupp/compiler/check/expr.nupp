@@ -1258,7 +1258,11 @@ function expr.install(c: state.Checker): nil
             end
             node.immutablePath = entry and entry.constant == true or false
             local capabilityFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
-            if capabilityFacts and capabilityFacts.roots then
+            if entry and c.ownershipState(entry).withBinding then
+                -- A derived value cannot outlive the with extent, even when the
+                -- acquired owner itself retains a longer-lived backing allocation.
+                c.own.capabilityFacts(node).roots = {c.ownershipState(entry)}
+            elseif capabilityFacts and capabilityFacts.roots then
                 c.own.capabilityFacts(node).roots = capabilityFacts.roots
             end
             if entry then

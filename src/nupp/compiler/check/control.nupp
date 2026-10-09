@@ -935,6 +935,20 @@ function control.install(c: state.Checker): state.StatHandlers
                     )
                 end
             end
+            -- Moving a named dependent owner releases its source loans. Save them
+            -- first, then hold the same loans for the exact extent of this binding.
+            local regionRoot, regionPath = own.regionOf(binding.expr)
+            local acquiredFacts = own.capabilityFacts(binding.expr, 1, false)
+            local roots = {}
+            for _, root in ipairs(acquiredFacts.roots or {}) do
+                roots[#roots + 1] = root
+            end
+            local exclusive = acquiredFacts.exclusive
+            if acquiredFacts.regionRoot then
+                regionRoot, regionPath = acquiredFacts.regionRoot, acquiredFacts.regionPath
+            elseif regionPath == "" then
+                regionRoot, regionPath = nil, nil
+            end
             if ownershipKind(acquired) == "affine" then
                 moveExpression(binding.expr, acquired, "with acquisition", "affine")
             end
@@ -944,6 +958,28 @@ function control.install(c: state.Checker): state.StatHandlers
                 local entry = c.scope.vars[nameTok.text]
                 if entry then
                     entry.withBinding = binding
+                    local facts = own.capabilityFacts(entry)
+                    facts.roots = #roots > 0 and roots or nil
+                    facts.exclusive = exclusive
+                    facts.regionRoot, facts.regionPath = regionRoot, regionPath
+                    for _, root in ipairs(roots) do
+                        root.activeBorrows = (root.activeBorrows or 0) + 1
+                        root.activeBorrowSites = root.activeBorrowSites or {}
+                        root.activeBorrowSites[entry] = nameTok
+                        if exclusive then
+                            root.activeExclusiveBorrows = (root.activeExclusiveBorrows or 0) + 1
+                        end
+                    end
+                    if regionRoot and regionPath then
+                        regionRoot.activeRegions = regionRoot.activeRegions or {}
+                        regionRoot.activeRegions[regionPath] = (regionRoot.activeRegions[regionPath] or 0) + 1
+                        if exclusive then
+                            regionRoot.activeExclusiveRegions = regionRoot.activeExclusiveRegions or {}
+                            regionRoot.activeExclusiveRegions[
+                                regionPath
+                            ] = (regionRoot.activeExclusiveRegions[regionPath] or 0) + 1
+                        end
+                    end
                 end
             end
         end

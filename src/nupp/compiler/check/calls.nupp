@@ -3201,7 +3201,9 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 elseif c.ownershipKind(ats[j]) == "borrowed" then
                     local sole
-                    if entryFacts and entryFacts.exclusive then
+                    if entry and entry.withBinding or entryFacts and entryFacts.exclusive then
+                        -- A with binding is the hidden owner's sole visible view.
+                        -- Reborrowing it must still exclude every live derived view.
                         sole = (entry.activeBorrows or 0) == 0
                     else
                         local roots = entryFacts and entryFacts.roots or {}
