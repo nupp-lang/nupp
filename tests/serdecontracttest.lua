@@ -56,6 +56,38 @@ function M.typedStructureOperationsKeepConstructionAndSelectionChecked()
     assert(status == 0, output)
 end
 
+function M.declarationAccessPreservesConstructorsDefaultsAndPrivateStorage()
+    local status, output = call({"run", "access.nupp"})
+    assert(status == 0, output)
+end
+
+function M.declarationBindingsRoundTripRecursiveRecordsAndExactCarriers()
+    local status, output = call({"run", "declaration.nupp"})
+    assert(status == 0, output)
+end
+
+function M.runtimeSmithyModelsKeepIdentitiesTraitsAndProtocolContexts()
+    local status, output = call({"run", "smithy.nupp"})
+    assert(status == 0, output)
+end
+
+function M.declarationBindingsCheckCarrierCapabilitiesBeforeReading()
+    local status, output = call({"run", "declaration_capabilities.nupp"})
+    assert(status == 0, output)
+end
+
+function M.reflectionGraphsCannotBeReplacedThroughCheckedViews()
+    for _, name in ipairs({"reflection-mutation.nupp", "reflection-nested-mutation.nupp"}) do
+        local status, output = call({"check", "--json", "negative/" .. name})
+        assert(status ~= 0, output)
+        local checked = json.decode(output)
+        assert(not checked.ok and #checked.diagnostics > 0, output)
+        for _, diagnostic in ipairs(checked.diagnostics) do
+            assert(diagnostic.severity == "error", output)
+        end
+    end
+end
+
 function M.independentOpenApiPoliciesKeepTheirOwnUnionAndPropertyRules()
     local status, output = call({"run", "openapi.nupp"})
     assert(status == 0, output)

@@ -382,6 +382,7 @@ for _, resource in ipairs({
     "src/nupp/compiler/runtime/extensions.nupp",
     "src/nupp/compiler/runtime/math.nupp",
     "src/nupp/compiler/runtime/reflect.nupp",
+    "src/nupp/compiler/runtime/typewitness.nupp",
     "src/nupp/digest/internal/sha256.nupp",
     "src/nupp/runtime/browser/effects.g.nupp",
     "src/nupp/runtime/browser/response.g.nupp",

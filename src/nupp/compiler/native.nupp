@@ -374,8 +374,16 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.reflection"
     ] = {
         name = "reflection",
-        globals = {"nupp.reflect.extensionKey"},
+        globals = {"nupp.reflect.extensionKey", "nupp.reflect.runtime", "nupp.reflect.runtimeType"},
         runtimeModule = "nupp.compiler.runtime.reflect",
+        portableRuntime = true,
+    },
+    [
+        "stdlib.typewitness"
+    ] = {
+        name = "typewitness",
+        globals = {},
+        runtimeModule = "nupp.compiler.runtime.typewitness",
         portableRuntime = true,
     },
     ["stdlib.derives"] = {name = "derives", globals = {}, runtimeModule = "nupp.derive", portableRuntime = true,},

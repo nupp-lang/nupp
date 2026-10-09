@@ -1,0 +1,72 @@
+local declarations = require("contract.declaration")
+local codecs = require("contract.jsoncodec")
+
+local record Address
+    city: string
+    postalCode: string = "unknown"
+end
+local record User
+    id: uint32
+    address: Address
+    nickname: string?
+end
+local binding = declarations.binding(User)
+assert(binding == declarations.binding(User))
+local codec = codecs.codec(declarations.policy())
+local restored = codec:decode(binding, '{"id":7,"address":{"city":"Chicago"},"nickname":null}')
+assert(restored.id == 7 and restored.address.city == "Chicago" and restored.address.postalCode == "unknown")
+assert(getmetatable(restored) == User and getmetatable(restored.address) == Address)
+assert(
+    codec:encode(binding, restored) == '{"id":7,"address":{"city":"Chicago","postalCode":"unknown"},"nickname":null}'
+)
+
+for _, input in ipairs({
+    '{"id":-1,"address":{"city":"Chicago"}}',
+    '{"id":7,"address":{}}',
+    '{"id":7,"address":{"city":"Chicago"},"other":true}',
+    '{"id":7,"address":{"city":"Chicago"}} trailing'
+}) do
+    assert(not pcall(codec.decode, codec, binding, input), input)
+end
+
+local record Link
+    value: integer
+    next: Link?
+end
+local links = declarations.binding(Link)
+local chain = codec:decode(links, '{"value":1,"next":{"value":2,"next":null}}')
+assert(chain.value == 1 and assert(chain.next).value == 2)
+assert(codec:encode(links, chain) == '{"value":1,"next":{"value":2,"next":null}}')
+
+local count = 0
+local record Validated
+    text: string
+    constructor(self, text: string)
+        assert(text ~= "bad", "constructor validation")
+        count += 1
+        self.text = text
+    end
+end
+local validated = declarations.binding(Validated)
+assert(codec:decode(validated, '{"text":"ok"}').text == "ok" and count == 1)
+assert(not pcall(codec.decode, codec, validated, '{"text":"bad"}'))
+assert(count == 1)
+
+local record Containers
+    names: {string}
+    coordinates: {number, number}
+    counts: {[string]: integer}
+    signed: int64
+    unsigned: uint64
+end
+local containers = declarations.binding(Containers)
+local sample = codec:decode(
+    containers,
+    '{"names":["a","b"],"coordinates":[1.5,2.5],"counts":{"a":4},"signed":-9223372036854775808,"unsigned":18446744073709551615}'
+)
+assert(sample.names[2] == "b" and sample.coordinates[1] == 1.5 and sample.counts["a"] == 4)
+assert(sample.signed == -9223372036854775808LL and sample.unsigned == 18446744073709551615ULL)
+local encoded = codec:encode(containers, sample)
+assert(encoded:find('"signed":-9223372036854775808', 1, true))
+assert(encoded:find('"unsigned":18446744073709551615', 1, true))
+assert(codec:decode(containers, encoded).unsigned == sample.unsigned)

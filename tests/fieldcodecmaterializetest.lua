@@ -120,19 +120,19 @@ local record User
     @wire(name = "user_id")
     id: integer
 end
-@comptime local function argumentName(value: nupp.reflect.AnnotationArgument): string
+@comptime local function argumentName(value: const nupp.reflect.AnnotationArgument): string
     return value.name
 end
-@comptime local function annotationName(value: nupp.reflect.Annotation): string
+@comptime local function annotationName(value: const nupp.reflect.Annotation): string
     return value.name .. ":" .. argumentName(value.arguments[1])
 end
-@comptime local function entryName(value: nupp.reflect.Entry): string
+@comptime local function entryName(value: const nupp.reflect.Entry): string
     return value.name as string
 end
-@comptime local function nodeName(value: nupp.reflect.Node): string
-    return entryName((value.fields as {nupp.reflect.Entry})[1])
+@comptime local function nodeName(value: const nupp.reflect.Node): string
+    return entryName((value.fields as const{nupp.reflect.Entry})[1])
 end
-@comptime local function fieldName(value: nupp.reflect.Field): string
+@comptime local function fieldName(value: const nupp.reflect.Field): string
     return value.name .. ":" .. annotationName(value.annotations[1])
 end
 @comptime local function summarize(value: nupp.reflect.Info): string

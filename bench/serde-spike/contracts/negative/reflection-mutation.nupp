@@ -1,0 +1,6 @@
+local record User
+    name: string
+end
+local info = nupp.reflect.runtime(User)
+info.types[info.root] = info.types[info.root]
+info.fields[1] = info.fields[1]

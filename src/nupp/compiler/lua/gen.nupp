@@ -482,6 +482,7 @@ type gen.Checked = {
 
     --- What the checker resolved this file to, and the native features it recorded.
     @readonly moduleName: string?,
+    @readonly moduleExports: any?,
     @readonly declaredModuleName: string?,
     @readonly sendableLiterals: {any}?,
     @readonly host: string?,
@@ -2128,6 +2129,8 @@ function gen.generate(
     -- load.
     local pluck = {
         compat = result.compat,
+        witnessPlan = require("nupp.compiler.lua.typewitness").collect(result.root, result.moduleExports),
+        witnessDescriptions = {},
         plans = {},
         loweredPlans = {},
         statementActive = {},
@@ -5154,6 +5157,33 @@ function gen.generate(
     -- The emitter
     ---------------------------------------------------------------------
 
+    for _, item in ipairs(pluck.witnessPlan.ordered) do
+        if not item.group.name then
+            item.group.name = nextTemp()
+        end
+    end
+
+    function pluck.emitWitnessTargets(node, runtimeName)
+        local item = pluck.witnessPlan.declarations[node]
+        if not item then
+            return
+        end
+        pluck.needRuntimeEffect("stdlib.typewitness")
+        e((";_G.nupp.__reflect.link(%s,%s[%d],{"):format(runtimeName, item.group.name, item.slot))
+        for index, target in ipairs(item.targets) do
+            if index > 1 then
+                e(",")
+            end
+            if target.localTarget then
+                local child = target.localTarget
+                e(("%s[%d]"):format(child.group.name, child.slot))
+            else
+                e(("_G.nupp.__reflect.reference(%q,%q)"):format(target.key, target.module))
+            end
+        end
+        e("})")
+    end
+
     emit = function(x)
         if cst.isToken(x) then
             if x.missing or x.kind == "eof" then
@@ -5174,6 +5204,60 @@ function gen.generate(
         end
 
         local kind = x.kind
+        local witnessGroup = pluck.witnessPlan.blocks[x]
+        if witnessGroup and not witnessGroup.active then
+            witnessGroup.active = true
+            pluck.needRuntimeEffect("stdlib.typewitness")
+            e("local " .. witnessGroup.name .. "={", sourceLine(x))
+            for index, item in ipairs(witnessGroup.items) do
+                if index > 1 then
+                    e(",")
+                end
+                local declarationKey = item.type.runtimeDeclarationKey or item.type.declarationKey
+                if item.top and declarationKey then
+                    e(("_G.nupp.__reflect.declaration(%q)"):format(declarationKey))
+                else
+                    e(("{key=%q}"):format(declarationKey))
+                end
+            end
+            e("};")
+            emit(x)
+            witnessGroup.active = false
+            return
+        end
+        local witnessed = pluck.witnessPlan.values[x]
+        if witnessed then
+            pluck.needRuntimeEffect("stdlib.typewitness")
+            local data = pluck.witnessDescriptions[witnessed]
+            if not data then
+                local description = require(
+                    "nupp.compiler.reflection"
+                ).describe(witnessed, witnessed.runtimePath or witnessed.name)
+                data = pluck.renderData(
+                    description
+                ) .. "," .. pluck.renderData(require("nupp.compiler.reflection").runtimeReferences(witnessed))
+                pluck.witnessDescriptions[witnessed] = data
+            end
+            pluck.witnessPlan.values[x] = nil
+            -- Reading a name again runs no user code. Its hot path allocates
+            -- nothing and adds no capture to a caller at LuaJIT's upvalue limit.
+            -- Other witness expressions are evaluated exactly once.
+            if kind == "name" then
+                e("(_G.nupp.__reflect.known(", sourceLine(x))
+                emit(x)
+                e(") and ")
+                emit(x)
+                e(" or ")
+            end
+            e("_G.nupp.__reflect.ensure(", sourceLine(x))
+            emit(x)
+            e(",function() return " .. data .. " end)")
+            if kind == "name" then
+                e(")")
+            end
+            pluck.witnessPlan.values[x] = witnessed
+            return
+        end
         if kind == "assignmentTemporary" then
             e(x.name);
             return
@@ -6283,7 +6367,11 @@ function gen.generate(
                 -- so the lookup costs nothing the emitter notices.
                 local reflection = require("nupp.compiler.reflection")
                 local descriptor = reflection.describe(nominal, runtimeName)
-                e(";_G.nupp.__reflect.register(" .. runtimeName .. "," .. pluck.renderData(descriptor) .. ")")
+                e(
+                    ";_G.nupp.__reflect.register(" .. runtimeName .. "," .. pluck.renderData(
+                        descriptor
+                    ) .. "," .. pluck.renderData(reflection.runtimeReferences(nominal)) .. ")"
+                )
             end
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "recordDecl" and entry.declKind == "record" then
@@ -6300,6 +6388,7 @@ function gen.generate(
             end
             emitInheritedDefaults(x, runtimeName)
             pluck.emitDerivedMembers(x, runtimeName)
+            pluck.emitWitnessTargets(x, runtimeName)
             return
         end
 
@@ -6472,6 +6561,7 @@ function gen.generate(
             -- targets explicit lets a provider such as Serde register data for a
             -- struct without pretending the ctype is a mutable Lua table.
             pluck.emitDerivedMembers(x, path or x.name.text, mt .. ".__index")
+            pluck.emitWitnessTargets(x, path or x.name.text)
             return
         end
 

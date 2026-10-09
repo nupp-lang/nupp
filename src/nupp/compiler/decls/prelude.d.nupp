@@ -2182,13 +2182,13 @@ record nupp.reflect
     record Info
         @readonly schema: integer
         @readonly root: integer
-        @readonly types: {Node}
+        @readonly types: const{Node}
         @readonly kind: string
         @readonly name: string
         @readonly qualifiedName: string
-        @readonly fields: {Field}
-        @readonly annotations: {Annotation}
-        @readonly soa: SoAInfo
+        @readonly fields: const{Field}
+        @readonly annotations: const{Annotation}
+        @readonly soa: const SoAInfo
         @readonly fingerprint: string
     end
 
@@ -2229,6 +2229,14 @@ record nupp.reflect
     --- same value from its private cache. Key identities and their slot numbers are
     --- process-local and must not be persisted.
     extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T>
+
+    --- Reads the semantic description carried by a first-class type witness.
+    --- Generic consumers use the same descriptor as concrete callers.
+    runtime: function<T>(typeObject: Type<T>): Info
+
+    --- Reads an available nominal witness reachable through stored fields or
+    --- constructor parameters. An unresolved forward declaration returns nil.
+    runtimeType: function(info: Info, index: integer): Type<unknown>?
 
     --- Reflects a concrete type for use inside a `comptime` block.
     ---

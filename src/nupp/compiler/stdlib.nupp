@@ -102,6 +102,9 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installing
     if effects["stdlib.fieldcodec"] then
         out[#out + 1] = FIELDCODEC
     end
+    if effects["stdlib.typewitness"] or effects["stdlib.reflection"] then
+        out[#out + 1] = 'require("nupp.compiler.runtime.typewitness").install(__nupp);'
+    end
     if effects["stdlib.reflection"] then
         out[#out + 1] = REFLECTION
     end

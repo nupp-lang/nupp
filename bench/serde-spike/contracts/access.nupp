@@ -1,0 +1,149 @@
+local access = require("contract.access")
+
+local record Child
+    count: integer
+end
+local record User
+    @readonly id: uint32
+    child: Child
+    nickname: string? = "guest"
+end
+
+local selected = access.of(User)
+assert(selected == access.of(User))
+assert(#selected.fields == 3 and #selected.parameters == 3)
+local state = selected:begin()
+state:set(selected.parameters[1], 7)
+state:set(selected.parameters[2], new Child(count = 11))
+local restored = selected:finish(state)
+assert(restored.id == 7 and restored.child.count == 11 and restored.nickname == "guest")
+assert(selected:get(restored, selected.fields[1]) == 7)
+local childAccess = selected:nested(selected.fields[2].typeIndex)
+assert(childAccess == selected:nested(selected.fields[2].typeIndex))
+local childBuilder = childAccess:begin()
+childBuilder:set(childAccess.parameters[1], 99)
+local childValue = childAccess:finish(childBuilder) as Child
+assert(childValue.count == 99)
+
+local explicitNull = selected:begin()
+explicitNull:set(selected.parameters[1], 8)
+explicitNull:set(selected.parameters[2], new Child(count = 12))
+explicitNull:set(selected.parameters[3], nil)
+assert(selected:finish(explicitNull).nickname == nil)
+
+assert(
+    not pcall(function(): nil
+        local incomplete = selected:begin()
+        incomplete:set(selected.parameters[1], 9)
+        selected:finish(incomplete)
+    end)
+)
+assert(
+    not pcall(function(): nil
+        local invalid = selected:begin()
+        invalid:set(selected.parameters[1], -1)
+    end)
+)
+assert(
+    not pcall(function(): nil
+        local invalid = selected:begin()
+        invalid:set(selected.parameters[2], {count = 3})
+    end)
+)
+local record Other
+    id: integer
+end
+local other = access.of(Other)
+assert(
+    not pcall(function(): nil
+        local invalid = selected:begin()
+        invalid:set(other.parameters[1], 1)
+    end)
+)
+assert(
+    not pcall(function(): nil
+        selected:get(restored, other.fields[1])
+    end)
+)
+
+local calls = 0
+local record Checked
+    name: string
+    @private secret: string
+    callback: function(): string
+    constructor(self, input: string)
+        assert(input ~= "bad", "constructor rejected input")
+        calls += 1
+        self.name = input
+        self.secret = "secret"
+        self.callback = function(): string
+            return "default"
+        end
+    end
+end
+local custom = access.of(Checked)
+assert(#custom.fields == 2 and custom.parameters[1].name == "input")
+local built = custom:begin()
+built:set(custom.parameters[1], "ok")
+local checked = custom:finish(built)
+assert(checked.name == "ok" and checked.callback() == "default" and calls == 1)
+assert(
+    not pcall(function(): nil
+        local rejected = custom:begin()
+        rejected:set(custom.parameters[1], "bad")
+        custom:finish(rejected)
+    end)
+)
+assert(calls == 1)
+
+local record OptionalInput
+    value: string = "field default"
+    constructor(self, value: string?)
+        self.value = value or "fallback"
+    end
+end
+local optional = access.of(OptionalInput)
+assert(optional:finish(optional:begin()).value == "fallback")
+
+local record Hidden
+    visible: string
+    @private hidden: string
+end
+local hidden = access.of(Hidden)
+assert(#hidden.fields == 1)
+assert(
+    not pcall(function(): nil
+        local invalid = hidden:begin()
+    end)
+)
+
+local struct Point
+    x: int32
+    y: float
+end
+local point = access.of(Point)
+local position = point:begin()
+position:set(point.parameters[1], 42)
+position:set(point.parameters[2], 1.5)
+local decoded = point:finish(position)
+assert(decoded.x == 42 and decoded.y == 1.5)
+assert(
+    not pcall(function(): nil
+        local invalid = point:begin()
+        invalid:set(point.parameters[2], 1.1)
+    end)
+)
+
+local record Lists
+    values: {integer}
+end
+local lists = access.of(Lists)
+assert(
+    not pcall(function(): nil
+        local invalid = lists:begin()
+        local values: {number} = {1, 2}
+        invalid:set(lists.parameters[1], values)
+        values[2] = 1.5
+        lists:finish(invalid)
+    end)
+)

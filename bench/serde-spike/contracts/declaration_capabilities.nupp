@@ -1,0 +1,26 @@
+local declarations = require("contract.declaration")
+local json = require("contract.jsoncodec")
+
+local record Text
+    value: string
+end
+local record Wide
+    value: uint64
+end
+local text = declarations.binding(Text)
+local wide = declarations.binding(Wide)
+local codec = json.codec(declarations.policy())
+local original: any = _G.require
+_G.require = function(name: string): any
+    if name == "ffi" then
+        error("FFI unavailable")
+    end
+    return original(name)
+end
+local ok, result = pcall(function(): nil
+    assert(codec:decode(text, '{"value":"portable"}').value == "portable")
+    local accepted, problem = pcall(codec.decode, codec, wide, "invalid input")
+    assert(not accepted and tostring(problem):find("no exact 64-bit carrier", 1, true))
+end)
+_G.require = original
+assert(ok, tostring(result))

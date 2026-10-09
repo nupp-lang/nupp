@@ -2,6 +2,11 @@
 
 module nupp.compiler.runtime.reflect
 
+-- Runtime witnesses resolve application declarations. These are dependencies
+-- of the compiled application, not of the compiler implementation.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
 --[[
 Reflection as it exists at run time.
 
@@ -12,12 +17,11 @@ answering `reflect()` from one, and running the extensions a program layers on t
 Separately, it holds the keyed codec a materialized `nupp.reflect.fieldCodec`
 calls.
 
-A descriptor is deliberately not the declaration table. A record's declaration stays
-its own metatable, and everything reflection knows lives in weak side tables keyed by
-the type, so reflecting on a type does not change it and a type that goes out of use
-takes its descriptor with it. The descriptor a program sees is an empty table whose
-metatable reads through to that state, which is how it stays immutable without any
-field on it to write over.
+A descriptor is separate from the declaration table. A record's declaration owns
+its cached descriptor under an opaque key; the descriptor retains its type. Weak
+side tables index that pair without keeping an unused local declaration alive.
+The descriptor is an empty table whose metatable reads its private state, so
+ordinary writes cannot replace a descriptor field.
 
 See [reflection.md](docs/learn/language/reflection.md) for what a program does with a descriptor.
 ]]
@@ -91,13 +95,18 @@ end
 --- Installs the reflection registry and the descriptor protocol.
 --- @export
 function reflectruntime.install(namespace: any): nil
+    require("nupp.compiler.runtime.typewitness").install(namespace)
     local api = claim(namespace, "reflect", {})
     api.extensionKey = extensions.key
     local reflect = claim(namespace, "__reflect", {})
     local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
-    local infos = reflect.infos or setmetatable({}, {__mode = "k"})
-    local states = reflect.states or setmetatable({}, {__mode = "k"})
-    reflect.blueprints, reflect.infos, reflect.states = blueprints, infos, states
+    local infos = claim(reflect, "valueInfos", setmetatable({}, {__mode = "kv"}))
+    local states = claim(reflect, "valueStates", setmetatable({}, {__mode = "kv"}))
+    local infoKey = claim(reflect, "infoKey", {})
+    local ctypeInfos = claim(reflect, "ctypeInfos", setmetatable({}, {__mode = "k"}))
+    local references = claim(reflect, "references", setmetatable({}, {__mode = "k"}))
+    local targetsKey = reflect.targetsKey
+    local ctypeTargets = reflect.ctypeTargets
 
     local Info: any = {}
 
@@ -124,12 +133,10 @@ function reflectruntime.install(namespace: any): nil
     -- The descriptor is an empty table, so every read arrives here and is answered
     -- from the side state. That is what keeps a blueprint from being reachable as a
     -- field somebody could write over, and why `__newindex` has nothing to allow.
-    Info.__index = function(info: any, key: string): any
+    Info.read = function(state: any, key: string): any
         if key == "extension" then
             return Info.extension
-        end
-        local state = states[info]
-        if key == "type" then
+        elseif key == "type" then
             return state and state.type
         end
 
@@ -140,32 +147,85 @@ function reflectruntime.install(namespace: any): nil
         error("nupp: reflection descriptors are immutable", 2)
     end
 
-    --- Records a type's blueprint and gives the type its `reflect`.
-    ---
-    --- The descriptor is built on the first call rather than here, because a program
-    --- that never reflects on a type should not pay for one, and the blueprint is
-    --- read again at that point rather than captured so a type registered twice
-    --- describes itself the second way.
-    function reflect.register(typeObject: any, blueprint: any): any
-        blueprints[typeObject] = blueprint
-        rawset(typeObject, "reflect", function(): any
-            local prior = infos[typeObject]
-            if prior then
-                return prior
-            end
-            local declared = blueprints[typeObject]
-            if not declared then
-                error("nupp: type has no reflection blueprint", 2)
-            end
-            local info = setmetatable({}, Info)
-            infos[typeObject] = info
-            states[info] = {type = typeObject, blueprint = declared}
-            extensions.host(info)
+    function reflect.get(typeObject: any): any
+        local prior = infos[typeObject] or ctypeInfos[typeObject]
+        if prior then
+            return prior
+        end
+        local declared = blueprints[typeObject]
+        if not declared then
+            error("nupp: type has no reflection blueprint", 2)
+        end
+        local state: any = {type = typeObject, blueprint = declared}
+        local info = setmetatable({}, {
+            __index = function(_: any, key: string): any
+                return Info.read(state, key)
+            end,
+            __newindex = Info.__newindex,
+        })
+        infos[typeObject] = info
+        states[info] = state
+        -- Keep the cache on its owner. A weak-key table whose value reaches the
+        -- key would otherwise retain every reflected local record on LuaJIT.
+        if type(typeObject) == "table" then
+            rawset(typeObject, infoKey, info)
+        else
+            ctypeInfos[typeObject] = info
+        end
+        extensions.host(info)
 
-            return info
-        end)
+        return info
+    end
 
-        return typeObject
+    api.runtime = reflect.get
+
+    function api.runtimeType(info: nupp.reflect.Info, index: integer): Type<unknown>?
+        local state = states[info]
+        if state == nil then
+            error("nupp: foreign reflection descriptor", 2)
+        end
+        if index == state.blueprint.root then
+            return state.type
+        end
+        local keys = references[state.type]
+        local wanted = keys and keys[tostring(index)]
+        if wanted == nil then
+            return nil
+        end
+        local visited = {}
+
+        local function search(typeObject: any): any
+            if visited[typeObject] then
+                return nil
+            end
+            visited[typeObject] = true
+            local targets = type(typeObject) == "table" and rawget(typeObject, targetsKey) or ctypeTargets[typeObject]
+            if targets == nil then
+                return nil
+            end
+            local direct = targets[wanted]
+            if direct ~= nil then
+                if direct[1] == nil and direct.module then
+                    require(direct.module)
+                end
+                return direct[1]
+            end
+            for _, cell in pairs(targets) do
+                if cell[1] == nil and cell.module then
+                    require(cell.module)
+                end
+                if cell[1] ~= nil then
+                    local answer = search(cell[1])
+                    if answer ~= nil then
+                        return answer
+                    end
+                end
+            end
+
+            return nil
+        end
+
+        return search(state.type)
     end
 
     -- The JSON codec of a type deriving nupp.derive.JSON, memoized on its

@@ -1,0 +1,607 @@
+module example.smithy
+
+local core = require("contract.value")
+local documents = require("example.document")
+local jsonDocument = require("contract.jsondocument")
+local syntax = require("contract.jsonsyntax")
+
+export record Shape
+    @readonly id: string
+    @readonly kind: string
+    @readonly traits: documents.Document
+    @readonly definition: documents.Document
+    @private @readonly members: {Member} = {}
+
+    function member(self, name: string): Member?
+        for _, member in ipairs(self.members) do
+            if member.name == name then
+                return member
+            end
+        end
+
+        return nil
+    end
+
+    function size(self): integer
+        return #self.members
+    end
+
+    function at(self, index: integer): Member
+        return assert(self.members[index], "shape member index out of range")
+    end
+end
+
+export record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+    @readonly container: Shape
+    @readonly target: Shape
+    @readonly traits: documents.Document
+
+    function trait(self, id: string): documents.Document?
+        -- Smithy member traits take precedence over target traits.
+        return self.traits:get(id) or self.target.traits:get(id)
+    end
+end
+
+export record Model
+    @private @readonly shapes: {[string]: Shape}
+
+    function shape(self, id: string): Shape
+        return assert(self.shapes[id], "unknown Smithy shape: " .. id)
+    end
+end
+
+local function traits(node: documents.Document): documents.Document
+    local value = node:get("traits")
+    if value ~= nil then
+        assert(value.kind == "structure", "Smithy traits must be an object")
+        return value
+    end
+
+    return documents.object({})
+end
+
+export function load(ast: documents.Document): Model
+    assert(ast.kind == "structure", "Smithy AST must be an object")
+    assert(assert(ast:get("smithy"), "missing Smithy version"):string() == "2.0", "unsupported Smithy version")
+    local source = assert(ast:get("shapes"), "missing Smithy shapes")
+    assert(source.kind == "structure", "Smithy shapes must be an object")
+    local shapes: {[string]: Shape} = {}
+    local prelude: {
+        [string]: string
+    } = {
+        String = "string",
+        Boolean = "boolean",
+        Byte = "byte",
+        Short = "short",
+        Integer = "integer",
+        Long = "long",
+        Float = "float",
+        Double = "double",
+        BigInteger = "bigInteger",
+        BigDecimal = "bigDecimal",
+        Blob = "blob",
+        Timestamp = "timestamp",
+        Document = "document",
+        Unit = "structure"
+    }
+    for name, kind in pairs(prelude) do
+        shapes[
+            "smithy.api#" .. name
+        ] = new Shape(
+            id = "smithy.api#" .. name,
+            kind = kind,
+            traits = documents.object({}),
+            definition = documents.object({})
+        )
+    end
+    for index = 1, source:size() do
+        local field = source:field(index)
+        assert(field.name:match("^[%w_.]+#[%w_]+$"), "invalid shape identity")
+        assert(shapes[field.name] == nil, "duplicate shape identity")
+        shapes[
+            field.name
+        ] = new Shape(
+            id = field.name,
+            kind = assert(field.value:get("type"), "missing shape type"):string(),
+            traits = traits(field.value),
+            definition = field.value
+        )
+    end
+
+    -- Intern every target before resolving members, so forward and recursive
+    -- references preserve this model's identities.
+    local function add(container: Shape, name: string, value: documents.Document): nil
+        local target = assert(value:get("target"), "missing member target"):string()
+        container.members[
+            #container.members + 1
+        ] = new Member(
+            name = name,
+            index = #container.members + 1,
+            container = container,
+            target = assert(shapes[target], "unknown member target: " .. target),
+            traits = traits(value)
+        )
+    end
+
+    for index = 1, source:size() do
+        local field = source:field(index)
+        local shape = assert(shapes[field.name])
+        if shape.kind == "structure" or shape.kind == "union" then
+            local members = field.value:get("members")
+            if members ~= nil then
+                assert(members.kind == "structure", "members must be an object")
+                for position = 1, members:size() do
+                    local member = members:field(position)
+                    assert(shape:member(member.name) == nil, "duplicate member")
+                    add(shape, member.name, member.value)
+                end
+            end
+        elseif shape.kind == "list" then
+            add(shape, "member", assert(field.value:get("member"), "missing list member"))
+        elseif shape.kind == "map" then
+            add(shape, "key", assert(field.value:get("key"), "missing map key"))
+            add(shape, "value", assert(field.value:get("value"), "missing map value"))
+        end
+    end
+
+    return new Model(shapes = shapes)
+end
+
+export function parse(source: string): Model
+    local cursor = syntax.reader(source)
+    local reader = jsonDocument.contents(cursor, nil)
+    local value = documents.documentAdapter():readContents(reader)
+    cursor:finish()
+
+    return load(value)
+end
+
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+local timestamps = require("example.timestamps")
+
+export const schemaContext = core.contextKey<Shape>()
+export const memberContext = core.contextKey<Member>()
+local wireFieldContext = core.contextKey<core.WireField>()
+
+local function defaultValue(shape: Shape, value: documents.Document): documents.Document
+    local numbers = require("contract.numbers")
+    if shape.kind == "string" or shape.kind == "enum" then
+        return documents.string(value:string())
+    elseif shape.kind == "boolean" then
+        return documents.boolean(value:boolean())
+    elseif shape.kind == "document" then
+        return value
+    elseif shape.kind == "byte"
+        or shape.kind == "short"
+        or shape.kind == "integer"
+        or shape.kind == "intEnum"
+        or shape.kind == "long"
+    then
+        local width: 8
+            | 16
+            | 32
+            | 64 = shape.kind == "byte" and 8 or shape.kind == "short" and 16 or shape.kind == "long" and 64 or 32
+        return documents.integer(numbers.integer(value:numberToken(), width, true))
+    elseif shape.kind == "float" or shape.kind == "double" then
+        local width: 32 | 64 = shape.kind == "float" and 32 or 64
+        return documents.float(
+            new core.Float(value = numbers.floating(assert(tonumber(value:numberToken())), width), width = width)
+        )
+    elseif shape.kind == "bigInteger" then
+        return documents.bigInteger(value:numberToken())
+    end
+    error("unsupported default for Smithy fixture shape " .. shape.id, 2)
+end
+
+local record Description is core.Description<Member>
+    @readonly member: Member
+    @readonly kind: core.Kind
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<Member>} = {}
+end
+
+local record Child is core.Child<Member>
+    @readonly member: Member
+    @readonly required: boolean
+    @readonly hasDefault: boolean
+    @readonly adapter: Adapter
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.adapter:describe(direction)
+    end
+end
+
+local record State
+    @readonly fields: {documents.Entry} = {}
+    @readonly elements: {documents.Document} = {}
+    @readonly entries: {documents.MapEntry} = {}
+end
+
+local record Fields is core.Members<Member, documents.Document>
+    @readonly shape: Shape
+    @readonly adapters: {[Member]: Adapter}
+    function apply(self, borrows source: documents.Document, exclusive writer: core.Writer<Member>): nil
+        for index = 1, self.shape:size() do
+            local member = self.shape:at(index)
+            assert(
+                member.traits:get("smithy.api#required") == nil or source:get(member.name) ~= nil,
+                "missing required member: " .. member.name
+            )
+        end
+        for index = 1, source:size() do
+            local field = source:field(index)
+            local member = self.shape:member(field.name)
+            if member ~= nil then
+                if writer:include(member) then
+                    assert(self.adapters[member]):write(field.value, writer)
+                end
+            else
+                local context = field.value:context()
+                local identity = context ~= nil and context:get(wireFieldContext) or nil
+                writer:writeUnknown(
+                    identity or new jsonDocument.Name(name = field.name),
+                    field.value,
+                    documents.documentAdapter()
+                )
+            end
+        end
+    end
+end
+
+local record ReadFields is core.MemberConsumer<Member, State>
+    @readonly adapters: {[Member]: Adapter}
+    function apply(self, exclusive state: State, member: Member, exclusive reader: core.Reader<Member>): nil
+        local adapter = assert(self.adapters[member], "foreign Smithy member")
+        state.fields[#state.fields + 1] = new documents.Entry(name = member.name, value = adapter:read(reader))
+    end
+end
+
+local record Unknown is core.UnknownConsumer<State>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: State,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        -- This fixture uses JSON field identities. XML and numbered wire fields
+        -- have separate model assembly and preserve their own identities.
+        local value = reader:captureValue(documents.documentAdapter())
+        local context = assert(value:context(), "unknown JSON content requires its source context")
+        local contexts = require("contract.context")
+        local metadata = contexts.builder(context.codec, context.profile, context)
+        metadata:set(wireFieldContext, field)
+        state.fields[
+            #state.fields + 1
+        ] = new documents.Entry(
+            name = jsonDocument.name(field),
+            value = documents.withContext(value, metadata:freeze())
+        )
+    end
+end
+
+local record Elements is core.Members<Member, documents.Document>
+    @readonly adapter: Adapter
+    function apply(self, borrows source: documents.Document, exclusive writer: core.Writer<Member>): nil
+        for index = 1, source:size() do
+            self.adapter:write(source:at(index), writer)
+        end
+    end
+end
+local record ReadElements is core.ElementConsumer<Member, State>
+    @readonly adapter: Adapter
+    function apply(self, exclusive state: State, index: integer, exclusive reader: core.Reader<Member>): nil
+        assert(index == #state.elements + 1, "nonsequential Smithy list")
+        state.elements[index] = self.adapter:read(reader)
+    end
+end
+local record One is core.Members<Member, documents.Document>
+    @readonly adapter: Adapter
+    function apply(self, borrows source: documents.Document, exclusive writer: core.Writer<Member>): nil
+        self.adapter:write(source, writer)
+    end
+end
+local record Entries is core.Members<Member, documents.Document>
+    @readonly key: One
+    @readonly value: One
+    function apply(self, borrows source: documents.Document, exclusive writer: core.Writer<Member>): nil
+        for index = 1, source:size() do
+            local entry = source:entry(index)
+            writer:writeEntry(entry.key, self.key, entry.value, self.value)
+        end
+    end
+end
+local record ReadEntries is core.EntryConsumer<Member, State>
+    @readonly key: Adapter
+    @readonly value: Adapter
+    function apply(
+        self,
+        exclusive state: State,
+        exclusive key: core.Reader<Member>,
+        exclusive value: core.Reader<Member>
+    ): nil
+        state.entries[
+            #state.entries + 1
+        ] = new documents.MapEntry(key = self.key:read(key), value = self.value:read(value))
+    end
+end
+
+local record Adapter is core.Adapter<documents.Document, Member>
+    @readonly member: Member
+    @readonly description: Description
+    @readonly adapters: {[Member]: Adapter}
+    @readonly defaults: {[Member]: documents.Document} = {}
+
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Member>): nil
+        local kind = self.description.kind
+        local member = self.member
+        if value.kind == "null" then
+            assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
+            writer:writeNull(member)
+        elseif kind == "string" then
+            writer:writeString(member, value:string())
+        elseif kind == "boolean" then
+            writer:writeBoolean(member, value:boolean())
+        elseif kind == "integer" then
+            writer:writeInteger(member, value:integer())
+        elseif kind == "float" then
+            writer:writeFloat(member, value:float().value, self.description.width as(32 | 64))
+        elseif kind == "bigInteger" then
+            writer:writeBigInteger(member, value:bigInteger())
+        elseif kind == "decimal" then
+            writer:writeDecimal(member, value:decimal())
+        elseif kind == "bytes" then
+            writer:writeBytes(member, value:bytes())
+        elseif kind == "timestamp" then
+            writer:writeTimestamp(member, value:timestamp())
+        elseif kind == "document" then
+            writer:writeDocument(member, value, documents.documentAdapter())
+        elseif kind == "structure" then
+            writer:writeStruct(member, value, new Fields(shape = member.target, adapters = self.adapters))
+        elseif kind == "union" then
+            assert(value:size() == 1, "Smithy unions contain exactly one member")
+            writer:writeUnion(member, value, new Fields(shape = member.target, adapters = self.adapters))
+        elseif kind == "list" then
+            writer:writeList(
+                member,
+                value:size(),
+                value,
+                new Elements(adapter = assert(self.adapters[member.target:at(1)]))
+            )
+        elseif kind == "map" then
+            writer:writeMap(
+                member,
+                value:size(),
+                value,
+                new Entries(
+                    key = new One(adapter = assert(self.adapters[member.target:at(1)])),
+                    value = new One(adapter = assert(self.adapters[member.target:at(2)]))
+                )
+            )
+        else
+            error("unsupported Smithy shape: " .. member.target.kind, 2)
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): documents.Document
+        local kind = self.description.kind
+        local member = self.member
+        local value: documents.Document
+        if reader:isNull() then
+            assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
+            reader:readNull(member)
+            value = documents.null()
+        elseif kind == "string" then
+            value = documents.string(reader:readString(member))
+        elseif kind == "boolean" then
+            value = documents.boolean(reader:readBoolean(member))
+        elseif kind == "integer" then
+            value = documents.integer(reader:readInteger(member, self.description.width as(8 | 16 | 32 | 64), true))
+        elseif kind == "float" then
+            value = documents.float(
+                new core.Float(
+                    value = reader:readFloat(member, self.description.width as(32 | 64)),
+                    width = self.description.width as(32 | 64)
+                )
+            )
+        elseif kind == "bigInteger" then
+            value = documents.bigInteger(reader:readBigInteger(member))
+        elseif kind == "decimal" then
+            value = documents.decimal(reader:readDecimal(member))
+        elseif kind == "bytes" then
+            value = documents.bytes(reader:readBytes(member))
+        elseif kind == "timestamp" then
+            value = documents.timestamp(reader:readTimestamp(member))
+        elseif kind == "document" then
+            value = reader:readDocument(member, documents.documentAdapter())
+        else
+            local state = new State()
+            if kind == "structure" then
+                reader:readStruct(member, state, new ReadFields(adapters = self.adapters), new Unknown())
+                local present: {[string]: boolean} = {}
+                for _, field in ipairs(state.fields) do
+                    present[field.name] = true
+                end
+                for index = 1, member.target:size() do
+                    local child = member.target:at(index)
+                    if not present[child.name] then
+                        local default = self.defaults[child]
+                        if default ~= nil then
+                            state.fields[#state.fields + 1] = new documents.Entry(name = child.name, value = default)
+                        else
+                            assert(
+                                child.traits:get("smithy.api#required") == nil,
+                                "missing required member: " .. child.name
+                            )
+                        end
+                    end
+                end
+                value = documents.object(state.fields)
+            elseif kind == "union" then
+                reader:readUnion(member, state, new ReadFields(adapters = self.adapters), new Unknown())
+                assert(#state.fields == 1, "Smithy unions contain exactly one member")
+                value = documents.union(state.fields[1].name, state.fields[1].value)
+            elseif kind == "list" then
+                reader:readList(member, state, new ReadElements(adapter = assert(self.adapters[member.target:at(1)])))
+                value = documents.list(state.elements)
+            elseif kind == "map" then
+                reader:readMap(
+                    member,
+                    state,
+                    new ReadEntries(
+                        key = assert(self.adapters[member.target:at(1)]),
+                        value = assert(self.adapters[member.target:at(2)])
+                    )
+                )
+                value = documents.map(state.entries)
+            else
+                error("unsupported Smithy shape: " .. member.target.kind, 2)
+            end
+        end
+        local context = reader:context()
+        local contexts = require("contract.context")
+        local source = contexts.builder(
+            context ~= nil and context.codec or {},
+            context ~= nil and context.profile or {},
+            context
+        )
+        source:set(schemaContext, member.target)
+        source:set(memberContext, member)
+
+        return documents.withContext(value, source:freeze())
+    end
+end
+
+local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
+    local prior = seen[member]
+    if prior ~= nil then
+        return prior
+    end
+    local shape = member.target
+    local kind: core.Kind = "opaque"
+    local width: integer? = nil
+    if shape.kind == "string" or shape.kind == "enum" then
+        kind = "string"
+    elseif shape.kind == "boolean" then
+        kind = "boolean"
+    elseif shape.kind == "byte" then
+        kind, width = "integer", 8
+    elseif shape.kind == "short" then
+        kind, width = "integer", 16
+    elseif shape.kind == "integer" or shape.kind == "intEnum" then
+        kind, width = "integer", 32
+    elseif shape.kind == "long" then
+        kind, width = "integer", 64
+    elseif shape.kind == "float" then
+        kind, width = "float", 32
+    elseif shape.kind == "double" then
+        kind, width = "float", 64
+    elseif shape.kind == "bigInteger" then
+        kind = "bigInteger"
+    elseif shape.kind == "bigDecimal" then
+        kind = "decimal"
+    elseif shape.kind == "blob" then
+        kind = "bytes"
+    elseif shape.kind == "timestamp" then
+        kind = "timestamp"
+    elseif shape.kind == "document" then
+        kind = "document"
+    elseif shape.kind == "structure" or shape.kind == "union" or shape.kind == "list" or shape.kind == "map" then
+        kind = shape.kind
+    end
+    local nullable = member.container.traits:get("smithy.api#sparse") ~= nil
+        and (member.container.kind == "list" or member.container.kind == "map" and member.name == "value")
+    local description = new Description(
+        member = member,
+        kind = kind,
+        width = width,
+        signed = kind == "integer" and true or nil,
+        nullable = nullable
+    )
+    local result = new Adapter(member = member, description = description, adapters = seen)
+    seen[member] = result
+    for index = 1, shape:size() do
+        local child = shape:at(index)
+        local default = child:trait("smithy.api#default")
+        if default ~= nil then
+            result.defaults[child] = defaultValue(child.target, default)
+        end
+        description.children[
+            index
+        ] = new Child(
+            member = child,
+            required = child.traits:get("smithy.api#required") ~= nil,
+            hasDefault = child:trait("smithy.api#default") ~= nil,
+            adapter = adapter(child, seen)
+        )
+    end
+
+    return result
+end
+
+export function binding(shape: Shape): core.Binding<documents.Document>
+    local root = new Member(name = shape.id, container = shape, target = shape, traits = documents.object({}))
+    return new core.Bound<documents.Document, Member>(adapter = adapter(root, {}))
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    @readonly epoch: boolean
+    @readonly rename: boolean
+    function name(self, member: M): string
+        local trait = (member as Member):trait("smithy.api#jsonName")
+        return self.rename and trait ~= nil and trait:string() or member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        assert(getmetatable(member) == Member, "policy requires Smithy members")
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        local format = (member as Member):trait("smithy.api#timestampFormat")
+        local epoch = format ~= nil and format:string() == "epoch-seconds" or format == nil and self.epoch
+        if epoch then
+            return json.numberToken(timestamps.epoch(value))
+        end
+        assert(format == nil or format:string() == "date-time", "unsupported timestamp format in fixture")
+
+        return json.encoded(timestamps.dateTime(value))
+    end
+
+    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+        local format = (member as Member):trait("smithy.api#timestampFormat")
+        local epoch = format ~= nil and format:string() == "epoch-seconds" or format == nil and self.epoch
+        if epoch then
+            assert(kind == "number", "expected epoch seconds")
+            return timestamps.parseEpoch(value)
+        end
+        assert(format == nil or format:string() == "date-time", "unsupported timestamp format in fixture")
+        assert(kind == "string", "expected date-time")
+
+        return timestamps.parseDateTime(value)
+    end
+end
+local record Factory is plans.PolicyFactory
+    @readonly epoch: boolean
+    @readonly rename: boolean
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local document = documents.policy(member, self.epoch)
+        if document ~= nil then
+            return document
+        end
+        assert(getmetatable(member) == Member, "policy requires Smithy members")
+
+        return new Policy<M>(epoch = self.epoch, rename = self.rename)
+    end
+end
+export function policy(epoch: boolean, rename: boolean): plans.PolicyFactory
+    return new Factory(epoch = epoch, rename = rename)
+end

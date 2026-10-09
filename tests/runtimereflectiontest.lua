@@ -95,7 +95,7 @@ local quiet = new Quiet(value = 1)
 return quiet.value
 ]]
     )
-    testAssert.equal(code:find("__nupp.__reflect", 1, true), nil, "unused reflection runtime")
+    testAssert.equal(code:find("_G.nupp.__reflect", 1, true), nil, "unused reflection runtime")
 end
 
 function M.jsonCodecIsAllocatedByTheRuntimeExtensionCache()
@@ -232,6 +232,216 @@ return {
     testAssert.equal(result.text, '{"id":7}', "explicit JSON encode")
     testAssert.equal(result.id, 7, "type witness decode")
     testAssert.equal(result.problem, nil, "type witness decode error")
+end
+
+function M.genericConsumersReceiveUnannotatedTypeMetadata()
+    local result = run(
+        [[
+local function describe<T>(target: Type<T>): nupp.reflect.Info
+    return nupp.reflect.runtime(target)
+end
+local record User
+    name: string
+end
+local function make(): nupp.reflect.Info
+    local record Local
+        count: integer = 3
+    end
+    return describe(Local)
+end
+local first = describe(User)
+local second = describe(User)
+local left, right = make(), make()
+return {cached = first == second, field = first.fields[1].name,
+    distinct = left ~= right, same = left.fingerprint == right.fingerprint}
+]]
+    )
+    testAssert.equal(result.cached, true)
+    testAssert.equal(result.field, "name")
+    testAssert.equal(result.distinct, true)
+    testAssert.equal(result.same, true)
+end
+
+function M.genericReflectionSupportsStructWitnesses()
+    local result = run(
+        [[
+local function describe<T>(target: Type<T>): nupp.reflect.Info
+    return nupp.reflect.runtime(target)
+end
+
+local struct Point
+    x: int32
+    y: int32
+end
+local info = describe(Point)
+return {kind = info.kind, field = info.fields[2].name}
+]]
+    )
+    testAssert.equal(result.kind, "struct")
+    testAssert.equal(result.field, "y")
+end
+
+function M.localWitnessDescriptorsFollowTheirOwnersLifetime()
+    local make = run(
+        [[
+return function()
+    local record Item
+        value: integer
+    end
+    return Item, nupp.reflect.runtime(Item)
+end
+]]
+    )
+    local witness, info = make()
+    local weak = setmetatable({witness, info}, {__mode = "v"})
+    info = nil
+    collectgarbage("collect")
+    testAssert.equal(weak[2], _G.nupp.reflect.runtime(witness), "a live type retains its descriptor")
+    info = weak[2]
+    witness = nil
+    collectgarbage("collect")
+    testAssert.equal(weak[1], info.type, "a live descriptor retains its type")
+    info = nil
+    collectgarbage("collect")
+    collectgarbage("collect")
+    testAssert.equal(weak[1], nil, "an unused local type is collectible")
+    testAssert.equal(weak[2], nil, "its descriptor is collectible")
+end
+
+function M.witnessMetadataDoesNotReplaceUserStaticMembers()
+    local result = run(
+        [[
+local record User
+    id: integer
+    function reflect(): string
+        return "mine"
+    end
+end
+local function describe<T>(target: Type<T>): nupp.reflect.Info
+    return nupp.reflect.runtime(target)
+end
+local info = describe(User)
+return {name = info.name, custom = User.reflect()}
+]]
+    )
+    testAssert.equal(result.name, "User")
+    testAssert.equal(result.custom, "mine")
+end
+
+function M.aModuleReturnCanUseATypeWitness()
+    local info = run([[
+local record Message
+    text: string
+end
+return nupp.reflect.runtime(Message)
+]])
+    testAssert.equal(info.name, "Message")
+    testAssert.equal(info.fields[1].name, "text")
+end
+
+function M.nestedWitnessesRetainTheirDeclarationsAcrossShadowing()
+    local result = run(
+        [[
+local record Leaf
+    value: integer
+end
+local record Root
+    leaf: Leaf
+end
+local expected = Leaf
+local info = nupp.reflect.runtime(Root)
+do
+    local record Leaf
+        value: integer
+    end
+    local actual = nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+    return {original = actual == expected, different = actual ~= Leaf}
+end
+]]
+    )
+    testAssert.equal(result.original, true)
+    testAssert.equal(result.different, true)
+end
+
+function M.forwardWitnessesResolveAfterTheirDeclarationExecutes()
+    local result = run(
+        [[
+local record First
+    next: Second?
+end
+local info = nupp.reflect.runtime(First)
+local index: integer = 0
+for i, node in ipairs(info.types) do
+    if node.kind == "record" and node.name == "Second" then index = i end
+end
+local before = nupp.reflect.runtimeType(info, index)
+local record Second
+    next: First?
+end
+local after = nupp.reflect.runtimeType(info, index)
+return {absent = before == nil, correct = after == Second}
+]]
+    )
+    testAssert.equal(result.absent, true)
+    testAssert.equal(result.correct, true)
+end
+
+function M.freshLocalGraphsDoNotShareRuntimeWitnesses()
+    local result = run(
+        [[
+local function make(): (nupp.reflect.Info, Type<unknown>?)
+    local record Child
+        value: integer
+    end
+    local record Parent
+        child: Child
+    end
+    local info = nupp.reflect.runtime(Parent)
+    return info, nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+end
+local first, left = make()
+local second, right = make()
+return {distinct = left ~= right, stable = left == nupp.reflect.runtimeType(first, first.fields[1].type as integer),
+    same = first.fingerprint == second.fingerprint}
+]]
+    )
+    testAssert.equal(result.distinct, true)
+    testAssert.equal(result.stable, true)
+    testAssert.equal(result.same, true)
+end
+
+function M.aliasesRetainMetadataWhenTheirTypeIsErased()
+    local result = run(
+        [[
+local record User
+    name: string
+end
+local Alias = User
+local erased = Alias as Type<unknown>
+local stored: {Type<unknown>} = {Alias as Type<unknown>}
+local first = nupp.reflect.runtime(erased)
+local second = nupp.reflect.runtime(stored[1])
+return {same = first == second, field = first.fields[1].name}
+]]
+    )
+    testAssert.equal(result.same, true)
+    testAssert.equal(result.field, "name")
+end
+
+function M.identityAndMetatableUsesDoNotCarryDescriptors()
+    local result, code = run(
+        [[
+local record User
+    name: string
+end
+local Alias = User;
+(User as {[string]: any}).__tostring = function(): string return "user" end
+local value = new User(name = "a")
+return getmetatable(value) == Alias and User == (Alias as any)
+]]
+    )
+    testAssert.equal(result, true)
+    testAssert.equal(code:find("__reflect", 1, true), nil)
 end
 
 return M

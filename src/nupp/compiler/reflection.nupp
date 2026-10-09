@@ -6,14 +6,51 @@ local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
 local members = require("nupp.compiler.types.members")
 local T = require("nupp.compiler.types")
+local cst = require("nupp.compiler.syntax.cst")
 
 local record reflection
     SCHEMA: integer
     describe: function(any, string?, boolean?): any
     graph: function(any, any?): (integer?, {any}, {any})
+    runtimeReferences: function(any): {[string]: string}
+    bindRuntimeDeclarations: function(any, string): nil
 end
 
 reflection.SCHEMA = 5
+
+-- Associated types, annotations, and comments have no runtime identity. Count
+-- semantic runtime declarations rather than embedding their byte offsets.
+function reflection.bindRuntimeDeclarations(root: any, filename: string): nil
+    local ordinal: integer = 0
+
+    local function visit(node: any): nil
+        if not node
+            or cst.isToken(node)
+            or node.comptimeFunction
+            or node.comptimeTok
+            or node.comptimeValue ~= nil
+            or node.materializedIR ~= nil
+            or node.isAnnotationDefinition
+        then
+            return
+        end
+        if node.kind == "recordDecl"
+            and not node.isAnnotationDefinition
+            and (node.declKind == "record" or node.declKind == "struct")
+        then
+            ordinal += 1
+            local nominal = node.resolvedType or node.hoistedType
+            if nominal then
+                nominal.runtimeDeclarationKey = filename .. "\0runtime\0" .. tostring(ordinal)
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+end
 
 local function sortedNames(values)
     local names = {}
@@ -192,7 +229,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                     ] = {
                         name = names[position + offset] or "",
                         type = intern(declared[position]),
-                        optional = false,
+                        optional = admitsNil(declared[position]),
                         mode = signature.paramModes and signature.paramModes[position] or "plain",
                     }
                 end
@@ -530,6 +567,22 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
     end
 
     return descriptor
+end
+
+function reflection.runtimeReferences(root: any): {[string]: string}
+    local _, _, sources = reflection.graph(root)
+    local references: {[string]: string} = {}
+    for index, source in ipairs(sources) do
+        if source.tag == "nominal" then
+            local declaration = source.origin or source
+            local key = declaration.runtimeDeclarationKey or declaration.declarationKey
+            if key then
+                references[tostring(index)] = key
+            end
+        end
+    end
+
+    return references
 end
 
 export = reflection

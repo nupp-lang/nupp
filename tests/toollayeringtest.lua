@@ -24,6 +24,7 @@ local M = {}
 local REFLECTIVE = {
     ["src/nupp/compiler/comptime/generatorworker.nupp"] = "a generator's provider entry, named by the project",
     ["src/nupp/compiler/project/preludecache.nupp"] = "a module a stored prelude image recorded",
+    ["src/nupp/compiler/runtime/reflect.nupp"] = "an application declaration named by its runtime type graph",
 }
 
 local function names(value)
@@ -72,10 +73,9 @@ local function reaches(text, path)
                 local prefix = direct
                 if prefix == nil then
                     if not REFLECTIVE[path] then
-                        found[#found + 1] = ("%s:%d requires a name with no literal prefix"):format(
-                            path,
-                            token.line or 0
-                        )
+                        found[
+                            #found + 1
+                        ] = ("%s:%d requires a name with no literal prefix"):format(path, token.line or 0)
                     end
                 elseif couldName(prefix) then
                     found[#found + 1] = ("%s:%d requires %q .. something"):format(path, token.line or 0, prefix)

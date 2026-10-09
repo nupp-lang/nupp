@@ -398,6 +398,7 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
         local tag = t.tag
         if tag == "nominal" then
             out.declarationKey = t.declarationKey
+            out.runtimeDeclarationKey = t.runtimeDeclarationKey
             out.associatedRequirements = {}
             out.hasAssociatedRequirements = t.associatedRequirements ~= nil
             for position, requirement in ipairs(t.associatedRequirements or {}) do
@@ -1087,6 +1088,7 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
         nominal.name = node.name
         nominal.declKind = node.kind
         nominal.declarationKey = node.declarationKey
+        nominal.runtimeDeclarationKey = node.runtimeDeclarationKey
         nominal.moduleName = node.moduleName
         nominal.deriveKey = node.deriveKey
         nominal.fieldDefs = restoreDefinitions(node.fieldDefinitions)

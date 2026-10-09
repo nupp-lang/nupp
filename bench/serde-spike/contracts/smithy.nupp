@@ -1,0 +1,56 @@
+local smithy = require("example.smithy")
+local json = require("contract.jsoncodec")
+
+local ast = [[{
+  "smithy":"2.0",
+  "shapes":{
+    "example#Time":{"type":"timestamp","traits":{"smithy.api#timestampFormat":"date-time"}},
+    "example#Packet":{"type":"structure","members":{
+      "id":{"target":"smithy.api#String","traits":{"smithy.api#required":{},"smithy.api#jsonName":"identifier"}},
+      "created":{"target":"example#Time","traits":{"smithy.api#timestampFormat":"epoch-seconds"}},
+      "updated":{"target":"smithy.api#Timestamp"},
+      "next":{"target":"example#Packet"},
+      "payload":{"target":"smithy.api#Document"},
+      "choice":{"target":"example#Choice"}
+    }},
+    "example#Choice":{"type":"union","members":{"text":{"target":"smithy.api#String"}}},
+    "example#Get":{"type":"operation","input":{"target":"example#Packet"},"output":{"target":"example#Packet"}},
+    "example#Service":{"type":"service","version":"1","operations":[{"target":"example#Get"}]}
+  }
+}]]
+local first = smithy.parse(ast)
+local second = smithy.parse(ast)
+local shape = first:shape("example#Packet")
+assert(shape ~= second:shape("example#Packet"))
+assert(assert(shape:member("next")).target == shape)
+assert(assert(assert(shape:member("created")):trait("smithy.api#timestampFormat")):string() == "epoch-seconds")
+assert(assert(first:shape("example#Service").definition:get("version")):string() == "1")
+local binding = smithy.binding(shape)
+local dates = json.codec(smithy.policy(false, true))
+local epochs = json.codec(smithy.policy(true, false))
+local value = dates:decode(
+    binding,
+    [[{"identifier":"a","created":1.25,"updated":"1970-01-01T00:00:02Z",
+    "next":{"identifier":"b"},"payload":{"arbitrary":[true,null]},"choice":{"text":"known"}} ]]
+)
+assert(assert(value:get("id")):string() == "a")
+assert(assert(value:get("created")):timestamp().nanos == 250000000)
+assert(assert(value:get("next")):get("id") ~= nil)
+assert(assert(assert(value:get("updated")):context()):get(smithy.schemaContext) == first:shape("smithy.api#Timestamp"))
+local bytes = epochs:encode(binding, value)
+assert(bytes:find('"id":"a"', 1, true))
+assert(bytes:find('"updated":2', 1, true))
+assert(bytes:find('"created":1.25', 1, true))
+assert(epochs:decode(binding, bytes):get("payload") ~= nil)
+assert(not pcall(dates.decode, dates, binding, '{}'))
+assert(not pcall(dates.decode, dates, binding, '{"identifier":"a","created":"wrong"}'))
+assert(
+    not pcall(
+        smithy.parse,
+        '{"smithy":"2.0","shapes":{"example#Broken":{"type":"list","member":{"target":"example#Missing"}}}}'
+    )
+)
+
+local unknown = dates:decode(binding, '{"identifier":"a","choice":{"future":{"x":1}}}')
+assert(dates:encode(binding, unknown):find('"future":{"x":1}', 1, true))
+assert(not pcall(epochs.encode, epochs, binding, unknown))

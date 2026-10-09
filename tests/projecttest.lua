@@ -131,7 +131,6 @@ end
 
 local M = {}
 
-
 -- Sets or clears a variable of this process's own environment, which the
 -- build it then runs in process reads: POSIX `setenv`, or the Windows C
 -- runtime's `_putenv_s`, where an empty value clears it.
@@ -411,6 +410,82 @@ return Matcher("ok")
     remove(dir)
 end
 
+function M.cachedProducersRetainNestedRuntimeTypeWitnesses()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include={"src"},build={outDir="out",entries={"main"}}}',
+        ["src/main.nupp"] = 'local models=require("witnessmodels") return models.make().child.value',
+        [
+            "src/witnessmodels.nupp"
+        ] = [[
+local models = {}
+local record Child
+    value: integer
+end
+record models.Parent
+    child: Child
+end
+function models.make(): models.Parent
+    return new models.Parent(child = new Child(value = 7))
+end
+return models
+]],
+    })
+    testAssert.equal(project.build(dir, {}), 0)
+    local producer = read(dir .. "/out/witnessmodels.lua")
+    write(
+        dir .. "/src/main.nupp",
+        [[
+local models = require("witnessmodels")
+local info = nupp.reflect.runtime(models.Parent)
+local child = nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+local value = models.make()
+return child == getmetatable(value.child) and value.child.value == 7
+]]
+    )
+    local stats = {}
+    testAssert.equal(project.build(dir, {stats = stats}), 0)
+    testAssert.equal(stats.checkedModules, 1, "only the consumer changed")
+    testAssert.equal(read(dir .. "/out/witnessmodels.lua"), producer)
+    testAssert.equal(answerFrom(dir .. "/out", dir), "true", producer .. read(dir .. "/out/main.lua"))
+    remove(dir)
+end
+
+function M.foreignWitnessesSurviveCollectionBetweenModuleLoads()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include={"src"},build={outDir="out",entries={"main"}}}',
+        ["src/childmodels.nupp"] = [[
+local models = {}
+record models.Child
+    value: integer
+end
+return models
+]],
+        [
+            "src/parentmodels.nupp"
+        ] = [[
+local children = require("childmodels")
+local models = {}
+record models.Parent
+    child: children.Child
+end
+return models
+]],
+        [
+            "src/main.nupp"
+        ] = [[
+local children = require("childmodels")
+collectgarbage("collect")
+collectgarbage("collect")
+local parents = require("parentmodels")
+local info = nupp.reflect.runtime(parents.Parent)
+return nupp.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
+]],
+    })
+    testAssert.equal(project.build(dir, {}), 0)
+    testAssert.equal(answerFrom(dir .. "/out", dir), "true")
+    remove(dir)
+end
+
 function M.annotationChangesInvalidateReflectedMaterializations()
     local dir = tempProject({
         ["nupp.lua"] = [[
@@ -454,7 +529,11 @@ return models
     write(dir .. "/src/models.nupp", source:gsub('name = "users"', 'name = "accounts"'))
     local changed, changedStats = {}, {}
     testAssert.equal(project.build(dir, {produced = changed, stats = changedStats}), 0)
-    testAssert.equal(changedStats.checkedModules, 2, "changing exported reflected metadata rechecks its dependent module")
+    testAssert.equal(
+        changedStats.checkedModules,
+        2,
+        "changing exported reflected metadata rechecks its dependent module"
+    )
     assert(
         first ~= assert(changed.materializations[1]).fingerprint,
         "annotation values participate in the materialization fingerprint"
@@ -738,7 +817,11 @@ return {build = {entries = {"main"},
     assert(config, "a supported layout target is accepted: " .. tostring(err))
     testAssert.equal(config.build.layoutTarget, "aarch64-apple-darwin")
     local described = assert(project.describeTasks(valid, "default"))
-    testAssert.equal(described.layoutTarget, "aarch64-apple-darwin", "task discovery reports the effective layout target")
+    testAssert.equal(
+        described.layoutTarget,
+        "aarch64-apple-darwin",
+        "task discovery reports the effective layout target"
+    )
     remove(valid)
 
     local invalid = tempProject({
@@ -884,7 +967,13 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     })
     local stubDir = dir .. "/stubs"
     os.execute("mkdir -p '" .. stubDir .. "'")
-    testAssert.equal(project.check(dir, {platform = platforms[1]}), 0, "checking a selected platform needs no stub or network")
+    testAssert.equal(
+        project.check(dir, {
+            platform = platforms[1]
+        }),
+        0,
+        "checking a selected platform needs no stub or network"
+    )
     local records = {}
     for _, platform in ipairs(platforms) do
         local suffix = platform == "x86_64-pc-windows-msvc" and ".exe" or ""
@@ -958,7 +1047,13 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     testAssert.equal(read(cached), syntheticStub(linux), "the repaired cache contains authenticated bytes")
     local hiddenStubDir = stubDir .. "-hidden"
     testAssert.equal(os.rename(stubDir, hiddenStubDir), true)
-    testAssert.equal(project.build(dir, {platform = linux}), 0, "a verified cache hit needs no source directory artifact")
+    testAssert.equal(
+        project.build(dir, {
+            platform = linux
+        }),
+        0,
+        "a verified cache hit needs no source directory artifact"
+    )
     testAssert.equal(os.rename(hiddenStubDir, stubDir), true)
 
     write(
@@ -993,7 +1088,13 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     )
 
     write(catalogPath, json.encode({catalogRelease = "synthetic-abi", hostAbi = 2, stubs = records}))
-    testAssert.equal(project.build(dir, {platform = linux}), 1, "a catalog for another host ABI is refused before stamping")
+    testAssert.equal(
+        project.build(dir, {
+            platform = linux
+        }),
+        1,
+        "a catalog for another host ABI is refused before stamping"
+    )
     write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
 
     local wrongBytes = syntheticStub("aarch64-apple-darwin")
@@ -1020,7 +1121,13 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
 
     write(dir .. "/main.g.nupp", 'local lpeg = require("lpeg")\nreturn lpeg\n')
-    testAssert.equal(project.build(dir, {platform = linux}), 1, "a payload feature absent from the selected stub is refused")
+    testAssert.equal(
+        project.build(dir, {
+            platform = linux
+        }),
+        1,
+        "a payload feature absent from the selected stub is refused"
+    )
     write(dir .. "/main.g.nupp", "return true\n")
 
     local windowsOutput = dir .. "/build/default/x86_64-pc-windows-msvc/default.exe"
@@ -1139,7 +1246,7 @@ function M.retiredManifestKeysFailAsUnknownKeys()
     -- a maximum.
     reject(
         'return {include = {"src"}, build = {targets = {app = {kind = "modules", aot = "require", '
-            .. 'aotFeatures = "avx2"}}}}\n',
+        .. 'aotFeatures = "avx2"}}}}\n',
         "aotFeatures must be a table"
     )
     reject(
@@ -1157,7 +1264,7 @@ function M.retiredManifestKeysFailAsUnknownKeys()
     )
     reject(
         'return {include = {"src"}, dependencies = {native = {kind = "c", bindings = '
-            .. '{header = "native.h", out = "src/native.nupp"}}}}\n',
+        .. '{header = "native.h", out = "src/native.nupp"}}}}\n',
         'has no key "out"'
     )
     reject(
@@ -1923,7 +2030,14 @@ return {
     -- reader's own bytes do not move, so the recorded guarantee is the only thing
     -- that can carry the change across.
     write(dir .. "/src/dep.g.nupp", quiet)
-    testAssert.equal(project.check(dir, {stats = {}, diagnostics = {}}), 0, "the reader accepts once the provider is quiet")
+    testAssert.equal(
+        project.check(dir, {
+            stats = {},
+            diagnostics = {}
+        }),
+        0,
+        "the reader accepts once the provider is quiet"
+    )
 
     -- And back the other way, which is the direction that fails silently.
     write(dir .. "/src/dep.g.nupp", allocating)
@@ -1966,9 +2080,7 @@ return {include = {"lib", "src"}, build = {outDir = "out"}}
 ]],
         ["lib/util.nupp"] = "module util\n\nexport function v(): integer\n    return 42\nend\n",
         ["src/util.nupp"] = "module util\n\nexport function v(): string\n    return \"from-src\"\nend\n",
-        [
-            "src/b.nupp"
-        ] = [[
+        ["src/b.nupp"] = [[
 module b
 const util = require("util")
 
@@ -1999,9 +2111,7 @@ end
 -- body its declaration never emitted.
 function M.aCallersNewConstantRegeneratesTheDeclaringModule()
     local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
+        ["nupp.lua"] = [[
 return {include = {"src"}, build = {outDir = "out", entries = {"main"}, optimize = 1}}
 ]],
         [
@@ -2042,7 +2152,11 @@ function M.aHeaderEditRechecksTheModuleThatReadsIt()
     write(dir .. "/src/probe.h", "int probe_sum(int a, int b);\n")
     local diagnostics, edited = {}, {}
     testAssert.equal(
-        project.build(dir, {checkOnly = true, stats = edited, diagnostics = diagnostics}),
+        project.build(dir, {
+            checkOnly = true,
+            stats = edited,
+            diagnostics = diagnostics
+        }),
         1,
         "a header that no longer declares the function refuses the call"
     )
@@ -2077,9 +2191,7 @@ end
 -- entry, which made the shared representation declarations dominate every warm command.
 function M.warmRuntimeCheckUsesRecordedRuntimeDependencies()
     local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
+        ["nupp.lua"] = [[
 return {
    include = {"src"},
    build = {outDir = "out", entries = {"main"}},
@@ -2269,10 +2381,24 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
     -- Rechecking a changed consumer admits a validated persisted result. Damage is a
     -- miss, never a different type answer.
     write(dir .. "/src/main.nupp", main .. "\n-- force a consumer check\n")
-    testAssert.equal(project.check(dir, {stats = {}, diagnostics = {}}), 0, "a fresh checker accepts persisted blueprints")
+    testAssert.equal(
+        project.check(dir, {
+            stats = {},
+            diagnostics = {}
+        }),
+        0,
+        "a fresh checker accepts persisted blueprints"
+    )
     write(cache, "not a type-function store")
     write(dir .. "/src/main.nupp", main .. "\n-- force another consumer check\n")
-    testAssert.equal(project.check(dir, {stats = {}, diagnostics = {}}), 0, "a damaged result store falls back to evaluation")
+    testAssert.equal(
+        project.check(dir, {
+            stats = {},
+            diagnostics = {}
+        }),
+        0,
+        "a damaged result store falls back to evaluation"
+    )
 
     -- The sealed helper closure is part of the exported interface. Changing its
     -- behavior rechecks the unchanged consumer and changes the generated answer.
@@ -2348,6 +2474,7 @@ return {
         {version = 5, modules = {main = "a record"}, dependencies = {}, outputs = {}, targets = {}},
         {version = 5, modules = {}, dependencies = {}, outputs = {}, targets = {app = {1}}},
     }
+
     -- The stamp carries the module compiler, so it is read from the state the last
     -- check wrote rather than spelled here.
     local function checkStamp()
@@ -2356,6 +2483,7 @@ return {
         file:close()
         return envelope.slots[1].stamp
     end
+
     for index, shape in ipairs(shapes) do
         local doctored = store.openValue(dir .. "/out/cache/checks.buf", checkStamp())
         doctored.set(shape)
@@ -2816,7 +2944,19 @@ print(triangular(4))
     -- Every tool a C link would reach for fails, and says so.
     local fake = dir .. "/fakebin"
     assert(os.execute("mkdir -p '" .. fake .. "'") == 0)
-    for _, tool in ipairs({"cc", "clang", "gcc", "ld", "ld.lld", "xcrun", "c++", "clang++", "ar", "ranlib", "libtool"}) do
+    for _, tool in ipairs({
+        "cc",
+        "clang",
+        "gcc",
+        "ld",
+        "ld.lld",
+        "xcrun",
+        "c++",
+        "clang++",
+        "ar",
+        "ranlib",
+        "libtool"
+    }) do
         write(fake .. "/" .. tool, "#!/bin/sh\necho \"$0\" >> '" .. dir .. "/invoked'\nexit 99\n")
         assert(os.execute("chmod +x '" .. fake .. "/" .. tool .. "'") == 0)
     end
@@ -2887,17 +3027,16 @@ print(triangular(5))
     local again = dir .. "/kits/again.tar.gz"
     assert(
         os.execute(
-            ("kit=$(%q kit '' 2>/dev/null) && touch \"$kit\"/* && (umask 077; TZ=Asia/Tokyo %q kit-archive '' %q)"):format(
-                root .. "/scripts/toolchain",
-                root .. "/scripts/toolchain",
-                again
-            )
+            (
+                "kit=$(%q kit '' 2>/dev/null) && touch \"$kit\"/* && (umask 077; TZ=Asia/Tokyo %q kit-archive '' %q)"
+            ):format(root .. "/scripts/toolchain", root .. "/scripts/toolchain", again)
         ) == 0
     )
     assert(read(again) == bytes, "archiving the same kit again writes the same bytes")
     os.remove(again)
     local host = assert(require("nupp.tools.build.platform").hostKey())
     local hostAbi = require("nupp.tools.build.package").hostAbiVersion
+
     local function catalog(digest)
         write(
             dir .. "/catalog.json",
@@ -2908,18 +3047,23 @@ print(triangular(5))
             ):format(hostAbi, host, host, hostAbi, digest, #bytes)
         )
     end
+
     catalog(require("nupp.compiler.hash").sha256(bytes))
     local names = {"NUPP_STUB_CATALOG", "NUPP_STUB_DIR", "NUPP_KIT_CACHE"}
     setEnvironment("NUPP_STUB_CATALOG", dir .. "/catalog.json")
     setEnvironment("NUPP_STUB_DIR", dir .. "/kits")
     setEnvironment("NUPP_KIT_CACHE", dir .. "/cache")
+
     local function build()
         local ok, built = pcall(project.build, dir)
         assert(ok, built)
         return built
     end
+
     local first = build()
-    local installed = exists(dir .. "/cache/test/" .. host .. "/" .. require("nupp.compiler.hash").sha256(bytes) .. "/kit.json")
+    local installed = exists(
+        dir .. "/cache/test/" .. host .. "/" .. require("nupp.compiler.hash").sha256(bytes) .. "/kit.json"
+    )
     os.remove(archive)
     assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
     local second = build()
@@ -3181,7 +3325,11 @@ return {
         ),
     })
     testAssert.equal(project.build(dir), 0)
-    testAssert.equal(answerFrom(dir .. "/out", dir), "5", "the shared parent contains its transitive static implementation")
+    testAssert.equal(
+        answerFrom(dir .. "/out", dir),
+        "5",
+        "the shared parent contains its transitive static implementation"
+    )
     remove(dir)
 end
 
@@ -3669,7 +3817,11 @@ return {dependencies = {types = {kind = "types", format = "luacats",
         ["main.nupp"] = "return true\n",
     })
     local explicit = assert(project.loadManifest(explicitDir))
-    testAssert.equal(#explicit.build.compileDependencies, 0, "an explicit empty list opts out of ambient type dependencies")
+    testAssert.equal(
+        #explicit.build.compileDependencies,
+        0,
+        "an explicit empty list opts out of ambient type dependencies"
+    )
     remove(explicitDir)
 end
 
@@ -3953,7 +4105,11 @@ return {
     testAssert.equal(project.build(dir), 0)
     assert(exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"), "the rock is installed into a tree the project owns")
     local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(#state.dependencies.tiny.key, 32, "a rock's cache key is the build digest, not the trailer's SHA-256")
+    testAssert.equal(
+        #state.dependencies.tiny.key,
+        32,
+        "a rock's cache key is the build digest, not the trailer's SHA-256"
+    )
     -- And into the running process's search path: a build that installs a
     -- renderer is a build that may render with it a moment later.
     assert(
@@ -4184,7 +4340,13 @@ function M.bundledRockModulesAreNamedTheWayRequireFindsThem()
         "a directory module keeps its init, a nested one keeps its path"
     )
 
-    testAssert.equal(deps.rockModules(dir, config, {dependencies = {}})[1], nil, "a target that asks for no rock carries none")
+    testAssert.equal(
+        deps.rockModules(dir, config, {
+            dependencies = {}
+        })[1],
+        nil,
+        "a target that asks for no rock carries none"
+    )
     local unasked = {dependencies = {lunamark = {kind = "luarocks", version = "0.6.0-1"}},}
     testAssert.equal(
         deps.rockModules(dir, unasked, {

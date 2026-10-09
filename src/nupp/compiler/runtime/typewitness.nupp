@@ -1,0 +1,92 @@
+@!internal
+module nupp.compiler.runtime.typewitness
+
+-- Type metadata must work before stores and extension keys have initialized.
+local runtime = {}
+
+function runtime.install(namespace: any): nil
+    local reflect: any = rawget(namespace, "__reflect")
+    if reflect == nil then
+        reflect = {}
+        rawset(namespace, "__reflect", reflect)
+    end
+    if reflect.witnessesReady then
+        return
+    end
+    reflect.witnessesReady = true
+    local blueprints: any = reflect.blueprints or setmetatable({}, {__mode = "k"})
+    local references: any = reflect.references or setmetatable({}, {__mode = "k"})
+    local declarations: any = reflect.declarations or setmetatable({}, {__mode = "v"})
+    local targetsKey: any = reflect.targetsKey or {}
+    local ctypeTargets: any = reflect.ctypeTargets or setmetatable({}, {__mode = "k"})
+    reflect.blueprints, reflect.references, reflect.declarations = blueprints, references, declarations
+    reflect.targetsKey, reflect.ctypeTargets = targetsKey, ctypeTargets
+
+    function reflect.reference(key: string, moduleName: string): any
+        local cell = declarations[key]
+        if cell == nil then
+            cell = {key = key, module = moduleName}
+            declarations[key] = cell
+        end
+
+        return cell
+    end
+
+    function reflect.declaration(key: string): any
+        local cell = declarations[key]
+        if cell == nil or cell[1] ~= nil then
+            cell = {key = key}
+            declarations[key] = cell
+        end
+
+        return cell
+    end
+
+    function reflect.link(typeObject: any, owner: any, children: any?): nil
+        -- A development compiler can rebuild the runtime before rebuilding its
+        -- callers. Accept the earlier internal emitter form during that bootstrap.
+        local targets = owner
+        if children ~= nil then
+            owner[1] = typeObject
+            targets = {[owner.key] = owner}
+            for _, cell in ipairs(children) do
+                targets[cell.key] = cell
+            end
+        end
+        if type(typeObject) == "table" then
+            rawset(typeObject, targetsKey, targets)
+        else
+            ctypeTargets[typeObject] = targets
+        end
+    end
+
+    function reflect.known(typeObject: any): boolean
+        return blueprints[typeObject] ~= nil
+    end
+
+    function reflect.register(typeObject: any, blueprint: any, targets: any?): any
+        blueprints[typeObject] = blueprint
+        references[typeObject] = targets
+        if type(typeObject) == "table" and rawget(typeObject, "reflect") == nil then
+            rawset(typeObject, "reflect", function(): any
+                if reflect.get == nil then
+                    require("nupp.compiler.runtime.reflect").install(namespace)
+                end
+                return reflect.get(typeObject)
+            end)
+        end
+
+        return typeObject
+    end
+
+    function reflect.ensure(typeObject: any, describe: function(): (any, any)): any
+        if blueprints[typeObject] == nil then
+            local blueprint, targets = describe()
+            reflect.register(typeObject, blueprint, targets)
+        end
+
+        return typeObject
+    end
+end
+
+export = runtime

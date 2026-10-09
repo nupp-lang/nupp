@@ -785,6 +785,9 @@ record types.Nominal
     --- but the key a worker finds its own copy of a transported declaration by.
     declarationKey: string?
 
+    --- Identifies the runtime declaration without depending on erased source.
+    runtimeDeclarationKey: string?
+
     --- The source file whose header declared this nominal, set only on the ones the
     --- project index allocates, which every process indexing the project shares.
     indexedPath: string?
