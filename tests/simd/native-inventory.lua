@@ -69,7 +69,8 @@ function M.execution(execution, family, element, requested)
                 bitpatterns = {bits = true},
                 bitmemory = {memorybits = true},
                 masks = {masks = true},
-                maps = {mapmath = true}
+                maps = {mapmath = true},
+                widen = {widen = true, narrow = true}
             }
             assert(module and valid[module] and valid[module][group], "unexpected primitive probe: " .. key)
         else
@@ -121,6 +122,16 @@ function M.execution(execution, family, element, requested)
             expected.bits = {widths, 1}
             expected.memorybits = {widths, 1}
             expected.mapmath = {widths, 1}
+        end
+        -- A species widens to the next element of its ladder and narrows to
+        -- the previous one; the ends of each ladder have only one direction.
+        local widest = element == "number" or element == "int64" or element == "uint64"
+        local narrowest = element == "float" or element == "int8" or element == "uint8"
+        if not widest then
+            expected.widen = {widths, 1}
+        end
+        if not narrowest then
+            expected.narrow = {widths, 1}
         end
     else
         expected = {horizontal = {widths, 1}}

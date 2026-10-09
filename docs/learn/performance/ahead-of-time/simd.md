@@ -177,19 +177,12 @@ local simd = require("nupp.simd")
 @aot
 local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
     assert(#out == #input, "one sum per input")
-    local s = assert(simd.species(array.uint32))
+    local s = simd.species(array.uint32)
     local carry = s:splat(0)
-    local cursor: uint32 = 0
-    while cursor + s.lanes <= #input do
-        local sums = s:load(input, cursor + 1):orderedPrefixSum() + carry
-        s:store(out, cursor + 1, sums)
+    for at, active in s:over(#input) do
+        local sums = s:load(input, at, active):orderedPrefixSum() + carry
+        s:store(out, at, sums, active)
         carry = s:splat(sums:extract(s.lanes))
-        cursor = cursor + s.lanes
-    end
-    if cursor < #input then
-        local rest = s:tail(#input - cursor)
-        local sums = s:load(input, cursor + 1, rest):orderedPrefixSum() + carry
-        s:store(out, cursor + 1, sums, rest)
     end
     return #input
 end
