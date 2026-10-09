@@ -6,4 +6,25 @@ module nupp.runtime.browser.memory
 local guest: any = rawget(_G, "__nuppBrowser")
 local memory: any = assert(guest and guest.memory, "nupp: browser guest memory transport is unavailable")
 
+-- Every lease shares one bounded region of the frame that carries it, so the
+-- effect queue packs frames by what each request lends. The transport keeps
+-- extents to itself; record them on the way through, once per transport.
+if rawget(memory, "leaseBytes") == nil then
+    local extents: {[any]: integer} = {}
+    local lease = memory.lease
+    local releaseLease = memory.releaseLease
+    memory.lease = function(pointer: any, count: integer, writable: boolean?): any
+        local id = lease(pointer, count, writable)
+        extents[id] = count
+        return id
+    end
+    memory.releaseLease = function(id: any): nil
+        extents[id] = nil
+        releaseLease(id)
+    end
+    memory.leaseBytes = function(id: any): integer
+        return extents[id] or 0
+    end
+end
+
 export = memory

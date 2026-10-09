@@ -1,0 +1,38 @@
+module nupp.host.spi
+
+--[[
+The interface a [](nupp.host) implementation provides.
+
+The facade selects one implementation when it loads: a provider discovered
+through [](nupp.spi), otherwise the embedding host natively and the page in a
+browser. Every function is receiver-free and takes its arguments as a flat list,
+so an argument list is never wrapped in a table on its way through.
+
+The facade has already checked the kind's spelling. A provider checks the
+values themselves against the channel's value model -- `nil`, booleans, finite
+numbers, UTF-8 strings and byte spans -- because only the provider knows what it
+is about to encode, and it reports a refusal with the argument's position.
+
+`call` suspends through [](nupp.suspension) until the host answers. Should the
+waiting task be cancelled after the request reached the host, a later answer is
+handed to `late` rather than dropped, so a result naming a host resource is
+always released by someone. `post` never suspends and discards the answer.
+]]
+
+--- Called with the results of a call whose caller stopped waiting.
+export type Late = function(...: any): nil
+
+export interface Provider
+    --- Ranks a discovered implementation; the highest unique priority wins.
+    @readonly priority: integer?
+
+    --- Reports whether something is attached to answer requests at all.
+    @readonly attached: function(): boolean
+
+    --- Sends a request and suspends until the host answers it.
+    --- Raises the host's failure as an error in the caller.
+    @readonly call: function(kind: string, late: Late?, ...: any): ...any
+
+    --- Queues a request for the host without waiting for its answer.
+    @readonly post: function(kind: string, ...: any): nil
+end

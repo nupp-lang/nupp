@@ -19,6 +19,17 @@ local waiting: {[integer]: any} = {}
 local hostTurns: integer = 0
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local relays: any = setmetatable({}, {__mode = "k"})
+-- What each queued request costs its frame's text envelope, measured once when it
+-- is queued.
+local encodedBytes: any = setmetatable({}, {__mode = "k"})
+
+-- One frame carries at most this much: the guest's text slot is one MiB and the
+-- bridge adds lease descriptors beside the requests, the lent bytes share a
+-- two-MiB region, and the host answers at most this many requests per frame.
+const FRAME_TEXT_BYTES = 960 * 1024
+const FRAME_LEASE_BYTES = 2 * 1024 * 1024
+const FRAME_LEASE_DESCRIPTOR_BYTES = 96
+const FRAME_REQUESTS = 256
 
 local function invalidResponse(detail: string): never
     error("nupp: browser application returned an invalid effect response: " .. detail, 0)
@@ -78,10 +89,11 @@ function effects.request(
     -- Refuse an unencodable payload here, where the offender is known. Failing at
     -- park time would raise in whichever coroutine happened to carry the batch and
     -- strand every other queued request's waiter.
-    local encodable, problem = pcall(json.encode, payload)
+    local encodable, encoded = pcall(json.encode, payload)
     if not encodable then
-        error("nupp: browser effect " .. kind .. " has no JSON form: " .. tostring(problem), 0)
+        error("nupp: browser effect " .. kind .. " has no JSON form: " .. tostring(encoded), 0)
     end
+    encodedBytes[payload] = #encoded
     queued[#queued + 1] = payload
     local active = true
     waiting[id] = function(response: any): nil
@@ -93,9 +105,11 @@ function effects.request(
         resume(response)
     end
 
-    return function(): nil
+    -- Answers whether the request was still queued, and so never reached the host.
+
+    return function(): boolean
         if not active then
-            return
+            return false
         end
         active = false
         -- The host executes whatever a park carries, so a request cancelled before
@@ -104,7 +118,7 @@ function effects.request(
             if queued[index] == payload then
                 table.remove(queued, index)
                 waiting[id] = nil
-                return
+                return true
             end
         end
         -- Past that point the host will run the request whatever this side does, so
@@ -112,13 +126,81 @@ function effects.request(
         -- waiter would strand an open file handle for the rest of the run.
         if discard == nil then
             waiting[id] = nil
-            return
+            return false
         end
         waiting[id] = function(response: any): nil
             waiting[id] = nil
             discard(response)
         end
+
+        return false
     end
+end
+
+local function leaseIdentifiers(request: any): {any}
+    local found: {any} = {}
+    if request.lease ~= nil then
+        found[#found + 1] = request.lease
+    end
+    if request.bodyLease ~= nil then
+        found[#found + 1] = request.bodyLease
+    end
+    if request.resultLease ~= nil then
+        found[#found + 1] = request.resultLease
+    end
+    if type(request.spans) == "table" then
+        for _, span in ipairs(request.spans) do
+            if type(span) == "table" and span.lease ~= nil then
+                found[#found + 1] = span.lease
+            end
+        end
+    end
+
+    return found
+end
+
+-- Takes, in submission order, the longest prefix of the queue one frame carries.
+-- A request that does not fit waits whole for the next frame, so order is never
+-- traded for packing; one that could never fit goes alone and fails as before.
+local function takeFrame(): ({any}, boolean, {any})
+    local guestMemory: any = browserHost ~= nil and browserHost.memory or nil
+    local bytesOf: any = guestMemory ~= nil and rawget(guestMemory, "leaseBytes") or nil
+    local taken: {any} = {}
+    local text: integer = 0
+    local lent: integer = 0
+    local seen: {[any]: boolean} = {}
+    local count: integer = #queued
+    local index: integer = 1
+    while index <= count and #taken < FRAME_REQUESTS do
+        local request = queued[index]
+        local requestText: integer = encodedBytes[request] or 0
+        local requestLent: integer = 0
+        local leases = leaseIdentifiers(request)
+        for _, lease in ipairs(leases) do
+            if not seen[lease] then
+                requestText = requestText + FRAME_LEASE_DESCRIPTOR_BYTES
+                if bytesOf ~= nil then
+                    requestLent = requestLent + (bytesOf(lease) as integer)
+                end
+            end
+        end
+        if #taken > 0 and (text + requestText > FRAME_TEXT_BYTES or lent + requestLent > FRAME_LEASE_BYTES) then
+            break
+        end
+        for _, lease in ipairs(leases) do
+            seen[lease] = true
+        end
+        text = text + requestText
+        lent = lent + requestLent
+        taken[#taken + 1] = request
+        index = index + 1
+    end
+    local rest: {any} = {}
+    for remaining = index, count do
+        rest[#rest + 1] = queued[remaining]
+    end
+
+    return taken, #rest > 0, rest
 end
 
 --- Whether `thread` can wait on the page, or the main thread where it is nil.
@@ -186,10 +268,16 @@ function effects.park(operation: string, turn: boolean?): nil
     if #queued == 0 then
         encoded = json.encode({kind = "poll", operation = operation, wake = wake,})
     else
-        -- Encode before clearing, so a failed encode leaves the queue intact
+        local taken, more, rest = takeFrame()
+        -- What stays queued ships next frame, so this one must not wait for
+        -- something to settle before it is answered.
+        if more then
+            wake = "turn"
+        end
+        -- Encode before dequeuing, so a failed encode leaves the queue intact
         -- instead of stranding every dequeued request's waiter.
-        encoded = json.encode({kind = "effects", requests = queued, wake = wake,})
-        queued = {}
+        encoded = json.encode({kind = "effects", requests = taken, wake = wake,})
+        queued = rest
     end
     local responseText = coroutine.yield(encoded)
     hostTurns = hostTurns + 1

@@ -1,0 +1,102 @@
+@!internal
+module nupp.host.internal.values
+
+--[[
+The value model every [](nupp.host) provider shares.
+
+A request's arguments and a host's results are a count and that many flat
+values. Each provider encodes them its own way; this module is what decides
+which values may cross and how large they may be, so the browser and an
+embedding host refuse exactly the same things with exactly the same message.
+]]
+
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+local utf8 = require("nupp.text.utf8")
+
+local values = {}
+
+--- The largest string value, which travels inside the request's text envelope.
+values.MAX_STRING_BYTES = 64 * 1024
+
+--- The largest byte value a request may carry to the host.
+values.MAX_OUTBOUND_BYTES = 64 * 1024 * 1024
+
+--- The largest byte value a host may answer with.
+values.MAX_INBOUND_BYTES = 16 * 1024 * 1024
+
+--- The largest byte value that crosses in one piece; larger ones are chunked.
+values.CHUNK_BYTES = 1024 * 1024
+
+local sharedRef: any = rawget(span as any, "__sharedRef")
+local foreignByteSpan: any = rawget(span as any, "__foreignByteSpan")
+local byteTypes: {[number]: boolean} = {}
+
+local function isByteType(pointer: any): boolean
+    local ctype = ffi.typeof(pointer)
+    local id = tonumber(ctype) as number
+    local known = byteTypes[id]
+    if known ~= nil then
+        return known
+    end
+    local name = tostring(ctype):gsub("^ctype<", ""):gsub(">$", ""):gsub("const ", "")
+    local accepted = name:match("^unsigned char[ %*%[]") ~= nil
+        or name:match("^char[ %*%[]") ~= nil
+        or name:match("^signed char[ %*%[]") ~= nil
+    byteTypes[id] = accepted
+
+    return accepted
+end
+
+local function refuse(kind: string, position: integer, problem: string): nil
+    error(string.format("nupp: host %s argument %d %s", kind, position, problem), 0)
+end
+
+--- Classifies one argument, raising when it cannot cross.
+---
+--- Answers `"nil"`, `"boolean"`, `"number"` or `"string"` with the value
+--- itself, or `"bytes"` with the rooted pointer and its length.
+function values.classify(kind: string, position: integer, value: any): (string, any, integer?)
+    local kindOf = type(value)
+    if kindOf == "nil" then
+        return "nil", nil, nil
+    elseif kindOf == "boolean" then
+        return "boolean", value, nil
+    elseif kindOf == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            refuse(kind, position, "is not a finite number")
+        end
+        return "number", value, nil
+    elseif kindOf == "string" then
+        if #value > values.MAX_STRING_BYTES then
+            refuse(kind, position, "is a string longer than 64 KiB; send it as bytes")
+        end
+        if not utf8.isValid(value) then
+            refuse(kind, position, "is a string that is not UTF-8; send binary data as bytes")
+        end
+        return "string", value, nil
+    elseif kindOf == "table" then
+        local pointer, count = sharedRef(value)
+        if pointer ~= nil then
+            if not isByteType(pointer) then
+                refuse(kind, position, "is a span of non-byte elements")
+            end
+            if count > values.MAX_OUTBOUND_BYTES then
+                refuse(kind, position, "is a byte span larger than 64 MiB")
+            end
+            return "bytes", pointer, count
+        end
+    end
+    refuse(kind, position, "is a " .. kindOf .. ", which cannot cross to the host")
+
+    return "nil", nil, nil
+end
+
+--- Wraps bytes the provider owns as a byte span the caller receives.
+---
+--- `anchor` keeps the storage alive for as long as the span is.
+function values.byteSpan(anchor: any, pointer: any, count: integer): any
+    return foreignByteSpan(anchor, pointer, 0, count)
+end
+
+export = values

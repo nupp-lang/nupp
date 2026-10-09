@@ -1,0 +1,174 @@
+module nupp.host
+
+--[[
+`nupp.host` asks whatever is running the program for something and waits for
+the answer: the page's JavaScript in a browser, or the C or Rust application
+that embeds the runtime natively. Reach for it when a library needs a facility
+the host has and Nupp does not, such as a canvas, a clipboard or an engine's
+asset loader, and should not care which host it is running under.
+
+A request names a *kind*, a dotted name the host answers, and carries a flat
+list of values. Declare the kind's signature once as a function type and bind
+it; callers then get named arguments and a checked call:
+
+```nupp:fragment
+local host = nupp.host
+
+--- Answers the host's id for the decoded image, and its width and height.
+local type DecodeImage = function(url: string, format: string?): (integer, integer, integer)
+local type ReleaseImage = function(id: integer): nil
+
+local releaseImage = host.bindPost<ReleaseImage>("tecs.image.release")
+local decodeImage = host.bind<DecodeImage>("tecs.image.decode",
+    late = function(id: any, ...: any): nil releaseImage(id) end)
+
+local id, width, height = decodeImage(url = "sprites.png")
+```
+
+A call suspends through [](nupp.suspension) until the host answers, so it
+composes with [task scopes](docs/learn/runtime/concurrency/task-scopes.md),
+deadlines and cancellation. A host failure is raised in the caller with the
+host's message. `bind` allocates its closure once; a call through it passes its
+arguments straight through rather than gathering them into a table.
+
+## Values
+
+Arguments and results are each a count of flat values: `nil`, booleans,
+numbers, strings and byte spans. Every position is kept, so interior and
+trailing `nil`s arrive as written. A number must be finite and a string must be
+UTF-8 text; arbitrary bytes are a [](nupp.mem.span) of bytes, never a string
+holding binary. Tables and functions are refused, naming the argument's
+position. Structured data is encoded into bytes by the library that owns it.
+
+A host names its own resources with integers it assigns. A byte result arrives
+as a byte span the caller owns.
+
+## Results nobody is waiting for
+
+A call cancelled after it reached the host may still be answered. When the
+results name a host resource, declare `late`: it receives those results, runs
+where no task is waiting, and must not suspend, so it releases through `post`,
+which queues a request without waiting for it. A kind without `late` drops a
+late answer.
+
+`post` and `bindPost` never suspend. The host runs the request like any call;
+its answer is discarded and its failure reported rather than raised.
+
+## Kinds
+
+A kind is two or more dot-separated segments of letters, digits, `_` and `-`,
+such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
+
+::: seealso
+- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait
+  does under a handler
+- [embedding.md](docs/learn/projects/embedding.md) for answering requests from C
+:::
+]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.host.spi")
+
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativehost") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.host") as contracts.Provider
+end
+
+local host = {}
+
+--- Called with the results of a call whose caller stopped waiting.
+type host.Late = contracts.Late
+
+const MAX_KIND_BYTES = 128
+
+local function checkedKind(kind: string): string
+    if type(kind) ~= "string" then
+        error("nupp: a host kind must be a string, not " .. type(kind), 3)
+    end
+    if #kind > MAX_KIND_BYTES then
+        error("nupp: host kind " .. kind:sub(1, 32) .. "... is longer than 128 bytes", 3)
+    end
+    if not kind:match("^[%w_%-]+%.[%w_%-%.]*[%w_%-]$") or kind:find("..", 1, true) then
+        error("nupp: host kind " .. string.format("%q", kind) .. " must be dot-separated names", 3)
+    end
+    if kind:sub(1, 5) == "nupp." then
+        error("nupp: host kind " .. kind .. " is reserved for the runtime", 3)
+    end
+
+    return kind
+end
+
+--- Reports whether a host is attached to answer requests.
+---
+--- Natively that means an embedding application; a program run on its own has
+--- no host. In a browser the page is always attached, though it may answer a
+--- kind it does not know with a failure.
+--- @export
+function host.attached(): boolean
+    return provider.attached()
+end
+
+--- Sends a request of `kind` and waits for the host to answer it.
+---
+--- @param kind the dotted name the host answers
+--- @return the host's results, each position kept
+--- @raises string when a value cannot cross, no host answers the kind, or the
+---     host fails the request
+--- @export
+function host.call(kind: string, ...: any): ...any
+    return provider.call(checkedKind(kind), nil, ...)
+end
+
+--- Binds `kind` to a function of type `F` that calls it.
+---
+--- `F` supplies the parameter names and result types callers see, so a bound
+--- kind takes named arguments and checks them. Nothing checks that the host's
+--- answer matches `F`'s results.
+---
+--- @param kind the dotted name the host answers
+--- @param late receives the results of a call answered after its caller was
+---     cancelled; it must not suspend
+--- @return a function calling `kind` with its arguments
+--- @export
+function host.bind<F>(kind: string, late: contracts.Late?): F
+    local checked = checkedKind(kind)
+    local call = provider.call
+    local bound = function(...: any): ...any
+        return call(checked, late, ...)
+    end
+
+    return bound as F
+end
+
+--- Queues a request of `kind` and returns without waiting for its answer.
+---
+--- @param kind the dotted name the host answers
+--- @raises string when a value cannot cross or too many posts are pending
+--- @export
+function host.post(kind: string, ...: any): nil
+    provider.post(checkedKind(kind), ...)
+end
+
+--- Binds `kind` to a function of type `F` that posts it.
+---
+--- @param kind the dotted name the host answers
+--- @return a function posting `kind` with its arguments
+--- @export
+function host.bindPost<F>(kind: string): F
+    local checked = checkedKind(kind)
+    local post = provider.post
+    local bound = function(...: any): nil
+        post(checked, ...)
+    end
+
+    return bound as F
+end
+
+export = host
