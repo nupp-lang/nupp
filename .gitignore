@@ -12,6 +12,7 @@ host/target/
 vendor/
 tests/build/
 /src/**/*.lua
+!/src/nupp/serde/identity.lua
 !/src/nupp/runtime/vendor/
 !/src/nupp/runtime/vendor/lunajson/
 !/src/nupp/runtime/vendor/lunajson/*.lua
