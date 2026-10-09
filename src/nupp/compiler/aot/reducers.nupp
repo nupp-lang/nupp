@@ -246,6 +246,51 @@ const constructors: {
 
 reducers.CONSTRUCTORS = constructors
 
+--- The floating-point contracts by constructor, each with the record it
+--- answers. Their binary64 form keeps the older unsuffixed IR identity
+--- (`simd_reducer_ordered_sum`); their binary32 form, chosen by the `float`
+--- array witness, carries the element as the exact contracts do
+--- (`simd_reducer_ordered_sum_f32`).
+const floatingConstructors: {[string]: reducers.Contract} = {}
+
+for _, entry in ipairs({
+    {"orderedSum", "OrderedSum", "ordered", "sum"},
+    {"pairwiseSum", "PairwiseSum", "pairwise", "sum"},
+    {"compensatedSum", "CompensatedSum", "compensated", "sum"},
+    {"algebraicSum", "AlgebraicSum", "algebraic", "sum"},
+    {"orderedProduct", "OrderedProduct", "ordered", "product"},
+    {"pairwiseProduct", "PairwiseProduct", "pairwise", "product"},
+    {"algebraicProduct", "AlgebraicProduct", "algebraic", "product"},
+    {"orderedDot", "OrderedDot", "ordered", "dot"},
+    {"pairwiseDot", "PairwiseDot", "pairwise", "dot"},
+    {"algebraicDot", "AlgebraicDot", "algebraic", "dot"},
+}) do
+    floatingConstructors[
+        "nupp.simd.reducer." .. entry[1]
+    ] = new reducers.Contract(
+        recordName = entry[2],
+        order = entry[3],
+        operation = entry[4],
+        element = "f64",
+        witnessed = false,
+        seeded = true,
+        result = "f64"
+    )
+end
+
+reducers.FLOATING = floatingConstructors
+
+--- Whether a contract is one of the floating-point ones, whose element is
+--- `f64` unless a `float` witness chose `f32`.
+function reducers.floatingOrder(order: string): boolean
+    return order == "ordered"
+        or order == "pairwise"
+        or order == "algebraic"
+        or order == "compensated"
+        or order == "propagating"
+        or order == "number"
+end
+
 function reducers.typeName(order: string, operation: string, element: string): string
     return "simd_reducer_" .. order .. "_" .. operation .. "_" .. element
 end
@@ -268,7 +313,14 @@ function reducers.valid(order: string, operation: string, element: string): bool
             or element == "bool" and (operation == "any" or operation == "all" or operation == "count")
     end
 
-    return (order == "integer" and integer or (order == "number" or order == "propagating") and element == "f64")
+    local floating = element == "f64" or element == "f32"
+    if order == "ordered" or order == "pairwise" or order == "algebraic" then
+        return floating and (operation == "sum" or operation == "product" or operation == "dot")
+    elseif order == "compensated" then
+        return floating and operation == "sum"
+    end
+
+    return (order == "integer" and integer or (order == "number" or order == "propagating") and floating)
         and (operation == "min" or operation == "max" or operation == "argmin" or operation == "argmax")
 end
 

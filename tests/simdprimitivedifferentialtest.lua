@@ -9,9 +9,9 @@ local WORK_CEILINGS = {
     -- LLVM compiles and lld links in process, so a build starts no command.
     species = {units = 40, externalCommands = 0, cases = 85000, calls = 3200},
     -- The reducer corpus is one loop, seven masked and two mixed modules for
-    -- each of the five element types the authored reducers take, each probe
+    -- each of the six element types the authored reducers take, each probe
     -- called once per length, selection and scenario.
-    semantics = {units = 125, externalCommands = 0, cases = 60000000, calls = 1650000},
+    semantics = {units = 135, externalCommands = 0, cases = 60000000, calls = 1650000},
 }
 
 local function read(path)

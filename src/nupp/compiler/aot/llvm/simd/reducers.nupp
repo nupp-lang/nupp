@@ -26,7 +26,7 @@ local reducers = {}
 --- The IR type a contract's contributions are passed as.
 local function inputType(order: string, element: string?): string
     if states.bare(order) or order == "pairwise" or order == "compensated" then
-        return "f64"
+        return element == "f32" and "f32" or "f64"
     end
 
     return tostring(element)
@@ -59,11 +59,12 @@ local function contribute(
     local converted = expressions.convert(ctx, value, valueType, input)
     local operations = states.operations(ctx.module, order, operation, element)
     if operations == nil then
-        local current = context.value(ctx, ("load double, ptr %s"):format(slot.pointer))
+        local scalar = states.floating(element)
+        local current = context.value(ctx, ("load %s, ptr %s"):format(scalar, slot.pointer))
         local flags = ctx.contract and " contract" or ""
         local instruction = operation == "product" and "fmul" or "fadd"
-        local next = context.value(ctx, ("%s%s double %s, %s"):format(instruction, flags, current, converted))
-        context.emit(ctx, ("store double %s, ptr %s"):format(next, slot.pointer))
+        local next = context.value(ctx, ("%s%s %s %s, %s"):format(instruction, flags, scalar, current, converted))
+        context.emit(ctx, ("store %s %s, ptr %s"):format(scalar, next, slot.pointer))
         return
     end
     local ops = operations as states.Operations
@@ -79,27 +80,30 @@ local function init(ctx: context.Context, slot: context.Slot, node: scalarIR.Exp
     local converted = expressions.convert(ctx, value, t, input)
     local operations = states.operations(ctx.module, created.order, created.operation, element)
     if operations == nil then
-        context.emit(ctx, ("store double %s, ptr %s"):format(converted, slot.pointer))
+        context.emit(ctx, ("store %s %s, ptr %s"):format(states.floating(element), converted, slot.pointer))
         return
     end
     local ops = operations as states.Operations
     context.emit(ctx, ("call void %s(ptr %s, %s %s)"):format(ops.init, slot.pointer, ops.input, converted))
 end
 
---- `r:add(x)`, or `r:add(a, b)` for a dot: the product rounded first.
+--- `r:add(x)`, or `r:add(a, b)` for a dot: the product rounded first, in
+--- the element the reducer accumulates.
 local function add(ctx: context.Context, node: scalarIR.Statement): nil
     local contribution = node as scalarIR.ReducerAdd
     local slot = slotOf(ctx, contribution.reducer)
     local value, t = expressions.value(ctx, contribution.value)
+    local _, _, element = reducerRules.parse(slot.type)
     if contribution.right ~= nil then
         local right, rightType = expressions.value(ctx, contribution.right as scalarIR.Expr)
-        local a = expressions.convert(ctx, value, t, "f64")
-        local b = expressions.convert(ctx, right, rightType, "f64")
+        local input = inputType(contribution.order, element)
+        local scalar = states.floating(element)
+        local a = expressions.convert(ctx, value, t, input)
+        local b = expressions.convert(ctx, right, rightType, input)
         local flags = ctx.contract and " contract" or ""
-        value = context.value(ctx, ("fmul%s double %s, %s"):format(flags, a, b))
-        t = "f64"
+        value = context.value(ctx, ("fmul%s %s %s, %s"):format(flags, scalar, a, b))
+        t = input
     end
-    local _, _, element = reducerRules.parse(slot.type)
     contribute(ctx, slot, contribution.order, contribution.operation, element, value, t)
 end
 
@@ -245,6 +249,8 @@ local function region(ctx: context.Context, node: scalarIR.Statement): nil
                 local laneType = scalar == "i64" and (tostring(reducer.element) == "u64" and "u64" or "i64")
                     or (tostring(reducer.element) == "u32" and "u32" or "i32")
                 contribute(ctx, slot, reducer.order, reducer.operation, reducer.element, lane, laneType)
+            elseif reducer.element == "f32" then
+                contribute(ctx, slot, reducer.order, reducer.operation, reducer.element, lane, "f32")
             else
                 local wide = scalar == "double" and lane
                     or context.value(ctx, ("fpext %s %s to double"):format(scalar, lane))
@@ -261,7 +267,8 @@ local function value(ctx: context.Context, node: scalarIR.Expr): (string, string
     local _, _, element = reducerRules.parse(slot.type)
     local operations = states.operations(ctx.module, read.order, read.operation, element)
     if operations == nil then
-        return context.value(ctx, ("load double, ptr %s"):format(slot.pointer)), "f64"
+        local scalar = states.floating(element)
+        return context.value(ctx, ("load %s, ptr %s"):format(scalar, slot.pointer)), tostring(read.type)
     end
     local ops = operations as states.Operations
 

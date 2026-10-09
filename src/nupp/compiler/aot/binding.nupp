@@ -553,12 +553,17 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
             #lines + 1
         ] = "        " .. (nativeSymbol or program.symbol) .. "(" .. table.concat(withBlock, ", ") .. ")"
         local values: {string} = {}
-        for position in ipairs(resultSourceTypes) do
-            values[
-                position
-            ] = block .. ".v" .. tostring(
-                position
-            ) .. (resultSourceTypes[position] == "integer" and " as integer" or "")
+        for position, sourceType in ipairs(resultSourceTypes) do
+            local read = block .. ".v" .. tostring(position)
+            if sourceType == "integer" then
+                read = read .. " as integer"
+            elseif sourceType == "float" then
+                -- A `float` field of the block reads as a `number`; narrowing
+                -- it again is exact and establishes the `float` the wrapper
+                -- declares, as the single-result form does below.
+                read = "nupp.math.f32.narrow(" .. read .. ")"
+            end
+            values[position] = read
         end
         lines[#lines + 1] = "        return " .. table.concat(values, ", ")
     else

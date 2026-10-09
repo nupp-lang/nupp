@@ -63,7 +63,7 @@ local function loopCases(types)
     -- The floating contracts twice: over `number`, through the witness-less
     -- constructors, and over `float`, through the `float` witness, which
     -- accumulates in binary32.
-    for _, ty in ipairs({'number'}) do
+    for _, ty in ipairs({'number', 'float'}) do
         if selected[ty] then
             local prefix = ty == 'float' and 'f32_' or ''
             local witness = ty == 'float' and 'nupp.mem.array.float' or nil

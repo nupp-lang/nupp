@@ -73,6 +73,37 @@ function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
     assert(tostring(problem):find("array witness", 1, true), tostring(problem))
 end
 
+-- The `float` witness selects binary32 accumulation in the Lua bodies too:
+-- every operation rounds as `nupp.math.f32` rounds, and the seed is rounded
+-- on the way in.
+function M.theFloatWitnessRoundsEveryOperationToBinary32()
+    local array = require("nupp.mem.array")
+    local f32 = nupp.math.f32
+    local wide = simd.reducer.orderedSum(0.1)
+    local narrow = simd.reducer.orderedSum(array.float, 0.1)
+    wide:add(0.2)
+    narrow:add(0.2)
+    test.equal(wide:value(), 0.1 + 0.2, "a number sum is binary64")
+    test.equal(narrow:value(), f32.add(f32.narrow(0.1), 0.2), "a float sum rounds after every addition")
+    local tree = simd.reducer.pairwiseSum(array.float, 16777216.0)
+    tree:add(1.0)
+    tree:add(1.0)
+    tree:add(1.0)
+    -- 2^24 + 1 is not a binary32 value: the tree is (2^24 + 1) + (1 + 1), whose
+    -- left node rounds back to 2^24 and whose root is then 2^24 + 2, where an
+    -- ordered binary32 sum would round every step back to 2^24.
+    test.equal(tree:value(), 16777218.0, "a float pairwise tree rounds at every node")
+    local dot = simd.reducer.orderedDot(array.float, 0.0)
+    dot:add(0.1, 0.1)
+    test.equal(dot:value(), f32.add(0.0, f32.mul(f32.narrow(0.1), f32.narrow(0.1))), "a float dot rounds its product")
+    local low = simd.reducer.propagatingMin(array.float, 0.1)
+    low:add(0.2)
+    test.equal(low:value(), f32.narrow(0.1), "an extremum keeps the rounded seed")
+    local ok, problem = pcall(simd.reducer.orderedSum, array.int32, 0)
+    test.equal(ok, false, "an integer witness names no floating reducer")
+    assert(tostring(problem):find("float or number array witness", 1, true), tostring(problem))
+end
+
 -- As ordinary Lua the species is one lane wide, a vector is that lane's
 -- value and a mask a boolean: `false` contributes nothing, and an arg
 -- extremum still counts it as a position.

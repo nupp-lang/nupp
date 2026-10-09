@@ -445,28 +445,33 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
             local element: string? = contract.element
             if contract.order == "integer" or contract.order == "exact" and contract.element ~= "bool" then
                 element = argument ~= nil and admit.STORAGE[argument.tag] or nil
+            elseif reducers.floatingOrder(contract.order) then
+                -- An extremum over `float` carries `f32`; `number`, or the
+                -- older witness-less form, is binary64.
+                element = argument ~= nil and admit.STORAGE[argument.tag] or "f64"
             end
             if element ~= nil and reducers.valid(contract.order, contract.operation, element) then
                 return reducers.typeName(contract.order, contract.operation, element)
             end
         end
     end
-    local simdTypes: {
-        [string]: scalarIR.Type
-    } = {
-        OrderedSum = "simd_reducer_ordered_sum",
-        PairwiseSum = "simd_reducer_pairwise_sum",
-        CompensatedSum = "simd_reducer_compensated_sum",
-        AlgebraicSum = "simd_reducer_algebraic_sum",
-        OrderedProduct = "simd_reducer_ordered_product",
-        PairwiseProduct = "simd_reducer_pairwise_product",
-        AlgebraicProduct = "simd_reducer_algebraic_product",
-        OrderedDot = "simd_reducer_ordered_dot",
-        PairwiseDot = "simd_reducer_pairwise_dot",
-        AlgebraicDot = "simd_reducer_algebraic_dot",
-    }
+    -- A floating-point reducer is generic over its element: `number` keeps
+    -- the unsuffixed identity, `float` carries `f32` as the exact contracts
+    -- carry theirs.
+    for _, contract in pairs(reducers.FLOATING) do
+        if origin.name == contract.recordName then
+            local argument = semanticRaw((raw.typeArgs or {})[1])
+            local element = argument ~= nil and admit.STORAGE[argument.tag] or nil
+            if element == "f32" then
+                return reducers.typeName(contract.order, contract.operation, "f32")
+            elseif element == "f64" then
+                return "simd_reducer_" .. contract.order .. "_" .. contract.operation
+            end
+            return nil
+        end
+    end
 
-    return simdTypes[origin.name]
+    return nil
 end
 
 --- The storage scalar a checked physical type denotes.
@@ -2565,6 +2570,22 @@ function lower.rearrange(
     )
 end
 
+--- The element a floating-point reducer's first argument names when it is
+--- the `float` or `number` array witness, and nil when it is not a witness.
+local function floatingWitness(argument: cst.Node?, kernel: lower.Kernel): string?
+    local witness = argument ~= nil and lower.dottedName(argument as cst.Node) or nil
+    if witness == nil then
+        return nil
+    end
+    local root, field = (witness as string):match("^(.+)%.([^.]+)$")
+    local owner = root ~= nil and (kernel.modules[root as string] or root) or nil
+    if owner ~= "nupp.mem.array" then
+        return nil
+    end
+
+    return field == "float" and "f32" or field == "number" and "f64" or nil
+end
+
 --- A call, which is an intrinsic or a visible pure helper and nothing else.
 local function call(
     node: cst.Call,
@@ -2588,12 +2609,19 @@ local function call(
     local args: {scalarIR.Expr} = {}
     local written = node.args ~= nil and (node.args as cst.Args).exprs or {}
     local contract = identity ~= nil and reducers.CONSTRUCTORS[identity] or nil
+    local floatingContract = identity ~= nil and reducers.FLOATING[identity] or nil
     -- An integer reducer's first argument is its element's array witness: a
     -- library value the inferred type already carries, which native code
-    -- cannot hold, so it is read from the type rather than lowered.
+    -- cannot hold, so it is read from the type rather than lowered. A
+    -- floating-point reducer may name its element the same way.
     local first = contract ~= nil and (contract as reducers.Contract).witnessed and 2 or 1
     if first == 2 and #written < 1 then
         context.reject(lower.site(node), "an integer reducer names its element with an array witness")
+    end
+    if (floatingContract ~= nil or contract ~= nil and reducers.floatingOrder((contract as reducers.Contract).order))
+        and floatingWitness(written[1], kernel) ~= nil
+    then
+        first = 2
     end
     for index = first, #written do
         args[#args + 1] = lower.expression(written[index], environment, activeIndex, kernel)
@@ -2659,6 +2687,9 @@ local function call(
                 "an exact reducer needs a concrete element type and its declared initial value"
             )
         end
+        if first == 2 and reducers.floatingOrder(contract.order) and floatingWitness(written[1], kernel) ~= element then
+            context.reject(lower.site(node), "a floating-point reducer's witness names the element its type carries")
+        end
         local initial: scalarIR.Expr = element == "bool"
             and new scalarIR.Bool(op = "bool", value = operation == "all", type = "bool", source = lower.site(node))
             or lower.convert(
@@ -2678,28 +2709,28 @@ local function call(
             type = resolved as string,
             source = lower.site(node)
         )
-    elseif identity == "nupp.simd.reducer.orderedSum"
-        or identity == "nupp.simd.reducer.pairwiseSum"
-        or identity == "nupp.simd.reducer.compensatedSum"
-        or identity == "nupp.simd.reducer.algebraicSum"
-        or identity == "nupp.simd.reducer.orderedProduct"
-        or identity == "nupp.simd.reducer.pairwiseProduct"
-        or identity == "nupp.simd.reducer.algebraicProduct"
-        or identity == "nupp.simd.reducer.orderedDot"
-        or identity == "nupp.simd.reducer.pairwiseDot"
-        or identity == "nupp.simd.reducer.algebraicDot"
-    then
+    elseif floatingContract ~= nil then
         if #args ~= 1 then
             context.reject(lower.site(node), "a floating-point reducer takes one initial value")
         end
-        local order, operation = identity:match("%.([^.]+)(%u%l+)$")
-        local operationName = operation == "Sum" and "sum" or operation == "Product" and "product" or "dot"
+        local resolved = semanticValueType((node as any).inferredType) or ""
+        local _, _, element = reducers.parse(resolved)
+        local witness = first == 2 and floatingWitness(written[1], kernel) or "f64"
+        if element == nil and resolved ~= "simd_reducer_" .. floatingContract.order .. "_" .. floatingContract.operation
+            or element ~= nil and element ~= "f32"
+            or witness ~= (element or "f64")
+        then
+            context.reject(
+                lower.site(node),
+                "a floating-point reducer accumulates the float or number its witness names"
+            )
+        end
         return new scalarIR.ReducerInit(
             op = "reducer_init",
-            order = order as any,
-            operation = operationName,
-            initial = lower.convert(args[1], "f64", lower.site(node), context),
-            type = "simd_reducer_" .. tostring(order) .. "_" .. operationName,
+            order = floatingContract.order as any,
+            operation = floatingContract.operation as any,
+            initial = lower.convert(args[1], element or "f64", lower.site(node), context),
+            type = resolved,
             source = lower.site(node)
         )
     elseif identity ~= nil and identity:match("^nupp%.simd%.horizontal%.") ~= nil then

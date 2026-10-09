@@ -2093,7 +2093,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             reducer.reducer.op == "local"
             and reducer.value.type == element
             and (reducer.operation == "dot") == (reducer.right ~= nil)
-            and (reducer.right == nil or (reducer.right as scalarIR.Expr).type == "f64"),
+            and (reducer.right == nil or (reducer.right as scalarIR.Expr).type == element),
             "invalid reducer contribution"
         )
         local named = reducer.reducer as scalarIR.Name

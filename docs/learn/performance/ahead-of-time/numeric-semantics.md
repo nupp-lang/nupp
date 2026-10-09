@@ -255,6 +255,15 @@ vector contributions in a lane-wise accumulator and fold it in when the region
 ends, so a scalar written inside such a region associates with the accumulated
 lanes rather than between them -- an association the contract already admits.
 
+A floating-point reducer accumulates in the element its constructor names.
+`orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
+binary32 under every contract, rounding after every operation as
+`nupp.math.f32` does: an ordered binary32 sum rounds after every lane, a
+pairwise one at every node of the tree, a compensated one keeps its total and
+its compensation in binary32, a dot rounds each product before adding it (or
+fuses the two under the algebraic contract), and the extrema round nothing. The
+initial value is rounded to the element. `value()` answers that element, so a
+`float` kernel finishes in `float` without a conversion it did not write.
 
 ## Verification
 
@@ -272,7 +281,9 @@ one-unconditional-contribution rule. Predicate reducers take their truth as a ma
 scalar contributions only. A mixed
 corpus feeds one reducer the seed as a scalar, whole vectors inside a region
 and the remaining elements as scalars, at two fixed widths, and compares it
-against the same contributions made one at a time.
+against the same contributions made one at a time. Every floating contract runs
+twice, over `number` and over the `float` witness, the latter against a
+binary32 reference built from `nupp.math.f32`.
 
 Algebraic checks use a different contract. For finite inputs whose intermediate
 values neither overflow nor underflow, the corpus compares two rounded paths

@@ -81,19 +81,35 @@ end
 ---
 --- One reducer takes scalar contributions and masked vector contributions in
 --- any mix, in program order; every masked contribution belongs to one `do`
---- block, which is the reducer's region.
+--- block, which is the reducer's region. A floating-point reducer is
+--- constructed either from its initial value alone, which accumulates in
+--- `number`, or from an element witness and the initial value --
+--- `pairwiseSum(array.float, 0.0)` -- which accumulates in the `float` or
+--- `number` the witness names. An integer reducer always names its element
+--- with its witness, because an `int32` and a `uint32` are the same Lua
+--- number.
 --- @export
 local reducer: {
-    orderedSum: function(initial: number): simd.OrderedSum,
-    pairwiseSum: function(initial: number): simd.PairwiseSum,
-    compensatedSum: function(initial: number): simd.CompensatedSum,
-    algebraicSum: function(initial: number): simd.AlgebraicSum,
-    orderedProduct: function(initial: number): simd.OrderedProduct,
-    pairwiseProduct: function(initial: number): simd.PairwiseProduct,
-    algebraicProduct: function(initial: number): simd.AlgebraicProduct,
-    orderedDot: function(initial: number): simd.OrderedDot,
-    pairwiseDot: function(initial: number): simd.PairwiseDot,
-    algebraicDot: function(initial: number): simd.AlgebraicDot,
+    orderedSum: function(initial: number): simd.OrderedSum<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedSum<T>,
+    pairwiseSum: function(initial: number): simd.PairwiseSum<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseSum<T>,
+    compensatedSum: function(initial: number): simd.CompensatedSum<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.CompensatedSum<T>,
+    algebraicSum: function(initial: number): simd.AlgebraicSum<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicSum<T>,
+    orderedProduct: function(initial: number): simd.OrderedProduct<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedProduct<T>,
+    pairwiseProduct: function(initial: number): simd.PairwiseProduct<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseProduct<T>,
+    algebraicProduct: function(initial: number): simd.AlgebraicProduct<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicProduct<T>,
+    orderedDot: function(initial: number): simd.OrderedDot<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedDot<T>,
+    pairwiseDot: function(initial: number): simd.PairwiseDot<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseDot<T>,
+    algebraicDot: function(initial: number): simd.AlgebraicDot<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicDot<T>,
     wrappingSum: function<T is int32 | uint32 | int64 | uint64>(
         element: StorageWitness<T>,
         initial: Given(T)
@@ -127,58 +143,118 @@ local reducer: {
     ): simd.IntegerMax<T>,
     integerArgMin: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMin<T>,
     integerArgMax: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMax<T>,
-    propagatingMin: function(initial: number): simd.PropagatingMin,
-    propagatingMax: function(initial: number): simd.PropagatingMax,
-    propagatingArgMin: function(): simd.PropagatingArgMin,
-    propagatingArgMax: function(): simd.PropagatingArgMax,
-    numberMin: function(initial: number): simd.NumberMin,
-    numberMax: function(initial: number): simd.NumberMax,
-    numberArgMin: function(): simd.NumberArgMin,
-    numberArgMax: function(): simd.NumberArgMax
+    propagatingMin: function(initial: number): simd.PropagatingMin<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMin<T>,
+    propagatingMax: function(initial: number): simd.PropagatingMax<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMax<T>,
+    propagatingArgMin: function(): simd.PropagatingArgMin<number>
+    & function<T is float | number>(element: StorageWitness<T>): simd.PropagatingArgMin<T>,
+    propagatingArgMax: function(): simd.PropagatingArgMax<number>
+    & function<T is float | number>(element: StorageWitness<T>): simd.PropagatingArgMax<T>,
+    numberMin: function(initial: number): simd.NumberMin<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.NumberMin<T>,
+    numberMax: function(initial: number): simd.NumberMax<number>
+    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.NumberMax<T>,
+    numberArgMin: function(): simd.NumberArgMin<number>
+    & function<T is float | number>(element: StorageWitness<T>): simd.NumberArgMin<T>,
+    numberArgMax: function(): simd.NumberArgMax<number>
+    & function<T is float | number>(element: StorageWitness<T>): simd.NumberArgMax<T>
 } = {} as any
 
+--- The value unchanged: what a `number` reducer rounds with.
+local function keep(value: number): number
+    return value
+end
+
+--- The rounding each floating-point element applies after every operation,
+--- keyed by its storage witness: none for `number`, binary32 for `float`.
+const ROUNDING: {
+    [any]: function(number): number
+} = {[storageWitnesses.number] = keep, [storageWitnesses.float] = nupp.math.f32.narrow,}
+
+--- The rounding and the rounded seed a floating-point reducer was constructed
+--- with: `(initial)` accumulates in `number`, and `(element, initial)` in the
+--- `float` or `number` the witness names.
+--- @raises string when the witness names no floating-point element
+local function floating(first: any, second: any): (function(number): number, number)
+    if second == nil then
+        return keep, first as number
+    end
+    local round = ROUNDING[first]
+    if round == nil then
+        error("nupp: a floating-point reducer takes the float or number array witness", 3)
+    end
+
+    return round as function(number): number, (round as function(number): number)(second as number)
+end
+
+--- The rounding a seedless floating-point reducer was constructed with:
+--- `()` is a `number` reducer and `(element)` names the element.
+--- @raises string when the witness names no floating-point element
+local function floatingElement(element: any): function(number): number
+    if element == nil then
+        return keep
+    end
+    local round = ROUNDING[element]
+    if round == nil then
+        error("nupp: a floating-point reducer takes the float or number array witness", 3)
+    end
+
+    return round as function(number): number
+end
+
 --- A floating-point sum committed in logical iteration order.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.OrderedSum is simd.Reducer<number>
+record simd.OrderedSum<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
-        self.total = self.total + scalar
+        local scalar = self.round(value as number)
+        self.total = self.round(self.total + scalar)
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
 --- A floating-point sum using the width-independent adjacent-pair tree.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.PairwiseSum is simd.Reducer<number>
+record simd.PairwiseSum<T is float | number> is simd.Reducer<T>
     @private partials: {number?}
     @private count: integer
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
+        local scalar = self.round(value as number)
         local carry = scalar
         local occupied = self.count
         local level: integer = 1
         while occupied % 2 == 1 do
-            carry = (self.partials[level] as number) + carry
+            carry = self.round((self.partials[level] as number) + carry)
             self.partials[level] = nil
             occupied = (occupied // 2) as integer
             level = level + 1
@@ -187,7 +263,7 @@ record simd.PairwiseSum is simd.Reducer<number>
         self.count = self.count + 1
     end
 
-    function value(self): number
+    function value(self): T
         local result: number? = nil
         -- The trailing partial is carried into the next larger left subtree.
         -- Folding largest-first would change the adjacent-pair tree whenever
@@ -200,14 +276,14 @@ record simd.PairwiseSum is simd.Reducer<number>
                 if result == nil then
                     result = partial
                 else
-                    result = partial + (result as number)
+                    result = self.round(partial + (result as number))
                 end
             end
             level = level + 1
             remaining = (remaining // 2) as integer
         end
 
-        return result as number
+        return result as T
     end
 end
 
@@ -215,24 +291,29 @@ end
 ---
 --- Ordinary Lua has no lane width to exploit, so its executable reference uses
 --- a left fold. Native lowering may use several accumulators.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.AlgebraicSum is simd.Reducer<number>
+record simd.AlgebraicSum<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
-        self.total = self.total + scalar
+        local scalar = self.round(value as number)
+        self.total = self.round(self.total + scalar)
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
@@ -252,76 +333,93 @@ end
 --- Neumaier's form rather than Kahan's: it compensates the larger operand as
 --- well as the smaller, so a large value added to a small running total does
 --- not lose its correction, which is the case plain Kahan gets wrong.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
+--- A `float` reducer keeps its total and its compensation in binary32.
 --- @export
-record simd.CompensatedSum is simd.Reducer<number>
+record simd.CompensatedSum<T is float | number> is simd.Reducer<T>
     @private total: number
     @private compensation: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
-        local sum = self.total + scalar
+        local scalar = self.round(value as number)
+        local round = self.round
+        local sum = round(self.total + scalar)
         if math.abs(self.total) >= math.abs(scalar) then
-            self.compensation = self.compensation + ((self.total - sum) + scalar)
+            self.compensation = round(self.compensation + round(round(self.total - sum) + scalar))
         else
-            self.compensation = self.compensation + ((scalar - sum) + self.total)
+            self.compensation = round(self.compensation + round(round(scalar - sum) + self.total))
         end
         self.total = sum
     end
 
-    function value(self): number
-        return self.total + self.compensation
+    function value(self): T
+        return self.round(self.total + self.compensation) as T
     end
 end
 
 --- A floating-point product committed in logical iteration order.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.OrderedProduct is simd.Reducer<number>
+record simd.OrderedProduct<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
-        self.total = self.total * scalar
+        local scalar = self.round(value as number)
+        self.total = self.round(self.total * scalar)
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
 --- A floating-point product using the width-independent adjacent-pair tree.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.PairwiseProduct is simd.Reducer<number>
+record simd.PairwiseProduct<T is float | number> is simd.Reducer<T>
     @private partials: {number?}
     @private count: integer
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
+        local scalar = self.round(value as number)
         local carry = scalar
         local occupied = self.count
         local level: integer = 1
         while occupied % 2 == 1 do
-            carry = (self.partials[level] as number) * carry
+            carry = self.round((self.partials[level] as number) * carry)
             self.partials[level] = nil
             occupied = (occupied // 2) as integer
             level = level + 1
@@ -330,7 +428,7 @@ record simd.PairwiseProduct is simd.Reducer<number>
         self.count = self.count + 1
     end
 
-    function value(self): number
+    function value(self): T
         local result: number? = nil
         -- The trailing partial is carried into the next larger left subtree.
         -- Folding largest-first would change the adjacent-pair tree whenever
@@ -343,185 +441,249 @@ record simd.PairwiseProduct is simd.Reducer<number>
                 if result == nil then
                     result = partial
                 else
-                    result = partial * (result as number)
+                    result = self.round(partial * (result as number))
                 end
             end
             level = level + 1
             remaining = (remaining // 2) as integer
         end
 
-        return result as number
+        return result as T
     end
 end
 
 --- A floating-point product whose named contract permits reassociation.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
 --- @export
-record simd.AlgebraicProduct is simd.Reducer<number>
+record simd.AlgebraicProduct<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local scalar = value as number
-        self.total = self.total * scalar
+        local scalar = self.round(value as number)
+        self.total = self.round(self.total * scalar)
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
 --- A dot product committed in logical iteration order without contraction.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
+--- Each product rounds before it is added.
 --- @export
-record simd.OrderedDot is simd.Reducer<number>
+record simd.OrderedDot<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(
-        self,
-        left: number | simd.Vector<number, S>,
-        right: number | simd.Vector<number, S>,
-        active: simd.Mask<number, S>?
-    ): nil
+    function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local leftValue, rightValue = left as number, right as number
-        self.total = self.total + leftValue * rightValue
+        local leftValue, rightValue = self.round(left as number), self.round(right as number)
+        self.total = self.round(self.total + self.round(leftValue * rightValue))
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
 --- A non-contracting dot product using the adjacent-pair sum tree.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
+--- Each product rounds before it joins the tree.
 --- @export
-record simd.PairwiseDot is simd.Reducer<number>
-    @private sum: simd.PairwiseSum
+record simd.PairwiseDot<T is float | number> is simd.Reducer<T>
+    @private sum: simd.PairwiseSum<T>
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(
-        self,
-        left: number | simd.Vector<number, S>,
-        right: number | simd.Vector<number, S>,
-        active: simd.Mask<number, S>?
-    ): nil
+    function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local leftValue, rightValue = left as number, right as number
-        self.sum:add(leftValue * rightValue)
+        local leftValue, rightValue = self.round(left as number), self.round(right as number)
+        self.sum:add(self.round(leftValue * rightValue) as T)
     end
 
-    function value(self): number
+    function value(self): T
         return self.sum:value()
     end
 end
 
 --- A dot product permitting reassociation and multiply-add contraction.
+---
+--- `T` is the element it accumulates in: `number` is binary64, and `float`
+--- is binary32, each contribution and every operation's result rounded as
+--- `nupp.math.f32` rounds them.
+--- Ordinary Lua rounds each product before adding it; native lowering may
+--- fuse the two.
 --- @export
-record simd.AlgebraicDot is simd.Reducer<number>
+record simd.AlgebraicDot<T is float | number> is simd.Reducer<T>
     @private total: number
+    @private round: function(number): number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(
-        self,
-        left: number | simd.Vector<number, S>,
-        right: number | simd.Vector<number, S>,
-        active: simd.Mask<number, S>?
-    ): nil
+    function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
-        local leftValue, rightValue = left as number, right as number
-        self.total = self.total + leftValue * rightValue
+        local leftValue, rightValue = self.round(left as number), self.round(right as number)
+        self.total = self.round(self.total + self.round(leftValue * rightValue))
     end
 
-    function value(self): number
-        return self.total
+    function value(self): T
+        return self.total as T
     end
 end
 
 --- Constructs an ordered floating-point sum.
+---
+--- `(orderedSum(initial))` accumulates in `number`; `(orderedSum(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.orderedSum(initial: number): simd.OrderedSum
-    return new simd.OrderedSum(total = initial)
-end
+reducer.orderedSum = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.OrderedSum<number>(total = seed, round = round)
+end) as any
 
---- Constructs a width-independent pairwise floating-point sum.
+--- Constructs a width-independent pairwise floating-point sum, the initial
+--- value its first leaf.
+---
+--- `(pairwiseSum(initial))` accumulates in `number`; `(pairwiseSum(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.pairwiseSum(initial: number): simd.PairwiseSum
-    local out = new simd.PairwiseSum(partials = {}, count = 0)
-    out:add(initial)
+reducer.pairwiseSum = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    local out = new simd.PairwiseSum<number>(partials = {}, count = 0, round = round)
+    out:add(seed as number)
 
     return out
-end
+end) as any
 
 --- Constructs a reassociable floating-point sum.
+---
+--- `(algebraicSum(initial))` accumulates in `number`; `(algebraicSum(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.algebraicSum(initial: number): simd.AlgebraicSum
-    return new simd.AlgebraicSum(total = initial)
-end
+reducer.algebraicSum = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.AlgebraicSum<number>(total = seed, round = round)
+end) as any
 
 --- Constructs a compensated floating-point sum.
+---
+--- `(compensatedSum(initial))` accumulates in `number`; `(compensatedSum(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.compensatedSum(initial: number): simd.CompensatedSum
-    return new simd.CompensatedSum(total = initial, compensation = 0.0)
-end
+reducer.compensatedSum = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.CompensatedSum<number>(total = seed, compensation = 0.0, round = round)
+end) as any
 
 --- Constructs an ordered floating-point product.
+---
+--- `(orderedProduct(initial))` accumulates in `number`; `(orderedProduct(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.orderedProduct(initial: number): simd.OrderedProduct
-    return new simd.OrderedProduct(total = initial)
-end
+reducer.orderedProduct = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.OrderedProduct<number>(total = seed, round = round)
+end) as any
 
---- Constructs a width-independent pairwise floating-point product.
+--- Constructs a width-independent pairwise floating-point product, the
+--- initial value its first leaf.
+---
+--- `(pairwiseProduct(initial))` accumulates in `number`; `(pairwiseProduct(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.pairwiseProduct(initial: number): simd.PairwiseProduct
-    local out = new simd.PairwiseProduct(partials = {}, count = 0)
-    out:add(initial)
+reducer.pairwiseProduct = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    local out = new simd.PairwiseProduct<number>(partials = {}, count = 0, round = round)
+    out:add(seed as number)
 
     return out
-end
+end) as any
 
 --- Constructs a reassociable floating-point product.
+---
+--- `(algebraicProduct(initial))` accumulates in `number`; `(algebraicProduct(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.algebraicProduct(initial: number): simd.AlgebraicProduct
-    return new simd.AlgebraicProduct(total = initial)
-end
+reducer.algebraicProduct = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.AlgebraicProduct<number>(total = seed, round = round)
+end) as any
 
 --- Constructs an ordered, non-contracting floating-point dot product.
+---
+--- `(orderedDot(initial))` accumulates in `number`; `(orderedDot(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.orderedDot(initial: number): simd.OrderedDot
-    return new simd.OrderedDot(total = initial)
-end
+reducer.orderedDot = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.OrderedDot<number>(total = seed, round = round)
+end) as any
 
 --- Constructs a pairwise, non-contracting floating-point dot product.
+---
+--- `(pairwiseDot(initial))` accumulates in `number`; `(pairwiseDot(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.pairwiseDot(initial: number): simd.PairwiseDot
-    return new simd.PairwiseDot(sum = reducer.pairwiseSum(initial))
-end
+reducer.pairwiseDot = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    local sum = new simd.PairwiseSum<number>(partials = {}, count = 0, round = round)
+    sum:add(seed as number)
+
+    return new simd.PairwiseDot<number>(sum = sum, round = round)
+end) as any
 
 --- Constructs a reassociable, contractible floating-point dot product.
+---
+--- `(algebraicDot(initial))` accumulates in `number`; `(algebraicDot(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.algebraicDot(initial: number): simd.AlgebraicDot
-    return new simd.AlgebraicDot(total = initial)
-end
+reducer.algebraicDot = (function(first: any, second: any): any
+    local round, seed = floating(first, second)
+    return new simd.AlgebraicDot<number>(total = seed, round = round)
+end) as any
 
 --- Fixed-width reducers name their element with its array witness, as a species
 --- does. Their initial value participates in the fold. Narrow storage loads contribute
@@ -1006,15 +1168,18 @@ end
 
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingMin is simd.Reducer<number>
+record simd.PropagatingMin<T is float | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
@@ -1024,29 +1189,38 @@ record simd.PropagatingMin is simd.Reducer<number>
         end
     end
 
-    function value(self): number
-        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    function value(self): T
+        return (self.best ~= self.best and math.abs(0 / 0) or self.best) as T
     end
 end
 
 --- Constructs a propagatingMin reducer.
+---
+--- `(propagatingMin(initial))` accumulates in `number`; `(propagatingMin(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.propagatingMin(initial: number): simd.PropagatingMin
-    return new simd.PropagatingMin(best = initial)
-end
+reducer.propagatingMin = (function(first: any, second: any): any
+    local _, seed = floating(first, second)
+    return new simd.PropagatingMin<number>(best = seed)
+end) as any
 
 --- First logical position, or zero when empty.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingArgMin is simd.Reducer<integer>
+record simd.PropagatingArgMin<T is float | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
 
-    function add(self, value: number): nil
+    function add(self, value: T): nil
         self.count = self.count + 1
-        if self.position == 0 or extremumWins(value, self.best, false, true) then
-            self.best = value
+        local scalar = value as number
+        if self.position == 0 or extremumWins(scalar, self.best, false, true) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1057,22 +1231,29 @@ record simd.PropagatingArgMin is simd.Reducer<integer>
 end
 
 --- Constructs a propagatingArgMin reducer.
+---
+--- `propagatingArgMin()` takes `number` contributions; `propagatingArgMin(element)`
+--- takes the `float` or `number` the witness names.
 --- @export
-function reducer.propagatingArgMin(): simd.PropagatingArgMin
-    return new simd.PropagatingArgMin(best = 0.0, position = 0, count = 0)
-end
+reducer.propagatingArgMin = (function(element: any): any
+    floatingElement(element)
+    return new simd.PropagatingArgMin<number>(best = 0.0, position = 0, count = 0)
+end) as any
 
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingMax is simd.Reducer<number>
+record simd.PropagatingMax<T is float | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
@@ -1082,29 +1263,38 @@ record simd.PropagatingMax is simd.Reducer<number>
         end
     end
 
-    function value(self): number
-        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    function value(self): T
+        return (self.best ~= self.best and math.abs(0 / 0) or self.best) as T
     end
 end
 
 --- Constructs a propagatingMax reducer.
+---
+--- `(propagatingMax(initial))` accumulates in `number`; `(propagatingMax(element,
+--- initial))` in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.propagatingMax(initial: number): simd.PropagatingMax
-    return new simd.PropagatingMax(best = initial)
-end
+reducer.propagatingMax = (function(first: any, second: any): any
+    local _, seed = floating(first, second)
+    return new simd.PropagatingMax<number>(best = seed)
+end) as any
 
 --- First logical position, or zero when empty.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingArgMax is simd.Reducer<integer>
+record simd.PropagatingArgMax<T is float | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
 
-    function add(self, value: number): nil
+    function add(self, value: T): nil
         self.count = self.count + 1
-        if self.position == 0 or extremumWins(value, self.best, true, true) then
-            self.best = value
+        local scalar = value as number
+        if self.position == 0 or extremumWins(scalar, self.best, true, true) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1115,22 +1305,29 @@ record simd.PropagatingArgMax is simd.Reducer<integer>
 end
 
 --- Constructs a propagatingArgMax reducer.
+---
+--- `propagatingArgMax()` takes `number` contributions; `propagatingArgMax(element)`
+--- takes the `float` or `number` the witness names.
 --- @export
-function reducer.propagatingArgMax(): simd.PropagatingArgMax
-    return new simd.PropagatingArgMax(best = 0.0, position = 0, count = 0)
-end
+reducer.propagatingArgMax = (function(element: any): any
+    floatingElement(element)
+    return new simd.PropagatingArgMax<number>(best = 0.0, position = 0, count = 0)
+end) as any
 
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberMin is simd.Reducer<number>
+record simd.NumberMin<T is float | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
@@ -1140,29 +1337,38 @@ record simd.NumberMin is simd.Reducer<number>
         end
     end
 
-    function value(self): number
-        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    function value(self): T
+        return (self.best ~= self.best and math.abs(0 / 0) or self.best) as T
     end
 end
 
 --- Constructs a numberMin reducer.
+---
+--- `(numberMin(initial))` accumulates in `number`; `(numberMin(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.numberMin(initial: number): simd.NumberMin
-    return new simd.NumberMin(best = initial)
-end
+reducer.numberMin = (function(first: any, second: any): any
+    local _, seed = floating(first, second)
+    return new simd.NumberMin<number>(best = seed)
+end) as any
 
 --- First logical position, or zero when empty.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberArgMin is simd.Reducer<integer>
+record simd.NumberArgMin<T is float | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
 
-    function add(self, value: number): nil
+    function add(self, value: T): nil
         self.count = self.count + 1
-        if self.position == 0 or extremumWins(value, self.best, false, false) then
-            self.best = value
+        local scalar = value as number
+        if self.position == 0 or extremumWins(scalar, self.best, false, false) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1173,22 +1379,29 @@ record simd.NumberArgMin is simd.Reducer<integer>
 end
 
 --- Constructs a numberArgMin reducer.
+---
+--- `numberArgMin()` takes `number` contributions; `numberArgMin(element)` takes the
+--- `float` or `number` the witness names.
 --- @export
-function reducer.numberArgMin(): simd.NumberArgMin
-    return new simd.NumberArgMin(best = 0.0, position = 0, count = 0)
-end
+reducer.numberArgMin = (function(element: any): any
+    floatingElement(element)
+    return new simd.NumberArgMin<number>(best = 0.0, position = 0, count = 0)
+end) as any
 
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberMax is simd.Reducer<number>
+record simd.NumberMax<T is float | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- As ordinary Lua the species is one lane wide: the vector is that lane's
     --- value, the mask is a boolean, and `false` contributes nothing.
-    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if (active as any) == false then
             return
         end
@@ -1198,29 +1411,38 @@ record simd.NumberMax is simd.Reducer<number>
         end
     end
 
-    function value(self): number
-        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    function value(self): T
+        return (self.best ~= self.best and math.abs(0 / 0) or self.best) as T
     end
 end
 
 --- Constructs a numberMax reducer.
+---
+--- `(numberMax(initial))` accumulates in `number`; `(numberMax(element, initial))`
+--- in the `float` or `number` the witness names, with the initial value
+--- rounded to that element.
 --- @export
-function reducer.numberMax(initial: number): simd.NumberMax
-    return new simd.NumberMax(best = initial)
-end
+reducer.numberMax = (function(first: any, second: any): any
+    local _, seed = floating(first, second)
+    return new simd.NumberMax<number>(best = seed)
+end) as any
 
 --- First logical position, or zero when empty.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
+---
+--- `T` is the element: `number` or `float`. An extremum rounds nothing, so
+--- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberArgMax is simd.Reducer<integer>
+record simd.NumberArgMax<T is float | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
 
-    function add(self, value: number): nil
+    function add(self, value: T): nil
         self.count = self.count + 1
-        if self.position == 0 or extremumWins(value, self.best, true, false) then
-            self.best = value
+        local scalar = value as number
+        if self.position == 0 or extremumWins(scalar, self.best, true, false) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1231,10 +1453,14 @@ record simd.NumberArgMax is simd.Reducer<integer>
 end
 
 --- Constructs a numberArgMax reducer.
+---
+--- `numberArgMax()` takes `number` contributions; `numberArgMax(element)` takes the
+--- `float` or `number` the witness names.
 --- @export
-function reducer.numberArgMax(): simd.NumberArgMax
-    return new simd.NumberArgMax(best = 0.0, position = 0, count = 0)
-end
+reducer.numberArgMax = (function(element: any): any
+    floatingElement(element)
+    return new simd.NumberArgMax<number>(best = 0.0, position = 0, count = 0)
+end) as any
 
 simd.reducer = reducer
 

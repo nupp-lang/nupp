@@ -6682,6 +6682,30 @@ local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int3
     return sum:value(), bits:value(), least:value()
 end
 
+--- The floating contracts over the `float` witness: binary32 after every
+--- operation, and a `float` result.
+@aot
+local function narrow(borrows input: span.Span<float>, seed: float): (float, float, float, float)
+    local s = assert(simd.species(array.float, 4))
+    local ordered = simd.reducer.orderedSum(array.float, seed)
+    local dotted = simd.reducer.pairwiseDot(array.float, seed)
+    local compensated = simd.reducer.compensatedSum(array.float, seed)
+    local low = simd.reducer.propagatingMin(array.float, math.huge)
+    do
+        local cursor: uint32 = 0
+        while cursor < #input do
+            local rest = s:tail(#input - cursor)
+            local v = s:load(input, cursor + 1, rest)
+            ordered:add(v, rest)
+            dotted:add(v, v, rest)
+            compensated:add(v, rest)
+            low:add(v, rest)
+            cursor = cursor + s.lanes
+        end
+    end
+    return ordered:value(), dotted:value(), compensated:value(), low:value()
+end
+
 return {
     masks = masks,
     preferredMasks = preferredMasks,
@@ -6691,6 +6715,7 @@ return {
     dot = dot,
     exact = exact,
     extremes = extremes,
+    narrow = narrow,
 }
 ]]
 
@@ -6945,6 +6970,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         "dot",
         "exact",
         "extremes",
+        "narrow",
     }) do
         symbols[
             name
@@ -6977,6 +7003,12 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     ffi.cdef("typedef struct { double v1, v2, v3; } NuppAotExtremes;")
     for _, symbol in ipairs(symbols.extremes) do
         ffi.cdef(("void %s(const double *, size_t, NuppAotExtremes *);"):format(symbol))
+    end
+    -- Every result of the block is widened to binary64, a `float` included;
+    -- the wrapper narrows it again on the way out.
+    ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotNarrow;")
+    for _, symbol in ipairs(symbols.narrow) do
+        ffi.cdef(("void %s(const float *, float, size_t, NuppAotNarrow *);"):format(symbol))
     end
 
     -- Mask splat, select, mask conversion and a widening numeric conversion.
@@ -7126,8 +7158,36 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         test.equal(actual.v2, 7.25, symbol .. " max")
     end
 
-    -- Exact integer reducers with masked contributions.
+    -- The float witness: binary32 after every operation, which the Lua
+    -- reducers over the same witness also are.
     local array = require("nupp.mem.array")
+    local floats = ffi.new("float[13]", {0.1, 1e8, -1e8, 3, 0.5, -2.25, 1e-3, 0.2, 1e8, -1e8, 11, 0.125, -4})
+    for count = 0, 13 do
+        for _, seed in ipairs({0, 0.1}) do
+            local ordered = simd.reducer.orderedSum(array.float, seed)
+            local dotted = simd.reducer.pairwiseDot(array.float, seed)
+            local compensated = simd.reducer.compensatedSum(array.float, seed)
+            local low = simd.reducer.propagatingMin(array.float, math.huge)
+            for i = 0, count - 1 do
+                local x = tonumber(floats[i])
+                ordered:add(x)
+                dotted:add(x, x)
+                compensated:add(x)
+                low:add(x)
+            end
+            for _, symbol in ipairs(symbols.narrow) do
+                local actual = ffi.new("NuppAotNarrow")
+                lib[symbol](floats, seed, count, actual)
+                local label = symbol .. " seed " .. seed .. " count " .. count
+                test.equal(tonumber(actual.v1), ordered:value(), label .. " ordered float sum")
+                test.equal(tonumber(actual.v2), dotted:value(), label .. " pairwise float dot")
+                test.equal(tonumber(actual.v3), compensated:value(), label .. " compensated float sum")
+                test.equal(tonumber(actual.v4), low:value(), label .. " propagating float min")
+            end
+        end
+    end
+
+    -- Exact integer reducers with masked contributions.
     local integers = ffi.new("int32_t[13]", {5, -7, 2147483647, -2147483648, 3, 3, 12, -1, 0, 99, -99, 41, 7})
     for count = 0, 13 do
         for _, seed in ipairs({0, -3, 2147483647}) do

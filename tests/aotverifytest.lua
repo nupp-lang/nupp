@@ -152,6 +152,48 @@ return {total = total}
     refuses(program, "invalid reducer contribution")
 end
 
+-- A `float` reducer carries `f32` in its type and takes binary32 values:
+-- a binary64 contribution, or a dot's second operand left wide, is refused.
+function M.floatReducerVerifierHoldsEveryOperandToBinary32()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function total(borrows input: span.Span<float>, seed: float): float
+    local fold = simd.reducer.orderedDot(array.float, seed)
+    for i = 1, #input do fold:add(input[i], input[i]) end
+    return fold:value()
+end
+return {total = total}
+]],
+        "float-reducer.nupp"
+    )
+    verify.program(program)
+    local init = find(program.body, function(s)
+        return s.op == "let" and s.value and s.value.op == "reducer_init"
+    end)
+    assert(init, "no reducer initialization")
+    assert(init.type == "simd_reducer_ordered_dot_f32", "a float reducer carries f32 in its type: " .. tostring(init.type))
+    assert(init.value.initial.type == "f32", "the seed is narrowed to f32")
+    init.value.initial.type = "f64"
+    refuses(program, "invalid reducer construction")
+    init.value.initial.type = "f32"
+    local contribution = find(program.body, function(s)
+        return s.op == "reducer_add"
+    end)
+    assert(contribution, "no reducer contribution")
+    assert(contribution.value.type == "f32", "a float contribution is narrowed to f32")
+    contribution.value.type = "f64"
+    refuses(program, "invalid reducer contribution")
+    contribution.value.type = "f32"
+    contribution.right.type = "f64"
+    refuses(program, "invalid reducer contribution")
+    contribution.right.type = "f32"
+    verify.program(program)
+end
+
 function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[

@@ -358,6 +358,7 @@ end
             explicitReducerMasks = {"all", "positive-only", "none"},
             explicitReducerMixedSpecies = options.mixedLanes or {2, 8},
             explicitReducerMixedShape = "scalar seed, masked whole vectors in one region, scalar tail",
+            floatElementReducers = "every floating contract over the float witness, binary32 after every operation",
             explicitReducerLengths = "0 through max(40, 2 * lanes + 1); Preferred through 129",
             loopLengths = {minimum = 0, maximum = 40},
             contracts = "adjacent-pair tree; logical ordered fold; gamma(4n+4) finite algebraic envelope; NaN/infinity/signed zero/first-index extrema",
