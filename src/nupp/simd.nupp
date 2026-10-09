@@ -78,6 +78,10 @@ local function Given(T: type): type
 end
 
 --- Closed reduction values for scalar or explicit masked vector contributions.
+---
+--- One reducer takes scalar contributions and masked vector contributions in
+--- any mix, in program order; every masked contribution belongs to one `do`
+--- block, which is the reducer's region.
 --- @export
 local reducer: {
     orderedSum: function(initial: number): simd.OrderedSum,
@@ -140,11 +144,11 @@ record simd.OrderedSum is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         self.total = self.total + scalar
@@ -163,11 +167,11 @@ record simd.PairwiseSum is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         local carry = scalar
@@ -217,11 +221,11 @@ record simd.AlgebraicSum is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         self.total = self.total + scalar
@@ -255,11 +259,11 @@ record simd.CompensatedSum is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         local sum = self.total + scalar
@@ -283,11 +287,11 @@ record simd.OrderedProduct is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         self.total = self.total * scalar
@@ -306,11 +310,11 @@ record simd.PairwiseProduct is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         local carry = scalar
@@ -357,11 +361,11 @@ record simd.AlgebraicProduct is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         self.total = self.total * scalar
@@ -379,16 +383,16 @@ record simd.OrderedDot is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
         right: number | simd.Vector<number, S>,
         active: simd.Mask<number, S>?
     ): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local leftValue, rightValue = left as number, right as number
         self.total = self.total + leftValue * rightValue
@@ -406,16 +410,16 @@ record simd.PairwiseDot is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
         right: number | simd.Vector<number, S>,
         active: simd.Mask<number, S>?
     ): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local leftValue, rightValue = left as number, right as number
         self.sum:add(leftValue * rightValue)
@@ -433,16 +437,16 @@ record simd.AlgebraicDot is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
         right: number | simd.Vector<number, S>,
         active: simd.Mask<number, S>?
     ): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local leftValue, rightValue = left as number, right as number
         self.total = self.total + leftValue * rightValue
@@ -529,11 +533,11 @@ record simd.WrappingSum<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         self.total = self.operation(self.total, scalar)
@@ -551,11 +555,11 @@ record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64> is simd.Reduce
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         self.total = self.operation(self.total, scalar)
@@ -573,11 +577,11 @@ record simd.AndBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         self.total = self.operation(self.total, scalar)
@@ -595,11 +599,11 @@ record simd.OrBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         self.total = self.operation(self.total, scalar)
@@ -617,11 +621,11 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         self.total = self.operation(self.total, scalar)
@@ -782,8 +786,15 @@ end
 record simd.Any is simd.Reducer<boolean>
     @private total: boolean
 
-    function add(self, value: boolean): nil
-        self.total = self.total or value
+    --- `active` selects the lanes of a mask that contribute, each lane's truth
+    --- in lane order, as one masked contribution per iteration of the `do`
+    --- block around it. As ordinary Lua the species is one lane wide: both
+    --- masks are booleans, and a `false` `active` contributes nothing.
+    function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        if (active as any) == false then
+            return
+        end
+        self.total = self.total or (value as boolean)
     end
 
     function value(self): boolean
@@ -802,8 +813,15 @@ end
 record simd.All is simd.Reducer<boolean>
     @private total: boolean
 
-    function add(self, value: boolean): nil
-        self.total = self.total and value
+    --- `active` selects the lanes of a mask that contribute, each lane's truth
+    --- in lane order, as one masked contribution per iteration of the `do`
+    --- block around it. As ordinary Lua the species is one lane wide: both
+    --- masks are booleans, and a `false` `active` contributes nothing.
+    function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        if (active as any) == false then
+            return
+        end
+        self.total = self.total and (value as boolean)
     end
 
     function value(self): boolean
@@ -822,8 +840,15 @@ end
 record simd.Count is simd.Reducer<uint64>
     @private total: uint64
 
-    function add(self, value: boolean): nil
-        self.total = self.total + (value and 1ULL or 0ULL)
+    --- `active` selects the lanes of a mask that contribute, each lane's truth
+    --- in lane order, as one masked contribution per iteration of the `do`
+    --- block around it. As ordinary Lua the species is one lane wide: both
+    --- masks are booleans, and a `false` `active` contributes nothing.
+    function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        if (active as any) == false then
+            return
+        end
+        self.total = self.total + ((value as boolean) and 1ULL or 0ULL)
     end
 
     function value(self): uint64
@@ -848,11 +873,11 @@ record simd.IntegerMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         if integerLess(scalar, self.best) then
@@ -909,11 +934,11 @@ record simd.IntegerMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as T
         if integerLess(self.best, scalar) then
@@ -987,11 +1012,11 @@ record simd.PropagatingMin is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         if extremumWins(scalar, self.best, false, true) then
@@ -1045,11 +1070,11 @@ record simd.PropagatingMax is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         if extremumWins(scalar, self.best, true, true) then
@@ -1103,11 +1128,11 @@ record simd.NumberMin is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         if extremumWins(scalar, self.best, false, false) then
@@ -1161,11 +1186,11 @@ record simd.NumberMax is simd.Reducer<number>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- That form runs only in compiled code, where vectors exist.
-    --- @raises string when given a mask, as ordinary Lua
+    --- As ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` contributes nothing.
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
-        if active ~= nil then
-            error("a masked reducer contribution runs only in compiled code", 2)
+        if (active as any) == false then
+            return
         end
         local scalar = value as number
         if extremumWins(scalar, self.best, true, false) then

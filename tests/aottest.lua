@@ -190,6 +190,66 @@ return total
     )
 end
 
+-- One reducer takes scalar contributions before, inside and after the region
+-- its masked contributions belong to; the masked ones still belong to one.
+function M.scalarAndMaskedContributionsMixInOneReducer()
+    local prefix = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function total(flag: boolean): number
+    local species = assert(simd.species(array.number, 2))
+    local fold = simd.reducer.orderedSum(0.0)
+]]
+    local suffix = [[
+    return fold:value()
+end
+
+return total
+]]
+
+    reports(
+        prefix
+        .. [[
+    fold:add(1.0)
+    do
+        fold:add(species:splat(1.0), species:tail(2))
+        fold:add(2.0)
+    end
+    fold:add(3.0)
+]]
+        .. suffix,
+        "",
+        "scalar contributions mix with masked ones in program order"
+    )
+    reports(
+        prefix
+        .. [[
+    fold:add(1.0)
+    do
+        fold:add(species:splat(1.0), species:tail(2))
+    end
+    do
+        fold:add(species:splat(2.0), species:tail(2))
+    end
+]]
+        .. suffix,
+        "NUPP2904",
+        "masked contributions still belong to one region"
+    )
+    reports(
+        prefix
+        .. [[
+    fold:add(1.0)
+    local copied = fold
+]]
+        .. suffix,
+        "NUPP2904",
+        "a reducer with a scalar contribution still cannot be copied"
+    )
+end
+
 function M.numericSwitchLocalIsAdmitted()
     reports(
         [[

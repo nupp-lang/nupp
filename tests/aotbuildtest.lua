@@ -6936,7 +6936,16 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     test.equal(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
-    for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact", "extremes"}) do
+    for _, name in ipairs({
+        "masks",
+        "preferred_masks",
+        "swap_fields",
+        "mapped",
+        "sums",
+        "dot",
+        "exact",
+        "extremes",
+    }) do
         symbols[
             name
         ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}

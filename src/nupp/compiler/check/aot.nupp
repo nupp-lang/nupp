@@ -211,15 +211,14 @@ function aot.install(c: state.Checker): aot.Ops
                         state_.region = region
                     end
                 elseif method == state_.contribution then
-                    if state_.region ~= nil and state_.region ~= 0 then
-                        diagnose(call, "scalar and masked vector contributions cannot be mixed")
-                    else
-                        state_.region = 0
-                    end
+                    -- A scalar contribution folds in where it is written,
+                    -- before, inside or after the region, so it belongs to
+                    -- no region and may mix with masked contributions.
+                    state_.contributed = true
                 elseif method == "value" then
                     if region ~= nil then
                         diagnose(call, "a reducer is finalized after its contribution region")
-                    elseif state_.region == nil then
+                    elseif state_.region == nil and not state_.contributed then
                         diagnose(call, "a reducer must receive its contribution before it is finalized")
                     elseif state_.finalized then
                         diagnose(call, "a reducer is finalized exactly once")
@@ -266,6 +265,7 @@ function aot.install(c: state.Checker): aot.Ops
                                 source = names[1],
                                 contribution = contribution,
                                 arity = arity,
+                                contributed = false,
                                 finalized = false,
                             }
                             states[identity] = state_
@@ -290,7 +290,7 @@ function aot.install(c: state.Checker): aot.Ops
             end
 
             for _, state_ in ipairs(ordered) do
-                if state_.region == nil then
+                if state_.region == nil and not state_.contributed then
                     diagnose(state_.source, "a reducer must receive a contribution before finalization")
                 elseif not state_.finalized then
                     diagnose(state_.source, "a reducer is finalized exactly once after its contribution region")

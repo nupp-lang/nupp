@@ -219,6 +219,43 @@ guards floating inputs before any potentially undefined integer conversion.
 Reinterpretation does no numeric work and preserves NaN payloads and signed
 zero as bits.
 
+## Reducer contributions
+
+A `simd.reducer` takes scalar contributions and masked vector contributions in
+any mix, and the contract sees them in program order: a masked vector
+contribution is its active lanes in ascending lane order, and a scalar one is
+one more value at the point it is written. Every masked contribution belongs to
+one `do` block, the reducer's region; scalar contributions may precede the
+region, follow it, or sit inside it between vector contributions. An ordinary
+kernel therefore declares one reducer for its vector loop and its scalar
+continuation together:
+
+```nupp:fragment
+local total = simd.reducer.orderedSum(0.0)
+do
+    while cursor + species.lanes <= #values do
+        total:add(species:load(values, cursor + 1), species:mask(true))
+        cursor = cursor + species.lanes
+    end
+end
+while cursor < #values do
+    total:add(values[cursor + 1])
+    cursor = cursor + 1
+end
+return total:value()
+```
+
+What program order means is the contract's own: an ordered contract folds the
+scalar into its running value where it is written; a pairwise contract takes it
+as one more leaf of the adjacent-pair tree, after the leaves the vectors before
+it contributed; a compensated sum carries its correction across both kinds; the
+extrema compare it against the running extreme. The algebraic and exact
+contracts, which permit reassociation or are exact, may hold the region's
+vector contributions in a lane-wise accumulator and fold it in when the region
+ends, so a scalar written inside such a region associates with the accumulated
+lanes rather than between them -- an association the contract already admits.
+
+
 ## Verification
 
 The reducer corpus in `tests/simd/reducers.lua` runs through the same native and
@@ -231,14 +268,17 @@ and first-position contracts are exact. NaNs compare by the observable policy
 above, not by unspecified payload bits. Explicit vector reducer probes
 cover Fixed2 through Fixed64 and Preferred with two complete groups and every
 tail, including positive-only holes and all-false masks. Authored reducers retain their
-one-unconditional-contribution rule. Arg-position and predicate reducers expose
-scalar contributions only, so their complete contracts are tested through those
-authored loops rather than an unprovided explicit-mask overload.
+one-unconditional-contribution rule. Predicate reducers take their truth as a mask, and arg-position reducers expose
+scalar contributions only. A mixed
+corpus feeds one reducer the seed as a scalar, whole vectors inside a region
+and the remaining elements as scalars, at two fixed widths, and compares it
+against the same contributions made one at a time.
 
 Algebraic checks use a different contract. For finite inputs whose intermediate
 values neither overflow nor underflow, the corpus compares two rounded paths
 with `gamma(4n + 4) = (4n + 4)u / (1 - (4n + 4)u)`, where `u` is `2^-24` for
-binary32 and `2^-53` for binary64. The absolute envelope scales by the sum of
+binary32 and `2^-53` for binary64, and `n` counts the seed among the
+contributions where it is one. The absolute envelope scales by the sum of
 absolute contributing inputs for a sum, the sum of absolute contributing
 products for a dot, and the absolute reference result for a product. One smallest subnormal accommodates
 the final boundary. This is a comparison envelope, not a promise of one

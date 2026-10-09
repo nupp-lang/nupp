@@ -299,11 +299,22 @@ end
             probes[module] = loopProbes
             modules[#modules + 1] = module
             for _, width in ipairs(widths) do
-                local masked, maskProbes = require("tests.simd.loopreducers").generate({ty}, true, width)
+                local masked, maskProbes = require("tests.simd.loopreducers").generate({ty}, "masked", width)
                 local maskModule = "simd_masked_reducers_" .. ty .. "_" .. tostring(width)
                 files[maskModule .. ".nupp"] = masked
                 probes[maskModule] = maskProbes
                 modules[#modules + 1] = maskModule
+            end
+            -- One reducer taking the seed as a scalar, whole vectors in a
+            -- region and the rest as scalars, at two fixed widths: the
+            -- narrowest, where most elements reach the scalar tail, and one
+            -- whole register.
+            for _, width in ipairs(options.mixedLanes or {2, 8}) do
+                local mixedSource, mixedProbes = require("tests.simd.loopreducers").generate({ty}, "mixed", width)
+                local mixedModule = "simd_mixed_reducers_" .. ty .. "_" .. tostring(width)
+                files[mixedModule .. ".nupp"] = mixedSource
+                probes[mixedModule] = mixedProbes
+                modules[#modules + 1] = mixedModule
             end
         end
     end
@@ -345,6 +356,8 @@ end
             lanes = widths,
             explicitReducerMaskSpecies = widths,
             explicitReducerMasks = {"all", "positive-only", "none"},
+            explicitReducerMixedSpecies = options.mixedLanes or {2, 8},
+            explicitReducerMixedShape = "scalar seed, masked whole vectors in one region, scalar tail",
             explicitReducerLengths = "0 through max(40, 2 * lanes + 1); Preferred through 129",
             loopLengths = {minimum = 0, maximum = 40},
             contracts = "adjacent-pair tree; logical ordered fold; gamma(4n+4) finite algebraic envelope; NaN/infinity/signed zero/first-index extrema",

@@ -884,7 +884,13 @@ end
 record lower.ReducerState
     name: string
     uniqueName: string
+
+    --- The `do` block its masked vector contributions belong to.
     region: integer?
+
+    --- Whether a scalar contribution has been made.
+    contributed: boolean
+
     finalized: boolean
     source: scalarIR.Source
 end
@@ -3363,7 +3369,13 @@ local function maskedContribution(
     local value = lower.expression(raw[1], environment, activeIndex, kernel)
     local family, element, shape = genericSimdParts(value.type)
     local scalar = reducerElement or "f64"
-    if family ~= "vector" or genericSimdScalar(element) ~= scalar then
+    -- A predicate reducer takes its truth per lane as a mask of whichever
+    -- species carries control; every other one takes a vector of its element.
+    if scalar == "bool" then
+        if family ~= "mask" then
+            context.reject(source, "a masked predicate contribution takes a mask of the lanes it tests")
+        end
+    elseif family ~= "vector" or genericSimdScalar(element) ~= scalar then
         context.reject(source, "a masked reducer contribution takes a vector whose element the reducer accumulates")
     end
     local maskType = "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
@@ -3964,11 +3976,10 @@ local function simdMethod(
             if (reducerState as lower.ReducerState).finalized then
                 kernel.context.reject(source, "a finalized reducer cannot receive another contribution")
             end
-            local region = (reducerState as lower.ReducerState).region
-            if region ~= nil and region ~= 0 then
-                kernel.context.reject(source, "scalar and masked vector contributions cannot be mixed")
-            end
-            (reducerState as lower.ReducerState).region = 0
+            -- A scalar contribution folds into the state where it is written,
+            -- before or after the region, or inside it between vector
+            -- contributions; program order is the order the contract sees.
+            (reducerState as lower.ReducerState).contributed = true
             local right: scalarIR.Expr? = nil
             if reducerOperation == "dot" then
                 right = lower.convert(
@@ -3994,7 +4005,9 @@ local function simdMethod(
                 source = source
             )
         elseif method == "value" and #raw == 0 then
-            if (reducerState as lower.ReducerState).region == nil then
+            if (reducerState as lower.ReducerState).region == nil
+                and not (reducerState as lower.ReducerState).contributed
+            then
                 kernel.context.reject(source, "a reducer must receive its contribution before it is finalized")
             end
             if (reducerState as lower.ReducerState).finalized then
@@ -6668,6 +6681,7 @@ local function localStmt(
             local state = new lower.ReducerState(
                 name = token.text,
                 uniqueName = binding.uniqueName,
+                contributed = false,
                 finalized = false,
                 source = lower.site(stat)
             )
@@ -9544,10 +9558,10 @@ end
 
 --- Reject incomplete reducer capabilities after the whole entry has lowered.
 --- Source order establishes contribution-before-finalization; region identity
---- prevents mixing scalar and masked vector contributions.
+--- holds the masked vector contributions to one `do` block.
 local function validateReducers(kernel: lower.Kernel): nil
     for _, reducer in ipairs(kernel.reducerOrder) do
-        if reducer.region == nil then
+        if reducer.region == nil and not reducer.contributed then
             kernel.context.reject(reducer.source, "a reducer must receive a contribution before finalization")
         end
         if not reducer.finalized then

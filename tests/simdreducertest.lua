@@ -73,5 +73,27 @@ function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
     assert(tostring(problem):find("array witness", 1, true), tostring(problem))
 end
 
+-- As ordinary Lua the species is one lane wide, a vector is that lane's
+-- value and a mask a boolean: `false` contributes nothing, and an arg
+-- extremum still counts it as a position.
+function M.aBooleanMaskSkipsTheContributionAsOrdinaryLua()
+    local array = require("nupp.mem.array")
+    local total = simd.reducer.orderedSum(0.0)
+    total:add(1.0, false)
+    total:add(2.0, true)
+    total:add(3.0)
+    test.equal(total:value(), 5.0, "a false mask contributes nothing to a sum")
+    local pairwise = simd.reducer.pairwiseSum(0.0)
+    pairwise:add(1.0, false)
+    test.equal(pairwise:value(), 0.0, "a false mask adds no leaf")
+    local bits = simd.reducer.xorBits(array.uint32, 0)
+    bits:add(7, false)
+    bits:add(5, true)
+    test.equal(bits:value(), 5, "a false mask skips an integer contribution")
+    local every = simd.reducer.all()
+    every:add(false, false)
+    test.equal(every:value(), true, "a false mask leaves a predicate alone")
+end
+
 require("jit").off(M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel, true)
 return M
