@@ -30,7 +30,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 43
+const scalarIR.VERSION = 44
 
 --- The calling convention selected for a complete AOT entry.
 ---
@@ -489,10 +489,18 @@ record scalarIR.Load
     indexUniqueName: string?
 
     --- A zero-based append/read cursor authorized by a dominating
-    --- `cursor < #span` branch. The source access is `cursor + 1`.
+    --- `cursor < #span` branch. The source access is `cursor + 1`, or
+    --- `cursor + k` with `cursorOffset` holding `k - 1`.
     cursor: string?
 
     cursorUniqueName: string?
+
+    --- How far past the cursor the element lies, zero-based: the literal `k -
+    --- 1` of a source access `cursor + k`. Absent for `cursor + 1`. The
+    --- dominating check has to have bounded the cursor that many elements
+    --- further below the span's count, which `scalarIR.CursorBounds` records
+    --- as the room.
+    cursorOffset: integer?
 
     type: scalarIR.Type
     sourceType: string?
@@ -507,6 +515,7 @@ record scalarIR.ElementRef
     indexUniqueName: string?
     cursor: string?
     cursorUniqueName: string?
+    cursorOffset: integer?
     layout: string
 
     --- Whether this element may be written, which follows from whether its span
@@ -1097,6 +1106,7 @@ record scalarIR.Store
     indexUniqueName: string?
     cursor: string?
     cursorUniqueName: string?
+    cursorOffset: integer?
     value: scalarIR.Expr
     source: scalarIR.Source?
 end
@@ -1198,12 +1208,14 @@ end
 --- An arm of a conditional.
 --- The cursor bounds a branch or loop condition proves for its body, by
 --- cursor and then by span: `cursorBounds[cursor][span]` is the room the
---- condition established below the span's count -- `"1"` for one element,
---- from `cursor < #span`, or the species type whose lane count fits, from
---- `cursor + species.lanes <= #span`. A `species@N` room records N vectors,
---- from an exact `cursor + N * species.lanes <= #span` guard, and also covers
---- derived offsets strictly below N vectors. Every vector bound implies the
---- one-element bound, so an ordinary `span[cursor + 1]` is proven under either.
+--- condition established below the span's count -- a decimal `"k"` for k
+--- elements, `"1"` from `cursor < #span` and `"k"` from the exact `cursor + k
+--- - 1 < #span` or `cursor + k <= #span`, or the species type whose lane count
+--- fits, from `cursor + species.lanes <= #span`. A `species@N` room records N
+--- vectors, from an exact `cursor + N * species.lanes <= #span` guard, and
+--- also covers derived offsets strictly below N vectors. Every vector bound
+--- implies at least N elements, so `span[cursor + k]` is proven under either
+--- kind of room once the room reaches k, which `simdbounds.elements` counts.
 type scalarIR.CursorBounds = {[string]: {[string]: string}}
 
 --- The room a one-element bound records.

@@ -74,77 +74,50 @@ local function encode(
         end
     end
 
-    -- Whatever the vectors did not cover, by the triple. Each byte is read
-    -- at its own cursor under its own bound, which is the shape a span read
-    -- in a compiled body takes, and so is each symbol of the alphabet.
-    local in1: uint32 = at + 1
-    local in2: uint32 = at + 2
-    local to1: uint32 = out + 1
-    local to2: uint32 = out + 2
-    local to3: uint32 = out + 3
-    while at < #source
-        and in1 < #source
-        and in2 < #source
-        and out < #output
-        and to1 < #output
-        and to2 < #output
-        and to3 < #output do
+    -- Whatever the vectors did not cover, by the triple. The loop condition
+    -- bounds each cursor by the literal the triple and the quad reach, which
+    -- proves the three reads and the four writes through those two cursors
+    -- alone; each alphabet symbol is read under its own bound.
+    while at + 2 < #source and out + 3 < #output do
         local c0: uint32 = source[at + 1]
-        local c1: uint32 = source[in1 + 1]
-        local c2: uint32 = source[in2 + 1]
-        local d0 = nupp.math.u32.shiftRightLogical(c0, 2)
-        local d1 = nupp.math.u32.orBits(
-            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, 3), 4),
-            nupp.math.u32.shiftRightLogical(c1, 4)
-        )
-        local d2 = nupp.math.u32.orBits(
-            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, 15), 2),
-            nupp.math.u32.shiftRightLogical(c2, 6)
-        )
-        local d3 = nupp.math.u32.andBits(c2, 63)
+        local c1: uint32 = source[at + 2]
+        local c2: uint32 = source[at + 3]
+        local d0 = c0 >> 2
+        local d1 = ((c0 & 3) << 4) | (c1 >> 4)
+        local d2 = ((c1 & 15) << 2) | (c2 >> 6)
+        local d3 = c2 & 63
         if d0 < #alphabet and d1 < #alphabet and d2 < #alphabet and d3 < #alphabet then
             output[out + 1] = alphabet[d0 + 1]
-            output[to1 + 1] = alphabet[d1 + 1]
-            output[to2 + 1] = alphabet[d2 + 1]
-            output[to3 + 1] = alphabet[d3 + 1]
+            output[out + 2] = alphabet[d1 + 1]
+            output[out + 3] = alphabet[d2 + 1]
+            output[out + 4] = alphabet[d3 + 1]
         end
         at = at + 3
-        in1 = in1 + 3
-        in2 = in2 + 3
         out = out + 4
-        to1 = to1 + 4
-        to2 = to2 + 4
-        to3 = to3 + 4
     end
 
     -- The last one or two bytes, padded.
-    if at < #source and out < #output and to1 < #output and to2 < #output and to3 < #output then
+    if at < #source and out + 3 < #output then
         local c0: uint32 = source[at + 1]
         local c1: uint32 = 0
         local c2: uint32 = 0
         local tailPadding: uint32 = 2
-        if in1 < #source then
-            c1 = source[in1 + 1]
+        if at + 1 < #source then
+            c1 = source[at + 2]
             tailPadding = 1
         end
-        local d0 = nupp.math.u32.shiftRightLogical(c0, 2)
-        local d1 = nupp.math.u32.orBits(
-            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, 3), 4),
-            nupp.math.u32.shiftRightLogical(c1, 4)
-        )
-        local d2 = nupp.math.u32.orBits(
-            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, 15), 2),
-            nupp.math.u32.shiftRightLogical(c2, 6)
-        )
+        local d0 = c0 >> 2
+        local d1 = ((c0 & 3) << 4) | (c1 >> 4)
+        local d2 = ((c1 & 15) << 2) | (c2 >> 6)
         if d0 < #alphabet and d1 < #alphabet and d2 < #alphabet then
             output[out + 1] = alphabet[d0 + 1]
-            output[to1 + 1] = alphabet[d1 + 1]
+            output[out + 2] = alphabet[d1 + 1]
             if tailPadding == 1 then
-                output[to2 + 1] = alphabet[d2 + 1]
+                output[out + 3] = alphabet[d2 + 1]
             else
-                output[to2 + 1] = 61
+                output[out + 3] = 61
             end
-            output[to3 + 1] = 61
+            output[out + 4] = 61
         end
         out = out + 4
     end

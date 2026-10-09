@@ -326,18 +326,30 @@ end
 -- Memory
 ----------------------------------------------------------------------------
 
---- The zero-based element index a span access names, as an i64.
+--- The zero-based element index a span access names, as an i64: the loop
+--- index, or a proved cursor displaced by `cursorOffset` elements. The sum
+--- is exact, which is what the dominating check proved in bounds; the
+--- `uint32` cursor widened first cannot carry it past 64 bits.
 --- @raises string when the index names no bound local, or the map index is
 ---   read outside the map loop
-function expressions.index(ctx: context.Context, indexUniqueName: string?, cursorUniqueName: string?): string
+function expressions.index(
+    ctx: context.Context,
+    indexUniqueName: string?,
+    cursorUniqueName: string?,
+    cursorOffset: integer?
+): string
     if cursorUniqueName ~= nil then
         local slot = ctx.locals[cursorUniqueName as string]
         if slot == nil then
             error("no local " .. tostring(cursorUniqueName), 0)
         end
         local cursor = context.value(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer))
+        local index = expressions.convert(ctx, cursor, slot.type, "u64")
+        if cursorOffset ~= nil and (cursorOffset as integer) > 0 then
+            index = context.value(ctx, ("add nuw nsw i64 %s, %d"):format(index, cursorOffset as integer))
+        end
 
-        return expressions.convert(ctx, cursor, slot.type, "u64")
+        return index
     end
     if indexUniqueName == "i" then
         if ctx.mapIndex == nil then
@@ -791,7 +803,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "load" then
         local loaded = node as scalarIR.Load
         local storage = types.storage(nodeType, loaded.sourceType)
-        local index = expressions.index(ctx, loaded.indexUniqueName, loaded.cursorUniqueName)
+        local index = expressions.index(ctx, loaded.indexUniqueName, loaded.cursorUniqueName, loaded.cursorOffset)
         local address = expressions.element(ctx, loaded.span, index, storage)
         local raw = context.value(
             ctx,
@@ -802,7 +814,12 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "element_ref" then
         local referenced = node as scalarIR.ElementRef
         local structType = expressions.layoutType(ctx, referenced.layout)
-        local index = expressions.index(ctx, referenced.indexUniqueName, referenced.cursorUniqueName)
+        local index = expressions.index(
+            ctx,
+            referenced.indexUniqueName,
+            referenced.cursorUniqueName,
+            referenced.cursorOffset
+        )
 
         return expressions.element(ctx, referenced.span, index, structType), "ptr"
     elseif operation == "field_load" then

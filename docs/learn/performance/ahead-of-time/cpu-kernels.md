@@ -35,6 +35,20 @@ The human report says whether each function lowered to scalar code, explicit SIM
 
 A loop from one through a span's count proves its direct accesses are in bounds. If it writes a second span, an equality guard such as `assert(#output == #input)` relates the two counts. A zero-based append cursor must be guarded by `cursor < #output` before writing `output[cursor + 1]`, or by a bound on a span the leading guards hold no longer than `output`.
 
+A guard offset by a literal proves the elements within it: `at + 2 < #source`, or equally `at + 3 <= #source`, admits `source[at + 1]` through `source[at + 3]`, so a byte triple is read through one cursor rather than one cursor per byte, and a whole-vector guard such as `at + 3 * s.lanes <= #source` admits the element reads within its width the same way. The guard may be written either way round, may be one conjunct of a loop or branch condition, and holds for the right operand of an `and` (or, negated, of an `or`). The comparison is computed exactly rather than wrapped at thirty-two bits, which is what makes the room believable, and the accesses under it carry no check of their own: an access one element past what the guard proves is refused when the kernel is compiled, naming the guard it would need.
+
+```nupp:fragment
+while at + 2 < #source and out + 3 < #output do
+    local c0: uint32 = source[at + 1]
+    local c1: uint32 = source[at + 2]
+    local c2: uint32 = source[at + 3]
+    output[out + 1] = c0
+    output[out + 4] = c1 + c2
+    at = at + 3
+    out = out + 4
+end
+```
+
 Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry, and refuses a call whose written span overlaps another span (`native spans overlap`): the checker proves disjointness at typed call sites, and the wrapper holds a plain Lua or gradual caller to the same promise. The private entry does not carry Lua values.
 
 Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. The generated code preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.

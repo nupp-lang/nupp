@@ -97,7 +97,7 @@ end
 function text.expression(node: scalarIR.Expr): string
     local op = node.op
     if op == "load" then
-        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        local index = node.cursor ~= nil and node.cursor .. "+" .. tostring((node.cursorOffset or 0) + 1) or node.index
         return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "span_count" then
         return "count " .. node.span
@@ -109,7 +109,7 @@ function text.expression(node: scalarIR.Expr): string
         local load = node as scalarIR.SharedLoad
         return "shared_load:" .. load.type .. " " .. load.shared .. "[" .. text.expression(load.index) .. "]"
     elseif op == "element_ref" then
-        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        local index = node.cursor ~= nil and node.cursor .. "+" .. tostring((node.cursorOffset or 0) + 1) or node.index
         return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "field_load" then
         return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
@@ -346,7 +346,9 @@ function text.block(statements: {any}, depth: integer): {string}
             end
             lines[#lines + 1] = prefix .. "let " .. table.concat(names, ",") .. " = " .. text.expression(statement.call)
         elseif op == "store" then
-            local index = statement.cursor ~= nil and statement.cursor .. "+1" or statement.index
+            local index = statement.cursor ~= nil
+                and statement.cursor .. "+" .. tostring((statement.cursorOffset or 0) + 1)
+                or statement.index
             lines[
                 #lines + 1
             ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(statement.value)

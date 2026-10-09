@@ -436,17 +436,30 @@ local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: s
 end
 
 --- Records a bound, replacing the inner table an enclosing scope shares
---- rather than writing into it. A vector's room implies an element's, so an
---- element bound never narrows one.
+--- rather than writing into it. Which room survives a second bound on the
+--- same root is `simdbounds.widen`'s rule, shared with the lowerer.
 local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
     local spans: {[string]: string} = {}
     for name, held in pairs(bounds[cursor] or {}) do
         spans[name] = held
     end
-    if spans[root] == nil or room ~= scalarIR.ONE_ELEMENT then
-        spans[root] = room
-    end
+    spans[root] = simdbounds.widen(spans[root], room)
     bounds[cursor] = spans
+end
+
+--- How many elements a cursor access claims past the cursor: one for
+--- `cursor + 1`, `k` for a `cursorOffset` of `k - 1`, and more than any bound
+--- proves for an offset no access can have written.
+local function cursorElements(offset: integer?): number
+    if offset == nil then
+        return 1
+    end
+    local step = offset as integer
+    if step < 0 or step % 1 ~= 0 then
+        return math.huge
+    end
+
+    return step + 1
 end
 
 --- A scope's cursor bounds, copied so a nested scope can retire its own.
@@ -663,7 +676,8 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
                 scope.cursorBounds,
                 node.cursor as string,
                 span.soa ~= nil and span.soa.view or node.span,
-                scope.countBounds
+                scope.countBounds,
+                cursorElements(node.cursorOffset)
             )
             and node.cursorUniqueName ~= nil,
             "unbounded cursor load"
@@ -701,7 +715,13 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
     local bounded = node.cursor ~= nil
         and node.index == ""
         and values[node.cursor as string] == "u32"
-        and simdbounds.boundedThrough(scope.cursorBounds, node.cursor as string, node.span, scope.countBounds)
+        and simdbounds.boundedThrough(
+            scope.cursorBounds,
+            node.cursor as string,
+            node.span,
+            scope.countBounds,
+            cursorElements(node.cursorOffset)
+        )
         and node.cursorUniqueName ~= nil
         or node.cursor == nil
         and node.index == scope.index
@@ -844,6 +864,70 @@ local function laneBound(
     return cursor, spans, simdbounds.room(tostring((species as scalarIR.Expr).type), count as number)
 end
 
+--- The cursor and literal of an exact `cursor + c` sum, `u64_add(cast
+--- cursor, cast c)` for a `u32` cursor local and a positive `u32` constant,
+--- which is how the lowerer writes a literal cursor guard; nothing for any
+--- other expression. The wrapping 32-bit sum proves nothing, as for
+--- `laneBound`.
+local function cursorSum(value: scalarIR.Expr, values: {[string]: string}): (string?, number?)
+    if value.op ~= "u64_add" then
+        return nil, nil
+    end
+    local sum = value as scalarIR.Fixed
+    if sum.left.op ~= "numeric_cast" or sum.left.type ~= "u64" then
+        return nil, nil
+    end
+    if sum.right.op ~= "numeric_cast" or sum.right.type ~= "u64" then
+        return nil, nil
+    end
+    local cursorNode = (sum.left as scalarIR.Convert).value
+    local literal = (sum.right as scalarIR.Convert).value
+    if simdbounds.cursor(cursorNode) == nil or literal.op ~= "constant_i32" or literal.type ~= "u32" then
+        return nil, nil
+    end
+    local cursor = (cursorNode as scalarIR.Name).name
+    local step = tonumber((literal as scalarIR.IntConstant).value)
+    if values[cursor] ~= "u32" or step == nil or step < 1 or step % 1 ~= 0 then
+        return nil, nil
+    end
+
+    return cursor, step
+end
+
+--- The span a comparison's right side counts, when it is a region-backed
+--- span's count; nothing otherwise.
+local function countedSpan(right: scalarIR.Expr, scope: verify.Scope): string?
+    if right.op ~= "span_count" then
+        return nil
+    end
+    local spanName = (right as scalarIR.SpanCount).span
+    local root = scope.spans[spanName]
+    if root == nil or (root as scalarIR.Param).region == nil then
+        return nil
+    end
+
+    return spanName
+end
+
+--- The element bound an exact literal cursor comparison proves: `lt` for c +
+--- 1 elements and `le` for c. Returns the cursor, the span and the room.
+local function sumBound(
+    comparison: scalarIR.Binary,
+    values: {[string]: string},
+    scope: verify.Scope
+): (string?, string?, string?)
+    if comparison.op ~= "lt" and comparison.op ~= "le" then
+        return nil, nil, nil
+    end
+    local cursor, step = cursorSum(comparison.left, values)
+    local spanName = countedSpan(comparison.right, scope)
+    if cursor == nil or spanName == nil then
+        return nil, nil, nil
+    end
+
+    return cursor, spanName, tostring(comparison.op == "lt" and (step as number) + 1 or step as number)
+end
+
 --- Whether a vector access's cursor claim holds: the access is at `cursor +
 --- 1`, spelled as the promoted wrapping sum the lowerer writes for it, and a
 --- dominating guard bounded that cursor a whole vector of the access's own
@@ -897,7 +981,16 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
         -- initialized length -- bounds it for the right operand alone.
         local comparison = node.left as scalarIR.Binary
         local cursor = comparison.left.op == "local" and (comparison.left as scalarIR.Name).name or nil
+        local room = scalarIR.ONE_ELEMENT
         local bound: string? = nil
+        if cursor == nil then
+            -- Or the exact literal form, `cursor + c < #span and span[cursor
+            -- + k]`, which proves c + 1 elements against a span's count only.
+            local sumCursor, step = cursorSum(comparison.left, values)
+            if sumCursor ~= nil and countedSpan(comparison.right, scope) ~= nil then
+                cursor, room = sumCursor, tostring((step as number) + 1)
+            end
+        end
         if comparison.right.op == "span_count" then
             local spanName = (comparison.right as scalarIR.SpanCount).span
             local root = scope.spans[spanName]
@@ -913,12 +1006,12 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
             and (op == "and" and node.left.op == "lt" or op == "or" and node.left.op == "ge")
         then
             local cursorBounds = inheritBounds(scope.cursorBounds)
-            withBound(cursorBounds, cursor as string, bound as string, scalarIR.ONE_ELEMENT)
+            withBound(cursorBounds, cursor as string, bound as string, room)
             rightScope = derive(scope, {cursorBounds = cursorBounds})
         end
     elseif op == "and" and node.left.op == "le" then
         -- The same for a whole vector: `cursor + s.lanes <= #span and
-        -- s:load(span, cursor + 1)`.
+        -- s:load(span, cursor + 1)`, and for the literal `cursor + c <= #span`.
         local cursor, spans, speciesType = laneBound(node.left as scalarIR.Binary, values, scope)
         if cursor ~= nil then
             local cursorBounds = inheritBounds(scope.cursorBounds)
@@ -926,6 +1019,13 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
                 withBound(cursorBounds, cursor as string, spanName, speciesType as string)
             end
             rightScope = derive(scope, {cursorBounds = cursorBounds})
+        else
+            local sumCursor, sumSpan, sumRoom = sumBound(node.left as scalarIR.Binary, values, scope)
+            if sumCursor ~= nil then
+                local cursorBounds = inheritBounds(scope.cursorBounds)
+                withBound(cursorBounds, sumCursor as string, sumSpan as string, sumRoom as string)
+                rightScope = derive(scope, {cursorBounds = cursorBounds})
+            end
         end
     end
     scalarWalk(node.right, values, rightScope)
@@ -2081,7 +2181,17 @@ local function provesCursorBound(
         local binary = condition as scalarIR.Binary
         return provesCursorBound(binary.left, cursor, spanName, room, values, scope)
             or provesCursorBound(binary.right, cursor, spanName, room, values, scope)
-    elseif condition.op == "le" then
+    end
+    -- An exact literal guard proves an element room it reaches, under either
+    -- comparison. Vector rooms and the plain one-element form are below.
+    local sumCursor, sumSpan, sumRoom = sumBound(condition as scalarIR.Binary, values, scope)
+    if sumCursor ~= nil then
+        return sumCursor == cursor
+            and sumSpan == spanName
+            and simdbounds.elementRoom(room)
+            and simdbounds.elements(sumRoom) >= simdbounds.elements(room)
+    end
+    if condition.op == "le" then
         local boundCursor, boundSpans, speciesType = laneBound(condition as scalarIR.Binary, values, scope)
         if boundCursor ~= cursor or speciesType ~= room then
             return false
@@ -2319,7 +2429,8 @@ local function block(
                     scope.cursorBounds,
                     statement.cursor as string,
                     param ~= nil and param.soa ~= nil and param.soa.view or statement.span,
-                    scope.countBounds
+                    scope.countBounds,
+                    cursorElements(statement.cursorOffset)
                 )
                 and statement.cursorUniqueName ~= nil
                 or statement.cursor == nil

@@ -1000,6 +1000,11 @@ function spirv.program(
     local function bufferPointer(value: any): (integer, integer)
         local indexId = dispatch
         if value.cursor ~= nil then
+            if value.cursorOffset ~= nil then
+                -- Lowering proves no displaced cursor on a GPU target, whose
+                -- comparisons have no exact 64-bit sum to prove one with.
+                error("SPIR-V subset does not emit a displaced cursor access", 0)
+            end
             local pointer = assert(localPointers[value.cursorUniqueName])
             indexId = id()
             instruction(functions, OP.Load, {u32Type, indexId, pointer})

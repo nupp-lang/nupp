@@ -46,30 +46,88 @@ function simdbounds.covers(room: string?, species: string, count: number?): bool
     return (held == species or lanes ~= nil and species:match("_fixed(%d+)$") == lanes) and available >= (count or 1)
 end
 
---- Whether a dominating check bounded a cursor below `counted`: directly, or
---- below a root the entry guards prove no longer than it. `related` is the
---- same map `coveredThrough` reads.
-function simdbounds.boundedThrough(
+--- Whether a room is a plain element count rather than a species' vectors.
+function simdbounds.elementRoom(room: string): boolean
+    return room:match("^%d+$") ~= nil
+end
+
+--- How many elements a room certainly holds below the count it was proved
+--- against: the count itself for an element room, and for a vector room its
+--- vectors times the species' lanes -- which a fixed species names, and which
+--- is at least one for any other.
+function simdbounds.elements(room: string?): number
+    if room == nil then
+        return 0
+    end
+    local held = room as string
+    if simdbounds.elementRoom(held) then
+        return tonumber(held) or 0
+    end
+    local species, multiple = held:match("^(.+)@(%d+)$")
+    species = species or held
+    local lanes = tonumber(species:match("_fixed(%d+)$")) or 1
+
+    return lanes * (tonumber(multiple) or 1)
+end
+
+--- The room to hold once a second bound is proved for the same cursor against
+--- the same root. Two element rooms keep the larger. A vector room beats an
+--- element room it reaches, since it proves those elements too, and gives way
+--- to one it does not; a later vector room replaces an earlier one, as the
+--- vector accesses under it ask for exactly the species it names.
+function simdbounds.widen(existing: string?, room: string): string
+    if existing == nil then
+        return room
+    end
+    local held = existing as string
+    local heldElements, roomElements = simdbounds.elements(held), simdbounds.elements(room)
+    local heldVector, roomVector = not simdbounds.elementRoom(held), not simdbounds.elementRoom(room)
+    if heldVector and roomVector then
+        return room
+    elseif heldVector then
+        return heldElements >= roomElements and held or room
+    elseif roomVector then
+        return roomElements >= heldElements and room or held
+    end
+
+    return roomElements >= heldElements and room or held
+end
+
+--- How many elements the dominating checks prove a cursor has below
+--- `counted`: directly, or below a root the entry guards prove no longer
+--- than it. Zero when nothing bounded it. `related` is the same map
+--- `coveredThrough` reads.
+function simdbounds.reach(
     bounds: scalarIR.CursorBounds,
     cursor: string,
     counted: string?,
     related: {[string]: {[string]: boolean}}?
-): boolean
+): number
     local spans = bounds[cursor]
     if spans == nil or counted == nil then
-        return false
+        return 0
     end
-    if spans[counted as string] ~= nil then
-        return true
-    end
-    for root in pairs(spans) do
+    local most = simdbounds.elements(spans[counted as string])
+    for root, room in pairs(spans) do
         local reaches = related ~= nil and (related as {[string]: {[string]: boolean}})[root] or nil
         if reaches ~= nil and reaches[counted as string] == true then
-            return true
+            most = math.max(most, simdbounds.elements(room))
         end
     end
 
-    return false
+    return most
+end
+
+--- Whether a dominating check bounded a cursor `count` elements (one when
+--- unsaid) below `counted`, as `reach` counts them.
+function simdbounds.boundedThrough(
+    bounds: scalarIR.CursorBounds,
+    cursor: string,
+    counted: string?,
+    related: {[string]: {[string]: boolean}}?,
+    count: number?
+): boolean
+    return simdbounds.reach(bounds, cursor, counted, related) >= (count or 1)
 end
 
 --- Whether a cursor has room for `count` vectors of `species` below `counted`:

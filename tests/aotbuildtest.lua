@@ -3642,6 +3642,97 @@ void %s(void *, uint32_t, size_t);
     end
 end
 
+-- A byte triple read and a quad written through one cursor each, under the
+-- literal guards that prove the elements past the cursor: the compiled
+-- kernel agrees with a Lua oracle over every tail length, and the emitted
+-- function compares nothing but its two loop guards.
+function M.displacedCursorAccessesRunCheckFreeAndAgreeWithTheOracle()
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(
+        [[
+local span = require("nupp.mem.span")
+@aot
+local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
+    local at: uint32 = 0
+    local out: uint32 = 0
+    while at + 2 < #source and out + 3 < #output do
+        local c0: uint32 = source[at + 1]
+        local c1: uint32 = source[at + 2]
+        local c2: uint32 = source[at + 3]
+        output[out + 1] = c2
+        output[out + 2] = c1
+        output[out + 3] = c0
+        output[out + 4] = c0 + c1 + c2
+        at = at + 3
+        out = out + 4
+    end
+    if at + 2 <= #source and out + 2 <= #output then
+        output[out + 1] = source[at + 2]
+        output[out + 2] = source[at + 1]
+        out = out + 2
+    end
+    return out
+end
+return {triples = triples}
+]]
+    )
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local name = librarySymbol(dir, lib, "ks_triples")
+    ffi.cdef(("uint32_t %s(void *, const void *, size_t, size_t);"):format(name))
+
+    local function oracle(source, outputCount)
+        local output, at, written = {}, 0, 0
+        for i = 1, outputCount do
+            output[i] = 0
+        end
+        while at + 2 < #source and written + 3 < outputCount do
+            local c0, c1, c2 = source[at + 1], source[at + 2], source[at + 3]
+            output[written + 1], output[written + 2], output[written + 3] = c2, c1, c0
+            output[written + 4] = (c0 + c1 + c2) % 256
+            at, written = at + 3, written + 4
+        end
+        if at + 2 <= #source and written + 2 <= outputCount then
+            output[written + 1], output[written + 2] = source[at + 2], source[at + 1]
+            written = written + 2
+        end
+
+        return output, written
+    end
+
+    for sourceCount = 0, 41 do
+        for _, outputCount in ipairs({0, 1, 2, 3, 4, 5, 7, 4 * math.ceil(sourceCount / 3) + 2}) do
+            local source, bytes = {}, ffi.new("uint8_t[?]", math.max(sourceCount, 1))
+            for i = 1, sourceCount do
+                source[i] = (i * 37 + sourceCount) % 256
+                bytes[i - 1] = source[i]
+            end
+            local output = ffi.new("uint8_t[?]", math.max(outputCount, 1))
+            local expected, expectedWritten = oracle(source, outputCount)
+            local written = tonumber(lib[name](output, bytes, outputCount, sourceCount))
+            local label = ("source %d, output %d"):format(sourceCount, outputCount)
+            test.equal(written, expectedWritten, label .. ": bytes written")
+            for i = 1, outputCount do
+                test.equal(tonumber(output[i - 1]), expected[i], label .. ": byte " .. i)
+            end
+        end
+    end
+
+    -- The proof carries the accesses, not a check: inside the function the
+    -- only comparisons are the two conjuncts of each guard.
+    local unit = assert(read(tieredUnit(dir, libraryTier(lib))))
+    local body = assert(unit:match("define[^\n]*@" .. name .. "%(.-\n}"), "the emitted function")
+    local compares = 0
+    for _ in body:gmatch("icmp ") do
+        compares = compares + 1
+    end
+    test.equal(compares, 4, "two guards of two conjuncts, and no per-access check:\n" .. body)
+end
+
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     local function answer(policy)
         local dir = wideBitwiseProject(policy)

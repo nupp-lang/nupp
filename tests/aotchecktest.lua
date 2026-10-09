@@ -107,6 +107,39 @@ end
 return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4) + repeated(1.0, 5)
     + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)
 ]],
+    -- A read one past what `at + 2 < #source` proves.
+    ["cursorpast.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function past(borrows source: span.Span<uint8>): uint32
+    local at: uint32 = 0
+    local total: uint32 = 0
+    while at + 2 < #source do
+        total = total + source[at + 4]
+        at = at + 3
+    end
+    return total
+end
+
+return {past = past}
+]],
+    -- A write one past what `out + 3 <= #output` proves.
+    ["cursorstorepast.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function storePast(exclusive output: span.WriteSpan<uint8>): uint32
+    local out: uint32 = 0
+    while out + 3 <= #output do
+        output[out + 4] = 7
+        out = out + 3
+    end
+    return out
+end
+
+return {storePast = storePast}
+]],
 }
 
 -- What `check` has to leave alone: an admitted `@aot` function, and a file with none.
@@ -181,6 +214,41 @@ local function clamp(value: number, low: number, high: number): number
 end
 
 return {clamp = clamp}
+]],
+    -- Reads and writes displaced past one cursor, each within what its
+    -- literal guard proves, in every spelling of the guard.
+    ["cursorsteps.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
+    local at: uint32 = 0
+    local out: uint32 = 0
+    while at + 2 < #source and out + 4 <= #output do
+        output[out + 1] = source[at + 1]
+        output[out + 2] = source[at + 2]
+        output[out + 3] = source[at + 3]
+        output[out + 4] = 0
+        at = at + 3
+        out = out + 4
+    end
+    local total: uint32 = 0
+    if #source > at + 1 then
+        total = total + source[at + 2]
+    end
+    if #source >= at + 2 then
+        total = total + source[at + 2]
+    end
+    if at + 1 >= #source or source[at + 2] == 7 then
+        total = total + 1
+    end
+    if at + 1 < #source and source[at + 2] == 9 then
+        total = total + 2
+    end
+    return out + total
+end
+
+return {triples = triples}
 ]],
     ["plain.nupp"] = [[
 local function sign(value: number): number

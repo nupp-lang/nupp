@@ -316,6 +316,17 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
                 end
                 widths[#widths + 1] = (left as scalarIR.Fixed).right
                 left = (left as scalarIR.Fixed).left
+            elseif left.op == "u64_add" then
+                -- The exact literal guard `cursor + c < #span` has room for
+                -- `c + 1`.
+                local step = constantOf((left as scalarIR.Fixed).right)
+                if step == nil then
+                    return nil
+                end
+                widths[
+                    #widths + 1
+                ] = new scalarIR.IntConstant(op = "constant_i32", value = tostring((step as number) + 1), type = "u32")
+                left = (left as scalarIR.Fixed).left
             else
                 widths[#widths + 1] = new scalarIR.IntConstant(op = "constant_i32", value = "1", type = "u32")
             end
@@ -498,7 +509,7 @@ local function spanStore(ctx: context.Context, statement: scalarIR.Store): nil
     local storage = types.storage(elementType, param.sourceType)
     local converted = expressions.convert(ctx, value, t, elementType)
     local stored = expressions.narrow(ctx, converted, elementType, storage)
-    local index = expressions.index(ctx, statement.indexUniqueName, statement.cursorUniqueName)
+    local index = expressions.index(ctx, statement.indexUniqueName, statement.cursorUniqueName, statement.cursorOffset)
     local address = expressions.element(ctx, statement.span, index, storage)
     context.emit(
         ctx,

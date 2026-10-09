@@ -13,6 +13,7 @@ local envMod = require("nupp.compiler.project.env")
 local parser = require("nupp.compiler.syntax.parser")
 local verify = require("nupp.compiler.aot.verify")
 local equivalenceMutation = require("tests.simd.equivalence-mutation")
+local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -1738,6 +1739,108 @@ function M.aMaskQueryAnswersTheWidthItsQuestionHas()
     program, node = crossLaneNode("simd_mask_count")
     node.args[2] = {op = "constant", value = "1", type = "f64"}
     refuses(program, "invalid generic SIMD mask query")
+end
+
+-- A byte triple read and a quad written through one cursor each, under the
+-- literal guards that prove the elements past the cursor.
+local DISPLACED_TAIL = [[
+local span = require("nupp.mem.span")
+@aot
+local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
+    local at: uint32 = 0
+    local out: uint32 = 0
+    while at + 2 < #source and out + 4 <= #output do
+        local c0: uint32 = source[at + 1]
+        local c1: uint32 = source[at + 2]
+        local c2: uint32 = source[at + 3]
+        output[out + 1] = c0
+        output[out + 2] = c1
+        output[out + 3] = c2
+        output[out + 4] = 0
+        at = at + 3
+        out = out + 4
+    end
+    return out
+end
+return {triples = triples}
+]]
+
+--- Every node under `root`, depth first, satisfying `predicate`.
+local function nodes(root, predicate, out, seen)
+    out, seen = out or {}, seen or {}
+    if type(root) ~= "table" or seen[root] then
+        return out
+    end
+    seen[root] = true
+    if predicate(root) then
+        out[#out + 1] = root
+    end
+    for _, child in pairs(root) do
+        nodes(child, predicate, out, seen)
+    end
+
+    return out
+end
+
+function M.aDisplacedCursorAccessIsHeldToTheRoomItsGuardProves()
+    local program = lowered(DISPLACED_TAIL, "tail.g.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement)
+        return statement.op == "while"
+    end)
+    local loads = nodes(loop.body, function(node)
+        return node.op == "load" and node.cursor == "at"
+    end)
+    local stores = nodes(loop.body, function(node)
+        return node.op == "store" and node.cursor == "out"
+    end)
+    test.equal(#loads, 3, "three reads through the one cursor")
+    test.equal(#stores, 4, "four writes through the one cursor")
+    local displacedLoad, displacedStore
+    for _, load in ipairs(loads) do
+        if load.cursorOffset == 2 then
+            displacedLoad = load
+        end
+    end
+    for _, store in ipairs(stores) do
+        if store.cursorOffset == 3 then
+            displacedStore = store
+        end
+    end
+    assert(displacedLoad, "source[at + 3] carries its displacement")
+    assert(displacedStore, "output[out + 4] carries its displacement")
+
+    -- `at + 2 < #source` proves three elements; a fourth is not proved.
+    displacedLoad.cursorOffset = 3
+    refuses(program, "unbounded cursor load")
+    displacedLoad.cursorOffset = -1
+    refuses(program, "unbounded cursor load")
+    displacedLoad.cursorOffset = 2
+    verify.program(program)
+
+    -- `out + 4 <= #output` proves four; a fifth is not.
+    displacedStore.cursorOffset = 4
+    refuses(program, "invalid store root")
+    displacedStore.cursorOffset = 3
+    verify.program(program)
+
+    -- The claim the loop makes is held to its condition: weakened to `at + 1
+    -- < #source` the condition proves two elements, and the claim of three
+    -- is a claim nothing checked.
+    local sum = loop.condition.left.left
+    assert(sum.op == "u64_add" and sum.right.value.op == "constant_i32", "the guard sums exactly in 64 bits")
+    local literal = sum.right.value
+    literal.value = "1"
+    refuses(program, "invalid loop cursor bounds proof for at against source")
+    literal.value = "2"
+    verify.program(program)
+
+    -- And a wrapping 32-bit sum proves nothing, because a cursor near 2^32
+    -- passes it with a small sum.
+    loop.condition.left.left = {op = "u32_add", type = "u32", left = sum.left.value, right = literal}
+    refuses(program, "invalid loop cursor bounds proof for at against source")
+    loop.condition.left.left = sum
+    verify.program(program)
 end
 
 return M

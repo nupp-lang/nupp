@@ -1231,43 +1231,64 @@ local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: s
 end
 
 --- Records a bound in a map of cursor bounds. The inner table is replaced
---- rather than written, because an enclosing scope's map shares it. A vector's
---- room implies an element's, so an element bound never narrows one.
+--- rather than written, because an enclosing scope's map shares it. Which
+--- room survives a second bound on the same root is `simdbounds.widen`'s
+--- rule, shared with the verifier.
 local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
     local spans: {[string]: string} = {}
     for name, held in pairs(bounds[cursor] or {}) do
         spans[name] = held
     end
-    if spans[root] == nil or room ~= scalarIR.ONE_ELEMENT then
-        spans[root] = room
-    end
+    spans[root] = simdbounds.widen(spans[root], room)
     bounds[cursor] = spans
 end
 
---- The cursor a `candidate + 1` index names, when a dominating check bounded
---- that cursor against this span: with any room, or with room for a whole
---- vector of `room`'s lane count when one is asked for, which is how a vector
---- access asks for its whole width.
----
---- Shared by the load and the store for the same reason `provenIndex` is: two
---- source forms of a proof drift apart.
-local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel, room: string?): string?
+--- The cursor and literal of a `candidate + k` index, `k` a positive integer;
+--- nothing for any other index.
+local function cursorIndex(indexArg: cst.Node?): (string?, integer?)
     if indexArg == nil or indexArg.kind ~= "binop" then
-        return nil
+        return nil, nil
     end
     local index = indexArg as cst.Binop
     local written = index.op ~= nil and (index.op as lexer.Token).text or ""
     local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
     local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
     local candidate = lower.nameOf(index.lhs)
+    if written ~= "+" or candidate == nil or offset == nil then
+        return nil, nil
+    end
+    local step = offset as number
+    if step < 1 or step > lower.UINT32_MAX or step % 1 ~= 0 then
+        return nil, nil
+    end
+
+    return candidate, step as integer
+end
+
+--- The cursor a `candidate + k` index names, when a dominating check bounded
+--- that cursor against this span: with room for k elements, or with room for
+--- a whole vector of `room`'s lane count when one is asked for, which is how
+--- a vector access asks for its whole width and admits only `candidate + 1`.
+--- The second result is how far past the cursor the element lies, `k - 1`.
+---
+--- Shared by the load and the store for the same reason `provenIndex` is: two
+--- source forms of a proof drift apart.
+local function provedCursor(
+    indexArg: cst.Node?,
+    spanName: string?,
+    kernel: lower.Kernel,
+    room: string?
+): (string?, integer?)
+    local candidate, step = cursorIndex(indexArg)
+    if candidate == nil then
+        return nil, nil
+    end
     local param = kernel.params[tostring(spanName)]
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
-    if written ~= "+" or offset ~= 1 or candidate == nil then
-        return nil
-    end
     local bounded = room == nil
-        and simdbounds.boundedThrough(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds)
+        and simdbounds.boundedThrough(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds, step)
         or room ~= nil
+        and step == 1
         and simdbounds.coveredThrough(
             kernel.cursorBounds,
             candidate as string,
@@ -1276,10 +1297,49 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
             room as string
         )
     if bounded then
-        return candidate
+        return candidate, (step as integer) - 1
     end
 
-    return nil
+    return nil, nil
+end
+
+--- Why a span access at `indexArg` is not proved, for a load or a store (the
+--- `verb`): the base rule when the index is not a cursor form at all, and
+--- otherwise how far the dominating checks actually bound that cursor below
+--- the span, so a read one past the proof is told which bound it needs.
+local function cursorRefusal(verb: string, indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel): string
+    local base = "span " .. verb .. " need a counted-loop index or cursor + 1 under cursor < #span"
+    local candidate, step = cursorIndex(indexArg)
+    if candidate == nil or step == 1 then
+        return base
+    end
+    local param = kernel.params[tostring(spanName)]
+    local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
+    local reach = simdbounds.reach(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds)
+    local name, span = candidate as string, tostring(spanName)
+    if reach == 0 then
+        return (
+            "span %s need a counted-loop index or cursor + k under cursor + k - 1 < #span; nothing bounds %s below #%s"
+        ):format(verb, name, span)
+    end
+
+    return (
+        "span %s at %s + %d need %s + %d < #%s or %s + %d <= #%s dominating them; the bounds give %s room for %d element%s of %s"
+    ):format(
+        verb,
+        name,
+        step as integer,
+        name,
+        (step as integer) - 1,
+        span,
+        name,
+        step as integer,
+        span,
+        name,
+        reach,
+        reach == 1 and "" or "s",
+        span
+    )
 end
 
 --- A verified base plus a compile-time vector displacement, with room for
@@ -1405,6 +1465,55 @@ local function laneBound(
     return nil, nil, nil
 end
 
+--- The element bound one comparison establishes through a literal: `cursor +
+--- c < #span` proves a `uint32` cursor c + 1 elements of room below the
+--- span's count, and `cursor + c <= #span` proves c, each also written with
+--- the count on the left and the comparison turned around. The comparison
+--- lowers to the exact 64-bit sum (`exactCursorSum`), not the wrapping
+--- `uint32` addition the operator otherwise means, which is what lets the
+--- room be believed. Not on a GPU target, which compares no 64-bit sum.
+--- `negated` reads the comparison as false, which is what the right side of
+--- an `or` knows: `cursor + c >= #span or ...` runs it under `cursor + c <
+--- #span`. Returns the cursor, the span and the room.
+local NEGATED_COMPARISON: {[string]: string} = {["<"] = ">=", ["<="] = ">", [">"] = "<=", [">="] = "<"}
+
+local function cursorSumBound(
+    comparison: cst.Binop,
+    environment: {[string]: any},
+    kernel: lower.Kernel,
+    negated: boolean?
+): (string?, string?, string?)
+    if kernel.gpuTarget then
+        return nil, nil, nil
+    end
+    local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+    if negated == true then
+        written = NEGATED_COMPARISON[written] or ""
+    end
+    local sum, counted = comparison.lhs, comparison.rhs
+    local strict = false
+    if written == "<" or written == "<=" then
+        strict = written == "<"
+    elseif written == ">" or written == ">=" then
+        sum, counted = comparison.rhs, comparison.lhs
+        strict = written == ">"
+    else
+        return nil, nil, nil
+    end
+    local cursor, step = cursorIndex(lower.unwrapped(sum))
+    local binding = cursor ~= nil and environment[cursor as string] or nil
+    if cursor == nil or binding == nil or binding.type ~= "u32" then
+        return nil, nil, nil
+    end
+    local spanName = lower.dotCount(counted)
+    local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    if param == nil or param.region == nil then
+        return nil, nil, nil
+    end
+
+    return cursor, spanName, tostring(strict and (step as integer) + 1 or step as integer)
+end
+
 --- An indexed span read.
 ---
 --- The index has to be the loop's own, exactly. Consecutive access is the whole
@@ -1432,15 +1541,18 @@ local function spanRead(
     end
     local indexArg = lower.unwrapped(node.expr)
     local direct = lower.nameOf(indexArg)
-    local cursor = provedCursor(indexArg, spanName, kernel)
+    local cursor, cursorOffset = provedCursor(indexArg, spanName, kernel)
     if not (activeIndex ~= nil and direct == activeIndex) and cursor == nil then
-        context.reject(lower.site(node), "span loads need a counted-loop index or cursor + 1 under cursor < #span")
+        context.reject(lower.site(node), cursorRefusal("loads", indexArg, spanName, kernel))
     end
     provenIndex(spanName as string, cursor, node, kernel)
 
     local element = param.element
     local index = cursor == nil and activeIndex as string or ""
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    if cursorOffset == 0 then
+        cursorOffset = nil
+    end
     if element.kind == "struct" then
         return new scalarIR.ElementRef(
             op = "element_ref",
@@ -1449,6 +1561,7 @@ local function spanRead(
             indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
             cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
+            cursorOffset = cursorOffset,
             layout = element.layout.name,
             mutable = param.kind == "write_span",
             type = "ref:" .. element.layout.name,
@@ -1464,6 +1577,7 @@ local function spanRead(
             indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
             cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
+            cursorOffset = cursorOffset,
             type = element.type,
             sourceType = param.sourceType,
             source = lower.site(node)
@@ -1820,6 +1934,33 @@ local function exactLaneSum(sum: scalarIR.Expr, source: scalarIR.Source?): scala
     )
 end
 
+--- `cursor + c` widened to an exact 64-bit sum, when `sum` is that wrapping
+--- 32-bit addition of a local cursor and a positive literal; anything else
+--- comes back as it was. The exact sum is what proves `span[cursor + k]` for
+--- `k` within `c`, as `cursorSumBound` reads it: wrapped, a cursor near 2^32
+--- would pass the guard with a small sum and read from the top of the span.
+local function exactCursorSum(sum: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    if sum.op ~= "u32_add" then
+        return sum
+    end
+    local added = sum as scalarIR.Fixed
+    local literal = added.right
+    if simdbounds.cursor(added.left) == nil or literal.op ~= "constant_i32" or literal.type ~= "u32" then
+        return sum
+    end
+    if (tonumber((literal as scalarIR.IntConstant).value) or 0) < 1 then
+        return sum
+    end
+
+    return new scalarIR.Fixed(
+        op = "u64_add",
+        left = new scalarIR.Convert(op = "numeric_cast", value = added.left, type = "u64", source = source),
+        right = new scalarIR.Convert(op = "numeric_cast", value = literal, type = "u64", source = source),
+        type = "u64",
+        source = source
+    )
+end
+
 --- A binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
@@ -1989,15 +2130,29 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         -- exact sum proves the vector access under it. See `laneBound`.
         -- A rooted string or buffer parameter's length is the same bound, held
         -- in the local its length was taken into rather than read off a span.
+        -- A literal cursor guard, `cursor + c < #span` or `cursor + c <=
+        -- #span`, is taken exactly for the same reason, so that it proves the
+        -- elements within `c`; see `cursorSumBound`. Not on a GPU target,
+        -- whose emitters have no 64-bit sum.
         local countedRight = right.op == "span_count"
             or right.op == "local" and (right as scalarIR.Name).lengthOf ~= nil
         local countedLeft = left.op == "span_count" or left.op == "local" and (left as scalarIR.Name).lengthOf ~= nil
-        if written == "<=" and countedRight then
-            narrowedLeft = exactLaneSum(left, source)
-        elseif written == ">=" and countedLeft then
-            narrowedRight = exactLaneSum(right, source)
+        if (written == "<=" or written == "<" or written == ">=") and countedRight then
+            if written == "<=" then
+                narrowedLeft = exactLaneSum(left, source)
+            end
+            if narrowedLeft == left and not kernel.gpuTarget then
+                narrowedLeft = exactCursorSum(left, source)
+            end
+        elseif (written == ">=" or written == ">") and countedLeft then
+            if written == ">=" then
+                narrowedRight = exactLaneSum(right, source)
+            end
+            if narrowedRight == right and not kernel.gpuTarget then
+                narrowedRight = exactCursorSum(right, source)
+            end
             if narrowedRight ~= right then
-                comparison = "le"
+                comparison = written == ">=" and "le" or "lt"
                 narrowedLeft, narrowedRight = narrowedRight, narrowedLeft
             end
         end
@@ -4497,13 +4652,22 @@ local function shortCircuitBound(
         return nil, nil, nil
     end
     local comparison = left as cst.Binop
+    local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
     if connective == "and" then
         local vectorCursor, vectorSpan, speciesType = laneBound(comparison, environment, kernel)
         if vectorCursor ~= nil then
             return vectorCursor, vectorSpan, speciesType
         end
     end
-    local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+    -- A literal cursor guard the same way: under `and` in any spelling, and
+    -- under `or` only as `cursor + c >= #span`, read negated, whose lowered
+    -- `ge` the branch turns into the `lt` the verifier reads.
+    if connective == "and" or written == ">=" and lower.dotCount(comparison.rhs) ~= nil then
+        local sumCursor, sumSpan, sumRoom = cursorSumBound(comparison, environment, kernel, connective == "or")
+        if sumCursor ~= nil then
+            return sumCursor, sumSpan, sumRoom
+        end
+    end
     if not (connective == "and" and written == "<" or connective == "or" and written == ">=") then
         return nil, nil, nil
     end
@@ -6757,12 +6921,9 @@ local function assignStmt(
         end
         local indexArg = lower.unwrapped(target.expr)
         local direct = lower.nameOf(indexArg)
-        local cursor = provedCursor(indexArg, spanName, kernel)
+        local cursor, cursorOffset = provedCursor(indexArg, spanName, kernel)
         if not (kernel.index ~= "" and direct == kernel.index) and cursor == nil then
-            context.reject(
-                lower.site(target),
-                "span stores need a counted-loop index or cursor + 1 under cursor < #span"
-            )
+            context.reject(lower.site(target), cursorRefusal("stores", indexArg, spanName, kernel))
         end
         provenIndex(spanName as string, cursor, target, kernel)
         local value = lower.expression(exprs[1], environment, kernel.index, kernel)
@@ -6776,6 +6937,7 @@ local function assignStmt(
             indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
             cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
+            cursorOffset = cursorOffset ~= 0 and cursorOffset or nil,
             value = lower.storeConvert(value, output.element.type, lower.site(stat), context),
             source = lower.site(stat)
         )
@@ -6954,6 +7116,10 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         local vectorCursor, vectorSpan, speciesType = laneBound(comparison, environment, kernel)
         if vectorCursor ~= nil then
             return vectorCursor, vectorSpan, speciesType
+        end
+        local sumCursor, sumSpan, sumRoom = cursorSumBound(comparison, environment, kernel)
+        if sumCursor ~= nil then
+            return sumCursor, sumSpan, sumRoom
         end
         local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
         local cursor = lower.nameOf(comparison.lhs)
