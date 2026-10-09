@@ -418,7 +418,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
     --- it: an exact integer literal beside a `uint32` is a `uint32`, an erased
     --- `as uint32` beside one is not, and `1 + 1` is still an integer. A
     --- literal spelled as a number, `x * 1.0`, asks for a number and gets one.
-    --- Mixed widths answer nothing rather than guess which one wins.
+    --- Mixed widths answer nothing rather than guess which one wins -- except
+    --- in an `@aot` body, where a `uint32`-typed operand established at
+    --- `int32` too (a byte read, which holds either) beside an `int32` takes
+    --- the signed reading, so an `int32` carry accumulates bytes as the
+    --- wrapping signed add `nupp.math.i32.add` would be.
     local function fixedArithmeticTarget(lt: Type, rt: Type, lhs: any, rhs: any): Type?
         local left = T.unwrapOwnership(lt)
         local right = T.unwrapOwnership(rt)
@@ -430,14 +434,24 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if target == nil then
             return nil
         end
-        local other = target == T.uint32 and "int32" or "uint32"
-        if leftTag == other or rightTag == other then
-            return nil
-        end
         for _, operand in ipairs({left, right}) do
             if operand.tag == "literal" and (operand as T.Literal).base == T.number then
                 return nil
             end
+        end
+        local other = target == T.uint32 and "int32" or "uint32"
+        if leftTag == other or rightTag == other then
+            local body = c.functionBodies[#c.functionBodies]
+            if body == nil or body.aotRequired ~= true then
+                return nil
+            end
+            for _, width in ipairs({T.int32, T.uint32}) do
+                if c.fixedWidth.established(lhs, width) and c.fixedWidth.established(rhs, width) then
+                    return width
+                end
+            end
+
+            return nil
         end
         if c.fixedWidth.established(lhs, target as Type) and c.fixedWidth.established(rhs, target as Type) then
             return target

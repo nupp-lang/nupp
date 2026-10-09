@@ -24,6 +24,8 @@ end
 | `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
 | `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
+| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `nupp.math.i32.add` and its siblings answer, see below |
+| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `nupp.math.u32.add` and its siblings answer |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
 | 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
@@ -68,6 +70,20 @@ stronger guarantees described below.
 Signed wrapping arithmetic operates on the two's-complement bits and wraps.
 The integer instructions it lowers to claim no signed overflow, so an
 overflowing `int32` or `int64` result is defined rather than undefined.
+
+`+`, `-` and `*` between two operands established at one fixed width mean the
+wrapping operation of that width, in an `@aot` body and in the ordinary code
+around it alike: an `int32` accumulator plus an `int32` field read is the
+`nupp.math.i32.add` of the two, a `uint32` cursor times a literal is the
+`nupp.math.u32.mul`, and the checker annotates the operator so the retained
+Lua body and the native lowering compute the same bits. One operand has to be
+typed at the width and both established at it, so an erased `as int32` or a
+plain `integer` beside one still answers `integer`, which an assignment to the
+width then refuses. A `uint8` or `uint16` element read is typed `uint32` but is
+established at `int32` as well, since it holds one; inside an `@aot` body an
+`int32` beside it takes the signed reading, so `carry = carry + bytes[i]` on an
+`int32` carry wraps as the signed add and needs no `wrap`. Division, `%`, `^`
+and unary `-` keep today's rules and answer a number.
 
 A comparison between a signed and an unsigned 32-bit integer answers by
 mathematical value, as the two Lua numbers they are do: generated code widens

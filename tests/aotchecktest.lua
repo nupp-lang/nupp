@@ -232,6 +232,32 @@ end
 
 return {clamp = clamp}
 ]],
+    -- Byte reads accumulated into either thirty-two bit width with the
+    -- operators, which wrap at that width as the `nupp.math` calls do.
+    ["bytecarry.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function signed(borrows input: span.Span<uint8>, factor: int32): int32
+    local carry: int32 = 0
+    for i = 1, #input do
+        carry = carry + input[i] * factor
+        carry = carry - input[i]
+    end
+    return carry
+end
+
+@aot
+local function unsigned(borrows input: span.Span<uint8>): uint32
+    local carry: uint32 = 1
+    for i = 1, #input do
+        carry = carry * input[i] + 7
+    end
+    return carry
+end
+
+return {signed = signed, unsigned = unsigned}
+]],
     -- Guards relating counts through a factor and an offset, in each
     -- spelling, feeding a counted loop over the shorter span and the room a
     -- cursor bounded by it has in the longer one.

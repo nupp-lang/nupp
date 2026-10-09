@@ -2066,6 +2066,20 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
                 and (narrowedLeft.type == "u32" or narrowedLeft.type == "i32")
                 and narrowedLeft.type
                 or nil
+            -- The checker may have read mixed thirty-two bit operands at one
+            -- width -- an `int32` beside a byte read, which is a `u32` here
+            -- but holds an `int32` -- in which case its annotation names the
+            -- width and the other operand is taken at it, bits unchanged.
+            local annotated = node.fixedArithmetic ~= nil and node.fixedArithmetic:sub(1, 4) or ""
+            if width == nil
+                and (annotated == "i32." or annotated == "u32.")
+                and (narrowedLeft.type == "u32" or narrowedLeft.type == "i32")
+                and (narrowedRight.type == "u32" or narrowedRight.type == "i32")
+            then
+                width = annotated:sub(1, 3)
+                narrowedLeft = lower.convert(narrowedLeft, width as scalarIR.Type, source, context)
+                narrowedRight = lower.convert(narrowedRight, width as scalarIR.Type, source, context)
+            end
             if width ~= nil and (not context.checked or node.fixedArithmetic ~= nil) then
                 return new scalarIR.Fixed(
                     op = (

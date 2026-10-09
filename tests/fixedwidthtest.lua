@@ -1003,4 +1003,48 @@ return bits
     assert(diagnostics[1] and diagnostics[1].code == "NUPP3013", "compatibility checking rejects bit operators")
 end
 
+-- A byte read is typed `uint32` but holds an `int32` as surely, so inside an
+-- `@aot` body an `int32` accumulator takes it as the wrapping signed add,
+-- exactly as `nupp.math.i32.add` would. Outside one the mixed widths still
+-- answer `integer`, which the accumulator then refuses.
+function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
+    local body = table.concat(
+        {
+            'local span = require("nupp.mem.span")',
+            "@aot",
+            "local function sum(borrows input: span.Span<uint8>, factor: int32): int32",
+            "   local carry: int32 = 0",
+            "   for i = 1, #input do",
+            "      carry = carry + input[i] * factor",
+            "      carry = carry - input[i]",
+            "   end",
+            "   return carry",
+            "end",
+            "return sum",
+        },
+        "\n"
+    )
+    testAssert.equal(errorCodes(body), "", "an int32 accumulator takes a byte read inside an @aot body")
+    local plain = body:gsub("@aot\n", "")
+    assert(errorCodes(plain):find("NUPP2011", 1, true), "outside an @aot body the mixed widths stay an integer")
+    local result = parser.parse(body, "byte-carry.nupp")
+    testAssert.equal(#result.errors, 0, "the body parses")
+    testAssert.equal(#check.check(result, "byte-carry.nupp", sharedEnv), 0, "and checks")
+    local adds = 0
+    local function walk(node, seen)
+        if type(node) ~= "table" or seen[node] then
+            return
+        end
+        seen[node] = true
+        if node.kind == "binop" and node.fixedArithmetic == "i32.add" then
+            adds = adds + 1
+        end
+        for _, child in pairs(node) do
+            walk(child, seen)
+        end
+    end
+    walk(result, {})
+    testAssert.equal(adds, 1, "the operator is annotated as the signed wrapping add")
+end
+
 return M

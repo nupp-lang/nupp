@@ -3794,6 +3794,82 @@ return {box3 = box3}
     assert(not body:find("mul nsw i64 %%count_grey", 1, true), "no assumption multiplies a count:\n" .. body)
 end
 
+-- Byte reads accumulated into an `int32` with the operators wrap at
+-- thirty-two bits on both routes: the retained Lua body and the native one
+-- answer what `bit.tobit` answers.
+function M.narrowLoadsWrapIntoTheSignedAccumulatorOnBothRoutes()
+    local function answer(policy)
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+        local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+        manifest:write(
+            (
+                [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"carry"}, outDir = "build/native",
+      aot = "%s",
+   }}},
+}
+]]
+            ):format(policy)
+        )
+        manifest:close()
+        local source = assert(io.open(dir .. "/src/carry.nupp", "wb"))
+        source:write(
+            [[
+module carry
+local span = require("nupp.mem.span")
+
+@aot
+local function signed(borrows input: span.Span<uint8>, factor: int32, seed: int32): int32
+    local total: int32 = seed
+    for i = 1, #input do
+        total = total + input[i] * factor
+        total = total - input[i]
+    end
+    return total
+end
+
+export const signed = signed
+]]
+        )
+        source:close()
+        local out, code = build(dir)
+        test.equal(code, 0, ("the aot=%s carry fixture at %s builds: %s"):format(policy, dir, out))
+        local script = [[
+            local carry = require("carry")
+            local span = require("nupp.mem.span")
+            local out = {}
+            for _, case in ipairs({{16777216, 0}, {1, 2147483600}, {-3, -2147483640}}) do
+                out[#out + 1] = tostring(carry.signed(span.fromString("\200\100\050\255"), case[1], case[2]))
+            end
+            print(table.concat(out, " "))
+        ]]
+        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+        local text = pipe:read("*a")
+        pipe:close()
+
+        return (text:gsub("%s+$", "")), dir
+    end
+
+    local expected = {}
+    for _, case in ipairs({{16777216, 0}, {1, 2147483600}, {-3, -2147483640}}) do
+        local total = case[2]
+        for _, byte in ipairs({200, 100, 50, 255}) do
+            total = bit.tobit(total + bit.tobit(byte * case[1]))
+            total = bit.tobit(total - byte)
+        end
+        expected[#expected + 1] = tostring(total)
+    end
+    local ordinary, ordinaryDir = answer("off")
+    local native, nativeDir = answer("require")
+    test.equal(ordinary, table.concat(expected, " "), "the interpreted body wraps as bit.tobit does: " .. ordinaryDir)
+    test.equal(native, ordinary, ("the compiled body agrees (aot=require at %s)"):format(nativeDir))
+end
+
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     local function answer(policy)
         local dir = wideBitwiseProject(policy)

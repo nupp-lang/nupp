@@ -1000,7 +1000,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             node.fixedWidthPhysicalStore = writing
             local result = not writing and fixedWidth.loaded(view.element) or view.element
             if not writing and fixedWidth.isValue(result) then
-                c.fixedWidth.mark(node, result)
+                c.fixedWidth.markLoaded(node, view.element)
                 c.fixedWidth.trust(node, result)
             end
             if view.adapter == "span" then
@@ -1166,7 +1166,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 return elem
             end
             local loaded = fixedWidth.loaded(elem)
-            c.fixedWidth.mark(node, loaded)
+            c.fixedWidth.markLoaded(node, elem)
             return referenceRead(node, target, loaded)
         end
         if ot.tag == "carray" then
@@ -1186,7 +1186,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 return ot.elem
             end
             local loaded = fixedWidth.loaded(ot.elem)
-            c.fixedWidth.mark(node, loaded)
+            c.fixedWidth.markLoaded(node, ot.elem)
             return referenceRead(node, target, loaded)
         end
         if ot.tag == "nominal" and ot.arrayOf then

@@ -21,6 +21,7 @@ local isA = relations.isA
 local type Ops = {
     markLiteral: function(node: any, value: number),
     mark: function(node: any, t: T.Type),
+    markLoaded: function(node: any, storage: T.Type),
     trust: function(node: any, t: T.Type),
     copy: function(target: any, source: any),
     intersect: function(target: any, left: any, right: any),
@@ -59,6 +60,20 @@ function fixedCheck.install(c: state.Checker): Ops
     ops.mark = function(node, t)
         if node and fixed.isValue(t) then
             node.fixedWidthEstablished = {[T.unwrapOwnership(t).tag] = true}
+        end
+    end
+
+    --- A value read from physical storage of type `storage`: established at
+    --- the width it loads as, and, for a narrow unsigned slot, at `int32` as
+    --- well, since a byte or a sixteen-bit word holds an `int32` as surely as
+    --- it holds a `uint32`. That is what lets an `int32` accumulator take a
+    --- byte read as the signed wrapping add.
+    ops.markLoaded = function(node, storage)
+        local loaded = fixed.loaded(storage)
+        ops.mark(node, loaded)
+        local raw = T.unwrapOwnership(storage)
+        if node and node.fixedWidthEstablished and (raw.tag == "uint8" or raw.tag == "uint16") then
+            node.fixedWidthEstablished.int32 = true
         end
     end
 
