@@ -255,6 +255,16 @@ vector contributions in a lane-wise accumulator and fold it in when the region
 ends, so a scalar written inside such a region associates with the accumulated
 lanes rather than between them -- an association the contract already admits.
 
+An arg extremum (`propagatingArgMin`, `numberArgMax`, `integerArgMin` and the
+rest) answers the first one-based logical position of its extreme, and
+positions count every lane offered to it. Lane `i` of a masked vector
+contribution has position `base + i`, where `base` advances by the species' lane
+count for every vector contribution and by one for every scalar one, whether or
+not a lane was active: an inactive lane is not a candidate, but it is a
+position. Ties keep the earliest position. The predicate reducers `any`, `all`
+and `count` take a mask of the lanes they test beside the mask of the lanes
+that are active.
+
 A floating-point reducer accumulates in the element its constructor names.
 `orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
 binary32 under every contract, rounding after every operation as
@@ -281,8 +291,9 @@ and first-position contracts are exact. NaNs compare by the observable policy
 above, not by unspecified payload bits. Explicit vector reducer probes
 cover Fixed2 through Fixed64 and Preferred with two complete groups and every
 tail, including positive-only holes and all-false masks. Authored reducers retain their
-one-unconditional-contribution rule. Predicate reducers take their truth as a mask, and arg-position reducers expose
-scalar contributions only. A mixed
+one-unconditional-contribution rule. Arg-position reducers compare their
+first logical position against an independent search that counts inactive
+lanes as positions; predicate reducers take their truth as a mask. A mixed
 corpus feeds one reducer the seed as a scalar, whole vectors inside a region
 and the remaining elements as scalars, at two fixed widths, and compares it
 against the same contributions made one at a time. Every floating contract runs

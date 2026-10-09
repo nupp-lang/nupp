@@ -317,7 +317,7 @@ local function elemental(
     order: string,
     operation: string,
     element: string
-): (string, string, string)
+): (string, string, string, string?)
     local t = ELEMENT_TYPES[element]
     if t == nil then
         error("no reducer state for element " .. element, 0)
@@ -422,13 +422,27 @@ local function elemental(
     lines[#lines + 1] = "  ret void"
     lines[#lines + 1] = "}"
     local addName = define(module, stem .. ".add", lines)
+    local skipName: string? = nil
+    if operation == "argmin" or operation == "argmax" then
+        -- An inactive lane of a vector contribution is not a candidate but
+        -- holds a logical position, so the count advances past it.
+        skipName = define(module, stem .. ".skip", {
+            "define internal void @" .. stem .. ".skip(ptr %state) " .. a .. " {",
+            "  %countp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 1",
+            "  %count = load i64, ptr %countp",
+            "  %more = add i64 %count, 1",
+            "  store i64 %more, ptr %countp",
+            "  ret void",
+            "}",
+        })
+    end
     local valueName = define(module, stem .. ".value", {
         "define internal " .. result .. " @" .. stem .. ".value(ptr %state) " .. a .. " {",
         table.concat(valueLines, "\n"),
         "}"
     })
 
-    return init, addName, valueName
+    return init, addName, valueName, skipName
 end
 
 --- The operations of a stateful contract: `init(ptr, T)`, `add(ptr, T)`
@@ -438,7 +452,11 @@ record states.Operations
     add: string
     value: string
 
-    --- What a
+    --- `skip(ptr)`, which an arg extremum has: a position that was not a
+    --- candidate.
+    skip: string?
+
+    --- What `add` takes.
     input: string
 
     --- What `value` answers.
@@ -468,13 +486,13 @@ function states.operations(
     if element == nil then
         error("reducer " .. order .. " " .. operation .. " names no element", 0)
     end
-    local init, add, value = elemental(module, order, operation, element as string)
+    local init, add, value, skip = elemental(module, order, operation, element as string)
     local input = ELEMENT_TYPES[element as string] as string
     local result = operation == "count" and "i64"
         or (operation == "argmin" or operation == "argmax") and "double"
         or input
 
-    return new states.Operations(init = init, add = add, value = value, input = input, result = result)
+    return new states.Operations(init = init, add = add, value = value, skip = skip, input = input, result = result)
 end
 
 export = states

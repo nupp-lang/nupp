@@ -1069,10 +1069,22 @@ record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
-        if self.position == 0 or integerLess(value, self.best) then
-            self.best = value
+        if (active as any) == false then
+            return
+        end
+        local scalar = value as T
+        if self.position == 0 or integerLess(scalar, self.best) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1130,10 +1142,22 @@ record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
-        if self.position == 0 or integerLess(self.best, value) then
-            self.best = value
+        if (active as any) == false then
+            return
+        end
+        local scalar = value as T
+        if self.position == 0 or integerLess(self.best, scalar) then
+            self.best = scalar
             self.position = self.count
         end
     end
@@ -1216,8 +1240,19 @@ record simd.PropagatingArgMin<T is float | number> is simd.Reducer<integer>
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
+        if (active as any) == false then
+            return
+        end
         local scalar = value as number
         if self.position == 0 or extremumWins(scalar, self.best, false, true) then
             self.best = scalar
@@ -1290,8 +1325,19 @@ record simd.PropagatingArgMax<T is float | number> is simd.Reducer<integer>
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
+        if (active as any) == false then
+            return
+        end
         local scalar = value as number
         if self.position == 0 or extremumWins(scalar, self.best, true, true) then
             self.best = scalar
@@ -1364,8 +1410,19 @@ record simd.NumberArgMin<T is float | number> is simd.Reducer<integer>
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
+        if (active as any) == false then
+            return
+        end
         local scalar = value as number
         if self.position == 0 or extremumWins(scalar, self.best, false, false) then
             self.best = scalar
@@ -1438,8 +1495,19 @@ record simd.NumberArgMax<T is float | number> is simd.Reducer<integer>
     @private position: integer
     @private count: integer
 
-    function add(self, value: T): nil
+    --- `active` selects the lanes of a vector that are candidates, in lane
+    --- order, as one masked contribution per iteration of the `do` block
+    --- around it. Lane `i` of the vector has logical position `base + i`, where
+    --- `base` advances by the species' lane count for every vector contribution
+    --- and by one for every scalar one, whether or not a lane was active. As
+    --- ordinary Lua the species is one lane wide: the vector is that lane's
+    --- value, the mask is a boolean, and `false` takes a position without
+    --- being a candidate.
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         self.count = self.count + 1
+        if (active as any) == false then
+            return
+        end
         local scalar = value as number
         if self.position == 0 or extremumWins(scalar, self.best, true, false) then
             self.best = scalar

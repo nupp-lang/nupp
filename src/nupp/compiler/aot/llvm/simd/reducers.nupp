@@ -160,11 +160,23 @@ local function vectorAdd(ctx: context.Context, node: scalarIR.Statement): nil
     end
     local f = ctx.f
     local element = contribution.element
+    -- A lane an arg extremum does not take still holds a logical position.
+    local skip: string? = nil
+    if contribution.operation == "argmin" or contribution.operation == "argmax" then
+        local operations = states.operations(ctx.module, contribution.order, contribution.operation, element)
+        skip = (operations as states.Operations).skip
+    end
     for index = 0, found.lanes - 1 do
         local active = context.value(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
         local takeLabel = builder.label(f, "reduce.lane")
         local nextLabel = builder.label(f, "reduce.next")
-        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(active, takeLabel, nextLabel))
+        local skipLabel = skip ~= nil and builder.label(f, "reduce.skip") or nextLabel
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(active, takeLabel, skipLabel))
+        if skip ~= nil then
+            builder.start(f, skipLabel)
+            context.emit(ctx, ("call void %s(ptr %s)"):format(skip as string, slot.pointer))
+            builder.terminate(f, "br label %" .. nextLabel)
+        end
         builder.start(f, takeLabel)
         local laneValue: string
         local laneType: string

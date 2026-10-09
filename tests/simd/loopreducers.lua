@@ -154,16 +154,6 @@ function M.generate(types, mode, width)
     local vectors = masked or mixed
     assert(not mixed or type(width) == 'number', 'a mixed corpus needs a fixed lane count')
     local cases = loopCases(types)
-    if vectors then
-        -- Arg-position folds expose scalar contributions only.
-        local admitted = {}
-        for _, case in ipairs(cases) do
-            if not isArg(case) then
-                admitted[#admitted + 1] = case
-            end
-        end
-        cases = admitted
-    end
     local prefix = mode .. '_'
     if #cases == 0 then
         return nil

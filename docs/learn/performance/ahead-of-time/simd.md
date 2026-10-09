@@ -223,22 +223,25 @@ A kernel with a vector loop and a scalar continuation needs one reducer, not two
 
 ```nupp:fragment
 local low = simd.reducer.propagatingMin(array.float, math.huge)
+local where = simd.reducer.propagatingArgMin(array.float)
 local cursor: uint32 = 0
 do
     while cursor + species.lanes <= #values do
         local v = species:load(values, cursor + 1)
         low:add(v, species:mask(true))
+        where:add(v, species:mask(true))
         cursor = cursor + species.lanes
     end
 end
 while cursor < #values do
     low:add(values[cursor + 1])
+    where:add(values[cursor + 1])
     cursor = cursor + 1
 end
-return low:value()
+return low:value(), where:value()
 ```
 
-Every reducer contributes through `add`, a dot product taking two values, and answers once through `value`; `simd.Reducer<T>` names that shared shape for code that only finishes a reduction. An integer reducer names its element with an array witness, as a species does, because an `int32` and a `uint32` are the same Lua number: `simd.reducer.wrappingSum(array.int32, seed)`, `simd.reducer.integerArgMin(array.uint64)`. A floating-point reducer may name its element the same way: `simd.reducer.pairwiseSum(array.float, 0.0)` accumulates in binary32 and answers a `float`, where `pairwiseSum(0.0)` is binary64. The predicate reducers `any`, `all` and `count` take a mask of the lanes they test. Ordered, pairwise, algebraic, compensated, exact integer, predicate, and extrema reducers have distinct contracts. Choose the contract before choosing a vector loop. Ordered and exact contracts preserve their specified operation order, ties, NaNs, signed zeros, and logical positions; algebraic reductions permit the documented reassociation. See [numeric semantics](numeric-semantics.md).
+Every reducer contributes through `add`, a dot product taking two values, and answers once through `value`; `simd.Reducer<T>` names that shared shape for code that only finishes a reduction. An integer reducer names its element with an array witness, as a species does, because an `int32` and a `uint32` are the same Lua number: `simd.reducer.wrappingSum(array.int32, seed)`, `simd.reducer.integerArgMin(array.uint64)`. A floating-point reducer may name its element the same way: `simd.reducer.pairwiseSum(array.float, 0.0)` accumulates in binary32 and answers a `float`, where `pairwiseSum(0.0)` is binary64. The arg extrema take vectors too, each lane at its logical position, and the predicate reducers `any`, `all` and `count` take a mask of the lanes they test. Ordered, pairwise, algebraic, compensated, exact integer, predicate, and extrema reducers have distinct contracts. Choose the contract before choosing a vector loop. Ordered and exact contracts preserve their specified operation order, ties, NaNs, signed zeros, and logical positions; algebraic reductions permit the documented reassociation. See [numeric semantics](numeric-semantics.md).
 
 `simd.horizontal` reduces one vector to one value under the same names: the floating orders `orderedSum`, `pairwiseSum`, `algebraicSum` and their product and dot forms over `float` and `number` lanes, the NaN-policy extrema over every element, and the integer contracts `wrappingSum`, `wrappingProduct`, `andBits`, `orBits`, `xorBits`, `integerMin` and `integerMax` over integer lanes, wrapping in the lane's own width. An integer prefix-sum carry is `simd.horizontal.wrappingSum(partial)`.
 

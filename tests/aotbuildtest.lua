@@ -6682,15 +6682,54 @@ local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int3
     return sum:value(), bits:value(), least:value()
 end
 
+--- One reducer taking a scalar before its region, whole vectors inside it
+--- and the remaining elements as scalars after it; the arg extremum and the
+--- count take their lanes under a mask of the lanes they test.
+@aot
+local function mixed(borrows input: span.Span<number>, seed: number): (number, number, number, uint64)
+    local s = assert(simd.species(array.number, 4))
+    local ordered = simd.reducer.orderedSum(seed)
+    local pairwise = simd.reducer.pairwiseSum(seed)
+    local where = simd.reducer.numberArgMax()
+    local counted = simd.reducer.count()
+    ordered:add(seed)
+    pairwise:add(seed)
+    where:add(seed)
+    local cursor: uint32 = 0
+    do
+        while cursor + s.lanes <= #input do
+            local v = s:load(input, cursor + 1)
+            local all = s:mask(true)
+            ordered:add(v, all)
+            pairwise:add(v, all)
+            where:add(v, v > 0.0)
+            counted:add(v > 0.0, all)
+            cursor = cursor + s.lanes
+        end
+    end
+    while cursor < #input do
+        local x = input[cursor + 1]
+        ordered:add(x)
+        pairwise:add(x)
+        if x > 0.0 then
+            where:add(x)
+        end
+        counted:add(x > 0.0)
+        cursor = cursor + 1
+    end
+    return ordered:value(), pairwise:value(), where:value(), counted:value()
+end
+
 --- The floating contracts over the `float` witness: binary32 after every
 --- operation, and a `float` result.
 @aot
-local function narrow(borrows input: span.Span<float>, seed: float): (float, float, float, float)
+local function narrow(borrows input: span.Span<float>, seed: float): (float, float, float, float, number)
     local s = assert(simd.species(array.float, 4))
     local ordered = simd.reducer.orderedSum(array.float, seed)
     local dotted = simd.reducer.pairwiseDot(array.float, seed)
     local compensated = simd.reducer.compensatedSum(array.float, seed)
     local low = simd.reducer.propagatingMin(array.float, math.huge)
+    local at = simd.reducer.numberArgMin(array.float)
     do
         local cursor: uint32 = 0
         while cursor < #input do
@@ -6700,10 +6739,11 @@ local function narrow(borrows input: span.Span<float>, seed: float): (float, flo
             dotted:add(v, v, rest)
             compensated:add(v, rest)
             low:add(v, rest)
+            at:add(v, rest)
             cursor = cursor + s.lanes
         end
     end
-    return ordered:value(), dotted:value(), compensated:value(), low:value()
+    return ordered:value(), dotted:value(), compensated:value(), low:value(), at:value()
 end
 
 --- The integer horizontals over one masked vector.
@@ -6725,6 +6765,7 @@ return {
     dot = dot,
     exact = exact,
     extremes = extremes,
+    mixed = mixed,
     narrow = narrow,
     integerHorizontals = integerHorizontals,
 }
@@ -6981,6 +7022,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         "dot",
         "exact",
         "extremes",
+        "mixed",
         "narrow",
         "integer_horizontals",
     }) do
@@ -7016,9 +7058,13 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     for _, symbol in ipairs(symbols.extremes) do
         ffi.cdef(("void %s(const double *, size_t, NuppAotExtremes *);"):format(symbol))
     end
+    ffi.cdef("typedef struct { double v1, v2, v3; uint64_t v4; } NuppAotMixed;")
+    for _, symbol in ipairs(symbols.mixed) do
+        ffi.cdef(("void %s(const double *, double, size_t, NuppAotMixed *);"):format(symbol))
+    end
     -- Every result of the block is widened to binary64, a `float` included;
     -- the wrapper narrows it again on the way out.
-    ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotNarrow;")
+    ffi.cdef("typedef struct { double v1, v2, v3, v4, v5; } NuppAotNarrow;")
     for _, symbol in ipairs(symbols.narrow) do
         ffi.cdef(("void %s(const float *, float, size_t, NuppAotNarrow *);"):format(symbol))
     end
@@ -7174,6 +7220,42 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         test.equal(actual.v2, 7.25, symbol .. " max")
     end
 
+    -- One reducer fed a scalar, whole vectors and a scalar tail, against the
+    -- Lua reducers fed the same sequence: a boolean mask as ordinary Lua is
+    -- the one-lane form of the vector's mask.
+    for count = 0, 13 do
+        for _, seed in ipairs({0, 1.5}) do
+            local ordered = simd.reducer.orderedSum(seed)
+            local pairwise = simd.reducer.pairwiseSum(seed)
+            local where = simd.reducer.numberArgMax()
+            local counted = simd.reducer.count()
+            ordered:add(seed)
+            pairwise:add(seed)
+            where:add(seed)
+            local whole = count - count % 4
+            for i = 0, count - 1 do
+                local x = samples[i]
+                ordered:add(x)
+                pairwise:add(x)
+                if i < whole then
+                    where:add(x, x > 0)
+                elseif x > 0 then
+                    where:add(x)
+                end
+                counted:add(x > 0)
+            end
+            for _, symbol in ipairs(symbols.mixed) do
+                local actual = ffi.new("NuppAotMixed")
+                lib[symbol](samples, seed, count, actual)
+                local label = symbol .. " seed " .. seed .. " count " .. count
+                test.equal(actual.v1, ordered:value(), label .. " ordered")
+                test.equal(actual.v2, pairwise:value(), label .. " pairwise")
+                test.equal(actual.v3, where:value(), label .. " argmax position")
+                test.equal(actual.v4, counted:value(), label .. " count")
+            end
+        end
+    end
+
     -- The float witness: binary32 after every operation, which the Lua
     -- reducers over the same witness also are.
     local array = require("nupp.mem.array")
@@ -7184,12 +7266,14 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             local dotted = simd.reducer.pairwiseDot(array.float, seed)
             local compensated = simd.reducer.compensatedSum(array.float, seed)
             local low = simd.reducer.propagatingMin(array.float, math.huge)
+            local at = simd.reducer.numberArgMin(array.float)
             for i = 0, count - 1 do
                 local x = tonumber(floats[i])
                 ordered:add(x)
                 dotted:add(x, x)
                 compensated:add(x)
                 low:add(x)
+                at:add(x)
             end
             for _, symbol in ipairs(symbols.narrow) do
                 local actual = ffi.new("NuppAotNarrow")
@@ -7199,6 +7283,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 test.equal(tonumber(actual.v2), dotted:value(), label .. " pairwise float dot")
                 test.equal(tonumber(actual.v3), compensated:value(), label .. " compensated float sum")
                 test.equal(tonumber(actual.v4), low:value(), label .. " propagating float min")
+                test.equal(actual.v5, at:value(), label .. " float argmin position")
             end
         end
     end
