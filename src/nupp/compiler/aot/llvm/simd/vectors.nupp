@@ -122,6 +122,76 @@ local function divide(ctx: context.Context, found: species.Species, a: string, b
     return context.value(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, quotient))
 end
 
+--- Lua's `%` and `//` on integer lanes: the remainder takes the divisor's
+--- sign and the quotient rounds toward negative infinity, which C's
+--- truncating `srem` and `sdiv` reach by one correction wherever the
+--- remainder is nonzero and the signs differ. The divisor is made safe the
+--- way `divide` makes it: a zero divisor answers 0, and `MIN // -1` answers
+--- MIN with remainder 0.
+local function floorDivide(
+    ctx: context.Context,
+    found: species.Species,
+    a: string,
+    b: string,
+    remainder: boolean
+): string
+    local v = found.vector
+    local one = lanes.splatConstant(v, found.scalar, "1")
+    local zero = context.value(ctx, ("icmp eq %s %s, zeroinitializer"):format(v, b))
+    local unsafe = zero
+    if found.signed then
+        local minimum = "-" .. ("%.0f"):format(2 ^ (found.bits - 1))
+        local isMin = context.value(ctx, ("icmp eq %s %s, %s"):format(v, a, lanes.splatOf(found.scalar, minimum)))
+        local isNegOne = context.value(ctx, ("icmp eq %s %s, %s"):format(v, b, lanes.splatOf(found.scalar, "-1")))
+        local overflow = context.value(ctx, ("and %s %s, %s"):format(found.mask, isMin, isNegOne))
+        unsafe = context.value(ctx, ("or %s %s, %s"):format(found.mask, zero, overflow))
+    end
+    local divisor = context.value(ctx, ("select %s %s, %s, %s %s"):format(found.mask, unsafe, one, v, b))
+    local result: string
+    if found.signed then
+        local quotient = context.value(ctx, ("sdiv %s %s, %s"):format(v, a, divisor))
+        local rest = context.value(ctx, ("srem %s %s, %s"):format(v, a, divisor))
+        local nonzero = context.value(ctx, ("icmp ne %s %s, zeroinitializer"):format(v, rest))
+        local signs = context.value(ctx, ("xor %s %s, %s"):format(v, remainder and rest or a, b))
+        local differ = context.value(ctx, ("icmp slt %s %s, zeroinitializer"):format(v, signs))
+        local adjust = context.value(ctx, ("and %s %s, %s"):format(found.mask, nonzero, differ))
+        local corrected = remainder and context.value(ctx, ("add %s %s, %s"):format(v, rest, b))
+            or context.value(ctx, ("sub %s %s, %s"):format(v, quotient, lanes.splatOf(found.scalar, "1")))
+        result = context.value(
+            ctx,
+            ("select %s %s, %s %s, %s %s"):format(found.mask, adjust, v, corrected, v, remainder and rest or quotient)
+        )
+    else
+        result = context.value(ctx, ("%s %s %s, %s"):format(remainder and "urem" or "udiv", v, a, divisor))
+    end
+
+    return context.value(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, result))
+end
+
+--- Lua's `%` and `//` on floating lanes, operation for operation as the
+--- scalar `nupp.mod` computes them: `a - floor(a / b) * b` and `floor(a /
+--- b)`, never contracted, so a zero result keeps the sign that formula gives
+--- it and an infinite divisor answers what LuaJIT answers.
+local function floatFloorDivide(
+    ctx: context.Context,
+    found: species.Species,
+    a: string,
+    b: string,
+    remainder: boolean
+): string
+    local v = found.vector
+    local shape = lanes.vectorShape(found)
+    local floor = prelude.intrinsic(ctx.module, "llvm.floor." .. shape.suffix, ("%s @NAME(%s)"):format(v, v))
+    local quotient = context.value(ctx, ("fdiv %s %s, %s"):format(v, a, b))
+    local floored = context.value(ctx, ("call %s %s(%s %s)"):format(v, floor, v, quotient))
+    if not remainder then
+        return floored
+    end
+    local product = context.value(ctx, ("fmul %s %s, %s"):format(v, floored, b))
+
+    return context.value(ctx, ("fsub %s %s, %s"):format(v, a, product))
+end
+
 --- A shift by the count modulo the lane width.
 local function shift(ctx: context.Context, found: species.Species, instruction: string, a: string, b: string): string
     local v = found.vector
@@ -177,6 +247,12 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
             ), typeName
         end
         return lanes.integerExtreme(ctx, lanes.vectorShape(found), a, b, minimum, found.signed), typeName
+    end
+    if intrinsic == "mod" or intrinsic == "floor_div" then
+        if found.float then
+            return floatFloorDivide(ctx, found, a, b, intrinsic == "mod"), typeName
+        end
+        return floorDivide(ctx, found, a, b, intrinsic == "mod"), typeName
     end
     if found.float then
         local instruction = FLOAT_BINARY[intrinsic]

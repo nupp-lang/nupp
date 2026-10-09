@@ -18,6 +18,8 @@ local operations = {
     {"subtract", "a - b", "a[i] - 2"},
     {"multiply", "a * b", "a[i] * 2"},
     {"divide", "a / b", "a[i] / 2"},
+    {"modulo", "a % b", "a[i] % 2"},
+    {"floorDivide", "a // b", "math.floor(a[i] / 2)"},
     {"negate", "-a", "-a[i]"},
     {"equal", "(a == b):select(4, 2)", "a[i] == 2 and 4 or 2"},
     {"notEqual", "(a ~= b):select(4, 2)", "a[i] ~= 2 and 4 or 2"},
@@ -70,6 +72,10 @@ local integerOperations = {
     {"xor", "a ~ b", "binary(a[i], 2, 3)"},
     {"shiftLeft", "a << b", "a[i] * 4"},
     {"shiftRight", "a >> b", "math.floor(a[i] / 4)"},
+    -- A zero divisor answers zero, as `/` does; the other lanes are Lua's
+    -- floor remainder and quotient of the splat by the loaded lane.
+    {"moduloByZero", "b % a", "a[i] == 0 and 0 or 2 % a[i]"},
+    {"floorDivideByZero", "b // a", "a[i] == 0 and 0 or math.floor(2 / a[i])"},
     {"prefixXor", "a:prefixXor()", "xorPrefix[i]"},
     {"bitNot", "~a", "-a[i] - 1"},
     {"swizzle", "a:swizzle(indices)", "indicesRef[i] >= 1 and indicesRef[i] <= n and a[indicesRef[i]] or 0"},

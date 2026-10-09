@@ -97,6 +97,10 @@ while live:any() do
 end
 ```
 
+## Lane arithmetic
+
+The arithmetic operators are Lua's, lane by lane. `%` and `//` are the floor remainder and the floor quotient: the remainder takes the divisor's sign and the quotient rounds toward negative infinity, as `a - floor(a / b) * b` and `floor(a / b)` on a floating species and exactly on an integer one. An integer lane divided by zero answers zero rather than trapping, as `/` does. A scalar on the right splats, so `bytes % 16` and `values // 3` read as they would on one value.
+
 ## Interleaved records
 
 Records of two to four elements stored one after another, like pixels or the bytes of a Base64 group, load a field to a vector with `species:loadPairs`, `loadTriples` or `loadQuads`. Each one reads the next `ways * lanes` elements and gives vector `j` elements `j`, `j + ways`, and so on. `storePairs`, `storeTriples` and `storeQuads` do the reverse. The results can only initialize locals:

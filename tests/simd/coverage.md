@@ -26,6 +26,7 @@ record.
 | --- | --- |
 | load/store, masked load/store, splat, iota | `primitives.lua`, every element/species, every tail 0..N |
 | arithmetic, comparisons, elementwise named extrema | `primitives.lua`, every element/species |
+| floor remainder and floor division (`%`, `//`) | `primitives.lua`, every element/species, including a zero divisor on integer elements; `integeredges.lua` adds every boundary value by two and by negative, zero and wide counts against a floor oracle |
 | mask and/or/xor/not/equality, scalar/vector select, boolean masks | `primitives.lua`, every element/species and four mask patterns |
 | mask any/all/count/first/bits | `primitives.lua`, every bit independently checked including zero padding |
 | reverse/rotate/align/insert/extract | `primitives.lua`, every element/species; `insert`, `extract` and `align` at the literal lane, the first, the species' `lanes` and `lanes - 1` written as those expressions |

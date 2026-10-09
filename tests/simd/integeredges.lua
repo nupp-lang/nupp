@@ -23,7 +23,58 @@ local operations = {
     {'propagatingMax', 'a:propagatingMax(b)', 'left > right and left or right'},
     {'numberMin', 'a:numberMin(b)', 'left < right and left or right'},
     {'numberMax', 'a:numberMax(b)', 'left > right and left or right'},
+    -- Lua's floor remainder and quotient, by two and by every shift count,
+    -- which reaches negative, zero and wide divisors at every boundary value.
+    {'modulo', 'a % b', 'floorMod(left, right)'},
+    {'floorDivide', 'a // b', 'floorDiv(left, right)'},
+    {'moduloByCount', 'a % shifts', 'floorMod(left, count)'},
+    {'floorDivideByCount', 'a // shifts', 'floorDiv(left, count)'},
 }
+
+--- The scalar oracles of the floor remainder and quotient at one element: a
+--- zero divisor answers zero as the vector does, a narrow element computes in
+--- binary64 and wraps the one overflowing quotient (`MIN // -1`), and a wide
+--- element corrects LuaJIT's truncating cdata division into Lua's floor.
+local function divisionOracles(ty)
+    local width = tonumber(ty:match("%d+"))
+    if width < 64 then
+        local wrap = ty:match("^int") ~= nil
+            and ("    if q >= %.0f then q = q - %.0f end\n"):format(2 ^ (width - 1), 2 ^ width)
+            or ""
+        return "local function floorMod(left: number, right: number): number\n"
+            .. "    if right == 0 then return 0 end\n"
+            .. "    return left % right\n"
+            .. "end\n"
+            .. "local function floorDiv(left: number, right: number): number\n"
+            .. "    if right == 0 then return 0 end\n"
+            .. "    local q = math.floor(left / right)\n"
+            .. wrap
+            .. "    return q\n"
+            .. "end\n"
+    end
+    if ty == 'uint64' then
+        return "local function floorMod(left: uint64, right: uint64): uint64\n"
+            .. "    if right == 0ULL then return 0ULL end\n"
+            .. "    return left % right\n"
+            .. "end\n"
+            .. "local function floorDiv(left: uint64, right: uint64): uint64\n"
+            .. "    if right == 0ULL then return 0ULL end\n"
+            .. "    return left / right\n"
+            .. "end\n"
+    end
+    return "local function floorMod(left: int64, right: int64): int64\n"
+        .. "    if right == 0LL then return 0LL end\n"
+        .. "    local m = left % right\n"
+        .. "    if m ~= 0LL and ((m < 0LL) ~= (right < 0LL)) then m = m + right end\n"
+        .. "    return m\n"
+        .. "end\n"
+        .. "local function floorDiv(left: int64, right: int64): int64\n"
+        .. "    if right == 0LL then return 0LL end\n"
+        .. "    local q = left / right\n"
+        .. "    if left % right ~= 0LL and ((left < 0LL) ~= (right < 0LL)) then q = q - 1LL end\n"
+        .. "    return q\n"
+        .. "end\n"
+end
 function M.generate(options)
     local files, probes, coverage, modules = {}, {}, {}, {}
     for _, ty in ipairs(options.types) do
@@ -36,7 +87,8 @@ function M.generate(options)
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local u32 = nupp.math.u32
-]]
+]],
+                    divisionOracles(ty),
                 }
                 for pos = at, math.min(at + options.batchSize - 1, #options.lanes) do
                     local n = options.lanes[pos]
@@ -57,8 +109,8 @@ local u32 = nupp.math.u32
                 source[
                     #source + 1
                 ] = (
-                    'local type Probe=function(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>): uint32\nlocal function check(probe: Probe): number\n    local input=array.scalar(array.%s,128)\n    local output=array.scalar(array.%s,1408)\n    local expected=array.scalar(array.%s,1408)\n'
-                ):format(ty, ty, ty, ty, ty)
+                    'local type Probe=function(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>): uint32\nlocal function check(probe: Probe): number\n    local input=array.scalar(array.%s,128)\n    local output=array.scalar(array.%s,%d)\n    local expected=array.scalar(array.%s,%d)\n'
+                ):format(ty, ty, ty, ty, #operations * 64, ty, #operations * 64)
                 local width = tonumber(ty:match("%d+"))
                 source[
                     #source + 1

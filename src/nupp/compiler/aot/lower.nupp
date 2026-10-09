@@ -1826,7 +1826,14 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             context.reject(source, "explicit SIMD operands have different element or species identities")
         end
         right = simdOperand(right, left.type, source, kernel)
-        local arithmeticOps = {['+'] = "add", ['-'] = "sub", ['*'] = "mul", ['/'] = "div"}
+        local arithmeticOps = {
+            ['+'] = "add",
+            ['-'] = "sub",
+            ['*'] = "mul",
+            ['/'] = "div",
+            ['%'] = "mod",
+            ['//'] = "floor_div",
+        }
         local bitOps = {['&'] = "and", ['|'] = "or", ['~'] = "xor", ['<<'] = "shl", ['>>'] = "shr", ['~>>'] = "sar"}
         local comparisonOps = {['<'] = "lt", ['<='] = "le", ['>'] = "gt", ['>='] = "ge", ['=='] = "eq", ['~='] = "ne",}
         local intrinsic = arithmeticOps[written] or bitOps[written] or comparisonOps[written]

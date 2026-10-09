@@ -1252,6 +1252,14 @@ sealed interface simd.Vector<T, S>
     metamethod __sub: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
     metamethod __mul: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
     metamethod __div: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    --- `%` and `//` are Lua's: the remainder takes the divisor's sign and the
+    --- quotient rounds toward negative infinity, lane by lane, as `a - floor(a
+    --- / b) * b` and `floor(a / b)` on a floating species and exactly on an
+    --- integer one. An integer lane divided by zero answers zero, as `/`
+    --- does, rather than trapping.
+    metamethod __mod: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+
     metamethod __unm: function(value: simd.Vector<T, S>): simd.Vector<T, S>
     metamethod __eq: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
     metamethod __lt: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>

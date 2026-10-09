@@ -610,6 +610,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
         end
         if operators.arith[op] then
             local mmName = op ~= "//" and operators.metamethod[op] or nil
+            if op == "//" and simdFamily(lt) == "Vector" then
+                -- A vector has no `__idiv` to find: floor division takes the
+                -- operands `/` takes and answers the same vector.
+                mmName = "__div"
+            end
             local mm = mmName and (c.metamethodOf(lt, mmName) or c.metamethodOf(rt, mmName)) or nil
             if mm then
                 -- A contract was only looked for under a name, so finding one is what
