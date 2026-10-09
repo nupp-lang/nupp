@@ -1,0 +1,46 @@
+{
+  "revision": "4762301a782920bbfd3eccd7af431a4b417fcfce",
+  "coldCheck": {
+    "command": "./bin/nupp check --json",
+    "ok": true,
+    "compiledModules": 467,
+    "diagnostics": 0
+  },
+  "fullSuite": {
+    "command": "./bin/nupp test",
+    "total": 5159,
+    "passed": 5076,
+    "skipped": 24,
+    "notExecuted": 4,
+    "failed": 55,
+    "failureCause": "Socket operations denied by sandbox (Operation not permitted)."
+  },
+  "networkRetry": {
+    "command": "./bin/nupp test netnativetest tlstest rustabitest --json",
+    "outsideSandbox": true,
+    "passed": 68,
+    "failed": 0,
+    "skipped": 0,
+    "notExecuted": 0,
+    "resolvesAllFullSuiteFailures": true
+  },
+  "fixpoint": {
+    "command": "./bin/nupp fixpoint",
+    "ok": true,
+    "stageZeroTag": "v0.0.13",
+    "stageZeroSha256": "9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff"
+  },
+  "stageZeroContract": {
+    "command": "<pinned stage-zero compiler> check --json src/contract/dispatch.nupp",
+    "cwd": "bench/serde-spike/contracts",
+    "ok": false,
+    "diagnostics": [
+      {
+        "code": "NUPP2002",
+        "message": "return 1: any is not a value of the generic type R",
+        "file": "src/contract/dispatch.nupp",
+        "line": 29
+      }
+    ]
+  }
+}
