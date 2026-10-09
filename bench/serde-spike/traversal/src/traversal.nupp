@@ -1,0 +1,494 @@
+module traversal
+
+local json = require("nupp.codec.json")
+local syntax = require("contract.jsonsyntax")
+
+export type Variant = "callbacks" | "specialized" | "cursor" | "interpreter" | "generated" | "direct"
+
+export record Row
+    a: integer
+    b: integer
+    c: integer
+    d: integer
+    e: integer
+    f: integer
+    g: integer
+    h: integer
+    i: integer
+    j: integer
+    k: integer
+    l: integer
+end
+
+export record Value
+    row: Row
+    slots: {integer}
+end
+
+export record Member
+    @readonly index: integer
+    @readonly name: string
+    @readonly key: string
+end
+
+export record Model
+    @readonly members: {Member}
+    @readonly indexed: boolean
+    @readonly names: {[string]: integer}
+end
+
+local function rowGet(value: Row, index: integer): integer
+    if index == 1 then
+        return value.a
+    elseif index == 2 then
+        return value.b
+    elseif index == 3 then
+        return value.c
+    elseif index == 4 then
+        return value.d
+    elseif index == 5 then
+        return value.e
+    elseif index == 6 then
+        return value.f
+    elseif index == 7 then
+        return value.g
+    elseif index == 8 then
+        return value.h
+    elseif index == 9 then
+        return value.i
+    elseif index == 10 then
+        return value.j
+    elseif index == 11 then
+        return value.k
+    elseif index == 12 then
+        return value.l
+    else
+        error("invalid field index", 2)
+    end
+end
+
+local function rowSet(value: Row, index: integer, scalar: integer): nil
+    if index == 1 then
+        value.a = scalar
+    elseif index == 2 then
+        value.b = scalar
+    elseif index == 3 then
+        value.c = scalar
+    elseif index == 4 then
+        value.d = scalar
+    elseif index == 5 then
+        value.e = scalar
+    elseif index == 6 then
+        value.f = scalar
+    elseif index == 7 then
+        value.g = scalar
+    elseif index == 8 then
+        value.h = scalar
+    elseif index == 9 then
+        value.i = scalar
+    elseif index == 10 then
+        value.j = scalar
+    elseif index == 11 then
+        value.k = scalar
+    elseif index == 12 then
+        value.l = scalar
+    else
+        error("invalid field index", 2)
+    end
+end
+
+export function makeValue(seed: integer): Value
+    local row = new Row(
+        a = seed,
+        b = seed + 1,
+        c = seed + 2,
+        d = seed + 3,
+        e = seed + 4,
+        f = seed + 5,
+        g = seed + 6,
+        h = seed + 7,
+        i = seed + 8,
+        j = seed + 9,
+        k = seed + 10,
+        l = seed + 11
+    )
+    local slots: {integer} = {}
+    for index = 1, 12 do
+        slots[index] = seed + index - 1
+    end
+
+    return new Value(row = row, slots = slots)
+end
+
+export function loadModel(count: integer, indexed: boolean, prefix: string): Model
+    assert(count == 3 or count == 12, "the flat control has three or twelve fields")
+    local members: {Member} = {}
+    local names: {[string]: integer} = {}
+    for index = 1, count do
+        local name = prefix .. string.char(96 + index)
+        members[index] = new Member(index = index, name = name, key = "")
+        names[name] = index
+    end
+
+    return new Model(members = members, indexed = indexed, names = names)
+end
+
+local function get(model: Model, source: Value, index: integer): integer
+    return model.indexed and source.slots[index] or rowGet(source.row, index)
+end
+
+local function put(model: Model, target: Value, index: integer, scalar: integer): nil
+    if model.indexed then
+        target.slots[index] = scalar
+    else
+        rowSet(target.row, index, scalar)
+    end
+end
+
+export record Sink
+    total: number
+    parts: {string}?
+    function integer(self, member: Member, scalar: integer): nil
+        self.total += scalar * member.index
+        if self.parts ~= nil then
+            self.parts[#self.parts + 1] = member.key .. ":" .. json.encode(scalar)
+        end
+    end
+end
+
+local interface Members<S>
+    apply: function(self, source: S, sink: Sink): nil
+end
+
+local record Walk is Members<Value>
+    @readonly description: Model
+    function apply(self, source: Value, sink: Sink): nil
+        for _, member in ipairs(self.description.members) do
+            sink:integer(member, get(self.description, source, member.index))
+        end
+    end
+end
+
+local function aggregate<S>(source: S, sink: Sink, emit: Members<S>): nil
+    emit:apply(source, sink)
+end
+
+local function straight(model: Model, source: Value, sink: Sink): nil
+    local members = model.members
+    if model.indexed then
+        local slots = source.slots
+        sink:integer(members[1], slots[1])
+        sink:integer(members[2], slots[2])
+        sink:integer(members[3], slots[3])
+        if #members == 12 then
+            sink:integer(members[4], slots[4])
+            sink:integer(members[5], slots[5])
+            sink:integer(members[6], slots[6])
+            sink:integer(members[7], slots[7])
+            sink:integer(members[8], slots[8])
+            sink:integer(members[9], slots[9])
+            sink:integer(members[10], slots[10])
+            sink:integer(members[11], slots[11])
+            sink:integer(members[12], slots[12])
+        end
+    else
+        local row = source.row
+        sink:integer(members[1], row.a)
+        sink:integer(members[2], row.b)
+        sink:integer(members[3], row.c)
+        if #members == 12 then
+            sink:integer(members[4], row.d)
+            sink:integer(members[5], row.e)
+            sink:integer(members[6], row.f)
+            sink:integer(members[7], row.g)
+            sink:integer(members[8], row.h)
+            sink:integer(members[9], row.i)
+            sink:integer(members[10], row.j)
+            sink:integer(members[11], row.k)
+            sink:integer(members[12], row.l)
+        end
+    end
+end
+
+local record Straight is Members<Value>
+    @readonly description: Model
+    function apply(self, source: Value, sink: Sink): nil
+        straight(self.description, source, sink)
+    end
+end
+
+local record Cursor
+    @readonly description: Model
+    @readonly source: Value
+    index: integer
+    function advance(self): boolean
+        self.index += 1
+        return self.index <= #self.description.members
+    end
+
+    function member(self): Member
+        return self.description.members[self.index]
+    end
+
+    function integer(self): integer
+        return get(self.description, self.source, self.index)
+    end
+end
+
+local record Op
+    @readonly code: 1 | 2
+    @readonly member: Member
+end
+
+local type Encode = function(source: Value, sink: Sink): nil
+local type Assign = function(target: Value, index: integer, scalar: integer): nil
+
+local record Fields
+    @readonly description: Model
+    @readonly cursor: syntax.Cursor?
+    @readonly tokens: {integer}?
+    seen: {[integer]: boolean}
+    index: integer
+    position: integer
+    pending: boolean
+
+    function advance(self): boolean
+        assert(not self.pending, "previous value was not consumed")
+        if self.tokens ~= nil then
+            self.position += 1
+            self.index = self.position
+            self.pending = self.index <= #self.description.members
+            return self.pending
+        end
+        local cursor = assert(self.cursor)
+        while true do
+            local name = cursor:nextKey()
+            if name == nil then
+                return false
+            end
+            local index = self.description.names[name]
+            if index ~= nil then
+                self.index = index
+                self.pending = true
+                return true
+            end
+            cursor:skipValue()
+        end
+    end
+
+    function integer(self): integer
+        assert(self.pending and not self.seen[self.index], "duplicate or missing field value")
+        local scalar: integer
+        if self.tokens ~= nil then
+            scalar = self.tokens[self.index]
+        else
+            local parsed = tonumber(assert(self.cursor):readNumber())
+            if parsed == nil or parsed % 1 ~= 0 or math.abs(parsed) > 2147483647 then
+                error("expected an exact signed 31-bit integer", 2)
+            end
+            scalar = parsed as integer
+        end
+        self.pending = false
+        self.seen[self.index] = true
+
+        return scalar
+    end
+
+    function finish(self): nil
+        assert(not self.pending, "value was not consumed")
+        for index = 1, #self.description.members do
+            assert(self.seen[index], "missing required field")
+        end
+        if self.cursor ~= nil then
+            self.cursor:finish()
+        end
+    end
+end
+
+local interface Consume<S>
+    apply: function(self, state: S, fields: Fields): nil
+end
+
+local function each<S>(fields: Fields, state: S, consumer: Consume<S>): nil
+    while fields:advance() do
+        consumer:apply(state, fields)
+    end
+end
+
+local record ReadGeneric is Consume<Value>
+    @readonly description: Model
+    function apply(self, state: Value, fields: Fields): nil
+        put(self.description, state, fields.index, fields:integer())
+    end
+end
+
+local record ReadSpecialized is Consume<Value>
+    @readonly indexed: boolean
+    function apply(self, state: Value, fields: Fields): nil
+        local scalar = fields:integer()
+        if self.indexed then
+            state.slots[fields.index] = scalar
+        else
+            rowSet(state.row, fields.index, scalar)
+        end
+    end
+end
+
+export record Operation
+    @readonly description: Model
+    @readonly variant: Variant
+    @private @readonly walk: Walk
+    @private @readonly specialized: Straight
+    @private @readonly readGeneric: ReadGeneric
+    @private @readonly readSpecialized: ReadSpecialized
+    @private @readonly ops: {Op}
+    @private @readonly generated: Encode?
+    @private @readonly assign: Assign?
+    @readonly generatedBytes: integer
+
+    function emit(self, source: Value, sink: Sink): nil
+        if self.variant == "callbacks" then
+            aggregate(source, sink, self.walk)
+        elseif self.variant == "specialized" then
+            aggregate(source, sink, self.specialized)
+        elseif self.variant == "cursor" then
+            local cursor = new Cursor(description = self.description, source = source, index = 0)
+            while cursor:advance() do
+                sink:integer(cursor:member(), cursor:integer())
+            end
+        elseif self.variant == "interpreter" then
+            for _, op in ipairs(self.ops) do
+                local scalar = op.code == 1 and source.slots[op.member.index] or rowGet(source.row, op.member.index)
+                sink:integer(op.member, scalar)
+            end
+        elseif self.variant == "generated" then
+            assert(self.generated)(source, sink)
+        else
+            straight(self.description, source, sink)
+        end
+    end
+
+    function decode(self, bytes: string, tokens: {integer}?): Value
+        local cursor = tokens == nil and syntax.reader(bytes) or nil
+        if cursor ~= nil then
+            cursor:start("object")
+        end
+        local fields = new Fields(
+            description = self.description,
+            cursor = cursor,
+            tokens = tokens,
+            seen = {},
+            index = 0,
+            position = 0,
+            pending = false
+        )
+        local target = makeValue(0)
+        if self.variant == "callbacks" then
+            each(fields, target, self.readGeneric)
+        elseif self.variant == "specialized" then
+            each(fields, target, self.readSpecialized)
+        elseif self.variant == "cursor" then
+            while fields:advance() do
+                put(self.description, target, fields.index, fields:integer())
+            end
+        elseif self.variant == "interpreter" then
+            while fields:advance() do
+                local op = self.ops[fields.index]
+                local scalar = fields:integer()
+                if op.code == 1 then
+                    target.slots[op.member.index] = scalar
+                else
+                    rowSet(target.row, op.member.index, scalar)
+                end
+            end
+        elseif self.variant == "generated" then
+            local assign = assert(self.assign)
+            while fields:advance() do
+                assign(target, fields.index, fields:integer())
+            end
+        else
+            while fields:advance() do
+                local scalar = fields:integer()
+                if self.description.indexed then
+                    target.slots[fields.index] = scalar
+                else
+                    rowSet(target.row, fields.index, scalar)
+                end
+            end
+        end
+        fields:finish()
+
+        return target
+    end
+
+    function checksum(self, source: Value): number
+        local total: number = 0
+        for index = 1, #self.description.members do
+            total += get(self.description, source, index) * index
+        end
+
+        return total
+    end
+
+    function encode(self, source: Value, jsonOutput: boolean): (string, number)
+        local sink = new Sink(total = 0, parts = jsonOutput and {} or nil)
+        self:emit(source, sink)
+        return sink.parts ~= nil and "{" .. table.concat(sink.parts, ",") .. "}" or "", sink.total
+    end
+end
+
+export function buildOperation(description: Model, variant: Variant): Operation
+    assert(#description.members == 3 or #description.members == 12, "unsupported field count")
+    local selected: {Member} = {}
+    local names: {[string]: integer} = {}
+    for index, member in ipairs(description.members) do
+        assert(member.index == index and names[member.name] == nil, "invalid member layout")
+        names[member.name] = index
+        selected[index] = new Member(index = index, name = member.name, key = json.encode(member.name))
+    end
+    description = new Model(members = selected, indexed = description.indexed, names = names)
+    local ops: {Op} = {}
+    for _, member in ipairs(description.members) do
+        ops[#ops + 1] = new Op(code = description.indexed and 1 or 2, member = member)
+    end
+    local generated: Encode?
+    local assign: Assign?
+    local generatedBytes: integer = 0
+    if variant == "generated" then
+        local parts = {"return function(members) return function(source,sink)"}
+        local writes = {"return function(target,index,scalar)"}
+        for index = 1, #description.members do
+            -- Only validated slot indexes or these fixed public record fields
+            -- enter code. A wire name is data in `members`, never Lua source.
+            local access = description.indexed and ("slots[" .. tostring(index) .. "]")
+                or ("row." .. string.char(96 + index))
+            parts[#parts + 1] = "sink:integer(members[" .. tostring(index) .. "],source." .. access .. ")"
+            writes[
+                #writes + 1
+            ] = (
+                index == 1 and "if" or "elseif"
+            ) .. " index==" .. tostring(index) .. " then target." .. access .. "=scalar"
+        end
+        parts[#parts + 1] = "end end"
+        writes[#writes + 1] = "else error('invalid field index') end end"
+        local source = table.concat(parts, "\n")
+        local setters = table.concat(writes, "\n")
+        generatedBytes = #source + #setters
+        local create = assert(loadstring(source, "=serde-runtime-encode"))() as function(members: {Member}): Encode
+        generated = create(description.members) as Encode
+        assign = assert(loadstring(setters, "=serde-runtime-decode"))() as Assign
+    end
+
+    return new Operation(
+        description = description,
+        variant = variant,
+        walk = new Walk(description = description),
+        specialized = new Straight(description = description),
+        readGeneric = new ReadGeneric(description = description),
+        readSpecialized = new ReadSpecialized(indexed = description.indexed),
+        ops = ops,
+        generated = generated,
+        assign = assign,
+        generatedBytes = generatedBytes
+    )
+end

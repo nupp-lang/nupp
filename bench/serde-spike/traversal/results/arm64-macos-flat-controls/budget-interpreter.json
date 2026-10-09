@@ -1,0 +1,514 @@
+{
+  "samples": 1,
+  "jitEnabled": true,
+  "jitCapacity": "maxtrace=20000,maxside=1000,sizemcode=16384,maxmcode=16384",
+  "preparation": [
+    {
+      "layout": "threeRecordMembers",
+      "repeatedBuildNanoseconds": [
+        7093.749999999288
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        10999.999999983245
+      ]
+    },
+    {
+      "layout": "twelveRecordMembers",
+      "repeatedBuildNanoseconds": [
+        18906.24999999896
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        13999.99999995849
+      ]
+    },
+    {
+      "layout": "threeIndexedMembers",
+      "repeatedBuildNanoseconds": [
+        24500.000000003685
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        29000.00000005676
+      ]
+    },
+    {
+      "layout": "twelveIndexedMembers",
+      "repeatedBuildNanoseconds": [
+        10562.499999998421
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        12000.000000123024
+      ]
+    },
+    {
+      "layout": "mixedModels",
+      "repeatedBuildNanoseconds": [
+        8218.750000003884
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        90000.00000014552,
+        18000.000000073513,
+        56999.99999997374,
+        8000.000000008001,
+        10999.999999983245,
+        7000.000000090267,
+        8999.999999925734,
+        4000.000000115023,
+        11999.999999900978,
+        5999.999999950489,
+        12000.000000123024,
+        4999.999999810711,
+        8999.999999925734,
+        3999.999999892978,
+        10999.999999983245,
+        5999.999999950489
+      ]
+    },
+    {
+      "layout": "manyModels",
+      "repeatedBuildNanoseconds": [
+        5906.249999999835
+      ],
+      "variant": "interpreter",
+      "generatedBytes": 0,
+      "buildNanoseconds": [
+        45000.00000007276,
+        6000.000000172534,
+        35000.00000000725,
+        5999.999999950489,
+        17999.99999985147,
+        45999.99999999049,
+        8999.999999925734,
+        8000.000000008001,
+        12000.000000123024,
+        18000.000000073513,
+        10999.999999983245,
+        8000.000000008001,
+        10000.000000065513,
+        6000.000000172534,
+        42000.00000009751,
+        8000.000000008001,
+        13999.99999995849,
+        6999.999999868222,
+        11999.999999900978,
+        5000.000000032756,
+        13000.000000040756,
+        12000.000000123024,
+        10000.000000065513,
+        6999.999999868222,
+        62999.99999992423,
+        8000.000000008001,
+        21999.99999996649,
+        35000.00000000725,
+        8999.999999925734,
+        5999.999999950489,
+        12000.000000123024,
+        5999.999999950489,
+        10999.999999983245,
+        4000.000000115023,
+        8000.000000008001,
+        5999.999999950489,
+        35000.00000000725,
+        5999.999999950489,
+        11999.999999900978,
+        8999.999999925734,
+        12000.000000123024,
+        7000.000000090267,
+        12000.000000123024,
+        5999.999999950489,
+        33999.99999986747,
+        8999.999999925734,
+        39000.00000012227,
+        35000.00000000725,
+        45999.99999999049,
+        20000.000000131025,
+        104000.000000104,
+        21999.99999996649,
+        18999.999999991247,
+        8000.000000008001,
+        15000.000000098267,
+        5000.000000032756,
+        10000.000000065513,
+        8000.000000008001,
+        6999.999999868222,
+        3999.999999892978,
+        10000.000000065513,
+        5000.000000032756,
+        7000.000000090267,
+        2000.0000000575114,
+        9000.000000147778,
+        4000.000000115023,
+        7000.000000090267,
+        1999.9999998354667,
+        7000.000000090267,
+        8000.000000008001,
+        7000.000000090267,
+        2000.0000000575114,
+        9000.000000147778,
+        2000.0000000575114,
+        5999.999999950489,
+        5000.000000032756,
+        5999.999999950489,
+        35000.00000000725,
+        8999.999999925734,
+        3999.999999892978,
+        5999.999999950489,
+        2999.9999999752445,
+        8000.000000008001,
+        2000.0000000575114,
+        9000.000000147778,
+        5999.999999950489,
+        8000.000000008001,
+        5000.000000032756,
+        8000.000000008001,
+        2999.9999999752445,
+        5000.000000032756,
+        2999.9999999752445,
+        8000.000000008001,
+        7000.000000090267,
+        8000.000000008001,
+        2000.0000000575114,
+        7000.000000090267,
+        4000.000000115023,
+        8000.000000008001,
+        2999.9999999752445,
+        9000.000000147778,
+        2999.9999999752445,
+        5999.999999950489,
+        2000.0000000575114,
+        8000.000000008001,
+        3999.999999892978,
+        5999.999999950489,
+        2999.9999999752445,
+        7000.000000090267,
+        2999.9999999752445,
+        7000.000000090267,
+        2999.9999999752445,
+        7000.000000090267,
+        2000.0000000575114,
+        6999.999999868222,
+        2000.0000000575114,
+        8000.000000008001,
+        3999.999999892978,
+        5999.999999950489,
+        2000.0000000575114,
+        6999.999999868222,
+        2999.9999999752445,
+        6999.999999868222,
+        4000.000000115023,
+        8999.999999925734,
+        2000.0000000575114,
+        5000.000000032756,
+        2999.9999999752445
+      ]
+    }
+  ],
+  "final": {
+    "retainedKiB": 24267.0478515625,
+    "traces": 336,
+    "irInstructions": 29158,
+    "machineBytes": 383012
+  },
+  "valuesPerModel": 32,
+  "targetSeconds": 0.001,
+  "architecture": "arm64",
+  "warmed": {
+    "retainedKiB": 24309.0126953125,
+    "traces": 331,
+    "irInstructions": 28997,
+    "machineBytes": 380732
+  },
+  "baseline": {
+    "retainedKiB": 22620.5947265625,
+    "traces": 0,
+    "irInstructions": 0,
+    "machineBytes": 0
+  },
+  "os": "OSX",
+  "jitAborts": {
+    "10": 69,
+    "16": 14,
+    "0": 4,
+    "7": 1,
+    "8": 24,
+    "9": 56
+  },
+  "scope": "Flat 3/12 selected integer members over twelve-member record/indexed carriers; not the complete S0 semantic matrix",
+  "runtime": "LuaJIT 2.1.1785763465",
+  "cases": [
+    {
+      "layout": "threeRecordMembers",
+      "medianNanoseconds": 55.08422851562673,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3343000.000000096,
+      "iterations": 32768,
+      "nanoseconds": [
+        55.08422851562673
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "threeRecordMembers",
+      "medianNanoseconds": 333.4960937499947,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2534000.0000000363,
+      "iterations": 4096,
+      "nanoseconds": [
+        333.4960937499947
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "threeRecordMembers",
+      "medianNanoseconds": 324.46289062503314,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2634999.9999999427,
+      "iterations": 4096,
+      "nanoseconds": [
+        324.46289062503314
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "threeRecordMembers",
+      "medianNanoseconds": 2013.6718750000082,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3388999.9999998645,
+      "iterations": 512,
+      "nanoseconds": [
+        2013.6718750000082
+      ],
+      "mode": "decode"
+    },
+    {
+      "layout": "twelveRecordMembers",
+      "medianNanoseconds": 168.70117187499932,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3589999.9999999823,
+      "iterations": 8192,
+      "nanoseconds": [
+        168.70117187499932
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "twelveRecordMembers",
+      "medianNanoseconds": 1205.0781249999584,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3756000.0000000927,
+      "iterations": 1024,
+      "nanoseconds": [
+        1205.0781249999584
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "twelveRecordMembers",
+      "medianNanoseconds": 488.28124999972937,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4984000.0000001,
+      "iterations": 512,
+      "nanoseconds": [
+        488.28124999972937
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "twelveRecordMembers",
+      "medianNanoseconds": 6656.250000000586,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2534000.0000000363,
+      "iterations": 64,
+      "nanoseconds": [
+        6656.250000000586
+      ],
+      "mode": "decode"
+    },
+    {
+      "layout": "threeIndexedMembers",
+      "medianNanoseconds": 44.738769531249005,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4515999.999999965,
+      "iterations": 32768,
+      "nanoseconds": [
+        44.738769531249005
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "threeIndexedMembers",
+      "medianNanoseconds": 316.89453125000523,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3106999.999999971,
+      "iterations": 4096,
+      "nanoseconds": [
+        316.89453125000523
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "threeIndexedMembers",
+      "medianNanoseconds": 570.3125000000283,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3194000.000000141,
+      "iterations": 4096,
+      "nanoseconds": [
+        570.3125000000283
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "threeIndexedMembers",
+      "medianNanoseconds": 2910.156249999983,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2445000.0000000303,
+      "iterations": 512,
+      "nanoseconds": [
+        2910.156249999983
+      ],
+      "mode": "decode"
+    },
+    {
+      "layout": "twelveIndexedMembers",
+      "medianNanoseconds": 153.3203124999636,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3458999.999999879,
+      "iterations": 8192,
+      "nanoseconds": [
+        153.3203124999636
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "twelveIndexedMembers",
+      "medianNanoseconds": 1959.9609374998731,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4224000.000000006,
+      "iterations": 1024,
+      "nanoseconds": [
+        1959.9609374998731
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "twelveIndexedMembers",
+      "medianNanoseconds": 947.2656249999173,
+      "variant": "interpreter",
+      "warmupNanoseconds": 9328000.000000004,
+      "iterations": 2048,
+      "nanoseconds": [
+        947.2656249999173
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "twelveIndexedMembers",
+      "medianNanoseconds": 7750.000000000812,
+      "variant": "interpreter",
+      "warmupNanoseconds": 1059000.0000001432,
+      "iterations": 32,
+      "nanoseconds": [
+        7750.000000000812
+      ],
+      "mode": "decode"
+    },
+    {
+      "layout": "mixedModels",
+      "medianNanoseconds": 336.66992187500466,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2517999.9999997984,
+      "iterations": 8192,
+      "nanoseconds": [
+        336.66992187500466
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "mixedModels",
+      "medianNanoseconds": 6397.4609374999745,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4931999.999999937,
+      "iterations": 2048,
+      "nanoseconds": [
+        6397.4609374999745
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "mixedModels",
+      "medianNanoseconds": 469.72656249995475,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3451000.0000000927,
+      "iterations": 4096,
+      "nanoseconds": [
+        469.72656249995475
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "mixedModels",
+      "medianNanoseconds": 4542.968750000098,
+      "variant": "interpreter",
+      "warmupNanoseconds": 2361000.0000000573,
+      "iterations": 256,
+      "nanoseconds": [
+        4542.968750000098
+      ],
+      "mode": "decode"
+    },
+    {
+      "layout": "manyModels",
+      "medianNanoseconds": 119.14062499998363,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4627999.999999855,
+      "iterations": 16384,
+      "nanoseconds": [
+        119.14062499998363
+      ],
+      "mode": "emit"
+    },
+    {
+      "layout": "manyModels",
+      "medianNanoseconds": 1337.8906249996576,
+      "variant": "interpreter",
+      "warmupNanoseconds": 4013000.0000000442,
+      "iterations": 1024,
+      "nanoseconds": [
+        1337.8906249996576
+      ],
+      "mode": "encode"
+    },
+    {
+      "layout": "manyModels",
+      "medianNanoseconds": 491.21093749992207,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3895999.9999998994,
+      "iterations": 2048,
+      "nanoseconds": [
+        491.21093749992207
+      ],
+      "mode": "assign"
+    },
+    {
+      "layout": "manyModels",
+      "medianNanoseconds": 9003.906250000873,
+      "variant": "interpreter",
+      "warmupNanoseconds": 3284000.0000000647,
+      "iterations": 256,
+      "nanoseconds": [
+        9003.906250000873
+      ],
+      "mode": "decode"
+    }
+  ],
+  "variantFilter": "interpreter"
+}
