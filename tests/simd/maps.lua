@@ -8,10 +8,21 @@ local operations = {}
 -- The portable dialect is the intersection of Lua5.1–5.4, not just stock5.1.
 local portableRefusals = {["math.sinh"] = true, ["math.cosh"] = true, ["math.tanh"] = true, ["math.atan2"] = true,}
 
-local function add(name, call, args, oracle, exact, floatOnly)
+--- An operation of the corpus. `call` names what `species:map` applies to
+--- `args`, or, when `direct` is set, is the whole expression as the source
+--- writes it: the ordinary spelling a vector takes without `map`.
+local function add(name, call, args, oracle, exact, floatOnly, direct)
     operations[
         #operations + 1
-    ] = {name = name, call = call, args = args, oracle = oracle, exact = exact, floatOnly = floatOnly}
+    ] = {
+        name = name,
+        call = call,
+        args = args,
+        oracle = oracle,
+        exact = exact,
+        floatOnly = floatOnly,
+        direct = direct,
+    }
 end
 
 for _, name in ipairs({
@@ -53,6 +64,10 @@ add('logBase', 'math.log', 'a, b', 'math.log(left, right)', false)
 add('f32min', 'nupp.math.f32.min', 'a, b', 'minimum32(left, right)', true, true)
 add('f32max', 'nupp.math.f32.max', 'a, b', 'maximum32(left, right)', true, true)
 add('f32fma', 'nupp.math.f32.fma', 'a, b, c', 'fmaReference(left, right, third, pattern)', true, true)
+-- The four a floating vector takes directly, as the `map` forms above.
+for _, name in ipairs({'sqrt', 'abs', 'floor', 'ceil'}) do
+    add(name .. 'Direct', 'math.' .. name .. '(a)', 'a', 'math.' .. name .. '(left)', name ~= 'sqrt', false, true)
+end
 
 local common = [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
@@ -118,20 +133,24 @@ function M.generate(options)
     local batch = options.batchSize or 8
     for _, element in ipairs(options.types) do
         if element == 'float' or element == 'number' then
-            local selected, opNames, contracts = {}, {}, {}
+            local selected, opNames, contracts, direct = {}, {}, {}, {}
             for _, operation in ipairs(operations) do
                 if (not operation.floatOnly or element == 'float')
                     and not (options.target == 'wasm' and portableRefusals[operation.call])
                 then
                     selected[#selected + 1], opNames[#opNames + 1] = operation, operation.name
-                    contracts[
-                        #contracts + 1
-                    ] = {
-                        path = operation.call,
-                        arity = select(2, operation.args:gsub(',', '')) + 1,
-                        name = operation.name,
-                        exact = operation.exact
-                    }
+                    if operation.direct then
+                        direct[#direct + 1] = operation.name
+                    else
+                        contracts[
+                            #contracts + 1
+                        ] = {
+                            path = operation.call,
+                            arity = select(2, operation.args:gsub(',', '')) + 1,
+                            name = operation.name,
+                            exact = operation.exact
+                        }
+                    end
                 end
             end
             local capacity = #selected * 64
@@ -170,15 +189,16 @@ function M.generate(options)
                         source[#source + 1] = ('    local words = assert(simd.species(array.uint32%s))\n'):format(shape)
                     end
                     for index, operation in ipairs(selected) do
+                        local expression = operation.direct and operation.call
+                            or ('s:map(%s, %s)'):format(operation.call, operation.args)
                         if operation.floatOnly then
                             source[
                                 #source + 1
                             ] = (
-                                '    local result%d = s:map(%s, %s)\n    s:store(output, %d, result%d, mask)\n    words:store(raw, %d, words:reinterpret(result%d), words:tail(active))\n'
+                                '    local result%d = %s\n    s:store(output, %d, result%d, mask)\n    words:store(raw, %d, words:reinterpret(result%d), words:tail(active))\n'
                             ):format(
                                 index,
-                                operation.call,
-                                operation.args,
+                                expression,
                                 (index - 1) * 64 + 1,
                                 index,
                                 (index - 1) * 64 + 1,
@@ -187,9 +207,7 @@ function M.generate(options)
                         else
                             source[
                                 #source + 1
-                            ] = (
-                                '    s:store(output, %d, s:map(%s, %s), mask)\n'
-                            ):format((index - 1) * 64 + 1, operation.call, operation.args)
+                            ] = ('    s:store(output, %d, %s, mask)\n'):format((index - 1) * 64 + 1, expression)
                         end
                     end
                     source[#source + 1] = '    return s.lanes\nend\n'
@@ -298,6 +316,7 @@ RAW_INITIAL
                     lanes = widths,
                     operations = opNames,
                     contracts = contracts,
+                    direct = direct,
                     patterns = 34,
                     tails = '0..lanes',
                     oracle = 'ordinary scalar math narrowed through storage; corrected extrema rules; independent FMA dyadic witnesses',

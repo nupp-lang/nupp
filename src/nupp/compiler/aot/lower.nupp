@@ -2212,6 +2212,52 @@ local function fixedCall(
     )
 end
 
+--- The math operations a floating vector takes directly: `math.sqrt(v)` is
+--- `species:map(math.sqrt, v)`, and lowers to the same lane-wise operation.
+const LANE_MATH: {[string]: boolean} = {sqrt = true, abs = true, floor = true, ceil = true}
+
+--- `math.sqrt(v)` over a vector, or nil when no operand is one.
+local function laneMath(
+    node: cst.Node,
+    intrinsic: admit.Math,
+    args: {scalarIR.Expr},
+    kernel: lower.Kernel
+): scalarIR.Expr?
+    local vector: scalarIR.Expr? = nil
+    for _, argument in ipairs(args) do
+        if genericSimdParts(argument.type) == "vector" then
+            vector = argument
+        end
+    end
+    if vector == nil then
+        return nil
+    end
+    local context = kernel.context
+    local source = lower.site(node)
+    local operand = vector as scalarIR.Expr
+    local _, element = genericSimdParts(operand.type)
+    if LANE_MATH[intrinsic.name] ~= true or #args ~= 1 then
+        context.reject(
+            source,
+            "math." .. intrinsic.name .. " takes no vector; a floating vector takes sqrt, abs, floor and ceil directly"
+        )
+    end
+    if element ~= "f32" and element ~= "f64" then
+        context.reject(source, "math." .. intrinsic.name .. " over a vector needs a floating species")
+    end
+    if operand.op ~= "local" then
+        context.reject(source, "SIMD math operands must be locals of the species")
+    end
+
+    return new scalarIR.Simd(
+        op = "simd_math",
+        args = {operand},
+        intrinsic = intrinsic.name,
+        type = operand.type,
+        source = source
+    )
+end
+
 --- A call into the closed math set, whose operands are all binary64.
 local function mathCall(
     node: cst.Node,
@@ -3041,6 +3087,10 @@ local function call(
 
     local intrinsic = path ~= nil and admit.math(path as string) or nil
     if intrinsic ~= nil then
+        local laneWise = laneMath(node, intrinsic as admit.Math, args, kernel)
+        if laneWise ~= nil then
+            return laneWise as scalarIR.Expr
+        end
         return mathCall(node, path as string, intrinsic as admit.Math, args, kernel)
     end
 

@@ -69,6 +69,29 @@ local function protocolPackFits(have: T.Pack, want: T.Pack): boolean, string?
 end
 
 local rawType = T.unwrapOwnership
+
+--- The math functions a floating vector takes directly, lane by lane.
+local LANE_MATH: {[string]: boolean} = {sqrt = true, abs = true, floor = true, ceil = true}
+
+--- Whether `t` is a `simd.Vector` of a floating element.
+local function floatingVector(t: Type): boolean
+    if t.tag ~= "nominal" then
+        return false
+    end
+    local nominal = t as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    if origin.name ~= "Vector" or (origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd") then
+        return false
+    end
+    local element = nominal.typeArgs and (nominal.typeArgs as {Type})[1] or nil
+    if element == nil then
+        return false
+    end
+    local payload = T.unwrapOwnership(element as Type)
+
+    return payload.tag == "float" or payload.tag == "number"
+end
+
 local dropSelf = generics.dropSelf
 local specializeSelf = generics.specializeSelf
 local specializeReceiver = generics.specializeReceiver
@@ -1396,6 +1419,22 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local name = origin.moduleName .. "." .. typeName
             node.spiInterface = name
             return T.func({}, {T.optional(declared as Type)}, false)
+        end
+        -- `math.sqrt(v)` over a floating vector is `species:map(math.sqrt, v)`
+        -- reached by the ordinary spelling, and answers the vector. Only the
+        -- global library: a local named `math` is somebody else's table, and
+        -- an integer vector has no square root to take, so both read on as
+        -- the call they are.
+        if LANE_MATH[memberName] == true and baseName == "math" and #argExprs == 1 and not argStr and not argTable then
+            local globals = c.env and c.env.globals or nil
+            local library = globals and globals.math or nil
+            if library ~= nil and c.lookupEntry("math") == library then
+                local vector = rawType(c.infer(argExprs[1]))
+                if floatingVector(vector) then
+                    (node as any).simdMath = memberName
+                    return vector
+                end
+            end
         end
         if selectedExport
             and #c.functionBodies == 0

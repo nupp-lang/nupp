@@ -50,6 +50,17 @@ function M.mathMapCorpusCoversEveryAdmittedIdentityAndVariadicForms()
                 end
             end
             assert(next(actual) == nil, "map corpus claims an unadmitted identity")
+            -- The spellings a floating vector takes without `map`, each
+            -- beside its `map` form.
+            local direct = {}
+            for _, name in ipairs(coverage.direct) do
+                direct[name] = true
+            end
+            for _, name in ipairs({"sqrt", "abs", "floor", "ceil"}) do
+                assert(direct[name .. "Direct"], "missing direct form of math." .. name)
+                direct[name .. "Direct"] = nil
+            end
+            assert(next(direct) == nil, "map corpus claims an unknown direct form: " .. tostring(next(direct)))
         end
         assert(seenElements.float and seenElements.number)
     end
