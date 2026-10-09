@@ -63,6 +63,8 @@ print(pending.name)
   from code that recorded and ran slowly.
 - [Ahead-of-time compilation](../learn/performance/ahead-of-time/index.md) covers CPU kernels,
   SIMD, Lua-value construction, native artifacts, and Wasm side modules.
+- [SIMD from the ground up](../learn/performance/ahead-of-time/simd-guide.md) teaches
+  what SIMD is and how a Nupp loop uses lanes, starting from nothing.
 - [GPU compute](../learn/performance/ahead-of-time/gpu.md) covers generated resident-buffer
   kernels, structured workgroups, tensor layouts, and the browser WebGPU
   profiles.

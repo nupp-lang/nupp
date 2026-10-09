@@ -63,7 +63,7 @@ An entry may return several numeric or boolean results through its private aggre
 
 ## Explicit SIMD
 
-When vector execution matters, use [`nupp.simd`](simd.md) inside a block kernel. `simd.species` always answers a species, one lane wide where the tier has no vectors, and `species:over` strip-mines a span so the loop is written once; the lanes, the tail mask and any hand-written continuation are visible in the source, and the same LLVM IR and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
+When vector execution matters, use [`nupp.simd`](simd.md) inside a block kernel; [SIMD from the ground up](simd-guide.md) introduces it. `simd.species` always answers a species, one lane wide where the tier has no vectors, and `species:over` strip-mines a span so the loop is written once; the lanes, the tail mask and any hand-written continuation are visible in the source, and the same LLVM IR and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
 
 ## Benchmarks
 
