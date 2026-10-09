@@ -94,14 +94,16 @@ function simdbounds.widen(existing: string?, room: string): string
 end
 
 --- How many elements the dominating checks prove a cursor has below
---- `counted`: directly, or below a root the entry guards prove no longer
---- than it. Zero when nothing bounded it. `related` is the same map
---- `coveredThrough` reads.
+--- `counted`: directly, below a root the entry guards prove no longer than
+--- it, or carried from a root by a guard relating the two counts through a
+--- factor (`transfers`, as `scalarIR.RoomTransfer` reads them). Zero when
+--- nothing bounded it. `related` is the same map `coveredThrough` reads.
 function simdbounds.reach(
     bounds: scalarIR.CursorBounds,
     cursor: string,
     counted: string?,
-    related: {[string]: {[string]: boolean}}?
+    related: {[string]: {[string]: boolean}}?,
+    transfers: scalarIR.RoomTransfers?
 ): number
     local spans = bounds[cursor]
     if spans == nil or counted == nil then
@@ -109,9 +111,14 @@ function simdbounds.reach(
     end
     local most = simdbounds.elements(spans[counted as string])
     for root, room in pairs(spans) do
+        local held = simdbounds.elements(room)
         local reaches = related ~= nil and (related as {[string]: {[string]: boolean}})[root] or nil
         if reaches ~= nil and reaches[counted as string] == true then
-            most = math.max(most, simdbounds.elements(room))
+            most = math.max(most, held)
+        end
+        local carried = transfers ~= nil and (transfers as scalarIR.RoomTransfers)[root] or nil
+        for _, transfer in ipairs(carried ~= nil and carried[counted as string] or {}) do
+            most = math.max(most, transfer.factor * held - transfer.offset)
         end
     end
 
@@ -125,9 +132,10 @@ function simdbounds.boundedThrough(
     cursor: string,
     counted: string?,
     related: {[string]: {[string]: boolean}}?,
-    count: number?
+    count: number?,
+    transfers: scalarIR.RoomTransfers?
 ): boolean
-    return simdbounds.reach(bounds, cursor, counted, related) >= (count or 1)
+    return simdbounds.reach(bounds, cursor, counted, related, transfers) >= (count or 1)
 end
 
 --- Whether a cursor has room for `count` vectors of `species` below `counted`:

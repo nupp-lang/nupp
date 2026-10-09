@@ -3733,6 +3733,67 @@ return {triples = triples}
     test.equal(compares, 4, "two guards of two conjuncts, and no per-access check:\n" .. body)
 end
 
+-- A three-wide window over `rgb` at a cursor bounded by `#grey`, in range
+-- because `#rgb == 3 * #grey` carries three elements of room per element of
+-- grey: the compiled kernel agrees with a Lua oracle, and the function
+-- compares nothing but its loop guard.
+function M.aFactorGuardCarriesCursorRoomInCompiledCode()
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(
+        [[
+local span = require("nupp.mem.span")
+@aot
+local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
+    assert(#rgb == 3 * #grey)
+    local at: uint32 = 0
+    while at < #grey do
+        grey[at + 1] = rgb[at + 1] + rgb[at + 2] + rgb[at + 3]
+        at = at + 1
+    end
+end
+return {box3 = box3}
+]]
+    )
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local name = librarySymbol(dir, lib, "ks_box3")
+    ffi.cdef(("void %s(void *, const void *, size_t, size_t);"):format(name))
+
+    for greyCount = 0, 37 do
+        local rgbCount = 3 * greyCount
+        local rgb = ffi.new("uint8_t[?]", math.max(rgbCount, 1))
+        local source = {}
+        for i = 1, rgbCount do
+            source[i] = (i * 29 + greyCount) % 80
+            rgb[i - 1] = source[i]
+        end
+        local grey = ffi.new("uint8_t[?]", math.max(greyCount, 1))
+        lib[name](grey, rgb, greyCount, rgbCount)
+        for i = 1, greyCount do
+            test.equal(
+                tonumber(grey[i - 1]),
+                source[i] + source[i + 1] + source[i + 2],
+                ("grey %d: window at %d"):format(greyCount, i)
+            )
+        end
+    end
+
+    -- The entry's assumptions compare too, so what is counted is the branches:
+    -- the loop guard's, and no other.
+    local unit = assert(read(tieredUnit(dir, libraryTier(lib))))
+    local body = assert(unit:match("define[^\n]*@" .. name .. "%(.-\n}"), "the emitted function")
+    local branches = 0
+    for _ in body:gmatch("br i1 ") do
+        branches = branches + 1
+    end
+    test.equal(branches, 1, "the loop guard, and no per-access check:\n" .. body)
+    assert(not body:find("mul nsw i64 %%count_grey", 1, true), "no assumption multiplies a count:\n" .. body)
+end
+
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     local function answer(policy)
         local dir = wideBitwiseProject(policy)

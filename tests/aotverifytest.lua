@@ -1843,4 +1843,77 @@ function M.aDisplacedCursorAccessIsHeldToTheRoomItsGuardProves()
     verify.program(program)
 end
 
+-- A three-wide window over `rgb` at a cursor bounded by `#grey`, in range
+-- because the guard relates the two counts through a factor of three.
+local FACTOR_WINDOW = [[
+local span = require("nupp.mem.span")
+@aot
+local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
+    assert(#rgb == 3 * #grey)
+    local at: uint32 = 0
+    while at < #grey do
+        grey[at + 1] = rgb[at + 1] + rgb[at + 2] + rgb[at + 3]
+        at = at + 1
+    end
+end
+return {box3 = box3}
+]]
+
+function M.aFactorRelationCarriesACursorsRoomOnlyAsFarAsItStates()
+    local program = lowered(FACTOR_WINDOW, "window.g.nupp")
+    verify.program(program)
+    local terms = nodes(program.relations, function(node)
+        return node.kind == "count" and node.name == "grey" and node.factor == 3
+    end)
+    assert(#terms >= 1, "the equality scales #grey")
+
+    -- The room is re-derived from the relations the wrapper checks, so a
+    -- factor of two carries two elements and the third read has no proof.
+    for _, term in ipairs(terms) do
+        term.factor = 2
+    end
+    refuses(program, "unbounded cursor load")
+    for _, term in ipairs(terms) do
+        term.factor = 3
+    end
+    verify.program(program)
+
+    -- A factor below two is the count itself and is never written as one.
+    terms[1].factor = 1
+    refuses(program, "a guard relation names an undeclared term")
+    terms[1].factor = 3
+    verify.program(program)
+
+    -- A relation dropped from the list is a proof nothing checks.
+    local kept = program.relations
+    program.relations = {}
+    refuses(program, "unbounded cursor load")
+    program.relations = kept
+    verify.program(program)
+end
+
+-- A GPU binding checks span counts alone, so a factor is not a relation it
+-- can hold a dispatch to.
+function M.aGpuGuardRelationCarriesNoFactor()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+@aot(target = "gpu")
+local function copy(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#out == #input)
+    for i = 1, #out do
+        out[i] = input[i]
+    end
+end
+return {copy = copy}
+]],
+        "gpu-factor.nupp"
+    )
+    verify.program(program)
+    program.relations[
+        #program.relations + 1
+    ] = {left = {kind = "count", name = "input", factor = 2}, right = {kind = "count", name = "out"}, offset = 0,}
+    refuses(program, "a GPU guard relation is not over span lengths")
+end
+
 return M

@@ -124,6 +124,23 @@ end
 
 return {past = past}
 ]],
+    -- A read one past the three elements `#rgb == 3 * #grey` carries from
+    -- `at < #grey` into `rgb`.
+    ["factorpast.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function past(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
+    assert(#rgb == 3 * #grey)
+    local at: uint32 = 0
+    while at < #grey do
+        grey[at + 1] = rgb[at + 4]
+        at = at + 1
+    end
+end
+
+return {past = past}
+]],
     -- A write one past what `out + 3 <= #output` proves.
     ["cursorstorepast.nupp"] = [[
 local span = require("nupp.mem.span")
@@ -214,6 +231,49 @@ local function clamp(value: number, low: number, high: number): number
 end
 
 return {clamp = clamp}
+]],
+    -- Guards relating counts through a factor and an offset, in each
+    -- spelling, feeding a counted loop over the shorter span and the room a
+    -- cursor bounded by it has in the longer one.
+    ["factorguards.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
+    assert(#rgb == 3 * #grey)
+    local at: uint32 = 0
+    while at < #grey do
+        grey[at + 1] = rgb[at + 1] + rgb[at + 2] + rgb[at + 3]
+        at = at + 1
+    end
+end
+
+@aot
+local function first(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): uint32
+    if #grey * 3 ~= #rgb then
+        error("length mismatch", 2)
+    end
+    local total: uint32 = 0
+    for i = 1, #grey do
+        grey[i] = rgb[i]
+        total = total + 1
+    end
+    return total
+end
+
+@aot
+local function padded(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): uint32
+    assert(#output >= 4 * #input + 2)
+    local i: uint32 = 0
+    while i < #input do
+        output[i + 1] = input[i + 1]
+        output[i + 6] = 0
+        i = i + 1
+    end
+    return i
+end
+
+return {box3 = box3, first = first, padded = padded}
 ]],
     -- Reads and writes displaced past one cursor, each within what its
     -- literal guard proves, in every spelling of the guard.

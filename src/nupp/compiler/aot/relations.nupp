@@ -76,7 +76,9 @@ function relations.key(term: scalarIR.Term): string
     if term.kind == "zero" then
         return "0"
     elseif term.kind == "count" then
-        return "#" .. tostring(term.name)
+        local count = "#" .. tostring(term.name)
+
+        return term.factor ~= nil and tostring(term.factor) .. "*" .. count or count
     else
         return "u:" .. tostring(term.name)
     end
@@ -87,7 +89,9 @@ function relations.termText(term: scalarIR.Term): string
     if term.kind == "zero" then
         return "0"
     elseif term.kind == "count" then
-        return "#" .. tostring(term.name)
+        local count = "#" .. tostring(term.name)
+
+        return term.factor ~= nil and tostring(term.factor) .. " * " .. count or count
     else
         return tostring(term.name)
     end
@@ -106,6 +110,16 @@ end
 --- The term one span's length is.
 function relations.count(name: string): scalarIR.Term
     return new scalarIR.Term(kind = "count", name = name)
+end
+
+--- The term a literal multiple of one span's length is; the length itself
+--- for a factor of one.
+function relations.scaledCount(name: string, factor: integer): scalarIR.Term
+    if factor == 1 then
+        return relations.count(name)
+    end
+
+    return new scalarIR.Term(kind = "count", name = name, factor = factor)
 end
 
 --- `left <= right + offset`, which is what every admitted comparison becomes.
@@ -332,7 +346,53 @@ function relations.axioms(spans: {string}): {scalarIR.Relation}
     return pool
 end
 
+--- The scaled counts a pool mentions, each once, in a fixed order.
+local function scaledTerms(pool: {scalarIR.Relation}): {scalarIR.Term}
+    local seen: {[string]: boolean} = {}
+    local keyed: {relations.Keyed} = {}
+    for _, relation in ipairs(pool) do
+        for _, term in ipairs({relation.left, relation.right}) do
+            local key = relations.key(term)
+            if term.kind == "count" and term.factor ~= nil and seen[key] == nil then
+                seen[key] = true
+                keyed[#keyed + 1] = new relations.Keyed(left = key, right = "", offset = 0, relation = relation)
+                keyed[#keyed].relation = relations.relation(term, term, 0)
+            end
+        end
+    end
+    table.sort(keyed, function(a: relations.Keyed, b: relations.Keyed): boolean
+        return a.left < b.left
+    end)
+    local terms: {scalarIR.Term} = {}
+    for _, entry in ipairs(keyed) do
+        terms[#terms + 1] = entry.relation.left
+    end
+
+    return terms
+end
+
+--- What a scaled count is known to be without a guard saying so: at least
+--- the count it scales, and at least zero, because a count is never
+--- negative and a factor never below one; and no less than any smaller
+--- multiple of the same count.
+function relations.scaledAxioms(scaled: {scalarIR.Term}): {scalarIR.Relation}
+    local pool: {scalarIR.Relation} = {}
+    for _, term in ipairs(scaled) do
+        local name = tostring(term.name)
+        pool[#pool + 1] = relations.relation(relations.count(name), term, 0, nil)
+        pool[#pool + 1] = relations.relation(relations.zero(), term, 0, nil)
+        for _, smaller in ipairs(scaled) do
+            if smaller.name == term.name and (smaller.factor as integer) < (term.factor as integer) then
+                pool[#pool + 1] = relations.relation(smaller, term, 0, nil)
+            end
+        end
+    end
+
+    return pool
+end
+
 --- The closure of the written facts together with the axioms they sit on.
+--- The universe is `terms` and every scaled count the facts mention.
 function relations.solve(written: {scalarIR.Relation}, spans: {string}, terms: {scalarIR.Term}): relations.Closure
     local pool: {scalarIR.Relation} = {}
     for _, relation in ipairs(written) do
@@ -341,8 +401,48 @@ function relations.solve(written: {scalarIR.Relation}, spans: {string}, terms: {
     for _, relation in ipairs(relations.axioms(spans)) do
         pool[#pool + 1] = relation
     end
+    local scaled = scaledTerms(written)
+    for _, relation in ipairs(relations.scaledAxioms(scaled)) do
+        pool[#pool + 1] = relation
+    end
+    local universe: {scalarIR.Term} = {}
+    for _, term in ipairs(terms) do
+        universe[#universe + 1] = term
+    end
+    for _, term in ipairs(scaled) do
+        universe[#universe + 1] = term
+    end
 
-    return relations.closure(pool, terms)
+    return relations.closure(pool, universe)
+end
+
+--- How a cursor's room below each span's count carries to each other span:
+--- for every count term over `from` in the closure, scaled or plain, the
+--- least `offset` with `term <= #to + offset`. Each is a transfer with the
+--- term's factor, as `scalarIR.RoomTransfer` reads it.
+function relations.transfers(closure: relations.Closure, spans: {string}): scalarIR.RoomTransfers
+    local transfers: scalarIR.RoomTransfers = {}
+    for _, from in ipairs(spans) do
+        local carried: {[string]: {scalarIR.RoomTransfer}} = {}
+        for _, to in ipairs(spans) do
+            local into = closure.indexOf[relations.key(relations.count(to))]
+            local found: {scalarIR.RoomTransfer} = {}
+            for position, term in ipairs(closure.terms) do
+                if term.kind == "count" and term.name == from and into ~= nil then
+                    local offset = closure.dist[into as integer][position]
+                    if offset < relations.INFINITE and offset > -relations.INFINITE then
+                        found[#found + 1] = new scalarIR.RoomTransfer(factor = term.factor or 1, offset = offset)
+                    end
+                end
+            end
+            if #found > 0 then
+                carried[to] = found
+            end
+        end
+        transfers[from] = carried
+    end
+
+    return transfers
 end
 
 ----------------------------------------------------------------------------

@@ -225,7 +225,9 @@ end
 --- A term in the wrapper's source form.
 local function termSource(term: scalarIR.Term): string
     if term.kind == "count" then
-        return "#" .. tostring(term.name)
+        local count = "#" .. tostring(term.name)
+
+        return term.factor ~= nil and tostring(term.factor) .. " * " .. count or count
     else
         return tostring(term.name)
     end

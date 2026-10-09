@@ -53,6 +53,8 @@ Spans become `noalias` pointers when ownership proves no written span aliases th
 
 Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. The generated code preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.
 
+A leading guard may relate two counts through a literal factor and offset: `assert(#rgb == 3 * #grey)`, `assert(#output >= 4 * #input + 2)`, or `if #out * 3 ~= #rgb then error(...) end`. It is checked once at the call boundary like any other guard, and it feeds the same bounds the equality guards do. `#grey <= #rgb` follows from the first, so a loop counted by `#grey` may index `rgb`; and a cursor bounded by `cursor < #grey` has three elements of room in `rgb`, `rgb[cursor + 1]` through `rgb[cursor + 3]`, because `3 * cursor + 3 <= 3 * #grey`. A map kernel, a body that is only guards and one counted loop over a span, still relates its spans by equality, and a GPU kernel's guards compare counts without a factor, since its binding checks nothing else.
+
 ## Calls and helpers
 
 A compiled entry called by another compiled entry of the same file calls that entry's own definition, which the code generator may inline. A small ordinary local helper may be inlined by the AOT compiler. Neither call form implicitly maps a scalar callee across vector lanes; code that requires SIMD writes vector operations in its own body.

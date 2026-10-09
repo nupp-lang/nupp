@@ -375,11 +375,16 @@ end
 --- Each relation the wrapper checked before this call, `left <= right +
 --- offset`, as an assumption. In i64, which neither a count (at most 2^53) nor
 --- a 32-bit uniform can overflow; a 64-bit uniform could, so a relation over
---- one is left out.
+--- one is left out, and so is one scaling a count by a factor, whose product
+--- could as well -- an assumption left out is only an optimization not made,
+--- where one stated wrongly would be anything.
 local function assumeRelations(ctx: context.Context, program: scalarIR.Program): nil
     for _, relation in ipairs(program.relations or {}) do
         local wide = false
         for _, term in ipairs({relation.left, relation.right}) do
+            if term.factor ~= nil then
+                wide = true
+            end
             if term.kind == "uniform" then
                 for _, param in ipairs(program.params) do
                     if param.name == term.name and (param.type == "i64" or param.type == "u64") then

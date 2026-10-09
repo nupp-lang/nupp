@@ -1019,6 +1019,10 @@ record lower.Kernel
     --- Guard-proved upper bounds between span counts in block kernels.
     spanBounds: {[string]: {[string]: boolean}}?
 
+    --- How a cursor's room below one span carries to another through the
+    --- guards, factors included, in block kernels.
+    spanRooms: scalarIR.RoomTransfers?
+
     --- Results the top-level AOT entry promises. Helpers keep their own result
     --- list; this is only for `return` statements in a general block body.
     resultTypes: {scalarIR.Type}
@@ -1286,7 +1290,14 @@ local function provedCursor(
     local param = kernel.params[tostring(spanName)]
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
     local bounded = room == nil
-        and simdbounds.boundedThrough(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds, step)
+        and simdbounds.boundedThrough(
+            kernel.cursorBounds,
+            candidate as string,
+            counted,
+            kernel.spanBounds,
+            step,
+            kernel.spanRooms
+        )
         or room ~= nil
         and step == 1
         and simdbounds.coveredThrough(
@@ -1315,7 +1326,13 @@ local function cursorRefusal(verb: string, indexArg: cst.Node?, spanName: string
     end
     local param = kernel.params[tostring(spanName)]
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
-    local reach = simdbounds.reach(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds)
+    local reach = simdbounds.reach(
+        kernel.cursorBounds,
+        candidate as string,
+        counted,
+        kernel.spanBounds,
+        kernel.spanRooms
+    )
     local name, span = candidate as string, tostring(spanName)
     if reach == 0 then
         return (
@@ -8577,7 +8594,7 @@ function lower.guardTerm(node: cst.Node?, signature: lower.Signature): (scalarIR
 
     local operator = node as cst.Binop
     local text = operator.op ~= nil and (operator.op as lexer.Token).text or ""
-    if text ~= "+" and text ~= "-" then
+    if text ~= "+" and text ~= "-" and text ~= "*" then
         return nil, 0
     end
 
@@ -8585,6 +8602,29 @@ function lower.guardTerm(node: cst.Node?, signature: lower.Signature): (scalarIR
     local rightTerm, rightConstant = lower.guardTerm(operator.rhs, signature)
     if leftTerm == nil or rightTerm == nil then
         return nil, 0
+    end
+    if text == "*" then
+        -- A literal times a span's count, either way round, is the scaled
+        -- count: `3 * #grey`, or `3 * (#grey + 1)` with the constant scaled
+        -- too. A product of two atoms is not a difference constraint, and a
+        -- scaled uniform would need the uniform known non-negative, so neither
+        -- is read.
+        local literalTerm, literal, scaled, scaledConstant = leftTerm, leftConstant, rightTerm, rightConstant
+        if (literalTerm as scalarIR.Term).kind ~= "zero" then
+            literalTerm, literal, scaled, scaledConstant = rightTerm, rightConstant, leftTerm, leftConstant
+        end
+        if (literalTerm as scalarIR.Term).kind ~= "zero" then
+            return nil, 0
+        end
+        local term = scaled as scalarIR.Term
+        local factor = literal * (term.factor or 1)
+        if term.kind == "zero" then
+            return relations.zero(), literal * scaledConstant
+        elseif term.kind ~= "count" or literal < 1 or factor > relations.MAX_OFFSET then
+            return nil, 0
+        else
+            return relations.scaledCount(term.name as string, factor), literal * scaledConstant
+        end
     end
     local signed = text == "+" and rightConstant or -rightConstant
     if (rightTerm as scalarIR.Term).kind == "zero" then
@@ -8709,6 +8749,18 @@ function lower.guardFacts(
     end
 
     return node
+end
+
+--- The first relation in a pool that scales a count by a factor, or nothing.
+--- A GPU program's binding checks counts alone, so it may carry none.
+function lower.scaledRelation(pool: {scalarIR.Relation}): scalarIR.Relation?
+    for _, relation in ipairs(pool) do
+        if relation.left.factor ~= nil or relation.right.factor ~= nil then
+            return relation
+        end
+    end
+
+    return nil
 end
 
 --- What reading a kernel's guard prefix produced.
@@ -9799,7 +9851,11 @@ function lower.program(
         -- Anything else would be a precondition the source wrote and this target
         -- silently dropped.
         for _, relation in ipairs(admission.relations) do
-            if relation.left.kind ~= "count" or relation.right.kind ~= "count" then
+            if relation.left.kind ~= "count"
+                or relation.right.kind ~= "count"
+                or relation.left.factor ~= nil
+                or relation.right.factor ~= nil
+            then
                 context.reject(
                     relation.source,
                     "a GPU kernel's guards may only relate span lengths, and nothing enforces `" .. relations.text(
@@ -9830,6 +9886,13 @@ function lower.program(
         )
         if closure.contradiction ~= nil then
             context.reject(lower.site(statements[1]), "these guards cannot all hold at once")
+        end
+        local scaled = lower.scaledRelation(reading.relations)
+        if scaled ~= nil and contract.target == "gpu" then
+            context.reject(
+                (scaled as scalarIR.Relation).source,
+                "a GPU guard compares span lengths without a factor; the GPU binding checks counts alone"
+            )
         end
         local spanBounds: {[string]: {[string]: boolean}} = {}
         for _, from in ipairs(signature.spans) do
@@ -9866,6 +9929,7 @@ function lower.program(
             end)(),
         })
         kernel.spanBounds = spanBounds
+        kernel.spanRooms = relations.transfers(closure, spanNames(signature))
         local environment = loweringEnvironment(signature, specialization)
         local lowered = lower.block(blockStatements, environment, kernel)
         validateReducers(kernel)

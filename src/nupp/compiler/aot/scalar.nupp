@@ -30,7 +30,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 44
+const scalarIR.VERSION = 45
 
 --- The calling convention selected for a complete AOT entry.
 ---
@@ -1221,6 +1221,20 @@ type scalarIR.CursorBounds = {[string]: {[string]: string}}
 --- The room a one-element bound records.
 const scalarIR.ONE_ELEMENT = "1"
 
+--- How a cursor's room below one span's count carries to another's: from
+--- the guard-proved `factor * #from <= #to + offset`, a cursor `r` elements
+--- below `#from` is `factor * r - offset` elements below `#to`, because it
+--- is no less than zero. A plain `#from <= #to` is the transfer with factor
+--- one and offset zero.
+record scalarIR.RoomTransfer
+    factor: integer
+    offset: integer
+end
+
+--- Every proved transfer, by the span a cursor is bounded against and then
+--- by the span the bound carries to.
+type scalarIR.RoomTransfers = {[string]: {[string]: {scalarIR.RoomTransfer}}}
+
 --- An arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
@@ -1411,6 +1425,11 @@ record scalarIR.Term
 
     --- The parameter or span named, absent for `zero`.
     name: string?
+
+    --- A literal the span's count is multiplied by, for a `count` term only:
+    --- `3 * #grey`. Absent for the count itself. Never below two, since a
+    --- factor of one is the count.
+    factor: integer?
 end
 
 --- A normalized relation the source guards established, `left <= right + offset`.

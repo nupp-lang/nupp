@@ -204,4 +204,78 @@ function M.theWasmWrapperChecksTheSameRelations()
     assert(text:find("last > #out", 1, true), text)
 end
 
+----------------------------------------------------------------------------
+-- Factors
+----------------------------------------------------------------------------
+
+local function scaled(name, factor)
+    return relations.scaledCount(name, factor)
+end
+
+-- `#rgb == 3 * #grey`, as two relations over the scaled count.
+local function tripled()
+    return {
+        relations.relation(count("rgb"), scaled("grey", 3), 0),
+        relations.relation(scaled("grey", 3), count("rgb"), 0),
+    }
+end
+
+--- The transfers from one span to another, by factor.
+local function transfersFrom(closure, from, to)
+    local found = {}
+    for _, transfer in ipairs((relations.transfers(closure, {"grey", "rgb", "input", "output"})[from] or {})[to] or {}) do
+        found[transfer.factor] = transfer.offset
+    end
+
+    return found
+end
+
+-- A scaled count is at least the count it scales, so an equality through a
+-- factor carries the plain bound the loop needs, one way only.
+function M.aFactorRelationBoundsTheCountItScales()
+    local closure = solve(tripled(), {"grey", "rgb"})
+    assert(relations.proves(closure, count("grey"), count("rgb"), 0), "#grey <= #rgb follows from #rgb == 3 * #grey")
+    assert(not relations.proves(closure, count("rgb"), count("grey"), 0), "and #rgb <= #grey does not")
+    assert(not relations.equalCounts(closure, "grey", "rgb"), "a factor is not an equality of counts")
+    test.equal(relations.scaledCount("grey", 1).factor, nil, "a factor of one is the count itself")
+end
+
+-- A cursor one element below `#grey` is three below `#rgb`: the room carries
+-- through the factor, and only from the scaled span to the other.
+function M.aFactorRelationCarriesCursorRoomThroughTheFactor()
+    local closure = solve(tripled(), {"grey", "rgb"})
+    local carried = transfersFrom(closure, "grey", "rgb")
+    test.equal(carried[3], 0, "three elements of rgb per element of grey")
+    test.equal(carried[1], 0, "and the count itself carries one")
+    test.equal(next(transfersFrom(closure, "rgb", "grey")), nil, "nothing carries back from rgb to grey")
+
+    -- `#output >= 4 * #input + 2`: four per element, plus the two.
+    local padded = solve({relations.relation(scaled("input", 4), count("output"), -2)}, {"input", "output"})
+    local room = transfersFrom(padded, "input", "output")
+    test.equal(room[4], -2, "four per element of input, and two more")
+    test.equal(room[1], -2, "the count itself reaches output by the same two")
+    assert(relations.proves(padded, count("input"), count("output"), -2), "#input + 2 <= #output follows")
+end
+
+-- The wrapper checks the factor relation as the source wrote it: the equality
+-- once, as an equality, and the bound with its factor and offset spelled out.
+function M.theWrapperChecksAFactorRelationAsWritten()
+    local equality = table.concat(binding.relations(program{relations = relations.canonical(tripled())}), "\n")
+    local seen = 0
+    for _ in equality:gmatch("incompatible lengths") do
+        seen = seen + 1
+    end
+    test.equal(seen, 1, "one comparison for the equality: " .. equality)
+    assert(
+        equality:find("#rgb ~= 3 * #grey", 1, true) or equality:find("3 * #grey ~= #rgb", 1, true),
+        "with the factor on the scaled count: " .. equality
+    )
+
+    local bound = table.concat(
+        binding.relations(program{relations = {relations.relation(scaled("input", 4), count("output"), -2)}}),
+        "\n"
+    )
+    assert(bound:find("4 * #input > #output - 2", 1, true), "the bound as the source stated it: " .. bound)
+end
+
 return M

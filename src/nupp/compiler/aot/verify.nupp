@@ -102,6 +102,10 @@ record verify.Scope
     --- justify cursor guards and counted-loop accesses to another span.
     countBounds: {[string]: {[string]: boolean}}?
 
+    --- How a cursor's room below one span carries to another through the
+    --- guard relations, factors included, keyed as `countBounds` is.
+    countRooms: scalarIR.RoomTransfers?
+
     --- Resolved logical vector width; physical packing may use narrower chunks.
     simdWidth: integer?
 
@@ -142,6 +146,7 @@ local function derive(scope: verify.Scope, overrides: {[string]: any}): verify.S
         localReadLimit = scope.localReadLimit,
         localReadMinimum = scope.localReadMinimum,
         countBounds = scope.countBounds,
+        countRooms = scope.countRooms,
         simdWidth = scope.simdWidth,
         region = scope.region
     )
@@ -677,7 +682,8 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
                 node.cursor as string,
                 span.soa ~= nil and span.soa.view or node.span,
                 scope.countBounds,
-                cursorElements(node.cursorOffset)
+                cursorElements(node.cursorOffset),
+                scope.countRooms
             )
             and node.cursorUniqueName ~= nil,
             "unbounded cursor load"
@@ -720,7 +726,8 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
             node.cursor as string,
             node.span,
             scope.countBounds,
-            cursorElements(node.cursorOffset)
+            cursorElements(node.cursorOffset),
+            scope.countRooms
         )
         and node.cursorUniqueName ~= nil
         or node.cursor == nil
@@ -2430,7 +2437,8 @@ local function block(
                     statement.cursor as string,
                     param ~= nil and param.soa ~= nil and param.soa.view or statement.span,
                     scope.countBounds,
-                    cursorElements(statement.cursorOffset)
+                    cursorElements(statement.cursorOffset),
+                    scope.countRooms
                 )
                 and statement.cursorUniqueName ~= nil
                 or statement.cursor == nil
@@ -3268,6 +3276,17 @@ end
 local function namedTerm(term: scalarIR.Term, byName: {[string]: scalarIR.Param}): boolean
     local isOrigin = term.kind == "zero"
     local isCount = term.kind == "count"
+    local factor = term.factor
+    if factor ~= nil
+        and (
+            not isCount
+            or (factor as integer) < 2
+            or (factor as integer) > relations.MAX_OFFSET
+            or (factor as integer) % 1 ~= 0
+        )
+    then
+        return false
+    end
     if isOrigin then
         return term.name == nil
     end
@@ -3293,7 +3312,7 @@ local function bounds(
     program: scalarIR.Program,
     byName: {[string]: scalarIR.Param},
     primary: scalarIR.Param?
-): {[string]: {[string]: boolean}}?
+): ({[string]: {[string]: boolean}}?, scalarIR.RoomTransfers?)
     local pool = program.relations or {}
     if program.loop == nil then
         holds(program.rangeGuard == nil and #program.guards == 0, "a block kernel carried map-loop bounds")
@@ -3305,7 +3324,10 @@ local function bounds(
         holds(namedTerm(relation.right, byName), "a guard relation names an undeclared term")
         if program.executionTarget == "gpu" then
             holds(
-                relation.left.kind == "count" and relation.right.kind == "count",
+                relation.left.kind == "count"
+                and relation.right.kind == "count"
+                and relation.left.factor == nil
+                and relation.right.factor == nil,
                 "a GPU guard relation is not over span lengths"
             )
         end
@@ -3348,9 +3370,10 @@ local function bounds(
         end
         countBounds[from] = proved
     end
+    local countRooms = relations.transfers(closure, spans)
 
     if program.loop == nil then
-        return countBounds
+        return countBounds, countRooms
     end
     local loop = program.loop as scalarIR.Loop
     holds(primary ~= nil, "a map loop has no primary output")
@@ -3392,7 +3415,7 @@ local function bounds(
     -- the loop index only against `indexSpans`, so an unguarded span is
     -- reachable through proved cursors alone.
 
-    return countBounds
+    return countBounds, countRooms
 end
 
 --- The helper bodies, each of which is one return list and nothing else.
@@ -3674,7 +3697,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
 
     local layouts = layoutsByName(program)
     local byName, byRegion, writes, primary = signature(program, layouts)
-    local countBounds = bounds(program, byName, primary)
+    local countBounds, countRooms = bounds(program, byName, primary)
     regions(program, byRegion)
 
     local helpers: {[string]: scalarIR.Helper} = {}
@@ -3785,6 +3808,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         shared = sharedTypes,
         sharedCounts = sharedCounts,
         countBounds = countBounds,
+        countRooms = countRooms,
         simdWidth = program.simdWidth
     )
     helperBodies(program, scope)
