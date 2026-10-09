@@ -202,18 +202,172 @@ local function permute(ctx: context.Context, node: scalarIR.Expr): (string, stri
     expressions.unsupported("permutation " .. intrinsic)
 end
 
+--- The constant `<16 x i32> <i32 0, ..., i32 15>`.
+local function sixteenLanes(): string
+    local picks: {string} = {}
+    for index = 0, 15 do
+        picks[#picks + 1] = "i32 " .. tostring(index)
+    end
+
+    return "<16 x i32> <" .. table.concat(picks, ", ") .. ">"
+end
+
+--- The `tbl` shuffle that packs the lanes a mask selects, for every mask of
+--- a register of `count` lanes of `bytesPerLane` bytes: entry `m` names the
+--- selected lanes' bytes in order from the front, and a byte past the
+--- register, which the lookup answers 0 for, everywhere after them. The
+--- table is `16 * 2^count` bytes, shared by content across the module.
+--- @return the table's global name and its size in bytes
+local function packingTable(ctx: context.Context, bytesPerLane: integer, count: integer): (string, integer)
+    local entries: {string} = {}
+    for selected = 0, 2 ^ count - 1 do
+        local entry: {string} = {}
+        for lane = 0, count - 1 do
+            if math.floor(selected / 2 ^ lane) % 2 == 1 then
+                for byte = 0, bytesPerLane - 1 do
+                    entry[#entry + 1] = string.char(lane * bytesPerLane + byte)
+                end
+            end
+        end
+        while #entry < 16 do
+            entry[#entry + 1] = "\255"
+        end
+        entries[#entries + 1] = table.concat(entry)
+    end
+    local value = table.concat(entries)
+
+    return builder.bytes(ctx.module, value, 16), #value
+end
+
+--- The eight-byte shuffle that packs the lanes of a half-register of bytes
+--- an eight-bit mask selects, for every such mask: `256 * 8` bytes, 0x80
+--- after the selected lanes so that moving the high half's entries up by
+--- eight still names a byte past the register.
+local function halfPackingTable(ctx: context.Context): (string, integer)
+    local entries: {string} = {}
+    for selected = 0, 255 do
+        local entry: {string} = {}
+        for lane = 0, 7 do
+            if math.floor(selected / 2 ^ lane) % 2 == 1 then
+                entry[#entry + 1] = string.char(lane)
+            end
+        end
+        while #entry < 8 do
+            entry[#entry + 1] = "\128"
+        end
+        entries[#entries + 1] = table.concat(entry)
+    end
+    local value = table.concat(entries)
+
+    return builder.bytes(ctx.module, value, 16), #value
+end
+
+--- The shuffle that closes the gap between two packed halves of a byte
+--- register, by how many lanes the low half packed: entry `p` keeps lanes
+--- `0..p-1`, brings `8..15` down behind them, and zeroes the rest.
+local function joiningTable(ctx: context.Context): (string, integer)
+    local entries: {string} = {}
+    for packed = 0, 8 do
+        local entry: {string} = {}
+        for lane = 0, packed - 1 do
+            entry[#entry + 1] = string.char(lane)
+        end
+        for lane = 8, 15 do
+            entry[#entry + 1] = string.char(lane)
+        end
+        while #entry < 16 do
+            entry[#entry + 1] = "\128"
+        end
+        entries[#entries + 1] = table.concat(entry)
+    end
+    local value = table.concat(entries)
+
+    return builder.bytes(ctx.module, value, 16), #value
+end
+
+--- A packing of one NEON register by table lookup: the mask's bits index a
+--- table of `tbl` shuffles, so a compress is a load and one `tbl1` for
+--- lanes of two bytes and up. Sixteen byte lanes have too many masks for
+--- one table, so the halves are packed separately, as simdjson does: an
+--- eight-byte shuffle per half-mask, the high half's moved up by eight, one
+--- lookup that packs each half in place, and a second over a table indexed
+--- by the low half's count that closes the gap between them.
+local function tablePack(ctx: context.Context, found: species.Species, value: string, mask: string): string
+    local bytes = "<16 x i8>"
+    local tbl = prelude.intrinsic(
+        ctx.module,
+        "llvm.aarch64.neon.tbl1.v16i8",
+        ("%s @NAME(%s, %s)"):format(bytes, bytes, bytes)
+    )
+    local packed = context.value(ctx, ("bitcast %s %s to i%d"):format(found.mask, mask, found.lanes))
+    local selected = context.value(ctx, ("zext i%d %s to i64"):format(found.lanes, packed))
+    local raw = found.bits == 8 and value
+        or context.value(ctx, ("bitcast %s %s to %s"):format(found.vector, value, bytes))
+    local shuffle: string
+    if found.bits == 8 then
+        local halves, halvesSize = halfPackingTable(ctx)
+        local joins, joinsSize = joiningTable(ctx)
+        local low = context.value(ctx, ("and i64 %s, 255"):format(selected))
+        local high = context.value(ctx, ("lshr i64 %s, 8"):format(selected))
+        local lowAt = context.value(ctx, ("shl i64 %s, 3"):format(low))
+        local highAt = context.value(ctx, ("shl i64 %s, 3"):format(high))
+        local lowPlace = context.value(
+            ctx,
+            ("getelementptr inbounds [%d x i8], ptr %s, i64 0, i64 %s"):format(halvesSize, halves, lowAt)
+        )
+        local highPlace = context.value(
+            ctx,
+            ("getelementptr inbounds [%d x i8], ptr %s, i64 0, i64 %s"):format(halvesSize, halves, highAt)
+        )
+        local lowIndices = context.value(ctx, ("load <8 x i8>, ptr %s, align 8"):format(lowPlace))
+        local highIndices = context.value(ctx, ("load <8 x i8>, ptr %s, align 8"):format(highPlace))
+        local moved = context.value(ctx, ("add <8 x i8> %s, splat (i8 8)"):format(highIndices))
+        local both = context.value(
+            ctx,
+            ("shufflevector <8 x i8> %s, <8 x i8> %s, %s"):format(lowIndices, moved, sixteenLanes())
+        )
+        raw = context.value(ctx, ("call %s %s(%s %s, %s %s)"):format(bytes, tbl, bytes, raw, bytes, both))
+        local ctpop = prelude.intrinsic(ctx.module, "llvm.ctpop.i64", "i64 @NAME(i64)")
+        local count = context.value(ctx, ("call i64 %s(i64 %s)"):format(ctpop, low))
+        local joinAt = context.value(ctx, ("shl i64 %s, 4"):format(count))
+        local joinPlace = context.value(
+            ctx,
+            ("getelementptr inbounds [%d x i8], ptr %s, i64 0, i64 %s"):format(joinsSize, joins, joinAt)
+        )
+        shuffle = context.value(ctx, ("load %s, ptr %s, align 16"):format(bytes, joinPlace))
+    else
+        local table, size = packingTable(ctx, math.floor(found.bits / 8) as integer, found.lanes)
+        local at = context.value(ctx, ("shl i64 %s, 4"):format(selected))
+        local place = context.value(
+            ctx,
+            ("getelementptr inbounds [%d x i8], ptr %s, i64 0, i64 %s"):format(size, table, at)
+        )
+        shuffle = context.value(ctx, ("load %s, ptr %s, align 16"):format(bytes, place))
+    end
+    local result = context.value(ctx, ("call %s %s(%s %s, %s %s)"):format(bytes, tbl, bytes, raw, bytes, shuffle))
+    if found.bits == 8 then
+        return result
+    end
+
+    return context.value(ctx, ("bitcast %s %s to %s"):format(bytes, result, found.vector))
+end
+
 --- The active lanes of `v`, in order, packed from lane 0; the rest are 0.
 ---
---- Branch-free through a buffer one lane longer than the vector: every lane
---- is written at the running position, which only an active lane advances,
---- so an inactive lane is overwritten by the next active one or left past
---- the count, where the final select zeroes it.
+--- One NEON register packs by table lookup. Elsewhere, branch-free through
+--- a buffer one lane longer than the vector: every lane is written at the
+--- running position, which only an active lane advances, so an inactive
+--- lane is overwritten by the next active one or left past the count, where
+--- the final select zeroes it.
 local function compress(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local value = expressions.operand(ctx, simd.args[1])
     local mask = expressions.operand(ctx, simd.args[2])
+    if ctx.vectorRegister == "w" and found.bits * found.lanes == 128 then
+        return tablePack(ctx, found, value, mask), typeName
+    end
     local slots = "[" .. tostring(found.lanes + 1) .. " x " .. found.scalar .. "]"
     local buffer = builder.alloca(ctx.f, slots, 16)
     local at = "0"

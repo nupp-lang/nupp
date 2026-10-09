@@ -32,7 +32,7 @@ record.
 | mask any/all/count/first/bits | `primitives.lua`, every bit independently checked including zero padding |
 | reverse/rotate/align/insert/extract | `primitives.lua`, every element/species; `insert`, `extract` and `align` at the literal lane, the first, the species' `lanes` and `lanes - 1` written as those expressions |
 | interleave/deinterleave | `primitives.lua`, every element/species including odd widths |
-| compress/expand/ordered prefix sum | `primitives.lua`, every element/species |
+| compress/expand/ordered prefix sum | `primitives.lua`, every element/species; on arm64 the species that fill one register (16x8, 8x16, 4x32, 2x64 bits) take the `tbl` table lowering of compress, the rest the buffer lowering |
 | integer and/or/xor/shifts/prefix xor/swizzle/paired swizzle | `primitives.lua`, all eight integer elements/species; `integeredges.lua` adds signed/wrapping boundaries, exact 64-bit values and count edges for all three shifts |
 | transpose and bit-preserving reinterpretation | `transpose.lua`, all ten elements and every Fixed width 2..64; raw words include signed zero and NaN payloads |
 | floating bit-preserving movement, memory and select | `bitpatterns.lua`, both floating elements at every species; raw-word oracle for zeros, infinities, subnormals and signed quiet/signaling NaN payloads, every tail |

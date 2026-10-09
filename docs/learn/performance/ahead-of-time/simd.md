@@ -87,6 +87,8 @@ species:store(output, written + 1, packed, species:tail(kept))
 written = written + kept
 ```
 
+On NEON, a species that fills one register packs by table lookup: the mask's bits index a table of `tbl` shuffles, so a compress is a load and one `tbl1`, or two for sixteen byte lanes, with no branch and no stack buffer. Other targets pack lane by lane through a buffer one lane longer than the vector.
+
 In a divergent loop, a mask is also the lifetime of unfinished lanes:
 
 ```nupp:fragment
