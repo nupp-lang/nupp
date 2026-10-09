@@ -28,7 +28,7 @@ record.
 | arithmetic, comparisons, elementwise named extrema | `primitives.lua`, every element/species |
 | mask and/or/xor/not/equality, scalar/vector select, boolean masks | `primitives.lua`, every element/species and four mask patterns |
 | mask any/all/count/first/bits | `primitives.lua`, every bit independently checked including zero padding |
-| reverse/rotate/align/insert/extract | `primitives.lua`, every element/species |
+| reverse/rotate/align/insert/extract | `primitives.lua`, every element/species; `insert`, `extract` and `align` at the literal lane, the first, the species' `lanes` and `lanes - 1` written as those expressions |
 | interleave/deinterleave | `primitives.lua`, every element/species including odd widths |
 | compress/expand/ordered prefix sum | `primitives.lua`, every element/species |
 | integer and/or/xor/shifts/prefix xor/swizzle/paired swizzle | `primitives.lua`, all eight integer elements/species; `integeredges.lua` adds signed/wrapping boundaries, exact 64-bit values and count edges for all three shifts |
@@ -49,10 +49,11 @@ Preferred indexed memory requires index and value elements of the same physical
 width; narrow 8/16-bit values consequently have no admitted Preferred index
 species. Square transpose requires Fixed. The refusal suite covers these
 restrictions, incompatible conversion/reinterpretation/mask lane counts, floating integer-only
-operations, invalid literal lane indices, and a `widen` or `narrow` to anything but the
-next element of the ladder. Alignment requires a nonnegative
-literal offset: zero, one, the species boundary and a clamped larger offset are
-compared; a species-property expression retains its positioned refusal.
+operations, lane indices past the species and ones no tier can fold, and a
+`widen` or `narrow` to anything but the next element of the ladder. Alignment
+requires a nonnegative compile-time offset: zero, one, the species boundary
+written as a literal and as `lanes`, and a clamped larger offset are compared;
+a run-time count retains its positioned refusal.
 
 The main lane family uses small exact inputs, all-zero/all-selected/mixed masks,
 and floating signed zero, NaN and infinities. The unsigned 64-bit operations

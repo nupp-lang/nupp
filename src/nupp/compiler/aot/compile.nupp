@@ -16,6 +16,7 @@ local lower = require("nupp.compiler.aot.lower")
 local loopAnalysis = require("nupp.compiler.aot.loops")
 local parser = require("nupp.compiler.syntax.parser")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local shapes = require("nupp.compiler.aot.simdshape")
 local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
 local types = require("nupp.compiler.types")
@@ -679,7 +680,13 @@ function compile.constSpecializations(
     return answer as compile.Artifacts, diagnostics
 end
 
---- Resolves explicit vector widths and validates constant lane indices.
+--- Resolves explicit vector widths and folds every lane index to the lane it
+--- names on the selected tier, refusing one that names none.
+---
+--- A lane index written against a preferred species -- `v:extract(s.lanes)`
+--- -- waits here for the tier to fix the count. It is folded in place to the
+--- constant the code generator reads, and an index past the species' lanes
+--- is refused with its position, as a literal past them always was.
 function compile.legalizeVectors(
     program: scalarIR.Program,
     filename: string,
@@ -688,31 +695,65 @@ function compile.legalizeVectors(
     numericForRuntime(program, selected)
     local resolvedWidth = targets.simdWidth(selected)
     local indexRefusals: {compile.Diagnostic} = {}
+
+    local function lanesOf(speciesType: string): integer?
+        local _, element, shape = shapes.parts(speciesType)
+        if element == nil then
+            return nil
+        end
+
+        return shapes.lanes(resolvedWidth, element as string, shape as string)
+    end
+
+    local function refuse(node: scalarIR.Expr, message: string): nil
+        local at = node.source
+        indexRefusals[
+            #indexRefusals + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = at ~= nil and (at as scalarIR.Source).line or 1,
+            column = at ~= nil and (at as scalarIR.Source).column or 1,
+            message = message,
+            code = compile.REFUSED_TIER
+        )
+    end
+
     if program.usesSimd == true then
         visit.program(
             program,
             new visit.Visitor(scalarExpression = function(node: scalarIR.Expr): nil
+                local operation = node as scalarIR.Simd
+                local position: integer = 0
+                local least = 1
                 if node.op == "simd_extract" or node.op == "simd_insert" then
-                    local operation = node as scalarIR.Simd
-                    local element = operation.args[1].type:match("^simd_vector_([fiu]%d+)_preferred$")
-                    local index = operation.args[2]
-                    if element ~= nil and index.op == "constant" then
-                        local bits = tonumber((element as string):match("%d+")) or 0
-                        local lane = tonumber((index as scalarIR.Constant).value) or 0
-                        if bits > 0 and lane > math.floor(resolvedWidth * 8 / bits) then
-                            local at = node.source
-                            indexRefusals[
-                                #indexRefusals + 1
-                            ] = new compile.Diagnostic(
-                                file = filename,
-                                line = at ~= nil and (at as scalarIR.Source).line or 1,
-                                column = at ~= nil and (at as scalarIR.Source).column or 1,
-                                message = "SIMD lane index exceeds the logical species lanes for the selected tier",
-                                code = compile.REFUSED_TIER
-                            )
-                        end
-                    end
+                    position = 2
+                elseif node.op == "simd_permute" and operation.intrinsic == "align" then
+                    position, least = 3, 0
                 end
+                if position == 0 then
+                    return
+                end
+                local index = operation.args[position]
+                local value = shapes.laneValue(index, lanesOf)
+                if value == nil then
+                    refuse(node, "SIMD lane index is not a compile-time constant on the selected tier")
+
+                    return
+                end
+                local lane = value as number
+                local lanes = lanesOf(operation.args[position == 2 and 1 or 2].type) or 0
+                if lane < least or lane % 1 ~= 0 or least > 0 and lane > lanes then
+                    refuse(
+                        node,
+                        lane >= least
+                        and lane % 1 == 0
+                        and "SIMD lane index exceeds the logical species lanes for the selected tier"
+                        or "SIMD lane index names no lane on the selected tier"
+                    )
+
+                    return
+                end
+                operation.args[position] = shapes.laneConstant(lane, index.source)
             end)
         )
     end

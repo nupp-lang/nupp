@@ -1382,6 +1382,60 @@ return {lanes = lanes}
     end
 end
 
+function M.aLaneIndexWrittenAgainstTheSpeciesLaneCountFoldsWithTheTier()
+    local source = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function lanes(value: number): (number, number)
+    local species = assert(simd.species(array.number))
+    local vector = species:splat(value)
+    return vector:extract(species.lanes), vector:insert(species.lanes - 1, value):extract(1)
+end
+return {lanes = lanes}
+]]
+    local program = lowered(source, "lane-count-index.nupp")
+    local extract = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_extract" and node.args[2].op ~= "constant"
+        end)
+    )
+    local insert = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_insert"
+        end)
+    )
+    local returned = program.body[#program.body]
+    program.body[#program.body] = {op = "block", body = {returned}}
+    -- Before a tier is chosen the indices are the lane count and one less,
+    -- which fold to nothing yet and are accepted as what they will fold to.
+    assert(insert.args[2].op ~= "constant", "the index is kept as the expression until the tier is known")
+    verify.program(program)
+    -- A number at 32 bytes is four lanes: the count names the last lane, and
+    -- one less the one before it.
+    program.simdWidth = 32
+    program.vectorCeiling = 16
+    verify.program(program)
+    -- One past the count names no lane on that tier.
+    local original = extract.args[2]
+    extract.args[2] = {
+        op = "int_to_f64",
+        type = "f64",
+        value = {
+            op = "u32_add",
+            type = "u32",
+            left = insert.args[2].value.left,
+            right = {op = "constant_i32", type = "u32", value = "1"},
+        },
+    }
+    refuses(program, "invalid SIMD lane index")
+    -- Nor does one that no tier can fold.
+    extract.args[2] = {op = "uniform", type = "f64", name = "value"}
+    refuses(program, "invalid SIMD lane index")
+    extract.args[2] = original
+    verify.program(program)
+end
+
 function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
     local program = lowered(REGION, "damaged-reducer-region.nupp")
     local region = assert(

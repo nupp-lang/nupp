@@ -972,17 +972,45 @@ local function genericSimdScalar(element: string?): string?
     return element
 end
 
+--- The lanes of a species type at `width`, or nothing before a tier fixes a
+--- preferred shape's register.
+local function lanesAt(width: integer?): function(species: string): integer?
+    return function(speciesType: string): integer?
+        local _, element, shape = genericSimdType(speciesType)
+        if element == nil or shape == nil then
+            return nil
+        end
+        if width == nil then
+            return tostring(shape):match("^fixed") ~= nil
+                and shapes.lanes(16, element as string, shape as string)
+                or nil
+        end
+
+        return shapes.lanes(width as integer, element as string, shape as string)
+    end
+end
+
 --- Extract/insert address logical lanes, not the padded physical carrier.
+--- The index is a literal, a species' lane count, or arithmetic over those:
+--- a preferred count is fixed with the tier, so until then the index need
+--- only be foldable, and once it is the index must name a lane.
 local function laneIndex(operation: scalarIR.Simd, width: integer?): nil
     local index = operation.args[2]
-    local value = index.op == "constant" and tonumber((index as scalarIR.Constant).value) or nil
-    holds(value ~= nil and (value as number) >= 1 and (value as number) % 1 == 0, "invalid SIMD lane index")
+    holds(shapes.laneExpression(index), "invalid SIMD lane index")
     local _, element, shape = genericSimdType(operation.args[1].type)
-    local lanes = tonumber(tostring(shape):match("^fixed(%d+)$"))
-    if shape == "preferred" and width ~= nil then
-        local bits = tonumber(tostring(element):match("%d+")) or 0
-        holds(bits > 0, "invalid SIMD lane element")
-        lanes = (width as integer) * 8 / bits
+    local value = shapes.laneValue(index, lanesAt(width))
+    if value == nil then
+        holds(
+            index.op ~= "constant" and width == nil and tostring(shape):match("^fixed") == nil,
+            "invalid SIMD lane index"
+        )
+
+        return
+    end
+    holds((value as number) >= 1 and (value as number) % 1 == 0, "invalid SIMD lane index")
+    local lanes = lanesAt(width)(operation.args[1].type)
+    if lanes == nil and width == nil then
+        lanes = shapes.widestLanes(tostring(element), tostring(shape))
     end
     holds(lanes == nil or (value as number) <= (lanes as number), "invalid SIMD lane index")
 end
@@ -1461,7 +1489,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 holds(sameShape and tostring(element):sub(1, 1) ~= "f", "invalid generic SIMD swizzle")
             elseif intrinsic == "align" then
                 holds(
-                    #args == 3 and args[1].type == node.type and args[2].type == node.type and args[3].op == "constant",
+                    #args == 3
+                    and args[1].type == node.type
+                    and args[2].type == node.type
+                    and shapes.laneExpression(args[3]),
+                    "invalid generic SIMD alignment"
+                )
+                local offset = shapes.laneValue(args[3], lanesAt(scope.simdWidth))
+                holds(
+                    offset == nil and args[3].op ~= "constant"
+                    or offset ~= nil and (offset as number) >= 0 and (offset as number) % 1 == 0,
                     "invalid generic SIMD alignment"
                 )
             else

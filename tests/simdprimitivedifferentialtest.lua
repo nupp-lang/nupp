@@ -281,9 +281,29 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
             "lane counts"
         },
         {
-            "alignSpeciesCount",
-            "local s = assert(simd.species(array.float, 4)); return s:splat(1):align(s:splat(2), s.lanes):extract(1)",
+            "alignRuntimeCount",
+            "local s = assert(simd.species(array.float, 4)); return s:splat(1):align(s:splat(2), #input):extract(1)",
             "compile-time"
+        },
+        {
+            "extractRuntimeLane",
+            "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(#input)",
+            "compile-time"
+        },
+        {
+            "extractPastLanes",
+            "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(s.lanes + 1)",
+            "lane"
+        },
+        {
+            "preferredExtractPastLanes",
+            "local s = assert(simd.species(array.float)); return s:splat(1):extract(s.lanes + 1)",
+            "lane"
+        },
+        {
+            "preferredInsertZeroLane",
+            "local s = assert(simd.species(array.float)); return s:splat(1):insert(s.lanes - s.lanes, 2):extract(1)",
+            "lane"
         },
         {
             "widenPast64",

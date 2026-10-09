@@ -3549,6 +3549,55 @@ local function spelledElement(element: string): string
     return (element:sub(1, 1) == "u" and "uint" or "int") .. element:sub(2)
 end
 
+--- The lanes of a species whose count is known before a tier is: a fixed
+--- shape's own, and nothing for a register shape.
+local function fixedLanesOf(speciesType: string): integer?
+    local _, element, shape = genericSimdParts(speciesType)
+    if element == nil or shape == nil or tostring(shape):match("^fixed") == nil then
+        return nil
+    end
+
+    return shapes.lanes(16, tostring(element), tostring(shape))
+end
+
+--- A lane index or offset as the lowering admits it: a literal, a species'
+--- lane count, or `+`, `-` and `*` over those, which the tier folds to one
+--- lane. One a fixed species can fold now is folded and held to its lanes;
+--- one that waits on a preferred count is kept for `legalizeVectors`.
+local function laneIndexOf(
+    index: scalarIR.Expr,
+    what: string,
+    least: integer,
+    element: string,
+    shape: string,
+    source: scalarIR.Source?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local converted = lower.convert(index, "f64", source, context)
+    local wanted = least == 0 and "a nonnegative compile-time lane count" or "a positive compile-time lane index"
+    if not shapes.laneExpression(converted) then
+        context.reject(
+            source,
+            "SIMD " .. what .. " needs " .. wanted .. ": a literal, a species' lane count, or arithmetic over those"
+        )
+    end
+    local value = shapes.laneValue(converted, fixedLanesOf)
+    if value == nil then
+        return converted
+    end
+    local folded = value as number
+    if folded < least or folded % 1 ~= 0 then
+        context.reject(source, "SIMD " .. what .. " needs " .. wanted)
+    end
+    local lanes = fixedLanesOf("simd_species_" .. element .. "_" .. shape)
+    if least > 0 and lanes ~= nil and folded > (lanes as integer) then
+        context.reject(source, "SIMD " .. what .. " index exceeds the logical species lanes")
+    end
+
+    return shapes.laneConstant(folded, source)
+end
+
 --- `species:widen(array.uint16)` and `species:narrow(array.uint8)`: the
 --- species of the next wider or narrower element of the same signedness with
 --- this species' logical lane count. A fixed shape keeps its count; a
@@ -3990,20 +4039,15 @@ local function simdMethod(
                 source = source
             )
         elseif genericFamily == "vector" and method == "extract" and #raw == 1 then
-            local laneIndex = lower.convert(
+            local laneIndex = laneIndexOf(
                 lower.expression(raw[1], environment, activeIndex, kernel),
-                "f64",
+                "lane extraction",
+                1,
+                tostring(genericElement),
+                tostring(genericShape),
                 source,
-                kernel.context
+                kernel
             )
-            local constantLane = laneIndex.op == "constant" and tonumber((laneIndex as scalarIR.Constant).value) or nil
-            if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
-                kernel.context.reject(source, "SIMD lane extraction needs a positive compile-time lane index")
-            end
-            local fixedLanes = tonumber(tostring(genericShape):match("^fixed(%d+)$"))
-            if fixedLanes ~= nil and (constantLane as number) > fixedLanes then
-                kernel.context.reject(source, "SIMD lane extraction index exceeds the logical species lanes")
-            end
             return new scalarIR.Simd(
                 op = "simd_extract",
                 args = {receiver as scalarIR.Expr, laneIndex},
@@ -4012,20 +4056,15 @@ local function simdMethod(
                 source = source
             )
         elseif genericFamily == "vector" and method == "insert" and #raw == 2 then
-            local laneIndex = lower.convert(
+            local laneIndex = laneIndexOf(
                 lower.expression(raw[1], environment, activeIndex, kernel),
-                "f64",
+                "lane insertion",
+                1,
+                tostring(genericElement),
+                tostring(genericShape),
                 source,
-                kernel.context
+                kernel
             )
-            local constantLane = laneIndex.op == "constant" and tonumber((laneIndex as scalarIR.Constant).value) or nil
-            if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
-                kernel.context.reject(source, "SIMD lane insertion needs a positive compile-time lane index")
-            end
-            local fixedLanes = tonumber(tostring(genericShape):match("^fixed(%d+)$"))
-            if fixedLanes ~= nil and (constantLane as number) > fixedLanes then
-                kernel.context.reject(source, "SIMD lane insertion index exceeds the logical species lanes")
-            end
             return new scalarIR.Simd(
                 op = "simd_insert",
                 args = {
@@ -4080,16 +4119,15 @@ local function simdMethod(
             if previous.type ~= vectorType then
                 kernel.context.reject(source, "SIMD align operands need the same element and species")
             end
-            local count = lower.convert(
+            local count = laneIndexOf(
                 lower.expression(raw[2], environment, activeIndex, kernel),
-                "f64",
+                "alignment",
+                0,
+                tostring(genericElement),
+                tostring(genericShape),
                 source,
-                kernel.context
+                kernel
             )
-            local constant = count.op == "constant" and tonumber((count as scalarIR.Constant).value) or nil
-            if constant == nil or constant < 0 or constant % 1 ~= 0 then
-                kernel.context.reject(source, "SIMD alignment needs a nonnegative compile-time lane count")
-            end
             return new scalarIR.Simd(
                 op = "simd_permute",
                 args = {previous, receiver as scalarIR.Expr, count},

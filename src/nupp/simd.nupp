@@ -1286,7 +1286,11 @@ sealed interface simd.Vector<T, S>
 
     numberMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    --- Lane indices are one-based.
+    --- Lane indices are one-based and decided when the function is lowered:
+    --- a literal, the species' `lanes`, or `+`, `-` and `*` over those, so
+    --- `lanes` names the last lane of any species and `lanes - 1` the one
+    --- before it. An index past the lanes the tier gives the species is
+    --- refused there.
     extract: function(borrows self: simd.Vector<T, S>, lane: integer): T
 
     insert: function(borrows self: simd.Vector<T, S>, lane: integer, value: T): simd.Vector<T, S>
@@ -1315,7 +1319,9 @@ sealed interface simd.Vector<T, S>
 
     --- Selects a species-width window from `previous .. self`. Offset zero
     --- returns `self`; positive offsets bring trailing lanes of `previous` into
-    --- the beginning. The offset is compile-time constant.
+    --- the beginning. The offset is decided when the function is lowered, on
+    --- the terms `extract`'s lane is, and one past the lanes answers
+    --- `previous` whole.
     align: function(borrows self: simd.Vector<T, S>, previous: simd.Vector<T, S>, offset: integer): simd.Vector<T, S>
 
     --- Every lane read from another lane this vector names at run time.

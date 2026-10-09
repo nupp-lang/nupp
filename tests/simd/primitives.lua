@@ -38,6 +38,15 @@ local operations = {
     {"alignPastEnd", "a:align(b, ALIGN_PAST_COUNT)", "2"},
     {"insert", "a:insert(2, 6)", "i == 2 and 6 or a[i]"},
     {"extract", "s:splat(a:extract(2))", "a[2]"},
+    -- Lane indices the species decides: its lane count, the lane before it,
+    -- and the first, each written as the expression rather than its value.
+    {"insertFirst", "a:insert(1, 6)", "i == 1 and 6 or a[i]"},
+    {"insertLast", "a:insert(s.lanes, 6)", "i == n and 6 or a[i]"},
+    {"insertBeforeLast", "a:insert(s.lanes - 1, 6)", "i == n - 1 and 6 or a[i]"},
+    {"extractFirst", "s:splat(a:extract(1))", "a[1]"},
+    {"extractLast", "s:splat(a:extract(s.lanes))", "a[n]"},
+    {"extractBeforeLast", "s:splat(a:extract(s.lanes - 1))", "a[n - 1]"},
+    {"alignLanes", "a:align(b, s.lanes)", "2"},
     {"interleaveFirst", "interleaved1", "i % 2 == 0 and 2 or a[math.floor(i / 2) + 1]"},
     {"interleaveSecond", "interleaved2", "(n + i) % 2 == 0 and 2 or a[math.floor((n + i) / 2) + 1]"},
     {"deinterleaveFirst", "deinterleaved1", "2 * i - 1 <= n and a[2 * i - 1] or 2"},
@@ -391,13 +400,25 @@ function M.generate(options)
     local entries = {}
     for _, family in ipairs(
         options.families
-        or {"lanes", "memory", "transpose", "conversions", "integeredges", "bitpatterns", "bitmemory", "masks", "maps"}
+        or {
+            "lanes",
+            "memory",
+            "transpose",
+            "conversions",
+            "widen",
+            "integeredges",
+            "bitpatterns",
+            "bitmemory",
+            "masks",
+            "maps",
+        }
     ) do
         assert(
             family == "lanes"
             or family == "memory"
             or family == "transpose"
             or family == "conversions"
+            or family == "widen"
             or family == "integeredges"
             or family == "bitpatterns"
             or family == "bitmemory"
