@@ -2698,6 +2698,15 @@ spliceTree = function(node, subs, at, params, copies, owned)
         -- earlier may have brought a free name spelled like a parameter.
         if node.token.definition == params[node.token.text] then
             local copied = spliceCopy(subs[node.token.text], {}, at, {})
+            -- A parameter read is atomic in its surrounding expression. Keep that
+            -- boundary when replacing it with operators: wrap(a + b) must become
+            -- (a + b) % 256, and a negative argument to x ^ 2 must stay negative
+            -- before exponentiation. Casts can erase to either of those forms.
+            if copied.kind == "binop" or copied.kind == "unop" or copied.kind == "castExpr" then
+                local open = {kind = "(", text = "(", trivia = "", line = at.line, col = at.col, offset = at.offset}
+                local close = {kind = ")", text = ")", trivia = "", line = at.line, col = at.col, offset = at.offset}
+                copied = {open, copied, close, kind = "paren", expr = copied, inferredType = copied.inferredType}
+            end
             copies[node] = copied
 
             return copied

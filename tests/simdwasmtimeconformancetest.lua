@@ -7,7 +7,9 @@ local M = {}
 
 local budgets = {
     species = {units = 40, commands = 2, cases = 85000, calls = 3200},
-    semantics = {units = 105, commands = 2, cases = 60000000, calls = 750000},
+    -- The mixed and masked reducers now include binary32 accumulation and
+    -- vector arg-extrema contributions. Keep the ceiling tied to that corpus.
+    semantics = {units = 135, commands = 2, cases = 60000000, calls = 1500000},
 }
 
 local cases = test.cases(

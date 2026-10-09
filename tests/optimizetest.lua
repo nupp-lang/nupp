@@ -74,12 +74,16 @@ local function transcript(code, filename, normalize)
     end
     setfenv(chunk, globals)
     local budget = 0
-    debug.sethook(function()
-        budget = budget + 1
-        if budget > 200 then
-            error("instruction budget exhausted", 0)
-        end
-    end, "", 100000)
+    debug.sethook(
+        function()
+            budget = budget + 1
+            if budget > 200 then
+                error("instruction budget exhausted", 0)
+            end
+        end,
+        "",
+        100000
+    )
     local ok, failure = pcall(chunk)
     debug.sethook()
     if not ok then
@@ -91,6 +95,7 @@ local function transcript(code, filename, normalize)
         -- what it read differently, so the generated programs compare errors by kind.
         text = text:gsub("[%w_.]+:%d+: ", ""):gsub("(attempt to %w+) %w+ '[%w_]+'", "%1 X")
     end
+
     return text
 end
 
@@ -110,6 +115,7 @@ local function executeAt(src, level, filename, normalize)
     if #diags > 0 then
         return "GEN " .. tostring(diags[1].code) .. " " .. tostring(diags[1].msg or diags[1].message)
     end
+
     return transcript(code, filename, normalize)
 end
 
@@ -120,12 +126,14 @@ local function assertAgrees(src, filename, normalize)
     local plain = executeAt(src, 0, filename, normalize)
     local optimized = executeAt(src, 2, filename, normalize)
     if plain ~= optimized then
-        error(("-O0 and -O2 disagree\n  -O0: %s\n  -O2: %s\n---\n%s"):format(
-            (plain:gsub("\n", " | ")),
-            (optimized:gsub("\n", " | ")),
-            src
-        ), 2)
+        error(
+            (
+                "-O0 and -O2 disagree\n  -O0: %s\n  -O2: %s\n---\n%s"
+            ):format((plain:gsub("\n", " | ")), (optimized:gsub("\n", " | ")), src),
+            2
+        )
     end
+
     return plain
 end
 
@@ -136,8 +144,7 @@ local M = {}
 -- source. `avoid` holds the shapes of findings that are still open.
 function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
-    local avoid = {
-    }
+    local avoid = {}
     for seed = 1, 40 do
         local src = table.concat(programs.build(seed, avoid), "\n") .. "\n"
         local ok, failure = pcall(assertAgrees, src, "generated.g.nupp", true)
@@ -248,7 +255,11 @@ function M.stopsWhenTheTableEscapes()
 end
 
 function M.stopsWhenTheTableIsRead()
-    testAssert.equal(sized("local t = {}\nlocal z = t\nt.a = 1\nt.b = 2\nreturn t"), nil, "an alias may be written through")
+    testAssert.equal(
+        sized("local t = {}\nlocal z = t\nt.a = 1\nt.b = 2\nreturn t"),
+        nil,
+        "an alias may be written through"
+    )
 end
 
 function M.stopsWhenTheTableIsReassigned()
@@ -260,7 +271,11 @@ function M.stopsWhenTheTableIsReassigned()
 end
 
 function M.stopsAtAConditionalWrite()
-    testAssert.equal(sized("local t = {}\nif x then t.a = 1 end\nt.b = 2\nreturn t"), nil, "a nested block is not scanned")
+    testAssert.equal(
+        sized("local t = {}\nif x then t.a = 1 end\nt.b = 2\nreturn t"),
+        nil,
+        "a nested block is not scanned"
+    )
 end
 
 function M.stopsAtAShadowingDeclaration()
@@ -443,10 +458,7 @@ function M.doesNotPropagateAConstPathAfterItsRootIsReplaced()
         "\n"
     )
     local code = compile(src)
-    assert(
-        code:find("return M . bar . BAZ", 1, true) ~= nil,
-        "replacing the root invalidates nested facts: " .. code
-    )
+    assert(code:find("return M . bar . BAZ", 1, true) ~= nil, "replacing the root invalidates nested facts: " .. code)
     testAssert.equal(run(src), 456, "the replacement remains observable")
 end
 
@@ -511,7 +523,11 @@ function M.bindsRepeatedImmutableDottedCallees()
         code:find("const __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
         "first call binds the immutable path: " .. code
     )
-    testAssert.equal(select(2, code:gsub("__nupp_call_1", "")), 3, "one declaration and two calls use the generated binding")
+    testAssert.equal(
+        select(2, code:gsub("__nupp_call_1", "")),
+        3,
+        "one declaration and two calls use the generated binding"
+    )
     testAssert.equal(select(2, code:gsub("Foo . api . ping", "")), 1, "the dotted path is read only once")
     local found = false
     for _, remark in ipairs(remarks) do
@@ -992,10 +1008,7 @@ end
 function M.parenthesizesAFoldedCallOrIndexPrefix()
     local written = "return ('abc'):find('b')"
     local writtenCode = compile(written)
-    assert(
-        writtenCode:match('%("abc"%)%s*:%s*find') ~= nil,
-        "written parentheses survive the fold: " .. writtenCode
-    )
+    assert(writtenCode:match('%("abc"%)%s*:%s*find') ~= nil, "written parentheses survive the fold: " .. writtenCode)
     testAssert.equal(run(written), 2, "folded receiver still finds the byte")
 
     local propagated = "const greeting = 'hello'\nreturn greeting:upper()"
@@ -1128,7 +1141,11 @@ end
 function M.removesAWhileLoopWhoseTestIsConstantlyFalse()
     local src = "local seen = 0\nwhile false do seen = seen + 1 end\nreturn seen"
     local code = compile(src)
-    testAssert.equal(code:find("seen = seen + 1", 1, true), nil, "the body of a loop that cannot run is absent: " .. code)
+    testAssert.equal(
+        code:find("seen = seen + 1", 1, true),
+        nil,
+        "the body of a loop that cannot run is absent: " .. code
+    )
     testAssert.equal(run(src), 0, "the loop contributed nothing to run")
 end
 
@@ -1136,7 +1153,11 @@ function M.removesANumericLoopWhoseBoundsAdmitNoIteration()
     for _, header in ipairs({"for i = 1, 0", "for i = 10, 1", "for i = 1, 10, -1"}) do
         local src = "local seen = 0\n" .. header .. " do seen = seen + i end\nreturn seen"
         local code = compile(src)
-        testAssert.equal(code:find("seen = seen + i", 1, true), nil, "the body is absent for " .. header .. ": " .. code)
+        testAssert.equal(
+            code:find("seen = seen + i", 1, true),
+            nil,
+            "the body is absent for " .. header .. ": " .. code
+        )
         testAssert.equal(run(src), 0, "no iteration ran for " .. header)
     end
 end
@@ -1219,10 +1240,7 @@ function M.rewritesStableDeclaredArrayIteration()
     )
     assert(code:find("for _=1,3 do", 1, true) ~= nil, "numeric loop uses a proved static bound: " .. code)
     testAssert.equal(code:find("__nuppT", 1, true), nil, "the proved operand needs no generated alias")
-    assert(
-        code:find("local value= xs [_]", 1, true) ~= nil,
-        "the source loop value reads the array directly: " .. code
-    )
+    assert(code:find("local value= xs [_]", 1, true) ~= nil, "the source loop value reads the array directly: " .. code)
     testAssert.equal(
         run(
             "local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
@@ -1316,6 +1334,7 @@ local function remarksOf(src, filename, code)
             found[#found + 1] = entry
         end
     end
+
     return found
 end
 
@@ -1329,23 +1348,25 @@ function M.numericIpairsDeclinesALiteralThatMayHoldAHoleOrExpand()
         {"local function f(a, b, c)\n    local t = {a, b, c}\n" .. loop .. "print(f(1, nil, 3))", "test.g.nupp"},
         {
             "local function two() return 'a', 'b' end\nlocal function f()\n    local t = {'x', two()}\n"
-                .. loop .. "print(f())",
+            .. loop
+            .. "print(f())",
             "test.g.nupp",
         },
         {
             "local function none() return nil end\nlocal function f()\n    local t = {1, none(), 3}\n"
-                .. loop .. "print(f())",
+            .. loop
+            .. "print(f())",
             "test.g.nupp",
         },
         {
             "local function count(a: integer?, b: integer?, c: integer?): integer\n"
-                .. "    local t = {a, b, c}\n    local n: integer = 0\n"
-                .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count(1, nil, 3))",
+            .. "    local t = {a, b, c}\n    local n: integer = 0\n"
+            .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count(1, nil, 3))",
             "test.nupp",
         },
         {
             "local function count(...: string): integer\n    local t = {...}\n    local n: integer = 0\n"
-                .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count('p', 'q', 'r'))",
+            .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count('p', 'q', 'r'))",
             "test.nupp",
         },
     }
@@ -1440,10 +1461,7 @@ function M.keepsIpairsAfterTheArrayBindingIsReassigned()
             "\n"
         )
     )
-    assert(
-        code:find("in ipairs", 1, true) ~= nil,
-        "the original literal bound does not survive reassignment: " .. code
-    )
+    assert(code:find("in ipairs", 1, true) ~= nil, "the original literal bound does not survive reassignment: " .. code)
 end
 
 function M.allowsCallsWhoseShapeEffectsStayLocal()
@@ -1514,10 +1532,7 @@ function M.leavesAMultipleValueHelperCallAlone()
         "local function head(v: string): string? return v:match(\"(%a+)\") end\n"
         .. "local function m(x: string): string? return head(x) end\nreturn m"
     )
-    assert(
-        single:find("return ( x : match (", 1, true) ~= nil,
-        "a single declared value is still inlined: " .. single
-    )
+    assert(single:find("return ( x : match (", 1, true) ~= nil, "a single declared value is still inlined: " .. single)
 end
 
 --- A helper whose body constructs a record substitutes into every field.
@@ -1624,6 +1639,31 @@ function M.inlinesAPureComputedArgument()
         "a computed argument used once was spliced: " .. code
     )
     testAssert.equal(assert(loadstring(code))()(7), 42)
+end
+
+function M.inlinedArgumentsKeepTheirOperatorGrouping()
+    local source = [[
+local function wrap(v: integer): integer return v % 256 end
+local function square(v: number): number return v ^ 2 end
+local function reciprocal(v: number): number return 12 / v end
+local function subtract(v: number): number return 10 - v end
+local function check(a: integer, b: integer): boolean
+    return wrap(a + b) == 1 and square(-a) == 65025
+        and reciprocal((b + 1) as number) == 4 and subtract(a - b) == -243
+end
+return check
+]]
+    local code, remarks = compile(source)
+    testAssert.equal(assert(loadstring(code))()(255, 2), true)
+    local inlined = {}
+    for _, entry in ipairs(remarks) do
+        if entry.code == "OPT-7" then
+            inlined[entry.msg] = true
+        end
+    end
+    for _, name in ipairs({"wrap", "square", "reciprocal", "subtract"}) do
+        assert(inlined["inline-return-helper: inlines " .. name], name .. " was not exercised")
+    end
 end
 
 local function inlineRemarks(remarks, message)
@@ -1801,7 +1841,11 @@ function M.boundsCumulativeGrowthPerCallerAcrossBlocks()
     lines[#lines + 1] = "return m"
     local code, remarks = compile(table.concat(lines, "\n"))
     assert(inlineRemarks(remarks, "caller growth would exceed 512 nodes") > 0)
-    testAssert.equal(inlineRemarks(remarks, "inlines sum"), 47, "46 calls fit in the first function; the second starts fresh")
+    testAssert.equal(
+        inlineRemarks(remarks, "inlines sum"),
+        47,
+        "46 calls fit in the first function; the second starts fresh"
+    )
     local result = assert(loadstring(code))()
     testAssert.equal(result.first(2), 800)
     testAssert.equal(result.second(2), 16)
@@ -1873,10 +1917,7 @@ local CONST_ACCUMULATE = table.concat(
 
 function M.monomorphizesAClosedConstApplication()
     local code, remarks = compile(CONST_ACCUMULATE)
-    assert(
-        code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
-        "a private body was emitted: " .. code
-    )
+    assert(code:find("local function __nuppConst_accumulate_", 1, true) ~= nil, "a private body was emitted: " .. code)
     assert(
         code:find("__nuppConst_accumulate_", 1, true) < code:find("( 10", 1, true),
         "the call names the private body"
@@ -1914,10 +1955,7 @@ function M.constSpecializationOmitsItsCarrierAndUnrollsItsLoop()
     local private = code:match("local function __nuppConst_accumulate_[%w_]+(.-)return total end") or ""
     assert(private:find("count", 1, true) == nil, "the private ABI and body omit the carrier: " .. private)
     assert(private:find("for offset", 1, true) == nil, "the bounded loop is straight-line: " .. private)
-    assert(
-        private:find("total = total + 4", 1, true) ~= nil,
-        "the final unrolled iteration is present: " .. private
-    )
+    assert(private:find("total = total + 4", 1, true) ~= nil, "the final unrolled iteration is present: " .. private)
 end
 
 function M.constSpecializationDoesNotChangeTheAnswerOrFunctionIdentity()
@@ -2073,10 +2111,7 @@ function M.keepsAHelperTheModuleReassigns()
         .. "local function m(x: number): number return twice(x) end\n"
         .. "twice = function(v: number): number return v end\nreturn m"
     )
-    assert(
-        code:find("twice ( x )", 1, true) ~= nil,
-        "a reassigned binding is not the body a call reaches: " .. code
-    )
+    assert(code:find("twice ( x )", 1, true) ~= nil, "a reassigned binding is not the body a call reaches: " .. code)
 end
 
 function M.keepsAHelperWhoseFreeNameIsShadowedAtTheCall()
@@ -2181,20 +2216,29 @@ end
 -- `..` adjusts its right operand to one value; an argument list does not. A call or
 -- `...` as the last piece of an accumulation appends one value, as the source did.
 function M.concatBufferAppendsOneValueOfAMultiValuePiece()
-    testAssert.equal(assertAgrees(
-        "local function two(): (string, string) return 'a', 'b' end\n"
+    testAssert.equal(
+        assertAgrees(
+            "local function two(): (string, string) return 'a', 'b' end\n"
             .. "local s = ''\nfor _ = 1, 2 do\n    s = s .. two()\nend\nprint(s)",
-        "test.nupp"
-    ), "aa")
-    testAssert.equal(assertAgrees(
-        "local function f(...: string): string\n    local s = ''\n"
+            "test.nupp"
+        ),
+        "aa"
+    )
+    testAssert.equal(
+        assertAgrees(
+            "local function f(...: string): string\n    local s = ''\n"
             .. "    for i = 1, 2 do s = s .. ... end\n    return s\nend\nprint(f('x', 'y'))",
-        "test.nupp"
-    ), "xx")
-    testAssert.equal(assertAgrees(
-        "local function two() return 'a', 'b' end\n"
+            "test.nupp"
+        ),
+        "xx"
+    )
+    testAssert.equal(
+        assertAgrees(
+            "local function two() return 'a', 'b' end\n"
             .. "local s = ''\nfor i = 1, 2 do\n    s = s .. i .. two()\nend\nprint(s)"
-    ), "1a2a")
+        ),
+        "1a2a"
+    )
 end
 
 -- The accumulator becomes a string where the loop ends, and a `goto` out of the loop
@@ -2220,27 +2264,30 @@ function M.inlineKeepsAHelperWhereItsFreeNamesMeanSomethingElse()
         "local k = 10\nk = k + 1\nlocal function getk() return k end\nfor k = 1, 2 do\n    print(getk())\nend",
         -- a generic `for` variable
         "local v = 'outer'\nv = v .. '!'\nlocal function getv() return v end\n"
-            .. "for _, v in ipairs({'a', 'b'}) do\n    print(getv())\nend",
+        .. "for _, v in ipairs({'a', 'b'}) do\n    print(getv())\nend",
         -- a local function whose own body calls the helper
         "local k = 10\nk = k + 0\nlocal function addk(x) return x + k end\nlocal function outer()\n"
-            .. "    local function k() return addk(1) end\n    return k()\nend\nprint(pcall(outer))",
+        .. "    local function k() return addk(1) end\n    return k()\nend\nprint(pcall(outer))",
         -- a call written before the helper is declared names a global
         "print(type(1))\nlocal function type(p) return 'mine' end\nprint(type(1))",
         -- a free global the module declares as a local later
         "local function getk() return k end\nlocal k = 5\nk = k + 1\nprint(getk(), k)",
         -- a free name that reaches the call through another helper
         "local x = 7\nx = x + 0\nlocal function inner() return x end\nlocal function outer(a) return inner() * a end\n"
-            .. "do\n    local x = 100\n    x = x + 1\n    print(outer(2))\nend",
+        .. "do\n    local x = 100\n    x = x + 1\n    print(outer(2))\nend",
     }
     for _, src in ipairs(cases) do
         assertAgrees(src)
     end
-    testAssert.equal(assertAgrees(
-        "local function helper(k: integer): integer\n    return k\nend\n"
+    testAssert.equal(
+        assertAgrees(
+            "local function helper(k: integer): integer\n    return k\nend\n"
             .. "local k: integer = 10\nk = k + 1\nlocal function getk(): integer return k end\n"
             .. "for k = 1, 2 do\n    print(getk() + helper(k))\nend",
-        "test.nupp"
-    ), "12\n13")
+            "test.nupp"
+        ),
+        "12\n13"
+    )
 end
 
 -- A substituted argument is read where the parameter stands in the body, which is
@@ -2248,24 +2295,30 @@ end
 -- can write the variable, and only the same error when the body cannot tell which
 -- frame it runs in.
 function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
-    testAssert.equal(assertAgrees(
-        "local x = 1\nlocal function bump() x = x + 10; return 0 end\n"
+    testAssert.equal(
+        assertAgrees(
+            "local x = 1\nlocal function bump() x = x + 10; return 0 end\n"
             .. "local function h(p) return bump() + p end\nprint(h(x))"
-    ), "1")
-    testAssert.equal(assertAgrees(
-        "local x: integer = 1\nlocal function bump(): integer x = x + 10\n    return 0\nend\n"
+        ),
+        "1"
+    )
+    testAssert.equal(
+        assertAgrees(
+            "local x: integer = 1\nlocal function bump(): integer x = x + 10\n    return 0\nend\n"
             .. "local function h(p: integer): integer return bump() + p end\nprint(h(x))",
-        "test.nupp"
-    ), "1")
+            "test.nupp"
+        ),
+        "1"
+    )
     assertAgrees(
         "local function need(x) return x or error('value required', 2) end\n"
-            .. "local function user(v)\n    local r = need(v)\n    return r\nend\n"
-            .. "local function caller()\n    local r = user(nil)\n    return r\nend\nprint(pcall(caller))"
+        .. "local function user(v)\n    local r = need(v)\n    return r\nend\n"
+        .. "local function caller()\n    local r = user(nil)\n    return r\nend\nprint(pcall(caller))"
     )
     assertAgrees(
         "local function where() return debug.getinfo(2, 'l').currentline end\n"
-            .. "local function f()\n    local t = {}\n    t.a = where()\n    t.b = where()\n    return t\nend\n"
-            .. "local t = f()\nprint(t.a, t.b)"
+        .. "local function f()\n    local t = {}\n    t.a = where()\n    t.b = where()\n    return t\nend\n"
+        .. "local t = f()\nprint(t.a, t.b)"
     )
     -- An argument nothing writes, into a body that calls, still inlines.
     local src = "local function bump(): integer return 0 end\n"
@@ -2290,7 +2343,10 @@ end
 -- through multiplication. An integer literal does not, so a zero quotient stays.
 function M.keepsAZeroFloorQuotientThatCarriesTheSignOfZero()
     testAssert.equal(assertAgrees("local x1 = 4\nx1 = -x1\nx1 *= (#\"\" // 3)\nprint(x1, 1 / x1)"), "-0\t-inf")
-    testAssert.equal(assertAgrees("local a = -4\na = a + 0\nlocal z = 0\nprint(a * (z / 3), a * ((7 // 2) - 3))"), "-0\t-0")
+    testAssert.equal(
+        assertAgrees("local a = -4\na = a + 0\nlocal z = 0\nprint(a * (z / 3), a * ((7 // 2) - 3))"),
+        "-0\t-0"
+    )
 end
 
 -- A folded string is written back on the line it came from: a newline in its value
@@ -2311,11 +2367,22 @@ end
 -- as written.
 function M.presizingReservesArraySlotsOnlyForASequence()
     testAssert.equal(assertAgrees("local t = {}\nt.c = 1\nt[3] = 2\nprint(#t)"), "0")
-    testAssert.equal(sized("local t = {}\nt.c = 1\nt[3] = 2\nreturn t"), nil, "a key after a gap keeps the table as written")
+    testAssert.equal(
+        sized("local t = {}\nt.c = 1\nt[3] = 2\nreturn t"),
+        nil,
+        "a key after a gap keeps the table as written"
+    )
     testAssert.equal(remarksOf("local t = {}\nt.c = 1\nt[3] = 2\nreturn t", nil, "OPT-1")[1].status, "declined")
-    testAssert.equal(sized("local function f(v)\n    local t = {}\n    t[1] = v\n    t[2] = 2\n    return t\nend\nreturn f"), nil,
-        "a value that may be nil does not extend the run")
-    testAssert.equal(sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"), "3", "a run from 1 is still reserved")
+    testAssert.equal(
+        sized("local function f(v)\n    local t = {}\n    t[1] = v\n    t[2] = 2\n    return t\nend\nreturn f"),
+        nil,
+        "a value that may be nil does not extend the run"
+    )
+    testAssert.equal(
+        sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"),
+        "3",
+        "a run from 1 is still reserved"
+    )
 end
 
 -- A multi-owner region that the generator parks in a module-level cache
@@ -2355,8 +2422,10 @@ return run()
 ]]
     local code = compile(src, 1)
     assert(code:find("{[0]=0", 1, true), "the region must take the cached state frame form:\n" .. code)
-    assert(not code:find("=n ", 1, true) and not code:find("=n,", 1, true) and not code:find("=n}", 1, true),
-        "a folded local must not be captured by the frame:\n" .. code)
+    assert(
+        not code:find("=n ", 1, true) and not code:find("=n,", 1, true) and not code:find("=n}", 1, true),
+        "a folded local must not be captured by the frame:\n" .. code
+    )
     assert(not code:find("local n ", 1, true), "the folded declaration is gone:\n" .. code)
     local chunk = assert(loadstring(code, "@folded-capture"))
     testAssert.equal(chunk(), 0, "the region body reads the folded value")
