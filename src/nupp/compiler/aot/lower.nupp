@@ -3628,7 +3628,14 @@ local function fieldAccess(
     end
     local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
     local maskPosition = reading and 4 or 5
-    local masked = raw[maskPosition] ~= nil
+    -- As for a plain load, the all-lanes mask of a full `species:over` chunk
+    -- makes this the unmasked access its bound proves.
+    local active = raw[maskPosition] ~= nil and lower.expression(raw[maskPosition], environment, activeIndex, kernel)
+        or nil
+    if active ~= nil and kernel.allLaneMasks[active] then
+        active = nil
+    end
+    local masked = active ~= nil
     local cursor = not masked and provedVectorCursor(offset, spanName, kernel, receiver.type) or nil
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     local cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil
@@ -3640,12 +3647,11 @@ local function fieldAccess(
         end
         args[#args + 1] = stored
     end
-    if masked then
-        local active = lower.expression(raw[maskPosition], environment, activeIndex, kernel)
-        if active.type ~= maskType then
+    if active ~= nil then
+        if (active as scalarIR.Expr).type ~= maskType then
             context.reject(source, "SIMD " .. method .. " mask has a different species")
         end
-        args[#args + 1] = active
+        args[#args + 1] = active as scalarIR.Expr
     end
 
     return new scalarIR.Simd(

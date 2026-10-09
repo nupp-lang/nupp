@@ -274,26 +274,19 @@ local simd = require("nupp.simd")
 
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    if species = simd.vectors(array.float) then
-        local cursor: uint32 = 0
-        while cursor < #rows do
-            local active = species:tail(#rows - cursor)
-            local x = species:load(rows, cursor + 1, "x", active)
-            local dx = species:load(rows, cursor + 1, "dx", active)
-            local y = species:load(rows, cursor + 1, "y", active)
-            local dy = species:load(rows, cursor + 1, "dy", active)
-            species:store(rows, cursor + 1, "x", x + dx * dt, active)
-            species:store(rows, cursor + 1, "y", y + dy * dt, active)
-            cursor = cursor + species.lanes
-        end
-    else
-        for i = 1, #rows do
-            rows[i].x += rows[i].dx * dt
-            rows[i].y += rows[i].dy * dt
-        end
+    local species = simd.species(array.float)
+    for at, active in species:over(#rows) do
+        local x = species:load(rows, at, "x", active)
+        local dx = species:load(rows, at, "dx", active)
+        local y = species:load(rows, at, "y", active)
+        local dy = species:load(rows, at, "dy", active)
+        species:store(rows, at, "x", x + dx * dt, active)
+        species:store(rows, at, "y", y + dy * dt, active)
     end
 end
 ```
+
+A column load under a full chunk of `over` is the whole-vector load the loop's bound proves; only the last chunk is masked. Where there are no vector registers the same loop runs a row at a time.
 
 Set the build's `aot` policy to `"require"` to require native execution.
 The field loads address contiguous columns, including slices; a writable view

@@ -6154,6 +6154,50 @@ return {lanes = lanes}
     assert(out:find("NUPP2125", 1, true) and out:find("Span<uint32> is not a Scalar<any>", 1, true), out)
 end
 
+function M.columnLoadsUnderAFullOverChunkAreUnmasked()
+    -- The all-lanes mask `species:over` binds for its full chunks makes a
+    -- column load the whole-vector one, as it does a plain span load: only
+    -- the tail chunk's loads carry a mask.
+    local dir = project{
+        [
+            "columns.nupp"
+        ] = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local soa = require("nupp.mem.soa")
+
+local struct Particle
+    x: float
+    dx: float
+end
+
+@aot
+local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+    local species = simd.species(array.float)
+    for at, active in species:over(#rows) do
+        local x = species:load(rows, at, "x", active)
+        local dx = species:load(rows, at, "dx", active)
+        species:store(rows, at, "x", x + dx * dt, active)
+    end
+end
+
+return {advance = advance}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json columns.nupp")
+    test.equal(code, 0, raw)
+    local body = kernelBody(decoded.llvm, "ks_advance")
+    -- A proven access is emitted with its guard folded to `true`, so the
+    -- lane-by-lane path beside it is dead; a masked one tests a real count.
+    local loop = assert(body:match("\nwhile%.body%.%d+:\n(.-)\nwhile%.end%.%d+:"), "the full-chunk loop\n" .. body)
+    local _, proven = loop:gsub("br i1 true, label %%simd%.yes", "")
+    test.equal(proven, 3, "two column loads and a store, each proven whole\n" .. loop)
+    local tail = assert(body:match("\ncursors%.done%.%d+:(.*)$"), "the tail chunk\n" .. body)
+    local _, tailProven = tail:gsub("br i1 true, label %%simd%.yes", "")
+    test.equal(tailProven, 0, "the tail chunk proves nothing whole\n" .. tail)
+    assert(tail:find("\ntail%.lane%."), "and reads its lanes under the mask\n" .. tail)
+end
+
 function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndOneLaneWhereThereAreNone()
     -- `simd.species(...)` always answers: the tier's own width where it has
     -- vectors, both shapes, and one lane on a tier without them. The
