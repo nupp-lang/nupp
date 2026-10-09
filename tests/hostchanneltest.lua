@@ -41,12 +41,29 @@ local function luajit()
     return found
 end
 
+-- The stream scenario's events are Nupp; the emulated guest loads them compiled.
+local function compiledEvents()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
+    local output, ok = capture(
+        shellQuote(ROOT .. "/bin/nupp") .. " lsp artifact --kind lua "
+            .. shellQuote(HERE .. "/hostchannel/component/src/hostevents.nupp")
+    )
+    check.assert(ok, "the stream scenario's events did not compile:\n" .. output)
+    local file = assert(io.open(directory .. "/hostevents.lua", "wb"))
+    file:write(output)
+    file:close()
+    return directory
+end
+
 local function passesNodeSuite(label, file)
     requireNode()
+    local events = compiledEvents()
     local environment = table.concat({
         "NUPP_ROOT=" .. shellQuote(ROOT),
         "NUPP_LUAJIT=" .. shellQuote(luajit()),
-        "LUA_PATH=" .. shellQuote(package.path),
+        "LUA_PATH=" .. shellQuote(events .. "/?.lua;" .. package.path),
         "LUA_CPATH=" .. shellQuote(package.cpath),
     }, " ")
     local output, exited = capture(
@@ -110,6 +127,7 @@ local function nativeDriver()
     assert(os.execute(("mkdir -p %s"):format(shellQuote(project .. "/src"))) == 0)
     copy(HERE .. "/hostchannel/component/nupp.lua", project .. "/nupp.lua")
     copy(HERE .. "/hostchannel/component/src/contract.nupp", project .. "/src/contract.nupp")
+    copy(HERE .. "/hostchannel/component/src/hostevents.nupp", project .. "/src/hostevents.nupp")
     status, output = run(("cd %s && %s build"):format(shellQuote(project), shellQuote(ROOT .. "/bin/nupp")))
     check.equal(status, 0, "the contract component did not build:\n" .. output)
     local link = assert(io.open(library .. "/link.json", "rb"))
@@ -219,6 +237,15 @@ end
 
 function M.embeddedPostsReachTheirHandlers()
     check.equal(embedded("posts").notes, "1:100,2:100,3:100,4:100,5:100,6:100,7:100,8:100,9:100,10:100")
+end
+
+function M.embeddedStreamsRouteAndSend()
+    local value = embedded("streams")
+    check.equal(value.moves, "3,30 4,40 5,50")
+    check.equal(value.keys, "b-")
+    check.equal(value.dropped, 2)
+    -- A native send reaches its handler at once, so no policy ever applies.
+    check.equal(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")
 end
 
 function M.anUnansweredCallWithoutAHandlerIsRefused()

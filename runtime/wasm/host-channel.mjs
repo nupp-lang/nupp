@@ -9,12 +9,22 @@
 // own, such as a result whose bytes it stopped fetching when its caller was
 // cancelled, so a host resource named in a result is always released by
 // someone. `end()` runs once the application has finished.
+//
+// Streams carry messages one way. A handler receives the application's sent
+// messages as it does a call, and its answer is ignored. `start({push})` runs
+// when the channel opens and hands the page `push(kind, ...values)`, which
+// queues an inbound message for the next frame the application takes; an
+// inbound message carries scalars and strings only, which is what an event's
+// fields hold.
 
 const MAX_STRING_BYTES = 64 * 1024;
 const MAX_OUTBOUND_BYTES = 64 * 1024 * 1024;
 const MAX_INBOUND_BYTES = 8 * 1024 * 1024;
 const MAX_VALUES = 255;
 const DEFAULT_REASSEMBLY_BYTES = 128 * 1024 * 1024;
+const MAX_INBOUND_MESSAGES = 4096;
+// What one drain answer's messages may take of the guest's one-MiB text slot.
+const DRAIN_TEXT_BUDGET = 512 * 1024;
 const KIND = /^[\w-]+\.[\w.-]*[\w-]$/;
 const encoder = new TextEncoder();
 
@@ -53,7 +63,8 @@ export function createHostChannel(host = {}) {
     throw new Error("host.maxReassemblyBytes must be a positive integer");
   }
   if (host.end !== undefined && typeof host.end !== "function") throw new Error("host.end must be a function");
-  return {
+  if (host.start !== undefined && typeof host.start !== "function") throw new Error("host.start must be a function");
+  const channel = {
     handlers: normalizedHandlers(host.handlers),
     end: host.end,
     report: typeof host.onError === "function" ? host.onError : (error) => console.warn(error),
@@ -64,7 +75,95 @@ export function createHostChannel(host = {}) {
     inflight: new Map(),
     nextResult: 1,
     closed: false,
+    inbound: [],
+    dropped: 0,
+    pendingDrain: null,
   };
+  host.start?.({push: (kind, ...values) => pushMessage(channel, kind, values)});
+  return channel;
+}
+
+function inboundValue(kind, value, position) {
+  if (value === null || value === undefined || typeof value === "boolean") return value ?? null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error(`host push ${kind} value ${position} is not a finite number`);
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value.isWellFormed?.() === false || encoder.encode(value).length > MAX_STRING_BYTES) {
+      throw new Error(`host push ${kind} value ${position} is not text of at most 64 KiB`);
+    }
+    return value;
+  }
+  throw new Error(`host push ${kind} value ${position} is a ${typeof value}; an inbound message carries scalars and strings`);
+}
+
+function drainAnswer(channel) {
+  const messages = [];
+  let used = 0;
+  while (channel.inbound.length > 0) {
+    const size = JSON.stringify(channel.inbound[0]).length + 1;
+    if (used + size > DRAIN_TEXT_BUDGET && messages.length > 0) break;
+    used += size;
+    messages.push(channel.inbound.shift());
+  }
+  return {messages};
+}
+
+// Queues an inbound message, dropping the oldest past the bound, and answers a
+// drain the application left waiting.
+function pushMessage(channel, kind, values) {
+  checkedKind(kind);
+  if (values.length > MAX_VALUES) throw new Error(`host push ${kind} carries more than 255 values`);
+  const encoded = {};
+  values.forEach((value, index) => {
+    const checked = inboundValue(kind, value, index + 1);
+    if (checked !== null) encoded[index + 1] = checked;
+  });
+  if (channel.closed) return;
+  channel.inbound.push({kind, n: values.length, v: encoded});
+  while (channel.inbound.length > MAX_INBOUND_MESSAGES) {
+    channel.inbound.shift();
+    channel.dropped++;
+  }
+  // Answer a waiting drain once this task's pushes are all queued, so a burst
+  // pushed together arrives together and a per-turn policy sees all of it.
+  if (channel.pendingDrain && !channel.drainScheduled) {
+    channel.drainScheduled = true;
+    queueMicrotask(() => {
+      channel.drainScheduled = false;
+      const waiting = channel.pendingDrain;
+      if (!waiting) return;
+      channel.pendingDrain = null;
+      waiting(drainAnswer(channel));
+    });
+  }
+}
+
+function drain(channel) {
+  if (channel.inbound.length > 0 || channel.closed) return drainAnswer(channel);
+  // A drain already waiting is superseded: the application only ever has one.
+  channel.pendingDrain?.({messages: []});
+  return new Promise((resolve) => { channel.pendingDrain = resolve; });
+}
+
+// Hands a frame's sent messages to their handlers in order. A stream has no
+// answers, so a missing handler or a failing one is reported, not raised.
+function deliverSent(channel, effect, options) {
+  const copies = takeSpans(effect, options);
+  const messages = Array.isArray(effect.messages) ? effect.messages : effect.messages ? Object.values(effect.messages) : [];
+  for (const message of messages) {
+    try {
+      const name = checkedKind(message.kind);
+      const handler = channel.handlers.get(name);
+      if (!handler) throw new Error(`no host answers ${name}`);
+      const args = decodeArguments(channel, message, copies);
+      Promise.resolve(handler.call(args, {kind: name})).catch((error) => channel.report(error));
+    } catch (error) {
+      channel.report(error);
+    }
+  }
+  return {};
 }
 
 function channelOf(options) {
@@ -90,6 +189,8 @@ export function closeHostChannel(options) {
   channel.results.clear();
   channel.uploads.clear();
   channel.reassembled = 0;
+  channel.pendingDrain?.({messages: []});
+  channel.pendingDrain = null;
   try {
     channel.end?.();
   } catch (error) {
@@ -314,6 +415,10 @@ export async function performHostEffect(effect, options) {
       return callHandler(channel, effect, options);
     case "fetch":
       return fetchResult(channel, effect, options);
+    case "send":
+      return deliverSent(channel, effect, options);
+    case "drain":
+      return drain(channel);
     case "upload":
       return receiveUpload(channel, effect, options);
     case "abandon": {

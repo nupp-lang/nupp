@@ -57,7 +57,7 @@ end
 
 -- A request the guest makes for its own bookkeeping, never waited on.
 local function control(payload: any): nil
-    effects.request("host", payload, noop)
+    effects.request("host", payload, noop, nil, true)
 end
 
 local function report(kind: string, problem: any): nil
@@ -99,7 +99,10 @@ local function encodeArguments(kind: string, allowUploads: boolean, ...: any): (
             local size = length as integer
             if lent + size > values.CHUNK_BYTES then
                 if not allowUploads then
-                    error(string.format("nupp: host %s carries more than the one MiB of bytes a post may", kind), 0)
+                    error(
+                        string.format("nupp: host %s carries more than the one MiB of bytes a post or send may", kind),
+                        0
+                    )
                 end
                 uploads = uploads or {}
                 local transfer = nextTransfer
@@ -170,7 +173,9 @@ local function queueUploads(uploads: any): (any, any)
                 },
                 function(_: any): nil
                     guestMemory.releaseLease(lease)
-                end
+                end,
+                nil,
+                true
             )
             offset = offset + length
         end
@@ -301,7 +306,9 @@ local function fetchBytes(kind: string, value: any, decoded: any): nil
                     function(response: any): nil
                         guestMemory.releaseLease(lease)
                         settled(response)
-                    end
+                    end,
+                    nil,
+                    true
                 )
                 offset = offset + length
             end
@@ -370,9 +377,16 @@ function provider.call(kind: string, late: any, ...: any): ...any
     local lent = lendSpans(spans)
     local payload: any = {op = "call", name = kind, n = count, v = encoded, spans = lent}
     local ok, suspended = pcall(suspension.suspend, "host " .. kind, function(resume: function(any): nil): function()
-        local cancelCall = effects.request("host", payload, resume, function(response: any): nil
-            deliverLate(kind, late, response)
-        end)
+        local cancelCall = effects.request(
+            "host",
+            payload,
+            resume,
+            function(response: any): nil
+                deliverLate(kind, late, response)
+            end,
+            true
+        )
+
         return function(): nil
             local unshipped = cancelCall()
             local anyUploadShipped = false
@@ -448,13 +462,7 @@ function provider.post(kind: string, ...: any): nil
     pendingPosts = pendingPosts + 1
     effects.request(
         "host",
-        {
-            op = "post",
-            name = kind,
-            n = count,
-            v = encoded,
-            spans = lent
-        },
+        {op = "post", name = kind, n = count, v = encoded, spans = lent},
         function(response: any): nil
             pendingPosts = pendingPosts - 1
             releaseLeases(lent)
@@ -462,8 +470,243 @@ function provider.post(kind: string, ...: any): nil
             if type(response) == "table" and response.ok == false then
                 report(kind, "post failed: " .. tostring(response.error))
             end
-        end
+        end,
+        nil,
+        true
     )
+end
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
+
+-- A turn's outbound messages travel in one `send` request the provider keeps
+-- adding to until its frame ships, so it is not frozen. Each message's bytes
+-- are copied, because nothing roots the caller's span after `send` returns, and
+-- one batch lends at most one MiB; past that the next message starts another.
+local outbound: any = nil
+
+local function rebuildSpans(batch: any): nil
+    local spans: any = {}
+    for _, message in ipairs(batch.messages) do
+        for _, value in ipairs(message.bytes) do
+            spans[#spans + 1] = {lease = value.lease, bytes = value.size}
+            message.v[tostring(value.position)] = {bytes = #spans}
+        end
+    end
+    batch.payload.spans = spans
+    batch.payload.messages = {}
+    for index, message in ipairs(batch.messages) do
+        batch.payload.messages[index] = {kind = message.kind, n = message.n, v = message.v}
+    end
+end
+
+local function dropMessage(batch: any, index: integer): nil
+    local message = table.remove(batch.messages, index)
+    local guestMemory = memory()
+    for _, value in ipairs(message.bytes) do
+        guestMemory.releaseLease(value.lease)
+        batch.lent = batch.lent - value.size
+    end
+    batch.counts[message.kind] = batch.counts[message.kind] - 1
+end
+
+local function openBatch(): any
+    local batch: any = {
+        payload = {op = "send", messages = {}, spans = {}},
+        messages = {},
+        counts = {},
+        lent = 0,
+        sealed = false,
+        waiters = {},
+    }
+    effects.request("host", batch.payload, function(response: any): nil
+        batch.sealed = true
+        if outbound == batch then
+            outbound = nil
+        end
+        local guestMemory = memory()
+        for _, message in ipairs(batch.messages) do
+            for _, value in ipairs(message.bytes) do
+                guestMemory.releaseLease(value.lease)
+            end
+        end
+        batch.messages = {}
+        for _, resume in ipairs(batch.waiters) do
+            resume(true)
+        end
+        if type(response) == "table" and response.ok == false then
+            report("send", "a stream batch failed: " .. tostring(response.error))
+        end
+    end)
+
+    return batch
+end
+
+function provider.send(kind: string, policy: string, limit: integer, ...: any): nil
+    local count, encoded, spans = encodeArguments(kind, false, ...)
+    local size: integer = 0
+    for _, span in ipairs(spans or {}) do
+        size = size + (span.size as integer)
+    end
+    local batch = outbound
+    if batch == nil or batch.lent + size > values.CHUNK_BYTES then
+        if batch ~= nil then
+            batch.sealed = true
+        end
+        batch = openBatch()
+        outbound = batch
+    end
+    local held: integer = batch.counts[kind] or 0
+    -- `latest` keeps one message whatever the limit says.
+    if held >= (policy == "latest" and 1 or limit) then
+        if policy == "latest" or policy == "dropOldest" then
+            for index, message in ipairs(batch.messages) do
+                if message.kind == kind then
+                    dropMessage(batch, index)
+                    break
+                end
+            end
+        else
+            -- `block`: wait for this batch to ship, then send into the next.
+            suspension.suspend("host stream " .. kind, function(resume: function(any): nil): function()
+                local waiters = batch.waiters
+                waiters[#waiters + 1] = resume
+                return function(): nil
+                    for index = #waiters, 1, -1 do
+                        if waiters[index] == resume then
+                            table.remove(waiters, index)
+                        end
+                    end
+                end
+            end)
+            provider.send(kind, policy, limit, ...)
+            return
+        end
+    end
+    local guestMemory = memory()
+    local bytes: any = {}
+    for index, span in ipairs(spans or {}) do
+        local copy = ffi.string(span.pointer, span.size)
+        bytes[
+            index
+        ] = {
+            position = 0,
+            size = span.size,
+            copy = copy,
+            lease = guestMemory.lease(ffi.cast("const uint8_t *", copy), span.size, false),
+        }
+    end
+    -- The placeholders encodeArguments wrote name the span list in order.
+    local next = 1
+    for position = 1, count do
+        local value = encoded[tostring(position)]
+        if type(value) == "table" and value.bytes ~= nil then
+            bytes[next].position = position
+            next = next + 1
+        end
+    end
+    local messages = batch.messages
+    messages[#messages + 1] = {kind = kind, n = count, v = encoded, bytes = bytes}
+    batch.counts[kind] = held + 1
+    batch.lent = batch.lent + size
+    rebuildSpans(batch)
+end
+
+-- Inbound messages arrive as the answer to a standing `drain` request, which
+-- the page holds until it has something to deliver; while it is held it also
+-- wakes an application that is otherwise waiting.
+local routes: {[string]: any} = {}
+local draining: any = nil
+
+local function deliverMessages(messages: any): nil
+    local byKind: {[string]: any} = {}
+    for _, message in ipairs(messages) do
+        if type(message) == "table" and type(message.kind) == "string" and routes[message.kind] ~= nil then
+            local list = byKind[message.kind]
+            if list == nil then
+                list = {}
+                byKind[message.kind] = list
+            end
+            list[#list + 1] = message
+        end
+    end
+    -- Observers run here, at the turn boundary and outside any task, so nothing
+    -- they do may wait: one installation refuses a park for the whole pass.
+    local installed = suspensionHost.install(refusingHandler)
+    for kind, list in pairs(byKind) do
+        local route = routes[kind]
+        local keep = route.policy == "latest" and 1 or route.limit
+        local first = math.max(1, #list - keep + 1)
+        route.dropped = route.dropped + (first - 1)
+        for index = first, #list do
+            if routes[kind] ~= route then
+                break
+            end
+            local message = list[index]
+            local counted, count = pcall(resultCount, kind, message)
+            if counted then
+                local delivered, problem = pcall(route.deliver, unpackValues(decodeScalars(message, count), 1, count))
+                if not delivered then
+                    report(kind, "delivery failed: " .. tostring(problem))
+                end
+            else
+                report(kind, count)
+            end
+        end
+    end
+    installed:close()
+end
+
+local function ensureDrain(): nil
+    if draining ~= nil or next(routes) == nil then
+        return
+    end
+    local request: any = nil
+    request = effects.request(
+        "host",
+        {op = "drain"},
+        function(response: any): nil
+            if draining == request then
+                draining = nil
+            end
+            if type(response) == "table" and response.ok == true and type(response.value) == "table" then
+                deliverMessages(response.value.messages or {})
+            elseif type(response) == "table" and response.ok == false then
+                report("drain", response.error)
+            end
+            ensureDrain()
+        end,
+        nil,
+        true
+    )
+    draining = request
+end
+
+function provider.route(kind: string, policy: string, limit: integer, deliver: any): (any, any)
+    if routes[kind] ~= nil then
+        error("nupp: host stream " .. kind .. " is already routed; close that route first", 0)
+    end
+    local route: any = {deliver = deliver, policy = policy, limit = limit, dropped = 0}
+    routes[kind] = route
+    ensureDrain()
+
+    local function stop(): nil
+        if routes[kind] == route then
+            routes[kind] = nil
+        end
+        if next(routes) == nil and draining ~= nil then
+            local cancel = draining
+            draining = nil
+            cancel()
+        end
+    end
+
+    local function dropped(): integer
+        return route.dropped
+    end
+
+    return stop, dropped
 end
 
 export = provider

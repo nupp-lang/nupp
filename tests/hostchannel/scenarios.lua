@@ -233,6 +233,48 @@ function scenarios.posts()
     return {notes = notes}
 end
 
+-- Inbound messages become routed events under each route's policy, and
+-- outbound ones ship under theirs. The host's pushes all happen inside one
+-- handler, so one turn delivers them together.
+function scenarios.streams()
+    local hostevents = require("hostevents")
+    local events = require("nupp.events")
+    local bus = events.newMessageBus()
+    local moves, keys = {}, {}
+    bus:observe(1, hostevents.PointerMove, function(event)
+        moves[#moves + 1] = event.x .. "," .. event.y
+    end, "moves")
+    bus:observe(1, hostevents.KeyPress, function(event)
+        keys[#keys + 1] = event.key .. (event.down and "+" or "-")
+    end, "keys")
+    local moveRoute = host.route("test.move", hostevents.PointerMove, bus, 1, "dropOldest", 3)
+    local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "latest")
+    host.call("test.pushInput", 5)
+    time.sleep(30)
+    local packet = host.bindSend("test.packet", "latest")
+    packet(span.fromString("aaa"))
+    packet(span.fromString("bbbb"))
+    local logged = host.bindSend("test.log", "dropOldest", 2)
+    logged("one")
+    logged("two")
+    logged("three")
+    local blocked = host.bindSend("test.block", "block", 2)
+    blocked("x")
+    blocked("y")
+    blocked("z")
+    time.sleep(30)
+    local outbound = host.call("test.outbound")
+    local dropped = moveRoute:dropped()
+    moveRoute:close()
+    keyRoute:close()
+    return {
+        moves = table.concat(moves, " "),
+        keys = table.concat(keys, " "),
+        dropped = dropped,
+        outbound = outbound,
+    }
+end
+
 -- Natively, with no suspension handler around it, a call the host does not
 -- answer at once is refused rather than left to block the host's own call.
 function scenarios.unansweredWithoutAHandler()

@@ -71,6 +71,41 @@ late answer.
 `post` and `bindPost` never suspend. The host runs the request like any call;
 its answer is discarded and its failure reported rather than raised.
 
+## Streams
+
+A stream carries messages one way, without answers. `send` appends one to a
+kind's outbound stream, which ships with the frame it was sent in; `bindSend`
+binds a kind to a typed function as `bind` does, which is how bytes are sent.
+`route` delivers a kind's inbound messages as [](nupp.events) on a bus the
+program owns, at an address it picks, with each message's values filling the
+event's fields in declaration order:
+
+```nupp:fragment
+local host = nupp.host
+local events = nupp.events
+
+@derive(events.Event)
+local struct PointerMove
+    x: number
+    y: number
+end
+
+const WINDOW = 1
+local input: events.MessageBus<integer> = events.newMessageBus()
+input:observe(WINDOW, PointerMove, |move| -> print(move.x, move.y), "cursor")
+local route = host.route("app.pointer.move", PointerMove, input, WINDOW, "dropOldest", 64)
+```
+
+Messages arrive at a turn boundary, never in the middle of the code that runs
+between them, and an event nothing observes is never built. A stream that
+fills applies its policy: `block` suspends the sender until the frame ships,
+`latest` keeps only the newest message, and `dropOldest` drops the oldest past
+the limit and counts it. An inbound message carries scalars and strings, which
+is what an event's fields hold; bytes travel on a call.
+
+Natively a send reaches the application's handler at once, so nothing waits
+to ship and a policy never applies.
+
 ## Kinds
 
 A kind is two or more dot-separated segments of letters, digits, `_` and `-`,
@@ -84,6 +119,7 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 ]]
 
 local spi = require("nupp.spi")
+local events = require("nupp.events")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.host.spi")
 
@@ -102,6 +138,38 @@ local host = {}
 
 --- Called with the results of a call whose caller stopped waiting.
 type host.Late = contracts.Late
+
+--- What a full stream does with one more message.
+type host.Policy = contracts.Policy
+
+--- An inbound stream's delivery to a bus; close it to stop.
+record host.Route
+    @private stop: function(): nil
+    @private droppedCount: function(): integer
+
+    --- Stops delivering; messages already on their way are discarded.
+    function close(self: host.Route): nil
+        self.stop()
+    end
+
+    --- How many inbound messages this route has dropped under its policy.
+    function dropped(self: host.Route): integer
+        return self.droppedCount()
+    end
+end
+
+const DEFAULT_LIMIT = 1024
+
+local function checkedLimit(limit: integer?): integer
+    if limit == nil then
+        return DEFAULT_LIMIT
+    end
+    if limit % 1 ~= 0 or limit < 1 then
+        error("nupp: a host stream limit must be a positive integer", 3)
+    end
+
+    return limit
+end
 
 const MAX_KIND_BYTES = 128
 
@@ -186,6 +254,70 @@ function host.bindPost<F>(kind: string): F
     end
 
     return bound as F
+end
+
+--- Sends a message on `kind`'s outbound stream.
+---
+--- @param kind the dotted name the host answers
+--- @raises string when a value cannot cross
+--- @export
+function host.send(kind: string, ...: any): nil
+    provider.send(checkedKind(kind), "block", DEFAULT_LIMIT, ...)
+end
+
+--- Binds `kind`'s outbound stream to a function of type `F` that sends on it.
+---
+--- @param kind the dotted name the host answers
+--- @param policy what a full stream does with one more message, `block` unless named
+--- @param limit how many unshipped messages make the stream full, 1024 unless named
+--- @return a function sending on `kind` with its arguments
+--- @export
+function host.bindSend<F>(kind: string, policy: contracts.Policy?, limit: integer?): F
+    local checked = checkedKind(kind)
+    local selected = policy or "block"
+    local bound = checkedLimit(limit)
+    local send = provider.send
+
+    local function sender(...: any): nil
+        send(checked, selected, bound, ...)
+    end
+
+    return sender as F
+end
+
+--- Delivers `kind`'s inbound messages to `bus` as `event`s at `address`.
+---
+--- Addresses are integers, the ids a host gives its windows, pads and devices.
+---
+--- @param kind the dotted name the host pushes
+--- @param event the event each message fills, its fields in declaration order
+--- @param policy `latest` or `dropOldest`; `dropOldest` unless named
+--- @param limit how many messages one turn delivers, 1024 unless named
+--- @return the route, which stops when closed
+--- @raises string when `policy` is `block`, which an inbound stream cannot do
+--- @export
+function host.route<E is events.Emittable>(
+    kind: string,
+    event: Type<E>,
+    bus: events.MessageBus<integer>,
+    address: integer,
+    policy: contracts.Policy?,
+    limit: integer?
+): host.Route
+    local checked = checkedKind(kind)
+    local selected = policy or "dropOldest"
+    if selected ~= "latest" and selected ~= "dropOldest" then
+        error("nupp: an inbound host stream cannot block the host; route it latest or dropOldest", 2)
+    end
+    local emit = events.emit as any
+
+    local function deliver(...: any): nil
+        emit(bus, address, event, ...)
+    end
+
+    local stop, dropped = provider.route(checked, selected, checkedLimit(limit), deliver)
+
+    return new host.Route(stop = stop, droppedCount = dropped)
 end
 
 export = host

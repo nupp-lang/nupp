@@ -35,6 +35,7 @@ nupp_runtime_poll
 nupp_host_register
 nupp_host_answer
 nupp_host_fail
+nupp_host_push
 nupp_reload_config_init
 nupp_reload_open
 nupp_reload_attach

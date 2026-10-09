@@ -261,6 +261,19 @@ NUPP_API nupp_status nupp_host_answer(
     nupp_error **error
 );
 
+/* Queues an inbound message on `kind`, delivered to the route the program
+ * declared for it at the next nupp_runtime_poll. Values are copied: nil,
+ * booleans, finite numbers and UTF-8 strings, which is what an event's fields
+ * hold. Past 4096 waiting messages the oldest is dropped. A send on an outbound
+ * stream reaches the kind's handler with request 0 and is never answered. */
+NUPP_API nupp_status nupp_host_push(
+    nupp_runtime *runtime,
+    const char *kind,
+    const nupp_value *values,
+    size_t value_count,
+    nupp_error **error
+);
+
 /* Fails `request`; the caller raises `message`. A failed post is reported. */
 NUPP_API nupp_status nupp_host_fail(
     nupp_runtime *runtime,

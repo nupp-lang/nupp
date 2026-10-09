@@ -39,6 +39,7 @@ static int next_resource = 1;
 static int cancels;
 static int seen_count;
 static char notes[4096];
+static char outbound[4096];
 static uint64_t last_request;
 
 static double now_ms(void) {
@@ -167,6 +168,37 @@ static void handle(nupp_runtime *owner, uint64_t request, const char *kind,
     } else if (strcmp(kind, "test.notes") == 0) {
         nupp_value value = text(notes);
         answer(request, &value, 1);
+    } else if (strcmp(kind, "test.pushInput") == 0) {
+        nupp_error *error = NULL;
+        for (int index = 1; index <= (int)args[0].number; index++) {
+            nupp_value move[2] = {number(index), number(index * 10)};
+            check(nupp_host_push(runtime, "test.move", move, 2, &error), error, "nupp_host_push");
+        }
+        nupp_value down[2] = {text("a"), {0}};
+        down[1].kind = NUPP_VALUE_BOOLEAN;
+        down[1].boolean = 1;
+        check(nupp_host_push(runtime, "test.key", down, 2, &error), error, "nupp_host_push");
+        nupp_value up[2] = {text("b"), {0}};
+        up[1].kind = NUPP_VALUE_BOOLEAN;
+        check(nupp_host_push(runtime, "test.key", up, 2, &error), error, "nupp_host_push");
+        answer(request, NULL, 0);
+    } else if (strcmp(kind, "test.packet") == 0 || strcmp(kind, "test.log") == 0 ||
+        strcmp(kind, "test.block") == 0) {
+        char entry[160];
+        if (request != 0) {
+            fprintf(stderr, "a send arrived with request %llu\n", (unsigned long long)request);
+            exit(1);
+        }
+        if (strcmp(kind, "test.packet") == 0) {
+            snprintf(entry, sizeof entry, "%spacket:%zu", outbound[0] ? " " : "", args[0].length);
+        } else {
+            snprintf(entry, sizeof entry, "%s%s:%.*s", outbound[0] ? " " : "", kind + 5,
+                (int)args[0].length, (const char *)args[0].data);
+        }
+        strncat(outbound, entry, sizeof outbound - strlen(outbound) - 1);
+    } else if (strcmp(kind, "test.outbound") == 0) {
+        nupp_value value = text(outbound);
+        answer(request, &value, 1);
     } else {
         nupp_error *error = NULL;
         check(nupp_host_fail(runtime, request, "unexpected kind", &error), error, "nupp_host_fail");
@@ -223,7 +255,8 @@ static const char *state_of(const nupp_value *value) {
 
 static const char *const KINDS[] = {
     "test.echo", "test.results", "test.fail", "test.digest", "test.count", "test.make", "test.slow",
-    "test.open", "test.close", "test.live", "test.seen", "test.note", "test.notes", NULL,
+    "test.open", "test.close", "test.live", "test.seen", "test.note", "test.notes", "test.pushInput",
+    "test.packet", "test.log", "test.block", "test.outbound", NULL,
 };
 
 int main(int argc, char **argv) {

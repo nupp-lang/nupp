@@ -14,6 +14,8 @@ local _host = require("nupp.host")
 local _span = require("nupp.mem.span")
 local _tasks = require("nupp.tasks")
 local _time = require("nupp.time")
+local _events = require("nupp.events")
+local _hostevents = require("hostevents")
 
 local scenarios: any = nil
 local session = pump.newPump()

@@ -71,6 +71,9 @@ typedef struct NuppRustHostAdapter {
     /* Marks a request abandoned; 1 and its kind's cancel callback when it has one. */
     int (*cancelled)(const void *channel, uint64_t request, NuppHostCancel *cancel,
         void **userdata, void **runtime);
+    /* 1 and the next pushed message, borrowed until the next pop, or 0. */
+    int (*pop)(const void *channel, const char **kind, size_t *kind_length,
+        size_t *count, const NuppHostValue **values);
 } NuppRustHostAdapter;
 
 static const NuppRustHostAdapter *rust;
@@ -114,7 +117,8 @@ static int attached(lua_State *state) {
  * true, or false and a reason when no handler answers the kind. */
 static int dispatch(lua_State *state) {
     const void *channel = required_channel(state);
-    int post = (int)luaL_checkinteger(state, 1) == 1;
+    int operation = (int)luaL_checkinteger(state, 1);
+    int post = operation == 1;
     uint64_t request = request_id(state, 2);
     size_t kind_length;
     const char *kind = luaL_checklstring(state, 3, &kind_length);
@@ -168,6 +172,12 @@ static int dispatch(lua_State *state) {
         default:
             return luaL_error(state, "host request %s value %d cannot cross", kind, (int)position);
         }
+    }
+    /* A send has no answer, so nothing records it; its handler sees request 0. */
+    if (operation == 2) {
+        handler(runtime, 0, kind, values, (size_t)count, userdata);
+        lua_pushboolean(state, 1);
+        return 1;
     }
     if (!rust->dispatched(channel, request, post, kind, kind_length)) {
         return luaL_error(state, "host request %d was dispatched twice", (int)request);
@@ -263,6 +273,40 @@ static int cancel(lua_State *state) {
     return 0;
 }
 
+/* pop() answers the next pushed message as its kind, a kind letter per value
+ * and the values, or nothing when none is waiting. */
+static int pop(lua_State *state) {
+    const void *channel = required_channel(state);
+    const char *kind = NULL;
+    size_t kind_length = 0, count = 0;
+    const NuppHostValue *values = NULL;
+    char kinds[MAX_VALUES];
+    if (!rust->pop(channel, &kind, &kind_length, &count, &values)) return 0;
+    if (count > MAX_VALUES || !lua_checkstack(state, (int)count + 4)) {
+        return luaL_error(state, "a pushed host message has too many values");
+    }
+    lua_pushlstring(state, kind, kind_length);
+    for (size_t index = 0; index < count; index++) {
+        switch (values[index].kind) {
+        case VALUE_BOOLEAN: kinds[index] = 'b'; break;
+        case VALUE_NUMBER: kinds[index] = 'd'; break;
+        case VALUE_STRING: kinds[index] = 's'; break;
+        default: kinds[index] = 'n'; break;
+        }
+    }
+    lua_pushlstring(state, kinds, count);
+    for (size_t index = 0; index < count; index++) {
+        const NuppHostValue *value = &values[index];
+        switch (value->kind) {
+        case VALUE_BOOLEAN: lua_pushboolean(state, value->boolean); break;
+        case VALUE_NUMBER: lua_pushnumber(state, value->number); break;
+        case VALUE_STRING: lua_pushlstring(state, (const char *)value->data, value->length); break;
+        default: lua_pushnil(state); break;
+        }
+    }
+    return (int)count + 2;
+}
+
 static void field(lua_State *state, const char *name, lua_CFunction function) {
     lua_pushcclosure(state, function, 0);
     lua_setfield(state, -2, name);
@@ -275,5 +319,6 @@ int nupp_luaopen_host_channel(lua_State *state) {
     field(state, "take", take);
     field(state, "ready", ready);
     field(state, "cancel", cancel);
+    field(state, "pop", pop);
     return 1;
 }

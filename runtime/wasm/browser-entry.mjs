@@ -127,6 +127,14 @@ export function run(options = {}) {
   return result;
 }
 
+/**
+ * Pushes an inbound message on `kind` to the running application, which routes
+ * it to an event at the next frame it takes. Values are scalars and strings.
+ */
+export function push(kind, ...values) {
+  worker?.postMessage({type: "host-push", kind, values});
+}
+
 /** Asks a running application to stop; its `run` promise rejects with `reason`. */
 export function cancel(reason = "the browser application was cancelled") {
   worker?.postMessage({type: "cancel", reason});

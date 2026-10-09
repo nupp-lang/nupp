@@ -1,0 +1,22 @@
+module hostevents
+
+--[[
+The events the host channel's stream scenario routes: what a host would push
+for a pointer and a keyboard.
+]]
+
+local events = require("nupp.events")
+
+--- A pointer moved to `x`, `y`.
+@derive(events.Event)
+export record PointerMove
+    x: number
+    y: number
+end
+
+--- A key went down or up.
+@derive(events.Event)
+export record KeyPress
+    key: string
+    down: boolean
+end

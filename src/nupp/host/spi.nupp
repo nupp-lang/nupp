@@ -22,6 +22,11 @@ always released by someone. `post` never suspends and discards the answer.
 --- Called with the results of a call whose caller stopped waiting.
 export type Late = function(...: any): nil
 
+--- What a full stream does with one more message: suspend the sender until
+--- the stream ships (`block`, outbound only), keep only the newest (`latest`),
+--- or drop the oldest past the limit (`dropOldest`).
+export type Policy = "block" | "latest" | "dropOldest"
+
 export interface Provider
     --- Ranks a discovered implementation; the highest unique priority wins.
     @readonly priority: integer?
@@ -35,4 +40,18 @@ export interface Provider
 
     --- Queues a request for the host without waiting for its answer.
     @readonly post: function(kind: string, ...: any): nil
+
+    --- Appends a message to the kind's outbound stream, applying `policy` with
+    --- `limit` when the stream already holds that many unshipped messages.
+    @readonly send: function(kind: string, policy: Policy, limit: integer, ...: any): nil
+
+    --- Delivers the kind's inbound messages to `deliver` at each turn boundary,
+    --- keeping at most `limit` per turn as `policy` says. Answers the function
+    --- that stops the route and the count of messages it has dropped so far.
+    @readonly route: function(
+        kind: string,
+        policy: Policy,
+        limit: integer,
+        deliver: function(...: any): nil
+    ): (function(): nil, function(): integer)
 end

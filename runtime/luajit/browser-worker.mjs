@@ -5,6 +5,10 @@ let nextPersistenceRequest = 1;
 const persistenceRequests = new Map();
 let nextHostCall = 1;
 const hostCalls = new Map();
+// The running application's push, once its channel has opened; pushes that
+// arrive before then wait for it.
+let hostPush = null;
+const earlyPushes = [];
 
 function transferables(values) {
   return values.filter((value) => ArrayBuffer.isView(value)).map((value) => value.buffer);
@@ -32,10 +36,12 @@ async function hostOption(description) {
   if (!description) return undefined;
   const handlers = {};
   let moduleEnd;
+  let moduleStart;
   if (description.module) {
     const loaded = await import(description.module);
     Object.assign(handlers, loaded.handlers || {});
     moduleEnd = loaded.end;
+    moduleStart = loaded.start;
   }
   for (const kind of description.kinds || []) {
     if (Object.hasOwn(handlers, kind)) throw new Error(`host kind ${kind} is answered by both the page and its module`);
@@ -43,7 +49,13 @@ async function hostOption(description) {
   }
   return {
     handlers,
+    start(api) {
+      hostPush = api.push;
+      for (const [kind, values] of earlyPushes.splice(0)) hostPush(kind, ...values);
+      moduleStart?.(api);
+    },
     end() {
+      hostPush = null;
       try { moduleEnd?.(); } finally { if (description.end) self.postMessage({type: "host-end"}); }
     },
   };
@@ -63,6 +75,15 @@ self.addEventListener("message", async (event) => {
     persistenceRequests.delete(message.requestId);
     if (message.error) request.reject(new Error(message.error));
     else request.resolve(message.granted === true);
+    return;
+  }
+  if (message?.type === "host-push") {
+    try {
+      if (hostPush) hostPush(message.kind, ...(message.values || []));
+      else if (earlyPushes.length < 4096) earlyPushes.push([message.kind, message.values || []]);
+    } catch (error) {
+      console.warn(error);
+    }
     return;
   }
   if (message?.type === "host-answer") {

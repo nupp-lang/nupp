@@ -41,6 +41,8 @@ function testHost() {
   const live = new Set();
   const released = [];
   const notes = [];
+  const outbound = [];
+  let push = null;
   let nextResource = 1;
   let ended = 0;
   const note = (kind) => seen.set(kind, (seen.get(kind) || 0) + 1);
@@ -79,9 +81,18 @@ function testHost() {
     "test.seen": ([kind]) => seen.get(kind) || 0,
     "test.note": ([index, bytes]) => { notes.push(`${index}:${bytes.length}`); },
     "test.notes": () => notes.join(","),
+    "test.pushInput": ([count]) => {
+      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
+      push("test.key", "a", true);
+      push("test.key", "b", false);
+    },
+    "test.packet": ([bytes]) => { outbound.push(`packet:${bytes.length}`); },
+    "test.log": ([text]) => { outbound.push(`log:${text}`); },
+    "test.block": ([text]) => { outbound.push(`block:${text}`); },
+    "test.outbound": () => outbound.join(" "),
   };
   return {
-    host: {handlers, end: () => { ended++; }, onError: () => {}},
+    host: {handlers, start: (api) => { push = api.push; }, end: () => { ended++; }, onError: () => {}},
     state: {seen, live, released, get ended() { return ended; }},
   };
 }
@@ -204,6 +215,14 @@ test("more requests than a frame carries all ship and all answer", async () => {
   const {value, outcome} = await scenario("manySmallCalls");
   assert.equal(value.correct, 600);
   assert.ok(outcome.frames > 2, "the requests were packed into more than one frame");
+});
+
+test("streams route inbound events and ship outbound messages under their policies", async () => {
+  const {value} = await scenario("streams");
+  assert.equal(value.moves, "3,30 4,40 5,50");
+  assert.equal(value.keys, "b-");
+  assert.equal(value.dropped, 2);
+  assert.equal(value.outbound, "packet:4 log:two log:three block:x block:y block:z");
 });
 
 test("posts ship without waiting, and the session ends once", async () => {

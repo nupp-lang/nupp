@@ -32,6 +32,7 @@ const SOURCE_ORDER = 15
 
 const OPERATION_CALL = 0
 const OPERATION_POST = 1
+const OPERATION_SEND = 2
 
 local loaded, channel = pcall(require, "nupp.host.native")
 if not loaded or type(channel) ~= "table" or not channel.attached() then
@@ -99,9 +100,64 @@ local function forget(request: integer): nil
     end
 end
 
+local routes: {[string]: any} = {}
+
+local function popPushed(kind: any, kinds: any, ...: any): (any, any, any)
+    if kind == nil then
+        return nil, nil, nil
+    end
+    return kind, #(kinds as string), {...}
+end
+
+-- Delivers what the host pushed since the last pass to the routes declared for
+-- it, each route keeping what its policy says. Observers run where no task is,
+-- so one installation refuses a park for the whole pass.
+local function deliverPushed(): integer
+    local byKind: {[string]: any} = {}
+    local delivered: integer = 0
+    while true do
+        local kind, count, decoded = popPushed(channel.pop())
+        if kind == nil then
+            break
+        end
+        if routes[kind] ~= nil then
+            local list = byKind[kind]
+            if list == nil then
+                list = {}
+                byKind[kind] = list
+            end
+            list[#list + 1] = {count = count, values = decoded}
+        end
+    end
+    if next(byKind) == nil then
+        return 0
+    end
+    local installed = suspensionHost.install(refusingHandler)
+    for kind, list in pairs(byKind) do
+        local route = routes[kind]
+        local keep = route.policy == "latest" and 1 or route.limit
+        local first = math.max(1, #list - keep + 1)
+        route.dropped = route.dropped + (first - 1)
+        for index = first, #list do
+            if routes[kind] ~= route then
+                break
+            end
+            local message = list[index]
+            local ok, problem = pcall(route.deliver, unpackValues(message.values, 1, message.count))
+            if not ok then
+                report(kind, "delivery failed: " .. tostring(problem))
+            end
+            delivered = delivered + 1
+        end
+    end
+    installed:close()
+
+    return delivered
+end
+
 -- Delivers every answer the host has given since the last pass.
 local function deliver(): integer
-    local delivered: integer = 0
+    local delivered: integer = deliverPushed()
     for _, request in ipairs(channel.ready()) do
         local entry = pending[request]
         if entry ~= nil then
@@ -205,6 +261,36 @@ end
 -- nothing here waits on or remembers one.
 function provider.post(kind: string, ...: any): nil
     dispatch(OPERATION_POST, kind, ...)
+end
+
+-- A send reaches the application's handler at once, so nothing is held and the
+-- stream's policy never applies.
+function provider.send(kind: string, _: string, _: integer, ...: any): nil
+    dispatch(OPERATION_SEND, kind, ...)
+end
+
+function provider.route(kind: string, policy: string, limit: integer, deliverTo: any): (any, any)
+    if channel == nil then
+        error("nupp: no host pushes " .. kind .. "; no embedding application is attached", 0)
+    end
+    if routes[kind] ~= nil then
+        error("nupp: host stream " .. kind .. " is already routed; close that route first", 0)
+    end
+    local route: any = {deliver = deliverTo, policy = policy, limit = limit, dropped = 0}
+    routes[kind] = route
+    readiness()
+
+    local function stop(): nil
+        if routes[kind] == route then
+            routes[kind] = nil
+        end
+    end
+
+    local function dropped(): integer
+        return route.dropped
+    end
+
+    return stop, dropped
 end
 
 export = provider

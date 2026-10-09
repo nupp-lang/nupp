@@ -19,9 +19,12 @@ local waiting: {[integer]: any} = {}
 local hostTurns: integer = 0
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local relays: any = setmetatable({}, {__mode = "k"})
--- What each queued request costs its frame's text envelope, measured once when it
--- is queued.
-local encodedBytes: any = setmetatable({}, {__mode = "k"})
+-- The text of a request its provider will not change once queued, so the frame
+-- reuses it instead of encoding the request a second time. Under emulation that
+-- second encode cost as much as the rest of the guest's work for the request.
+-- A provider that adds to a queued request (the worker pool batches submissions
+-- into one until it ships) leaves it out.
+local frozenText: any = setmetatable({}, {__mode = "k"})
 
 -- One frame carries at most this much: the guest's text slot is one MiB and the
 -- bridge adds lease descriptors beside the requests, the lent bytes share a
@@ -80,7 +83,8 @@ function effects.request(
     kind: string,
     payload: any,
     resume: function(any): nil,
-    discard: (function(any): nil)?
+    discard: (function(any): nil)?,
+    frozen: boolean?
 ): function()
     local id = nextId
     nextId = nextId + 1
@@ -93,7 +97,9 @@ function effects.request(
     if not encodable then
         error("nupp: browser effect " .. kind .. " has no JSON form: " .. tostring(encoded), 0)
     end
-    encodedBytes[payload] = #encoded
+    if frozen then
+        frozenText[payload] = encoded
+    end
     queued[#queued + 1] = payload
     local active = true
     waiting[id] = function(response: any): nil
@@ -162,10 +168,10 @@ end
 -- Takes, in submission order, the longest prefix of the queue one frame carries.
 -- A request that does not fit waits whole for the next frame, so order is never
 -- traded for packing; one that could never fit goes alone and fails as before.
-local function takeFrame(): ({any}, boolean, {any})
+local function takeFrame(): ({string}, boolean, {any})
     local guestMemory: any = browserHost ~= nil and browserHost.memory or nil
     local bytesOf: any = guestMemory ~= nil and rawget(guestMemory, "leaseBytes") or nil
-    local taken: {any} = {}
+    local taken: {string} = {}
     local text: integer = 0
     local lent: integer = 0
     local seen: {[any]: boolean} = {}
@@ -173,7 +179,9 @@ local function takeFrame(): ({any}, boolean, {any})
     local index: integer = 1
     while index <= count and #taken < FRAME_REQUESTS do
         local request = queued[index]
-        local requestText: integer = encodedBytes[request] or 0
+        -- A request its provider may still add to is measured as it ships.
+        local encoded: string = frozenText[request] or json.encode(request)
+        local requestText: integer = #encoded
         local requestLent: integer = 0
         local leases = leaseIdentifiers(request)
         for _, lease in ipairs(leases) do
@@ -192,7 +200,7 @@ local function takeFrame(): ({any}, boolean, {any})
         end
         text = text + requestText
         lent = lent + requestLent
-        taken[#taken + 1] = request
+        taken[#taken + 1] = encoded
         index = index + 1
     end
     local rest: {any} = {}
@@ -274,9 +282,7 @@ function effects.park(operation: string, turn: boolean?): nil
         if more then
             wake = "turn"
         end
-        -- Encode before dequeuing, so a failed encode leaves the queue intact
-        -- instead of stranding every dequeued request's waiter.
-        encoded = json.encode({kind = "effects", requests = taken, wake = wake,})
+        encoded = '{"kind":"effects","requests":[' .. table.concat(taken, ",") .. '],"wake":"' .. wake .. '"}'
         queued = rest
     end
     local responseText = coroutine.yield(encoded)

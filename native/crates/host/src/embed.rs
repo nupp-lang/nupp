@@ -1580,6 +1580,55 @@ pub unsafe extern "C" fn nupp_host_answer(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_host_push(
+    runtime: *mut NuppRuntime,
+    kind: *const c_char,
+    values: *const NuppValue,
+    count: usize,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let entry = enter(runtime)?;
+            let channel = host_channel_of(&entry)?;
+            if kind.is_null() {
+                return Err(Failure::invalid(ERROR_RUNTIME, "nupp_host_push needs a kind"));
+            }
+            let kind = CStr::from_ptr(kind).to_bytes();
+            checked_kind(kind)?;
+            if count > host_channel::MAX_VALUES {
+                return Err(Failure::invalid(
+                    ERROR_RUNTIME,
+                    "a pushed host message carries at most 255 values",
+                ));
+            }
+            if count > 0 && values.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_RUNTIME,
+                    "nupp_host_push was given a count without its values",
+                ));
+            }
+            let mut owned = Vec::with_capacity(count);
+            for index in 0..count {
+                let value = &*values.add(index);
+                if value.kind == VALUE_BYTES {
+                    return Err(Failure::invalid(
+                        ERROR_RUNTIME,
+                        format!(
+                            "pushed value {} is bytes; an inbound message carries scalars and strings",
+                            index + 1
+                        ),
+                    ));
+                }
+                owned.push(owned_answer(index + 1, value)?);
+            }
+            channel.push(kind, owned);
+            Ok(())
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_host_fail(
     runtime: *mut NuppRuntime,
     request: u64,

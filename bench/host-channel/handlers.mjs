@@ -21,6 +21,8 @@ export function testHost() {
   const live = new Set();
   const released = [];
   const notes = [];
+  const outbound = [];
+  let push = null;
   const packets = [];
   let nextResource = 1;
   let ended = 0;
@@ -62,6 +64,15 @@ export function testHost() {
     "test.seen": ([kind]) => seen.get(kind) || 0,
     "test.note": ([index, bytes]) => { notes.push(`${index}:${bytes.length}`); },
     "test.notes": () => notes.join(","),
+    "test.pushInput": ([count]) => {
+      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
+      push("test.key", "a", true);
+      push("test.key", "b", false);
+    },
+    "test.packet": ([bytes]) => { outbound.push(`packet:${bytes.length}`); },
+    "test.log": ([text]) => { outbound.push(`log:${text}`); },
+    "test.block": ([text]) => { outbound.push(`block:${text}`); },
+    "test.outbound": () => outbound.join(" "),
     // Workloads: a frame's input arrives as one call, its packet leaves as a post.
     "bench.input": ([count]) => {
       const values = [];
@@ -71,7 +82,7 @@ export function testHost() {
     "bench.packet": ([bytes]) => { packets.push(bytes.length); },
   };
   return {
-    host: {handlers, end: () => { ended++; }, onError: () => {}},
+    host: {handlers, start: (api) => { push = api.push; }, end: () => { ended++; }, onError: () => {}},
     state: {seen, live, released, packets, get ended() { return ended; }},
   };
 }

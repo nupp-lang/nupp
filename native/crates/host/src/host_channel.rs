@@ -21,6 +21,8 @@ use std::slice;
 pub(crate) const MAX_VALUES: usize = 255;
 /// The longest string value, which the browser carries inside a text envelope.
 pub(crate) const MAX_STRING_BYTES: usize = 64 * 1024;
+/// How many pushed messages wait for a poll before the oldest is dropped.
+pub(crate) const MAX_PUSHES: usize = 4096;
 /// The largest byte value an application may answer with.
 pub(crate) const MAX_ANSWER_BYTES: usize = 8 * 1024 * 1024;
 
@@ -83,6 +85,14 @@ struct Request {
     state: State,
 }
 
+/// One inbound message the application pushed, waiting for a poll.
+struct Push {
+    kind: Vec<u8>,
+    // `raw` points into `_owned`, which is kept only to keep those bytes alive.
+    _owned: Vec<Owned>,
+    raw: Vec<RawValue>,
+}
+
 /// Why an answer was refused.
 pub(crate) enum AnswerError {
     Unknown,
@@ -95,6 +105,10 @@ pub(crate) struct HostChannel {
     handlers: RefCell<HashMap<Vec<u8>, Registration>>,
     requests: RefCell<HashMap<u64, Request>>,
     ready: RefCell<VecDeque<u64>>,
+    pushes: RefCell<VecDeque<Push>>,
+    // The push the shim is copying out of, kept until it asks for the next.
+    popped: RefCell<Option<Push>>,
+    dropped: Cell<u64>,
 }
 
 impl HostChannel {
@@ -104,6 +118,9 @@ impl HostChannel {
             handlers: RefCell::new(HashMap::new()),
             requests: RefCell::new(HashMap::new()),
             ready: RefCell::new(VecDeque::new()),
+            pushes: RefCell::new(VecDeque::new()),
+            popped: RefCell::new(None),
+            dropped: Cell::new(0),
         }
     }
 
@@ -179,10 +196,28 @@ impl HostChannel {
         Ok(())
     }
 
+    /// Queues an inbound message for the next poll, dropping the oldest past
+    /// the bound.
+    pub(crate) fn push(&self, kind: &[u8], owned: Vec<Owned>) {
+        let raw = owned.iter().map(raw_value).collect();
+        let mut pushes = self.pushes.borrow_mut();
+        pushes.push_back(Push {
+            kind: kind.to_vec(),
+            _owned: owned,
+            raw,
+        });
+        while pushes.len() > MAX_PUSHES {
+            pushes.pop_front();
+            self.dropped.set(self.dropped.get() + 1);
+        }
+    }
+
     /// Forgets every outstanding request, for a runtime shutting down.
     pub(crate) fn clear(&self) {
         self.requests.borrow_mut().clear();
         self.ready.borrow_mut().clear();
+        self.pushes.borrow_mut().clear();
+        self.popped.borrow_mut().take();
     }
 }
 
@@ -387,6 +422,34 @@ unsafe extern "C" fn cancelled(
     })
 }
 
+unsafe extern "C" fn pop(
+    channel_pointer: *const c_void,
+    kind: *mut *const c_char,
+    kind_length: *mut usize,
+    count: *mut usize,
+    values: *mut *const RawValue,
+) -> c_int {
+    ffi_value(0, || {
+        // SAFETY: as in `lookup`.
+        let channel = unsafe { channel(channel_pointer) };
+        let next = channel.pushes.borrow_mut().pop_front();
+        let mut popped = channel.popped.borrow_mut();
+        *popped = next;
+        let Some(push) = popped.as_ref() else {
+            return 0;
+        };
+        // SAFETY: the out pointers are the shim's locals; the push stays in
+        // `popped` until the shim asks for the next one.
+        unsafe {
+            kind.write(push.kind.as_ptr().cast());
+            kind_length.write(push.kind.len());
+            count.write(push.raw.len());
+            values.write(push.raw.as_ptr());
+        }
+        1
+    })
+}
+
 #[repr(C)]
 struct HostAdapterTable {
     lookup: unsafe extern "C" fn(
@@ -415,6 +478,13 @@ struct HostAdapterTable {
         *mut *mut c_void,
         *mut *mut c_void,
     ) -> c_int,
+    pop: unsafe extern "C" fn(
+        *const c_void,
+        *mut *const c_char,
+        *mut usize,
+        *mut usize,
+        *mut *const RawValue,
+    ) -> c_int,
 }
 
 static HOST_ADAPTER: HostAdapterTable = HostAdapterTable {
@@ -424,6 +494,7 @@ static HOST_ADAPTER: HostAdapterTable = HostAdapterTable {
     release,
     ready,
     cancelled,
+    pop,
 };
 
 unsafe extern "C" {
