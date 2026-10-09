@@ -1497,7 +1497,7 @@ fn owned_answer(position: usize, value: &NuppValue) -> Result<Owned, Failure> {
         }
         VALUE_BYTES => {
             if value.length > host_channel::MAX_ANSWER_BYTES {
-                return Err(refuse("is more than 16 MiB of bytes"));
+                return Err(refuse("is more than 8 MiB of bytes"));
             }
             Owned::Bytes(bytes()?)
         }

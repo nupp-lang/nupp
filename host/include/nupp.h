@@ -250,7 +250,7 @@ NUPP_API nupp_status nupp_host_register(
 
 /* Answers `request` with `result_count` values, copied before this returns:
  * nil, booleans, finite numbers, UTF-8 strings up to 64 KiB, and bytes up to
- * 16 MiB. Handles are refused. Ownership of whatever the results name passes to
+ * 8 MiB. Handles are refused. Ownership of whatever the results name passes to
  * the program here; an answer to a request its caller abandoned goes to that
  * caller's late cleanup. An answer to a post is discarded. */
 NUPP_API nupp_status nupp_host_answer(

@@ -1,0 +1,20 @@
+--[[
+Runs one host channel program in the real browser guest: a contract scenario
+from `tests/hostchannel/scenarios.lua` or a workload from `bench.lua`, chosen by
+the global the page's initialization chunk sets. Both are plain Lua carried as
+text and loaded at run time; requiring what they use here is what bundles it.
+]]
+
+local json = require("nupp.codec.json")
+local sources = require("sources")
+local _host = require("nupp.host")
+local _span = require("nupp.mem.span")
+local _tasks = require("nupp.tasks")
+local _time = require("nupp.time")
+
+local selection: any = rawget(_G, "__hostChannelProgram")
+local load: any = rawget(_G, "loadstring")
+local programs: any = (load(sources[selection.file], "@" .. selection.file))()
+local ok, value = pcall(programs[selection.name], selection.options)
+
+return json.encode(ok and {ok = true, value = value} or {ok = false, error = tostring(value)})

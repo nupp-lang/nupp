@@ -94,13 +94,13 @@ function scenarios.bytes()
     local largeLength, largeTotal = host.call("test.digest", span.fromString(large))
     local three = {pattern(1024 * 1024, 7), pattern(1024 * 1024, 8), pattern(1024 * 1024, 9)}
     local count = host.call("test.count", span.fromString(three[1]), span.fromString(three[2]), span.fromString(three[3]))
-    local made = host.call("test.make", 8 * 1024 * 1024 + 3, 11)
+    local made = host.call("test.make", 8 * 1024 * 1024, 11)
     local empty = host.call("test.make", 0, 1)
     return {
         small = length == #small and total == sum(small) and bytesOf(back) == small,
         large = largeLength == #large and largeTotal == sum(large),
         three = count == 3 * 1024 * 1024,
-        made = lengthOf(made) == 8 * 1024 * 1024 + 3 and bytesOf(made) == pattern(8 * 1024 * 1024 + 3, 11),
+        made = lengthOf(made) == 8 * 1024 * 1024 and bytesOf(made) == pattern(8 * 1024 * 1024, 11),
         empty = lengthOf(empty) == 0,
     }
 end
@@ -178,11 +178,11 @@ end
 function scenarios.cancelMidFetch()
     local ok = scoped(40, function(scope)
         scope:spawn(function()
-            return host.call("test.resource", 12 * 1024 * 1024)
+            return host.call("test.resource", 6 * 1024 * 1024)
         end):await()
     end)
     time.sleep(100)
-    local after = host.call("test.make", 16 * 1024 * 1024, 2)
+    local after = host.call("test.make", 8 * 1024 * 1024, 2)
     return {cancelled = not ok, live = host.call("test.live"), after = lengthOf(after)}
 end
 
@@ -194,7 +194,7 @@ function scenarios.concurrentLargeResults()
     local children = {}
     for index = 1, 4 do
         children[index] = scope:spawn(function()
-            local made = host.call("test.make", 16 * 1024 * 1024, index)
+            local made = host.call("test.make", 8 * 1024 * 1024, index)
             return lengthOf(made)
         end)
     end
@@ -202,7 +202,7 @@ function scenarios.concurrentLargeResults()
         sizes[index] = children[index]:await()
     end
     scope:close()
-    local tooLarge = failure(host.call, "test.makeMany", 2, 9 * 1024 * 1024)
+    local tooLarge = failure(host.call, "test.makeMany", 2, 5 * 1024 * 1024)
     return {sizes = sizes, tooLarge = tooLarge, live = host.call("test.live")}
 end
 

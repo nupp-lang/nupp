@@ -189,13 +189,13 @@ test("a result abandoned mid-fetch is released by the page, not late", async () 
   assert.equal(value.cancelled, true);
   assert.equal(value.live, 0);
   assert.equal(state.released.length, 1);
-  assert.equal(value.after, 16 * 1024 * 1024, "the reassembly budget came back whole");
+  assert.equal(value.after, 8 * 1024 * 1024, "the reassembly budget came back whole");
 });
 
 test("results filling the budget are admitted in turn, and an oversized one is refused", async () => {
   const {value, state} = await scenario("concurrentLargeResults");
-  assert.deepEqual(value.sizes, [16 * 1024 * 1024, 16 * 1024 * 1024, 16 * 1024 * 1024, 16 * 1024 * 1024]);
-  assert.match(value.tooLarge, /more than the 16 MiB a result may hold/);
+  assert.deepEqual(value.sizes, [8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024]);
+  assert.match(value.tooLarge, /more than the 8 MiB a result may hold/);
   assert.equal(value.live, 0);
   assert.equal(state.released.length, 1);
 });

@@ -30,8 +30,9 @@ local unpackValues: any = rawget(_G, "unpack") or (table as any).unpack
 
 local provider = {}
 
---- The guest memory committed to byte results being fetched, at most.
-const RESULT_BUDGET_BYTES = 16 * 1024 * 1024
+--- The guest memory committed to byte results being fetched, at most. The
+--- application guest has about 44 MiB in all, so this stays a fifth of it.
+const RESULT_BUDGET_BYTES = 8 * 1024 * 1024
 
 --- How many posts may wait to ship before posting raises.
 const MAX_PENDING_POSTS = 1024
@@ -245,13 +246,13 @@ local function fetchBytes(kind: string, value: any, decoded: any): nil
         local size = entry.size
         if type(size) ~= "number" or size < 0 or size % 1 ~= 0 or size > values.MAX_INBOUND_BYTES then
             control({op = "abandon", result = result})
-            error("nupp: host " .. kind .. " answered a byte value larger than 16 MiB", 0)
+            error("nupp: host " .. kind .. " answered a byte value larger than 8 MiB", 0)
         end
         total = total + (size as integer)
     end
     if total > RESULT_BUDGET_BYTES then
         control({op = "abandon", result = result})
-        error(string.format("nupp: host %s answered %d bytes, more than the 16 MiB a result may hold", kind, total), 0)
+        error(string.format("nupp: host %s answered %d bytes, more than the 8 MiB a result may hold", kind, total), 0)
     end
     local admitted, admissionProblem = pcall(admit, kind, total)
     if not admitted then

@@ -23,7 +23,7 @@ values.MAX_STRING_BYTES = 64 * 1024
 values.MAX_OUTBOUND_BYTES = 64 * 1024 * 1024
 
 --- The largest byte value a host may answer with.
-values.MAX_INBOUND_BYTES = 16 * 1024 * 1024
+values.MAX_INBOUND_BYTES = 8 * 1024 * 1024
 
 --- The largest byte value that crosses in one piece; larger ones are chunked.
 values.CHUNK_BYTES = 1024 * 1024

@@ -22,7 +22,7 @@ pub(crate) const MAX_VALUES: usize = 255;
 /// The longest string value, which the browser carries inside a text envelope.
 pub(crate) const MAX_STRING_BYTES: usize = 64 * 1024;
 /// The largest byte value an application may answer with.
-pub(crate) const MAX_ANSWER_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_ANSWER_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) const VALUE_NIL: u32 = 0;
 pub(crate) const VALUE_BOOLEAN: u32 = 1;

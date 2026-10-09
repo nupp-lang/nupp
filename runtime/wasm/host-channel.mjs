@@ -12,7 +12,7 @@
 
 const MAX_STRING_BYTES = 64 * 1024;
 const MAX_OUTBOUND_BYTES = 64 * 1024 * 1024;
-const MAX_INBOUND_BYTES = 16 * 1024 * 1024;
+const MAX_INBOUND_BYTES = 8 * 1024 * 1024;
 const MAX_VALUES = 255;
 const DEFAULT_REASSEMBLY_BYTES = 128 * 1024 * 1024;
 const KIND = /^[\w-]+\.[\w.-]*[\w-]$/;
@@ -179,7 +179,7 @@ function encodeResults(name, answer) {
     const view = asBytes(value);
     if (view) {
       if (view.byteLength > MAX_INBOUND_BYTES) {
-        throw new Error(`host handler ${name} result ${position} is more than 16 MiB of bytes`);
+        throw new Error(`host handler ${name} result ${position} is more than 8 MiB of bytes`);
       }
       bytes.push({index: position, size: view.byteLength, view});
       return;
