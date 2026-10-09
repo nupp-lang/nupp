@@ -6,8 +6,8 @@ local M = {}
 -- direct math forms) joined the primitive, edge and map corpora.
 local ceilings = {
     species = {files = 41, bytes = 400000, probes = 640},
-    native = {files = 128, bytes = 3000000, probes = 850},
-    wasm = {files = 128, bytes = 3000000, probes = 850},
+    native = {files = 160, bytes = 3000000, probes = 900},
+    wasm = {files = 160, bytes = 3000000, probes = 900},
 }
 
 local function measure(generated)

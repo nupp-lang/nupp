@@ -190,4 +190,46 @@ end
     testAssert.equal(absent, true, "simd.vectors is nil as Lua")
 end
 
+function M.theLaneVocabularyAndWidthCouplingRunInOneLane()
+    local run = compile(PRELUDE .. [[
+@aot
+local function probe(borrows bytes: span.Span<uint8>, borrows reals: span.Span<float>): (number, number, number, number, number, number, number, number)
+    local s = simd.species(array.uint8)
+    local wide = s:widen(array.uint16)
+    local f = simd.species(array.float)
+    local v = s:load(bytes, 1)
+    local widened = wide:convert(v) * 300
+    local r = f:load(reals, 1)
+    return (v % 7):extract(1),
+        (v // 3):extract(1),
+        v:saturatingAdd(250):extract(1),
+        v:popcount():extract(1),
+        v:mulHigh(200):extract(1),
+        widened:extract(1),
+        math.sqrt(r):extract(1),
+        r:fma(2.0, 0.5):extract(1)
+end
+return function(value: integer, real: number): (number, number, number, number, number, number, number, number)
+    const bytes = array.bytes(1)
+    const w = bytes:write()
+    w[1] = value
+    nupp.drop(w)
+    const reals = array.scalar(array.float, 1)
+    const wr = reals:write()
+    wr[1] = real
+    nupp.drop(wr)
+    return probe(bytes:read(), reals:read())
+end
+]])
+    local mod, div, sat, pop, high, widened, root, fused = run(200, 2.25)
+    testAssert.equal(mod, 4, "200 % 7")
+    testAssert.equal(div, 66, "200 // 3")
+    testAssert.equal(sat, 255, "saturating add clamps")
+    testAssert.equal(pop, 3, "popcount of 200")
+    testAssert.equal(high, 156, "high byte of 200 * 200")
+    testAssert.equal(widened, 60000 % 65536, "widened lanes wrap at sixteen bits")
+    testAssert.equal(root, 1.5, "sqrt applied directly")
+    testAssert.equal(fused, 5, "fma on a float lane")
+end
+
 return M

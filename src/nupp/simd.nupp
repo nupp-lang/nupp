@@ -2081,6 +2081,19 @@ local METHODS: {[string]: function(string, any, ...: any): any} = {
 
         return wrap(element, high)
     end,
+    -- The closed math set applied directly to a float vector.
+    sqrt = function(element: string, a: any): any
+        return wrap(element, math.sqrt(a as number))
+    end,
+    abs = function(element: string, a: any): any
+        return wrap(element, math.abs(a as number))
+    end,
+    floor = function(element: string, a: any): any
+        return wrap(element, math.floor(a as number))
+    end,
+    ceil = function(element: string, a: any): any
+        return wrap(element, math.ceil(a as number))
+    end,
     -- Masks.
     select = function(_element: string, mask: any, yes: any, no: any): any
         if mask then
@@ -2127,6 +2140,8 @@ local function readAt(source: any, offset: any, field: string?): any
 
     return value
 end
+
+local scalarSpecies: function(any, any): any
 
 --- The one-lane species object.
 local record ScalarSpecies
@@ -2211,6 +2226,16 @@ local record ScalarSpecies
         return wrap(element, value)
     end
 
+    --- Another element's species with this one's lane count, which as Lua
+    --- is one either way.
+    function widen(self, witness: any): any
+        return scalarSpecies(witness, nil)
+    end
+
+    function narrow(self, witness: any): any
+        return scalarSpecies(witness, nil)
+    end
+
     function splat(self, value: any): any
         return wrap(self.element, value)
     end
@@ -2287,7 +2312,7 @@ end
 
 local speciesCache: {[string]: ScalarSpecies} = {}
 
-local function scalarSpecies(element: any, lanes: any): any
+scalarSpecies = function(element: any, lanes: any): any
     local name = ELEMENT_OF[element]
     if name == nil then
         error("simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32", 3)

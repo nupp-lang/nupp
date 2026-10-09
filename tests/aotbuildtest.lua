@@ -6571,7 +6571,6 @@ function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
     end
 end
 
-||||||| parent of 8ee07a87d (Show widened species and carried lanes in the SIMD guide)
 --- The two kernels `Species.widen` and a computed lane index were added for:
 --- a byte-to-grey conversion whose weighted sum needs the lanes of a byte
 --- register held in sixteen bits, and a prefix sum carrying its last lane

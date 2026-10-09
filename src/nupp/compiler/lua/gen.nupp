@@ -5751,6 +5751,18 @@ function gen.generate(
             e(")")
             return
         end
+        if kind == "call" and x.simdMath and x.args and x.args.exprs and #x.args.exprs == 1 then
+            -- `math.sqrt(v)` on a vector: as Lua the lane runtime applies the
+            -- operation and wraps the answer to the element.
+            local _, element = emitDepth.simdFamilyOf(x.args.exprs[1].inferredType)
+            e(
+                ("%s.lane.method(%q,%q,"):format(compilerModuleName("nupp.simd"), x.simdMath, element or "number"),
+                sourceLine(x)
+            )
+            emit(x.args.exprs[1])
+            e(")")
+            return
+        end
         if kind == "methodCall" and x.obj and x.name and not x.safeObj and not x.safeMethod then
             local family, element = emitDepth.simdFamilyOf(x.obj.inferredType)
             local args = x.args and x.args.exprs or {}
