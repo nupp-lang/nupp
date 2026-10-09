@@ -183,6 +183,7 @@ local function rockspec(path)
     local chunk = assert(loadfile(path))
     setfenv(chunk, fields)
     chunk()
+
     return fields
 end
 
@@ -190,6 +191,37 @@ end
 -- pinned one had not been installed yet. The launcher now names a shim instead,
 -- which asks `scripts/toolchain` for the pinned LuaRocks and runs it with the
 -- build's arguments; the provisioning log stays out of what `--version` answers.
+function M.macOSArchiveChecksumsDoNotReadTheCommitHashInTheFilename()
+    if package.config:sub(1, 1) == "\\" then
+        return
+    end
+    local uname = assert(io.popen("uname -s"))
+    local platform = uname:read("*l")
+    uname:close()
+    if platform ~= "Darwin" then
+        return
+    end
+    local status, output = run({}, "luarocks")
+    assert(status == 0, output)
+    local prefix = output:match("([^\n]+)\n?$")
+    local executable = read(prefix .. "/.executable"):gsub("%s+$", "")
+    local pipe = assert(io.popen(quote(executable) .. " config variables.MD5SUM"))
+    local checker = pipe:read("*a"):gsub("%s+$", "")
+    pipe:close()
+    assert(checker == "/sbin/md5 -q", checker)
+    local directory = temporary()
+    local archive = directory .. "/e6118c8850b0ba1fc22b66294beb40c591d2a752.tar.gz"
+    write(archive, "nupp checksum fixture\n")
+    pipe = assert(io.popen(checker .. " " .. quote(archive)))
+    local answer = pipe:read("*l")
+    pipe:close()
+    -- This is the extraction LuaRocks applies to its checker's first line.
+    local digest = answer and answer:match("(" .. ("%x"):rep(32) .. ")")
+    assert(digest == "09d95556452722f5f26e299b6a79a0d3", tostring(digest))
+    assert(os.remove(archive))
+    assert(os.execute("rmdir " .. quote(directory)) == 0)
+end
+
 function M.anUnprovisionedLuaRocksIsThePinnedOneNotThePathOne()
     local launcher = read(ROOT .. "/bin/nupp")
     assert(launcher:find('NUPP_LUAROCKS="$ROOT/scripts/luarocks"', 1, true), "bin/nupp falls back to PATH's luarocks")
@@ -204,16 +236,17 @@ function M.anUnprovisionedLuaRocksIsThePinnedOneNotThePathOne()
     write(root .. "/scripts/luarocks", read(ROOT .. "/scripts/luarocks"))
     write(
         root .. "/scripts/toolchain",
-        "#!/bin/sh\n[ \"$1\" = luarocks ] || exit 9\necho 'installing LuaRocks' >&2\nprintf '%s\\n' "
-            .. quote(prefix)
-            .. "\n"
+        "#!/bin/sh\n[ \"$1\" = luarocks ] || exit 9\necho 'installing LuaRocks' >&2\nprintf '%s\\n' " .. quote(
+            prefix
+        ) .. "\n"
     )
     write(prefix .. "/luarocks", "#!/bin/sh\nprintf 'pinned %s\\n' \"$*\"\n")
     write(prefix .. "/.executable", prefix .. "/luarocks\n")
     assert(
         os.execute(
-            "chmod +x " .. quote(root .. "/scripts/luarocks") .. " " .. quote(root .. "/scripts/toolchain") .. " "
-                .. quote(prefix .. "/luarocks")
+            "chmod +x " .. quote(
+                root .. "/scripts/luarocks"
+            ) .. " " .. quote(root .. "/scripts/toolchain") .. " " .. quote(prefix .. "/luarocks")
         ) == 0
     )
     local pipe = assert(io.popen(quote(root .. "/scripts/luarocks") .. " --tree=x install 'a b' 2>&1"))
@@ -247,7 +280,10 @@ function M.everyBundledRockIsPinnedToAnArchiveDigest()
                 name .. " is not pinned by a rockspec in rocks/"
             )
             assert(dependency.version == nil and dependency.server == nil, name .. " asks a rock server for itself")
-            assert(dependency.rockDependencies == false, name .. " lets LuaRocks resolve its dependencies from a server")
+            assert(
+                dependency.rockDependencies == false,
+                name .. " lets LuaRocks resolve its dependencies from a server"
+            )
             local source = rockspec(ROOT .. "/" .. path).source
             assert(source.url:match("^https://"), path .. " fetches over something other than HTTPS: " .. source.url)
             assert(source.tag == nil and source.branch == nil, path .. " names a movable Git ref")
@@ -316,7 +352,10 @@ function M.thirdPartyActionsArePinnedToCommits()
             for action in read(ROOT .. "/.github/workflows/" .. name):gmatch("uses:%s*([^%s#]+)") do
                 if not action:match("^actions/") and not action:match("^%./") then
                     checked = checked + 1
-                    assert(action:match("@%x+$") and #action:match("@(%x+)$") == 40, name .. " runs " .. action .. " by tag")
+                    assert(
+                        action:match("@%x+$") and #action:match("@(%x+)$") == 40,
+                        name .. " runs " .. action .. " by tag"
+                    )
                 end
             end
         end
@@ -416,7 +455,13 @@ local function lpegFromMirrors(serves)
     local root = directory .. "/root"
     local bin = directory .. "/bin"
     local staging = directory .. "/staging/lpeg-9.9.9"
-    for _, path in ipairs({root .. "/scripts/patches", root .. "/host/notices", bin, staging, directory .. "/served"}) do
+    for _, path in ipairs({
+        root .. "/scripts/patches",
+        root .. "/host/notices",
+        bin,
+        staging,
+        directory .. "/served"
+    }) do
         assert(os.execute("mkdir -p " .. quote(path)) == 0)
     end
     local licence = "Copyright 2007-2023 Lua.org, PUC-Rio.\nPermission is hereby granted\n"
@@ -439,7 +484,7 @@ local function lpegFromMirrors(serves)
         :gsub(
             "\nLPEG_MIRRORS=[^\n]*",
             "\nLPEG_MIRRORS='https://first.invalid/lpeg-${LPEG_VERSION}.tar.gz "
-                .. "https://second.invalid/lpeg-${LPEG_VERSION}.tar.gz'"
+            .. "https://second.invalid/lpeg-${LPEG_VERSION}.tar.gz'"
         )
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
@@ -499,8 +544,8 @@ function M.anUnreachableOriginFallsBackToAMirrorWithTheSameDigest()
     assert(status == 0, "no mirror was used when the origin was down:\n" .. output)
     assert(
         asked == "https://origin.invalid/lpeg-9.9.9.tar.gz\n"
-            .. "https://first.invalid/lpeg-9.9.9.tar.gz\n"
-            .. "https://second.invalid/lpeg-9.9.9.tar.gz\n",
+        .. "https://first.invalid/lpeg-9.9.9.tar.gz\n"
+        .. "https://second.invalid/lpeg-9.9.9.tar.gz\n",
         "the origin and mirrors were not asked in order:\n" .. asked
     )
     assert(output:find("refusing to cache or compile it; trying https://second.invalid", 1, true), output)
@@ -557,7 +602,13 @@ function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
     local root = directory .. "/root"
     local bin = directory .. "/bin"
     local source = directory .. "/cache/sources/" .. pins().LLVM_DIRECTORY:gsub("%${LLVM_VERSION}", pins().LLVM_VERSION)
-    for _, path in ipairs({root .. "/scripts/patches", root .. "/host/notices", bin, source .. "/llvm", source .. "/lld"}) do
+    for _, path in ipairs({
+        root .. "/scripts/patches",
+        root .. "/host/notices",
+        bin,
+        source .. "/llvm",
+        source .. "/lld"
+    }) do
         assert(os.execute("mkdir -p " .. quote(path)) == 0)
     end
     local driver = root .. "/scripts/toolchain"
@@ -574,7 +625,9 @@ function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
     -- cmake records that it ran; reaching it means the notice was not checked.
     write(bin .. "/cmake", "#!/bin/sh\n: > " .. quote(directory .. "/configured") .. "\nexit 1\n")
     write(bin .. "/ninja", "#!/bin/sh\nexit 1\n")
-    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/cmake") .. " " .. quote(bin .. "/ninja")) == 0)
+    assert(
+        os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/cmake") .. " " .. quote(bin .. "/ninja")) == 0
+    )
     local compiler = fakeCompiler(directory, "fake-cc", "fixed")
     local status, output = run(
         {
@@ -599,6 +652,7 @@ end
 -- a pin bump was linked as though it were the pinned one.
 function M.aNamedLlvmTreeOfAnotherVersionIsRefused()
     local directory = temporary()
+
     local function tree(name, version)
         local prefix = directory .. "/" .. name
         assert(os.execute("mkdir -p " .. quote(prefix .. "/bin") .. " " .. quote(prefix .. "/lib")) == 0)
@@ -611,6 +665,7 @@ function M.aNamedLlvmTreeOfAnotherVersionIsRefused()
             prefix .. "/include/llvm/Config/llvm-config.h",
             '#define LLVM_VERSION_MAJOR 1\n#define LLVM_VERSION_STRING "' .. version .. '"\n'
         )
+
         return prefix
     end
 
@@ -751,8 +806,9 @@ function M.releaseArchivesCarryOnlyNamesContentsAndModes()
     assert(status == 0, output)
     assert(
         os.execute(
-            "touch " .. quote(tree .. "/nupp") .. " && chmod 700 " .. quote(tree .. "/nupp")
-                .. " && chmod 600 " .. quote(tree .. "/notices/NOTICE.md")
+            "touch " .. quote(
+                tree .. "/nupp"
+            ) .. " && chmod 700 " .. quote(tree .. "/nupp") .. " && chmod 600 " .. quote(tree .. "/notices/NOTICE.md")
         ) == 0
     )
     local second = directory .. "/second.tar.gz"
@@ -1137,13 +1193,16 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
     -- The loop-entry hunk's context, at the line it names.
     write(
         source .. "/src/vm_arm64.dasc",
-        string.rep("\n", 3938)
-            .. "    if (op == BC_FORI) {\n"
-            .. "      |  csel PC, RC, PC, hi\n"
-            .. "    } else if (op == BC_JFORI) {\n"
-            .. "      |  ldrh RCw, [RC, #-4+OFS_RD]\n"
-            .. "      |  bls =>BC_JLOOP\n"
-            .. "    } else if (op == BC_IFORL) {\n"
+        string.rep(
+            "\n",
+            3938
+        )
+        .. "    if (op == BC_FORI) {\n"
+        .. "      |  csel PC, RC, PC, hi\n"
+        .. "    } else if (op == BC_JFORI) {\n"
+        .. "      |  ldrh RCw, [RC, #-4+OFS_RD]\n"
+        .. "      |  bls =>BC_JLOOP\n"
+        .. "    } else if (op == BC_IFORL) {\n"
     )
     local make = directory .. "/fake-make"
     write(
@@ -1318,7 +1377,6 @@ function M.arm64DoesNotTrustAReplacedPatchedInterpreter()
     assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
 end
 
-
 -- A run that finds another holding a lock says so, and whose it is, on standard
 -- error whether or not that is a terminal. It used to sleep in silence for up to
 -- half an hour -- the fifteen-minute stalls three cold runs showed with nothing
@@ -1341,21 +1399,24 @@ function M.aRunWaitingOnALockSaysWhoHoldsIt()
     local script = directory .. "/wait.sh"
     write(
         script,
-        table.concat({
-            "set -eu",
-            "note() { printf 'toolchain: %s\\n' \"$*\" >&2; }",
-            "LOCK=",
-            table.concat(functions, "\n"),
-            "CACHE=" .. quote(directory .. "/cache"),
-            "mkdir -p \"$CACHE/.lock-demo\"",
-            "sleep 5 &",
-            "holder=$!",
-            "printf '%s\\n' \"$holder\" > \"$CACHE/.lock-demo/pid\"",
-            "echo \"holder:$holder\"",
-            "take_lock demo \"$CACHE/never\"",
-            "echo took",
-            "",
-        }, "\n")
+        table.concat(
+            {
+                "set -eu",
+                "note() { printf 'toolchain: %s\\n' \"$*\" >&2; }",
+                "LOCK=",
+                table.concat(functions, "\n"),
+                "CACHE=" .. quote(directory .. "/cache"),
+                "mkdir -p \"$CACHE/.lock-demo\"",
+                "sleep 5 &",
+                "holder=$!",
+                "printf '%s\\n' \"$holder\" > \"$CACHE/.lock-demo/pid\"",
+                "echo \"holder:$holder\"",
+                "take_lock demo \"$CACHE/never\"",
+                "echo took",
+                "",
+            },
+            "\n"
+        )
     )
     local pipe = assert(io.popen("sh " .. quote(script) .. " 2>&1"))
     local output = pipe:read("*a")

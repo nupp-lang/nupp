@@ -2,6 +2,8 @@
 
 module nupp.runtime.provider.lunajson
 
+local numberSyntax = require("nupp.codec.json.number")
+
 --[[
 Portable implementation of `data.json` API 2 using vendored Lunajson.
 
@@ -115,48 +117,6 @@ local function classify(value: any): string, integer
     return "object", count
 end
 
-local function container(value: any, nullValue: any?, visiting: {[any]: boolean}, depth: integer): any
-    -- A custom sentinel is normalized here because the copy below would lose the
-    -- identity the encoder's null check compares against.
-    if value == json.NULL or nullValue ~= nil and value == nullValue then
-        return json.NULL
-    end
-    if type(value) == "string" and not validUtf8(value) then
-        error("cannot encode invalid UTF-8 as JSON", 0)
-    end
-    if type(value) ~= "table" then
-        return value
-    end
-    if depth >= 1024 then
-        error("JSON serialization nesting exceeds 1024", 0)
-    end
-    if visiting[value] then
-        error("cannot serialize a cyclic Lua table", 0)
-    end
-    visiting[value] = true
-    local out = {}
-    local kind, length = classify(value)
-    if kind == "array" then
-        out[0] = length
-        for index = 1, length do
-            out[index] = container(value[index], nullValue, visiting, depth + 1)
-        end
-    else
-        for key, child in pairs(value) do
-            if type(key) ~= "string" then
-                error("JSON object keys must be strings", 0)
-            end
-            if not validUtf8(key) then
-                error("cannot encode invalid UTF-8 as JSON", 0)
-            end
-            out[key] = container(child, nullValue, visiting, depth + 1)
-        end
-    end
-    visiting[value] = nil
-
-    return out
-end
-
 local function mark(value: any, nullValue: any?): any
     -- A caller's null sentinel keeps whatever metatable it arrived with.
     if type(value) ~= "table" or value == json.NULL or nullValue ~= nil and value == nullValue then
@@ -238,8 +198,52 @@ local function vendorProblem(problem: any): string
     return text
 end
 
+local function encodeValue(value: any, nullValue: any?, visiting: {[any]: boolean}, depth: integer): string
+    local marker = getmetatable(value)
+    if marker == ENCODED_VALUE or marker == ENCODED_STRING then
+        return value.bytes as string
+    end
+    if value == json.NULL or nullValue ~= nil and value == nullValue then
+        return "null"
+    end
+    if type(value) ~= "table" then
+        if type(value) == "string" and not validUtf8(value) then
+            error("cannot encode invalid UTF-8 as JSON", 0)
+        end
+        return core.encode(value, json.NULL)
+    end
+    if depth >= 1024 then
+        error("JSON serialization nesting exceeds 1024", 0)
+    end
+    if visiting[value] then
+        error("cannot serialize a cyclic Lua table", 0)
+    end
+    visiting[value] = true
+    local kind, length = classify(value)
+    local parts: {string} = {}
+    if kind == "array" then
+        for index = 1, length do
+            parts[index] = encodeValue(value[index], nullValue, visiting, depth + 1)
+        end
+    else
+        for key, child in pairs(value) do
+            if type(key) ~= "string" then
+                error("JSON object keys must be strings", 0)
+            end
+            if not validUtf8(key) then
+                error("cannot encode invalid UTF-8 as JSON", 0)
+            end
+            parts[#parts + 1] = core.encode(key) .. ":" .. encodeValue(child, nullValue, visiting, depth + 1)
+        end
+    end
+    visiting[value] = nil
+    local contents = table.concat(parts, ",")
+
+    return kind == "array" and "[" .. contents .. "]" or "{" .. contents .. "}"
+end
+
 function json.encode(value: any, nullValue: any?): string
-    local ok, encoded = pcall(core.encode, container(value, nullValue, {}, 0), json.NULL)
+    local ok, encoded = pcall(encodeValue, value, nullValue, {}, 0)
     if not ok then
         error(vendorProblem(encoded), 0)
     end
@@ -314,6 +318,13 @@ end
 
 function json.encoded(value: any, nullValue: any?): any
     return setmetatable({bytes = json.encode(value, nullValue),}, ENCODED_VALUE)
+end
+
+function json.numberToken(text: string): any
+    if not numberSyntax.valid(text) then
+        error("a JSON number token is required", 2)
+    end
+    return setmetatable({bytes = text}, ENCODED_VALUE)
 end
 
 function json.encodedString(value: string): any
@@ -521,6 +532,7 @@ local checked: contracts.Provider = {
     encode = json.encode,
     encoded = json.encoded,
     encodedString = json.encodedString,
+    numberToken = json.numberToken,
     pull = json.pull,
     verified = json.verified,
     verifiedString = json.verifiedString,

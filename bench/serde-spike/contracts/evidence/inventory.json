@@ -1,0 +1,1196 @@
+{
+  "baseCommit": "c33cac98c2bf6ded7971e19150e6611a79546500",
+  "workingTree": true,
+  "patterns": {
+    "serde": "nupp[./]serde|serde\\.(?:of|dynamic|prepare|SchemaBuilder|key|saveStore|loadStore)",
+    "json_derives": "derive\\.(?:Serde|JSON|JSONOptions)|@json\\b",
+    "reflection": "fieldCodec|runtimeReflectionNeeded|__reflect",
+    "debug": "derive\\.Debug|prepareDebug|debugEntry",
+    "providers": "compileSerde|decodeSerde|decodeSerdeBuffer",
+    "persistence": "saveStore|loadStore|persistence|Persist"
+  },
+  "sources": [
+    {
+      "path": "bench/luajit-browser/legacy-removal.md",
+      "lines": {
+        "persistence": [
+          16
+        ]
+      }
+    },
+    {
+      "path": "bench/luajit-browser/results/compatibility-inventory.json",
+      "lines": {
+        "serde": [
+          1
+        ]
+      }
+    },
+    {
+      "path": "bench/serde-spike/README.md",
+      "lines": {
+        "serde": [
+          87
+        ],
+        "json_derives": [
+          4,
+          48,
+          52,
+          56,
+          59,
+          90
+        ]
+      }
+    },
+    {
+      "path": "bench/serde-spike/contracts/evidence/baseline.json",
+      "lines": {
+        "serde": [
+          13
+        ]
+      }
+    },
+    {
+      "path": "bench/serde-spike/src/serde_spike.g.nupp",
+      "lines": {
+        "serde": [
+          9,
+          311,
+          312,
+          313,
+          314,
+          315,
+          355,
+          379,
+          380,
+          528
+        ],
+        "json_derives": [
+          195,
+          226,
+          227,
+          281,
+          350,
+          359,
+          365
+        ],
+        "debug": [
+          195,
+          226,
+          314,
+          315,
+          359,
+          365,
+          380
+        ]
+      }
+    },
+    {
+      "path": "bench/simd-json/README.md",
+      "lines": {
+        "serde": [
+          169
+        ]
+      }
+    },
+    {
+      "path": "bench/simd-json/compiled.lua",
+      "lines": {
+        "providers": [
+          57
+        ]
+      }
+    },
+    {
+      "path": "bench/simd-json/src/production_json_test.nupp",
+      "lines": {
+        "serde": [
+          1,
+          4,
+          46,
+          47,
+          90,
+          93,
+          105
+        ],
+        "json_derives": [
+          12,
+          17,
+          25,
+          31,
+          38
+        ]
+      }
+    },
+    {
+      "path": "bench/simd-json/src/simdjsonbench.nupp",
+      "lines": {
+        "providers": [
+          6,
+          7
+        ]
+      }
+    },
+    {
+      "path": "bench/simd-json/typed_benchmark.lua",
+      "lines": {
+        "providers": [
+          6,
+          21
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/language/comptime.md",
+      "lines": {
+        "reflection": [
+          104,
+          120,
+          130
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/language/reflection.md",
+      "lines": {
+        "serde": [
+          152,
+          161
+        ],
+        "json_derives": [
+          132,
+          134,
+          139,
+          211
+        ],
+        "reflection": [
+          180,
+          217
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/language/types/comptime-types.md",
+      "lines": {
+        "debug": [
+          268,
+          277
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/projects/hot-reload.md",
+      "lines": {
+        "persistence": [
+          253
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/runtime/data/serde.md",
+      "lines": {
+        "serde": [
+          19,
+          47,
+          59,
+          72,
+          73,
+          80,
+          106,
+          107,
+          108,
+          132,
+          148,
+          154,
+          214,
+          219,
+          227,
+          231,
+          236,
+          244
+        ],
+        "json_derives": [
+          13,
+          45,
+          52,
+          221,
+          255,
+          256
+        ],
+        "debug": [
+          132
+        ],
+        "persistence": [
+          211,
+          216,
+          231,
+          236,
+          241,
+          245
+        ]
+      }
+    },
+    {
+      "path": "docs/learn/runtime/data/standard-library.md",
+      "lines": {
+        "serde": [
+          68
+        ]
+      }
+    },
+    {
+      "path": "docs/reference/annotations.md",
+      "lines": {
+        "json_derives": [
+          335,
+          418,
+          419,
+          432,
+          810
+        ],
+        "debug": [
+          418,
+          423
+        ]
+      }
+    },
+    {
+      "path": "docs/reference/derives.md",
+      "lines": {
+        "serde": [
+          136,
+          147,
+          155,
+          156,
+          167,
+          186,
+          360
+        ],
+        "json_derives": [
+          17,
+          19,
+          41,
+          44,
+          141,
+          161,
+          179,
+          244,
+          246,
+          273,
+          275,
+          299,
+          300,
+          314,
+          317,
+          340,
+          359,
+          405,
+          561
+        ],
+        "reflection": [
+          42,
+          234
+        ],
+        "debug": [
+          17,
+          39,
+          65,
+          84,
+          89,
+          117,
+          141,
+          147,
+          244
+        ]
+      }
+    },
+    {
+      "path": "editors/playground/src/examples/serde.nupp",
+      "lines": {
+        "serde": [
+          5,
+          15
+        ],
+        "json_derives": [
+          8
+        ]
+      }
+    },
+    {
+      "path": "nupp.lua",
+      "lines": {
+        "serde": [
+          288
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/codec/json/aot.nupp",
+      "lines": {
+        "providers": [
+          646,
+          651,
+          672,
+          896,
+          897,
+          898
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/codec/json/init.nupp",
+      "lines": {
+        "serde": [
+          104,
+          127,
+          137,
+          143,
+          494,
+          506,
+          516
+        ],
+        "json_derives": [
+          117,
+          122,
+          139,
+          167,
+          496,
+          500
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/codec/json/internal/decoder/fused.nupp",
+      "lines": {
+        "providers": [
+          797
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/codec/json/internal/decoder/serde.nupp",
+      "lines": {
+        "providers": [
+          23
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/codec/json/spi.nupp",
+      "lines": {
+        "serde": [
+          30
+        ],
+        "providers": [
+          259,
+          262,
+          265
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/annotations.nupp",
+      "lines": {
+        "json_derives": [
+          398,
+          734
+        ],
+        "debug": [
+          735
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/check/calls.nupp",
+      "lines": {
+        "reflection": [
+          650
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/check/derive.nupp",
+      "lines": {
+        "serde": [
+          202
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/comptime/materialize/fieldcodec.nupp",
+      "lines": {
+        "reflection": [
+          31,
+          38,
+          41
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/comptime/worker.nupp",
+      "lines": {
+        "persistence": [
+          393
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/decls/prelude.d.nupp",
+      "lines": {
+        "serde": [
+          1030
+        ],
+        "json_derives": [
+          891,
+          1001,
+          1003,
+          1024,
+          1040,
+          1112
+        ],
+        "reflection": [
+          994,
+          1913,
+          2205,
+          2259,
+          2269
+        ],
+        "debug": [
+          891,
+          981
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/lua/gen.nupp",
+      "lines": {
+        "reflection": [
+          6156,
+          6165
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/native.nupp",
+      "lines": {
+        "reflection": [
+          369
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/project/env.nupp",
+      "lines": {
+        "serde": [
+          2480
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/project/incremental.nupp",
+      "lines": {
+        "persistence": [
+          156,
+          168,
+          775,
+          1466,
+          1508
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/runtime/reflect.nupp",
+      "lines": {
+        "json_derives": [
+          171
+        ],
+        "reflection": [
+          10,
+          12,
+          96
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/standardsurface.nupp",
+      "lines": {
+        "serde": [
+          45
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/stdlib.nupp",
+      "lines": {
+        "reflection": [
+          65
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/compiler/types/init.nupp",
+      "lines": {
+        "reflection": [
+          832
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/derive.nupp",
+      "lines": {
+        "serde": [
+          29,
+          567,
+          796
+        ],
+        "json_derives": [
+          9,
+          37,
+          1263,
+          1349
+        ],
+        "reflection": [
+          850,
+          857,
+          883,
+          884,
+          1326,
+          1334
+        ],
+        "debug": [
+          9,
+          798,
+          1206
+        ],
+        "providers": [
+          638,
+          640,
+          826
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/io/files/init.nupp",
+      "lines": {
+        "persistence": [
+          22,
+          421,
+          423,
+          424
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/io/files/spi.nupp",
+      "lines": {
+        "persistence": [
+          82
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/runtime/browser/files.g.nupp",
+      "lines": {
+        "persistence": [
+          613,
+          619
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/runtime/browser/playground.g.nupp",
+      "lines": {
+        "serde": [
+          15
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/runtime/provider/nativefiles.nupp",
+      "lines": {
+        "persistence": [
+          1717
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/runtime/provider/nativetime.nupp",
+      "lines": {
+        "persistence": [
+          59
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/serde.nupp",
+      "lines": {
+        "serde": [
+          1,
+          4,
+          17,
+          27,
+          28,
+          30,
+          31,
+          32
+        ],
+        "json_derives": [
+          11,
+          76,
+          798
+        ],
+        "debug": [
+          1130,
+          1136
+        ],
+        "providers": [
+          1808,
+          1809,
+          1830,
+          1851
+        ],
+        "persistence": [
+          1930,
+          1939,
+          1940,
+          1961,
+          1977,
+          1984,
+          1990
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/tools/build/modules.nupp",
+      "lines": {
+        "persistence": [
+          1050
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/tools/doc/extract.nupp",
+      "lines": {
+        "json_derives": [
+          76
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/tools/explain.nupp",
+      "lines": {
+        "reflection": [
+          2223,
+          2224,
+          2270,
+          2271,
+          2272
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/tools/hotsession.nupp",
+      "lines": {
+        "persistence": [
+          4
+        ]
+      }
+    },
+    {
+      "path": "src/nupp/tools/reference.nupp",
+      "lines": {
+        "json_derives": [
+          2082,
+          2083
+        ],
+        "reflection": [
+          2783,
+          2807
+        ],
+        "debug": [
+          2082
+        ]
+      }
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "lines": {
+        "json_derives": [
+          853,
+          868,
+          869
+        ],
+        "debug": [
+          853,
+          868
+        ]
+      }
+    },
+    {
+      "path": "tests/deriveacceptancetest.lua",
+      "lines": {
+        "json_derives": [
+          65,
+          66,
+          138,
+          139
+        ],
+        "debug": [
+          35,
+          138
+        ]
+      }
+    },
+    {
+      "path": "tests/derivetest.lua",
+      "lines": {
+        "json_derives": [
+          73,
+          75,
+          114,
+          135,
+          186,
+          187,
+          190,
+          192,
+          194,
+          242,
+          298,
+          361,
+          366,
+          371,
+          408,
+          480,
+          501,
+          503,
+          511,
+          513,
+          525,
+          630,
+          674,
+          685,
+          702,
+          703,
+          732
+        ],
+        "reflection": [
+          199,
+          254,
+          506,
+          516,
+          537
+        ],
+        "debug": [
+          73,
+          298,
+          332,
+          337,
+          343,
+          398,
+          402,
+          443,
+          449,
+          469,
+          473,
+          480,
+          525,
+          555,
+          562,
+          575,
+          594,
+          615,
+          630,
+          674,
+          685,
+          724,
+          743
+        ]
+      }
+    },
+    {
+      "path": "tests/doctest.lua",
+      "lines": {
+        "reflection": [
+          1242,
+          1251,
+          1264,
+          1265
+        ],
+        "debug": [
+          98,
+          115,
+          2327
+        ]
+      }
+    },
+    {
+      "path": "tests/fieldcodecmaterializetest.lua",
+      "lines": {
+        "reflection": [
+          59,
+          90,
+          100,
+          268,
+          283,
+          296
+        ]
+      }
+    },
+    {
+      "path": "tests/filestest.lua",
+      "lines": {
+        "persistence": [
+          266,
+          785
+        ]
+      }
+    },
+    {
+      "path": "tests/fixtures/deriveexported.nupp",
+      "lines": {
+        "debug": [
+          4
+        ]
+      }
+    },
+    {
+      "path": "tests/fixtures/deriveinspect_consumer.nupp",
+      "lines": {
+        "debug": [
+          8
+        ]
+      }
+    },
+    {
+      "path": "tests/fmttest.lua",
+      "lines": {
+        "json_derives": [
+          130,
+          160
+        ]
+      }
+    },
+    {
+      "path": "tests/incrementaltest.lua",
+      "lines": {
+        "serde": [
+          190,
+          191,
+          203
+        ],
+        "json_derives": [
+          174,
+          270
+        ],
+        "debug": [
+          251,
+          270,
+          356
+        ]
+      }
+    },
+    {
+      "path": "tests/interfaceimagetest.lua",
+      "lines": {
+        "json_derives": [
+          425
+        ],
+        "debug": [
+          425
+        ]
+      }
+    },
+    {
+      "path": "tests/jsonfacadedefaulttest.lua",
+      "lines": {
+        "providers": [
+          115
+        ]
+      }
+    },
+    {
+      "path": "tests/jsonfuseddifferentialtest.lua",
+      "lines": {
+        "providers": [
+          539,
+          548
+        ]
+      }
+    },
+    {
+      "path": "tests/loggingtest.lua",
+      "lines": {
+        "debug": [
+          60,
+          125,
+          143,
+          207
+        ]
+      }
+    },
+    {
+      "path": "tests/lsptest.lua",
+      "lines": {
+        "json_derives": [
+          4542,
+          4653,
+          4657,
+          4686,
+          4709
+        ],
+        "reflection": [
+          4553,
+          4682,
+          4703
+        ],
+        "debug": [
+          4542
+        ]
+      }
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "lines": {
+        "reflection": [
+          424
+        ],
+        "persistence": [
+          465,
+          2224
+        ]
+      }
+    },
+    {
+      "path": "tests/runnertest.lua",
+      "lines": {
+        "persistence": [
+          121
+        ]
+      }
+    },
+    {
+      "path": "tests/runtimereflectiontest.lua",
+      "lines": {
+        "serde": [
+          176
+        ],
+        "json_derives": [
+          75,
+          95,
+          120,
+          140,
+          169
+        ],
+        "reflection": [
+          57,
+          70,
+          84,
+          85,
+          101,
+          113,
+          118,
+          131
+        ]
+      }
+    },
+    {
+      "path": "tests/runtimetest.lua",
+      "lines": {
+        "json_derives": [
+          337,
+          351
+        ],
+        "debug": [
+          337,
+          351
+        ]
+      }
+    },
+    {
+      "path": "tests/serdetest.lua",
+      "lines": {
+        "serde": [
+          44,
+          45,
+          175,
+          201,
+          223,
+          246,
+          250,
+          263,
+          264,
+          271,
+          304,
+          305,
+          308,
+          352,
+          353,
+          356,
+          366,
+          371,
+          424,
+          425,
+          429,
+          462,
+          492,
+          493,
+          494,
+          495,
+          506,
+          528,
+          529,
+          530,
+          534,
+          535,
+          545,
+          552,
+          580,
+          588,
+          638,
+          639,
+          678,
+          713,
+          714,
+          715,
+          716,
+          717,
+          735,
+          739,
+          761,
+          762,
+          788,
+          789,
+          792,
+          842,
+          843,
+          864,
+          865,
+          893,
+          894,
+          897,
+          900,
+          929,
+          930,
+          935,
+          964,
+          969
+        ],
+        "json_derives": [
+          37,
+          169,
+          196,
+          217,
+          240,
+          339,
+          345,
+          455,
+          477,
+          486,
+          627,
+          632,
+          672,
+          703,
+          707,
+          860,
+          888,
+          925,
+          991,
+          1004,
+          1017
+        ],
+        "debug": [
+          477,
+          486,
+          494,
+          495,
+          506,
+          552,
+          575,
+          595,
+          609
+        ],
+        "persistence": [
+          897,
+          900,
+          913,
+          918,
+          919,
+          935,
+          969
+        ]
+      }
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "lines": {
+        "persistence": [
+          580,
+          582
+        ]
+      }
+    },
+    {
+      "path": "tests/testtimingstest.lua",
+      "lines": {
+        "persistence": [
+          1
+        ]
+      }
+    },
+    {
+      "path": "tests/typeleveltest.lua",
+      "lines": {
+        "debug": [
+          715
+        ]
+      }
+    },
+    {
+      "path": "tests/wasm-aot/derive-project/src/main.nupp",
+      "lines": {
+        "json_derives": [
+          7,
+          9
+        ],
+        "debug": [
+          7
+        ]
+      }
+    },
+    {
+      "path": "tests/wasm-aot/files-project/src/main.nupp",
+      "lines": {
+        "persistence": [
+          86,
+          96
+        ]
+      }
+    }
+  ],
+  "stageZero": [
+    {
+      "file": "build/stage0/9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+      "sha256": "9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff",
+      "references": {
+        "serde": 36,
+        "json_derives": 27,
+        "reflection": 34,
+        "debug": 22,
+        "providers": 39,
+        "persistence": 42
+      }
+    },
+    {
+      "file": "build/stage0/9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff/verified.lua",
+      "sha256": "9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff",
+      "references": {
+        "serde": 36,
+        "json_derives": 27,
+        "reflection": 34,
+        "debug": 22,
+        "providers": 39,
+        "persistence": 42
+      }
+    }
+  ]
+}

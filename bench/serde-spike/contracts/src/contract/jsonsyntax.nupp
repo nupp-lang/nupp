@@ -1,0 +1,345 @@
+module contract.jsonsyntax
+
+local json = require("nupp.codec.json")
+
+export type Token = "null" | "boolean" | "number" | "string" | "object" | "array"
+local type Phase = "first" | "value" | "after"
+local record Frame
+    kind: "object" | "array"
+    phase: Phase
+    names: {[string]: boolean}
+    count: integer
+end
+
+export record Mark
+    @readonly depth: integer
+    @readonly count: integer
+end
+
+export record Cursor
+    @private @readonly input: string
+    @private position: integer
+    @private frames: {Frame}
+    @private roots: integer
+    @private tokens: integer
+    @private @readonly maxDepth: integer
+    @private @readonly maxTokens: integer
+    @private closed: boolean
+
+    function fail(self, message: string): never
+        error("JSON byte " .. tostring(self.position) .. ": " .. message, 2)
+    end
+
+    function space(self): nil
+        if self.closed then
+            self:fail("reader is closed")
+        end
+        local position = self.position
+        while position <= #self.input do
+            local byte = self.input:byte(position)
+            if byte ~= 32 and byte ~= 9 and byte ~= 10 and byte ~= 13 then
+                break
+            end
+            position += 1
+        end
+        self.position = position
+    end
+
+    function peek(self): Token
+        self:space()
+        local byte = self.input:byte(self.position)
+        if byte == 110 then
+            return "null"
+        elseif byte == 116 or byte == 102 then
+            return "boolean"
+        elseif byte == 34 then
+            return "string"
+        elseif byte == 123 then
+            return "object"
+        elseif byte == 91 then
+            return "array"
+        elseif byte == 45 or (byte ~= nil and byte >= 48 and byte <= 57) then
+            return "number"
+        end
+        self:fail("expected a value")
+    end
+
+    function beginValue(self): nil
+        self:space()
+        local frame = self.frames[#self.frames]
+        if frame ~= nil then
+            assert(frame.phase == "value", "JSON value is not expected here")
+        elseif self.roots ~= 0 then
+            self:fail("more than one root value")
+        end
+        self.tokens += 1
+        if self.tokens > self.maxTokens then
+            self:fail("token limit exceeded")
+        end
+    end
+
+    function finishValue(self): nil
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            self.roots += 1
+        else
+            frame.phase = "after"
+            frame.count += 1
+        end
+    end
+
+    function endScalar(self): nil
+        local byte = self.input:byte(self.position)
+        if byte ~= nil
+            and byte ~= 32
+            and byte ~= 9
+            and byte ~= 10
+            and byte ~= 13
+            and byte ~= 44
+            and byte ~= 93
+            and byte ~= 125
+        then
+            self:fail("invalid value boundary")
+        end
+        self:finishValue()
+    end
+
+    function literal(self, text: string): nil
+        self:beginValue()
+        if self.input:sub(self.position, self.position + #text - 1) ~= text then
+            self:fail("expected " .. text)
+        end
+        self.position += #text
+        self:endScalar()
+    end
+
+    function readNull(self): nil
+        self:literal("null")
+    end
+
+    function readBoolean(self): boolean
+        self:space()
+        if self.input:sub(self.position, self.position) == "t" then
+            self:literal("true")
+            return true
+        end
+        self:literal("false")
+
+        return false
+    end
+
+    function stringToken(self): string
+        self:space()
+        local start = self.position
+        if self.input:byte(start) ~= 34 then
+            self:fail("expected string")
+        end
+        local position = start + 1
+        while position <= #self.input do
+            local byte = self.input:byte(position)
+            if byte == 34 then
+                local value, message = json.decode(self.input:sub(start, position))
+                if type(value) ~= "string" then
+                    self:fail(message or "invalid string")
+                end
+                self.position = position + 1
+                return value
+            elseif byte == 92 then
+                position += 1
+            end
+            position += 1
+        end
+        self:fail("unterminated string")
+    end
+
+    function readString(self): string
+        self:beginValue()
+        local result = self:stringToken()
+        self:endScalar()
+        return result
+    end
+
+    function readNumber(self): string
+        self:beginValue()
+        local start = self.position
+        local position = start
+        local input = self.input
+        if input:byte(position) == 45 then
+            position += 1
+        end
+        local byte = input:byte(position)
+        if byte == 48 then
+            position += 1
+        elseif byte ~= nil and byte >= 49 and byte <= 57 then
+            repeat
+                position += 1
+                byte = input:byte(position)
+            until byte == nil or byte < 48 or byte > 57
+        else
+            self:fail("expected integer part")
+        end
+        if input:byte(position) == 46 then
+            position += 1
+            local first = position
+            byte = input:byte(position)
+            while byte ~= nil and byte >= 48 and byte <= 57 do
+                position += 1
+                byte = input:byte(position)
+            end
+            if position == first then
+                self:fail("expected fraction digits")
+            end
+        end
+        byte = input:byte(position)
+        if byte == 69 or byte == 101 then
+            position += 1
+            byte = input:byte(position)
+            if byte == 43 or byte == 45 then
+                position += 1
+            end
+            local first = position
+            byte = input:byte(position)
+            while byte ~= nil and byte >= 48 and byte <= 57 do
+                position += 1
+                byte = input:byte(position)
+            end
+            if position == first then
+                self:fail("expected exponent digits")
+            end
+        end
+        self.position = position
+        self:endScalar()
+
+        return input:sub(start, position - 1)
+    end
+
+    function start(self, kind: "object" | "array"): nil
+        self:beginValue()
+        local expected = kind == "object" and 123 or 91
+        if self.input:byte(self.position) ~= expected then
+            self:fail("expected " .. kind)
+        end
+        if #self.frames >= self.maxDepth then
+            self:fail("nesting limit exceeded")
+        end
+        self.position += 1
+        self.frames[#self.frames + 1] = new Frame(kind = kind, phase = "first", names = {}, count = 0)
+    end
+
+    function next(self, kind: "object" | "array"): boolean
+        self:space()
+        local frame = self.frames[#self.frames]
+        if frame == nil or frame.kind ~= kind then
+            self:fail("wrong container")
+        end
+        assert(frame.phase ~= "value", "previous JSON value was not consumed")
+        local close = kind == "object" and 125 or 93
+        if self.input:byte(self.position) == close then
+            self.position += 1
+            table.remove(self.frames)
+            self:finishValue()
+            return false
+        end
+        if frame.phase == "after" then
+            if self.input:byte(self.position) ~= 44 then
+                self:fail("expected comma or container end")
+            end
+            self.position += 1
+            self:space()
+            if self.input:byte(self.position) == close then
+                self:fail("trailing comma")
+            end
+        end
+        frame.phase = "value"
+
+        return true
+    end
+
+    function nextKey(self): string?
+        if not self:next("object") then
+            return nil
+        end
+        local name = self:stringToken()
+        local frame = self.frames[#self.frames]
+        if frame.names[name] then
+            self:fail("duplicate member " .. name)
+        end
+        frame.names[name] = true
+        self:space()
+        if self.input:byte(self.position) ~= 58 then
+            self:fail("expected colon")
+        end
+        self.position += 1
+
+        return name
+    end
+
+    function nextElement(self): boolean
+        return self:next("array")
+    end
+
+    function skipValue(self): nil
+        local token = self:peek()
+        if token == "null" then
+            self:readNull()
+        elseif token == "boolean" then
+            self:readBoolean()
+        elseif token == "number" then
+            self:readNumber()
+        elseif token == "string" then
+            self:readString()
+        elseif token == "object" then
+            self:start("object")
+            while self:nextKey() ~= nil do
+                self:skipValue()
+            end
+        else
+            self:start("array")
+            while self:nextElement() do
+                self:skipValue()
+            end
+        end
+    end
+
+    function mark(self): Mark
+        local frame = self.frames[#self.frames]
+        return new Mark(depth = #self.frames, count = frame ~= nil and frame.count or self.roots)
+    end
+
+    function consumed(self, mark: Mark): nil
+        local frame = self.frames[#self.frames]
+        local count = frame ~= nil and frame.count or self.roots
+        if #self.frames ~= mark.depth or count ~= mark.count + 1 or (frame ~= nil and frame.phase ~= "after") then
+            self:fail("callback must consume exactly one value")
+        end
+    end
+
+    function finish(self): nil
+        self:space()
+        if #self.frames ~= 0 or self.roots ~= 1 then
+            self:fail("incomplete root value")
+        end
+        if self.position <= #self.input then
+            self:fail("trailing input")
+        end
+        self.closed = true
+    end
+end
+
+export function reader(input: string, maxDepth: integer?, maxTokens: integer?): Cursor
+    local depth, tokens = maxDepth or 128, maxTokens or 1000000
+    if depth < 1 or depth > 1024 or tokens < 1 then
+        error("JSON limits require depth 1..1024 and a positive token budget", 2)
+    end
+
+    return new Cursor(
+        input = input,
+        position = 1,
+        frames = {},
+        roots = 0,
+        tokens = 0,
+        maxDepth = depth,
+        maxTokens = tokens,
+        closed = false
+    )
+end

@@ -2,6 +2,8 @@
 
 module nupp.codec.json.aot
 
+local numberSyntax = require("nupp.codec.json.number")
+
 --[[
 Native AOT implementation of the `data.json` API 2 contract.
 
@@ -692,6 +694,13 @@ function json.encoded(value: any, nullValue: any?): any
     return setmetatable({bytes = json.encode(value, nullValue)}, ENCODED_VALUE)
 end
 
+function json.numberToken(text: string): any
+    if not numberSyntax.valid(text) then
+        error("a JSON number token is required", 2)
+    end
+    return setmetatable({bytes = text}, ENCODED_VALUE)
+end
+
 function json.encodedString(value: string): any
     local prior = encodedStrings[value]
     if prior ~= nil then
@@ -876,6 +885,7 @@ local checked: contracts.Provider = {
     encode = json.encode,
     encoded = json.encoded,
     encodedString = json.encodedString,
+    numberToken = json.numberToken,
     pull = json.pull,
     verified = json.verified,
     verifiedString = json.verifiedString,

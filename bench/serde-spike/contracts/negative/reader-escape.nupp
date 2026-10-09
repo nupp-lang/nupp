@@ -1,0 +1,9 @@
+local core = require("contract.value")
+local record State
+    retained: core.DocumentReader?
+end
+local record Consumer is core.DocumentElement<State>
+    function apply(self, state: State, index: integer, exclusive value: core.DocumentReader): nil
+        state.retained = value
+    end
+end

@@ -1,0 +1,536 @@
+module example.richmodel
+
+local core = require("contract.value")
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+local timestamps = require("example.timestamps")
+local documents = require("example.document")
+local maps = require("example.maps")
+
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+    @readonly renamed: string?
+end
+local record Description is core.Description<Member>
+    @readonly kind: core.Kind
+    @readonly member: Member
+    @readonly nullable: boolean
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean
+    @readonly children: {core.Child<Member>}
+end
+local record Child is core.Child<Member>
+    @readonly member: Member
+    @readonly required: boolean
+    @readonly hasDefault: boolean
+    @readonly target: core.Description<Member>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.target
+    end
+end
+
+export record Choice
+    @private @readonly text: string?
+    @private @readonly field: core.WireField?
+    @private @readonly payload: documents.Document?
+    function unknownField(self): core.WireField?
+        return self.field
+    end
+
+    function unknownValue(self): documents.Document?
+        return self.payload
+    end
+end
+export function knownChoice(text: string): Choice
+    return new Choice(text = text)
+end
+
+export type Labels = {[integer]: string}
+export record Packet
+    id: string
+    created: core.Timestamp
+    note: string?
+    document: documents.Document?
+    labels: Labels?
+    next: Packet?
+    choice: Choice?
+end
+local record State<T>
+    id: string?
+    created: core.Timestamp?
+    note: string?
+    document: documents.Document?
+    labels: Labels?
+    next: T?
+    choice: Choice?
+end
+local interface Storage<T>
+    id: function(self, borrows value: T): string
+    created: function(self, borrows value: T): core.Timestamp
+    note: function(self, borrows value: T): string?
+    document: function(self, borrows value: T): documents.Document?
+    labels: function(self, borrows value: T): Labels?
+    next: function(self, borrows value: T): T?
+    choice: function(self, borrows value: T): Choice?
+    finish: function(self, state: State<T>): T
+end
+local record PacketStorage is Storage<Packet>
+    function id(self, borrows value: Packet): string
+        return value.id
+    end
+
+    function created(self, borrows value: Packet): core.Timestamp
+        return value.created
+    end
+
+    function note(self, borrows value: Packet): string?
+        return value.note
+    end
+
+    function document(self, borrows value: Packet): documents.Document?
+        return value.document
+    end
+
+    function labels(self, borrows value: Packet): Labels?
+        return value.labels
+    end
+
+    function next(self, borrows value: Packet): Packet?
+        return value.next
+    end
+
+    function choice(self, borrows value: Packet): Choice?
+        return value.choice
+    end
+
+    function finish(self, state: State<Packet>): Packet
+        return new Packet(
+            id = assert(state.id),
+            created = assert(state.created),
+            note = state.note,
+            document = state.document,
+            labels = state.labels,
+            next = state.next,
+            choice = state.choice
+        )
+    end
+end
+export record Indexed
+    @private @readonly owner: table
+    @private @readonly slots: {[integer]: string | core.Timestamp | documents.Document | Labels | Indexed | Choice}
+end
+local record IndexedStorage is Storage<Indexed>
+    @readonly owner: table
+    function validate(self, borrows value: Indexed): nil
+        if value.owner ~= self.owner then
+            error("indexed value belongs to another schema", 2)
+        end
+    end
+
+    function id(self, borrows value: Indexed): string
+        self:validate(value)
+        local item = value.slots[1]
+        if type(item) ~= "string" then
+            error("invalid indexed id", 2)
+        end
+
+        return item as string
+    end
+
+    function created(self, borrows value: Indexed): core.Timestamp
+        self:validate(value)
+        local item = value.slots[2]
+        if getmetatable(item) ~= core.Timestamp then
+            error("invalid indexed timestamp", 2)
+        end
+
+        return item as core.Timestamp
+    end
+
+    function note(self, borrows value: Indexed): string?
+        self:validate(value)
+        local item = value.slots[3]
+        if item ~= nil and type(item) ~= "string" then
+            error("invalid indexed note", 2)
+        end
+
+        return item as string?
+    end
+
+    function document(self, borrows value: Indexed): documents.Document?
+        self:validate(value)
+        local item = value.slots[4]
+        if item ~= nil and getmetatable(item) ~= documents.Document then
+            error("invalid indexed document", 2)
+        end
+
+        return item as documents.Document?
+    end
+
+    function labels(self, borrows value: Indexed): Labels?
+        self:validate(value)
+        local item = value.slots[5]
+        if item ~= nil and (type(item) ~= "table" or getmetatable(item) ~= nil) then
+            error("invalid indexed map", 2)
+        end
+
+        return item as Labels?
+    end
+
+    function next(self, borrows value: Indexed): Indexed?
+        self:validate(value)
+        local item = value.slots[6]
+        if item ~= nil and getmetatable(item) ~= Indexed then
+            error("invalid indexed child", 2)
+        end
+
+        return item as Indexed?
+    end
+
+    function choice(self, borrows value: Indexed): Choice?
+        self:validate(value)
+        local item = value.slots[7]
+        if item ~= nil and getmetatable(item) ~= Choice then
+            error("invalid indexed union", 2)
+        end
+
+        return item as Choice?
+    end
+
+    function finish(self, state: State<Indexed>): Indexed
+        return new Indexed(
+            owner = self.owner,
+            slots = {
+                [1] = assert(state.id),
+                [2] = assert(state.created),
+                [3] = state.note,
+                [4] = state.document,
+                [5] = state.labels,
+                [6] = state.next,
+                [7] = state.choice
+            }
+        )
+    end
+end
+export record Model
+    @private @readonly root: core.Description<Member>
+    @private @readonly id: Member
+    @private @readonly created: Member
+    @private @readonly note: Member
+    @private @readonly document: Member
+    @private @readonly labels: Member
+    @private @readonly next: Member
+    @private @readonly choice: Member
+    @private @readonly choiceValue: Member
+    @private @readonly mapping: maps.Map<Member>
+    @private @readonly owner: table
+end
+
+local record EmitChoice is core.Members<Member, Choice>
+    @readonly member: Member
+    function apply(self, borrows value: Choice, exclusive writer: core.Writer<Member>): nil
+        if value.text ~= nil then
+            writer:writeString(self.member, value.text)
+        elseif value.field ~= nil and value.payload ~= nil then
+            writer:writeUnknown(value.field, value.payload, documents.documentAdapter())
+        else
+            error("empty union carrier", 2)
+        end
+    end
+end
+local record ChoiceState
+    value: Choice?
+end
+local record ReadChoice is core.MemberConsumer<Member, ChoiceState>
+    function apply(self, state: ChoiceState, member: Member, exclusive reader: core.Reader<Member>): nil
+        state.value = new Choice(text = reader:readString(member))
+    end
+end
+local record UnknownChoice is core.UnknownConsumer<ChoiceState>
+    function apply<F is core.WireField>(self, state: ChoiceState, field: F, exclusive reader: core.UnknownReader): nil
+        state.value = new Choice(field = field, payload = reader:captureValue(documents.documentAdapter()))
+    end
+end
+local readChoice, unknownChoice = new ReadChoice(), new UnknownChoice()
+local record Fields<T> is core.Members<Member, T>
+    @readonly model: Model
+    @readonly storage: Storage<T>
+    @readonly emitChoice: EmitChoice
+    function apply(self, borrows source: T, exclusive writer: core.Writer<Member>): nil
+        local model = self.model
+        if writer:include(model.id) then
+            writer:writeString(model.id, self.storage:id(source))
+        end
+        if writer:include(model.created) then
+            writer:writeTimestamp(model.created, self.storage:created(source))
+        end
+        if writer:include(model.note) then
+            local note = self.storage:note(source)
+            if note ~= nil then
+                writer:writeString(model.note, note)
+            end
+        end
+        if writer:include(model.document) then
+            local document = self.storage:document(source)
+            if document ~= nil then
+                writer:writeDocument(model.document, document, documents.documentAdapter())
+            end
+        end
+        if writer:include(model.labels) then
+            local labels = self.storage:labels(source)
+            if labels ~= nil then
+                model.mapping:write(labels, writer)
+            end
+        end
+        if writer:include(model.next) then
+            local next = self.storage:next(source)
+            if next ~= nil then
+                writer:writeStruct(model.next, next, self)
+            end
+        end
+        if writer:include(model.choice) then
+            local choice = self.storage:choice(source)
+            if choice ~= nil then
+                writer:writeUnion(model.choice, choice, self.emitChoice)
+            end
+        end
+    end
+end
+local record Unknown<T> is core.UnknownConsumer<State<T>>
+    function apply<F is core.WireField>(self, state: State<T>, field: F, exclusive reader: core.UnknownReader): nil
+        reader:skipValue()
+    end
+end
+local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
+    @readonly model: Model
+    @readonly storage: Storage<T>
+    @readonly unknown: Unknown<T>
+    function read(self, member: Member, exclusive reader: core.Reader<Member>): T
+        local state = new State<T>()
+        reader:readStruct(member, state, self, self.unknown)
+        if state.id == nil or state.created == nil then
+            error("missing required member", 2)
+        end
+
+        return self.storage:finish(state)
+    end
+
+    function apply(self, state: State<T>, member: Member, exclusive reader: core.Reader<Member>): nil
+        local model = self.model
+        if member == model.id then
+            state.id = reader:readString(member)
+        elseif member == model.created then
+            state.created = reader:readTimestamp(member)
+        elseif member == model.document then
+            state.document = reader:readDocument(member, documents.documentAdapter())
+        elseif member == model.note then
+            if reader:isNull() then
+                reader:readNull(member)
+            else
+                state.note = reader:readString(member)
+            end
+        elseif member == model.labels then
+            state.labels = model.mapping:read(reader)
+        elseif member == model.next then
+            state.next = self:read(member, reader)
+        elseif member == model.choice then
+            local choice = new ChoiceState()
+            reader:readUnion(member, choice, readChoice, unknownChoice)
+            state.choice = assert(choice.value)
+        else
+            error("foreign member", 2)
+        end
+    end
+end
+local record Adapter<T> is core.Adapter<T, Member>
+    @readonly model: Model
+    @readonly fields: Fields<T>
+    @readonly consume: ReadFields<T>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.model.root
+    end
+
+    function write(self, borrows value: T, exclusive writer: core.Writer<Member>): nil
+        writer:writeStruct(self.model.root.member, value, self.fields)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): T
+        return self.consume:read(self.model.root.member, reader)
+    end
+end
+
+local function scalar(member: Member, kind: core.Kind): Description
+    return new Description(kind = kind, member = member, nullable = false, canRead = true, children = {})
+end
+
+local function child(member: Member, target: core.Description<Member>, required: boolean?): Child
+    return new Child(member = member, required = required == true, hasDefault = false, target = target)
+end
+
+export function newModel(collision: boolean?): Model
+    local root = new Member(name = "Packet")
+    local id = new Member(name = "id", index = 1, renamed = "identifier")
+    local created = new Member(name = "created", index = 2, renamed = collision and "identifier" or nil)
+    local note = new Member(name = "note", index = 3)
+    local document = new Member(name = "document", index = 4)
+    local labels = new Member(name = "labels", index = 5)
+    local next = new Member(name = "next", index = 6)
+    local choice = new Member(name = "choice", index = 7)
+    local choiceValue = new Member(name = "text", index = 1)
+    local key, value = new Member(name = "key", index = 1), new Member(name = "value", index = 2)
+    local children: {
+        core.Child<Member>
+    } = {
+        child(id, scalar(id, "string"), true),
+        child(created, scalar(created, "timestamp"), true),
+        child(note, scalar(note, "string")),
+        child(document, scalar(document, "document")),
+        child(
+            labels,
+            new Description(
+                kind = "map",
+                member = labels,
+                nullable = false,
+                canRead = true,
+                children = {
+                    child(
+                        key,
+                        new Description(
+                            kind = "integer",
+                            member = key,
+                            nullable = false,
+                            width = 32,
+                            signed = true,
+                            canRead = true,
+                            children = {}
+                        ),
+                        true
+                    ),
+                    child(value, scalar(value, "string"), true)
+                }
+            )
+        ),
+        child(
+            choice,
+            new Description(
+                kind = "union",
+                member = choice,
+                nullable = false,
+                canRead = true,
+                children = {child(choiceValue, scalar(choiceValue, "string"))}
+            )
+        ),
+    }
+    local description = new Description(
+        kind = "structure",
+        member = root,
+        nullable = false,
+        canRead = true,
+        children = children
+    )
+    table.insert(children, 6, child(next, description))
+
+    return new Model(
+        root = description,
+        id = id,
+        created = created,
+        note = note,
+        document = document,
+        labels = labels,
+        next = next,
+        choice = choice,
+        choiceValue = choiceValue,
+        mapping = maps.mapping(labels, key, value),
+        owner = {}
+    )
+end
+
+local function bind<T>(model: Model, storage: Storage<T>): core.Binding<T>
+    return new core.Bound<T, Member>(
+        adapter = new Adapter<T>(
+            model = model,
+            fields = new Fields<T>(
+                model = model,
+                storage = storage,
+                emitChoice = new EmitChoice(member = model.choiceValue)
+            ),
+            consume = new ReadFields<T>(model = model, storage = storage, unknown = new Unknown<T>())
+        )
+    )
+end
+
+export function binding(model: Model): core.Binding<Packet>
+    return bind(model, new PacketStorage())
+end
+
+export function indexed(model: Model): core.Binding<Indexed>
+    return bind(model, new IndexedStorage(owner = model.owner))
+end
+
+export function indexedValue(
+    model: Model,
+    id: string,
+    created: core.Timestamp,
+    note: string?,
+    document: documents.Document?,
+    labels: Labels?,
+    next: Indexed?,
+    choice: Choice?
+): Indexed
+    return new Indexed(
+        owner = model.owner,
+        slots = {[1] = id, [2] = created, [3] = note, [4] = document, [5] = labels, [6] = next, [7] = choice}
+    )
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    @readonly rename: boolean
+    function name(self, member: M): string
+        if getmetatable(member) ~= Member then
+            error("policy requires this model's member handles", 2)
+        end
+        local selected = member as Member
+
+        return self.rename and (selected.renamed or selected.name) or selected.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        if self.rename then
+            return json.numberToken(timestamps.epoch(value))
+        end
+        return json.encoded(timestamps.dateTime(value))
+    end
+
+    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+        if self.rename then
+            assert(kind == "number", "expected epoch seconds");
+            return timestamps.parseEpoch(value)
+        end
+        assert(kind == "string", "expected date-time string")
+
+        return timestamps.parseDateTime(value)
+    end
+end
+local record Factory is plans.PolicyFactory
+    @readonly rename: boolean
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local documentPolicy = documents.policy(member, self.rename)
+        if documentPolicy ~= nil then
+            return documentPolicy
+        end
+        if getmetatable(member) ~= Member then
+            error("policy requires this model's member handles", 2)
+        end
+
+        return new Policy<M>(rename = self.rename)
+    end
+end
+export function policy(rename: boolean): plans.PolicyFactory
+    return new Factory(rename = rename)
+end

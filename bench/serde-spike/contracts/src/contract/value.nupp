@@ -1,0 +1,260 @@
+module contract.value
+
+export type Presence = "absent" | "null" | "value"
+export type ScalarKind = "null"
+    | "boolean"
+    | "integer"
+    | "float"
+    | "bigInteger"
+    | "decimal"
+    | "numberToken"
+    | "string"
+    | "bytes"
+    | "timestamp"
+    | "atom"
+    | "document"
+export type Kind = ScalarKind | "dynamic" | "opaque" | "structure" | "union" | "list" | "tuple" | "map"
+export type Direction = "write" | "read"
+
+export interface Member
+    @readonly name: string
+    @readonly index: integer?
+end
+
+export interface WireField
+    diagnosticLabel: function(self): string
+end
+
+export record Integer
+    @readonly decimal: string
+    @readonly width: 8 | 16 | 32 | 64
+    @readonly signed: boolean
+end
+
+export record Decimal
+    @readonly coefficient: string
+    @readonly exponent: integer
+end
+
+export record Timestamp
+    @readonly seconds: string
+    @readonly nanos: integer
+end
+
+export interface Atom
+    @readonly family: table
+end
+
+export record ContextKey<V>
+    @private @readonly _valueType: (function(value: V): V)?
+end
+
+export function contextKey<V>(): ContextKey<V>
+    return new ContextKey<V>()
+end
+
+export interface Context
+    @readonly codec: table
+    @readonly profile: table
+    @readonly parent: Context?
+    get: function<V>(self, key: ContextKey<V>): V?
+end
+
+export interface DocumentAdapter<D>
+    context: function(self, borrows document: D): Context?
+    contents: function(self): Binding<D>
+    readContents: function(self, exclusive reader: DocumentReader): D
+end
+
+export interface DocumentReader
+    context: function(self): Context?
+    kind: function(self): Kind
+    readNull: function(exclusive self: DocumentReader): nil
+    readBoolean: function(exclusive self: DocumentReader): boolean
+    readNumberToken: function(exclusive self: DocumentReader): string
+    readString: function(exclusive self: DocumentReader): string
+    readBytes: function(exclusive self: DocumentReader): string
+    readTimestamp: function(exclusive self: DocumentReader): Timestamp
+    readInteger: function(exclusive self: DocumentReader): Integer
+    readDecimal: function(exclusive self: DocumentReader): Decimal
+    readFloat: function(exclusive self: DocumentReader): number
+    readBigInteger: function(exclusive self: DocumentReader): string
+    readList: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentElement<S>): nil
+    readStruct: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentMember<S>): nil
+end
+
+export interface DocumentElement<S>
+    apply: function(self, state: S, index: integer, exclusive value: DocumentReader): nil
+end
+
+export interface DocumentMember<S>
+    apply: function<F is WireField>(self, state: S, field: F, exclusive value: DocumentReader): nil
+end
+
+export interface UnknownReader
+    skipValue: function(exclusive self: UnknownReader): nil
+    captureValue: function<D>(exclusive self: UnknownReader, adapter: DocumentAdapter<D>): D
+end
+
+export interface UnknownConsumer<S>
+    apply: function<F is WireField>(self, state: S, field: F, exclusive value: UnknownReader): nil
+end
+
+export interface Members<M is Member, S>
+    apply: function(self, borrows source: S, exclusive writer: Writer<M>): nil
+end
+
+export interface ElementConsumer<M is Member, S>
+    apply: function(self, state: S, index: integer, exclusive reader: Reader<M>): nil
+end
+
+export interface MemberConsumer<M is Member, S>
+    apply: function(self, state: S, member: M, exclusive reader: Reader<M>): nil
+end
+
+export interface EntryConsumer<M is Member, S>
+    apply: function(self, state: S, exclusive key: Reader<M>, exclusive value: Reader<M>): nil
+end
+
+export interface Writer<M is Member> is nupp.Closeable
+    include: function(exclusive self: Writer<M>, member: M): boolean
+    writeNull: function(exclusive self: Writer<M>, member: M): nil
+    writeBoolean: function(exclusive self: Writer<M>, member: M, value: boolean): nil
+    writeInteger: function(exclusive self: Writer<M>, member: M, borrows value: Integer): nil
+    writeFloat: function(exclusive self: Writer<M>, member: M, value: number, width: 32 | 64): nil
+    writeBigInteger: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writeDecimal: function(exclusive self: Writer<M>, member: M, borrows value: Decimal): nil
+    writeNumberToken: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writeString: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writeBytes: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writeTimestamp: function(exclusive self: Writer<M>, member: M, borrows value: Timestamp): nil
+    writeAtom: function<A is Atom>(exclusive self: Writer<M>, member: M, borrows value: A): nil
+    writeDocument: function<D>(exclusive self: Writer<M>, member: M, borrows value: D, adapter: DocumentAdapter<D>): nil
+    writeStruct: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
+    writeUnion: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
+    writeList: function<S>(
+        exclusive self: Writer<M>,
+        member: M,
+        size: integer?,
+        borrows source: S,
+        emit: Members<M, S>
+    ): nil
+    writeTuple: function<S>(
+        exclusive self: Writer<M>,
+        member: M,
+        size: integer,
+        borrows source: S,
+        emit: Members<M, S>
+    ): nil
+    writeMap: function<S>(
+        exclusive self: Writer<M>,
+        member: M,
+        size: integer?,
+        borrows source: S,
+        emit: Members<M, S>
+    ): nil
+    writeEntry: function<K, V>(
+        exclusive self: Writer<M>,
+        borrows key: K,
+        keyEmit: Members<M, K>,
+        borrows value: V,
+        valueEmit: Members<M, V>
+    ): nil
+    writeUnknown: function<F is WireField, D>(
+        exclusive self: Writer<M>,
+        field: F,
+        borrows value: D,
+        adapter: DocumentAdapter<D>
+    ): nil
+end
+
+export interface Reader<M is Member>
+    context: function(self): Context?
+    isNull: function(self): boolean
+    readNull: function(exclusive self: Reader<M>, member: M): nil
+    readBoolean: function(exclusive self: Reader<M>, member: M): boolean
+    readInteger: function(exclusive self: Reader<M>, member: M, width: 8 | 16 | 32 | 64, signed: boolean): Integer
+    readFloat: function(exclusive self: Reader<M>, member: M, width: 32 | 64): number
+    readBigInteger: function(exclusive self: Reader<M>, member: M): string
+    readDecimal: function(exclusive self: Reader<M>, member: M): Decimal
+    readNumberToken: function(exclusive self: Reader<M>, member: M): string
+    readString: function(exclusive self: Reader<M>, member: M): string
+    readBytes: function(exclusive self: Reader<M>, member: M): string
+    readTimestamp: function(exclusive self: Reader<M>, member: M): Timestamp
+    readDocument: function<D>(exclusive self: Reader<M>, member: M, adapter: DocumentAdapter<D>): D
+    readStruct: function<S>(
+        exclusive self: Reader<M>,
+        member: M,
+        state: S,
+        consume: MemberConsumer<M, S>,
+        unknown: UnknownConsumer<S>
+    ): nil
+    readUnion: function<S>(
+        exclusive self: Reader<M>,
+        member: M,
+        state: S,
+        consume: MemberConsumer<M, S>,
+        unknown: UnknownConsumer<S>
+    ): nil
+    readList: function<S>(exclusive self: Reader<M>, member: M, state: S, consume: ElementConsumer<M, S>): nil
+    readTuple: function<S>(
+        exclusive self: Reader<M>,
+        member: M,
+        size: integer,
+        state: S,
+        consume: ElementConsumer<M, S>
+    ): nil
+    readMap: function<S>(exclusive self: Reader<M>, member: M, state: S, consume: EntryConsumer<M, S>): nil
+    containerSize: function(self): integer?
+end
+
+export interface Description<M is Member>
+    @readonly kind: Kind
+    @readonly member: M
+    @readonly nullable: boolean
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean
+    @readonly children: {Child<M>}
+end
+
+export interface Child<M is Member>
+    @readonly member: M
+    @readonly required: boolean
+    @readonly hasDefault: boolean
+    describe: function(self, direction: Direction): Description<M>
+end
+
+export interface Adapter<T, M is Member>
+    describe: function(self, direction: Direction): Description<M>
+    write: function(self, borrows value: T, exclusive writer: Writer<M>): nil
+    read: function(self, exclusive reader: Reader<M>): T
+end
+
+export interface Consumer<T, S, R>
+    apply: function<M is Member>(self, adapter: Adapter<T, M>, borrows state: S): R
+end
+
+export interface IntoConsumer<T, S, O, R>
+    apply: function<M is Member>(self, adapter: Adapter<T, M>, borrows state: S, exclusive output: O): R
+end
+
+export interface Binding<T>
+    @readonly _valueType: (function(value: T?): T?)?
+    accept: function<S, R>(self, consumer: Consumer<T, S, R>, borrows state: S): R
+    acceptInto: function<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
+end
+
+export record Bound<T, M is Member> is Binding<T>
+    @readonly _valueType: (function(value: T?): T?)?
+    @readonly adapter: Adapter<T, M>
+
+    function accept<S, R>(self, consumer: Consumer<T, S, R>, borrows state: S): R
+        return consumer:apply<M>(self.adapter, state)
+    end
+
+    function acceptInto<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
+        return consumer:apply<M>(self.adapter, state, output)
+    end
+
+end

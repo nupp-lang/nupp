@@ -1,0 +1,29 @@
+local contexts = require("contract.context")
+local model = require("example.richmodel")
+local json = require("contract.jsoncodec")
+local key = contexts.key<model.Model>()
+local member = contexts.key<string>()
+local schema = model.newModel()
+local codec = {}
+local profile = {}
+local builder = contexts.builder(codec, profile)
+builder:set(key, schema)
+local root = builder:freeze()
+local childBuilder = contexts.builder(codec, profile, root)
+childBuilder:set(member, "document")
+local child = childBuilder:freeze()
+assert(child:get(key) == schema and child:get(member) == "document")
+assert(root:get(member) == nil)
+assert(not pcall(builder.set, builder, member, "mutated"))
+local decoded = json.decode(
+    model.binding(schema),
+    [[{"identifier":"ctx","created":0,"document":{"nested":[null,999999999999999999999]}}]],
+    model.policy(true),
+    child
+)
+local document = assert(decoded.document)
+local nested = assert(document:get("nested"))
+assert(assert(nested:context()):get(key) == schema)
+assert(assert(nested:at(2):context()):get(member) == "document")
+assert(nested:at(2):numberToken() == "999999999999999999999")
+print("typed document context survives decoding and child access")

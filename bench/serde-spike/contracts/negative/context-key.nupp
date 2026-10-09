@@ -1,0 +1,4 @@
+local contexts = require("contract.context")
+local strings = contexts.key<string>()
+local builder = contexts.builder({}, {})
+builder:set(strings, 123)

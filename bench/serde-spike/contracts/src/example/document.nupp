@@ -1,0 +1,275 @@
+module example.document
+
+local core = require("contract.value")
+local jsonFields = require("contract.jsondocument")
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+local timestamps = require("example.timestamps")
+
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+
+export record Entry
+    @readonly name: string
+    @readonly value: Document
+end
+
+export record Document
+    @readonly kind: core.Kind
+    @private @readonly text: string?
+    @private @readonly flag: boolean?
+    @private @readonly time: core.Timestamp?
+    @private @readonly elements: {Document}
+    @private @readonly fields: {Entry}
+    @private @readonly source: core.Context?
+
+    function size(self): integer
+        if self.kind == "structure" then
+            return #self.fields
+        else
+            return #self.elements
+        end
+    end
+
+    function at(self, index: integer): Document
+        local value = self.elements[index]
+        if value == nil then
+            error("document index out of range", 2)
+        end
+
+        return value
+    end
+
+    function get(self, name: string): Document?
+        for _, field in ipairs(self.fields) do
+            if field.name == name then
+                return field.value
+            end
+        end
+
+        return nil
+    end
+
+    function string(self): string
+        assert(self.kind == "string", "document is not a string")
+        return self.text as string
+    end
+
+    function numberToken(self): string
+        assert(self.kind == "numberToken", "document is not a number token")
+        return self.text as string
+    end
+
+    function context(self): core.Context?
+        return self.source
+    end
+end
+
+local root = new Member(name = "$document")
+local element = new Member(name = "$element")
+local write: function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
+local read: function(exclusive reader: core.DocumentReader): Document
+
+local record Fields is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        for _, field in ipairs(value.fields) do
+            write(field.value, new Member(name = field.name), writer)
+        end
+    end
+end
+local record Elements is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        for _, child in ipairs(value.elements) do
+            write(child, element, writer)
+        end
+    end
+end
+local fields, elements = new Fields(), new Elements()
+
+write = function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
+    if value.kind == "null" then
+        writer:writeNull(member)
+    elseif value.kind == "boolean" then
+        writer:writeBoolean(member, value.flag as boolean)
+    elseif value.kind == "string" then
+        writer:writeString(member, value.text as string)
+    elseif value.kind == "numberToken" then
+        writer:writeNumberToken(member, value.text as string)
+    elseif value.kind == "bytes" then
+        writer:writeBytes(member, value.text as string)
+    elseif value.kind == "timestamp" then
+        writer:writeTimestamp(member, value.time as core.Timestamp)
+    elseif value.kind == "structure" then
+        writer:writeStruct(member, value, fields)
+    elseif value.kind == "list" then
+        writer:writeList(member, #value.elements, value, elements)
+    else
+        error("unsupported fixture document kind: " .. value.kind, 2)
+    end
+end
+
+local record AddElement is core.DocumentElement<{Document}>
+    function apply(self, state: {Document}, index: integer, exclusive reader: core.DocumentReader): nil
+        state[index] = read(reader)
+    end
+end
+local record AddField is core.DocumentMember<{Entry}>
+    function apply<F is core.WireField>(self, state: {Entry}, field: F, exclusive reader: core.DocumentReader): nil
+        state[#state + 1] = new Entry(name = jsonFields.name(field), value = read(reader))
+    end
+end
+local addElement, addField = new AddElement(), new AddField()
+
+read = function(exclusive reader: core.DocumentReader): Document
+    local kind = reader:kind()
+    local source = reader:context()
+    local text: string? = nil
+    local flag: boolean? = nil
+    local time: core.Timestamp? = nil
+    local items: {Document} = {}
+    local members: {Entry} = {}
+    if kind == "null" then
+        reader:readNull()
+    elseif kind == "boolean" then
+        flag = reader:readBoolean()
+    elseif kind == "string" then
+        text = reader:readString()
+    elseif kind == "numberToken" then
+        text = reader:readNumberToken()
+    elseif kind == "bytes" then
+        text = reader:readBytes()
+    elseif kind == "timestamp" then
+        time = reader:readTimestamp()
+    elseif kind == "list" then
+        reader:readList(items, addElement)
+    elseif kind == "structure" then
+        reader:readStruct(members, addField)
+    else
+        error("unsupported fixture document input: " .. kind, 2)
+    end
+
+    return new Document(
+        kind = kind,
+        text = text,
+        flag = flag,
+        time = time,
+        elements = items,
+        fields = members,
+        source = source
+    )
+end
+
+local record Description is core.Description<Member>
+    @readonly kind: core.Kind
+    @readonly member: Member
+    @readonly nullable: boolean
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean
+    @readonly children: {core.Child<Member>}
+end
+local description = new Description(kind = "dynamic", member = root, nullable = true, canRead = false, children = {})
+
+local record Contents is core.Adapter<Document, Member>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return description
+    end
+
+    function write(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        write(value, root, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Document
+        error("document input uses the document contents reader", 2)
+    end
+end
+
+local record Adapter is core.DocumentAdapter<Document>
+    @readonly binding: core.Binding<Document>
+    function context(self, borrows document: Document): core.Context?
+        return document.source
+    end
+
+    function contents(self): core.Binding<Document>
+        return self.binding
+    end
+
+    function readContents(self, exclusive reader: core.DocumentReader): Document
+        return read(reader)
+    end
+end
+local adapter: core.DocumentAdapter<Document> = new Adapter(
+    binding = new core.Bound<Document, Member>(adapter = new Contents())
+)
+
+export function documentAdapter(): core.DocumentAdapter<Document>
+    return adapter
+end
+
+export function string(value: string): Document
+    return new Document(kind = "string", text = value, elements = {}, fields = {})
+end
+
+export function numberToken(value: string): Document
+    json.numberToken(value)
+    return new Document(kind = "numberToken", text = value, elements = {}, fields = {})
+end
+
+export function null(): Document
+    return new Document(kind = "null", elements = {}, fields = {})
+end
+
+export function list(values: {Document}): Document
+    local copy: {Document} = {}
+    for index, value in ipairs(values) do
+        copy[index] = value
+    end
+
+    return new Document(kind = "list", elements = copy, fields = {})
+end
+
+export function object(values: {Entry}): Document
+    local copy: {Entry} = {}
+    local seen: {[string]: boolean} = {}
+    for index, value in ipairs(values) do
+        if seen[value.name] then
+            error("duplicate document member", 2)
+        end
+        seen[value.name] = true
+        copy[index] = value
+    end
+
+    return new Document(kind = "structure", elements = {}, fields = copy)
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    @readonly epoch: boolean
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        return self.epoch and json.numberToken(timestamps.epoch(value)) or json.encoded(timestamps.dateTime(value))
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        if kind == "number" then
+            return timestamps.parseEpoch(text)
+        else
+            return timestamps.parseDateTime(text)
+        end
+    end
+end
+
+export function policy<M is core.Member>(member: M, epoch: boolean): plans.Policy<M>?
+    if getmetatable(member) ~= Member then
+        return nil
+    end
+    return new Policy<M>(epoch = epoch)
+end

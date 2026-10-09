@@ -1,0 +1,73 @@
+module example.maps
+
+local core = require("contract.value")
+
+local record Key<M is core.Member> is core.Members<M, integer>
+    @readonly member: M
+    function apply(self, borrows source: integer, exclusive writer: core.Writer<M>): nil
+        writer:writeInteger(self.member, new core.Integer(decimal = tostring(source), width = 32, signed = true))
+    end
+end
+
+local record Value<M is core.Member> is core.Members<M, string>
+    @readonly member: M
+    function apply(self, borrows source: string, exclusive writer: core.Writer<M>): nil
+        writer:writeString(self.member, source:sub(1))
+    end
+end
+
+local record Entries<M is core.Member> is core.Members<M, {[integer]: string}>
+    @readonly key: Key<M>
+    @readonly value: Value<M>
+    function apply(self, borrows source: {[integer]: string}, exclusive writer: core.Writer<M>): nil
+        local keys: {integer} = {}
+        for key in pairs(source) do
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            writer:writeEntry(key, self.key, assert(source[key]), self.value)
+        end
+    end
+end
+
+local record Read<M is core.Member> is core.EntryConsumer<M, {[integer]: string}>
+    @readonly key: M
+    @readonly value: M
+    function apply(
+        self,
+        state: {[integer]: string},
+        exclusive key: core.Reader<M>,
+        exclusive value: core.Reader<M>
+    ): nil
+        local number = key:readInteger(self.key, 32, true)
+        local index = tonumber(number.decimal) as integer
+        if state[index] ~= nil then
+            error("duplicate logical map key", 2)
+        end
+        state[index] = value:readString(self.value)
+    end
+end
+
+export record Map<M is core.Member>
+    @private @readonly member: M
+    @private @readonly emit: Entries<M>
+    @private @readonly consume: Read<M>
+    function write(self, borrows value: {[integer]: string}, exclusive writer: core.Writer<M>): nil
+        writer:writeMap(self.member, nil, value, self.emit)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): {[integer]: string}
+        local result: {[integer]: string} = {}
+        reader:readMap(self.member, result, self.consume)
+        return result
+    end
+end
+
+export function mapping<M is core.Member>(member: M, key: M, value: M): Map<M>
+    return new Map<M>(
+        member = member,
+        emit = new Entries<M>(key = new Key<M>(member = key), value = new Value<M>(member = value)),
+        consume = new Read<M>(key = key, value = value)
+    )
+end

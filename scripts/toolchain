@@ -1356,6 +1356,16 @@ build_luarocks() {
             --with-lua-lib="$luajit/lib" \
             --with-lua-interpreter=luajit \
             --force-config && "$MAKE" install) >&2
+        if [ "$PLATFORM" = darwin ]; then
+            # LuaRocks takes the first 32 hex characters from the checker's
+            # output. OpenSSL prints the filename first, so commit-hash archive
+            # names are mistaken for their digest. BSD md5's quiet form prints
+            # only the digest, regardless of the filename.
+            cat >> "$out/etc/luarocks/config-5.1.lua" <<'EOF'
+variables = variables or {}
+variables.MD5SUM = "/sbin/md5 -q"
+EOF
+        fi
     fi
     case "$PLATFORM" in
         windows) executable="$out/luarocks.bat" ;;

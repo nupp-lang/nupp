@@ -864,6 +864,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             local selfEntry = c.scope.vars.self
             if selfEntry then
                 selfEntry.mutationSelf = true
+                if receiverMode == "exclusive" then
+                    c.own.capabilityFacts(selfEntry).exclusive = true
+                end
             end
         end
         local paramPackTail = nil

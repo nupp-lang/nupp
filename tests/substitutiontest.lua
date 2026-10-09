@@ -39,6 +39,26 @@ end
 
 local M = {}
 
+function M.nominalArgumentsRetainTheirCleanupIdentityDuringInference()
+    local source = [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local record Key<V>
+    witness: (function(value: V): V)?
+end
+local function read<V>(key: Key<V>): alias(V)
+    return nil as any
+end
+local key: Key<affine(Resource, Resource.close)> = nil as any
+local value: alias(affine(Resource, Resource.close)) = read(key)
+]]
+    clean(source)
+    reports(source .. [[
+local wrong: alias(string) = read(key)
+]], "NUPP2001")
+end
+
 function M.genericMethodCallsKeepTheEnclosingResultBinder()
     local source = [[
 local interface Operation<R>

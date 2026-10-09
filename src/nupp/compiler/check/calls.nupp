@@ -2781,7 +2781,13 @@ function calls.install(c: state.Checker): calls.Ops
                         -- binders happen to instantiate as the same concrete type.
                         path = T.preservationPath(rawType(result), rawType(params[source]))
                     end
-                    adjusted[j] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result), path)
+                    -- An explicit owning result already supplies its cleanup. A
+                    -- constructor may also preserve a field from an ordinary
+                    -- argument; that relation must not erase the result's owner.
+                    adjusted[j] = source
+                        and ats[source]
+                        and not T.capability(result).obligation
+                        and T.withOwnershipPayload(ats[source], rawType(result), path)
                         or result
                 end
 
@@ -2970,6 +2976,12 @@ function calls.install(c: state.Checker): calls.Ops
                 ok = true
             else
                 local expected = tailSlot and (varargType or T.any) or params[j]
+                if mode == "borrows" or mode == "exclusive" then
+                    -- Substituting an owning type argument does not make a
+                    -- borrowing parameter take its cleanup obligation.
+                    expected = rawType(expected)
+                    actualForCheck = rawType(actualForCheck)
+                end
                 local physical = node.cdefCall == true
                     or node.fixedWidthPhysicalParameters ~= nil and node.fixedWidthPhysicalParameters[j] == true
                 ok, why, reported = c.fixedWidth.fits(
@@ -3317,7 +3329,7 @@ function calls.install(c: state.Checker): calls.Ops
             local source = preservesResults[result]
             if source then
                 local owners = argumentBorrowOwners[source]
-                if not owners then
+                if not owners and c.ownershipKind(ats[source]) then
                     local sourceNode = argNodes[source]
                     local entry = sourceNode and c.ownershipEntry(sourceNode)
                     if entry then

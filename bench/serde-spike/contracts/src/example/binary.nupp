@@ -1,0 +1,99 @@
+module example.binary
+
+local core = require("contract.value")
+
+-- A deliberately small, versioned fixture format. Every field is framed,
+-- including unknown wire types: u16 number, u8 wire type, u32 byte count.
+export record Field is core.WireField
+    @readonly number: integer
+    @readonly wire: integer
+    function diagnosticLabel(self): string
+        return "binary field"
+    end
+end
+
+export record Entry
+    @readonly field: Field
+    @readonly bytes: string
+end
+
+local function word(value: integer, size: integer): string
+    local bytes: {string} = {}
+    for index = size, 1, -1 do
+        bytes[index] = string.char(value % 256)
+        value = math.floor(value / 256)
+    end
+
+    return table.concat(bytes)
+end
+
+export function encode(entries: {Entry}): string
+    local parts: {string} = {"NB1\0"}
+    for _, entry in ipairs(entries) do
+        local field = entry.field
+        if field.number < 1 or field.number > 65535 or field.wire < 0 or field.wire > 255 then
+            error("binary field identity is out of range", 2)
+        end
+        if #entry.bytes > 16777216 then
+            error("binary field exceeds byte limit", 2)
+        end
+        parts[#parts + 1] = word(field.number, 2) .. string.char(field.wire) .. word(#entry.bytes, 4) .. entry.bytes
+    end
+
+    return table.concat(parts)
+end
+
+export record Reader
+    @private @readonly bytes: string
+    @private position: integer
+    @private count: integer
+    function next(self): Entry?
+        local bytes, position = self.bytes, self.position
+        if position > #bytes then
+            return nil
+        end
+        if #bytes - position + 1 < 7 then
+            error("truncated binary field header", 2)
+        end
+        self.count += 1
+        if self.count > 100000 then
+            error("binary field count exceeded", 2)
+        end
+        local number = bytes:byte(position) * 256 + bytes:byte(position + 1)
+        local wire = bytes:byte(position + 2)
+        local size: integer = 0
+        for index = position + 3, position + 6 do
+            size = size * 256 + bytes:byte(index)
+        end
+        if number == 0 then
+            error("binary field zero is reserved", 2)
+        end
+        if size > 16777216 then
+            error("binary field exceeds byte limit", 2)
+        end
+        position += 7
+        if position + size - 1 > #bytes then
+            error("truncated binary field value", 2)
+        end
+        self.position = position + size
+
+        return new Entry(
+            field = new Field(number = number, wire = wire),
+            bytes = bytes:sub(position, position + size - 1)
+        )
+    end
+end
+
+export function reader(bytes: string): Reader
+    if bytes:sub(1, 4) ~= "NB1\0" then
+        error("unsupported binary fixture version", 2)
+    end
+    return new Reader(bytes = bytes, position = 5, count = 0)
+end
+
+export function identity(field: core.WireField): Field
+    if getmetatable(field) ~= Field then
+        error("not a binary field identity", 2)
+    end
+    return field as Field
+end

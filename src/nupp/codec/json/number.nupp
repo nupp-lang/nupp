@@ -1,0 +1,52 @@
+@!internal
+module nupp.codec.json.number
+
+-- Syntax validation deliberately does not convert the token to binary64.
+export function valid(text: string): boolean
+    local position = 1
+    if text:byte(position) == 45 then
+        position += 1
+    end
+    local byte = text:byte(position)
+    if byte == 48 then
+        position += 1
+    elseif byte ~= nil and byte >= 49 and byte <= 57 then
+        repeat
+            position += 1
+            byte = text:byte(position)
+        until byte == nil or byte < 48 or byte > 57
+    else
+        return false
+    end
+    if text:byte(position) == 46 then
+        position += 1
+        local first = position
+        byte = text:byte(position)
+        while byte ~= nil and byte >= 48 and byte <= 57 do
+            position += 1
+            byte = text:byte(position)
+        end
+        if position == first then
+            return false
+        end
+    end
+    byte = text:byte(position)
+    if byte == 69 or byte == 101 then
+        position += 1
+        byte = text:byte(position)
+        if byte == 43 or byte == 45 then
+            position += 1
+        end
+        local first = position
+        byte = text:byte(position)
+        while byte ~= nil and byte >= 48 and byte <= 57 do
+            position += 1
+            byte = text:byte(position)
+        end
+        if position == first then
+            return false
+        end
+    end
+
+    return position == #text + 1
+end

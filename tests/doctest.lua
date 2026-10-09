@@ -869,9 +869,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
     assert(byName["lib.math.vec2"].text == "Vector helpers.")
     assert(byName["lib.math.vec2"].items[1].name == "length")
 
-    local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
-        includePrivate = true,
-    })
+    local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {includePrivate = true,})
     assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
     assert(#private.items == 2, "private docs must retain internal declarations")
     local privateByName = {}
@@ -982,6 +980,7 @@ function M.standardJsonApiHasCompleteDocumentation()
         encode = true,
         encoded = true,
         encodedString = true,
+        numberToken = true,
         verified = true,
         verifiedString = true,
         newWriter = true,
@@ -1000,6 +999,7 @@ function M.standardJsonApiHasCompleteDocumentation()
         encode = true,
         encoded = true,
         encodedString = true,
+        numberToken = true,
         verified = true,
         verifiedString = true,
         newWriter = true,
@@ -1181,13 +1181,7 @@ function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
         "nupp.peg has no definition factory example"
     )
 
-    local expected = {
-        Backend = true,
-        Definitions = true,
-        CompileOptions = true,
-        Peg = true,
-        compile = true,
-    }
+    local expected = {Backend = true, Definitions = true, CompileOptions = true, Peg = true, compile = true,}
     for _, member in ipairs(peg.members) do
         if expected[member.name] then
             assert(member.text ~= "", "nupp.peg." .. member.name .. " has no documentation")
@@ -1702,9 +1696,7 @@ function M.hidesNamespacesNamedInternal()
     assert(byName["lib.peg"], "a public namespace was dropped")
     assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
 
-    local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
-        includePrivate = true,
-    })
+    local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {includePrivate = true,})
     assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
     local privateByName = {}
     for _, mod in ipairs(privateExtra or {}) do
@@ -2020,14 +2012,18 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
         spawn.type:find("(borrows self: tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
         "the body comes after its arguments: " .. spawn.type
     )
-    assert(spawn.type:find("(borrows self: tasks.Scope, name: string, takes body: F)", 1, true),
-        "and after the name in the named overload: " .. spawn.type)
+    assert(
+        spawn.type:find("(borrows self: tasks.Scope, name: string, takes body: F)", 1, true),
+        "and after the name in the named overload: " .. spawn.type
+    )
     assert(spawn.params[#spawn.params].name == "body", "the parameter table follows the same order")
     local fork = assert(members["nupp.tasks.Scope.fork"], "Scope:fork is documented")
     assert(fork.type:find("Submitted(F), F)", 1, true), "fork takes its callable last: " .. fork.type)
     local cancel = assert(members["nupp.tasks.Scope.cancel"], "Scope:cancel is documented")
-    assert(cancel.type:find("(borrows self: tasks.Scope, reason: string?)", 1, true),
-        "an ordinary member keeps its order: " .. cancel.type)
+    assert(
+        cancel.type:find("(borrows self: tasks.Scope, reason: string?)", 1, true),
+        "an ordinary member keeps its order: " .. cancel.type
+    )
 end
 
 -- What to produce is `--kind`, so every argument is a source path: a leading word
@@ -2037,12 +2033,14 @@ function M.theKindIsAnOptionAndEveryArgumentIsAPath()
     local output = capture(("cd '%s' && '%s' doc --kind json -o api.json src"):format(dir, NUPP))
     assert(output == "", output)
     assert(readFile(dir .. "/api.json"):find('"modules"', 1, true), "--kind json writes the JSON model")
+
     local function status(arguments)
         local pipe = assert(io.popen(("cd '%s' && '%s' doc %s 2>&1; echo rc=$?"):format(dir, NUPP, arguments)))
         local text = pipe:read("*a")
         pipe:close()
         return text
     end
+
     local positional = status("json -o other.json")
     assert(positional:find("rc=1", 1, true), "json is a source path now, and there is none: " .. positional)
     assert(positional:find("no source file or directory named json", 1, true), "and says so: " .. positional)
@@ -2056,13 +2054,11 @@ end
 -- command, not the same thing as having none: read as absent, it documented the whole
 -- tree under the wrong module names and exited 0.
 function M.aManifestThatDoesNotLoadStopsTheRun()
-    for _, manifest in ipairs({
-        "return { include = { \"src\" }, build = 5\n",
-        "return 5\n",
-        "error('boom')\n",
-    }) do
+    for _, manifest in ipairs({"return { include = { \"src\" }, build = 5\n", "return 5\n", "error('boom')\n",}) do
         local dir = tempProject({["nupp.lua"] = manifest, ["src/math.nupp"] = SOURCE})
-        local pipe = assert(io.popen(("cd '%s' && '%s' doc --kind markdown -o api.md 2>&1; echo rc=$?"):format(dir, NUPP)))
+        local pipe = assert(
+            io.popen(("cd '%s' && '%s' doc --kind markdown -o api.md 2>&1; echo rc=$?"):format(dir, NUPP))
+        )
         local output = pipe:read("*a")
         pipe:close()
         assert(output:find("rc=1", 1, true), manifest .. output)
@@ -2104,8 +2100,10 @@ end
 function M.includePrivateCoversUnexportedDeclarationsAndInternalModules()
     local dir = tempProject({
         ["nupp.lua"] = "return {include = {\"src\"}}\n",
-        ["src/shown.nupp"] = "module shown\nexport function visible(): number return 1 end\n"
-            .. "local function unexported(): number return 2 end\n",
+        [
+            "src/shown.nupp"
+        ] = "module shown\nexport function visible(): number return 1 end\n"
+        .. "local function unexported(): number return 2 end\n",
         ["src/internal/secret.nupp"] = "function secret(): number return 3 end\n",
     })
     local public = capture(("cd '%s' && '%s' doc --kind markdown -o public.md src"):format(dir, NUPP))
@@ -2113,7 +2111,9 @@ function M.includePrivateCoversUnexportedDeclarationsAndInternalModules()
     assert(publicText:find("visible", 1, true), public .. publicText)
     assert(not publicText:find("unexported", 1, true), publicText)
     assert(not publicText:find("internal.secret", 1, true), publicText)
-    local complete = capture(("cd '%s' && '%s' doc --kind markdown --include-private -o complete.md src"):format(dir, NUPP))
+    local complete = capture(
+        ("cd '%s' && '%s' doc --kind markdown --include-private -o complete.md src"):format(dir, NUPP)
+    )
     local completeText = readFile(dir .. "/complete.md")
     assert(completeText:find("unexported", 1, true), complete .. completeText)
     assert(completeText:find("internal.secret", 1, true), completeText)
@@ -2780,11 +2780,17 @@ function M.siteRemovalStaysInsideItsOutputDirectory()
     local config = {include = {"src"}}
     local record = assert(io.open(dir .. "/site/.nupp-doc-files.json", "wb"))
     record:write(
-        '["' .. dir .. '/site/../victim.txt", "'
-            .. dir .. '/victim.txt", "'
-            .. dir .. '/site2/victim.txt", "'
-            .. dir .. '/site/keep/../../victim.txt", "'
-            .. dir .. '/site/./keep/..", 5, "site/../victim.txt"]\n'
+        '["'
+        .. dir
+        .. '/site/../victim.txt", "'
+        .. dir
+        .. '/victim.txt", "'
+        .. dir
+        .. '/site2/victim.txt", "'
+        .. dir
+        .. '/site/keep/../../victim.txt", "'
+        .. dir
+        .. '/site/./keep/..", 5, "site/../victim.txt"]\n'
     )
     record:close()
     assert(doc.build(dir, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
@@ -4140,8 +4146,7 @@ function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
             foundContext = true
             for _, member in ipairs(item.members) do
                 assert(
-                    member.name ~= "compileGenerated"
-                    and member.name ~= "bindKernel",
+                    member.name ~= "compileGenerated" and member.name ~= "bindKernel",
                     "generated binding hooks are private Context fields"
                 )
             end
@@ -4261,7 +4266,9 @@ local VERSION_SOURCES = {
     ["AOT runtime ABI"] = {"native/crates/native/c/ks_rt.c", "#define KS_RT_ABI_VERSION (%d+)u"},
     ["Browser application manifest"] = {"runtime/luajit/app-runtime.mjs", "manifest%.schema !== (%d+)"},
     ["AOT units manifest"] = {"src/nupp/tools/build/aot.nupp", "aot%.UNITS_SCHEMA_VERSION = (%d+)"},
-    ["AOT component manifest"] = {"src/nupp/tools/build/aot.nupp", "document = sortedJson%({%s*schemaVersion = (%d+),%s*component"},
+    [
+        "AOT component manifest"
+    ] = {"src/nupp/tools/build/aot.nupp", "document = sortedJson%({%s*schemaVersion = (%d+),%s*component"},
     ["Link kit"] = {"src/nupp/tools/build/aotllvm.nupp", "manifest%.schemaVersion ~= (%d+)"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},

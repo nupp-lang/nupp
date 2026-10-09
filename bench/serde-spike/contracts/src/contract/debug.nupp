@@ -1,0 +1,143 @@
+module contract.debug
+
+local core = require("contract.value")
+local contents: function<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
+
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly parts: {string}
+    function include(exclusive self, member: M): boolean
+        return true
+    end
+
+    function emit<T>(exclusive self, adapter: core.Adapter<T, M>, borrows value: T): nil
+        adapter:write(value, self)
+    end
+
+    function token(exclusive self, member: M, value: string): nil
+        self.parts[#self.parts + 1] = member.name .. "=" .. value .. ";"
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        self:token(member, "null")
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:token(member, tostring(value))
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        self:token(member, value.decimal)
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        self:token(member, tostring(value))
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        self:token(member, value.coefficient .. "e" .. tostring(value.exponent))
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        self:token(member, ("%q"):format(value))
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        self:token(member, "bytes(" .. tostring(#value) .. ")")
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        self:token(member, "timestamp(" .. value.seconds .. "," .. tostring(value.nanos) .. ")")
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        self:token(member, "<atom>")
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        self.parts[#self.parts + 1] = member.name .. "=document{"
+        self.parts[#self.parts + 1] = contents(adapter, value)
+        self.parts[#self.parts + 1] = "};"
+    end
+
+    function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
+        self.parts[#self.parts + 1] = member.name .. "=" .. kind .. "{"
+        emit:apply(source, self)
+        self.parts[#self.parts + 1] = "};"
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", source, emit)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "union", source, emit)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "list", source, emit)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "tuple", source, emit)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "map", source, emit)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        self.parts[#self.parts + 1] = "entry{"
+        keyEmit:apply(key, self)
+        valueEmit:apply(value, self)
+        self.parts[#self.parts + 1] = "};"
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self.parts[#self.parts + 1] = "unknown(" .. field:diagnosticLabel() .. "){" .. contents(adapter, value) .. "};"
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local function output<M is core.Member>(parts: {string}): affine(Output<M>)
+    return new Output<M>(parts = parts)
+end
+
+local record Render<T> is core.Consumer<T, T, string>
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
+        local parts: {string} = {}
+        local writer = output<M>(parts)
+        writer:emit(adapter, value)
+        writer:close()
+
+        return table.concat(parts)
+    end
+end
+
+contents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
+    return adapter:contents():accept(new Render<D>(), value)
+end
+
+export function render<T>(binding: core.Binding<T>, borrows value: T): string
+    return binding:accept(new Render<T>(), value)
+end

@@ -60,6 +60,39 @@ function M.invalidNumbersAreAlwaysRejected()
     assert(not pcall(json.encode, 0 / 0), "the encoder accepted NaN")
 end
 
+function M.exactNumberFragmentsPreserveTokensAcrossProviders()
+    for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+        for _, token in ipairs({"0", "-0", "1.00", "123456789012345678901234567890", "1e4000", "-2.1E-9000"}) do
+            local fragment = provider.numberToken(token)
+            assert(provider.encode(fragment) == token)
+            local output = require("nupp.text").newBuffer()
+            local writer = provider.newWriter(output)
+            writer:startArray():write(fragment):endArray()
+            writer:close()
+            assert(output:tostring() == "[" .. token .. "]")
+        end
+        for _, token in ipairs({
+            "",
+            " 1",
+            "1 ",
+            "+1",
+            "01",
+            "-01",
+            ".1",
+            "1.",
+            "1e",
+            "1e+",
+            "NaN",
+            "Infinity",
+            "1,2",
+            "1+2",
+            "true"
+        }) do
+            assert(not pcall(provider.numberToken, token), "accepted invalid token: " .. token)
+        end
+    end
+end
+
 function M.providersPreserveNegativeZero()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local encoded = provider.encode(-0.0)
@@ -174,21 +207,26 @@ local NON_FINITE = {
 }
 
 function M.nonFiniteNumbersAreRefusedByEveryProvider()
-    local providers = {
-        lunajson = require("nupp.runtime.provider.lunajson"),
-        aot = require("nupp.codec.json.aot"),
-    }
+    local providers = {lunajson = require("nupp.runtime.provider.lunajson"), aot = require("nupp.codec.json.aot"),}
     for name, provider in pairs(providers) do
         for _, row in ipairs(NON_FINITE) do
             local decoders = {
-                function(text) return provider.decode(text) end,
-                function(text) return provider.decode(text, provider.NULL) end,
-                function(text) return provider.verified(text) end,
+                function(text)
+                    return provider.decode(text)
+                end,
+                function(text)
+                    return provider.decode(text, provider.NULL)
+                end,
+                function(text)
+                    return provider.verified(text)
+                end,
             }
             -- The AOT pull builder exists only in the compiled artifact, which
             -- the fused-json native differential runs; this oracle cannot.
             if name == "lunajson" then
-                decoders[#decoders + 1] = function(text) return provider.pull(text, true) end
+                decoders[#decoders + 1] = function(text)
+                    return provider.pull(text, true)
+                end
             end
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])
@@ -224,19 +262,24 @@ local DUPLICATES = {
 }
 
 function M.duplicateMemberNamesAreRefusedByEveryProvider()
-    local providers = {
-        lunajson = require("nupp.runtime.provider.lunajson"),
-        aot = require("nupp.codec.json.aot"),
-    }
+    local providers = {lunajson = require("nupp.runtime.provider.lunajson"), aot = require("nupp.codec.json.aot"),}
     for name, provider in pairs(providers) do
         for _, row in ipairs(DUPLICATES) do
             local decoders = {
-                function(text) return provider.decode(text) end,
-                function(text) return provider.decode(text, provider.NULL) end,
-                function(text) return provider.verified(text) end,
+                function(text)
+                    return provider.decode(text)
+                end,
+                function(text)
+                    return provider.decode(text, provider.NULL)
+                end,
+                function(text)
+                    return provider.verified(text)
+                end,
             }
             if name == "lunajson" then
-                decoders[#decoders + 1] = function(text) return provider.pull(text, {a = true}) end
+                decoders[#decoders + 1] = function(text)
+                    return provider.pull(text, {a = true})
+                end
             end
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])

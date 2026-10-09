@@ -228,6 +228,9 @@ export interface Provider
     --- Creates a validated encoded-value fragment for subsequent composition.
     @readonly encoded: function(value: any, nullValue: any?): any
 
+    --- Validates a numeric lexeme without conversion and retains its exact bytes.
+    @readonly numberToken: function(text: string): any
+
     --- Creates a fragment containing one escaped JSON string.
     @readonly encodedString: function(value: string): any
 

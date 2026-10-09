@@ -2173,9 +2173,14 @@ local function tableGradualToward(param: Type): boolean
         or tag == "nominal"
 end
 
-function generics.unify(param: Type, arg: Type, map: Bindings): nil
+function generics.unify(param: Type, arg: Type, map: Bindings, typeArgument: boolean?): nil
     local originalArg = arg
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
+    if typeArgument and param.tag == "typevar" then
+        -- A nominal's argument describes its stored contract, including cleanup.
+        -- It is not a borrowed value at the call site.
+        arg = originalArg
+    end
     if param.tag == "typevar" and originalArg.tag == "affine" then
         local bound = (param as T.TypeVar).bound
         local nominal = bound and T.unwrapOwnership(bound) or nil
@@ -2209,7 +2214,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                 return
             end
             local fixed = fixedFor(map)
-            if invariantDepth > 0 then
+            if invariantDepth > 0 or typeArgument and originalArg.tag == "affine" then
                 if not fixed[param] then
                     map[param] = arg
                     fixed[param] = true
@@ -2374,12 +2379,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                 for j, p in ipairs(param.typeArgs or {}) do
                     local a = nominalArg and nominalArg.typeArgs and nominalArg.typeArgs[j]
                     if a then
-                        if ((po as T.Nominal).managedCell or (po as T.Nominal).managedAlias) and p.tag == "typevar" then
-                            local prior = map[p]
-                            map[p] = prior and T.union({prior, a}) or a
-                        else
-                            generics.unify(p, a, map)
-                        end
+                        generics.unify(p, a, map, true)
                     end
                 end
                 for j, p in ipairs(param.packArgs or {}) do

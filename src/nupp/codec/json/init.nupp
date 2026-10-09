@@ -422,6 +422,20 @@ export function encoded(value: any, nullValue: any?): EncodedValue
     return native.encoded(value, nullValue) as EncodedValue
 end
 
+--- Validates and retains one exact JSON number token.
+---
+--- ```nupp
+--- local json = nupp.codec.json
+--- assert(json.encode(json.numberToken("12345678901234567890")) == "12345678901234567890")
+--- ```
+--- @param text the exact numeric lexeme
+--- @return a validated fragment for a JSON writer or encoder
+--- @raises string when text is not one JSON number token
+--- @export
+export function numberToken(text: string): EncodedValue
+    return native.numberToken(text) as EncodedValue
+end
+
 --- Encodes and interns a string for trusted use as either a key or value.
 ---
 --- ```nupp

@@ -937,6 +937,13 @@ function ownership.install(c: state.Checker): ownership.Ops
         if exprRoots and exprRoots[1] then
             return own.borrowRoot(exprRoots[1])
         end
+        -- Preserving a copyable value records its origin without making the
+        -- value itself a borrow. Taking a pointer into that value still needs
+        -- the original storage kept alive.
+        local origin = own.capabilityFacts(expr, nil, false).origin
+        if origin then
+            return own.borrowRoot(origin)
+        end
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
             local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil

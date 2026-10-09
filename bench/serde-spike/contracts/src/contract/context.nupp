@@ -1,0 +1,52 @@
+module contract.context
+
+local core = require("contract.value")
+
+local record Context is core.Context
+    @readonly codec: table
+    @readonly profile: table
+    @readonly parent: core.Context?
+    @private @readonly values: {[unknown]: unknown}
+    function get<V>(self, key: core.ContextKey<V>): V?
+        local value = self.values[key]
+        if value ~= nil then
+            return value as V
+        end
+        if self.parent ~= nil then
+            return self.parent:get(key)
+        end
+
+        return nil
+    end
+end
+
+export record Builder
+    @private @readonly codec: table
+    @private @readonly profile: table
+    @private @readonly parent: core.Context?
+    @private @readonly values: {[unknown]: unknown}
+    @private frozen: boolean
+    function set<V>(self, key: core.ContextKey<V>, value: V): nil
+        if self.frozen then
+            error("context builder is frozen", 2)
+        end
+        self.values[key] = value
+    end
+
+    function freeze(self): core.Context
+        if self.frozen then
+            error("context builder is frozen", 2)
+        end
+        self.frozen = true
+
+        return new Context(codec = self.codec, profile = self.profile, parent = self.parent, values = self.values)
+    end
+end
+
+export function key<V>(): core.ContextKey<V>
+    return core.contextKey<V>()
+end
+
+export function builder(codec: table, profile: table, parent: core.Context?): Builder
+    return new Builder(codec = codec, profile = profile, parent = parent, values = {}, frozen = false)
+end

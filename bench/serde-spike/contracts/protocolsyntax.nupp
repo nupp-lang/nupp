@@ -1,0 +1,74 @@
+local xml = require("example.xmlsyntax")
+local binary = require("example.binary")
+local reader = xml.reader(
+    [[<p:Root xmlns:p="urn:one" xmlns:q="urn:two" p:id="1" q:id="2" id="3"><p:item>A&amp;B</p:item><q:item/><p:item>&#xE9;</p:item></p:Root>]]
+)
+local root = assert(reader:next())
+assert(root.kind == "start" and assert(root.field).namespaceUri == "urn:one")
+assert(#root.attributes == 3)
+assert(root.attributes[1].field.namespaceUri == "urn:one" and root.attributes[1].field.role == "attribute")
+assert(root.attributes[2].field.namespaceUri == "urn:two" and root.attributes[3].field.namespaceUri == "")
+assert(root.attributes[1].field:diagnosticLabel() == root.attributes[2].field:diagnosticLabel())
+local text: {string} = {}
+local elements: {xml.Field} = {}
+while true do
+    local event = reader:next()
+    if event == nil then
+        break
+    end
+    if event.kind == "text" then
+        text[#text + 1] = assert(event.text)
+    elseif event.kind == "start" then
+        elements[#elements + 1] = assert(event.field)
+    end
+end
+assert(table.concat(text) == "A&Bé")
+assert(#elements == 3 and elements[1].namespaceUri == "urn:one" and elements[2].namespaceUri == "urn:two")
+for _, bytes in ipairs({
+    "<x>",
+    "<x></y>",
+    "<x/><y/>",
+    "<p:x/>",
+    '<x a="1" a="2"/>',
+    '<x xmlns:p="u" xmlns:q="u" p:a="1" q:a="2"/>',
+    "<!DOCTYPE x><x/>",
+    "<x>&unknown;</x>"
+}) do
+    assert(
+        not pcall(function(): nil
+            local invalid = xml.reader(bytes)
+            while invalid:next() ~= nil do
+            end
+        end)
+    )
+end
+local entries = {
+    new binary.Entry(field = new binary.Field(number = 1, wire = 2), bytes = "known"),
+    new binary.Entry(field = new binary.Field(number = 47, wire = 200), bytes = "\0opaque\255"),
+    new binary.Entry(field = new binary.Field(number = 47, wire = 201), bytes = "different"),
+}
+local bytes = binary.encode(entries)
+local fields = binary.reader(bytes)
+local captured: {binary.Entry} = {}
+while true do
+    local entry = fields:next()
+    if entry == nil then
+        break
+    end
+    captured[#captured + 1] = entry
+end
+assert(#captured == 3 and captured[2].field.number == 47 and captured[2].field.wire == 200)
+assert(captured[2].field:diagnosticLabel() == captured[3].field:diagnosticLabel())
+assert(binary.encode(captured) == bytes)
+assert(not pcall(xml.identity, captured[1].field))
+assert(not pcall(binary.identity, elements[1]))
+for _, bad in ipairs({"NB2\0", "NB1\0\1", bytes:sub(1, #bytes - 1)}) do
+    assert(
+        not pcall(function(): nil
+            local invalid = binary.reader(bad)
+            while invalid:next() ~= nil do
+            end
+        end)
+    )
+end
+print("typed XML and binary syntax identities passed")

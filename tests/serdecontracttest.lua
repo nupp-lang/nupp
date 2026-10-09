@@ -25,6 +25,8 @@ function M.externalMembersEraseBehindACheckedBinding()
         "erasure.nupp",
         "extensions.nupp",
         "src/contract/dispatch.nupp",
+        "src/contract/value.nupp",
+        "src/contract/jsonsyntax.nupp",
         "src/contract/render.nupp",
         "src/contract/extensions.nupp",
         "src/example/model.nupp",
@@ -40,6 +42,44 @@ end
 function M.schemaExtensionsInitializeLazilyAndKeepFailuresAndScopesSeparate()
     local status, output = call({"run", "extensions.nupp"})
     assert(status == 0, output)
+end
+
+function M.resourceExtensionsOwnCleanupAndExpireBorrowedHandles()
+    local status, output = call({"run", "resources.nupp"})
+    assert(status == 0, output)
+end
+
+function M.syntaxRetainsNumbersAndValidatesSkippedValues()
+    local status, output = call({"run", "jsonsyntax.nupp"})
+    assert(status == 0, output)
+end
+
+function M.externalModelsRoundTripBothRepresentationsAndDocuments()
+    local status, output = call({"run", "rich.nupp"})
+    assert(status == 0, output)
+end
+
+function M.documentContextsKeepTypedSchemaAndMemberValues()
+    local status, output = call({"run", "context.nupp"})
+    assert(status == 0, output)
+    status, output = call({"check", "--json", "negative/context-key.nupp"})
+    local checked = json.decode(output)
+    assert(status ~= 0 and #checked.diagnostics == 1, output)
+    assert(checked.diagnostics[1].code == "NUPP2006", output)
+end
+
+function M.protocolFieldIdentitiesRetainNamespacesAndWireTypes()
+    local status, output = call({"run", "protocolsyntax.nupp"})
+    assert(status == 0, output)
+end
+
+function M.scopedReadersRejectRetentionAndIncorrectConsumption()
+    local status, output = call({"run", "reader_scope.lua"})
+    assert(status == 0, output)
+    status, output = call({"check", "--json", "negative/reader-escape.nupp"})
+    local checked = json.decode(output)
+    assert(status ~= 0 and #checked.diagnostics == 1, output)
+    assert(checked.diagnostics[1].code == "NUPP2603", output)
 end
 
 function M.bindingAndExtensionKeysAreInvariant()

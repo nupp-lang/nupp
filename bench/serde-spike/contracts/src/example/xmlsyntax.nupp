@@ -1,0 +1,289 @@
+module example.xmlsyntax
+
+local core = require("contract.value")
+local utf8 = require("nupp.text.utf8")
+
+-- This fixture accepts ASCII qualified names and UTF-8 content. It deliberately
+-- refuses DTDs and processing instructions; it never fetches external entities.
+export record Field is core.WireField
+    @readonly namespaceUri: string
+    @readonly localName: string
+    @readonly role: "attribute" | "element"
+    function diagnosticLabel(self): string
+        return "XML field"
+    end
+end
+export record Attribute
+    @readonly field: Field
+    @readonly value: string
+end
+export record Event
+    @readonly kind: "start" | "end" | "text"
+    @readonly field: Field?
+    @readonly attributes: {Attribute}
+    @readonly text: string?
+end
+local record Frame
+    @readonly qualified: string
+    @readonly field: Field
+    @readonly bindings: {[string]: string}
+end
+local record RawAttribute
+    @readonly name: string
+    @readonly value: string
+end
+
+local entities: {[string]: string} = {amp = "&", lt = "<", gt = ">", quot = '"', apos = "'"}
+
+local function unescape(text: string): string
+    local parts: {string} = {}
+    local position: integer = 1
+    while true do
+        local first = text:find("&", position, true)
+        if first == nil then
+            parts[#parts + 1] = text:sub(position);
+            break
+        end
+        parts[#parts + 1] = text:sub(position, first - 1)
+        local last = text:find(";", first + 1, true)
+        if last == nil then
+            error("unterminated XML entity", 2)
+        end
+        local entity = text:sub(first + 1, last - 1)
+        local value = entities[entity]
+        if value == nil then
+            local decimal = entity:match("^#(%d+)$")
+            local hex = entity:match("^#x([%da-fA-F]+)$")
+            local number = decimal ~= nil and tonumber(decimal) or hex ~= nil and tonumber(hex, 16) or nil
+            if number == nil
+                or number > 1114111
+                or number >= 55296 and number <= 57343
+                or number == 65534
+                or number == 65535
+                or number < 32 and number ~= 9 and number ~= 10 and number ~= 13
+            then
+                error("unsupported XML entity", 2)
+            end
+            value = utf8.encode(number as integer)
+        end
+        parts[#parts + 1] = value
+        position = last + 1
+    end
+
+    return table.concat(parts)
+end
+
+local function field(qualified: string, role: "attribute" | "element", bindings: {[string]: string}): Field
+    local prefix, name = qualified:match("^([^:]+):([^:]+)$")
+    local uri: string = ""
+    if prefix ~= nil then
+        local found = bindings[prefix]
+        if found == nil or found == "" then
+            error("unbound XML namespace prefix", 2)
+        end
+        uri = found
+    else
+        if qualified:find(":", 1, true) then
+            error("invalid XML qualified name", 2)
+        end
+        name = qualified
+        if role == "element" then
+            uri = bindings[""] or ""
+        end
+    end
+
+    return new Field(namespaceUri = uri, localName = name, role = role)
+end
+
+export record Reader
+    @private @readonly input: string
+    @private position: integer
+    @private frames: {Frame}
+    @private pendingEnd: boolean
+    @private roots: integer
+    @private events: integer
+
+    function space(self): nil
+        while self.input:sub(self.position, self.position):match("%s") do
+            self.position += 1
+        end
+    end
+
+    function name(self): string
+        local value = self.input:sub(self.position):match("^([A-Za-z_][A-Za-z0-9_.:-]*)")
+        if value == nil then
+            error("expected an ASCII XML qualified name", 2)
+        end
+        self.position += #value
+
+        return value
+    end
+
+    function next(self): Event?
+        self.events += 1
+        if self.events > 1000000 then
+            error("XML event budget exceeded", 2)
+        end
+        if self.pendingEnd then
+            self.pendingEnd = false
+            local frame = table.remove(self.frames)
+            return new Event(kind = "end", field = frame.field, attributes = {})
+        end
+        while true do
+            local position = self.position
+            if position > #self.input then
+                if #self.frames ~= 0 or self.roots ~= 1 then
+                    error("incomplete XML root", 2)
+                end
+                return nil
+            end
+            if self.input:sub(position, position + 3) == "<!--" then
+                local last = self.input:find("-->", position + 4, true)
+                if last == nil or self.input:sub(position + 4, last - 1):find("--", 1, true) then
+                    error("invalid XML comment", 2)
+                end
+                self.position = last + 3
+            elseif self.input:sub(position, position) ~= "<" then
+                local last = self.input:find("<", position, true) or #self.input + 1
+                local text = self.input:sub(position, last - 1)
+                self.position = last
+                if #self.frames == 0 then
+                    if text:find("%S") then
+                        error("text outside XML root", 2)
+                    end
+                else
+                    if text:find("]]>", 1, true) then
+                        error("invalid XML text", 2)
+                    end
+                    return new Event(kind = "text", attributes = {}, text = unescape(text))
+                end
+            elseif self.input:sub(position, position + 1) == "</" then
+                self.position += 2
+                local qualified = self:name()
+                self:space()
+                if self.input:sub(self.position, self.position) ~= ">" then
+                    error("invalid XML end tag", 2)
+                end
+                self.position += 1
+                local frame = table.remove(self.frames)
+                if frame == nil or frame.qualified ~= qualified then
+                    error("mismatched XML end tag", 2)
+                end
+                return new Event(kind = "end", field = frame.field, attributes = {})
+            else
+                if self.input:sub(position, position + 1) == "<!" or self.input:sub(position, position + 1) == "<?" then
+                    error("unsupported XML declaration", 2)
+                end
+                self.position += 1
+                local qualified = self:name()
+                local raw: {RawAttribute} = {}
+                local bindings: {[string]: string} = {xml = "http://www.w3.org/XML/1998/namespace"}
+                local parent = self.frames[#self.frames]
+                if parent ~= nil then
+                    for key, value in pairs(parent.bindings) do
+                        bindings[key] = value
+                    end
+                end
+                local names: {[string]: boolean} = {}
+                while true do
+                    local before = self.position
+                    self:space()
+                    local mark = self.input:sub(self.position, self.position)
+                    if mark == ">" or mark == "/" then
+                        break
+                    end
+                    if before == self.position then
+                        error("missing XML attribute separator", 2)
+                    end
+                    local name = self:name()
+                    if names[name] then
+                        error("duplicate XML attribute", 2)
+                    end
+                    names[name] = true
+                    self:space()
+                    if self.input:sub(self.position, self.position) ~= "=" then
+                        error("expected XML attribute equals", 2)
+                    end
+                    self.position += 1
+                    self:space()
+                    local quote = self.input:sub(self.position, self.position)
+                    if quote ~= '"' and quote ~= "'" then
+                        error("expected quoted XML attribute", 2)
+                    end
+                    local last = self.input:find(quote, self.position + 1, true)
+                    if last == nil then
+                        error("unterminated XML attribute", 2)
+                    end
+                    local text = self.input:sub(self.position + 1, last - 1)
+                    if text:find("<", 1, true) then
+                        error("invalid XML attribute value", 2)
+                    end
+                    local value = unescape((text:gsub("[\t\n]", " ")))
+                    self.position = last + 1
+                    local prefix = name:match("^xmlns:(.+)$")
+                    if name == "xmlns" then
+                        bindings[""] = value
+                    elseif prefix ~= nil then
+                        if prefix == "xmlns"
+                            or prefix == "xml" and value ~= bindings.xml
+                            or value == "http://www.w3.org/2000/xmlns/"
+                            or value == bindings.xml and prefix ~= "xml"
+                        then
+                            error("reserved XML namespace", 2)
+                        end
+                        bindings[prefix] = value
+                    else
+                        raw[#raw + 1] = new RawAttribute(name = name, value = value)
+                    end
+                end
+                self.pendingEnd = self.input:sub(self.position, self.position) == "/"
+                if self.pendingEnd then
+                    self.position += 1
+                end
+                if self.input:sub(self.position, self.position) ~= ">" then
+                    error("invalid XML start tag", 2)
+                end
+                self.position += 1
+                if #self.frames == 0 then
+                    self.roots += 1
+                    if self.roots ~= 1 then
+                        error("multiple XML roots", 2)
+                    end
+                end
+                if #self.frames >= 128 then
+                    error("XML depth limit exceeded", 2)
+                end
+                local identity = field(qualified, "element", bindings)
+                local attributes: {Attribute} = {}
+                local expanded: {[string]: boolean} = {}
+                for _, attribute in ipairs(raw) do
+                    local name = field(attribute.name, "attribute", bindings)
+                    local key = #name.namespaceUri .. ":" .. name.namespaceUri .. name.localName
+                    if expanded[key] then
+                        error("duplicate expanded XML attribute", 2)
+                    end
+                    expanded[key] = true
+                    attributes[#attributes + 1] = new Attribute(field = name, value = attribute.value)
+                end
+                self.frames[#self.frames + 1] = new Frame(qualified = qualified, field = identity, bindings = bindings)
+                return new Event(kind = "start", field = identity, attributes = attributes)
+            end
+        end
+    end
+end
+
+export function reader(input: string): Reader
+    if #input > 16777216 or not utf8.isValid(input) or input:find("[%z\1-\8\11\12\14-\31]") then
+        error("invalid XML input", 2)
+    end
+    input = input:gsub("\r\n", "\n"):gsub("\r", "\n")
+
+    return new Reader(input = input, position = 1, frames = {}, pendingEnd = false, roots = 0, events = 0)
+end
+
+export function identity(value: core.WireField): Field
+    if getmetatable(value) ~= Field then
+        error("not an XML field identity", 2)
+    end
+    return value as Field
+end

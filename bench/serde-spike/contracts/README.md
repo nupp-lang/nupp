@@ -1,13 +1,17 @@
 # Open binding contracts
 
-This separate project tests the compiler contract needed by open serialization
-bindings and model-owned lazy schema extensions. It is an S0 prerequisite,
-not the replacement serde implementation or a performance benchmark.
+This separate project tests open serialization bindings and model-owned lazy
+schema extensions. Its codecs and models exercise the S0 contract; production
+serde and its public API remain unchanged.
 
 ```sh
 cd bench/serde-spike/contracts
 ../../../bin/nupp run erasure.nupp
 ../../../bin/nupp run extensions.nupp
+../../../bin/nupp run rich.nupp
+../../../bin/nupp run resources.nupp
+../../../bin/nupp run context.nupp
+../../../bin/nupp run protocolsyntax.nupp
 ```
 
 From the repository root, `./bin/nupp test serdecontracttest` also checks the
@@ -35,13 +39,29 @@ checker regression is in `tests/substitutiontest.lua`. The compiler fix must
 ship and the bootstrap pin must move before standard-library source relies on
 this checked dispatch.
 
-These small fixtures do not complete S0. They do not establish a complete
-access/construction API, scoped unknown readers, rich documents, recursive
-serializer publication, resource-bearing extension ownership, protocol
-compatibility, or traversal performance. Those gates remain in
-`nupp-plans/todo/open-serialization-bindings.md`; no production API is frozen
-by this package. The original serde API remains in place until its replacement
-passes the plan's compatibility and migration gates.
+`rich.nupp` exercises record and indexed storage through the same external
+model. Two JSON policies choose different names and timestamp representations.
+The fixture covers integer map keys, recursion, absent optionals, exact numeric
+tokens, unknown union capture, duplicate logical keys, and name collisions. A
+model-blind renderer uses the same bindings. Documents have their own binding
+and member type; `context.nupp` checks typed schema and member context after
+decoding and child access.
+
+The JSON reader validates skipped syntax and scopes every aggregate callback.
+`reader_scope.lua` also tests untyped callers that retain a reader, underconsume,
+overconsume, or throw. `protocolsyntax.nupp` reads actual XML namespace and
+attribute identities and numbered binary fields. These syntax fixtures do not
+yet constitute complete model codecs or flattened-member assembly.
+
+`resources.nupp` checks an extension scope that owns managed resources, returns
+aliases, and expires those aliases when closed. Ordinary data extensions remain
+a separate API; admitting an owned initializer there still needs a checked
+refusal before promotion to the standard library.
+
+These fixtures do not complete S0. Neutral checked access and construction,
+complete rich-document operations, automatic codec extension caching, independent
+model acceptance, and the Nupp traversal benchmark remain implementation gates
+in `nupp-plans/todo/open-serialization-bindings.md`.
 
 `evidence/baseline.json` records the starting revision, focused baseline
 results, and an initial reference inventory. It is not the complete S0

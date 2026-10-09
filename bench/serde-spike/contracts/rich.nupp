@@ -1,0 +1,98 @@
+local model = require("example.richmodel")
+local core = require("contract.value")
+local json = require("contract.jsoncodec")
+local schema = model.newModel()
+local binding = model.binding(schema)
+local first, second = model.policy(true), model.policy(false)
+local value = new model.Packet(id = "abc", created = new core.Timestamp(seconds = "1700000000", nanos = 0))
+local encoded = json.encode(binding, value, first)
+assert(encoded == [[{"identifier":"abc","created":1700000000}]])
+local decoded = json.decode(binding, encoded, first)
+assert(decoded.id == "abc" and decoded.created.seconds == "1700000000" and decoded.note == nil)
+assert(json.encode(binding, value, second) == [[{"id":"abc","created":"2023-11-14T22:13:20Z"}]])
+print("rich binding round-trip passed")
+
+local indexed = model.indexed(schema)
+local slots = model.indexedValue(schema, value.id, value.created)
+assert(json.encode(indexed, slots, first) == encoded)
+local restored = json.decode(indexed, encoded, first)
+assert(json.encode(indexed, restored, first) == encoded)
+assert(
+    not pcall(function(): nil
+        local foreign = model.indexedValue(model.newModel(), value.id, value.created)
+        json.encode(indexed, foreign, first)
+    end)
+)
+
+local fractional = new model.Packet(id = "fraction", created = new core.Timestamp(seconds = "-1", nanos = 123456789))
+for _, profile in ipairs({first, second}) do
+    local bytes = json.encode(binding, fractional, profile)
+    local actual = json.decode(binding, bytes, profile)
+    assert(actual.created.seconds == "-1" and actual.created.nanos == 123456789)
+end
+
+local documents = require("example.document")
+local withDocument = new model.Packet(
+    id = "doc",
+    created = value.created,
+    document = documents.object({
+        new documents.Entry(
+            name = "items",
+            value = documents.list({
+                documents.null(),
+                documents.numberToken("123456789012345678901234567890"),
+                documents.string("last")
+            })
+        )
+    })
+)
+local documentBytes = json.encode(binding, withDocument, first)
+local documentValue = json.decode(binding, documentBytes, first)
+local items = assert(assert(documentValue.document):get("items"))
+assert(items:size() == 3 and items:at(1).kind == "null")
+assert(items:at(2):numberToken() == "123456789012345678901234567890")
+assert(json.encode(binding, documentValue, first) == documentBytes)
+
+local timestamps = require("example.timestamps")
+for _, seconds in ipairs({"900719925474099312345", "-900719925474099312345", "-1", "0"}) do
+    local stamp = new core.Timestamp(seconds = seconds, nanos = 123456789)
+    local actual = timestamps.parseEpoch(timestamps.epoch(stamp))
+    assert(actual.seconds == seconds and actual.nanos == stamp.nanos)
+end
+
+local debug = require("contract.debug")
+local child = new model.Packet(id = "child", created = value.created, choice = model.knownChoice("known"))
+local parent = new model.Packet(
+    id = "parent",
+    created = value.created,
+    next = child,
+    labels = {[0] = "zero", [-2] = "negative", [2147483647] = "max"}
+)
+for _, profile in ipairs({first, second}) do
+    local bytes = json.encode(binding, parent, profile)
+    local actual = json.decode(binding, bytes, profile)
+    assert(actual.labels ~= nil and actual.labels[-2] == "negative" and actual.labels[2147483647] == "max")
+    assert(actual.next ~= nil and actual.next.id == "child")
+    assert(json.encode(binding, actual, profile) == bytes)
+    local indexed = json.decode(model.indexed(schema), bytes, profile)
+    assert(json.encode(model.indexed(schema), indexed, profile) == bytes)
+    assert(debug.render(binding, actual) == debug.render(model.indexed(schema), indexed))
+end
+
+local unknownBytes = [[{"identifier":"unknown","created":0,"choice":{"future":{"exact":999999999999999999999999}}}]]
+local unknownValue = json.decode(binding, unknownBytes, first)
+assert(unknownValue.choice ~= nil and unknownValue.choice:unknownField() ~= nil)
+assert(assert(assert(unknownValue.choice:unknownValue()):get("exact")):numberToken() == "999999999999999999999999")
+assert(json.encode(binding, unknownValue, first) == unknownBytes)
+for _, bytes in ipairs({
+    [[{"identifier":"x","created":0,"choice":{}}]],
+    [[{"identifier":"x","created":0,"choice":{"text":"known","future":null}}]],
+    [[{"identifier":"x","created":0,"choice":{"future":null,"other":null}}]],
+    [[{"identifier":"x","created":0,"labels":{"0":"one","-0":"two"}}]],
+    [[{"identifier":"x","created":0,"labels":{"2147483648":"overflow"}}]],
+}) do
+    assert(not pcall(json.decode, binding, bytes, first))
+end
+assert(not pcall(json.decode, model.binding(model.newModel(true)), "{}", first))
+assert(json.encode(model.binding(model.newModel(true)), value, second) == json.encode(binding, value, second))
+print("maps, recursion, unknown unions, and model-blind traversal passed")

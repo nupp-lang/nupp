@@ -1,0 +1,57 @@
+module contract.jsoncodec
+
+local core = require("contract.value")
+local plans = require("contract.jsonplan")
+local readers = require("contract.jsonreader")
+local writers = require("contract.jsonwriter")
+local syntax = require("contract.jsonsyntax")
+local json = require("nupp.codec.json")
+local text = require("nupp.text")
+
+local record Encode<T> is core.Consumer<T, T, string>
+    @readonly factory: plans.PolicyFactory
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
+        local description = adapter:describe("write")
+        local policy = self.factory:policy<M>(description.member)
+        local plan = plans.resolve(description, policy, "write")
+        local buffer = text.newBuffer()
+        local sink = json.newWriter(buffer)
+        do
+            local writer = writers.output(sink, self.factory, policy, plan)
+            writer:emit(adapter, value)
+            writer:close()
+        end
+        sink:close()
+
+        return buffer:tostring()
+    end
+end
+
+local record Decode<T> is core.Consumer<T, string, T>
+    @readonly factory: plans.PolicyFactory
+    @readonly context: core.Context?
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows bytes: string): T
+        local description = adapter:describe("read")
+        local policy = self.factory:policy<M>(description.member)
+        local plan = plans.resolve(description, policy, "read")
+        local cursor = syntax.reader(bytes:sub(1))
+        local reader = readers.input(cursor, policy, plan, self.context)
+        local result = adapter:read(reader)
+        cursor:finish()
+
+        return result
+    end
+end
+
+export function encode<T>(binding: core.Binding<T>, borrows value: T, factory: plans.PolicyFactory): string
+    return binding:accept(new Encode<T>(factory = factory), value)
+end
+
+export function decode<T>(
+    binding: core.Binding<T>,
+    bytes: string,
+    factory: plans.PolicyFactory,
+    context: core.Context?
+): T
+    return binding:accept(new Decode<T>(factory = factory, context = context), bytes)
+end

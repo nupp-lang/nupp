@@ -1,0 +1,157 @@
+module example.timestamps
+
+local core = require("contract.value")
+
+local function leap(year: integer): boolean
+    return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
+end
+
+local function before(year: integer): integer
+    local previous = year - 1
+    return 365 * previous + math.floor(previous / 4) - math.floor(previous / 100) + math.floor(previous / 400)
+end
+
+local months: {integer} = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+
+export function parseDateTime(text: string): core.Timestamp
+    local y, m, d, h, minute, second, fraction = text:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)(.*)Z$")
+    if y == nil then
+        error("expected a UTC date-time", 2)
+    end
+    local year, month, day = tonumber(y) as integer, tonumber(m) as integer, tonumber(d) as integer
+    local hour, min, sec = tonumber(h) as integer, tonumber(minute) as integer, tonumber(second) as integer
+    if year < 1 or month < 1 or month > 12 then
+        error("invalid date", 2)
+    end
+    local maximum = months[month] + (month == 2 and leap(year) and 1 or 0)
+    if day < 1 or day > maximum or hour > 23 or min > 59 or sec > 59 then
+        error("invalid date-time", 2)
+    end
+    local nanos: integer = 0
+    if fraction ~= "" then
+        local digits = fraction:match("^%.(%d+)$")
+        if digits == nil or #digits > 9 then
+            error("invalid nanosecond fraction", 2)
+        end
+        nanos = tonumber(digits .. string.rep("0", 9 - #digits)) as integer
+    end
+    local days = before(year) - before(1970) + day - 1
+    for index = 1, month - 1 do
+        days += months[index]
+    end
+    if month > 2 and leap(year) then
+        days += 1
+    end
+
+    return new core.Timestamp(seconds = tostring(days * 86400 + hour * 3600 + min * 60 + sec), nanos = nanos)
+end
+
+export function dateTime(borrows value: core.Timestamp): string
+    local seconds = tonumber(value.seconds)
+    if seconds == nil or seconds % 1 ~= 0 or value.nanos < 0 or value.nanos >= 1000000000 then
+        error("invalid timestamp", 2)
+    end
+    local days = math.floor(seconds / 86400)
+    local low: integer = 1
+    local high: integer = 10000
+    local absolute = days + before(1970)
+    if absolute < 0 or absolute >= before(10000) then
+        error("date-time year is out of range", 2)
+    end
+    while low + 1 < high do
+        local middle = math.floor((low + high) / 2)
+        if before(middle) <= absolute then
+            low = middle
+        else
+            high = middle
+        end
+    end
+    local day = absolute - before(low)
+    local month: integer = 1
+    while true do
+        local size = months[month] + (month == 2 and leap(low) and 1 or 0)
+        if day < size then
+            break
+        end
+        day -= size
+        month += 1
+    end
+    local time = seconds - days * 86400
+    local fraction = value.nanos == 0 and "" or "." .. ("%09d"):format(value.nanos):gsub("0+$", "")
+
+    return (
+        "%04d-%02d-%02dT%02d:%02d:%02d%sZ"
+    ):format(low, month, day + 1, math.floor(time / 3600), math.floor(time / 60) % 60, time % 60, fraction)
+end
+
+-- Adjust a nonnegative decimal integer without binary64 rounding.
+local function step(digits: string, increase: boolean): string
+    local result: {string} = {}
+    local carry: integer = increase and 1 or -1
+    for index = #digits, 1, -1 do
+        local value = string.byte(digits, index) - 48 + carry
+        if value == 10 then
+            value, carry = 0, 1
+        elseif value == -1 then
+            value, carry = 9, -1
+        else
+            carry = 0
+        end
+        result[index] = string.char(48 + value)
+    end
+    local text = table.concat(result)
+    if carry == 1 then
+        text = "1" .. text
+    end
+    text = text:gsub("^0+", "")
+
+    return text == "" and "0" or text
+end
+
+local function seconds(text: string): nil
+    if not text:match("^%-?%d+$") then
+        error("invalid epoch seconds", 2)
+    end
+    local digits = text:sub(1, 1) == "-" and text:sub(2) or text
+    if #digits > 1 and digits:sub(1, 1) == "0" then
+        error("epoch seconds have leading zeroes", 2)
+    end
+end
+
+export function epoch(borrows value: core.Timestamp): string
+    seconds(value.seconds)
+    if value.nanos < 0 or value.nanos >= 1000000000 then
+        error("invalid nanoseconds", 2)
+    end
+    if value.nanos == 0 then
+        return value.seconds
+    end
+    local whole, nanos = value.seconds, value.nanos
+    if whole:sub(1, 1) == "-" and whole ~= "-0" then
+        whole, nanos = "-" .. step(whole:sub(2), false), 1000000000 - nanos
+    elseif whole == "-0" then
+        whole = "0"
+    end
+
+    return whole .. "." .. ("%09d"):format(nanos):gsub("0+$", "")
+end
+
+export function parseEpoch(text: string): core.Timestamp
+    local whole, fraction = text:match("^(%-?%d+)%.(%d+)$")
+    if whole == nil then
+        seconds(text)
+        return new core.Timestamp(seconds = text == "-0" and "0" or text, nanos = 0)
+    end
+    seconds(whole)
+    if #fraction > 9 then
+        error("timestamp precision exceeds nanoseconds", 2)
+    end
+    local nanos = tonumber(fraction .. string.rep("0", 9 - #fraction)) as integer
+    if whole:sub(1, 1) == "-" and nanos ~= 0 then
+        whole, nanos = "-" .. step(whole:sub(2), true), 1000000000 - nanos
+    elseif whole == "-0" then
+        whole = "0"
+    end
+
+    return new core.Timestamp(seconds = whole, nanos = nanos)
+end
