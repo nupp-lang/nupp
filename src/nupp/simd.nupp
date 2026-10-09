@@ -3,8 +3,10 @@ module nupp.simd
 --[[
 Explicit SIMD support.
 
-A preferred species uses the artifact tier's vector width.
-`species.lanes` is what you loop by; a fixed species names its lane count.
+`simd.species` answers a species for an element: as wide as the running
+code's vector registers, and one lane wide where there are none, so a kernel
+is written once and `species:over` runs it a chunk at a time, the last chunk
+under its tail mask:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -13,24 +15,10 @@ local simd = require("nupp.simd")
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
-    local cursor: uint32 = 0
+    local species = simd.species(array.uint8)
     local found: uint32 = 0
-    if species = simd.species(array.uint8) then
-        while cursor + species.lanes <= #source do
-            found = found + (species:load(source, cursor + 1) == 34):count()
-            cursor = cursor + species.lanes
-        end
-        if cursor < #source then
-            local active = species:tail(#source - cursor)
-            found = found + ((species:load(source, cursor + 1, active) == 34) & active):count()
-            return found
-        end
-    end
-    while cursor < #source do
-        if source[cursor + 1] == 34 then
-            found = found + 1
-        end
-        cursor = cursor + 1
+    for at, active in species:over(#source) do
+        found = found + ((species:load(source, at, active) == 34) & active):count()
     end
     return found
 end
@@ -38,8 +26,11 @@ end
 
 Loads are span-checked, inactive tail lanes read as zero, and `bits()` maps the
 first logical lane to bit zero. A vector and a mask have no boxed Lua
-representation, so neither can leave the kernel. `simd.species` answers `nil`
-under `aot = "off"`; the scalar continuation above handles that case.
+representation: in compiled code they are registers, and in a body running
+as ordinary Lua, where the species is one lane wide, a vector is a number
+and a mask a boolean. `simd.vectors` is the species where there are vector
+registers and nil where there are none, for a kernel that keeps a
+hand-written scalar loop of its own.
 
 Use explicit vectors when SIMD execution is part of the algorithm: shuffles,
 transposes, prefix scans, fixed-tree reductions, gathers, compress, expand, or
@@ -1398,6 +1389,17 @@ sealed interface simd.Species<T, S>
     mask: function(borrows self: simd.Species<T, S>, value: boolean): simd.Mask<T, S>
         & function<U>(borrows self: simd.Species<T, S>, value: simd.Mask<U, S>): simd.Mask<T, S>
 
+    --- The chunks of a span of `count` elements, for a loop written once:
+    --- `for at, active in species:over(#input) do ... end` visits every
+    --- element from offset one, `lanes` at a time, binding `at` to the
+    --- one-based offset of the chunk and `active` to its mask. Every chunk
+    --- but the last is full, and an access under its mask is the unmasked
+    --- one the loop's own bound proves; the last chunk's mask is the tail.
+    --- Pass `active` to every load and store, and to every reducer
+    --- contribution, and the loop is the whole strip-mined algorithm: no
+    --- separate tail, no scalar continuation.
+    over: function(borrows self: simd.Species<T, S>, count: integer): function(): (uint32?, simd.Mask<T, S>)
+
     --- A scalar operation on every lane: a closed-set math operation such as
     --- `math.sqrt` over a floating species, one of the corrected binary32
     --- operations `nupp.math.f32.fma`, `min` and `max` over a `float` species,
@@ -1594,20 +1596,675 @@ sealed interface simd.Species<T, S>
     ): nil
 end
 
---- The species for an element where the running code has vectors, and nil
---- where it does not.
+----------------------------------------------------------------------------
+-- The one-lane species
+----------------------------------------------------------------------------
+
+--[[
+Where a kernel runs as ordinary Lua -- under `aot = "off"`, in the retained
+body beside an emitted artifact, in a function that is not `@aot` -- the
+species `simd.species` answers is this one: one lane wide, and the same
+loop runs a lane at a time. A vector of it is a plain Lua number already
+wrapped to its element, a mask is a plain boolean, and the species is the
+table below. The code generator routes every operator and method whose
+operand the checker typed as a vector or a mask through `simd.lane`, which
+is how `v == needle` on a number and `m:any()` on a boolean mean what they
+mean in lanes. The native lowering never sees any of this: a tier with
+vector registers takes them, and one without lowers the species as one
+lane too.
+]]
+
+--- The element name each standard witness denotes.
+local ELEMENT_OF: {
+    [any]: string
+} = {
+    [storageWitnesses.uint8] = "uint8",
+    [storageWitnesses.int8] = "int8",
+    [storageWitnesses.uint16] = "uint16",
+    [storageWitnesses.int16] = "int16",
+    [storageWitnesses.uint32] = "uint32",
+    [storageWitnesses.int32] = "int32",
+    [storageWitnesses.uint64] = "uint64",
+    [storageWitnesses.int64] = "int64",
+    [storageWitnesses.float] = "float",
+    [storageWitnesses.number] = "number",
+}
+
+const BITS: {
+    [string]: number
+} = {uint8 = 8, int8 = 8, uint16 = 16, int16 = 16, uint32 = 32, int32 = 32, uint64 = 64, int64 = 64,}
+
+const SIGNED: {[string]: boolean} = {int8 = true, int16 = true, int32 = true, int64 = true,}
+
+local function isFloat(element: string): boolean
+    return element == "float" or element == "number"
+end
+
+--- Whether a value is a 64-bit box rather than a Lua number.
+local function wide(value: any): boolean
+    return type(value) == "cdata"
+end
+
+--- Division toward zero with the lanes' answer for a zero divisor.
+local function truncate(value: number): number
+    if value ~= value then
+        return 0
+    elseif value < 0 then
+        return math.ceil(value)
+    end
+
+    return math.floor(value)
+end
+
+--- A value as its element: narrowed to binary32, wrapped to the integer
+--- width, or passed as the 64-bit box it already is.
+local function wrap(element: string, value: any): any
+    if element == "number" then
+        return value
+    elseif element == "float" then
+        return nupp.math.f32.narrow(value as number)
+    elseif element == "uint32" then
+        return nupp.math.u32.wrap(truncate(value as number) as integer)
+    elseif element == "int32" then
+        return nupp.math.i32.wrap(truncate(value as number) as integer)
+    elseif element == "uint64" then
+        return (0ULL + (value as any)) as any
+    elseif element == "int64" then
+        return (0LL + (value as any)) as any
+    end
+    local modulus = 2 ^ (BITS[element] as number)
+    local unsigned = (value as number) % modulus
+    if SIGNED[element] and unsigned >= modulus / 2 then
+        return unsigned - modulus
+    end
+
+    return unsigned
+end
+
+--- A lane's bits as the unsigned 32-bit number of its width, established
+--- for the bit library, for the bitwise operators of lanes up to 32 bits.
+local function pattern(element: string, value: any): uint32
+    local modulus = 2 ^ (BITS[element] as number)
+
+    return nupp.math.u32.wrap(((value as number) % modulus) as integer)
+end
+
+local function integerDivide(element: string, a: any, b: any): any
+    if wide(a) or wide(b) then
+        if b == 0 then
+            return wrap(element, 0)
+        end
+        return wrap(element, (a as any) / (b as any))
+    end
+    if (b as number) == 0 then
+        return 0
+    end
+
+    return wrap(element, truncate((a as number) / (b as number)))
+end
+
+local function shiftCount(element: string, count: any): number
+    return (tonumber(count) as number) % (BITS[element] as number)
+end
+
+local function bitwise(element: string, op: string, a: any, b: any): any
+    if element == "number" or element == "float" then
+        error("bitwise SIMD operators require an integer vector element", 3)
+    end
+    if BITS[element] == 64 then
+        local left = (SIGNED[element] and (0LL + (a as any)) or (0ULL + (a as any))) as any
+        local right = (SIGNED[element] and (0LL + (b as any)) or (0ULL + (b as any))) as any
+        if op == "&" then
+            return (left & right) as any
+        elseif op == "|" then
+            return (left | right) as any
+        elseif op == "~" then
+            return (left ~ right) as any
+        elseif op == "<<" then
+            return (left << shiftCount(element, b)) as any
+        elseif op == ">>" then
+            return ((0ULL + left) >> shiftCount(element, b)) as any
+        end
+        return (left ~>> shiftCount(element, b)) as any
+    end
+    local left = pattern(element, a)
+    if op == "<<" then
+        return wrap(element, (left as number) * 2 ^ shiftCount(element, b))
+    elseif op == ">>" then
+        return wrap(element, math.floor((left as number) / 2 ^ shiftCount(element, b)))
+    elseif op == "~>>" then
+        return wrap(element, math.floor((a as number) / 2 ^ shiftCount(element, b)))
+    end
+    -- Narrow lanes fit the 32-bit bit library exactly.
+    local right = pattern(element, b)
+    if op == "&" then
+        return wrap(element, nupp.math.u32.andBits(left, right))
+    elseif op == "|" then
+        return wrap(element, nupp.math.u32.orBits(left, right))
+    end
+
+    return wrap(element, nupp.math.u32.xorBits(left, right))
+end
+
+local function isNaN(value: any): boolean
+    return value ~= value
+end
+
+--- The lane extrema contracts of `simd.Vector`, for one pair.
+local function extremum(a: any, b: any, minimum: boolean, propagating: boolean): any
+    if isNaN(a) or isNaN(b) then
+        if propagating then
+            return 0 / 0
+        elseif isNaN(a) and isNaN(b) then
+            return 0 / 0
+        end
+        return isNaN(a) and b or a
+    end
+    if a == b and (a as number) == 0 then
+        -- Signed zeros: -0 is the smaller.
+        local negativeA = 1 / (a as number) < 0
+        if minimum then
+            return negativeA and a or b
+        end
+        return negativeA and b or a
+    end
+    if minimum then
+        return (a as number) < (b as number) and a or b
+    end
+
+    return (a as number) > (b as number) and a or b
+end
+
+--- The lane operations, as the code generator calls them for a value the
+--- checker typed as a vector or a mask: a binary operator, a unary one, and
+--- a method. `element` is the element name, or "mask" for a mask.
+--- @export
+local lane = {}
+
+--- @raises string when the operator is not one the lanes have
+--- @export
+function lane.binary(op: string, element: string, a: any, b: any): any
+    if element == "mask" then
+        if op == "&" then
+            return a and b
+        elseif op == "|" then
+            return a or b
+        elseif op == "~" then
+            return a ~= b
+        elseif op == "==" then
+            return a == b
+        elseif op == "~=" then
+            return a ~= b
+        end
+        error("operator " .. op .. " is not a mask intrinsic", 2)
+    end
+    if op == "+" then
+        return wrap(element, (a as any) + (b as any))
+    elseif op == "-" then
+        return wrap(element, (a as any) - (b as any))
+    elseif op == "*" then
+        if BITS[element] == 32 then
+            -- The low thirty-two bits of the product, which a double cannot
+            -- hold whole, are the same bits whatever the signs.
+            return wrap(element, nupp.math.u32.mul(pattern(element, a), pattern(element, b)))
+        end
+        return wrap(element, (a as any) * (b as any))
+    elseif op == "/" then
+        if isFloat(element) then
+            return wrap(element, (a as number) / (b as number))
+        end
+        return integerDivide(element, a, b)
+    elseif op == "%" then
+        if isFloat(element) then
+            return wrap(element, (a as number) % (b as number))
+        elseif b == 0 then
+            return wrap(element, 0)
+        end
+        return wrap(element, (a as any) % (b as any))
+    elseif op == "//" then
+        if isFloat(element) then
+            return wrap(element, math.floor((a as number) / (b as number)))
+        elseif b == 0 then
+            return wrap(element, 0)
+        end
+        return wrap(element, math.floor((a as any) / (b as any)))
+    elseif op == "==" then
+        return a == b
+    elseif op == "~=" then
+        return a ~= b
+    elseif op == "<" then
+        return (a as number) < (b as number)
+    elseif op == "<=" then
+        return (a as number) <= (b as number)
+    elseif op == ">" then
+        return (a as number) > (b as number)
+    elseif op == ">=" then
+        return (a as number) >= (b as number)
+    end
+
+    return bitwise(element, op, a, b)
+end
+
+--- @export
+function lane.unary(op: string, element: string, a: any): any
+    if element == "mask" then
+        return not a
+    end
+    if op == "-" then
+        return wrap(element, -(a as any))
+    end
+    if BITS[element] == 64 then
+        return (~(0LL + (a as any))) as any
+    elseif BITS[element] == 32 then
+        return wrap(element, nupp.math.u32.notBits(pattern(element, a)))
+    end
+
+    return wrap(element, 2 ^ (BITS[element] as number) - 1 - pattern(element, a))
+end
+
+local function saturate(element: string, value: number): number
+    if isFloat(element) then
+        return value
+    end
+    local bits = BITS[element] as number
+    local low = SIGNED[element] and -(2 ^ (bits - 1)) or 0
+    local high = SIGNED[element] and 2 ^ (bits - 1) - 1 or 2 ^ bits - 1
+
+    return math.max(low, math.min(high, value))
+end
+
+local function popcount(element: string, value: any): any
+    if BITS[element] == 64 then
+        return nupp.math.u64.popcount((0ULL + (value as any)) as uint64)
+    end
+
+    return nupp.math.u32.popcount(pattern(element, value))
+end
+
+local METHODS: {[string]: function(string, any, ...: any): any} = {
+    propagatingMin = function(_element: string, a: any, b: any): any
+        return extremum(a, b, true, true)
+    end,
+    propagatingMax = function(_element: string, a: any, b: any): any
+        return extremum(a, b, false, true)
+    end,
+    numberMin = function(_element: string, a: any, b: any): any
+        return extremum(a, b, true, false)
+    end,
+    numberMax = function(_element: string, a: any, b: any): any
+        return extremum(a, b, false, false)
+    end,
+    extract = function(_element: string, a: any, index: any): any
+        if index ~= 1 then
+            error("SIMD lane extraction index exceeds the logical species lanes", 3)
+        end
+        return a
+    end,
+    insert = function(element: string, _a: any, index: any, value: any): any
+        if index ~= 1 then
+            error("SIMD lane insertion index exceeds the logical species lanes", 3)
+        end
+        return wrap(element, value)
+    end,
+    reverse = function(_element: string, a: any): any
+        return a
+    end,
+    interleave = function(_element: string, a: any, b: any): (any, any)
+        return a, b
+    end,
+    deinterleave = function(_element: string, a: any, b: any): (any, any)
+        return a, b
+    end,
+    rotateLeft = function(_element: string, a: any): any
+        return a
+    end,
+    rotateRight = function(_element: string, a: any): any
+        return a
+    end,
+    align = function(_element: string, a: any, previous: any, offset: any): any
+        if offset == 0 then
+            return a
+        end
+        return previous
+    end,
+    swizzle = function(_element: string, a: any, index: any, second: any, third: any, fourth: any): any
+        if index == 1 then
+            return a
+        elseif index == 2 and second ~= nil then
+            return second
+        elseif index == 3 and third ~= nil then
+            return third
+        elseif index == 4 and fourth ~= nil then
+            return fourth
+        end
+
+        return 0
+    end,
+    compress = function(_element: string, a: any, selected: any): any
+        return selected and a or 0
+    end,
+    expand = function(_element: string, a: any, selected: any): any
+        return selected and a or 0
+    end,
+    orderedPrefixSum = function(_element: string, a: any): any
+        return a
+    end,
+    prefixXor = function(_element: string, a: any): any
+        return a
+    end,
+    fma = function(element: string, a: any, b: any, c: any): any
+        if element == "float" then
+            return nupp.math.f32.fma(
+                nupp.math.f32.narrow(a as number),
+                nupp.math.f32.narrow(b as number),
+                nupp.math.f32.narrow(c as number)
+            )
+        end
+
+        return wrap(element, (a as number) * (b as number) + (c as number))
+    end,
+    saturatingAdd = function(element: string, a: any, b: any): any
+        return wrap(element, saturate(element, (a as number) + (b as number)))
+    end,
+    saturatingSub = function(element: string, a: any, b: any): any
+        return wrap(element, saturate(element, (a as number) - (b as number)))
+    end,
+    popcount = function(element: string, a: any): any
+        return popcount(element, a)
+    end,
+    mulHigh = function(element: string, a: any, b: any): any
+        local bits = BITS[element] as number
+        if bits == 64 then
+            error("mulHigh on a 64-bit lane is not available in the one-lane species", 3)
+        end
+        if bits <= 16 then
+            return wrap(element, math.floor((a as number) * (b as number) / 2 ^ bits))
+        end
+        -- Sixteen-bit halves keep every partial product exact in a double.
+        local left = pattern(element, a)
+        local right = pattern(element, b)
+        local lowA, highA = left % 65536, math.floor(left / 65536)
+        local lowB, highB = right % 65536, math.floor(right / 65536)
+        local low = lowA * lowB
+        local cross = highA * lowB + lowA * highB + math.floor(low / 65536)
+        local high = highA * highB + math.floor(cross / 65536)
+        if SIGNED[element] then
+            if (a as number) < 0 then
+                high = high - right
+            end
+            if (b as number) < 0 then
+                high = high - left
+            end
+        end
+
+        return wrap(element, high)
+    end,
+    -- Masks.
+    select = function(_element: string, mask: any, yes: any, no: any): any
+        if mask then
+            return yes
+        end
+        return no
+    end,
+    any = function(_element: string, mask: any): any
+        return mask == true
+    end,
+    all = function(_element: string, mask: any): any
+        return mask == true
+    end,
+    count = function(_element: string, mask: any): any
+        return mask and 1 or 0
+    end,
+    first = function(_element: string, mask: any): any
+        return mask and 1 or 0
+    end,
+    bits = function(_element: string, mask: any): any
+        return mask and 1ULL or 0ULL
+    end,
+}
+
+--- @raises string when the method is not one the lanes have
+--- @export
+function lane.method(name: string, element: string, receiver: any, ...: any): any
+    local method = METHODS[name]
+    if method == nil then
+        error("method :" .. name .. " is not a SIMD lane operation", 2)
+    end
+
+    return method(element, receiver, ...)
+end
+
+const simd.lane = lane
+
+--- Reads an element, or one named field of it, from a span or view.
+local function readAt(source: any, offset: any, field: string?): any
+    local value = (source as any):get(offset)
+    if field ~= nil then
+        return (value as any)[field as string]
+    end
+
+    return value
+end
+
+--- The one-lane species object.
+local record ScalarSpecies
+    @readonly lanes: integer
+    @readonly element: string
+
+    function load(self, source: any, offset: any, third: any, fourth: any): any
+        local field: string? = nil
+        local active = third
+        if type(third) == "string" then
+            field = third as string
+            active = fourth
+        end
+        if active == false then
+            return wrap(self.element, 0)
+        end
+
+        return wrap(self.element, readAt(source, offset, field))
+    end
+
+    function store(self, destination: any, offset: any, third: any, fourth: any, fifth: any): nil
+        if type(third) == "string" then
+            if fifth == false then
+                return
+            end
+            local target = destination as any
+            local row = target:get(offset) as {[string]: any}
+            row[third as string] = fourth
+            target:set(offset, row)
+            return
+        end
+        if fourth == false then
+            return
+        end
+        local target = destination as any
+        target:set(offset, third)
+    end
+
+    function gather(self, source: any, index: any, active: any): any
+        if active == false or (index as number) < 1 or (index as number) > #(source as {any}) then
+            return wrap(self.element, 0)
+        end
+
+        return wrap(self.element, (source as any):get(index))
+    end
+
+    function scatter(self, destination: any, index: any, value: any, active: any): nil
+        if active == false or (index as number) < 1 or (index as number) > #(destination as {any}) then
+            return
+        end
+        local target = destination as any
+        target:set(index, value)
+    end
+
+    function scatterUnchecked(self, destination: any, index: any, value: any, active: any): nil
+        self:scatter(destination, index, value, active)
+    end
+
+    function convert(self, value: any): any
+        if isFloat(self.element) then
+            return wrap(self.element, tonumber(value))
+        end
+        local number = tonumber(value) as number
+        if number ~= number then
+            number = 0
+        end
+
+        return wrap(self.element, truncate(number))
+    end
+
+    function reinterpret(self, value: any): any
+        local element = self.element
+        if element == "float" then
+            return nupp.math.f32.fromBits(pattern("uint32", value))
+        elseif BITS[element] == 32 and type(value) == "number" and value % 1 ~= 0 then
+            -- A fractional value can only have been a float lane.
+            return wrap(element, nupp.math.f32.toBits(nupp.math.f32.narrow(value as number)))
+        elseif element == "number" or BITS[element] == 64 then
+            error("a 64-bit reinterpretation is not available in the one-lane species", 2)
+        end
+
+        return wrap(element, value)
+    end
+
+    function splat(self, value: any): any
+        return wrap(self.element, value)
+    end
+
+    function iota(self, first: any, _step: any): any
+        return wrap(self.element, first)
+    end
+
+    function tail(self, active: any): boolean
+        return (active as number) >= 1
+    end
+
+    function mask(self, value: any): boolean
+        return value == true
+    end
+
+    function map(self, operation: any, ...: any): any
+        return wrap(self.element, (operation as function(...: any): any)(...))
+    end
+
+    function over(self, count: any): function(): (any, any)
+        local at = 0
+        local limit = count as number
+
+        return function(): (any, any)
+            at = at + 1
+            if at <= limit then
+                return at, true
+            end
+
+            return nil, nil
+        end
+    end
+
+    function loadPairs(self, source: any, offset: any): (any, any)
+        return self:gather(source, offset), self:gather(source, (offset as number) + 1)
+    end
+
+    function loadTriples(self, source: any, offset: any): (any, any, any)
+        return self:gather(
+            source,
+            offset
+        ), self:gather(source, (offset as number) + 1), self:gather(source, (offset as number) + 2)
+    end
+
+    function loadQuads(self, source: any, offset: any): (any, any, any, any)
+        return self:gather(
+            source,
+            offset
+        ), self:gather(
+            source,
+            (offset as number) + 1
+        ), self:gather(source, (offset as number) + 2), self:gather(source, (offset as number) + 3)
+    end
+
+    function storePairs(self, destination: any, offset: any, first: any, second: any): nil
+        self:scatter(destination, offset, first)
+        self:scatter(destination, (offset as number) + 1, second)
+    end
+
+    function storeTriples(self, destination: any, offset: any, first: any, second: any, third: any): nil
+        self:scatter(destination, offset, first)
+        self:scatter(destination, (offset as number) + 1, second)
+        self:scatter(destination, (offset as number) + 2, third)
+    end
+
+    function storeQuads(self, destination: any, offset: any, first: any, second: any, third: any, fourth: any): nil
+        self:scatter(destination, offset, first)
+        self:scatter(destination, (offset as number) + 1, second)
+        self:scatter(destination, (offset as number) + 2, third)
+        self:scatter(destination, (offset as number) + 3, fourth)
+    end
+end
+
+local speciesCache: {[string]: ScalarSpecies} = {}
+
+local function scalarSpecies(element: any, lanes: any): any
+    local name = ELEMENT_OF[element]
+    if name == nil then
+        error("simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32", 3)
+    end
+    if lanes ~= nil and (type(lanes) ~= "number" or lanes < 2 or lanes > 64 or lanes % 1 ~= 0) then
+        error("simd.species takes a witness and, for a fixed shape, one literal lane count", 3)
+    end
+    local found = speciesCache[name as string]
+    if found == nil then
+        found = new ScalarSpecies(lanes = 1, element = name as string)
+        speciesCache[name as string] = found
+    end
+
+    return found
+end
+
+--- The species for an element: `T` named by its storage witness, so
+--- `array.uint32` is an `array.Scalar<uint32>` and `T` is inferred from an
+--- ordinary argument. One argument asks for `Preferred`, the target's own
+--- lane count; a second, a literal lane count, asks for `Fixed<N>`, which
+--- names the count the algorithm needs without naming an instruction set and
+--- may occupy several native registers to get it. Fixed counts must be
+--- between 2 and 64.
 ---
---- The element is named by its storage witness -- `array.uint32` is an
---- `array.Scalar<uint32>` -- so `T` is inferred from an ordinary argument. One
---- argument asks for `Preferred`, the target's own lane count; a second, a
---- literal lane count, asks for `Fixed<N>`, which names the count the
---- algorithm needs without naming an instruction set and may occupy several
---- native registers to get it. Fixed counts must be between 2 and 64.
---- Either way the result is an optional. Code
---- that has a scalar continuation tests it:
+--- There is always a species. Where the running code has vector registers
+--- it is as wide as they are; where it has none -- the scalar Wasm tier, or
+--- a body running as ordinary Lua under `aot = "off"` -- it is one lane
+--- wide, and the same loop runs a lane at a time. So a kernel is written
+--- once:
 ---
 --- ```nupp:fragment
---- if species = simd.species(array.uint32) then
+--- local species = simd.species(array.float)
+--- for at, active in species:over(#input) do
+---     species:store(output, at, species:load(input, at, active) * factor, active)
+--- end
+--- ```
+---
+--- A kernel that wants a hand-written scalar loop instead, because the
+--- one-lane species is slower than plain Lua when AOT is off, asks
+--- `simd.vectors` for the species, which is nil where there are none.
+---
+--- The lane count is decided when the enclosing `@aot` function is lowered,
+--- once per artifact tier. The argument must be one of the standard
+--- witnesses or an alias of one; the checker refuses any other expression.
+--- @export
+simd.species = (function(element: any, lanes: any): any
+    return scalarSpecies(element, lanes)
+end) as(
+    function<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>
+    & function<T, const N: integer>(element: StorageWitness<T>, lanes: N): simd.Species<T, simd.Fixed<N>>
+)
+
+--- The species for an element where the running code has vectors, and nil
+--- where it does not: the scalar Wasm tier, and a body running as ordinary
+--- Lua, which takes this library body. It is `simd.species` for a kernel
+--- that keeps a scalar continuation of its own, which it tests for:
+---
+--- ```nupp:fragment
+--- if species = simd.vectors(array.uint32) then
 ---     while cursor + species.lanes <= #cps do
 ---         ...
 ---     end
@@ -1617,26 +2274,11 @@ end
 --- end
 --- ```
 ---
---- and code that has none asserts it, which is the same word it uses for every
---- other requirement:
----
---- ```nupp:fragment
---- local wide = assert(simd.species(array.float))
---- local four = assert(simd.species(array.float, 4))
---- ```
----
---- The answer is decided when the enclosing `@aot` function is lowered, once
---- per artifact tier: a species on every native tier and on Wasm `simd128`,
---- nil on the scalar Wasm tier, where an `assert` of it is refused at compile
---- time rather than left to fail at run time. A body running as ordinary Lua
---- -- under `aot = "off"`, in the retained body beside an emitted artifact, or
---- in a function that is not `@aot` at all -- takes this library body, which
---- answers nil, so a tested species takes its scalar continuation and an
---- asserted one raises. The argument must be one of the standard witnesses or
---- an alias of one; the checker refuses any other expression, since the Lua
---- path would evaluate it and the compiled path would not.
+--- Code that has no continuation asserts it, and on a tier without vectors
+--- that assert is refused at compile time rather than left to fail at run
+--- time; `simd.species` is the form that needs no assert.
 --- @export
-simd.species = (function(_element: any, _lanes: any): nil
+simd.vectors = (function(_element: any, _lanes: any): nil
     return nil
 end) as(
     function<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>?
@@ -1668,12 +2310,13 @@ end
 --- Transposes a square tile of Fixed<N> row vectors into N column vectors.
 --- All rows have the same element type; lane bits are preserved. Results are
 --- separate native vectors, not a table, and cannot escape the AOT kernel.
---- @raises string outside an AOT-compiled function
 --- @export
 local transpose: function<Rows...>(
     ...: Rows...
-): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): never
-    error("simd.transpose is available only inside an AOT-compiled function", 2)
+): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): any
+    -- As ordinary Lua every row is one lane, so the tile is its own
+    -- transpose.
+    return ...
 end
 
 const simd.transpose = transpose
@@ -1686,58 +2329,58 @@ const simd.transpose = transpose
 --- @export
 local horizontal = {}
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.orderedSum<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.orderedSum is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.pairwiseSum<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.pairwiseSum is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.algebraicSum<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.algebraicSum is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.orderedProduct<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.orderedProduct is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.pairwiseProduct<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.pairwiseProduct is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.algebraicProduct<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.algebraicProduct is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.orderedDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
-    error("simd.horizontal.orderedDot is available only inside an AOT-compiled function", 2)
+    return ((left as any) * (right as any)) as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.pairwiseDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
-    error("simd.horizontal.pairwiseDot is available only inside an AOT-compiled function", 2)
+    return ((left as any) * (right as any)) as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.algebraicDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
-    error("simd.horizontal.algebraicDot is available only inside an AOT-compiled function", 2)
+    return ((left as any) * (right as any)) as T
 end
 
 --- The smallest lane, and the largest, under the contract the name selects.
@@ -1753,28 +2396,28 @@ end
 --- answer does not depend on how many lanes the target chose. `numberMin`
 --- answers the smallest lane that is not NaN, and the canonical NaN only when
 --- every lane is. `-0` is the smaller zero under both.
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.propagatingMin<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.propagatingMin is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.propagatingMax<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.propagatingMax is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.numberMin<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.numberMin is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the reduction.
 --- @export
 function horizontal.numberMax<T, S>(value: simd.Vector<T, S>): T
-    error("simd.horizontal.numberMax is available only inside an AOT-compiled function", 2)
+    return value as T
 end
 
 --- The one-based lane holding the matching reduction's answer.
@@ -1789,28 +2432,28 @@ end
 ---
 --- A lane index rather than a lane and its value, because an AOT expression
 --- answers a value and `extract` already spells the pair.
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the position.
 --- @export
-function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer
-    error("simd.horizontal.propagatingArgMin is available only inside an AOT-compiled function", 2)
+function horizontal.propagatingArgMin<T, S>(_value: simd.Vector<T, S>): integer
+    return 1
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the position.
 --- @export
-function horizontal.propagatingArgMax<T, S>(value: simd.Vector<T, S>): integer
-    error("simd.horizontal.propagatingArgMax is available only inside an AOT-compiled function", 2)
+function horizontal.propagatingArgMax<T, S>(_value: simd.Vector<T, S>): integer
+    return 1
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the position.
 --- @export
-function horizontal.numberArgMin<T, S>(value: simd.Vector<T, S>): integer
-    error("simd.horizontal.numberArgMin is available only inside an AOT-compiled function", 2)
+function horizontal.numberArgMin<T, S>(_value: simd.Vector<T, S>): integer
+    return 1
 end
 
---- @raises string outside an AOT-compiled function
+--- As ordinary Lua the vector is one lane, which is the position.
 --- @export
-function horizontal.numberArgMax<T, S>(value: simd.Vector<T, S>): integer
-    error("simd.horizontal.numberArgMax is available only inside an AOT-compiled function", 2)
+function horizontal.numberArgMax<T, S>(_value: simd.Vector<T, S>): integer
+    return 1
 end
 
 simd.horizontal = horizontal

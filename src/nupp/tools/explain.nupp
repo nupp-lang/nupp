@@ -1662,7 +1662,7 @@ ENTRIES[
 local SIMD_LANE = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
     .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
     .. "local function lane(borrows input: span.Span<float>): number\n"
-    .. "    if species = simd.species(array.float) then\n        if species.lanes <= #input then\n"
+    .. "    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n"
     .. "            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\n"
     .. "return {lane = lane}\n"
 

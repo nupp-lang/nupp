@@ -428,7 +428,7 @@ local function punctuation(source: string, nullValue: any): (any, uint32, uint32
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), count)
     local cursor: uint32 = 0
     local found: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         local bytes = valueBuilder.bytes(source)
         while cursor + species.lanes <= count do
             found = found + (highNibble(species, species:load(bytes, cursor + 1)) == 2):count()
@@ -3436,7 +3436,7 @@ local function scalarMask(flag: boolean): uint32
 end
 @aot
 local function movedCursor(borrows values: span.Span<uint32>): number
-    local species = simd.species(array.uint32)
+    local species = simd.vectors(array.uint32)
     if species ~= nil then
         local cursor: uint32 = 0
         if cursor + species.lanes <= #values then
@@ -3461,8 +3461,8 @@ local function speciesLanes<S>(species: simd.Species<uint32, S>): uint32
 end
 @aot
 local function helperSpecies(): uint32
-    local fixed = simd.species(array.uint32, 3)
-    local preferred = simd.species(array.uint32)
+    local fixed = simd.vectors(array.uint32, 3)
+    local preferred = simd.vectors(array.uint32)
     if fixed ~= nil and preferred ~= nil then
         return speciesLanes(fixed) + speciesLanes(preferred) - preferred.lanes
     end
@@ -3470,7 +3470,7 @@ local function helperSpecies(): uint32
 end
 @aot
 local function overflowingRoom(borrows values: span.Span<uint32>): uint32
-    local species = simd.species(array.uint32)
+    local species = simd.vectors(array.uint32)
     if species ~= nil then
         local cursor: uint32 = 0
         if cursor + 1073741824 * species.lanes <= #values then
@@ -5297,10 +5297,12 @@ return {indexed = indexed, gather = gather}
     test.equal(tonumber(actual[1]), 4, "inactive duplicates do not write")
 end
 
-function M.speciesIsNilUnderAotOffSoATestTakesTheScalarPathAndAnAssertRaises()
-    -- `aot = "off"` runs the body as Lua, where `simd.species` answers nil:
-    -- a body that tests it takes the scalar continuation it wrote for that
-    -- answer, and one that asserts it raises there, with the message it gave.
+function M.speciesIsOneLaneUnderAotOffAndVectorsIsNil()
+    -- `aot = "off"` runs the body as Lua, where `simd.species` answers the
+    -- one-lane species, so the vector loop runs a lane at a time and lands
+    -- on the same answer; `simd.vectors` answers nil there, so a body that
+    -- tests it takes the scalar continuation it wrote for that answer, and
+    -- one that asserts it raises, with the message it gave.
     local body = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -5372,8 +5374,9 @@ return m
         return (text:gsub("%s+$", ""))
     end
 
-    test.equal(answer("if species = simd.species(array.uint32) then"), "true\t37")
-    local raised = answer('local species = assert(simd.species(array.uint32), "this scan needs vectors")\n    do')
+    test.equal(answer("if species = simd.vectors(array.uint32) then"), "true\t37")
+    test.equal(answer("local species = simd.species(array.uint32)\n    do"), "true\t37", "one lane as Lua")
+    local raised = answer('local species = assert(simd.vectors(array.uint32), "this scan needs vectors")\n    do')
     assert(raised:find("^false\t") and raised:find("this scan needs vectors", 1, true), raised)
 end
 
@@ -6462,6 +6465,111 @@ return {
     extremes = extremes,
 }
 ]]
+
+local STRIP_MINED_KERNEL = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+local array = require("nupp.mem.array")
+
+--- The loop written once: every chunk but the last is unmasked under the
+--- iterator's own bound, the last takes the tail mask.
+@aot
+local function stripScale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
+    assert(#output == #input, "length mismatch")
+    local species = simd.species(array.float)
+    for at, active in species:over(#input) do
+        species:store(output, at, species:load(input, at, active) * factor, active)
+    end
+end
+
+--- An early exit from the strip-mined loop.
+@aot
+local function stripFind(borrows text: span.Span<uint8>, needle: uint32): uint32
+    local species = simd.species(array.uint8)
+    for at, active in species:over(#text) do
+        local hit = (species:load(text, at, active) == needle) & active
+        if hit:any() then
+            return nupp.math.u32.wrap(at + hit:first() - 1)
+        end
+    end
+    return 0
+end
+
+--- The loop body as a reducer's region.
+@aot
+local function stripTotal(borrows values: span.Span<number>): number
+    local species = simd.species(array.number)
+    local sum = simd.reducer.orderedSum(0.0)
+    for at, active in species:over(#values) do
+        sum:add(species:load(values, at, active), active)
+    end
+    return sum:value()
+end
+
+return {stripScale = stripScale, stripFind = stripFind, stripTotal = stripTotal}
+]]
+
+function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(STRIP_MINED_KERNEL)
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local symbols = {}
+    for _, name in ipairs({"strip_scale", "strip_find", "strip_total"}) do
+        symbols[
+            name
+        ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
+    end
+    for _, symbol in ipairs(symbols.strip_scale) do
+        ffi.cdef(("void %s(float *, const float *, float, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.strip_find) do
+        ffi.cdef(("uint32_t %s(const uint8_t *, uint32_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.strip_total) do
+        ffi.cdef(("double %s(const double *, size_t);"):format(symbol))
+    end
+    for _, count in ipairs({0, 1, 3, 4, 5, 8, 17, 64, 65}) do
+        local input = ffi.new("float[?]", count + 1)
+        for i = 0, count - 1 do
+            input[i] = i * 0.25
+        end
+        for _, symbol in ipairs(symbols.strip_scale) do
+            local output = ffi.new("float[?]", count + 1)
+            output[count] = -1
+            lib[symbol](output, input, 2.0, count, count)
+            for i = 0, count - 1 do
+                test.equal(output[i], i * 0.5, symbol .. " count " .. count .. " lane " .. i)
+            end
+            test.equal(output[count], -1, symbol .. " count " .. count .. " canary")
+        end
+        local text = ffi.new("uint8_t[?]", count + 1)
+        for i = 0, count - 1 do
+            text[i] = 65 + i % 26
+        end
+        local doubles = ffi.new("double[?]", count + 1)
+        local expected = 0
+        for i = 0, count - 1 do
+            doubles[i] = i + 1
+            expected = expected + i + 1
+        end
+        for _, symbol in ipairs(symbols.strip_total) do
+            test.equal(lib[symbol](doubles, count), expected, symbol .. " count " .. count)
+        end
+        for where = 0, count - 1, math.max(1, math.floor(count / 3)) do
+            text[where] = 0x7A
+            for _, symbol in ipairs(symbols.strip_find) do
+                test.equal(lib[symbol](text, 0x7A, count), where + 1, symbol .. " count " .. count .. " at " .. where)
+                test.equal(lib[symbol](text, 0x00, count), 0, symbol .. " count " .. count .. " absent")
+            end
+            text[where] = 65 + where % 26
+        end
+    end
+end
 
 function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local ffi = require("ffi")

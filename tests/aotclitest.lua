@@ -4005,7 +4005,7 @@ local function quotes(source: string, nullValue: any): (any, uint32, uint32)
     local count = builder.length(source)
     local state = builder.newSized(nullValue, count, count)
     local found: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         local bytes = builder.bytes(rooted)
         found = (species:load(bytes, 1) == 34):count()
     end
@@ -4069,7 +4069,7 @@ local function quotes(borrows source: string | Buffer, nullValue: any): (any, ui
     local cursor: uint32 = 0
     local found: uint32 = 0
     local loose: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         local bytes = builder.bytes(source)
         loose = (species:load(bytes, 1) == 34):count()
         while cursor + species.lanes <= count do
@@ -5267,7 +5267,7 @@ local simd = require("nupp.simd")
 @aot
 local function scan(borrows cps: span.Span<uint32>): integer
     local cursor: uint32 = 0
-    if species = simd.species(array.uint32) then
+    if species = simd.vectors(array.uint32) then
         while cursor + species.lanes <= #cps do
             local first = (species:load(cps, cursor + 1) <= 0xF):first()
             if first ~= 0 then
@@ -5320,7 +5320,7 @@ local function checkedAccess(body, span)
 end
 
 function M.aSpeciesBindingIsDecidedPerTier()
-    -- `if species = simd.species(array.uint32) then` is the vector loop on
+    -- `if species = simd.vectors(array.uint32) then` is the vector loop on
     -- a tier that has vectors and nothing at all on one that does not; the
     -- scalar tail that follows is the same code on every tier, its span read
     -- proved by the left of the `and` it sits under.
@@ -6086,7 +6086,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lanes(borrows cps: span.Span<uint32>): integer
-    local species = simd.species(array.uint32)
+    local species = simd.vectors(array.uint32)
     if species == nil then
         return #cps
     end
@@ -6123,7 +6123,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lanes(borrows cps: span.Span<uint32>): integer
-    if species = simd.species(cps) then
+    if species = simd.vectors(cps) then
         return species.lanes
     end
     return 0
@@ -6147,18 +6147,40 @@ return {lanes = lanes}
 
     out, code = run(dir, scalar .. "other.nupp")
     test.equal(code, 1, "a native if binding is the species test\n" .. out)
-    assert(out:find("other.nupp:10:16: aot: NUPP2905: a native if binding takes simd.species only", 1, true), out)
+    assert(out:find("other.nupp:10:16: aot: NUPP2905: a native if binding takes simd.vectors only", 1, true), out)
 
     out, code = run(dir, scalar .. "witness.nupp")
     test.equal(code, 1, "the argument is an array witness\n" .. out)
     assert(out:find("NUPP2125", 1, true) and out:find("Span<uint32> is not a Scalar<any>", 1, true), out)
 end
 
-function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndRefusedWhereThereAreNone()
-    -- `assert(simd.species(...))` is the required form: the species itself on
-    -- a tier with vectors, both shapes, and on one without a refusal at
-    -- compile time, since the assert would fail on every call.
+function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndOneLaneWhereThereAreNone()
+    -- `simd.species(...)` always answers: the tier's own width where it has
+    -- vectors, both shapes, and one lane on a tier without them. The
+    -- optional `simd.vectors(...)` is what an assert refuses there, since
+    -- that assert would fail on every call.
     local dir = project{
+        [
+            "optional.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function total(borrows values: span.Span<float>): number
+    local wide = assert(simd.vectors(array.float), "this sum needs vectors")
+    local sum = wide:splat(0.0)
+    local cursor: uint32 = 0
+    while cursor + wide.lanes <= #values do
+        sum = sum + wide:load(values, cursor + 1)
+        cursor = cursor + wide.lanes
+    end
+    return simd.horizontal.orderedSum(sum)
+end
+
+return {total = total}
+]],
         [
             "required.nupp"
         ] = [[
@@ -6206,12 +6228,19 @@ return {total = total}
         )
     end
 
-    local out, code = run(dir, "--triple wasm32-unknown-emscripten --features scalar required.nupp")
+    local decoded, raw, code = lowered(dir, "--triple wasm32-unknown-emscripten --features scalar --json required.nupp")
+    test.equal(code, 0, "no vectors, so the species is one lane wide\n" .. raw)
+    local body = kernelBody(decoded.llvm, "ks_total")
+    assert(body:find("= load <1 x float>, ptr %t", 1, true), "one lane on the scalar tier\n" .. body)
+    assert(body:find("<8 x float>", 1, true), "and the fixed one keeps its count\n" .. body)
+
+    local out
+    out, code = run(dir, "--triple wasm32-unknown-emscripten --features scalar optional.nupp")
     test.equal(code, 1, "no vectors, so the assert would always fail\n" .. out)
     assert(
         out:find(
-            "required.nupp:7:25: aot: NUPP2905: this tier has no vectors, so simd.species is nil here and the assert "
-            .. "would always fail; test it against nil and keep the vector path inside that branch",
+            "optional.nupp:7:25: aot: NUPP2905: this tier has no vectors, so simd.vectors is nil here and the assert "
+            .. "would always fail; test it against nil and keep the vector path inside that branch, or use simd.species",
             1,
             true
         ),

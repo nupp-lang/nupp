@@ -1047,6 +1047,10 @@ record lower.Kernel
 
     usesSimd: boolean
 
+    --- The all-lanes masks `species:over` binds for its full chunks, by
+    --- node: a load or store under one is the unmasked access.
+    allLaneMasks: {[any]: boolean}
+
     --- Whether lowering reached an operation that requires the VM-aware ABI.
     usesLua: boolean
 
@@ -1685,17 +1689,17 @@ end
 --- expression form is admitted on a tier without vectors, and there it is
 --- refused: the assert would fail on every call. The Lua path is the
 --- library's own answer and never reaches here.
-local function species(node: cst.Call, kernel: lower.Kernel, asserted: boolean): scalarIR.Expr
+local function species(node: cst.Call, kernel: lower.Kernel, asserted: boolean, optional: boolean): scalarIR.Expr
     local context = kernel.context
     local site = lower.site(node)
     admitSpecies(node, kernel)
-    if not context.vectors then
+    if optional and not context.vectors then
         context.reject(
             site,
             asserted
-            and "this tier has no vectors, so simd.species is nil here and the assert would always fail; "
-            .. "test it against nil and keep the vector path inside that branch"
-            or "simd.species answers nil on this tier, so it must initialize a local that is tested against nil"
+            and "this tier has no vectors, so simd.vectors is nil here and the assert would always fail; "
+            .. "test it against nil and keep the vector path inside that branch, or use simd.species"
+            or "simd.vectors answers nil on this tier, so it must initialize a local that is tested against nil"
         )
     end
     local inferred = semanticRaw((node as any).inferredType)
@@ -1728,20 +1732,21 @@ local function species(node: cst.Call, kernel: lower.Kernel, asserted: boolean):
 end
 
 --- The `simd.species(...)` call an `assert(...)` requires, or nothing.
-local function assertedSpecies(node: cst.Call, kernel: lower.Kernel): cst.Call?
+local function assertedSpecies(node: cst.Call, kernel: lower.Kernel): (cst.Call?, boolean)
     if (node as any).aotGuardBuiltin ~= "assert" then
-        return nil
+        return nil, false
     end
     local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
     local first = arguments[1]
-    if first == nil or first.kind ~= "call" or calledIdentity(first as cst.Call, kernel) ~= "nupp.simd.species" then
-        return nil
+    local identity = first ~= nil and first.kind == "call" and calledIdentity(first as cst.Call, kernel) or nil
+    if identity ~= "nupp.simd.species" and identity ~= "nupp.simd.vectors" then
+        return nil, false
     end
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "string" then
         kernel.context.reject(lower.site(node), "assert(simd.species(...)) takes at most a literal message")
     end
 
-    return first as cst.Call
+    return first as cst.Call, identity == "nupp.simd.vectors"
 end
 
 --- Whether a comparison against nil is answered statically: a species from
@@ -2317,14 +2322,14 @@ local function call(
     local context = kernel.context
     local path = lower.dottedName(node.obj)
     local identity = calledIdentity(node, kernel)
-    if identity == "nupp.simd.species" then
+    if identity == "nupp.simd.species" or identity == "nupp.simd.vectors" then
         -- Answered before the arguments lower: the witness is a library value,
         -- not something native code can hold.
-        return species(node, kernel, false)
+        return species(node, kernel, false, identity == "nupp.simd.vectors")
     end
-    local required = assertedSpecies(node, kernel)
+    local required, optional = assertedSpecies(node, kernel)
     if required ~= nil then
-        return species(required as cst.Call, kernel, true)
+        return species(required as cst.Call, kernel, true, optional)
     end
 
     local args: {scalarIR.Expr} = {}
@@ -3846,7 +3851,16 @@ local function simdMethod(
             -- s.lanes <= #span` is a whole vector inside the span: it carries
             -- the cursor so the verifier can hold that and the code generator
             -- can copy without checking any lane. A masked one keeps its mask.
-            local masked = raw[reading and 3 or 4] ~= nil
+            -- The mask of a full chunk of `species:over` is every lane, and
+            -- an access under it is the unmasked one the loop's own bound
+            -- proves, so it is dropped here rather than checked lane by lane.
+            local activeArgument = raw[reading and 3 or 4]
+            local active = activeArgument ~= nil and lower.expression(activeArgument, environment, activeIndex, kernel)
+                or nil
+            if active ~= nil and kernel.allLaneMasks[active] then
+                active = nil
+            end
+            local masked = active ~= nil
             local cursor = not indexed
                 and not masked
                 and provedVectorCursor(offset, spanName, kernel, tostring(receiverType))
@@ -3855,12 +3869,11 @@ local function simdMethod(
             local cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil
             if reading then
                 local loadArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset}
-                if raw[3] ~= nil then
-                    local active = lower.expression(raw[3], environment, activeIndex, kernel)
-                    if active.type ~= maskType then
+                if active ~= nil then
+                    if (active as scalarIR.Expr).type ~= maskType then
                         kernel.context.reject(source, "SIMD load mask has a different species")
                     end
-                    loadArgs[#loadArgs + 1] = active
+                    loadArgs[#loadArgs + 1] = active as scalarIR.Expr
                 end
                 return new scalarIR.Simd(
                     op = "simd_load",
@@ -3878,12 +3891,11 @@ local function simdMethod(
                     kernel.context.reject(source, "SIMD store value has a different element or species type")
                 end
                 local storeArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset, stored}
-                if raw[4] ~= nil then
-                    local active = lower.expression(raw[4], environment, activeIndex, kernel)
-                    if active.type ~= maskType then
+                if active ~= nil then
+                    if (active as scalarIR.Expr).type ~= maskType then
                         kernel.context.reject(source, "SIMD store mask has a different species")
                     end
-                    storeArgs[#storeArgs + 1] = active
+                    storeArgs[#storeArgs + 1] = active as scalarIR.Expr
                 end
                 return new scalarIR.Simd(
                     op = "simd_store",
@@ -4642,6 +4654,13 @@ local function expressionRaw(
     elseif kind == "name" then
         local name = lower.nameOf(node)
         local bound = name ~= nil and environment[name as string] or nil
+        if bound ~= nil and bound.kind == "alias" then
+            -- A name that stands for an expression rather than a slot: the
+            -- loop variables of `for at, active in species:over(n)`, which
+            -- read as `cursor + 1` and as the chunk's mask so the bounds
+            -- proof sees the shape it already knows.
+            return (bound.build as function(): scalarIR.Expr)()
+        end
         if bound == nil then
             if activeIndex ~= nil and name == activeIndex and kernel.mapEntry then
                 return new scalarIR.LoopIndex(op = "loop_index", type = "f64", source = lower.site(node))
@@ -6119,9 +6138,9 @@ local function localStmt(
     if #exprs == 1
         and exprs[1].kind == "call"
         and not context.vectors
-        and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.simd.species"
+        and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.simd.vectors"
     then
-        -- `simd.species` on a tier without vectors: the name is bound to
+        -- `simd.vectors` on a tier without vectors: the name is bound to
         -- nothing, and the branch that tests it against nil prunes.
         admitSpecies(exprs[1] as cst.Call, kernel)
         if #names ~= 1 then
@@ -7188,10 +7207,11 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     -- species, and one without drops the arm without lowering
                     -- it. Nothing else lowers to a nil-tested native value.
                     local bound = arm.cond as cst.Node
-                    if bound.kind ~= "call" or calledIdentity(bound as cst.Call, kernel) ~= "nupp.simd.species" then
-                        context.reject(lower.site(bound), "a native if binding takes simd.species only")
+                    local boundIdentity = bound.kind == "call" and calledIdentity(bound as cst.Call, kernel) or nil
+                    if boundIdentity ~= "nupp.simd.species" and boundIdentity ~= "nupp.simd.vectors" then
+                        context.reject(lower.site(bound), "a native if binding takes simd.vectors only")
                     end
-                    if context.vectors then
+                    if context.vectors or boundIdentity == "nupp.simd.species" then
                         local value = lower.expression(bound, environment, kernel.index, kernel)
                         local inner = inherit(environment)
                         local binding = bind((bindingToken as lexer.Token).text, value.type, nil, arm, inner, kernel)
@@ -7457,6 +7477,181 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 )
             else
                 out[#out + 1] = new scalarIR.Block(op = "block", body = body, source = lower.site(stat))
+            end
+        elseif kind == "forinStmt" then
+            -- `for at, active in species:over(count) do ... end`: the strip-mined
+            -- loop written once. It lowers to the two loops the hand-written
+            -- form spells out -- full chunks under `cursor + lanes <= count`,
+            -- where `active` is every lane and an access under it is the
+            -- unmasked one that bound proves, then at most one tail chunk under
+            -- `cursor < count` with the tail mask -- and `at` reads as
+            -- `cursor + 1` in both, so the bounds proof sees the shape it knows.
+            -- The body is also the region of any reducer it contributes to.
+            local loop = stat as cst.ForinStmt
+            local names = loop.names or {}
+            local exprs = loop.exprs or {}
+            local call = #exprs == 1 and exprs[1].kind == "methodCall" and exprs[1] as cst.MethodCall or nil
+            local receiverName = call ~= nil and lower.nameOf(call.obj) or nil
+            local receiver = receiverName ~= nil and environment[receiverName as string] or nil
+            local speciesType = receiver ~= nil and receiver.kind == "local" and tostring(receiver.type) or ""
+            local methodName = call ~= nil and call.name ~= nil and (call.name as lexer.Token).text or nil
+            local arguments = call ~= nil and call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+            local element, shape = speciesType:match("^simd_species_(.-)_(.+)$")
+            if call == nil or element == nil or methodName ~= "over" or #arguments ~= 1 or #names ~= 2 then
+                context.reject(lower.site(stat), "a native for-in takes `for at, active in species:over(count)` only")
+            end
+            local countNode = arguments[1]
+            kernel.usesSimd = true
+            local site = lower.site(stat)
+            local maskType = ("simd_mask_" .. tostring(element) .. "_" .. tostring(shape)) as scalarIR.Type
+            local speciesValue = lower.expression(
+                (call as cst.MethodCall).obj as cst.Node,
+                environment,
+                kernel.index,
+                kernel
+            )
+            local count = lower.expression(countNode, environment, kernel.index, kernel)
+            if count.op ~= "span_count" and count.op ~= "constant" and count.op ~= "constant_i32" then
+                count = temporary(count, kernel, out)
+            end
+            kernel.serial = kernel.serial + 1
+            local cursorName = "over#" .. tostring(kernel.serial)
+            local cursor = bind(cursorName, "u32", true, stat, environment, kernel)
+
+            local function cursorRead(): scalarIR.Expr
+                return new scalarIR.Name(
+                    op = "local",
+                    name = cursorName,
+                    type = "u32",
+                    uniqueName = cursor.uniqueName,
+                    mutable = true,
+                    source = site
+                )
+            end
+
+            local function lanes(): scalarIR.Expr
+                return new scalarIR.Simd(
+                    op = "simd_lanes_generic",
+                    args = {speciesValue},
+                    intrinsic = "lanes",
+                    type = "u32",
+                    source = site
+                )
+            end
+
+            local function u32(value: string): scalarIR.Expr
+                return new scalarIR.IntConstant(op = "constant_i32", value = value, type = "u32", source = site)
+            end
+
+            local function sum(left: scalarIR.Expr, right: scalarIR.Expr): scalarIR.Expr
+                return new scalarIR.Fixed(op = "u32_add", left = left, right = right, type = "u32", source = site)
+            end
+
+            -- The comparisons are the ones the written loop would lower, so
+            -- they take the same widening a cursor against a count gets.
+            local firstToken = cst.firstToken(stat) as lexer.Token
+
+            local function operator(text: string): cst.Binop
+                local token: {[string]: any} = {}
+                for key, value in pairs(firstToken as any) do
+                    token[key] = value
+                end
+                token.text = text
+                local node: any = {kind = "binop", op = token}
+                (node as {any})[1] = token
+
+                return node as cst.Binop
+            end
+
+            out[
+                #out + 1
+            ] = new scalarIR.Let(
+                op = "let",
+                name = cursorName,
+                uniqueName = cursor.uniqueName,
+                type = "u32",
+                value = u32("0"),
+                source = site
+            )
+            local bounds: scalarIR.CursorBounds? = nil
+            local spanName = lower.dotCount(countNode)
+            local counted = spanName ~= nil and kernel.params[spanName as string] or nil
+            if counted ~= nil and counted.region ~= nil then
+                local proved: scalarIR.CursorBounds = {}
+                withBound(proved, cursorName, spanName as string, simdbounds.room(speciesType, 1))
+                bounds = proved
+            end
+            local atName = (names[1] as lexer.Token).text
+            local activeName = (names[2] as lexer.Token).text
+            if environment[atName] ~= nil or environment[activeName] ~= nil then
+                context.reject(site, "native locals may not shadow " .. atName)
+            end
+            environment[atName] = {
+                kind = "alias",
+                type = "u32",
+                build = function(): scalarIR.Expr
+                    return sum(cursorRead(), u32("1"))
+                end,
+            }
+            local activeAlias: {[string]: any} = {kind = "alias", type = maskType}
+            activeAlias.build = function(): scalarIR.Expr
+                local everyLane = new scalarIR.Simd(
+                    op = "simd_mask_splat",
+                    args = {new scalarIR.Bool(op = "bool", value = true, type = "bool", source = site)},
+                    intrinsic = "mask",
+                    type = maskType,
+                    source = site
+                )
+                kernel.allLaneMasks[everyLane] = true
+
+                return everyLane
+            end
+            environment[activeName] = activeAlias
+            local previousDo = kernel.simdDo
+            kernel.nextReducerRegion = kernel.nextReducerRegion + 1
+            local scope = new lower.ReducerDo(region = kernel.nextReducerRegion, reducers = {}, byName = {})
+            kernel.simdDo = scope
+            local region: {scalarIR.Statement} = {}
+            local full = binary(operator("<="), sum(cursorRead(), lanes()), count, kernel)
+            local fullBody = nestedWithCursor(loop.body, bounds, true)
+            fullBody[#fullBody + 1] = assignValue(cursorRead() as scalarIR.Name, sum(cursorRead(), lanes()))
+            region[
+                #region + 1
+            ] = new scalarIR.While(
+                op = "while",
+                condition = full,
+                body = fullBody,
+                carried = {},
+                cursorBounds = bounds,
+                source = site
+            )
+            activeAlias.build = function(): scalarIR.Expr
+                return new scalarIR.Simd(
+                    op = "simd_tail",
+                    args = {lower.convert(binary(operator("-"), count, cursorRead(), kernel), "u32", site, context)},
+                    intrinsic = "tail",
+                    type = maskType,
+                    source = site
+                )
+            end
+            local remaining = binary(operator("<"), cursorRead(), count, kernel)
+            region[#region + 1] = guarded(remaining, nested(loop.body))
+            kernel.simdDo = previousDo
+            environment[atName] = nil
+            environment[activeName] = nil
+            if #scope.reducers > 0 then
+                out[
+                    #out + 1
+                ] = new scalarIR.ReducerRegion(
+                    op = "reducer_region",
+                    body = region,
+                    reducers = scope.reducers,
+                    source = site
+                )
+            else
+                for _, statement in ipairs(region) do
+                    out[#out + 1] = statement
+                end
             end
         elseif kind == "breakStmt" then
             out[#out + 1] = new scalarIR.Break(op = "break", source = lower.site(stat))
@@ -8893,6 +9088,7 @@ local function newKernel(
         lengthBounds = {},
         scratchLengthBounds = {},
         usesSimd = false,
+        allLaneMasks = {},
         usesLua = false,
         serial = 0,
         context = context

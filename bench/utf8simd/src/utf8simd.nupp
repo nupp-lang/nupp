@@ -86,7 +86,7 @@ end
 @aot
 local function validPrefix(borrows source: span.Span<uint8>): uint32
     local at: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         local zero = species:splat(0)
         local byte1High = nibbleTable(zero, 2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
         local byte1Low = nibbleTable(
@@ -128,9 +128,9 @@ local function validPrefix(borrows source: span.Span<uint8>): uint32
                 -- class exactly when the pair is malformed. Swizzle numbers
                 -- lanes from one, so a nibble indexes lane nibble + 1.
                 local prev1 = input:align(previous, 1)
-                local special = byte1High:swizzle(
-                    (prev1 >> 4) + 1
-                ) & byte1Low:swizzle((prev1 & 15) + 1) & byte2High:swizzle((input >> 4) + 1)
+                local special = byte1High:swizzle((prev1 >> 4) + 1)
+                    & byte1Low:swizzle((prev1 & 15) + 1)
+                    & byte2High:swizzle((input >> 4) + 1)
                 -- A byte two back at or above 0xE0, or three back at or above
                 -- 0xF0, says this byte must be a third or fourth
                 -- continuation. The tables answer the carry class 0x80 for a

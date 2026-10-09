@@ -243,7 +243,9 @@ function aot.install(c: state.Checker): aot.Ops
                     or kind == "shortfn"
                 then
                     return
-                elseif kind == "doStmt" then
+                elseif kind == "doStmt" or kind == "forinStmt" then
+                    -- A `for ... in species:over(n)` body is a region too: the
+                    -- lowering wraps both of its loops in one.
                     nextRegion = nextRegion + 1
                     local nestedRegion = nextRegion
                     doRegions[nestedRegion] = true

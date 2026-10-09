@@ -528,6 +528,38 @@ type gen.HotMetadata = {
 -- locals than a Lua function holds. See `spillsModuleScope` below.
 local spillNextModule = false
 
+--- The explicit SIMD family a checked type names (`Vector`, `Mask` or
+--- `Species`) and its element's name, or nil for anything else. The
+--- generator routes operators and methods on the first two through the
+--- one-lane runtime, since where a body runs as Lua a vector is a number and
+--- a mask a boolean.
+local function simdFamilyOf(t: any): (string?, string?)
+    if t == nil then
+        return nil, nil
+    end
+    if t.tag == "const" then
+        t = t.inner
+    end
+    if t == nil or t.tag ~= "nominal" then
+        return nil, nil
+    end
+    local origin = t.origin or t
+    if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+        return nil, nil
+    end
+    local name = origin.name
+    if name ~= "Vector" and name ~= "Mask" and name ~= "Species" then
+        return nil, nil
+    end
+    local element = (t.typeArgs or {})[1]
+    local elementName = element ~= nil and tostring(element.tag) or "number"
+    if elementName == "literal" and element.base ~= nil then
+        elementName = tostring(element.base.tag)
+    end
+
+    return name, elementName
+end
+
 --- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
 ---
 --- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
@@ -4429,6 +4461,9 @@ function gen.generate(
     end
 
     emitDepth.activationStable = activationStable
+    -- Hung on the shared table rather than captured: `emit` is at the
+    -- upvalue limit.
+    emitDepth.simdFamilyOf = simdFamilyOf
 
     local function captureUsage(block, captures)
         local wanted, written, nested = {}, {}, {}
@@ -5690,6 +5725,75 @@ function gen.generate(
             emit(x.foldedExpression)
             e(")")
             return
+        end
+        if (kind == "binop" or kind == "unop") and x.simdIntrinsic then
+            -- An operator on a value the checker typed as a vector or a mask.
+            -- Where the body runs as Lua the species is one lane wide, a
+            -- vector is a number and a mask a boolean, and the lane runtime
+            -- answers the operator with the element's wrapping, which `+` on
+            -- two numbers would not.
+            local operand = kind == "unop" and x.operand or x.lhs
+            local family, element = emitDepth.simdFamilyOf(operand and operand.inferredType)
+            local tag = family == "Mask" and "mask" or element or "number"
+            e(
+                (
+                    "%s.lane.%s(%q,%q,"
+                ):format(compilerModuleName("nupp.simd"), kind == "unop" and "unary" or "binary", x.op.text, tag),
+                x.op.line
+            )
+            if kind == "unop" then
+                emit(x.operand)
+            else
+                emit(x.lhs)
+                e(",")
+                emit(x.rhs)
+            end
+            e(")")
+            return
+        end
+        if kind == "methodCall" and x.obj and x.name and not x.safeObj and not x.safeMethod then
+            local family, element = emitDepth.simdFamilyOf(x.obj.inferredType)
+            local args = x.args and x.args.exprs or {}
+            local method = x.name.text
+            if family == "Vector" or family == "Mask" then
+                e(
+                    (
+                        "%s.lane.method(%q,%q,"
+                    ):format(
+                        compilerModuleName("nupp.simd"),
+                        method,
+                        family == "Mask" and "mask" or element or "number"
+                    ),
+                    sourceLine(x)
+                )
+                emit(x.obj)
+                for _, argument in ipairs(args) do
+                    e(",")
+                    emit(argument)
+                end
+                e(")")
+                return
+            elseif family == "Species" and x.args and not x.args.table and not x.args.str then
+                -- The species' memory methods are overload intersections, so
+                -- the checker resolved a mangled member; the one-lane species
+                -- answers to the written name, and its conversions need to
+                -- know what element the value they convert was, which only
+                -- the checker knew.
+                emit(x.obj)
+                e(":" .. method .. "(", sourceLine(x))
+                for index, argument in ipairs(args) do
+                    if index > 1 then
+                        e(",")
+                    end
+                    emit(argument)
+                end
+                if (method == "convert" or method == "reinterpret") and #args == 1 then
+                    local _, from = emitDepth.simdFamilyOf(args[1].inferredType)
+                    e((",%q"):format(from or "number"))
+                end
+                e(")")
+                return
+            end
         end
         if (kind == "binop" or kind == "unop") and x.fixedArithmetic then
             -- Established thirty-two bit operands: the operator is the

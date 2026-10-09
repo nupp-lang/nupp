@@ -314,6 +314,11 @@ end
 --- instantiated for the others -- and no target whose frame cannot carry one
 --- answers wider than its ceiling, whatever its registers are.
 function target.simdWidth(selected: target.Target): integer
+    if (target.TIERS[selected.tier] or 0) == 0 then
+        -- No vector register: a preferred species is one lane wide, which is
+        -- what lets `simd.species` answer on every tier.
+        return 0
+    end
     if selected.tier == "avx512f" then
         return held(selected, 64)
     elseif selected.tier == "avx2" then

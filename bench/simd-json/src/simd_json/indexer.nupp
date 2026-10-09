@@ -59,7 +59,7 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
     while at < #source do
         local events: uint64 = 0
         local width: uint32 = 0
-        if species = simd.species(array.uint8) then
+        if species = simd.vectors(array.uint8) then
             if at + species.lanes <= #source then
                 local bytes = species:load(source, at + 1)
                 local structural = (bytes == 123) | (bytes == 125) | (bytes == 91) | (bytes == 93)
@@ -108,14 +108,10 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
                         if not isContinuation then
                             return written, 2, position + 1
                         end
-                        local constrained = constraint == 1
-                            and byte < 160
-                            or constraint == 2
-                            and byte > 159
-                            or constraint == 3
-                            and byte < 144
-                            or constraint == 4
-                            and byte > 143
+                        local constrained = constraint == 1 and byte < 160
+                            or constraint == 2 and byte > 159
+                            or constraint == 3 and byte < 144
+                            or constraint == 4 and byte > 143
                         if constrained then
                             return written, 2, position + 1
                         end

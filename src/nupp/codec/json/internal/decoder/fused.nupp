@@ -178,7 +178,7 @@ local function decodeFused<const Variant: integer>(
     while scanCursor < sourceCount or not seeded do
         local events: uint64 = 0
         local width: uint32 = 0
-        if species = simd.species(array.uint8) then
+        if species = simd.vectors(array.uint8) then
             if not vectorsOff and scanCursor + species.lanes <= sourceCount then
                 local bytes = _valueBuilder.bytes(source)
                 local block = species:load(bytes, scanCursor + 1)

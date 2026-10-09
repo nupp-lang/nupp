@@ -83,7 +83,7 @@ local function scan(borrows source: span.Span<uint8>, exclusive tape: span.Write
     while scanCursor < #source or not seeded do
         local events: uint64 = 0
         local width: uint32 = 0
-        if species = simd.species(array.uint8) then
+        if species = simd.vectors(array.uint8) then
             if not vectorsOff and scanCursor + species.lanes <= #source then
                 local block = species:load(source, scanCursor + 1)
                 local structural = (block == 123) | (block == 125) | (block == 91) | (block == 93)

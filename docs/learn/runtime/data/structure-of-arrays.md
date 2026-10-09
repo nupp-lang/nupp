@@ -274,7 +274,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    if species = simd.species(array.float) then
+    if species = simd.vectors(array.float) then
         local cursor: uint32 = 0
         while cursor < #rows do
             local active = species:tail(#rows - cursor)

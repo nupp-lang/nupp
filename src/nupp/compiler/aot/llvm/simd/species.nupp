@@ -75,7 +75,9 @@ function species.of(width: integer, typeName: string): species.Species?
     local bits = tonumber((element as string):match("%d+")) as integer
     local lanes: integer
     if shape == "preferred" then
-        lanes = math.floor(width * 8 / bits) as integer
+        -- A tier without vector registers reports no width; its preferred
+        -- species is the one-lane one, which LLVM carries as a scalar.
+        lanes = width == 0 and 1 or math.floor(width * 8 / bits) as integer
     else
         local fixed = tonumber((shape as string):match("^fixed(%d+)$"))
         if fixed == nil then

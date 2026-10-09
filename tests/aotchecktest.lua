@@ -71,7 +71,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lane(borrows input: span.Span<float>): number
-    if species = simd.species(array.float) then
+    if species = simd.vectors(array.float) then
         if species.lanes <= #input then
             return species:load(input, 1):extract(5)
         end
@@ -152,13 +152,13 @@ local simd = require("nupp.simd")
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local found: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         while cursor + species.lanes <= #source do
             found = found + (species:load(source, cursor + 1) == 34):count()
             cursor = cursor + species.lanes
         end
     end
-    if lanes = simd.species(nupp.mem.array.uint8) then
+    if lanes = simd.vectors(nupp.mem.array.uint8) then
         found = found + lanes.lanes - lanes.lanes
     end
     while cursor < #source do

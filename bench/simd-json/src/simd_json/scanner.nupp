@@ -31,7 +31,7 @@ local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: s
     end
 
     local cursor: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         while cursor + species.lanes <= #bytes do
             local byte = species:load(bytes, cursor + 1)
             local flag = (byte < 32):select(16, 0)

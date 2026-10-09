@@ -46,7 +46,7 @@ local function encode(
 ): uint32
     local at: uint32 = 0
     local out: uint32 = 0
-    if species = simd.species(array.uint8) then
+    if species = simd.vectors(array.uint8) then
         local lanes: uint32 = species.lanes
         -- The alphabet as four table vectors. A wider species holds it in
         -- fewer, and the loads past its end read zero.

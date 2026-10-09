@@ -475,6 +475,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             local mm = c.metamethodOf(t, "__unm")
             if mm then
+                if simdFamily(t) == "Vector" then
+                    (node as any).simdIntrinsic = op
+                end
                 return c.applyContract(mm, {t}, {operand}, node, "__unm")
             end
             c.numericOperand(t, node, op)
@@ -611,6 +614,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
             if mm then
                 -- A contract was only looked for under a name, so finding one is what
                 -- proves there was one.
+                if simdFamily(lt) == "Vector" then
+                    -- The generator routes a lane operator through the one-lane
+                    -- runtime where the body runs as Lua.
+                    (node as any).simdIntrinsic = op
+                end
                 return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, mmName as string)
             end
             local leftPayload = T.unwrapOwnership(lt)

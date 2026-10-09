@@ -40,6 +40,8 @@ record.
 | indexed load/store, strided fields and interleaved runs | `memory.lua`, all elements/species, four admitted index types, every tail, zero/out-of-range indices and scalar address oracle; two- to four-way interleaved loads and stores under a whole-run proof and without one, at runs inside the span, across its end and past it |
 | scalar helper and closed math map | `primitives.lua` covers scalar helpers for every element/species; `maps.lua` covers all 22 admitted native math identities and arities on float/number, plus corrected f32 min/max/fma, at every species; Wasm executes the 18 identities admitted by the portable math surface, with explicit positioned refusals for atan2/sinh/cosh/tanh |
 | horizontal reductions and exact reducers | `reducers.lua`, maintained separately from primitive lane operations |
+| strip-mined loops (`species:over`) | `aotbuildtest.lua` runs unmasked full chunks and the masked tail natively on the SIMD and forced-scalar routes at counts 0..65, with an early exit and a reducer region |
+| the one-lane species (`simd.species` as Lua, `simd.vectors` nil) | `simdlanetest.lua` compiles kernels to Lua and holds lane operators, masks, methods, `over` and the scalar continuation to their lane meaning; `aotbuildtest.lua` runs a kernel under `aot = "off"` |
 
 Every generator reports the actual selected cases in its coverage record.
 Preferred indexed memory requires index and value elements of the same physical

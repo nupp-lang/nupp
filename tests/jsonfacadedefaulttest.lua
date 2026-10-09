@@ -85,7 +85,7 @@ function M.scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage()
         package.preload["nupp.runtime.storage"] = function() error("unexpected storage import") end
         local array, simd = require("nupp.mem.array"), require("nupp.simd")
         for _, name in ipairs({"uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float", "number"}) do
-            assert(simd.species(array[name]) == nil)
+            assert(simd.vectors(array[name]) == nil)
         end
         local fused = require("nupp.codec.json.internal.decoder.fused")
         local value, status = fused.decodeEager('[1,"hello",true]', nil, {}, {})

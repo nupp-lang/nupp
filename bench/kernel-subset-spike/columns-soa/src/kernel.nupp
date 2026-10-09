@@ -19,7 +19,7 @@ local function advance(
         error("range out of bounds", 2)
     end
 
-    if floats = simd.species(array.float, 4) then
+    if floats = simd.vectors(array.float, 4) then
         local doubles = assert(simd.species(array.number, 4))
         -- A uint32 cursor bounded by the span proves every whole-vector
         -- access, so none of them checks its lanes; `last` alone does not.
