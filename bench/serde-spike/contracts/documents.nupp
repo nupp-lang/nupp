@@ -1,0 +1,58 @@
+local core = require("contract.value")
+local documents = require("example.document")
+local readers = require("example.documentreader")
+local contexts = require("contract.context")
+local json = require("contract.jsoncodec")
+local model = require("example.richmodel")
+
+local record Custom is core.Atom
+    @readonly family: table
+    @readonly payload: string
+end
+local family: table = {}
+local atom = new Custom(family = family, payload = "custom")
+local codec, profile = {}, {}
+local key = core.contextKey<string>()
+local builder = contexts.builder(codec, profile)
+builder:set(key, "retained")
+local context = builder:freeze()
+local original = documents.withContext(
+    documents.tuple({
+        documents.null(),
+        documents.integer(new core.Integer(decimal = "18446744073709551615", width = 64, signed = false)),
+        documents.decimal(new core.Decimal(coefficient = "-0", exponent = -2)),
+        documents.float(new core.Float(value = 1.5, width = 32)),
+        documents.bigInteger("123456789012345678901234567890"),
+        documents.bytes("\0\255blob"),
+        documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 500000000)),
+        documents.union("ok", documents.boolean(true)),
+        documents.map({
+            new documents.MapEntry(
+                key = documents.integer(new core.Integer(decimal = "7", width = 32, signed = true)),
+                value = documents.null()
+            )
+        }),
+        documents.atom(atom),
+        documents.null(),
+    }),
+    context
+)
+local snapshot = readers.snapshot(original)
+assert(snapshot ~= original and snapshot.kind == "tuple" and snapshot:size() == 11)
+assert(snapshot:at(1).kind == "null" and snapshot:at(11).kind == "null")
+assert(snapshot:at(2):integer().decimal == "18446744073709551615")
+assert(snapshot:at(3):decimal().coefficient == "-0" and snapshot:at(3):decimal().exponent == -2)
+assert(snapshot:at(4):float().width == 32 and snapshot:at(4):float().value == 1.5)
+assert(snapshot:at(5):bigInteger() == "123456789012345678901234567890")
+assert(snapshot:at(6):bytes() == "\0\255blob")
+assert(snapshot:at(7):timestamp().nanos == 500000000)
+assert(assert(snapshot:at(8):get("ok")):boolean())
+assert(snapshot:at(9):entry(1).key:integer().decimal == "7")
+assert(snapshot:at(9):entry(1).value.kind == "null")
+assert(snapshot:at(10):atom() == atom)
+assert(assert(snapshot:at(9):entry(1).value:context()):get(key) == "retained")
+local jsonValue = documents.tuple({snapshot:at(2), snapshot:at(3), snapshot:at(6), snapshot:at(9), documents.null()})
+local bytes = json.encode(documents.documentAdapter():contents(), jsonValue, model.policy(true))
+assert(bytes == '[18446744073709551615,-0e-2,"AP9ibG9i",{"7":null},null]')
+assert(not pcall(json.encode, documents.documentAdapter():contents(), snapshot, model.policy(true)))
+print("rich documents snapshot exact values, typed keys, nulls, atoms, and context without wire serialization")

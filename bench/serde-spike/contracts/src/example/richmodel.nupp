@@ -6,6 +6,7 @@ local json = require("nupp.codec.json")
 local timestamps = require("example.timestamps")
 local documents = require("example.document")
 local maps = require("example.maps")
+local contexts = require("contract.context")
 
 local record Member is core.Member
     @readonly name: string
@@ -58,6 +59,8 @@ export record Packet
     choice: Choice?
 end
 local record State<T>
+    notePresence: core.Presence = "absent"
+    sourceContext: core.Context?
     id: string?
     created: core.Timestamp?
     note: string?
@@ -70,6 +73,7 @@ local interface Storage<T>
     id: function(self, borrows value: T): string
     created: function(self, borrows value: T): core.Timestamp
     note: function(self, borrows value: T): string?
+    noteState: function(self, borrows value: T): core.Presence
     document: function(self, borrows value: T): documents.Document?
     labels: function(self, borrows value: T): Labels?
     next: function(self, borrows value: T): T?
@@ -87,6 +91,10 @@ local record PacketStorage is Storage<Packet>
 
     function note(self, borrows value: Packet): string?
         return value.note
+    end
+
+    function noteState(self, borrows value: Packet): core.Presence
+        return value.note == nil and "absent" or "value"
     end
 
     function document(self, borrows value: Packet): documents.Document?
@@ -118,6 +126,7 @@ local record PacketStorage is Storage<Packet>
     end
 end
 export record Indexed
+    @private @readonly notePresence: core.Presence = "absent"
     @private @readonly owner: table
     @private @readonly slots: {[integer]: string | core.Timestamp | documents.Document | Labels | Indexed | Choice}
 end
@@ -157,6 +166,11 @@ local record IndexedStorage is Storage<Indexed>
         end
 
         return item as string?
+    end
+
+    function noteState(self, borrows value: Indexed): core.Presence
+        self:validate(value)
+        return value.notePresence
     end
 
     function document(self, borrows value: Indexed): documents.Document?
@@ -202,6 +216,7 @@ local record IndexedStorage is Storage<Indexed>
     function finish(self, state: State<Indexed>): Indexed
         return new Indexed(
             owner = self.owner,
+            notePresence = state.notePresence,
             slots = {
                 [1] = assert(state.id),
                 [2] = assert(state.created),
@@ -226,6 +241,116 @@ export record Model
     @private @readonly choiceValue: Member
     @private @readonly mapping: maps.Map<Member>
     @private @readonly owner: table
+end
+
+export const schemaContext = core.contextKey<Model>()
+export const memberContext = core.contextKey<string>()
+
+export record ModelDocument
+    @private @readonly model: Model
+    @private @readonly state: State<ModelDocument>
+
+    function schema(self): Model
+        return self.model
+    end
+
+    function context(self): core.Context?
+        return self.state.sourceContext
+    end
+
+    function next(self): ModelDocument?
+        return self.state.next
+    end
+
+    function get(self, name: string): documents.Document?
+        local state = self.state
+        local value: documents.Document? = nil
+        if name == "id" then
+            value = documents.string(assert(state.id))
+        elseif name == "created" then
+            value = documents.timestamp(assert(state.created))
+        elseif name == "note" and state.notePresence == "null" then
+            value = documents.null()
+        elseif name == "note" and state.note ~= nil then
+            value = documents.string(state.note)
+        elseif name == "document" then
+            value = state.document
+        elseif name == "labels" and state.labels ~= nil then
+            local entries: {documents.MapEntry} = {}
+            for key, item in pairs(state.labels) do
+                entries[
+                    #entries + 1
+                ] = new documents.MapEntry(
+                    key = documents.integer(new core.Integer(decimal = tostring(key), width = 32, signed = true)),
+                    value = documents.string(item)
+                )
+            end
+            value = documents.map(entries)
+        end
+        if value == nil then
+            return nil
+        end
+        if state.sourceContext == nil then
+            return value
+        end
+        local source = state.sourceContext as core.Context
+        local context = contexts.builder(source.codec, source.profile, source)
+        context:set(schemaContext, self.model)
+        context:set(memberContext, name)
+
+        return documents.withContext(value, context:freeze())
+    end
+end
+
+local record DocumentStorage is Storage<ModelDocument>
+    @readonly model: Model
+    function validate(self, borrows value: ModelDocument): nil
+        assert(value.model == self.model, "document belongs to another schema")
+    end
+
+    function id(self, borrows value: ModelDocument): string
+        self:validate(value)
+        return assert(value.state.id)
+    end
+
+    function created(self, borrows value: ModelDocument): core.Timestamp
+        self:validate(value)
+        return assert(value.state.created)
+    end
+
+    function note(self, borrows value: ModelDocument): string?
+        self:validate(value)
+        return value.state.note
+    end
+
+    function noteState(self, borrows value: ModelDocument): core.Presence
+        self:validate(value)
+        return value.state.notePresence
+    end
+
+    function document(self, borrows value: ModelDocument): documents.Document?
+        self:validate(value)
+        return value.state.document
+    end
+
+    function labels(self, borrows value: ModelDocument): Labels?
+        self:validate(value)
+        return value.state.labels
+    end
+
+    function next(self, borrows value: ModelDocument): ModelDocument?
+        self:validate(value)
+        return value.state.next
+    end
+
+    function choice(self, borrows value: ModelDocument): Choice?
+        self:validate(value)
+        return value.state.choice
+    end
+
+    function finish(self, state: State<ModelDocument>): ModelDocument
+        return new ModelDocument(model = self.model, state = state)
+    end
 end
 
 local record EmitChoice is core.Members<Member, Choice>
@@ -267,9 +392,11 @@ local record Fields<T> is core.Members<Member, T>
             writer:writeTimestamp(model.created, self.storage:created(source))
         end
         if writer:include(model.note) then
-            local note = self.storage:note(source)
-            if note ~= nil then
-                writer:writeString(model.note, note)
+            local presence = self.storage:noteState(source)
+            if presence == "null" then
+                writer:writeNull(model.note)
+            elseif presence == "value" then
+                writer:writeString(model.note, assert(self.storage:note(source)))
             end
         end
         if writer:include(model.document) then
@@ -308,7 +435,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
     @readonly storage: Storage<T>
     @readonly unknown: Unknown<T>
     function read(self, member: Member, exclusive reader: core.Reader<Member>): T
-        local state = new State<T>()
+        local state = new State<T>(sourceContext = reader:context())
         reader:readStruct(member, state, self, self.unknown)
         if state.id == nil or state.created == nil then
             error("missing required member", 2)
@@ -328,8 +455,10 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
         elseif member == model.note then
             if reader:isNull() then
                 reader:readNull(member)
+                state.notePresence = "null"
             else
                 state.note = reader:readString(member)
+                state.notePresence = "value"
             end
         elseif member == model.labels then
             state.labels = model.mapping:read(reader)
@@ -385,7 +514,7 @@ export function newModel(collision: boolean?): Model
     } = {
         child(id, scalar(id, "string"), true),
         child(created, scalar(created, "timestamp"), true),
-        child(note, scalar(note, "string")),
+        child(note, new Description(kind = "string", member = note, nullable = true, canRead = true, children = {})),
         child(document, scalar(document, "document")),
         child(
             labels,
@@ -469,6 +598,10 @@ export function indexed(model: Model): core.Binding<Indexed>
     return bind(model, new IndexedStorage(owner = model.owner))
 end
 
+export function documentBinding(model: Model): core.Binding<ModelDocument>
+    return bind(model, new DocumentStorage(model = model))
+end
+
 export function indexedValue(
     model: Model,
     id: string,
@@ -481,6 +614,7 @@ export function indexedValue(
 ): Indexed
     return new Indexed(
         owner = model.owner,
+        notePresence = note == nil and "absent" or "value",
         slots = {[1] = id, [2] = created, [3] = note, [4] = document, [5] = labels, [6] = next, [7] = choice}
     )
 end

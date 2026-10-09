@@ -657,17 +657,26 @@ function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
         if not have.head[j] and have.tail and have.tail.kind == "homogeneous" then
             actual = T.optional(actual)
         end
+        if affine(actual) and not affine(expected) then
+            return false, ("pack slot %d would erase an ownership obligation"):format(j)
+        end
         if not isA(actual, expected) then
             return false, ("pack slot %d: %s is not a %s"):format(j, T.tostring(actual), T.tostring(expected))
         end
     end
     if want.tail and want.tail.kind == "homogeneous" then
         for j = #want.head + 1, #have.head do
+            if affine(have.head[j]) and not affine(want.tail.type) then
+                return false, ("pack tail slot %d would erase an ownership obligation"):format(j)
+            end
             if not isA(have.head[j], want.tail.type) then
                 return false, ("pack tail slot %d is not a %s"):format(j, T.tostring(want.tail.type))
             end
         end
-        if have.tail and have.tail.kind == "homogeneous" and not isA(have.tail.type, want.tail.type) then
+        if have.tail
+            and have.tail.kind == "homogeneous"
+            and (affine(have.tail.type) and not affine(want.tail.type) or not isA(have.tail.type, want.tail.type))
+        then
             return false, "homogeneous pack tails are incompatible"
         end
     elseif want.tail and want.tail.kind == "generic" then
@@ -869,6 +878,74 @@ end
 -- The subtype check
 ----------------------------------------------------------------------------
 
+local function copyable(t: Type, seen: {[Type]: boolean}): boolean
+    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+        return false
+    end
+    if seen[t] then
+        return true
+    end
+    seen[t] = true
+    if t.tag == "typevar" then
+        return t.bound ~= nil and copyable(t.bound, seen)
+    elseif t.tag == "union" or t.tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            if not copyable(member, seen) then
+                return false
+            end
+        end
+    elseif t.tag == "array" then
+        return copyable(t.elem, seen)
+    elseif t.tag == "map" then
+        return copyable(t.key, seen) and copyable(t.value, seen)
+    elseif t.tag == "tuple" then
+        for _, member in ipairs(t.elems) do
+            if not copyable(member, seen) then
+                return false
+            end
+        end
+    elseif t.tag == "nominal" then
+        if t.inherentCleanup or t.affineFields and #t.affineFields > 0 or t.fieldBorrowSources then
+            return false
+        end
+        for _, member in pairs(t.byname) do
+            if not copyable(member, seen) then
+                return false
+            end
+        end
+        for _, member in pairs(t.writeByname) do
+            if not copyable(member, seen) then
+                return false
+            end
+        end
+        if t.indexReadValue and not copyable(t.indexReadValue, seen) then
+            return false
+        end
+        if t.indexWriteValue and not copyable(t.indexWriteValue, seen) then
+            return false
+        end
+    elseif t.tag == "shape" then
+        for _, field in ipairs(t.fields) do
+            if field.read and not copyable(field.read, seen) then
+                return false
+            end
+            if field.write and not copyable(field.write, seen) then
+                return false
+            end
+        end
+        if t.indexReadValue and not copyable(t.indexReadValue, seen) then
+            return false
+        end
+        if t.indexWriteValue and not copyable(t.indexWriteValue, seen) then
+            return false
+        end
+    elseif t.tag == "neutral" then
+        return false
+    end
+
+    return true
+end
+
 --- Decides `isA` for a pair, without consulting the cache.
 ---
 --- The order of the rules is the doctrine: ownership first, then unions, then the
@@ -878,6 +955,14 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
     local atag, btag = a.tag, b.tag
+    if btag == "nominal" and T.hasCopyableBound(b) then
+        if not copyable(a, {}) then
+            return false, ("%s carries ownership or a scoped borrow and is not Copyable"):format(T.tostring(a))
+        end
+        if ((b.origin or b) as T.Nominal).intrinsicCopyable then
+            return true
+        end
+    end
     -- Nothing but `never` itself fits `never`, a gradual source included: a value
     -- of `any` may be anything, and anything is more than nothing. Letting one
     -- through would let a `never` function return, and every guard clause that

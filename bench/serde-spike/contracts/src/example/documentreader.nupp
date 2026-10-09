@@ -1,0 +1,167 @@
+module example.documentreader
+
+local core = require("contract.value")
+local documents = require("example.document")
+
+export record Reader is core.DocumentReader, nupp.Closeable
+    @private @readonly value: documents.Document
+    @private @readonly source: core.Context?
+    @private used: boolean
+    @private expired: boolean
+
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        assert(not self.expired, "document reader scope has expired")
+        assert(not self.used, "document value has already been consumed")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.source
+    end
+
+    function kind(self): core.Kind
+        self:live()
+        return self.value.kind
+    end
+
+    function consume(exclusive self, kind: core.Kind): nil
+        self:live()
+        assert(self.value.kind == kind, "document kind mismatch")
+        self.used = true
+    end
+
+    function readNull(exclusive self): nil
+        self:consume("null")
+    end
+
+    function readBoolean(exclusive self): boolean
+        self:consume("boolean")
+        return self.value:boolean()
+    end
+
+    function readNumberToken(exclusive self): string
+        self:consume("numberToken")
+        return self.value:numberToken()
+    end
+
+    function readString(exclusive self): string
+        self:consume("string")
+        return self.value:string()
+    end
+
+    function readBytes(exclusive self): string
+        self:consume("bytes")
+        return self.value:bytes()
+    end
+
+    function readTimestamp(exclusive self): core.Timestamp
+        self:consume("timestamp")
+        return self.value:timestamp()
+    end
+
+    function readInteger(exclusive self): core.Integer
+        self:consume("integer")
+        return self.value:integer()
+    end
+
+    function readDecimal(exclusive self): core.Decimal
+        self:consume("decimal")
+        return self.value:decimal()
+    end
+
+    function readFloat(exclusive self): core.Float
+        self:consume("float")
+        return self.value:float()
+    end
+
+    function readBigInteger(exclusive self): string
+        self:consume("bigInteger")
+        return self.value:bigInteger()
+    end
+
+    function readAtom(exclusive self): core.Atom
+        self:consume("atom")
+        return self.value:atom()
+    end
+
+    function elements<S>(exclusive self, kind: core.Kind, state: S, consumer: core.DocumentElement<S>): nil
+        self:consume(kind)
+        for index = 1, self.value:size() do
+            local value = self.value:at(index)
+            local child = new Reader(
+                value = value,
+                source = value:context() or self.source,
+                used = false,
+                expired = false
+            )
+            consumer:apply(state, index, child)
+            assert(child.used, "document callback did not consume its value")
+        end
+    end
+
+    function readList<S>(exclusive self, state: S, consumer: core.DocumentElement<S>): nil
+        self:elements("list", state, consumer)
+    end
+
+    function readTuple<S>(exclusive self, state: S, consumer: core.DocumentElement<S>): nil
+        self:elements("tuple", state, consumer)
+    end
+
+    function members<S>(exclusive self, kind: core.Kind, state: S, consumer: core.DocumentMember<S>): nil
+        self:consume(kind)
+        for index = 1, self.value:size() do
+            local field = self.value:field(index)
+            local value = field.value
+            local child = new Reader(
+                value = value,
+                source = value:context() or self.source,
+                used = false,
+                expired = false
+            )
+            consumer:apply(state, new documents.Name(name = field.name), child)
+            assert(child.used, "document callback did not consume its value")
+        end
+    end
+
+    function readStruct<S>(exclusive self, state: S, consumer: core.DocumentMember<S>): nil
+        self:members("structure", state, consumer)
+    end
+
+    function readUnion<S>(exclusive self, state: S, consumer: core.DocumentMember<S>): nil
+        self:members("union", state, consumer)
+    end
+
+    function readMap<S>(exclusive self, state: S, consumer: core.DocumentEntry<S>): nil
+        self:consume("map")
+        for index = 1, self.value:size() do
+            local entry = self.value:entry(index)
+            local key = new Reader(
+                value = entry.key,
+                source = entry.key:context() or self.source,
+                used = false,
+                expired = false
+            )
+            local value = new Reader(
+                value = entry.value,
+                source = entry.value:context() or self.source,
+                used = false,
+                expired = false
+            )
+            consumer:apply(state, key, value)
+            assert(key.used and value.used, "document callback must consume both key and value")
+        end
+    end
+end
+
+export function reader(value: documents.Document): Reader
+    return new Reader(value = value, source = value:context(), used = false, expired = false)
+end
+
+export function snapshot(value: documents.Document): documents.Document
+    local input = reader(value)
+    return documents.documentAdapter():readContents(input)
+end

@@ -83,12 +83,28 @@ export record Contents is core.DocumentReader
         error("JSON decimal interpretation requires model context", 2)
     end
 
-    function readFloat(exclusive self): number
+    function readFloat(exclusive self): core.Float
         error("JSON float width requires model context", 2)
     end
 
     function readBigInteger(exclusive self): string
         error("JSON big integer interpretation requires model context", 2)
+    end
+
+    function readAtom(exclusive self): core.Atom
+        error("JSON atoms require model context", 2)
+    end
+
+    function readTuple<S>(exclusive self, state: S, consume: core.DocumentElement<S>): nil
+        error("JSON tuples require model context", 2)
+    end
+
+    function readUnion<S>(exclusive self, state: S, consume: core.DocumentMember<S>): nil
+        error("JSON unions require model context", 2)
+    end
+
+    function readMap<S>(exclusive self, state: S, consume: core.DocumentEntry<S>): nil
+        error("JSON typed maps require model context", 2)
     end
 
     function readList<S>(exclusive self, state: S, consume: core.DocumentElement<S>): nil

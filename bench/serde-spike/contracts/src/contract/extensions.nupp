@@ -6,7 +6,7 @@ The host owns its cache; keys carry the result type and initialization function.
 ]]
 
 --- An identity and initializer for one extension result.
-export record Key<H is table, V>
+export record Key<H is table, V is nupp.Copyable>
     @private @readonly build: function(host: H): V
     @private @readonly _hostType: (function(host: H): H)?
     @private @readonly _valueType: (function(value: V): V)?
@@ -28,7 +28,7 @@ export record Cache<H is table>
     --- Resolves an extension on first use and reuses its result.
     --- @raises string when initialization recurs or the cache is full
     --- @raises unknown when the extension initializer fails
-    function get<V>(self, key: Key<H, V>): V
+    function get<V is nupp.Copyable>(self, key: Key<H, V>): V
         local entries = self.entries
         local found = entries[key]
         if found ~= nil then
@@ -72,7 +72,7 @@ export record Cache<H is table>
 end
 
 --- Creates an extension identity with a typed initializer.
-export function key<H is table, V>(build: function(host: H): V): Key<H, V>
+export function key<H is table, V is nupp.Copyable>(build: function(host: H): V): Key<H, V>
     return new Key<H, V>(build = build)
 end
 

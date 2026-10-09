@@ -212,7 +212,14 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         for j, m in ipairs(t.members) do
             members[j] = substWith(m, map, unmapped)
         end
-        return T.union(members)
+        local result = T.union(members)
+        if result.tag == "union" and result.hasNil and #result.members == 2 then
+            local value = result.members[1] == T.nil_ and result.members[2] or result.members[1]
+            -- Substituting an owner into T? must use the same conditional cleanup
+            -- contract as writing that owner's optional annotation directly.
+            return T.optional(value)
+        end
+        return result
     elseif tag == "intersection" then
         local members: {Type} = {}
         for j, m in ipairs(t.members) do
@@ -1580,10 +1587,10 @@ function generics.instantiateFunction(t: T.Func, map: Bindings, control: generic
 end
 
 --- Structurally matches an actual value sequence against a declared pack.
-function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
+function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings, preserveOwnership: boolean?): nil
     if param.alternatives then
         for _, arm in ipairs(param.alternatives) do
-            generics.unifyPack(arm, arg, map)
+            generics.unifyPack(arm, arg, map, preserveOwnership)
         end
         return
     end
@@ -1593,7 +1600,7 @@ function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
             -- An explicit nil is evidence for a binder; an omitted optional argument
             -- is not. The latter must leave result-only defaults free to choose their
             -- declared gradual fallback.
-            generics.unify(expected, actual, map)
+            generics.unify(expected, actual, map, preserveOwnership)
         end
     end
     local tail = param.tail
@@ -1610,17 +1617,17 @@ function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
         local prior = map[tail.var]
         if prior then
             for j, value in ipairs(remaining.head) do
-                generics.unify(T.packAt(prior, j) or T.nil_, value, map)
+                generics.unify(T.packAt(prior, j) or T.nil_, value, map, preserveOwnership)
             end
         else
             map[tail.var] = remaining
         end
     elseif tail.kind == "homogeneous" then
         for j = #param.head + 1, #arg.head do
-            generics.unify(tail.type, arg.head[j], map)
+            generics.unify(tail.type, arg.head[j], map, preserveOwnership)
         end
         if arg.tail and arg.tail.kind == "homogeneous" then
-            generics.unify(tail.type, arg.tail.type, map)
+            generics.unify(tail.type, arg.tail.type, map, preserveOwnership)
         end
     end
 end
@@ -1768,6 +1775,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.fieldBorrowSources = n.fieldBorrowSources
     inst.borrowedRootFields = n.borrowedRootFields
     inst.intrinsicAffine = n.intrinsicAffine
+    inst.intrinsicCopyable = n.intrinsicCopyable
     inst.intrinsicAffineClaim = n.intrinsicAffineClaim
     inst.terminalMethod = n.terminalMethod
     inst.inherentCleanup = n.inherentCleanup and substCleanup(n.inherentCleanup, map, PRESERVE) or nil
@@ -2177,18 +2185,20 @@ function generics.unify(param: Type, arg: Type, map: Bindings, typeArgument: boo
     local originalArg = arg
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if typeArgument and param.tag == "typevar" then
-        -- A nominal's argument describes its stored contract, including cleanup.
-        -- It is not a borrowed value at the call site.
+        -- Stored type arguments and callable results describe their complete
+        -- contract, including cleanup, rather than a borrowed call-site value.
         arg = originalArg
     end
-    if param.tag == "typevar" and originalArg.tag == "affine" then
+    if param.tag == "typevar" then
         local bound = (param as T.TypeVar).bound
+        if bound and T.hasCopyableBound(bound) then
+            arg = originalArg
+        end
         local nominal = bound and T.unwrapOwnership(bound) or nil
         if nominal and nominal.tag == "nominal" then
             local origin = (nominal.origin or nominal) as T.Nominal
             if origin.intrinsicAffine then
-                -- The representation alone cannot prove an Affine bound: a
-                -- transparent affine(integer, cleanup) must retain its claim.
+                -- These bounds inspect capability, not just representation.
                 arg = originalArg
             end
         end
@@ -2302,20 +2312,22 @@ function generics.unify(param: Type, arg: Type, map: Bindings, typeArgument: boo
             end
         end
         if tv then
-            local residue = arg
+            local bound = (tv as T.TypeVar).bound
+            local keep = typeArgument or bound and T.hasCopyableBound(bound)
+            local residue = keep and originalArg or arg
             for _, r in ipairs(rest) do
                 residue = narrowing.subtract(residue, r)
             end
-            generics.unify(tv, residue, map)
+            generics.unify(tv, residue, map, typeArgument)
         end
         for _, r in ipairs(rest) do
-            generics.unify(r, arg, map)
+            generics.unify(r, typeArgument and originalArg or arg, map, typeArgument)
         end
     elseif tag == "intersection" then
         -- Every conjunct constrains the same runtime argument. In particular this lets
         -- `T & Bound` infer T while compatibility proves the other contracts.
         for _, member in ipairs(param.members) do
-            generics.unify(member, arg, map)
+            generics.unify(member, typeArgument and originalArg or arg, map, typeArgument)
         end
     elseif tag == "shape" then
         local staticOwner = arg.tag == "metatable" and arg.of and arg.of.tag == "nominal" and arg.of or nil
@@ -2342,7 +2354,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings, typeArgument: boo
             contravariantDepth = contravariantDepth + 1
             generics.unifyPack(param.paramPack, arg.paramPack, map)
             contravariantDepth = contravariantDepth - 1
-            generics.unifyPack(param.retPack, arg.retPack, map)
+            generics.unifyPack(param.retPack, arg.retPack, map, true)
         end
     elseif tag == "nominal" then
         if arg.tag == "nominal" then

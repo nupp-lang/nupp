@@ -22,7 +22,7 @@ local T = require("nupp.compiler.types")
 
 local interfaceimage = {}
 
-interfaceimage.SCHEMA = 3
+interfaceimage.SCHEMA = 4
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 type interfaceimage.EncodeOptions = {
@@ -459,6 +459,7 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
             out.sealedModule = t.sealedModule
             out.terminalMethod = t.terminalMethod
             out.intrinsicAffine = t.intrinsicAffine == true
+            out.intrinsicCopyable = t.intrinsicCopyable == true
             out.intrinsicAffineClaim = t.intrinsicAffineClaim == true
             out.managedCell = t.managedCell == true
             out.managedAlias = t.managedAlias == true
@@ -1115,6 +1116,7 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
         nominal.sealedModule = node.sealedModule
         nominal.terminalMethod = node.terminalMethod
         nominal.intrinsicAffine = node.intrinsicAffine == true or nil
+        nominal.intrinsicCopyable = node.intrinsicCopyable == true or nil
         nominal.intrinsicAffineClaim = node.intrinsicAffineClaim == true or nil
         nominal.managedCell = node.managedCell == true or nil
         nominal.managedAlias = node.managedAlias == true or nil

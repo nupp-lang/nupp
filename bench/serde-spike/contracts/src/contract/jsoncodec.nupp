@@ -7,6 +7,48 @@ local writers = require("contract.jsonwriter")
 local syntax = require("contract.jsonsyntax")
 local json = require("nupp.codec.json")
 local text = require("nupp.text")
+local contexts = require("contract.context")
+local errors = require("contract.errors")
+
+export const identity: table = {}
+
+local record Append<T> is core.IntoConsumer<T, T, text.Buffer, nil>
+    @readonly factory: plans.PolicyFactory
+    function apply<M is core.Member>(
+        self,
+        adapter: core.Adapter<T, M>,
+        borrows value: T,
+        exclusive buffer: text.Buffer
+    ): nil
+        local description = adapter:describe("write")
+        local policy = self.factory:policy<M>(description.member)
+        local plan = plans.resolve(description, policy, "write")
+        local sink = json.newWriter(buffer)
+        do
+            local writer = writers.output(sink, self.factory, policy, plan)
+            writer:emit(adapter, value)
+            writer:close()
+        end
+        sink:close()
+    end
+end
+
+export function encodeInto<T>(
+    binding: core.Binding<T>,
+    borrows value: T,
+    exclusive buffer: text.Buffer,
+    factory: plans.PolicyFactory
+): nil
+    local mark = #buffer
+    local consumer = new Append<T>(factory = factory)
+    local ok, problem = pcall(binding.acceptInto, binding, consumer, value, buffer)
+    if not ok then
+        -- Successful writes append directly. Only rollback copies the old prefix.
+        local prefix = buffer:tostring():sub(1, mark)
+        buffer:set(prefix)
+        error(problem, 0)
+    end
+end
 
 local record Encode<T> is core.Consumer<T, T, string>
     @readonly factory: plans.PolicyFactory
@@ -36,10 +78,13 @@ local record Decode<T> is core.Consumer<T, string, T>
         local plan = plans.resolve(description, policy, "read")
         local cursor = syntax.reader(bytes:sub(1))
         local reader = readers.input(cursor, policy, plan, self.context)
-        local result = adapter:read(reader)
+        local ok, result = pcall(adapter.read, adapter, reader)
+        if not ok then
+            error(errors.wrap(result, cursor:path(), cursor:offset()), 0)
+        end
         cursor:finish()
 
-        return result
+        return result as T
     end
 end
 
@@ -53,5 +98,6 @@ export function decode<T>(
     factory: plans.PolicyFactory,
     context: core.Context?
 ): T
-    return binding:accept(new Decode<T>(factory = factory, context = context), bytes)
+    local source = contexts.builder(identity, factory as table, context):freeze()
+    return binding:accept(new Decode<T>(factory = factory, context = source), bytes)
 end

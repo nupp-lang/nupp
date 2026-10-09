@@ -1,0 +1,48 @@
+{
+  "revision": "870435584ab974f00ba7a51dee97881a709bc69b",
+  "scope": "Compiler prerequisites and separate open-binding contract fixtures; production serde unchanged; S0 incomplete",
+  "contractCheck": {
+    "ok": true,
+    "diagnostics": 0,
+    "compiledModules": 30,
+    "command": "../../../bin/nupp check --json <all contract modules and positive fixtures>",
+    "cwd": "bench/serde-spike/contracts"
+  },
+  "coldCheck": {
+    "revision": "9dd99946e9ef24ea10157b89df6088905beba14c",
+    "command": "./bin/nupp check --json",
+    "cacheRemoved": true,
+    "ok": true,
+    "diagnostics": 0,
+    "compiledModules": 468
+  },
+  "fullSuite": {
+    "revision": "9dd99946e9ef24ea10157b89df6088905beba14c",
+    "outsideSandbox": true,
+    "passed": 5173,
+    "failed": 1,
+    "skipped": 1,
+    "notExecuted": 4,
+    "failure": "parallelchecktest/anInterruptedCheckLeavesNoWorkers: parallel workers did not start within 60 seconds"
+  },
+  "failureRetry": {
+    "command": "./bin/nupp test parallelchecktest --json",
+    "outsideSandbox": true,
+    "ok": true,
+    "passed": 9,
+    "failed": 0
+  },
+  "integrationTests": {
+    "command": "./bin/nupp test ownershiptest substitutiontest serdecontracttest fixedwidthtest jsonpolicytest --json",
+    "ok": true,
+    "passed": 383,
+    "failed": 0
+  },
+  "fixpoint": {
+    "command": "./bin/nupp fixpoint",
+    "ok": true,
+    "byteIdentical": true,
+    "stageZeroTag": "v0.0.13"
+  },
+  "releasePrerequisite": "The checked dispatch still requires a released compiler and stage-zero pin update before standard-library promotion."
+}

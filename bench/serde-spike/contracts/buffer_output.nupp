@@ -1,0 +1,26 @@
+local core = require("contract.value")
+local documents = require("example.document")
+local codec = require("contract.jsoncodec")
+local model = require("example.richmodel")
+local text = require("nupp.text")
+
+local binding = documents.documentAdapter():contents()
+local profile = model.policy(true)
+local buffer = text.newBuffer()
+buffer:put("prefix:")
+codec.encodeInto(binding, documents.string("ok"), buffer, profile)
+assert(buffer:tostring() == 'prefix:"ok"')
+local record Unsupported is core.Atom
+    @readonly family: table
+end
+local value = documents.list({documents.string("already written"), documents.atom(new Unsupported(family = {}))})
+
+local function write(): nil
+    codec.encodeInto(binding, value, buffer, profile)
+end
+
+assert(not pcall(write))
+assert(buffer:tostring() == 'prefix:"ok"')
+codec.encodeInto(binding, documents.null(), buffer, profile)
+assert(buffer:tostring() == 'prefix:"ok"null')
+print("direct Buffer output rolls back partial writes and remains reusable")

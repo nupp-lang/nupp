@@ -167,6 +167,21 @@ usable in a bounded position. An interface named as a bound may carry a
 [refinement](refinements.md), which is the test `is` against that interface
 runs.
 
+`nupp.Copyable` bounds a result that may be retained and returned repeatedly:
+
+```nupp
+local function initialize<T is nupp.Copyable>(build: function(): T): T
+    return build()
+end
+
+local name = initialize(function(): string return "example" end)
+```
+
+Ordinary values and checked managed aliases satisfy this bound. Owners,
+scoped borrows, and containers carrying either do not. A cache of managed
+resources instead owns their cells and returns aliases; an erased slot cannot
+turn one owner into several.
+
 ## Inference at a call site
 
 Type arguments come from the arguments:
@@ -177,7 +192,9 @@ print(firstOr({1, 2, 3}, 0)) -- T = integer
 
 Inference is structural unification over parameters against argument types. It
 sees through arrays, tuples, maps, unions, shapes, function types, pointers,
-and nominal applications, and it strips ownership wrappers first.
+and nominal applications. Ordinary value arguments infer their underlying
+types. Stored type arguments, callable results, and capability bounds retain
+ownership qualifiers so inference cannot discard a cleanup obligation.
 
 Unification makes four decisions a partly inferred call depends on:
 

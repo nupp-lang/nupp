@@ -68,6 +68,33 @@ function M.documentContextsKeepTypedSchemaAndMemberValues()
     assert(checked.diagnostics[1].code == "NUPP2006", output)
 end
 
+function M.richDocumentsRetainSemanticValuesAcrossReadersAndProfiles()
+    for _, file in ipairs({
+        "documents.nupp",
+        "model_document.nupp",
+        "scalars.lua",
+        "document_scope.lua",
+        "selection.lua"
+    }) do
+        local status, output = call({"run", file})
+        assert(status == 0, output)
+    end
+end
+
+function M.dataExtensionsRejectOwnedInitializerResults()
+    local status, output = call({"check", "--json", "negative/owned-extension.nupp"})
+    local checked = json.decode(output)
+    assert(status ~= 0 and #checked.diagnostics == 1, output)
+    assert(checked.diagnostics[1].code == "NUPP2116", output)
+end
+
+function M.directOutputAndStructuredFailuresPreserveTheirContracts()
+    for _, file in ipairs({"buffer_output.nupp", "errors.nupp"}) do
+        local status, output = call({"run", file})
+        assert(status == 0, output)
+    end
+end
+
 function M.protocolFieldIdentitiesRetainNamespacesAndWireTypes()
     local status, output = call({"run", "protocolsyntax.nupp"})
     assert(status == 0, output)

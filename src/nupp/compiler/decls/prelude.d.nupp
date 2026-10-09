@@ -19,6 +19,11 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 -- Resources and aliases
 ----------------------------------------------------------------------------
 
+--- A value that carries neither an ownership obligation nor a scoped borrow.
+--- Use this bound when a generic cache must return the same value repeatedly.
+interface nupp.Copyable
+end
+
 --- Declares a consuming cleanup for an affine owner.
 interface nupp.Affine<const cleanup: function>
 end

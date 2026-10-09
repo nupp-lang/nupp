@@ -59,6 +59,140 @@ local RESOURCE = table.concat(
 
 local M = {}
 
+function M.aCallableBoundRetainsTheActualOwningResult()
+    runGenerated(
+        [[
+local closed = 0
+local record Resource is nupp.Closeable
+    function close(takes self): nil
+        closed += 1
+    end
+end
+local function create(): Resource
+    return new Resource()
+end
+local function retain<F is function(...: any): any>(factory: F): F
+    return factory
+end
+do
+    local factory = retain(create)
+    local resource = factory()
+    resource:close()
+end
+assert(closed == 1)
+]],
+        "owning-callable-bound"
+    )
+end
+
+function M.copyableBoundsRejectOwnedInitializersBeforeErasure()
+    assertClean(
+        [[
+local function cache<V is nupp.Copyable>(build: function(): V): V
+    return build()
+end
+local value: string? = cache(function(): string? return nil end)
+local record Node
+    next: Node?
+    value: string
+end
+local node = cache(function(): Node return new Node(value = "ok") end)
+print(value, node.value)
+]]
+    )
+    for _, result in ipairs({"Resource", "managed(Resource)"}) do
+        local construct = result == "Resource" and "new Resource()" or "nupp.manage(new Resource())"
+        local problem = codes(
+            [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local function cache<V is nupp.Copyable>(build: function(): V): V
+    return build()
+end
+local value = cache(function(): ]]
+            .. result
+            .. [[
+    return ]]
+            .. construct
+            .. [[
+end)
+]]
+        )
+        assert(problem:find("NUPP2116", 1, true), problem)
+    end
+end
+
+function M.callableResultsCannotForgetAnOwnershipObligation()
+    local problem = codes(
+        [[
+local function release(takes value: integer): nil end
+local function acquire(): affine(integer, release) return 7 end
+local factory: function(): integer = acquire
+return factory
+]]
+    )
+    assert(problem:find("NUPP2001", 1, true), problem)
+end
+
+function M.copyabilityCannotBeHiddenByAnInheritedBoundOrBorrow()
+    local source = [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local interface Cached is nupp.Copyable
+    label: string
+end
+local function retain<V is nupp.Copyable>(value: V): nil end
+local function inherited<V is Cached>(value: V): nil end
+local function inspect(borrows value: Resource): nil
+    retain(value)
+end
+local owner = new Resource()
+retain(owner)
+inherited(owner)
+]]
+    local count = 0
+    for _, diagnostic in ipairs(diagnosticsOf(source)) do
+        if diagnostic.code == "NUPP2116" then
+            count = count + 1
+        end
+    end
+    testAssert.equal(count, 3)
+end
+
+function M.genericCallableResultsKeepTheirOwnership()
+    runGenerated(
+        [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local function invoke<V>(build: function(): V): V
+    return build()
+end
+local value = invoke(function(): Resource return new Resource() end)
+value:close()
+]],
+        "generic-callable-owning-result"
+    )
+end
+
+function M.optionalCallableResultsKeepTheirOwnership()
+    runGenerated(
+        [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local function invoke<V>(build: function(): V?): V?
+    return build()
+end
+local value = invoke(function(): Resource? return new Resource() end)
+if value ~= nil then value:close() end
+]],
+        "generic-optional-owning-result"
+    )
+end
+
 function M.genericFactoriesRetainAnExplicitResultOwner()
     runGenerated(
         [[

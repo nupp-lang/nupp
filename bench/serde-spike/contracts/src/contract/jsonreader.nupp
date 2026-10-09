@@ -1,6 +1,7 @@
 module contract.jsonreader
 
 local core = require("contract.value")
+local errors = require("contract.errors")
 local plans = require("contract.jsonplan")
 local syntax = require("contract.jsonsyntax")
 local documents = require("contract.jsondocument")
@@ -8,7 +9,7 @@ local numbers = require("contract.numbers")
 local base64 = require("nupp.codec.base64")
 local json = require("nupp.codec.json")
 
-export record Input<M is core.Member> is core.Reader<M>
+export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     @private @readonly cursor: syntax.Cursor
     @private @readonly policy: plans.Policy<M>
     @private @readonly plan: plans.Plan<M>
@@ -16,6 +17,10 @@ export record Input<M is core.Member> is core.Reader<M>
     @private @readonly mapKey: string?
     @private usedKey: boolean
     @private expired: boolean
+
+    function close(takes self): nil
+        self.expired = true
+    end
 
     function live(self): nil
         if self.expired then
@@ -48,6 +53,9 @@ export record Input<M is core.Member> is core.Reader<M>
 
     function readNull(exclusive self, member: M): nil
         self:live()
+        if not self.plan.description.nullable and self.plan.description.kind ~= "null" then
+            error("binding does not admit null", 2)
+        end
         if self.mapKey ~= nil then
             error("JSON map key cannot be null", 2)
         end
@@ -105,7 +113,7 @@ export record Input<M is core.Member> is core.Reader<M>
         end
         local whole, fraction = mantissa:match("^(.-)%.(%d+)$")
         local parsed = tonumber(exponent)
-        if parsed == nil or math.abs(parsed) > 2147483647 then
+        if parsed == nil or parsed < -2147483648 or parsed > 2147483647 then
             error("decimal exponent is out of range", 2)
         end
         local scale = parsed as integer
@@ -113,7 +121,14 @@ export record Input<M is core.Member> is core.Reader<M>
             error("decimal exponent is out of range", 2)
         end
         if whole ~= nil then
-            return new core.Decimal(coefficient = whole .. fraction, exponent = scale - #fraction)
+            local coefficient = whole .. fraction
+            local negative = coefficient:sub(1, 1) == "-"
+            local digits = negative and coefficient:sub(2) or coefficient
+            digits = digits:gsub("^0+", "")
+            if digits == "" then
+                digits = "0"
+            end
+            return new core.Decimal(coefficient = (negative and "-" or "") .. digits, exponent = scale - #fraction)
         end
 
         return new core.Decimal(coefficient = mantissa, exponent = scale)
@@ -197,19 +212,22 @@ export record Input<M is core.Member> is core.Reader<M>
             local field = self.plan:member(name)
             local mark = self.cursor:mark()
             if field ~= nil and self.plan:action(field) == "traverse" then
+                self.cursor:selectMember(field.name)
                 local reader = self:child(field)
                 local ok, problem = pcall(consume.apply, consume, state, field, reader)
                 reader.expired = true
                 if not ok then
-                    error(problem, 0)
+                    error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
                 end
+            elseif field ~= nil or self.plan:omitsName(name) then
+                self.cursor:skipValue()
             else
                 local reader = documents.unknown(self.cursor, self.sourceContext)
                 local identity = new documents.Name(name = name)
                 local ok, problem = pcall(unknown.apply, unknown, state, identity, reader)
                 reader:expire()
                 if not ok then
-                    error(problem, 0)
+                    error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
                 end
             end
             self.cursor:consumed(mark)
@@ -258,7 +276,7 @@ export record Input<M is core.Member> is core.Reader<M>
             local ok, problem = pcall(consume.apply, consume, state, index, reader)
             reader.expired = true
             if not ok then
-                error(problem, 0)
+                error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
             end
             self.cursor:consumed(mark)
         end
@@ -305,7 +323,7 @@ export record Input<M is core.Member> is core.Reader<M>
             local ok, problem = pcall(consume.apply, consume, state, key, reader)
             reader.expired, key.expired = true, true
             if not ok then
-                error(problem, 0)
+                error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
             end
             if not key.usedKey then
                 error("map key was not consumed", 2)

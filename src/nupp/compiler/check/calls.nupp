@@ -927,6 +927,41 @@ function calls.install(c: state.Checker): calls.Ops
         return "pass a function a module exports, with the values it would have captured as arguments"
     end
 
+    local function satisfiesBound(actual: T.Type, wanted: T.Type): boolean, string?
+        if actual.tag == "func" and wanted.tag == "func" then
+            local have, want = actual as T.Func, wanted as T.Func
+            local pack = want.retPack
+            if not pack.alternatives and not have.retPack.alternatives then
+                -- A bound tests the inferred F; it does not replace F with this
+                -- signature. Gradual result slots impose no result constraint,
+                -- so retain their actual ownership during this comparison. An
+                -- ordinary callable assignment still uses isA without this step.
+                local head: {T.Type} = {}
+                local changed = false
+                for index, result in ipairs(pack.head) do
+                    local value = T.packAt(have.retPack, index)
+                    if value and (result == T.any or result == T.unknown) then
+                        head[index], changed = value, true
+                    else
+                        head[index] = result
+                    end
+                end
+                local tail = pack.tail
+                if tail and tail.kind == "homogeneous" and (tail.type == T.any or tail.type == T.unknown) then
+                    for index = #head + 1, #have.retPack.head do
+                        head[index] = have.retPack.head[index]
+                    end
+                    tail, changed = have.retPack.tail, true
+                end
+                if changed then
+                    wanted = T.funcWith(want, {rets = head, retPack = T.pack(head, tail, pack.modes)})
+                end
+            end
+        end
+
+        return isA(actual, wanted)
+    end
+
     function ops.validateTypeBounds(params, bounds, map, node)
         -- A binder inference never reached takes the default its declaration
         -- wrote, so what is instantiated below is that rather than `any`. The
@@ -944,21 +979,23 @@ function calls.install(c: state.Checker): calls.Ops
                 local wanted = substType(bound, map, nil, c.reductionControl)
                 local ok, why
                 local binder = T.unwrapOwnership(actual)
-                if binder.tag == "typevar" then
+                if actual ~= binder and T.hasCopyableBound(wanted) then
+                    ok, why = isA(actual, wanted)
+                elseif binder.tag == "typevar" then
                     -- A type parameter stands for every type its own bound admits, so
                     -- it satisfies this bound only when that bound implies it. One
                     -- without a bound stands for anything, which is what the gradual
                     -- typevar relation would otherwise have said fits.
                     local declared = (binder as T.TypeVar).bound
                     if declared then
-                        ok, why = isA(declared, wanted)
+                        ok, why = satisfiesBound(declared, wanted)
                     else
                         ok, why = false, (
                             "%s declares no bound, so it is not known to be a %s"
                         ):format(T.tostring(binder), T.tostring(wanted))
                     end
                 else
-                    ok, why = isA(actual, wanted)
+                    ok, why = satisfiesBound(actual, wanted)
                 end
                 if not ok then
                     c.diag(

@@ -19,6 +19,8 @@ export record Plan<M is core.Member>
     @readonly description: core.Description<M>
     @private @readonly names: {[string]: M}
     @private @readonly keys: {[M]: json.EncodedString}
+    @private @readonly wireNames: {[M]: string}
+    @private @readonly omittedNames: {[string]: boolean}
     @private @readonly actions: {[M]: Selection}
     @private @readonly children: {[M]: Plan<M>}
     function member(self, name: string): M?
@@ -27,6 +29,14 @@ export record Plan<M is core.Member>
 
     function key(self, member: M): json.EncodedString?
         return self.keys[member]
+    end
+
+    function wireName(self, member: M): string?
+        return self.wireNames[member]
+    end
+
+    function omitsName(self, name: string): boolean
+        return self.omittedNames[name] == true
     end
 
     function action(self, member: M): Selection?
@@ -67,7 +77,15 @@ local function build<M is core.Member>(
     if description.kind == "opaque" or description.kind == "atom" then
         error("JSON does not support " .. description.kind, 2)
     end
-    local result = new Plan<M>(description = description, names = {}, keys = {}, actions = {}, children = {})
+    local result = new Plan<M>(
+        description = description,
+        names = {},
+        keys = {},
+        wireNames = {},
+        omittedNames = {},
+        actions = {},
+        children = {}
+    )
     seen[description] = result
     for _, child in ipairs(description.children) do
         local member = child.member
@@ -76,13 +94,18 @@ local function build<M is core.Member>(
         if action ~= "traverse" and direction == "read" and child.required and not child.hasDefault then
             error("omitted member has no default: " .. member.name, 2)
         end
-        if action ~= "omit" and (description.kind == "structure" or description.kind == "union") then
+        if description.kind == "structure" or description.kind == "union" then
             local name = policy:name(member)
-            if result.names[name] ~= nil then
-                error("colliding JSON member name: " .. name, 2)
+            if action == "omit" then
+                result.omittedNames[name] = true
+            else
+                if result.names[name] ~= nil then
+                    error("colliding JSON member name: " .. name, 2)
+                end
+                result.names[name] = member
+                result.keys[member] = json.encodedString(name)
+                result.wireNames[member] = name
             end
-            result.names[name] = member
-            result.keys[member] = json.encodedString(name)
         end
         if action == "traverse" then
             result.children[member] = build(child:describe(direction), policy, direction, seen)

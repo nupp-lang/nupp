@@ -4,6 +4,10 @@ local json = require("contract.jsoncodec")
 local schema = model.newModel()
 local binding = model.binding(schema)
 local first, second = model.policy(true), model.policy(false)
+-- The first operation is decode: no model value exists to inspect while the
+-- codec resolves members, names, recursive edges, and construction support.
+local cold = json.decode(binding, [[{"identifier":"cold","created":0}]], first)
+assert(cold.id == "cold" and cold.created.seconds == "0")
 local value = new model.Packet(id = "abc", created = new core.Timestamp(seconds = "1700000000", nanos = 0))
 local encoded = json.encode(binding, value, first)
 assert(encoded == [[{"identifier":"abc","created":1700000000}]])
@@ -84,6 +88,7 @@ local unknownValue = json.decode(binding, unknownBytes, first)
 assert(unknownValue.choice ~= nil and unknownValue.choice:unknownField() ~= nil)
 assert(assert(assert(unknownValue.choice:unknownValue()):get("exact")):numberToken() == "999999999999999999999999")
 assert(json.encode(binding, unknownValue, first) == unknownBytes)
+assert(not pcall(json.encode, binding, unknownValue, second))
 for _, bytes in ipairs({
     [[{"identifier":"x","created":0,"choice":{}}]],
     [[{"identifier":"x","created":0,"choice":{"text":"known","future":null}}]],
@@ -94,5 +99,6 @@ for _, bytes in ipairs({
     assert(not pcall(json.decode, binding, bytes, first))
 end
 assert(not pcall(json.decode, model.binding(model.newModel(true)), "{}", first))
+assert(not pcall(json.encode, model.binding(model.newModel(true)), value, first))
 assert(json.encode(model.binding(model.newModel(true)), value, second) == json.encode(binding, value, second))
 print("maps, recursion, unknown unions, and model-blind traversal passed")

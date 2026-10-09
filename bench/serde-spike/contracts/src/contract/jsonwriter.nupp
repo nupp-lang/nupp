@@ -1,6 +1,7 @@
 module contract.jsonwriter
 
 local core = require("contract.value")
+local errors = require("contract.errors")
 local plans = require("contract.jsonplan")
 local json = require("nupp.codec.json")
 local base64 = require("nupp.codec.base64")
@@ -18,6 +19,9 @@ local record Frame<M is core.Member>
     kind: "object" | "array" | "map"
     plan: plans.Plan<M>
     count: integer
+    seen: {[string]: boolean}
+    currentName: string?
+    currentIndex: integer?
 end
 
 export record Output<M is core.Member> is core.Writer<M>
@@ -39,11 +43,39 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function emit<T>(exclusive self, adapter: core.Adapter<T, M>, borrows value: T): nil
         self:live()
-        adapter:write(value, self)
+        local ok, problem = pcall(adapter.write, adapter, value, self)
+        if not ok then
+            error(errors.wrap(problem, self:path(), nil), 0)
+        end
+    end
+
+    function path(self): string
+        local parts: {string} = {"$"}
+        for _, frame in ipairs(self.frames) do
+            if frame.currentName ~= nil then
+                parts[#parts + 1] = "[" .. json.encode(frame.currentName) .. "]"
+            elseif frame.currentIndex ~= nil then
+                parts[#parts + 1] = "[" .. tostring(frame.currentIndex) .. "]"
+            end
+        end
+
+        return table.concat(parts)
+    end
+
+    function select(exclusive self, member: M): nil
+        local frame = self.frames[#self.frames]
+        if frame ~= nil then
+            if frame.kind == "object" then
+                frame.currentName = member.name
+            elseif frame.kind == "array" then
+                frame.currentIndex = frame.count + 1
+            end
+        end
     end
 
     function include(exclusive self, member: M): boolean
         self:live()
+        self:select(member)
         local frame = self.frames[#self.frames]
         local action = frame ~= nil and frame.plan:action(member) or "traverse"
         if action == "redact" then
@@ -62,16 +94,27 @@ export record Output<M is core.Member> is core.Writer<M>
         if frame ~= nil then
             if frame.kind == "object" then
                 local key = frame.plan:key(member)
+                local name = frame.plan:wireName(member)
                 if key == nil and frame.plan.description.kind == "dynamic" then
-                    key = json.encodedString(self.policy:name(member))
+                    name = self.policy:name(member)
+                    key = json.encodedString(name)
                 end
                 if key == nil then
                     error("member was not selected for JSON: " .. member.name, 2)
                 end
+                self:claim(assert(name))
                 self.sink:key(key)
             end
             frame.count += 1
         end
+    end
+
+    function claim(exclusive self, name: string): nil
+        local frame = assert(self.frames[#self.frames], "key outside an object")
+        if frame.seen[name] then
+            error("duplicate JSON member: " .. name, 2)
+        end
+        frame.seen[name] = true
     end
 
     function key(exclusive self, text: string): nil
@@ -80,17 +123,26 @@ export record Output<M is core.Member> is core.Writer<M>
         if self.keyCount ~= 1 then
             error("map key emitted more than one value", 2)
         end
+        local frame = assert(self.frames[#self.frames])
+        frame.currentName = text
+        self:claim(text)
         self.sink:key(text)
     end
 
     function writeNull(exclusive self, member: M): nil
         self:live()
+        self:select(member)
+        local description = self:child(member).description
+        if not description.nullable and description.kind ~= "null" then
+            error("binding does not admit null", 2)
+        end
         self:position(member)
         self.sink:null()
     end
 
     function writeBoolean(exclusive self, member: M, value: boolean): nil
         self:live()
+        self:select(member)
         if self.keyMode then
             self:key(value and "true" or "false")
         else
@@ -101,6 +153,7 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
         self:live()
+        self:select(member)
         numbers.integer(value.decimal, value.width, value.signed)
         local encoded = json.numberToken(value.decimal)
         if self.keyMode then
@@ -113,6 +166,7 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         self:live()
+        self:select(member)
         value = numbers.floating(value, width)
         self:position(member)
         self.sink:write(value)
@@ -120,6 +174,7 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeBigInteger(exclusive self, member: M, value: string): nil
         self:live()
+        self:select(member)
         if not value:match("^%-?%d+$") then
             error("expected big integer", 2)
         end
@@ -129,6 +184,7 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         self:live()
+        self:select(member)
         if not value.coefficient:match("^%-?%d+$") then
             error("invalid decimal coefficient", 2)
         end
@@ -141,12 +197,14 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeNumberToken(exclusive self, member: M, value: string): nil
         self:live()
+        self:select(member)
         self:position(member)
         self.sink:write(json.numberToken(value))
     end
 
     function writeString(exclusive self, member: M, value: string): nil
         self:live()
+        self:select(member)
         if self.keyMode then
             self:key(value)
         else
@@ -157,12 +215,14 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeBytes(exclusive self, member: M, value: string): nil
         self:live()
+        self:select(member)
         self:position(member)
         self.sink:write(base64.encode(value))
     end
 
     function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         self:live()
+        self:select(member)
         local encoded = self.policy:timestamp(member, value)
         self:position(member)
         self.sink:write(encoded)
@@ -170,11 +230,13 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         self:live()
+        self:select(member)
         error("JSON atom requires a model conversion", 2)
     end
 
     function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         self:live()
+        self:select(member)
         self:position(member)
         writeContents(adapter, value, self.sink, self.factory)
     end
@@ -198,6 +260,7 @@ export record Output<M is core.Member> is core.Writer<M>
         expected: integer?
     ): nil
         self:live()
+        self:select(member)
         local plan = self:child(member)
         self:position(member)
         if kind == "array" then
@@ -205,7 +268,7 @@ export record Output<M is core.Member> is core.Writer<M>
         else
             self.sink:startObject()
         end
-        local frame = new Frame<M>(kind = kind, plan = plan, count = 0)
+        local frame = new Frame<M>(kind = kind, plan = plan, count = 0, seen = {})
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         if expected ~= nil and frame.count ~= expected then
@@ -256,6 +319,7 @@ export record Output<M is core.Member> is core.Writer<M>
         if frame == nil or frame.kind ~= "map" then
             error("entry outside map", 2)
         end
+        frame.currentName = "<key>"
         self.keyMode, self.keyCount = true, 0
         keyEmit:apply(key, self)
         self.keyMode = false
@@ -279,9 +343,15 @@ export record Output<M is core.Member> is core.Writer<M>
             error("unknown field outside object", 2)
         end
         local name = identities.name(field)
-        if frame.plan:member(name) ~= nil then
+        frame.currentName = name
+        if frame.plan:member(name) ~= nil or frame.plan:omitsName(name) then
             error("unknown field collides with a known member", 2)
         end
+        local source = adapter:context(value)
+        if source ~= nil and source.profile ~= self.factory then
+            error("unknown value cannot be replayed under another profile", 2)
+        end
+        self:claim(name)
         self.sink:key(name)
         frame.count += 1
         writeContents(adapter, value, self.sink, self.factory)

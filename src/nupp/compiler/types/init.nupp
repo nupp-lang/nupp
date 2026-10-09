@@ -896,6 +896,8 @@ record types.Nominal
     --- The prelude interface whose declared `is` edge grants affine ownership.
     intrinsicAffine: boolean?
 
+    intrinsicCopyable: boolean?
+
     intrinsicAffineClaim: boolean?
 
     --- Hoisted and bound, with its body not yet filled. Set only between a block's
@@ -2009,6 +2011,40 @@ local function insertById<T>(list: {T}, idOf: function(value: T): string): nil
         end
         list[k + 1] = value
     end
+end
+
+--- Whether a bound contains the canonical copyability constraint.
+function types.hasCopyableBound(t: types.Type, seen: {[types.Type]: boolean}?): boolean
+    if t.tag == "nominal" then
+        if ((t.origin or t) as types.Nominal).intrinsicCopyable then
+            return true
+        end
+        if not t.supertypes or #t.supertypes == 0 then
+            return false
+        end
+    end
+    seen = seen or {}
+    if seen[t] then
+        return false
+    end
+    seen[t] = true
+    if t.tag == "nominal" then
+        for _, parent in ipairs(t.supertypes or {}) do
+            if types.hasCopyableBound(parent, seen) then
+                return true
+            end
+        end
+    elseif t.tag == "typevar" and t.bound then
+        return types.hasCopyableBound(t.bound, seen)
+    elseif t.tag == "intersection" or t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if types.hasCopyableBound(member, seen) then
+                return true
+            end
+        end
+    end
+
+    return false
 end
 
 --- Exposes one canonical capability view over the existing erased wrapper encoding

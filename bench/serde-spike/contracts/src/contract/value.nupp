@@ -36,6 +36,11 @@ export record Decimal
     @readonly exponent: integer
 end
 
+export record Float
+    @readonly value: number
+    @readonly width: 32 | 64
+end
+
 export record Timestamp
     @readonly seconds: string
     @readonly nanos: integer
@@ -77,10 +82,18 @@ export interface DocumentReader
     readTimestamp: function(exclusive self: DocumentReader): Timestamp
     readInteger: function(exclusive self: DocumentReader): Integer
     readDecimal: function(exclusive self: DocumentReader): Decimal
-    readFloat: function(exclusive self: DocumentReader): number
+    readFloat: function(exclusive self: DocumentReader): Float
     readBigInteger: function(exclusive self: DocumentReader): string
+    readAtom: function(exclusive self: DocumentReader): Atom
     readList: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentElement<S>): nil
+    readTuple: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentElement<S>): nil
     readStruct: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentMember<S>): nil
+    readUnion: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentMember<S>): nil
+    readMap: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentEntry<S>): nil
+end
+
+export interface DocumentEntry<S>
+    apply: function(self, state: S, exclusive key: DocumentReader, exclusive value: DocumentReader): nil
 end
 
 export interface DocumentElement<S>
@@ -215,7 +228,7 @@ export interface Description<M is Member>
     @readonly width: integer?
     @readonly signed: boolean?
     @readonly canRead: boolean
-    @readonly children: {Child<M>}
+    @readonly children: const{Child<M>}
 end
 
 export interface Child<M is Member>

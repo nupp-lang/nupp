@@ -2,6 +2,7 @@
 -- the checked API's prohibition on retaining borrowed readers.
 local syntax = require("contract.jsonsyntax")
 local documents = require("contract.jsondocument")
+local errors = require("contract.errors")
 
 local function refused(fn, text)
     local ok, problem = pcall(fn)
@@ -68,12 +69,9 @@ refused(
 
 for _, bytes in ipairs({"[1,]", [[{"x":1,"x":2}]], [["\q"]], "[1 2]"}) do
     local malformed = documents.unknown(syntax.reader(bytes))
-    refused(
-        function()
-            malformed:skipValue()
-        end,
-        "JSON"
-    )
+    local ok, problem = pcall(malformed.skipValue, malformed)
+    assert(not ok and getmetatable(problem) == errors.Error)
+    assert(problem.code == "syntax" and problem.byte >= 1)
 end
 
 local ignored = documents.unknown(syntax.reader("[1,2]"))

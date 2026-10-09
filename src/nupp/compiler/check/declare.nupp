@@ -1924,6 +1924,9 @@ function declare.install(
             if c.filename == "nupp:prelude.d.nupp" and n.name == "Affine" and n.declKind == "interface" then
                 n.intrinsicAffine = true
             end
+            if c.filename == "nupp:prelude.d.nupp" and n.name == "Copyable" and n.declKind == "interface" then
+                n.intrinsicCopyable = true
+            end
             if c.result.moduleName == "nupp.prelude" and n.name == "Managed" then
                 n.managedCell = true
             elseif c.result.moduleName == "nupp.prelude" and n.name == "Alias" then
