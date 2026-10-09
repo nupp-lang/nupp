@@ -1,5 +1,7 @@
 module nupp.compiler.aot.simdcast
 
+local shape = require("nupp.compiler.aot.simdshape")
+
 local cast = {}
 
 --- The lane element types a conversion may take a vector between.
@@ -16,16 +18,25 @@ const ELEMENTS = {
     u64 = true,
 }
 
---- A conversion preserves logical lanes at every selectable tier. Preferred
---- species therefore cannot change element width; Fixed<N> species can.
+--- A conversion preserves logical lanes at every selectable tier. A preferred
+--- species therefore changes element width only into the species `widen` or
+--- `narrow` derived from it, which keeps its lane count; a Fixed<N> species
+--- converts to any Fixed<N>. A reinterpretation also keeps the element width.
 function cast.matches(source: string, destination: string, reinterpret: boolean): boolean
-    local from, fromShape = source:match("^simd_vector_([fiu]%d+)_(.+)$")
-    local to, toShape = destination:match("^simd_vector_([fiu]%d+)_(.+)$")
-    if from == nil or to == nil or ELEMENTS[from] == nil or ELEMENTS[to] == nil or fromShape ~= toShape then
+    local fromFamily, from = shape.parts(source)
+    local toFamily, to = shape.parts(destination)
+    if fromFamily ~= "vector"
+        or toFamily ~= "vector"
+        or ELEMENTS[from as string] == nil
+        or ELEMENTS[to as string] == nil
+    then
+        return false
+    end
+    if not shape.sameLanes(source, destination) then
         return false
     end
 
-    return not (reinterpret or fromShape == "preferred") or from:sub(2) == to:sub(2)
+    return not reinterpret or (from as string):sub(2) == (to as string):sub(2)
 end
 
 export = cast

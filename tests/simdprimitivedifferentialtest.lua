@@ -8,7 +8,7 @@ local HERE = runner.root() .. "/tests"
 local WORK_CEILINGS = {
     -- LLVM compiles and lld links in process, so a build starts no command.
     species = {units = 40, externalCommands = 0, cases = 85000, calls = 3200},
-    semantics = {units = 105, externalCommands = 0, cases = 60000000, calls = 750000},
+    semantics = {units = 115, externalCommands = 0, cases = 60000000, calls = 800000},
 }
 
 local function read(path)
@@ -284,6 +284,46 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
             "alignSpeciesCount",
             "local s = assert(simd.species(array.float, 4)); return s:splat(1):align(s:splat(2), s.lanes):extract(1)",
             "compile-time"
+        },
+        {
+            "widenPast64",
+            "local s = assert(simd.species(array.number)); local w = s:widen(array.number); return w:splat(1):extract(1)",
+            "wider than 64 bits",
+            7
+        },
+        {
+            "narrowBelow8",
+            "local s = assert(simd.species(array.uint8, 4)); local w = s:narrow(array.uint8); return w:splat(1):extract(1)",
+            "narrower than 8 bits",
+            7
+        },
+        {
+            "widenSkipsAWidth",
+            "local s = assert(simd.species(array.uint8)); local w = s:widen(array.uint32); return w:splat(1):extract(1)",
+            "next wider element",
+            7
+        },
+        {
+            "widenChangesSign",
+            "local s = assert(simd.species(array.int8)); local w = s:widen(array.uint16); return w:splat(1):extract(1)",
+            "next wider element",
+            7
+        },
+        {
+            "narrowSkipsAWidth",
+            "local s = assert(simd.species(array.number)); local w = s:narrow(array.uint16); return w:splat(1):extract(1)",
+            "next narrower element",
+            7
+        },
+        {
+            "widenedMeetsPreferred",
+            "local s = assert(simd.species(array.uint8)); local w = s:widen(array.uint16); local t = assert(simd.species(array.uint16)); return (w:splat(1) + t:splat(1)):extract(1)",
+            "species identities"
+        },
+        {
+            "preferredConvertWidth",
+            "local s = assert(simd.species(array.uint8)); local t = assert(simd.species(array.uint16)); return t:convert(s:splat(1)):extract(1)",
+            "widen and narrow"
         },
         {"extractZero", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(0)", "lane"},
         {"extractPastEnd", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(5)", "lane"},

@@ -5,6 +5,7 @@
 -- mask and store kernel. The semantic pack spends the larger independent
 -- oracle on representation boundaries and every operation/type category.
 local M = {}
+local WIDEN_LANES
 
 M.types = {"float", "number", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}
 M.lanes = {}
@@ -203,6 +204,7 @@ function M.semantics(options)
         {"memory", {"memory"}, {"float", "number", "int8", "int16", "int32", "int64"}, memory},
         {"transpose", {"transpose"}, {"float", "int8", "int16", "int32", "int64"}, transpose},
         {"conversions", {"conversions"}, M.types, {3}},
+        {"widen", {"widen"}, M.types, WIDEN_LANES},
         {
             "integer_edges",
             {"integeredges"},
@@ -303,6 +305,9 @@ end
 
 local CORE_LANES = {2, 3, 8, 17, 33, 64, "preferred"}
 local MEMORY_LANES = {2, 3, 4, 8, 16, 32, 64, "preferred"}
+-- One register's part, a composite with a remainder, and the preferred count
+-- whose coupling to the derived species is what the family is about.
+WIDEN_LANES = {3, 17, "preferred"}
 local TRANSPOSE_LANES = {2, 3, 8, 17, 33, 64}
 local INTEGER_TYPES = {"int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}
 
@@ -348,6 +353,7 @@ local function validateSemanticCoverage(generated, backend, tier)
     exactElements("float_bits", {"float", "number"}, CORE_LANES, "bitmemory")
     exactElements("masks", M.types, CORE_LANES)
     exactElements("maps", {"float", "number"}, CORE_LANES)
+    exactElements("widen", M.types, WIDEN_LANES)
 
     local conversions = {}
     for _, item in ipairs(records.conversions or {}) do
@@ -456,7 +462,7 @@ function M.witnesses(pack, identity, generated)
         return result
     end
 
-    validateProbes(generated, 841)
+    validateProbes(generated, 883)
     local packs, converted = {}, {}
     for _, item in ipairs(generated.coverage) do
         if item.pack then
@@ -473,6 +479,7 @@ function M.witnesses(pack, identity, generated)
         "memory",
         "transpose",
         "conversions",
+        "widen",
         "integer_edges",
         "float_bits",
         "masks",

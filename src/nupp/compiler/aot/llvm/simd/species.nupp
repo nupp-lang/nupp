@@ -4,15 +4,19 @@ module nupp.compiler.aot.llvm.simd.species
 What an explicit SIMD type is in LLVM.
 
 A species is an element and a lane count. `preferred` takes as many lanes as one
-register of the tier holds; `fixed<N>` is N lanes whatever the tier. Both are
-one LLVM vector type, `<N x T>`, and LLVM legalizes a vector no register holds
-into registers that do. A mask is `<N x i1>`, the form every comparison produces
+register of the tier holds; `fixed<N>` is N lanes whatever the tier; `lanesofB`
+is the lanes a register holds of a B-bit element, which is how a species
+`widen` or `narrow` derived keeps the lane count of the preferred species it
+came from. All three are one LLVM vector type, `<N x T>`, and LLVM legalizes a
+vector no register holds into registers that do. A mask is `<N x i1>`, the form every comparison produces
 and every select and masked access takes.
 
 The IR spells the families `simd_vector_<element>_<shape>`, `simd_mask_...`,
 `simd_species_...` (the species itself, known at compile time, so it has no
 runtime value) and `simd_bitmask_...` (a lane bitmap in a u64).
 ]]
+
+local shapes = require("nupp.compiler.aot.simdshape")
 
 local species = {}
 
@@ -24,7 +28,7 @@ record species.Species
 
     lanes: integer
 
-    --- `preferred` or `fixed<N>`.
+    --- `preferred`, `fixed<N>` or `lanesof<B>`.
     shape: string
 
     --- The LLVM element type: `float`, `i8`, ...
@@ -73,21 +77,11 @@ function species.of(width: integer, typeName: string): species.Species?
         return nil
     end
     local bits = tonumber((element as string):match("%d+")) as integer
-    local lanes: integer
-    if shape == "preferred" then
-        -- A tier without vector registers reports no width; its preferred
-        -- species is the one-lane one, which LLVM carries as a scalar.
-        lanes = width == 0 and 1 or math.floor(width * 8 / bits) as integer
-    else
-        local fixed = tonumber((shape as string):match("^fixed(%d+)$"))
-        if fixed == nil then
-            return nil
-        end
-        lanes = fixed as integer
-    end
-    if lanes < 1 then
+    local found = shapes.lanes(width, element as string, shape as string)
+    if found == nil or (found as integer) < 1 then
         return nil
     end
+    local lanes = found as integer
     local laneText = tostring(lanes)
 
     return new species.Species(

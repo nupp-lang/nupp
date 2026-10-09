@@ -1,0 +1,243 @@
+module nupp.compiler.aot.simdshape
+
+--[[
+What the shape of an explicit SIMD type means, before a tier is chosen.
+
+An IR type `simd_<family>_<element>_<shape>` carries three shapes. `preferred`
+is as many lanes as one register of the tier holds of the element, `fixedN` is
+N lanes on every tier, and `lanesofB` is as many lanes as the preferred species
+of a B-bit element has: the shape `Species.widen` and `Species.narrow` derive
+from a preferred one, so a `uint16` species can hold the sixteen lanes a
+`uint8` register does. A `lanesofB` over a B-bit element is spelled
+`preferred`, so every lane count has one spelling per element.
+
+Two shapes agree on their lane count when their keys agree: `fixedN` with
+`fixedN`, and `preferred` or `lanesofB` with any shape whose register is read
+in the same number of bits, whatever the element.
+
+A lane index is a compile-time value: a literal, a species' lane count, or
+arithmetic over those. The lane count of a preferred shape is not known until
+the tier is, so `laneValue` folds what it can and `laneExpression` says
+whether the rest will fold once it is.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local shape = {}
+
+const BITS: {
+    [string]: integer
+} = {f32 = 32, f64 = 64, i8 = 8, u8 = 8, i16 = 16, u16 = 16, i32 = 32, u32 = 32, i64 = 64, u64 = 64,}
+
+--- Family, element and shape of an explicit SIMD IR type, or nothing.
+function shape.parts(typeName: string): (string?, string?, string?)
+    local family, element, shapeName = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+    if family == nil or BITS[element as string] == nil then
+        return nil, nil, nil
+    end
+
+    return family, element, shapeName
+end
+
+--- Bits in an element, or nothing for a name that is not one.
+function shape.bits(element: string?): integer?
+    return element ~= nil and BITS[element as string] or nil
+end
+
+--- The register bits a `preferred` or `lanesofB` shape is read in, or nothing
+--- for a fixed shape or an unknown one.
+local function registerBits(element: string, shapeName: string): integer?
+    if shapeName == "preferred" then
+        return BITS[element]
+    end
+    local bits = tonumber(shapeName:match("^lanesof(%d+)$"))
+    if bits == nil or BITS["u" .. tostring(bits)] == nil or shapeName ~= "lanesof" .. tostring(bits) then
+        return nil
+    end
+
+    return bits as integer
+end
+
+--- The lane count a fixed shape names, or nothing.
+local function fixedLanes(shapeName: string): integer?
+    local lanes = tonumber(shapeName:match("^fixed(%d+)$"))
+    if lanes == nil or shapeName ~= "fixed" .. tostring(lanes) then
+        return nil
+    end
+
+    return lanes as integer
+end
+
+--- Whether the shape is one of the three.
+function shape.valid(element: string, shapeName: string): boolean
+    return registerBits(element, shapeName) ~= nil or fixedLanes(shapeName) ~= nil
+end
+
+--- The one spelling of a shape over an element: `lanesofB` over a B-bit
+--- element is `preferred`.
+function shape.canonical(element: string, shapeName: string): string
+    local bits = registerBits(element, shapeName)
+    if bits ~= nil and bits == BITS[element] then
+        return "preferred"
+    end
+
+    return shapeName
+end
+
+--- The key two shapes share exactly when their lane counts agree on every
+--- tier, or nothing for a shape that is not one.
+function shape.laneKey(element: string, shapeName: string): string?
+    local bits = registerBits(element, shapeName)
+    if bits ~= nil then
+        return "register" .. tostring(bits)
+    end
+    local lanes = fixedLanes(shapeName)
+    if lanes ~= nil then
+        return "fixed" .. tostring(lanes)
+    end
+
+    return nil
+end
+
+--- Whether two explicit SIMD IR types have the same logical lane count on
+--- every tier, whatever their families and elements.
+function shape.sameLanes(left: string, right: string): boolean
+    local _, leftElement, leftShape = shape.parts(left)
+    local _, rightElement, rightShape = shape.parts(right)
+    if leftElement == nil or rightElement == nil then
+        return false
+    end
+    local leftKey = shape.laneKey(leftElement as string, leftShape as string)
+
+    return leftKey ~= nil and leftKey == shape.laneKey(rightElement as string, rightShape as string)
+end
+
+--- The lanes a shape has at `width` bytes per register, or nothing for a
+--- shape that is not one.
+function shape.lanes(width: integer, element: string, shapeName: string): integer?
+    local bits = registerBits(element, shapeName)
+    if bits ~= nil then
+        -- A tier without vector registers reports no width; a species read
+        -- in a register is one lane there, which LLVM carries as a scalar.
+        if width == 0 then
+            return 1
+        end
+        return math.floor(width * 8 / (bits as integer)) as integer
+    end
+
+    return fixedLanes(shapeName)
+end
+
+--- The lanes a shape has at its widest, which bounds a logical lane count
+--- before a tier is chosen.
+function shape.widestLanes(element: string, shapeName: string): integer?
+    return shape.lanes(64, element, shapeName)
+end
+
+--- The element one step wider than `element` in its family and signedness,
+--- or one step narrower, or nothing at the end of the ladder.
+function shape.resizedElement(element: string, wider: boolean): string?
+    local bits = BITS[element]
+    if bits == nil then
+        return nil
+    end
+    local next = wider and bits * 2 or bits / 2
+    local candidate = element:sub(1, 1) .. tostring(next)
+    if BITS[candidate] == nil then
+        return nil
+    end
+
+    return candidate
+end
+
+--- The IR type of the species `widen` or `narrow` derive from `typeName`:
+--- the same family and shape over `element`, the shape re-read so a preferred
+--- species keeps the lane count its own element had. Nothing when the type is
+--- not an explicit SIMD type.
+function shape.resized(typeName: string, element: string): string?
+    local family, from, shapeName = shape.parts(typeName)
+    if family == nil then
+        return nil
+    end
+    local derived = shapeName as string
+    if derived == "preferred" then
+        derived = "lanesof" .. tostring(BITS[from as string])
+    end
+
+    return "simd_" .. (family as string) .. "_" .. element .. "_" .. shape.canonical(element, derived)
+end
+
+local LANE_ARITHMETIC: {
+    [string]: boolean
+} = {add = true, sub = true, mul = true, u32_add = true, u32_sub = true, u32_mul = true,}
+
+local LANE_CONVERSIONS: {[string]: boolean} = {numeric_cast = true, int_to_f64 = true, store_cast = true,}
+
+--- Whether an expression is a lane index the compiler can fold: a literal,
+--- a species' lane count, or `+`, `-`, `*` and conversions over those.
+function shape.laneExpression(expr: scalarIR.Expr): boolean
+    local op = tostring(expr.op)
+    if scalarIR.exactInteger(expr) ~= nil or op == "constant" or op == "simd_lanes_generic" then
+        return true
+    elseif LANE_ARITHMETIC[op] == true then
+        local binary = expr as scalarIR.Fixed
+        return shape.laneExpression(binary.left) and shape.laneExpression(binary.right)
+    elseif op == "neg" then
+        return shape.laneExpression((expr as scalarIR.Unary).value)
+    elseif LANE_CONVERSIONS[op] == true then
+        return shape.laneExpression((expr as scalarIR.Convert).value)
+    end
+
+    return false
+end
+
+local function wrap32(value: number): number
+    return value % 4294967296
+end
+
+--- The value of a lane index, folded with the lane counts `lanesOf` answers
+--- for a species type; nothing when the expression is not a lane index or a
+--- lane count in it is not yet known.
+function shape.laneValue(expr: scalarIR.Expr, lanesOf: function(species: string): integer?): number?
+    local op = tostring(expr.op)
+    local exact = scalarIR.exactInteger(expr)
+    if exact ~= nil then
+        return exact
+    elseif op == "constant" then
+        return tonumber((expr as scalarIR.Constant).value)
+    elseif op == "simd_lanes_generic" then
+        local lanes = lanesOf(tostring((expr as scalarIR.Simd).args[1].type))
+        return lanes ~= nil and (lanes as integer) or nil
+    elseif LANE_ARITHMETIC[op] == true then
+        local binary = expr as scalarIR.Fixed
+        local left = shape.laneValue(binary.left, lanesOf)
+        local right = shape.laneValue(binary.right, lanesOf)
+        if left == nil or right == nil then
+            return nil
+        end
+        local answer: number
+        if op == "add" or op == "u32_add" then
+            answer = (left as number) + (right as number)
+        elseif op == "sub" or op == "u32_sub" then
+            answer = (left as number) - (right as number)
+        else
+            answer = (left as number) * (right as number)
+        end
+
+        return op:sub(1, 4) == "u32_" and wrap32(answer) or answer
+    elseif op == "neg" then
+        local inner = shape.laneValue((expr as scalarIR.Unary).value, lanesOf)
+        return inner ~= nil and -(inner as number) or nil
+    elseif LANE_CONVERSIONS[op] == true then
+        return shape.laneValue((expr as scalarIR.Convert).value, lanesOf)
+    end
+
+    return nil
+end
+
+--- A lane index as the constant it folded to.
+function shape.laneConstant(value: number, source: scalarIR.Source?): scalarIR.Expr
+    return new scalarIR.Constant(op = "constant", value = ("%.17g"):format(value), type = "f64", source = source)
+end
+
+export = shape

@@ -1379,6 +1379,41 @@ sealed interface simd.Species<T, S>
     --- Preserves every lane's bits. Element widths and lane counts must match.
     reinterpret: function<U>(borrows self: simd.Species<T, S>, value: simd.Vector<U, S>): simd.Vector<T, S>
 
+    --- The species of the next wider element of this one's family and
+    --- signedness -- `uint8` to `uint16`, `int32` to `int64`, `float` to
+    --- `number` -- with this species' logical lane count, named by the wider
+    --- element's storage witness. A `Fixed<N>` species widens to the
+    --- `Fixed<N>` species of that element. A `Preferred` one widens to a
+    --- species holding as many lanes as its own register does, twice what the
+    --- wider element's preferred species holds, so a widened vector occupies
+    --- two native registers the way a `Fixed<N>` past one register does. It
+    --- is the species a byte kernel converts into for a sum its bytes would
+    --- overflow, without naming a register width:
+    ---
+    --- ```nupp:fragment
+    --- local bytes = assert(simd.species(array.uint8))
+    --- local wide = bytes:widen(array.uint16)
+    --- local weighted = wide:convert(bytes:load(reds, at + 1)) * 77
+    --- ```
+    ---
+    --- The widened species keeps the checker's species identity `S`, so it
+    --- reads as `simd.Species<uint16, simd.Preferred>`, the type
+    --- `simd.species(array.uint16)` also has. They are different species once
+    --- the function is lowered, one with the lane count of a `uint8` register
+    --- and the other with its own, and a vector of one meets a vector of the
+    --- other only through `convert`, which is refused there when the counts
+    --- differ. Nothing is wider than 64 bits: widening a 64-bit species is
+    --- refused where the function is lowered, as is a witness that is not the
+    --- next wider element.
+    widen: function<W>(borrows self: simd.Species<T, S>, wider: StorageWitness<W>): simd.Species<W, S>
+
+    --- The species of the next narrower element with this species' lane
+    --- count, the inverse of `widen`: a widened species narrows back to the
+    --- species it came from, and a `Preferred` species narrows to one holding
+    --- half the lanes the narrower element's own register does. Nothing is
+    --- narrower than 8 bits.
+    narrow: function<W>(borrows self: simd.Species<T, S>, narrower: StorageWitness<W>): simd.Species<W, S>
+
     splat: function(borrows self: simd.Species<T, S>, value: T): simd.Vector<T, S>
     iota: function(borrows self: simd.Species<T, S>, first: T, step: T): simd.Vector<T, S>
     tail: function(borrows self: simd.Species<T, S>, active: integer): simd.Mask<T, S>
@@ -2233,8 +2268,9 @@ end
 --- There is always a species. Where the running code has vector registers
 --- it is as wide as they are; where it has none -- the scalar Wasm tier, or
 --- a body running as ordinary Lua under `aot = "off"` -- it is one lane
---- wide, and the same loop runs a lane at a time. So a kernel is written
---- once:
+--- wide, and the same loop runs a lane at a time. A species of another
+--- element with the same lane count, whichever that is on the tier, is
+--- `widen` or `narrow` of this one. So a kernel is written once:
 ---
 --- ```nupp:fragment
 --- local species = simd.species(array.float)

@@ -39,6 +39,7 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local simdbounds = require("nupp.compiler.aot.simdbounds")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
+local shapes = require("nupp.compiler.aot.simdshape")
 local visit = require("nupp.compiler.aot.visit")
 
 local verify = {}
@@ -1031,17 +1032,12 @@ local function genericSimdFieldElement(scope: verify.Scope, layoutName: string?,
 end
 
 --- Whether two mask types have the same lane count: the same fixed shape, or
---- the preferred shape over elements of a bit width.
+--- register shapes read in one bit width.
 local function sameLaneCount(left: string, right: string): boolean
-    local leftFamily, leftElement, leftShape = genericSimdType(left)
-    local rightFamily, rightElement, rightShape = genericSimdType(right)
-    if leftFamily ~= "mask" or rightFamily ~= "mask" or leftShape ~= rightShape then
-        return false
-    elseif leftShape ~= "preferred" then
-        return true
-    end
+    local leftFamily = genericSimdType(left)
+    local rightFamily = genericSimdType(right)
 
-    return tostring(leftElement):match("%d+") == tostring(rightElement):match("%d+")
+    return leftFamily == "mask" and rightFamily == "mask" and shapes.sameLanes(left, right)
 end
 
 --- Checks the strided field access shared by `simd_field_load` and

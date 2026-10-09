@@ -19,6 +19,7 @@ local carriedFacts = require("nupp.compiler.aot.carried")
 local reducers = require("nupp.compiler.aot.reducers")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
+local shapes = require("nupp.compiler.aot.simdshape")
 local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")
 local relations = require("nupp.compiler.aot.relations")
@@ -3537,6 +3538,66 @@ local function interleavedLoadWays(expression: cst.Node): integer?
     return method:sub(1, 4) == "load" and INTERLEAVED[method] or nil
 end
 
+--- The source spelling of an IR element: `u16` is `uint16`, `f32` is `float`.
+local function spelledElement(element: string): string
+    if element == "f32" then
+        return "float"
+    elseif element == "f64" then
+        return "number"
+    end
+
+    return (element:sub(1, 1) == "u" and "uint" or "int") .. element:sub(2)
+end
+
+--- `species:widen(array.uint16)` and `species:narrow(array.uint8)`: the
+--- species of the next wider or narrower element of the same signedness with
+--- this species' logical lane count. A fixed shape keeps its count; a
+--- preferred one keeps the count its own element's register holds, which is
+--- the `lanesof` shape. The witness names what the checker typed the result
+--- with, so the element is read from the call rather than from the argument.
+local function resizedSpecies(
+    node: cst.MethodCall,
+    method: string,
+    witness: cst.Node,
+    receiverType: string,
+    element: scalarIR.Type,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    local wider = method == "widen"
+    local wanted = shapes.resizedElement(tostring(element), wider)
+    if wanted == nil then
+        context.reject(
+            source,
+            wider and "no element is wider than 64 bits, so " .. spelledElement(tostring(element)) .. " cannot widen"
+            or "no element is narrower than 8 bits, so " .. spelledElement(tostring(element)) .. " cannot narrow"
+        )
+    end
+    local inferred = semanticRaw((node as any).inferredType)
+    local resolved = inferred ~= nil and semanticValueType(inferred) or nil
+    local _, named = genericSimdParts(tostring(resolved))
+    local dotted = lower.dottedName(witness)
+    local field = dotted ~= nil and (dotted as string):match("%.([^.]+)$") or nil
+    if named ~= wanted or field == nil or not SPECIES_WITNESSES[field as string] then
+        context.reject(
+            source,
+            "species:" .. method .. " takes the witness of the next " .. (
+                wider and "wider" or "narrower"
+            ) .. " element of the same signedness, array." .. spelledElement(wanted as string) .. " for this species"
+        )
+    end
+    kernel.usesSimd = true
+
+    return new scalarIR.Simd(
+        op = "simd_species",
+        args = {},
+        intrinsic = "species",
+        type = shapes.resized(receiverType, wanted as string) as scalarIR.Type,
+        source = source
+    )
+end
+
 local function simdMethod(
     node: cst.MethodCall,
     environment: {[string]: any},
@@ -3670,13 +3731,11 @@ local function simdMethod(
                     source = source
                 )
             end
-            local fromFamily, fromElement, fromShape = genericSimdParts(value.type)
+            local fromFamily = genericSimdParts(value.type)
             if fromFamily ~= "mask" then
                 kernel.context.reject(source, "SIMD mask takes a boolean or a mask of another species")
             end
-            if fromShape ~= genericShape
-                or fromShape == "preferred"
-                and tostring(fromElement):match("%d+") ~= tostring(genericElement):match("%d+") then
+            if not shapes.sameLanes(value.type, maskType) then
                 kernel.context.reject(source, "SIMD mask conversion requires matching logical lane counts")
             end
             return new scalarIR.Simd(
@@ -3688,6 +3747,8 @@ local function simdMethod(
             )
         elseif genericFamily == "species" and method == "map" and #raw >= 2 then
             return laneWiseMap(node, raw, vectorType, genericElement as scalarIR.Type, environment, activeIndex, kernel)
+        elseif genericFamily == "species" and (method == "widen" or method == "narrow") and #raw == 1 then
+            return resizedSpecies(node, method, raw[1], tostring(receiverType), genericElement as scalarIR.Type, kernel)
         elseif genericFamily == "species" and method == "splat" and #raw == 1 then
             local value = lower.convert(
                 lower.expression(raw[1], environment, activeIndex, kernel),
@@ -3709,7 +3770,7 @@ local function simdMethod(
                     source,
                     "SIMD " .. method .. " requires matching logical lane counts" .. (
                         method == "reinterpret" and " and equal element widths"
-                        or "; use Fixed<N> when changing element width"
+                        or "; use Fixed<N> or the species widen and narrow derive when changing element width"
                     )
                 )
             end

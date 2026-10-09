@@ -1,9 +1,8 @@
 module nupp.compiler.aot.simdindices
 
 local scalarIR = require("nupp.compiler.aot.scalar")
+local shapes = require("nupp.compiler.aot.simdshape")
 local indices = {}
-
-const MAX_VECTOR_BITS = 512
 
 local function indexElement(element: string?): boolean
     return element == "i32" or element == "u32" or element == "i64" or element == "u64"
@@ -20,16 +19,12 @@ local function speciesElement(element: string?): boolean
 end
 
 local function logicalLanes(element: string, shape: string): integer?
-    local bits = tonumber(element:sub(2))
-    if shape == "preferred" then
-        return bits ~= nil and math.floor(MAX_VECTOR_BITS / (bits as number)) as integer or nil
-    end
-    local lanes = tonumber(shape:match("^fixed(%d+)$"))
-    if lanes == nil or lanes < 2 or lanes > 64 or shape ~= "fixed" .. tostring(lanes) then
+    local lanes = shapes.widestLanes(element, shape)
+    if lanes == nil or shape:match("^fixed") ~= nil and ((lanes as integer) < 2 or (lanes as integer) > 64) then
         return nil
     end
 
-    return lanes as integer
+    return lanes
 end
 
 --- The widest integer each index lane type holds exactly.
