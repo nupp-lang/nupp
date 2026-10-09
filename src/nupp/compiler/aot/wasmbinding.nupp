@@ -37,6 +37,8 @@ local function cast(value: string, named: string): string
         return "nupp.math.u32.wrap(" .. value .. " as integer)"
     elseif named == "int32" then
         return "nupp.math.i32.wrap(" .. value .. " as integer)"
+    elseif named == "float" then
+        return "nupp.math.f32.narrow(" .. value .. " as number)"
     end
 
     return value .. " as " .. named

@@ -175,7 +175,10 @@ return {total = total}
         return s.op == "let" and s.value and s.value.op == "reducer_init"
     end)
     assert(init, "no reducer initialization")
-    assert(init.type == "simd_reducer_ordered_dot_f32", "a float reducer carries f32 in its type: " .. tostring(init.type))
+    assert(
+        init.type == "simd_reducer_ordered_dot_f32",
+        "a float reducer carries f32 in its type: " .. tostring(init.type)
+    )
     assert(init.value.initial.type == "f32", "the seed is narrowed to f32")
     init.value.initial.type = "f64"
     refuses(program, "invalid reducer construction")
@@ -211,6 +214,7 @@ return {fold = fold}
         "integer-horizontal.nupp"
     )
     verify.program(program)
+
     local function expression(node, predicate)
         if type(node) ~= "table" then
             return nil
@@ -227,11 +231,16 @@ return {fold = fold}
 
         return nil
     end
+
     local horizontal = expression(program.body, function(node)
         return node.op == "simd_horizontal"
     end)
     assert(horizontal, "no horizontal reduction")
-    assert(horizontal.intrinsic == "exact_sum", "the wrapping sum is the exact contract: " .. tostring(horizontal.intrinsic))
+    assert(
+        horizontal.intrinsic == "exact_sum",
+        "the wrapping sum is the exact contract: " .. tostring(horizontal.intrinsic)
+    )
+
     local function changed(field, value, message)
         local kept = horizontal[field]
         horizontal[field] = value
@@ -239,6 +248,7 @@ return {fold = fold}
         horizontal[field] = kept
         verify.program(program)
     end
+
     -- A floating order over integer lanes, a dot the exact contract never
     -- had, and a wrapping sum over floating lanes are each refused.
     changed("intrinsic", "ordered_sum", "invalid generic SIMD horizontal operation")
@@ -836,6 +846,7 @@ function M.anInt32SwitchLowersToExactInt32Comparisons()
     end)
     assert(branch, "an int32 selector lowers to one branch")
     local selector
+
     local function labels(condition, out)
         if condition.op == "or" then
             labels(condition.left, out)
@@ -848,10 +859,15 @@ function M.anInt32SwitchLowersToExactInt32Comparisons()
         assert(condition.left.uniqueName == selector, "every label tests the one selector")
         assert(condition.right.op == "constant_i32" and condition.right.type == "i32", "labels are exact int32")
         out[#out + 1] = condition.right.value
+
         return out
     end
+
     assert(table.concat(labels(branch.clauses[1].condition, {}), ",") == "0", "first case tests its label")
-    assert(table.concat(labels(branch.clauses[2].condition, {}), ",") == "1,2", "second case tests both labels in order")
+    assert(
+        table.concat(labels(branch.clauses[2].condition, {}), ",") == "1,2",
+        "second case tests both labels in order"
+    )
     verify.program(program)
 end
 
@@ -1114,6 +1130,7 @@ function M.entryResultsKeepTheirHelperAbiMapping()
 local function identity(value: float): float
     return value
 end
+
 return {identity = identity}
 ]],
         "float-result.nupp"
@@ -1124,6 +1141,33 @@ return {identity = identity}
 
     program.resultTypes[1] = "f32"
     refuses(program, "invalid AOT entry result storage")
+end
+
+function M.generatedBuilderWrappersEstablishFloatResults()
+    local binding = require("nupp.compiler.aot.binding")
+    local wasm = require("nupp.compiler.aot.wasmbinding")
+    for _, returns in ipairs({"float", "(float, float)"}) do
+        local returned = returns == "float" and "value" or "value, value"
+        local program = lowered(
+            "@aot\nlocal function identity(value: float): "
+            .. returns
+            .. "\n return "
+            .. returned
+            .. "\nend\nreturn identity\n",
+            "builder-float.nupp"
+        )
+        local source = "local " .. program.symbol .. "_builder: any = nil\n" .. table.concat(
+            binding.builderWrapper(program),
+            "\n"
+        ) .. "\nreturn identity\n"
+        for _, wrapper in ipairs({source, wasm.replacement(program, {"test.wasm"}) .. "\nreturn identity\n"}) do
+            local tree = parser.parse(wrapper, "float-wrapper.g.nupp")
+            assert(#tree.errors == 0)
+            for _, problem in ipairs(compilerCheck.check(tree, "float-wrapper.g.nupp", environment)) do
+                assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+            end
+        end
+    end
 end
 
 function M.mathCallsKeepTheirAdmittedArity()
@@ -1597,7 +1641,9 @@ return {lanes = lanes}
     verify.program(program)
     -- One past the count names no lane on that tier.
     local original = extract.args[2]
-    extract.args[2] = {
+    extract.args[
+        2
+    ] = {
         op = "int_to_f64",
         type = "f64",
         value = {

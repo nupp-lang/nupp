@@ -734,7 +734,9 @@ local function established(resultType: string, name: string): string
         return "nupp.math.i32.wrap(" .. name .. " as integer)"
     elseif resultType == "boolean" then
         return name .. " as boolean"
-    elseif resultType == "number" or resultType == "float" or resultType == "integer" then
+    elseif resultType == "float" then
+        return "nupp.math.f32.narrow(" .. name .. " as number)"
+    elseif resultType == "number" or resultType == "integer" then
         return name .. " as " .. resultType
     end
 
