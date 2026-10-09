@@ -1,0 +1,113 @@
+module example.xmlassembly
+
+local core = require("contract.value")
+local syntax = require("example.xmlsyntax")
+
+export record Node
+    @readonly field: syntax.Field
+    @readonly attributes: {syntax.Attribute}
+    @readonly content: {string | Node}
+end
+
+local function element(reader: syntax.Reader, start: syntax.Event): Node
+    local content: {string | Node} = {}
+    while true do
+        local event = assert(reader:next(), "incomplete XML element")
+        if event.kind == "end" then
+            return new Node(field = assert(start.field), attributes = start.attributes, content = content)
+        elseif event.kind == "text" then
+            content[#content + 1] = assert(event.text)
+        else
+            content[#content + 1] = element(reader, event)
+        end
+    end
+end
+
+export function parse(bytes: string): Node
+    local reader = syntax.reader(bytes)
+    local start = assert(reader:next(), "missing XML root")
+    assert(start.kind == "start", "expected XML root")
+    local result = element(reader, start)
+    assert(reader:next() == nil, "trailing XML content")
+
+    return result
+end
+
+export function text(node: Node): string
+    assert(#node.attributes == 0, "scalar XML value has attributes")
+    local parts: {string} = {}
+    for _, item in ipairs(node.content) do
+        assert(type(item) == "string", "scalar XML value has a nested element")
+        parts[#parts + 1] = item as string
+    end
+
+    return table.concat(parts)
+end
+
+export record Mapping<M is core.Member>
+    @readonly member: M
+    @readonly field: syntax.Field
+    @readonly repeated: boolean = false
+end
+export interface Consumer<M is core.Member, S>
+    apply: function(self, exclusive state: S, member: M, values: const{Node}): nil
+    unknown: function(self, exclusive state: S, value: Node): nil
+end
+
+local function identity(field: syntax.Field): string
+    return field.role .. ":" .. #field.namespaceUri .. ":" .. field.namespaceUri .. field.localName
+end
+
+local record Group<M is core.Member>
+    @readonly mapping: Mapping<M>
+    @readonly values: {Node}
+end
+
+export function read<M is core.Member, S>(
+    root: Node,
+    mappings: const{Mapping<M>},
+    exclusive state: S,
+    consumer: Consumer<M, S>
+): nil
+    local byIdentity: {[string]: Group<M>} = {}
+    local ordered: {Group<M>} = {}
+    for _, mapping in ipairs(mappings) do
+        local key = identity(mapping.field)
+        assert(byIdentity[key] == nil, "duplicate expanded XML binding")
+        assert(not mapping.repeated or mapping.field.role == "element", "XML attributes cannot repeat")
+        local group = new Group<M>(mapping = mapping, values = {})
+        byIdentity[key] = group
+        ordered[#ordered + 1] = group
+    end
+    local values: {Node} = {}
+    for _, attribute in ipairs(root.attributes) do
+        values[#values + 1] = new Node(field = attribute.field, attributes = {}, content = {attribute.value})
+    end
+    for _, item in ipairs(root.content) do
+        if type(item) == "string" then
+            assert((item as string):match("^%s*$") ~= nil, "mixed content is not a modeled XML structure")
+        else
+            values[#values + 1] = item as Node
+        end
+    end
+    local unknown: {Node} = {}
+    for _, value in ipairs(values) do
+        local group = byIdentity[identity(value.field)]
+        if group == nil then
+            unknown[#unknown + 1] = value
+        else
+            assert(group.mapping.repeated or #group.values == 0, "duplicate scalar XML member")
+            group.values[#group.values + 1] = value
+        end
+    end
+    -- Assemble first: each logical member is assigned once, regardless of the
+    -- order in which its flattened occurrences arrived on the wire.
+    for _, group in ipairs(ordered) do
+        if #group.values > 0 then
+            consumer:apply(state, group.mapping.member, group.values)
+        end
+    end
+    for _, value in ipairs(unknown) do
+        consumer:unknown(state, value)
+    end
+end

@@ -1,0 +1,32 @@
+local api = require("example.openapi")
+local codec = require("contract.jsoncodec")
+local documents = require("example.document")
+local model = api.model()
+local binding = api.binding(model)
+local request = codec.codec(api.policy("request"))
+local response = codec.codec(api.policy("response"))
+local value = new api.Value(
+    name = "Ada",
+    secret = "secret",
+    identifier = "42",
+    payload = new api.Choice(alternative = "integer", value = documents.numberToken("17")),
+    additional = {}
+)
+assert(request:encode(binding, value) == '{"name":"Ada","secret":"secret","payload":17}')
+assert(response:encode(binding, value) == '{"name":"Ada","id":"42","payload":17}')
+local restored = response:decode(
+    binding,
+    '{"payload":"text","id":"43","name":"Grace","secret":"ignored","extension":{"x":null}}'
+)
+assert(restored.name == "Grace" and restored.secret == "" and restored.identifier == "43")
+assert(restored.payload.alternative == "text" and restored.payload.value:string() == "text")
+assert(assert(assert(restored.additional.extension):get("x")).kind == "null")
+assert(response:encode(binding, restored) == '{"name":"Grace","id":"43","payload":"text","extension":{"x":null}}')
+assert(not pcall(response.decode, response, binding, '{"name":"Ada","payload":1.5}'))
+assert(not pcall(response.decode, response, binding, '{"name":"Ada","payload":2147483648}'))
+assert(not pcall(response.decode, response, binding, '{"name":"Ada","payload":17,"secret":[}'))
+local ambiguous = api.binding(api.model(true))
+assert(not pcall(response.decode, response, ambiguous, '{"name":"Ada","payload":17}'))
+assert(not pcall(response.encode, response, ambiguous, value))
+assert(response:decode(ambiguous, '{"name":"Ada","payload":-1}').payload.alternative == "integer")
+print("independent OpenAPI views, additional properties, and untagged alternative rules passed")

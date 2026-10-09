@@ -1,0 +1,75 @@
+local core = require("contract.value")
+local xml = require("example.xmlsyntax")
+local assembly = require("example.xmlassembly")
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local list = new Member(name = "items")
+local attribute = new Member(name = "attributeId")
+local scalar = new Member(name = "elementId")
+local absent = new Member(name = "absent")
+local mappings = {
+    new assembly.Mapping<Member>(
+        member = list,
+        repeated = true,
+        field = new xml.Field(namespaceUri = "urn:known", localName = "item", role = "element")
+    ),
+    new assembly.Mapping<Member>(
+        member = attribute,
+        field = new xml.Field(namespaceUri = "urn:known", localName = "id", role = "attribute")
+    ),
+    new assembly.Mapping<Member>(
+        member = scalar,
+        field = new xml.Field(namespaceUri = "urn:known", localName = "id", role = "element")
+    ),
+    new assembly.Mapping<Member>(
+        member = absent,
+        field = new xml.Field(namespaceUri = "urn:known", localName = "absent", role = "element")
+    )
+}
+local record State
+    values: {[Member]: {string}} = {}
+    unknown: {assembly.Node} = {}
+    calls: integer = 0
+end
+local record Consumer is assembly.Consumer<Member, State>
+    function apply(self, exclusive state: State, member: Member, values: const{assembly.Node}): nil
+        assert(state.values[member] == nil, "a logical member was assigned twice")
+        local strings: {string} = {}
+        for _, value in ipairs(values) do
+            strings[#strings + 1] = assembly.text(value)
+        end
+        state.values[member] = strings
+        state.calls += 1
+    end
+
+    function unknown(self, exclusive state: State, value: assembly.Node): nil
+        state.unknown[#state.unknown + 1] = value
+    end
+end
+
+local function decode(bytes: string): State
+    local state = new State()
+    assembly.read(assembly.parse(bytes), mappings, state, new Consumer())
+    return state
+end
+
+local first = decode(
+    [[<p:Root xmlns:p="urn:known" xmlns:u="urn:unknown" p:id="attr"><p:item>A</p:item><p:id/><u:id u:flag="yes">unknown</u:id><p:item>B</p:item></p:Root>]]
+)
+local second = decode(
+    [[<Root xmlns="urn:known" xmlns:k="urn:known" xmlns:z="urn:unknown" k:id="attr"><item>A</item><id/><z:id z:flag="yes">unknown</z:id><item>B</item></Root>]]
+)
+for _, value in ipairs({first, second}) do
+    assert(value.calls == 3 and value.values[absent] == nil)
+    assert(table.concat(assert(value.values[list]), ",") == "A,B")
+    assert(assert(value.values[attribute])[1] == "attr" and assert(value.values[scalar])[1] == "")
+    assert(#value.unknown == 1)
+    assert(value.unknown[1].field.namespaceUri == "urn:unknown")
+    assert(value.unknown[1].attributes[1].field.namespaceUri == "urn:unknown")
+    assert(value.unknown[1].attributes[1].value == "yes")
+end
+assert(not pcall(decode, '<Root xmlns="urn:known"><id>A</id><id>B</id></Root>'))
+assert(not pcall(decode, '<Root xmlns="urn:known">mixed<id>A</id></Root>'))
+print("XML assembly assigns interleaved lists once and retains expanded unknown identities")

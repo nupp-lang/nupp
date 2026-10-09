@@ -1,0 +1,258 @@
+module example.openapi
+
+local core = require("contract.value")
+local structures = require("contract.structure")
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+local documents = require("example.document")
+local jsonDocument = require("contract.jsondocument")
+
+export type View = "request" | "response"
+export record Property is core.Member
+    @readonly name: string
+    @readonly index: integer?
+    @readonly readOnly: boolean = false
+    @readonly writeOnly: boolean = false
+end
+export record Choice
+    @readonly alternative: "text" | "integer"
+    @readonly value: documents.Document
+end
+export record Value
+    name: string
+    secret: string = ""
+    identifier: string = ""
+    payload: Choice
+    additional: {[string]: documents.Document}
+end
+export record Model
+    @readonly root: Property
+    @readonly name: Property
+    @readonly secret: Property
+    @readonly identifier: Property
+    @readonly payload: Property
+    @readonly positiveAlternative: boolean
+end
+export function model(positiveAlternative: boolean?): Model
+    return new Model(
+        root = new Property(name = "Response"),
+        name = new Property(name = "name", index = 1),
+        secret = new Property(name = "secret", index = 2, writeOnly = true),
+        identifier = new Property(name = "id", index = 3, readOnly = true),
+        payload = new Property(name = "payload", index = 4),
+        positiveAlternative = positiveAlternative == true
+    )
+end
+
+local record Description is core.Description<Property>
+    @readonly kind: core.Kind
+    @readonly member: Property
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<Property>} = {}
+end
+local record Text is core.Adapter<string, Property>
+    @readonly member: Property
+    function describe(self, direction: core.Direction): core.Description<Property>
+        return new Description(kind = "string", member = self.member)
+    end
+
+    function write(self, borrows value: string, exclusive writer: core.Writer<Property>): nil
+        writer:writeString(self.member, tostring(value))
+    end
+
+    function read(self, exclusive reader: core.Reader<Property>): string
+        return reader:readString(self.member)
+    end
+end
+
+local function choose(schema: Model, value: documents.Document): Choice
+    if value.kind == "string" then
+        return new Choice(alternative = "text", value = value)
+    else
+        assert(value.kind == "numberToken", "oneOf accepts text or an integer")
+        local token = value:numberToken()
+        assert(token:match("^%-?%d+$") ~= nil, "oneOf integer branch refused a fraction")
+        local parsed = assert(tonumber(token), "invalid integer")
+        assert(parsed >= -2147483648 and parsed <= 2147483647, "oneOf integer overflow")
+        assert(not schema.positiveAlternative or parsed <= 0, "ambiguous oneOf: two integer alternatives match")
+        return new Choice(alternative = "integer", value = value)
+    end
+end
+
+local record Alternatives is core.Adapter<Choice, Property>
+    @readonly schema: Model
+    function describe(self, direction: core.Direction): core.Description<Property>
+        return new Description(kind = "dynamic", member = self.schema.payload)
+    end
+
+    function write(self, borrows value: Choice, exclusive writer: core.Writer<Property>): nil
+        local selected = choose(self.schema, value.value)
+        assert(selected.alternative == value.alternative, "wrong oneOf selection")
+        if selected.alternative == "text" then
+            writer:writeString(self.schema.payload, selected.value:string())
+        else
+            writer:writeNumberToken(self.schema.payload, selected.value:numberToken())
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Property>): Choice
+        local value = reader:readDocument(self.schema.payload, documents.documentAdapter())
+        return choose(self.schema, value)
+    end
+end
+local record Builder is nupp.Closeable
+    name: string?
+    secret: string = ""
+    identifier: string = ""
+    payload: Choice?
+    additional: {[string]: documents.Document} = {}
+    function close(takes self): nil
+    end
+end
+local record Construction is structures.Construction<Value, Builder>
+    function begin(self): Builder
+        return new Builder()
+    end
+
+    function finish(self, takes state: Builder): Value
+        local owned: Builder = state
+        local result = new Value(
+            name = assert(owned.name, "required name"),
+            secret = owned.secret,
+            identifier = owned.identifier,
+            payload = assert(owned.payload, "required payload"),
+            additional = owned.additional
+        )
+        owned:close()
+
+        return result
+    end
+end
+local record Unknown is core.UnknownConsumer<Builder>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: Builder,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        -- This fixture's JSON field identity exposes its literal name explicitly.
+        -- Protocols with different identities supply their own capture operation.
+        local name = jsonDocument.name(field)
+        state.additional[name] = reader:captureValue(documents.documentAdapter())
+    end
+end
+local record Additional is core.Members<Property, Value>
+    function apply(self, borrows value: Value, exclusive writer: core.Writer<Property>): nil
+        local names: {string} = {}
+        for name in pairs(value.additional) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            writer:writeUnknown(
+                new jsonDocument.Name(name = name),
+                assert(value.additional[name]),
+                documents.documentAdapter()
+            )
+        end
+    end
+end
+export function binding(schema: Model): core.Binding<Value>
+    local fields: {structures.Field<Value, Builder, Property>} = {
+        structures.field<Value, Builder, string, Property>(
+            schema.name,
+            function(borrows value: Value): string borrows (value)
+                return value.name
+            end,
+            function(exclusive state: Builder, value: string): nil
+                state.name = value
+            end,
+            new Text(member = schema.name),
+            true,
+            false
+        ),
+        structures.field<Value, Builder, string, Property>(
+            schema.secret,
+            function(borrows value: Value): string borrows (value)
+                return value.secret
+            end,
+            function(exclusive state: Builder, value: string): nil
+                state.secret = value
+            end,
+            new Text(member = schema.secret),
+            false,
+            true
+        ),
+        structures.field<Value, Builder, string, Property>(
+            schema.identifier,
+            function(borrows value: Value): string borrows (value)
+                return value.identifier
+            end,
+            function(exclusive state: Builder, value: string): nil
+                state.identifier = value
+            end,
+            new Text(member = schema.identifier),
+            false,
+            true
+        ),
+        structures.field<Value, Builder, Choice, Property>(
+            schema.payload,
+            function(borrows value: Value): Choice borrows (value)
+                return value.payload
+            end,
+            function(exclusive state: Builder, value: Choice): nil
+                state.payload = value
+            end,
+            new Alternatives(schema = schema),
+            true,
+            false
+        )
+    }
+
+    return new core.Bound<Value, Property>(
+        adapter = structures.adapter(schema.root, fields, new Construction(), new Unknown(), new Additional())
+    )
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    @readonly view: View
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        assert(getmetatable(member) == Property, "OpenAPI policy needs its own property handles")
+        local property = member as Property
+        if self.view == "request" and property.readOnly or self.view == "response" and property.writeOnly then
+            return "omit"
+        end
+
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        error("OpenAPI fixture has no timestamp mapping")
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        error("OpenAPI fixture has no timestamp mapping")
+    end
+end
+local record Factory is plans.PolicyFactory
+    @readonly view: View
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local documentPolicy = documents.policy(member, true)
+        if documentPolicy ~= nil then
+            return documentPolicy
+        end
+        assert(getmetatable(member) == Property, "OpenAPI policy needs its own model")
+
+        return new Policy<M>(view = self.view)
+    end
+end
+export function policy(view: View): plans.PolicyFactory
+    return new Factory(view = view)
+end

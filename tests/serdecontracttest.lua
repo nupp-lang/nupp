@@ -51,6 +51,16 @@ function M.codecExtensionsReuseOperationsWithBoundedRetention()
     assert(status == 0, output)
 end
 
+function M.typedStructureOperationsKeepConstructionAndSelectionChecked()
+    local status, output = call({"run", "structure.nupp"})
+    assert(status == 0, output)
+end
+
+function M.independentOpenApiPoliciesKeepTheirOwnUnionAndPropertyRules()
+    local status, output = call({"run", "openapi.nupp"})
+    assert(status == 0, output)
+end
+
 function M.resourceExtensionsOwnCleanupAndExpireBorrowedHandles()
     local status, output = call({"run", "resources.nupp"})
     assert(status == 0, output)
@@ -110,6 +120,8 @@ end
 
 function M.protocolFieldIdentitiesRetainNamespacesAndWireTypes()
     local status, output = call({"run", "protocolsyntax.nupp"})
+    assert(status == 0, output)
+    status, output = call({"run", "xmlassembly.nupp"})
     assert(status == 0, output)
 end
 

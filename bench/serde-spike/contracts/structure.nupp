@@ -1,0 +1,167 @@
+local core = require("contract.value")
+local structure = require("contract.structure")
+local codec = require("contract.jsoncodec")
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+
+local record Counts
+    opened: integer = 0
+    closed: integer = 0
+    finished: integer = 0
+    gets: integer = 0
+end
+local counts = new Counts()
+local type Handler = function(): string
+local record Value
+    text: string
+    callback: Handler
+    constructor(self, text: string)
+        assert(text ~= "invalid", "constructor validation")
+        self.text = text
+        self.callback = function(): string
+            return "default"
+        end
+    end
+end
+local record Builder is nupp.Closeable
+    text: string?
+    function close(takes self): nil
+        counts.closed += 1
+    end
+end
+local record Construction is structure.Construction<Value, Builder>
+    function begin(self): Builder
+        counts.opened += 1
+        return new Builder()
+    end
+
+    function finish(self, takes state: Builder): Value
+        local owned: Builder = state
+        local value = new Value(text = assert(owned.text, "required text"))
+        counts.finished += 1
+        owned:close()
+
+        return value
+    end
+end
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local record Description is core.Description<Member>
+    @readonly member: Member
+    @readonly kind: core.Kind
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<Member>} = {}
+end
+local record Text is core.Adapter<string, Member>
+    @readonly member: Member
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return new Description(member = self.member, kind = "string")
+    end
+
+    function write(self, borrows value: string, exclusive writer: core.Writer<Member>): nil
+        writer:writeString(self.member, tostring(value))
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): string
+        return reader:readString(self.member)
+    end
+end
+local record Callback is core.Adapter<Handler, Member>
+    @readonly member: Member
+    function describe(self, direction: core.Direction): core.Description<Member>
+        error("excluded adapter must not be described")
+    end
+
+    function write(self, borrows value: Handler, exclusive writer: core.Writer<Member>): nil
+        error("excluded adapter must not write")
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Handler
+        error("excluded adapter must not read")
+    end
+end
+local record Policy<M is core.Member> is plans.Policy<M>
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return member.name == "callback" and "redact" or "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        error("no timestamp mapping")
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        error("no timestamp mapping")
+    end
+end
+local record Factory is plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        return new Policy<M>()
+    end
+end
+local root = new Member(name = "Value")
+local textMember = new Member(name = "text", index = 1)
+local callbackMember = new Member(name = "callback", index = 2)
+local fields: {structure.Field<Value, Builder, Member>} = {
+    structure.field<Value, Builder, string, Member>(
+        textMember,
+        function(borrows value: Value): string borrows (value)
+            counts.gets += 1
+            return value.text
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.text = value
+        end,
+        new Text(member = textMember),
+        true,
+        false
+    ),
+    structure.field<Value, Builder, Handler, Member>(
+        callbackMember,
+        function(borrows value: Value): Handler borrows (value)
+            error("redacted getter must not execute")
+        end,
+        function(exclusive state: Builder, value: Handler): nil
+            error("redacted setter must not execute")
+        end,
+        new Callback(member = callbackMember),
+        true,
+        true
+    )
+}
+local selected = structure.adapter(root, fields, new Construction())
+local binding: core.Binding<Value> = new core.Bound<Value, Member>(adapter = selected)
+local engine = codec.codec(new Factory())
+assert(engine:encode(binding, new Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
+assert(counts.gets == 1)
+local decoded = engine:decode(binding, '{"text":"ok","callback":null}')
+assert(decoded.text == "ok" and decoded.callback() == "default")
+assert(counts.opened == 1 and counts.closed == 1 and counts.finished == 1)
+for _, input in ipairs({'{}', '{"text":"invalid"}', '{"text":"ok","callback":[}', '{"text":"ok"} trailing'}) do
+    assert(not pcall(engine.decode, engine, binding, input))
+    assert(counts.closed == counts.opened, input .. ": " .. tostring(counts.closed) .. "/" .. tostring(counts.opened))
+    assert(counts.finished == 1)
+end
+local record Inspect is structure.Consumer<Value, Member, integer>
+    function apply<S is nupp.Closeable>(
+        self,
+        member: Member,
+        described: const{structure.Field<Value, S, Member>},
+        construction: structure.Construction<Value, S>,
+        unknown: core.UnknownConsumer<S>,
+        additional: core.Members<Member, Value>?
+    ): integer
+        assert(member == root and described[1].member == textMember and described[2].hasDefault)
+        return #described
+    end
+end
+assert(structure.inspect(selected, new Inspect()) == 2)
+print("typed structure operations preserve selection, checked construction, and abort cleanup")

@@ -17,7 +17,7 @@ local M = {}
 
 function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
     local descriptor = reflection.describe(recursiveNode(T.string), "Node")
-    testAssert.equal(descriptor.schema, 4, "reflection schema")
+    testAssert.equal(descriptor.schema, 5, "reflection schema")
     testAssert.equal(descriptor.root, 1, "root index")
     testAssert.equal(descriptor.fields[1].name, "value", "declaration order begins with value")
     testAssert.equal(descriptor.fields[2].name, "next", "declaration order retains next")
@@ -84,6 +84,47 @@ function M.omitsPrivateFieldsFromSemanticReflection()
     local descriptor = reflection.describe(node, "Node")
     testAssert.equal(#descriptor.fields, 1, "only the public field is reflected")
     testAssert.equal(descriptor.fields[1].name, "value", "the reflected field is public")
+end
+
+function M.hiddenConstructionRequiresAnExplicitFactory()
+    local node = recursiveNode(T.string)
+    node.privateFields = {next = true}
+    local description = reflection.describe(node, "Node")
+    local construction = description.types[description.root].construction
+    testAssert.equal(construction.requiresFactory, true)
+    testAssert.equal(#construction.params, 1)
+    assert(not description.fields[2], "private fields must stay hidden")
+end
+
+function M.storageFactsComeFromDeclarationsRatherThanFunctionTypes()
+    local node = recursiveNode(T.string)
+    local callback = T.func({}, {T.string}, false)
+    node.byname.callback, node.byname.method = callback, callback
+    node.writeByname.callback = callback
+    node.fieldOrder[#node.fieldOrder + 1] = "callback"
+    local description = reflection.describe(node, "Node")
+    local stored = {}
+    for _, field in ipairs(description.fields) do
+        stored[field.name] = field.stored
+    end
+    testAssert.equal(stored.callback, true)
+    testAssert.equal(stored.method, false)
+    testAssert.equal(description.types[description.root].construction.requiresFactory, false)
+end
+
+function M.declaredConstructionRetainsItsEntryAndResult()
+    local node = recursiveNode(T.string)
+    node.privateFields = {next = true}
+    local signature = T.func({T.string}, {node}, false)
+    signature.paramNames = {"text"}
+    node.constructorEntries = {{index = 2, signature = signature, result = node}}
+    local description = reflection.describe(node, "Node")
+    local construction = description.types[description.root].construction
+    testAssert.equal(construction.declared, true)
+    testAssert.equal(construction.requiresFactory, false)
+    testAssert.equal(construction.index, 2)
+    testAssert.equal(construction.result, description.root)
+    testAssert.equal(construction.params[1].name, "text")
 end
 
 function M.fingerprintsSemanticsRatherThanNominalAllocationIdentity()
@@ -249,7 +290,11 @@ function M.ordersNamedMetadataAndExcludesSourceIdentityFromFingerprints()
 
     local first = described(false)
     local second = described(true)
-    testAssert.equal(first.fingerprint, second.fingerprint, "map insertion order does not change the semantic fingerprint")
+    testAssert.equal(
+        first.fingerprint,
+        second.fingerprint,
+        "map insertion order does not change the semantic fingerprint"
+    )
     testAssert.equal(first.fields[1].name, "z", "ordinary fields retain declaration order")
     local root = first.types[first.root]
     testAssert.equal(root.staticFields[1].name, "a", "static fields sort by name")

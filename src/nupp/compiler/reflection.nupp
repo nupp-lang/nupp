@@ -13,7 +13,7 @@ local record reflection
     graph: function(any, any?): (integer?, {any}, {any})
 end
 
-reflection.SCHEMA = 4
+reflection.SCHEMA = 5
 
 local function sortedNames(values)
     local names = {}
@@ -108,6 +108,10 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             out.annotations = reflectedAnnotations(t.annotations)
             out.fields = {}
             local view = members.view(t)
+            local storedFields = {}
+            for _, name in ipairs(t.fieldOrder or {}) do
+                storedFields[name] = true
+            end
             for _, field in ipairs(view.ordered) do
                 if not (t.privateFields and t.privateFields[field.name]) then
                     local read, write = field.readType, field.writeType
@@ -117,6 +121,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                         name = field.name,
                         read = intern(read),
                         write = intern(write),
+                        stored = storedFields[field.name] == true,
                         readable = read ~= nil,
                         writable = write ~= nil,
                         hasDefault = t.fieldDefaults and t.fieldDefaults[field.name] ~= nil or false,
@@ -171,7 +176,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             -- so, which is what `nupp.types.construction` refuses.
             local entries = t.constructorEntries or {}
             if #entries > 1 then
-                out.construction = {overloaded = true, params = {}}
+                out.construction = {overloaded = true, requiresFactory = true, params = {}}
             elseif #entries == 1 then
                 local signature = entries[1].signature
                 local names = signature.paramNames or {}
@@ -191,15 +196,25 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                         mode = signature.paramModes and signature.paramModes[position] or "plain",
                     }
                 end
-                out.construction = {declared = true, params = params}
+                out.construction = {
+                    declared = true,
+                    index = entries[1].index,
+                    result = intern(entries[1].result),
+                    requiresFactory = false,
+                    params = params,
+                }
             elseif t.declKind == "record" or t.declKind == "struct" then
                 local params = {}
+                local hidden = false
                 for _, name in ipairs(t.fieldOrder or {}) do
                     local fieldType = t.byname and t.byname[name] or nil
                     local stored = fieldType ~= nil
                         and fieldType.tag ~= "typeobject"
                         and not (t.nestedTypes and t.nestedTypes[name])
                         and not (t.privateFields and t.privateFields[name])
+                    if fieldType ~= nil and t.privateFields and t.privateFields[name] then
+                        hidden = true
+                    end
                     if stored then
                         local hasDefault = t.fieldDefaults ~= nil and t.fieldDefaults[name] ~= nil
                         params[
@@ -212,7 +227,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                         }
                     end
                 end
-                out.construction = {declared = false, params = params}
+                out.construction = {declared = false, requiresFactory = hidden, params = params}
             end
             out.arrayOf = intern(t.arrayOf)
             out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
@@ -447,6 +462,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             kind = fieldType.kind,
             typeName = fieldType.name,
             type = field.read or field.write,
+            stored = field.stored == true,
             readable = field.readable,
             writable = field.writable,
             hasDefault = field.hasDefault or false,

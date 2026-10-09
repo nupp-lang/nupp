@@ -1041,6 +1041,7 @@ function typeprovider.importDescriptor(
                     name = field.name,
                     read = field.read and import(field.read) or nil,
                     write = field.write and import(field.write) or nil,
+                    stored = field.stored == true,
                     readable = field.readable,
                     writable = field.writable,
                     hasDefault = field.hasDefault or false,

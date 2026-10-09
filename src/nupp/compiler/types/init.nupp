@@ -1864,6 +1864,9 @@ function types.affine(
     end
 
     obligation = obligation or obligationFrom(list, transferOnly)
+    if t.tag == "affine" and obligationId(t.obligation) == obligationId(obligation) then
+        return t
+    end
     local internKey = "affine(" .. table.concat(
         ids,
         ","
@@ -1889,7 +1892,15 @@ end
 --- Applies the ownership policy declared by an Affine claim, if any.
 function types.inherentOwner(t: types.Type): types.Type
     local raw = types.unwrapOwnership(t)
-    local nominal = raw.tag == "nominal" and raw as types.Nominal or nil
+    local representation = raw
+    if representation.tag == "typevar" then
+        local seen = {}
+        while representation.tag == "typevar" and representation.bound and not seen[representation] do
+            seen[representation] = true
+            representation = types.unwrapOwnership(representation.bound)
+        end
+    end
+    local nominal = representation.tag == "nominal" and representation as types.Nominal or nil
     if not nominal and raw.tag == "union" and raw.hasNil then
         for _, member in ipairs(raw.members) do
             if member ~= types.nil_ then
@@ -1901,9 +1912,17 @@ function types.inherentOwner(t: types.Type): types.Type
             end
         end
     end
+    -- The declaration's self binder is its receiver representation. Its method
+    -- mode supplies ownership; an ordinary bounded parameter denotes a value.
+    if nominal and nominal.selfType == raw then
+        return t
+    end
     local cleanup = nominal and nominal.inherentCleanup or nil
     if cleanup then
         return types.affine(raw, {cleanup})
+    end
+    if raw.tag == "typevar" then
+        return t
     end
     if nominal and nominal.affineFields and #nominal.affineFields > 0 then
         local cleanups, obligations, transferOnly = {}, {}, false

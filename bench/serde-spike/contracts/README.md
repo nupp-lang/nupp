@@ -55,7 +55,9 @@ The JSON reader validates skipped syntax and scopes every aggregate callback.
 `reader_scope.lua` also tests untyped callers that retain a reader, underconsume,
 overconsume, or throw. `protocolsyntax.nupp` reads actual XML namespace and
 attribute identities and numbered binary fields. These syntax fixtures do not
-yet constitute complete model codecs or flattened-member assembly.
+yet constitute complete model codecs. `xmlassembly.nupp` groups interleaved
+flattened elements before assigning each logical member once, rejects duplicate
+scalars, and keeps expanded identities on captured unknown elements and attributes.
 
 `resources.nupp` checks an extension scope that owns managed resources, returns
 aliases, and expires those aliases when closed. Ordinary data extensions constrain results to `nupp.Copyable`. The checker
@@ -63,10 +65,9 @@ refuses owned initializer results before they enter erased cache storage, and
 callable result inference preserves cleanup obligations. Managed aliases remain
 copyable and retain their runtime expiration checks.
 
-These fixtures do not complete S0. Neutral checked access and construction,
-typed document reconstruction, automatic codec extension caching, independent
-model acceptance, and the full Nupp traversal benchmark matrix remain implementation gates
-in `nupp-plans/todo/open-serialization-bindings.md`.
+These fixtures do not complete S0. Automatic declaration access, the full model acceptance fixtures, and the broader Nupp traversal
+matrix remain gates in `nupp-plans/todo/open-serialization-bindings.md`.
+The production API and migration gates remain open.
 
 `evidence/baseline.json` records the starting revision, focused baseline
 results, and an initial reference inventory. It is not the complete S0
@@ -86,3 +87,18 @@ constructor supplies defaults. `buffer_output.nupp` appends directly to a caller
 Buffer and restores its prefix when a later field fails. The failure path alone
 copies that prefix. `errors.nupp` checks structured error codes, logical member
 paths, byte positions, causes, and input/token/aggregate limits.
+
+`structure.nupp` uses typed field getters, assignments, and a checked factory as
+one operation description. Generic execution and an inspecting backend see the
+same operations. Omitted and redacted fields bypass their getters and child
+adapters. Construction state closes on malformed syntax, missing required
+fields, and constructor validation failure. The field helper accepts copyable
+values; resource-producing custom adapters keep their explicit ownership
+contract.
+
+`openapi.nupp` uses an independent model and member type. Its request and response
+views omit different fields, preserve additional JSON properties, and interpret
+an untagged alternative using model-owned rules. Overlapping alternatives and
+out-of-range integers are refused. It shares the JSON engine with the Smithy
+fixture without changing the substrate for either model. This is a contract
+fixture, not a complete OpenAPI implementation.

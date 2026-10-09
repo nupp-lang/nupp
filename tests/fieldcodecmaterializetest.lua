@@ -185,7 +185,7 @@ return comptime do return summarize(nupp.reflect(Pair)) end
 ]]
     testAssert.equal(
         run(src),
-        "4:record:2:left:string,right:integer",
+        "5:record:2:left:string,right:integer",
         "user comptime code reads the versioned descriptor graph"
     )
 end
@@ -215,7 +215,11 @@ end
 
 return comptime do return summarize(nupp.reflect(User)) end
 ]]
-    testAssert.equal(run(src), "users:user_id:true", "typed annotation values cross the worker as immutable semantic data")
+    testAssert.equal(
+        run(src),
+        "users:user_id:true",
+        "typed annotation values cross the worker as immutable semantic data"
+    )
 end
 
 function M.exposesAnnotationTypeReferencesAsDescriptorEdges()
@@ -240,7 +244,11 @@ return comptime do
     return info.types[edge].name
 end
 ]]
-    testAssert.equal(run(src), "StringCodec", "annotation type references use the reflection graph instead of source names")
+    testAssert.equal(
+        run(src),
+        "StringCodec",
+        "annotation type references use the reflection graph instead of source names"
+    )
 end
 
 function M.rejectsMutationOfReflectionViews()

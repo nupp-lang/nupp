@@ -568,6 +568,10 @@ function resolve.install(c: state.Checker): nil
         if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
             return t
         end
+        -- A loan applies to this container, not to the types it stores. Resolving
+        -- Box<Resource> in a borrowed parameter must retain Resource's cleanup.
+        local priorSuppression = c.suppressInherentOwner
+        c.suppressInherentOwner = false
         local map = {}
         local intrinsicAffine = ((t.origin or t) as T.Nominal).intrinsicAffine == true
         local typeAt, packAt, constAt = 1, 1, 1
@@ -607,6 +611,7 @@ function resolve.install(c: state.Checker): nil
                 map[tv] = node.typeArgs[j] and c.resolveType(node.typeArgs[j]) or T.any
             end
         end
+        c.suppressInherentOwner = priorSuppression
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
 
         local origin = (t.origin or t) as T.Nominal

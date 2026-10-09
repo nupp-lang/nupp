@@ -2014,10 +2014,11 @@ record nupp.reflect
         @readonly arguments: {AnnotationArgument}
     end
 
-    --- A stored field projected directly from the reflected root type.
+    --- A visible field projected directly from the reflected root type.
     ---
     --- The projection preserves declaration order, access capabilities, defaults, and
-    --- annotations without requiring a lookup in `Info.types`.
+    --- annotations without requiring a lookup in `Info.types`. `stored` distinguishes
+    --- stored fields, including callbacks, from methods.
     ---
     --- ```nupp
     --- local record Options
@@ -2039,6 +2040,7 @@ record nupp.reflect
         @readonly kind: string
         @readonly typeName: string?
         @readonly type: integer?
+        @readonly stored: boolean
         @readonly readable: boolean
         @readonly writable: boolean
         @readonly hasDefault: boolean
@@ -2052,6 +2054,7 @@ record nupp.reflect
         @readonly type: integer?
         @readonly read: integer?
         @readonly write: integer?
+        @readonly stored: boolean?
         @readonly readable: boolean?
         @readonly writable: boolean?
         @readonly hasDefault: boolean?

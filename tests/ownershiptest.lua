@@ -59,6 +59,45 @@ local RESOURCE = table.concat(
 
 local M = {}
 
+function M.aCloseableBoundDestroysFactoryResultsOnEveryExit()
+    runGenerated(
+        [[
+local closed = 0
+local record Resource is nupp.Closeable
+    function close(takes self): nil closed += 1 end
+end
+local interface Factory<S is nupp.Closeable>
+    begin: function(self): S
+end
+local record Resources is Factory<Resource>
+    function begin(self): Resource return new Resource() end
+end
+local function use<S is nupp.Closeable>(factory: Factory<S>, fail: boolean): nil
+    local value = factory:begin()
+    if fail then error("abort") end
+end
+local factory = new Resources()
+use(factory, false)
+assert(closed == 1)
+local function fail(): nil use(factory, true) end
+assert(not pcall(fail))
+assert(closed == 2)
+local interface Consumer
+    apply: function<S is nupp.Closeable>(self, factory: Factory<S>): nil
+end
+local record Consume is Consumer
+    function apply<S is nupp.Closeable>(self, factory: Factory<S>): nil
+        local value = factory:begin()
+    end
+end
+local consumer: Consumer = new Consume()
+consumer:apply(factory)
+assert(closed == 3)
+]],
+        "closeable-factory-bound"
+    )
+end
+
 function M.aCallableBoundRetainsTheActualOwningResult()
     runGenerated(
         [[
@@ -8489,6 +8528,7 @@ local function releaseId(takes id: integer): nil end
 local function acquireId(): affine(integer, releaseId) return 7 end
 local function consume<C is nupp.Affine<releaseId>>(takes value: C): nil
     print(value)
+    nupp.drop(value)
 end
 
 consume(acquireId())
@@ -8501,6 +8541,8 @@ local owner: Resource = acquire()
 nupp.drop(owner)
 ]]
     assertClean(source)
+    local leak = codes(source:gsub("    nupp.drop%(value%)\n", ""))
+    assert(leak:find("NUPP2603", 1, true), "a consuming bounded value must be discharged: " .. leak)
     local bad = codes(
         [[
 local function releaseId(takes id: integer): nil end
