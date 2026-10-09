@@ -130,6 +130,15 @@ local function binary(a: number, b: number, operation: integer): number
     return answer
 end
 
+local function bitsSet(value: number): number
+    local count = 0
+    for _ = 1, 16 do
+        count = count + value % 2
+        value = math.floor(value / 2)
+    end
+    return count
+end
+
 local function lookup(index: number, n: integer, tables: {{number}}): number
     if index < 1 or index > #tables * n then
         return 0
@@ -151,6 +160,18 @@ local function moduleSource(ty, lanes)
     end
     if ty == "float" or ty == "number" then
         ops[#ops + 1] = {"mapAbs", "s:map(math.abs, a)", "math.abs(a[i])"}
+        ops[#ops + 1] = {"fma", "a:fma(b, b)", "a[i] * 2 + 2"}
+    else
+        -- All ones is -1 on a signed element and the largest value on an
+        -- unsigned one, so the high half of the product by it is the sign
+        -- of the lane, or the lane less one.
+        local unsigned = ty:match("^uint") ~= nil
+        ops[#ops + 1] = {"saturatingAdd", "a:saturatingAdd(b)", "a[i] + 2"}
+        ops[#ops + 1] = {"saturatingSub", "a:saturatingSub(b)", unsigned and "math.max(a[i] - 2, 0)" or "a[i] - 2"}
+        ops[#ops + 1] = {"popcount", "a:popcount()", "bitsSet(a[i])"}
+        ops[
+            #ops + 1
+        ] = {"mulHigh", "a:mulHigh(~s:splat(0))", unsigned and "a[i] > 0 and a[i] - 1 or 0" or "a[i] > 0 and -1 or 0"}
     end
     ops[#ops + 1] = {"mapHelper", "s:map(bump, a)", "a[i] + 2"}
     local carrier = ({float = "number", int8 = "int32", int16 = "int32", uint8 = "uint32", uint16 = "uint32"})[ty] or ty

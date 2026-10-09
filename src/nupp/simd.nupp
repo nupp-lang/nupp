@@ -1294,6 +1294,39 @@ sealed interface simd.Vector<T, S>
 
     numberMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
+    --- `self * multiplier + addend` with one rounding per lane: the product
+    --- is exact and only the sum rounds, so the two-step form's second
+    --- rounding, and its overflow in a product the sum would have brought
+    --- back, do not happen. On a `float` species this is `nupp.math.f32.fma`'s
+    --- contract, the binary64 fused operation on a `number` one, and a NaN
+    --- lane answers the canonical NaN either way. A floating species only; an
+    --- integer product has nothing to round.
+    fma: function(
+        borrows self: simd.Vector<T, S>,
+        multiplier: simd.Vector<T, S> | T,
+        addend: simd.Vector<T, S> | T
+    ): simd.Vector<T, S>
+
+    --- `self + other` and `self - other` clamped to the element's range
+    --- rather than wrapped: a byte that would reach 300 answers 255, and an
+    --- unsigned lane taken below zero answers zero. An integer species only.
+    saturatingAdd: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    saturatingSub: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    --- The number of one bits in each lane's two's complement representation
+    --- at the element's width, so `-1` on a signed byte answers 8. An integer
+    --- species only.
+    popcount: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+
+    --- The high half of each lane's full-width product: the bits above the
+    --- element's width of `self * other` taken at twice that width, signed
+    --- or unsigned as the element is. `*` answers the low half, so the two
+    --- together are the whole product; alone, this is the fixed-point
+    --- multiply, `(a * b) >> bits`, that a scaled reciprocal turns a division
+    --- into. An integer species only.
+    mulHigh: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
     --- Lane indices are one-based and decided when the function is lowered:
     --- a literal, the species' `lanes`, or `+`, `-` and `*` over those, so
     --- `lanes` names the last lane of any species and `lanes - 1` the one

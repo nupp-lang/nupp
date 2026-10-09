@@ -11,7 +11,7 @@ local portableRefusals = {["math.sinh"] = true, ["math.cosh"] = true, ["math.tan
 --- An operation of the corpus. `call` names what `species:map` applies to
 --- `args`, or, when `direct` is set, is the whole expression as the source
 --- writes it: the ordinary spelling a vector takes without `map`.
-local function add(name, call, args, oracle, exact, floatOnly, direct)
+local function add(name, call, args, oracle, exact, floatOnly, direct, only)
     operations[
         #operations + 1
     ] = {
@@ -22,6 +22,7 @@ local function add(name, call, args, oracle, exact, floatOnly, direct)
         exact = exact,
         floatOnly = floatOnly,
         direct = direct,
+        only = only,
     }
 end
 
@@ -68,6 +69,12 @@ add('f32fma', 'nupp.math.f32.fma', 'a, b, c', 'fmaReference(left, right, third, 
 for _, name in ipairs({'sqrt', 'abs', 'floor', 'ceil'}) do
     add(name .. 'Direct', 'math.' .. name .. '(a)', 'a', 'math.' .. name .. '(left)', name ~= 'sqrt', false, true)
 end
+-- The fused multiply-add method: on a float species the corrected f32
+-- operation's witnesses, exactly; on a number species the binary64 fused
+-- operation against the two-step form, within the envelope, except where the
+-- two-step product overflows and the fused one does not.
+add('fmaMethod', 'a:fma(b, c)', 'a, b, c', 'fmaReference(left, right, third, pattern)', true, true, true)
+add('fmaMethod64', 'a:fma(b, c)', 'a, b, c', 'fmaReference64(left, right, third)', false, false, true, 'number')
 
 local common = [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
@@ -91,6 +98,11 @@ local samples: {{number}} = {
     {1e-300, 1e-20, 0}, {1e300, 1e-20, -1e300}, {2, -3, 0.5},
     {negativeZero, -3, negativeZero}, {1, 1, 1}, {-1, 0.5, -1}, {2, 0, 0},
 }
+local function fmaReference64(left: number, right: number, third: number): number
+    -- 2x - x is x in one rounding, where the product alone overflows.
+    if left == 1.7976931348623157e308 then return left end
+    return left * right + third
+end
 local function minimum32(left: number, right: number): number
     if left ~= left or right ~= right then return nan end
     if left == 0 and right == 0 then
@@ -136,6 +148,7 @@ function M.generate(options)
             local selected, opNames, contracts, direct = {}, {}, {}, {}
             for _, operation in ipairs(operations) do
                 if (not operation.floatOnly or element == 'float')
+                    and (operation.only == nil or operation.only == element)
                     and not (options.target == 'wasm' and portableRefusals[operation.call])
                 then
                     selected[#selected + 1], opNames[#opNames + 1] = operation, operation.name

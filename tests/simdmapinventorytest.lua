@@ -60,6 +60,9 @@ function M.mathMapCorpusCoversEveryAdmittedIdentityAndVariadicForms()
                 assert(direct[name .. "Direct"], "missing direct form of math." .. name)
                 direct[name .. "Direct"] = nil
             end
+            local fused = coverage.element == "float" and "fmaMethod" or "fmaMethod64"
+            assert(direct[fused], "missing fused multiply-add method")
+            direct[fused] = nil
             assert(next(direct) == nil, "map corpus claims an unknown direct form: " .. tostring(next(direct)))
         end
         assert(seenElements.float and seenElements.number)

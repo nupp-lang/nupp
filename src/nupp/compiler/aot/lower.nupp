@@ -1610,6 +1610,13 @@ const VECTOR_EXTREMA = {
     numberMax = "number_max",
 }
 
+--- The binary lane operations only an integer element has, by method.
+const VECTOR_INTEGER_BINARY = {
+    saturatingAdd = "saturating_add",
+    saturatingSub = "saturating_sub",
+    mulHigh = "mul_high",
+}
+
 --- The standard scalar witnesses `simd.species` accepts, by their field
 --- name in `nupp.mem.array`.
 const SPECIES_WITNESSES: {
@@ -4202,6 +4209,53 @@ local function simdMethod(
                 op = "simd_binary",
                 args = {receiver as scalarIR.Expr, simdOperand(other, vectorType, source, kernel)},
                 intrinsic = VECTOR_EXTREMA[method],
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and method == "fma" and #raw == 2 then
+            if tostring(genericElement):sub(1, 1) ~= "f" then
+                kernel.context.reject(source, "SIMD fma requires a floating vector element")
+            end
+            local operands: {scalarIR.Expr} = {receiver as scalarIR.Expr}
+            for position = 1, 2 do
+                local other = lower.expression(raw[position], environment, activeIndex, kernel)
+                local otherFamily, otherElement, otherShape = genericSimdParts(other.type)
+                if otherFamily == "vector" and (otherElement ~= genericElement or otherShape ~= genericShape) then
+                    kernel.context.reject(source, "explicit SIMD operands have different element or species identities")
+                end
+                operands[#operands + 1] = simdOperand(other, vectorType, source, kernel)
+            end
+            return new scalarIR.Simd(
+                op = "simd_binary",
+                args = operands,
+                intrinsic = "fma",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and VECTOR_INTEGER_BINARY[method] ~= nil and #raw == 1 then
+            if tostring(genericElement):sub(1, 1) == "f" then
+                kernel.context.reject(source, "SIMD " .. method .. " requires an integer vector element")
+            end
+            local other = lower.expression(raw[1], environment, activeIndex, kernel)
+            local otherFamily, otherElement, otherShape = genericSimdParts(other.type)
+            if otherFamily == "vector" and (otherElement ~= genericElement or otherShape ~= genericShape) then
+                kernel.context.reject(source, "explicit SIMD operands have different element or species identities")
+            end
+            return new scalarIR.Simd(
+                op = "simd_binary",
+                args = {receiver as scalarIR.Expr, simdOperand(other, vectorType, source, kernel)},
+                intrinsic = VECTOR_INTEGER_BINARY[method],
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and method == "popcount" and #raw == 0 then
+            if tostring(genericElement):sub(1, 1) == "f" then
+                kernel.context.reject(source, "SIMD popcount requires an integer vector element")
+            end
+            return new scalarIR.Simd(
+                op = "simd_unary",
+                args = {receiver as scalarIR.Expr},
+                intrinsic = "popcount",
                 type = vectorType,
                 source = source
             )

@@ -26,6 +26,7 @@ record.
 | --- | --- |
 | load/store, masked load/store, splat, iota | `primitives.lua`, every element/species, every tail 0..N |
 | arithmetic, comparisons, elementwise named extrema | `primitives.lua`, every element/species |
+| fused multiply-add, saturating add/sub, population count, high product | `primitives.lua`, `fma` at every floating species and the three integer methods at every integer element/species; `integeredges.lua` saturates every boundary value by two and by every count, counts the bits of every boundary pattern, and takes the high half of each boundary value's product by a count and by itself; `maps.lua` holds `fma` to the corrected f32 witnesses and the binary64 fused operation |
 | floor remainder and floor division (`%`, `//`) | `primitives.lua`, every element/species, including a zero divisor on integer elements; `integeredges.lua` adds every boundary value by two and by negative, zero and wide counts against a floor oracle |
 | mask and/or/xor/not/equality, scalar/vector select, boolean masks | `primitives.lua`, every element/species and four mask patterns |
 | mask any/all/count/first/bits | `primitives.lua`, every bit independently checked including zero padding |

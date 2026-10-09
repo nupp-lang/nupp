@@ -192,6 +192,94 @@ local function floatFloorDivide(
     return context.value(ctx, ("fsub %s %s, %s"):format(v, a, product))
 end
 
+--- `a * b + c` fused: one rounding per lane, and the canonical NaN for a
+--- NaN lane, as `nupp.math.f32.fma` answers.
+local function fusedMultiplyAdd(ctx: context.Context, found: species.Species, a: string, b: string, c: string): string
+    local v = found.vector
+    local shape = lanes.vectorShape(found)
+    local fma = prelude.intrinsic(ctx.module, "llvm.fma." .. shape.suffix, ("%s @NAME(%s, %s, %s)"):format(v, v, v, v))
+    local fused = context.value(ctx, ("call %s %s(%s %s, %s %s, %s %s)"):format(v, fma, v, a, v, b, v, c))
+    local nan = context.value(ctx, ("fcmp uno %s %s, %s"):format(v, fused, fused))
+
+    return context.value(
+        ctx,
+        ("select %s %s, %s, %s %s"):format(found.mask, nan, lanes.splatConstant(v, found.scalar, lanes.NAN), v, fused)
+    )
+end
+
+--- `a + b` or `a - b` clamped to the element's range by its signedness.
+local function saturating(ctx: context.Context, found: species.Species, add: boolean, a: string, b: string): string
+    local v = found.vector
+    local name = "llvm." .. (
+        found.signed and "s" or "u"
+    ) .. (add and "add" or "sub") .. ".sat." .. lanes.vectorShape(found).suffix
+    local callee = prelude.intrinsic(ctx.module, name, ("%s @NAME(%s, %s)"):format(v, v, v))
+
+    return context.value(ctx, ("call %s %s(%s %s, %s %s)"):format(v, callee, v, a, v, b))
+end
+
+--- The high half of the full-width product, by signedness: a narrow lane
+--- multiplies at twice its width, and a 64-bit lane adds its four 32-bit
+--- partial products the way a two-word multiply does, corrected for the
+--- signs where the element is signed, so no 128-bit multiply is asked of a
+--- target that would call a library for it.
+local function multiplyHigh(ctx: context.Context, found: species.Species, a: string, b: string): string
+    local v = found.vector
+    local count = tostring(found.lanes)
+    if found.bits < 64 then
+        local wide = "<" .. count .. " x i" .. tostring(found.bits * 2) .. ">"
+        local extend = found.signed and "sext" or "zext"
+        local wideA = context.value(ctx, ("%s %s %s to %s"):format(extend, v, a, wide))
+        local wideB = context.value(ctx, ("%s %s %s to %s"):format(extend, v, b, wide))
+        local product = context.value(ctx, ("mul %s %s, %s"):format(wide, wideA, wideB))
+        local shifted = context.value(
+            ctx,
+            (
+                "%s %s %s, splat (i%d %d)"
+            ):format(found.signed and "ashr" or "lshr", wide, product, found.bits * 2, found.bits)
+        )
+        return context.value(ctx, ("trunc %s %s to %s"):format(wide, shifted, v))
+    end
+
+    local function low(x: string): string
+        return context.value(ctx, ("and %s %s, splat (i64 4294967295)"):format(v, x))
+    end
+
+    local function high(x: string): string
+        return context.value(ctx, ("lshr %s %s, splat (i64 32)"):format(v, x))
+    end
+
+    local function add(x: string, y: string): string
+        return context.value(ctx, ("add %s %s, %s"):format(v, x, y))
+    end
+
+    local a0, a1, b0, b1 = low(a), high(a), low(b), high(b)
+    local p00 = context.value(ctx, ("mul %s %s, %s"):format(v, a0, b0))
+    local p01 = context.value(ctx, ("mul %s %s, %s"):format(v, a0, b1))
+    local p10 = context.value(ctx, ("mul %s %s, %s"):format(v, a1, b0))
+    local p11 = context.value(ctx, ("mul %s %s, %s"):format(v, a1, b1))
+    local middle = add(add(high(p00), low(p01)), low(p10))
+    local result = add(add(add(p11, high(p01)), high(p10)), high(middle))
+    if found.signed then
+        -- The unsigned high half of two's complement operands, less each
+        -- operand the other's sign bit weighted into it.
+        local negativeA = context.value(ctx, ("icmp slt %s %s, zeroinitializer"):format(v, a))
+        local negativeB = context.value(ctx, ("icmp slt %s %s, zeroinitializer"):format(v, b))
+        local weightedB = context.value(
+            ctx,
+            ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, negativeA, v, b, v)
+        )
+        local weightedA = context.value(
+            ctx,
+            ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, negativeB, v, a, v)
+        )
+        result = context.value(ctx, ("sub %s %s, %s"):format(v, result, weightedB))
+        result = context.value(ctx, ("sub %s %s, %s"):format(v, result, weightedA))
+    end
+
+    return result
+end
+
 --- A shift by the count modulo the lane width.
 local function shift(ctx: context.Context, found: species.Species, instruction: string, a: string, b: string): string
     local v = found.vector
@@ -248,6 +336,10 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
         end
         return lanes.integerExtreme(ctx, lanes.vectorShape(found), a, b, minimum, found.signed), typeName
     end
+    if intrinsic == "fma" then
+        local c = vectors.vectorOperand(ctx, found, simd.args[3])
+        return fusedMultiplyAdd(ctx, found, a, b, c), typeName
+    end
     if intrinsic == "mod" or intrinsic == "floor_div" then
         if found.float then
             return floatFloorDivide(ctx, found, a, b, intrinsic == "mod"), typeName
@@ -270,6 +362,10 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
         return shift(ctx, found, "lshr", a, b), typeName
     elseif intrinsic == "sar" then
         return shift(ctx, found, "ashr", a, b), typeName
+    elseif intrinsic == "saturating_add" or intrinsic == "saturating_sub" then
+        return saturating(ctx, found, intrinsic == "saturating_add", a, b), typeName
+    elseif intrinsic == "mul_high" then
+        return multiplyHigh(ctx, found, a, b), typeName
     end
     local instruction = INTEGER_BINARY[intrinsic]
     if instruction == nil then
@@ -286,6 +382,14 @@ local function unary(ctx: context.Context, node: scalarIR.Expr): (string, string
     local a = expressions.operand(ctx, simd.args[1])
     if found.family == "mask" then
         return context.value(ctx, ("xor %s %s, splat (i1 true)"):format(found.mask, a)), typeName
+    elseif simd.intrinsic == "popcount" then
+        local v = found.vector
+        local callee = prelude.intrinsic(
+            ctx.module,
+            "llvm.ctpop." .. lanes.vectorShape(found).suffix,
+            ("%s @NAME(%s)"):format(v, v)
+        )
+        return context.value(ctx, ("call %s %s(%s %s)"):format(v, callee, v, a)), typeName
     elseif simd.intrinsic == "neg" then
         if found.float then
             return context.value(ctx, ("fneg %s %s"):format(found.vector, a)), typeName

@@ -216,6 +216,14 @@ end
 --- how many operands each takes.
 const CORRECTED_LANES = {["f32_min"] = 2, ["f32_max"] = 2, ["f32_fma"] = 3,}
 
+--- The lane operations only an integer element has.
+const INTEGER_LANE_OPERATIONS = {
+    ["saturating_add"] = true,
+    ["saturating_sub"] = true,
+    ["mul_high"] = true,
+    ["popcount"] = true,
+}
+
 --- The element each explicitly fixed-width binary operation works in.
 const verify.FIXED_BINARY = {
     ["f32_add"] = "f32",
@@ -1390,13 +1398,23 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 )
             end
         elseif op == "simd_binary" or op == "simd_unary" then
+            local intrinsic = tostring(simd.intrinsic)
+            -- The fused multiply-add is the one operation of three operands.
+            local arity = op == "simd_unary" and 1 or intrinsic == "fma" and 3 or 2
             holds(
                 (family == "vector" or family == "mask")
-                and #args == (op == "simd_unary" and 1 or 2)
+                and #args == arity
                 and args[1].type == node.type
-                and (args[2] == nil or args[2].type == node.type),
+                and (args[2] == nil or args[2].type == node.type)
+                and (args[3] == nil or args[3].type == node.type),
                 "invalid generic SIMD operator"
             )
+            local floating = element == "f32" or element == "f64"
+            if INTEGER_LANE_OPERATIONS[intrinsic] == true then
+                holds(family == "vector" and not floating, "invalid generic SIMD integer lane operation")
+            elseif intrinsic == "fma" then
+                holds(family == "vector" and floating, "invalid generic SIMD fused multiply-add")
+            end
         elseif op == "simd_compare" then
             local operandFamily, operandElement, operandShape = nil, nil, nil
             if args[1] ~= nil then

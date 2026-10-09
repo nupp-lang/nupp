@@ -103,6 +103,8 @@ The arithmetic operators are Lua's, lane by lane. `%` and `//` are the floor rem
 
 `math.sqrt(v)`, `math.abs(v)`, `math.floor(v)` and `math.ceil(v)` take a floating vector directly and answer one, lane by lane, exactly as `species:map(math.sqrt, v)` does; `map` remains the spelling for the rest of the closed math set and for a helper of your own. The operand is a local of the species, as it is for `map`.
 
+`v:fma(b, c)` is `v * b + c` with one rounding per lane on a floating species: `nupp.math.f32.fma`'s contract on `float`, the binary64 fused operation on `number`. On an integer species, `v:saturatingAdd(o)` and `v:saturatingSub(o)` clamp to the element's range instead of wrapping, `v:popcount()` counts the one bits of each lane, and `v:mulHigh(o)` answers the high half of the full-width product, signed or unsigned as the element is: `*` and `mulHigh` together are the whole product, and `mulHigh` alone is the fixed-point multiply a scaled reciprocal turns a division into. The right operand of each may be a scalar.
+
 ## Interleaved records
 
 Records of two to four elements stored one after another, like pixels or the bytes of a Base64 group, load a field to a vector with `species:loadPairs`, `loadTriples` or `loadQuads`. Each one reads the next `ways * lanes` elements and gives vector `j` elements `j`, `j + ways`, and so on. `storePairs`, `storeTriples` and `storeQuads` do the reverse. The results can only initialize locals:

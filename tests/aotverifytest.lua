@@ -1131,6 +1131,71 @@ return {mapped = mapped}
     refuses(program, "invalid generic SIMD lane-wise math")
 end
 
+function M.laneArithmeticRechecksItsElementAndArity()
+    -- A fused multiply-add is three operands of a floating species; the
+    -- saturating sums, the high product and the population count are an
+    -- integer species' alone.
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function lanes(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>, borrows counts: span.Span<int32>, exclusive bits: span.WriteSpan<int32>): nil
+    local s = assert(simd.species(array.number, 4))
+    local si = assert(simd.species(array.int32, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local w = si:load(counts, 1, si:mask(active))
+    s:store(out, 1, v:fma(v, 2.0), active)
+    local clamped = w:saturatingAdd(w)
+    local high = clamped:mulHigh(w)
+    si:store(bits, 1, high:popcount(), si:mask(active))
+end
+return {lanes = lanes}
+]],
+        "lanes.nupp"
+    )
+    verify.program(program)
+    local fused = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_binary" and node.intrinsic == "fma"
+        end)
+    )
+    local addend = fused.args[3]
+    fused.args[3] = nil
+    refuses(program, "invalid generic SIMD operator")
+    fused.args[3] = addend
+    fused.intrinsic = "mul_high"
+    refuses(program, "invalid generic SIMD operator")
+    fused.args[3] = nil
+    refuses(program, "invalid generic SIMD integer lane operation")
+    fused.args[3] = addend
+    fused.intrinsic = "fma"
+    verify.program(program)
+    local high = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_binary" and node.intrinsic == "mul_high"
+        end)
+    )
+    high.intrinsic = "fma"
+    refuses(program, "invalid generic SIMD operator")
+    high.args[3] = high.args[1]
+    refuses(program, "invalid generic SIMD fused multiply-add")
+    high.args[3] = nil
+    high.intrinsic = "mul_high"
+    verify.program(program)
+    local counted = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_unary" and node.intrinsic == "popcount"
+        end)
+    )
+    counted.args[2] = counted.args[1]
+    refuses(program, "invalid generic SIMD operator")
+    counted.args[2] = nil
+    verify.program(program)
+end
+
 function M.aMaskConversionKeepsTheLaneCount()
     local program = lowered(
         [[

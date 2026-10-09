@@ -6917,6 +6917,280 @@ end
 
 require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution, true)
 
+-- The lane arithmetic that reached the vocabulary after the operators: floor
+-- remainder and quotient, the math functions a float vector takes directly,
+-- the fused multiply-add, saturating sums, population count and the high
+-- half of a product. Each kernel is called through its lane symbol and its
+-- forced-scalar twin over one corpus, and both are held to Lua's answer.
+local LANE_VOCABULARY_KERNEL = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function floating(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>, divisor: number): nil
+    local s = assert(simd.species(array.number, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local d = s:splat(divisor)
+    s:store(out, 1, v % d, active)
+    s:store(out, 5, v // d, active)
+    s:store(out, 9, v % 3.0, active)
+    s:store(out, 13, v // 3.0, active)
+    local magnitude = math.abs(v)
+    s:store(out, 17, magnitude, active)
+    s:store(out, 21, math.sqrt(magnitude), active)
+    s:store(out, 25, math.floor(v), active)
+    s:store(out, 29, math.ceil(v), active)
+    s:store(out, 33, v:fma(d, 1.0), active)
+    s:store(out, 37, v:fma(2.0, v), active)
+end
+
+@aot
+local function integers(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<int32>, divisor: int32): nil
+    local s = assert(simd.species(array.int32, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    s:store(out, 1, v % divisor, active)
+    s:store(out, 5, v // divisor, active)
+    s:store(out, 9, v:saturatingAdd(2000000000), active)
+    s:store(out, 13, v:saturatingSub(2000000000), active)
+    s:store(out, 17, v:popcount(), active)
+    s:store(out, 21, v:mulHigh(v), active)
+    s:store(out, 25, v:mulHigh(divisor), active)
+end
+
+@aot
+local function bytes(exclusive out: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8, 16))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    s:store(out, 1, v:saturatingAdd(200), active)
+    s:store(out, 17, v:saturatingSub(200), active)
+    s:store(out, 33, v:popcount(), active)
+    s:store(out, 49, v:mulHigh(200), active)
+    s:store(out, 65, v % 7, active)
+    s:store(out, 81, v // 7, active)
+end
+
+@aot
+local function wide(exclusive out: span.WriteSpan<int64>, borrows input: span.Span<int64>, factor: int64): nil
+    local s = assert(simd.species(array.int64, 2))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    s:store(out, 1, v:mulHigh(factor), active)
+    s:store(out, 3, v:mulHigh(v), active)
+    s:store(out, 5, v:saturatingAdd(factor), active)
+    s:store(out, 7, v:saturatingSub(factor), active)
+    s:store(out, 9, v:popcount(), active)
+    s:store(out, 11, v % -3, active)
+    s:store(out, 13, v // -3, active)
+end
+
+return {floating = floating, integers = integers, bytes = bytes, wide = wide}
+]]
+
+function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(LANE_VOCABULARY_KERNEL)
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local symbols = {}
+    for _, name in ipairs({"floating", "integers", "bytes", "wide"}) do
+        symbols[
+            name
+        ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
+    end
+    for _, symbol in ipairs(symbols.floating) do
+        ffi.cdef(("void %s(double *, const double *, double, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.integers) do
+        ffi.cdef(("void %s(int32_t *, const int32_t *, int32_t, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.bytes) do
+        ffi.cdef(("void %s(uint8_t *, const uint8_t *, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.wide) do
+        ffi.cdef(("void %s(int64_t *, const int64_t *, int64_t, size_t, size_t);"):format(symbol))
+    end
+
+    -- Floor remainder and quotient, the direct math functions and the fused
+    -- multiply-add on binary64 lanes, against Lua's own operators.
+    local reals = {-7.5, 7.5, -0.0, 3.0, 1.5, -2.25, 10.0, -10.0}
+    for _, divisor in ipairs({2.5, -2.0, 4.0}) do
+        for start = 1, #reals, 4 do
+            local input = ffi.new("double[4]")
+            for lane = 0, 3 do
+                input[lane] = reals[start + lane]
+            end
+            for count = 0, 4 do
+                for _, symbol in ipairs(symbols.floating) do
+                    local actual = ffi.new("double[40]")
+                    for i = 0, 39 do
+                        actual[i] = -99
+                    end
+                    lib[symbol](actual, input, divisor, 40, count)
+                    for lane = 0, 3 do
+                        local v = input[lane]
+                        local expected = {
+                            v % divisor,
+                            math.floor(v / divisor),
+                            v % 3.0,
+                            math.floor(v / 3.0),
+                            math.abs(v),
+                            math.sqrt(math.abs(v)),
+                            math.floor(v),
+                            math.ceil(v),
+                            v * divisor + 1.0,
+                            v * 2.0 + v,
+                        }
+                        for slot, want in ipairs(expected) do
+                            local got = actual[(slot - 1) * 4 + lane]
+                            local label = symbol .. " divisor " .. divisor .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                            if lane < count then
+                                test.equal(got, want, label)
+                                if want == 0 then
+                                    test.equal(1 / got, 1 / want, label .. " zero sign")
+                                end
+                            else
+                                test.equal(got, -99, label)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Signed 32-bit lanes at both ends of the range, a zero divisor included.
+    local ints = ffi.new("int32_t[4]", {-2147483648, 2147483647, -7, 12})
+    for _, divisor in ipairs({5, -5, 0}) do
+        for count = 0, 4 do
+            for _, symbol in ipairs(symbols.integers) do
+                local actual = ffi.new("int32_t[28]")
+                for i = 0, 27 do
+                    actual[i] = -99
+                end
+                lib[symbol](actual, ints, divisor, 28, count)
+                for lane = 0, 3 do
+                    local v = ints[lane]
+                    local bits = 0
+                    local remaining = v % 4294967296
+                    for _ = 1, 32 do
+                        bits = bits + remaining % 2
+                        remaining = math.floor(remaining / 2)
+                    end
+                    local expected = {
+                        divisor == 0 and 0 or v % divisor,
+                        divisor == 0 and 0 or math.floor(v / divisor),
+                        math.min(v + 2000000000, 2147483647),
+                        math.max(v - 2000000000, -2147483648),
+                        bits,
+                        math.floor(v * v / 4294967296),
+                        math.floor(v * divisor / 4294967296),
+                    }
+                    for slot, want in ipairs(expected) do
+                        local got = actual[(slot - 1) * 4 + lane]
+                        local label = symbol .. " divisor " .. divisor .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                        test.equal(got, lane < count and want or -99, label)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sixteen byte lanes, where saturation and the high half are reached by
+    -- small constants.
+    local octets = ffi.new("uint8_t[16]", {0, 1, 55, 56, 100, 200, 255, 128, 7, 14, 21, 63, 64, 127, 254, 3})
+    for count = 0, 16 do
+        for _, symbol in ipairs(symbols.bytes) do
+            local actual = ffi.new("uint8_t[96]")
+            for i = 0, 95 do
+                actual[i] = 99
+            end
+            lib[symbol](actual, octets, 96, count)
+            for lane = 0, 15 do
+                local v = octets[lane]
+                local bits = 0
+                local remaining = v
+                for _ = 1, 8 do
+                    bits = bits + remaining % 2
+                    remaining = math.floor(remaining / 2)
+                end
+                local expected = {
+                    math.min(v + 200, 255),
+                    math.max(v - 200, 0),
+                    bits,
+                    math.floor(v * 200 / 256),
+                    v % 7,
+                    math.floor(v / 7),
+                }
+                for slot, want in ipairs(expected) do
+                    local got = actual[(slot - 1) * 16 + lane]
+                    local label = symbol .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                    test.equal(got, lane < count and want or 99, label)
+                end
+            end
+        end
+    end
+
+    -- Two 64-bit lanes at the ends of the range, where the high half of the
+    -- product and the floor remainder by a negative divisor are worked out
+    -- by hand: MIN is -2^63, which is 1 modulo 3, and MAX is 2^63 - 1.
+    local wideCases = {
+        {
+            input = {-9223372036854775808LL, 9223372036854775807LL},
+            expected = {
+                {-2LL, 1LL},
+                {4611686018427387904LL, 4611686018427387903LL},
+                {-9223372036854775805LL, 9223372036854775807LL},
+                {-9223372036854775808LL, 9223372036854775804LL},
+                {1LL, 63LL},
+                {-2LL, -2LL},
+                {3074457345618258602LL, -3074457345618258603LL},
+            },
+        },
+        {
+            input = {-7LL, 7LL},
+            expected = {
+                {-1LL, 0LL},
+                {0LL, 0LL},
+                {-4LL, 10LL},
+                {-10LL, 4LL},
+                {62LL, 3LL},
+                {-1LL, -2LL},
+                {2LL, -3LL},
+            },
+        },
+    }
+    for _, case in ipairs(wideCases) do
+        local input = ffi.new("int64_t[2]", case.input)
+        for count = 0, 2 do
+            for _, symbol in ipairs(symbols.wide) do
+                local actual = ffi.new("int64_t[14]")
+                for i = 0, 13 do
+                    actual[i] = -99
+                end
+                lib[symbol](actual, input, 3LL, 14, count)
+                for lane = 0, 1 do
+                    for slot, wants in ipairs(case.expected) do
+                        local got = actual[(slot - 1) * 2 + lane]
+                        local want = lane < count and wants[lane + 1] or -99LL
+                        local label = symbol .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                        assert(got == want, label .. " expected " .. tostring(want) .. " got " .. tostring(got))
+                    end
+                end
+            end
+        end
+    end
+end
+
+require("jit").off(M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution, true)
+
 -- The cross-lane operations, run rather than read.
 --
 -- Everything above this covers the lane-local half of the vocabulary, where a
