@@ -6717,7 +6717,7 @@ local function stripFind(borrows text: span.Span<uint8>, needle: uint32): uint32
     for at, active in species:over(#text) do
         local hit = (species:load(text, at, active) == needle) & active
         if hit:any() then
-            return nupp.math.u32.wrap(at + hit:first() - 1)
+            return at + hit:first() - 1
         end
     end
     return 0

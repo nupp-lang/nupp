@@ -14,6 +14,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local narrowing = require("nupp.compiler.types.narrowing")
 local generics = require("nupp.compiler.types.generics")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
@@ -2161,6 +2162,13 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             c.bindVar(nameTok.text, vt, false, nameTok)
             local entry = c.scope.vars[nameTok.text]
+            -- A loop variable the iterator types at a fixed width holds what
+            -- the iterator answered, which is as established as a parameter:
+            -- the chunk offset of `species:over` is a `uint32` the arithmetic
+            -- on it keeps.
+            if entry and fixedWidth.isValue(T.unwrapOwnership(vt)) then
+                c.fixedWidth.mark(entry, T.unwrapOwnership(vt))
+            end
             if entry and ownershipKind(vt) == "borrowed" then
                 local bindingFacts = own.capabilityFacts(entry)
                 bindingFacts.roots = iteratorRoots
