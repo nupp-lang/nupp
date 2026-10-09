@@ -144,6 +144,19 @@ local function binderInScope(c: state.Checker, expected: T.Type): boolean
     return visible ~= nil and (visible == wanted or visible.id == wanted.id)
 end
 
+local function retainEnclosingBinders(
+    c: state.Checker,
+    pack: T.Pack,
+    introduced: {[any]: boolean},
+    map: {[any]: any}
+): nil
+    for binder in pairs(generics.bindersInPack(pack)) do
+        if binder.tag == "typevar" and not introduced[binder] and binderInScope(c, binder) then
+            map[binder] = binder
+        end
+    end
+end
+
 --- The binders a signature holds in a slot -- a nominal's type argument, an array
 --- element, a map key or value, a shape field -- and in no type-level operation,
 --- keyed true; a binder some computed term reads is keyed false whatever else it
@@ -2625,6 +2638,17 @@ function calls.install(c: state.Checker): calls.Ops
         then
             local map = {}
             genericMap = map
+            -- The signature can mention rigid binders from its enclosing type
+            -- as well as binders introduced by this call. Keep the former fixed
+            -- during inference and materialization, including a result-only R
+            -- in Operation<R>.apply<T>(T): R.
+            local introduced: {[any]: boolean} = {}
+            for _, binder in ipairs(calleeT.typeParams or {}) do
+                introduced[binder] = true
+            end
+
+            retainEnclosingBinders(c, paramPack, introduced, map)
+            retainEnclosingBinders(c, retPack, introduced, map)
             -- Written type arguments are supplied evidence, so they seed the map before
             -- unification and inference fills only what was left out.
             seedWrittenTypeArguments(node, calleeT.typeParams, map)

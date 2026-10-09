@@ -1,0 +1,24 @@
+module contract.render
+
+const core = require("contract.dispatch")
+
+local record Output<M is core.Member> is core.Writer<M>
+    parts: {string}
+
+    function string(self, member: M, borrows value: string): nil
+        self.parts[#self.parts + 1] = member.name .. "=" .. value
+    end
+end
+
+local record Render<T> is core.Consumer<T, T, string>
+
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
+        local out = new Output<M>(parts = {})
+        adapter:write(value, out)
+        return table.concat(out.parts)
+    end
+end
+
+export function render<T>(binding: core.Binding<T>, borrows value: T): string
+    return binding:accept(new Render<T>(), value)
+end

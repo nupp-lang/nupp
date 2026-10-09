@@ -1,0 +1,36 @@
+module example.model
+
+const core = require("contract.dispatch")
+const extensions = require("contract.extensions")
+
+export record Schema
+    @readonly name: string
+    @readonly wireName: string
+end
+
+local record Named is core.Member
+    @readonly name: string
+    @readonly schema: Schema
+end
+
+local record TextAdapter is core.Adapter<string, Named>
+    @readonly member: Named
+
+    function write(self, borrows value: string, writer: core.Writer<Named>): nil
+        writer:string(self.member, value)
+    end
+end
+
+--- Returns the public binding without exposing the model's member type.
+export function binding(schema: Schema): core.Binding<string>
+    return new core.Bound<string, Named>(
+        adapter = new TextAdapter(member = new Named(name = schema.name, schema = schema))
+    )
+end
+
+--- Creates an extension whose initializer sees the external schema's type.
+export function names(useWireName: boolean): extensions.Key<Schema, string>
+    return extensions.key(function(schema: Schema): string
+        return useWireName and schema.wireName or schema.name
+    end)
+end

@@ -1,0 +1,7 @@
+const core = require("contract.dispatch")
+
+local function wrong(binding: core.Binding<string | integer>): core.Binding<string>
+    return binding
+end
+
+return wrong

@@ -39,6 +39,44 @@ end
 
 local M = {}
 
+function M.genericMethodCallsKeepTheEnclosingResultBinder()
+    local source = [[
+local interface Operation<R>
+    apply: function<T>(self, value: T): R
+end
+local function invoke<R>(operation: Operation<R>): R
+    return operation:apply(42)
+end
+local operation: Operation<string> = nil as any
+]]
+    clean(source .. "local result: string = invoke(operation)\nreturn result\n")
+    reports(source .. "local result: integer = invoke(operation)\nreturn result\n", "NUPP2001")
+end
+
+function M.genericMethodCallsDoNotInferARigidEnclosingArgument()
+    clean(
+        [[
+local interface Operation<R>
+    apply: function<T>(self, existing: R, value: T): R
+end
+local function invoke<R>(operation: Operation<R>, existing: R): R
+    return operation:apply(existing, 42)
+end
+]]
+    )
+    reports(
+        [[
+local interface Operation<R>
+    apply: function<T>(self, existing: R, value: T): R
+end
+local function invoke<R>(operation: Operation<R>): R
+    return operation:apply(42, "text")
+end
+]],
+        "NUPP2006"
+    )
+end
+
 -- 1. Direct specialization: the method is declared where it is called from.
 function M.aGenericMethodPreservesItsOwnBinder()
     local body = table.concat(
@@ -424,7 +462,8 @@ function M.aConstructedFieldIsADestination()
     clean(body .. "local s = 'x'\nlocal box = new Box(items = make(), default = s)\nreturn box\n")
     -- one that has to run first does not: it is inferred where it is written
     reports(
-        body .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
+        body
+        .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
         "NUPP2148"
     )
 end

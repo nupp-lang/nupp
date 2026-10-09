@@ -1,0 +1,4 @@
+const extensions = require("contract.extensions")
+const model = require("example.model")
+local wrong: extensions.Key<model.Schema, string | integer> = model.names(false)
+return wrong

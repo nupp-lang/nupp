@@ -1,0 +1,18 @@
+module example.other
+
+const core = require("contract.dispatch")
+
+local record Property is core.Member
+    @readonly name: string
+    @readonly readOnly: boolean
+end
+
+local record TextAdapter is core.Adapter<string, Property>
+    function write(self, borrows value: string, writer: core.Writer<Property>): nil
+        writer:string(new Property(name = "other", readOnly = true), value)
+    end
+end
+
+export function binding(): core.Binding<string>
+    return new core.Bound<string, Property>(adapter = new TextAdapter())
+end

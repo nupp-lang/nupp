@@ -1,0 +1,6 @@
+const extensions = require("contract.extensions")
+const model = require("example.model")
+local schema = new model.Schema(name = "text", wireName = "text")
+local cache = extensions.cache(schema)
+local wrong: integer = cache:get(model.names(false))
+return wrong

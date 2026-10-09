@@ -1,0 +1,31 @@
+module contract.dispatch
+
+export interface Member
+    @readonly name: string
+end
+
+export interface Writer<M is Member>
+    string: function(self, member: M, borrows value: string): nil
+end
+
+export interface Adapter<T, M is Member>
+    write: function(self, borrows value: T, writer: Writer<M>): nil
+end
+
+export interface Consumer<T, S, R>
+    apply: function<M is Member>(self, adapter: Adapter<T, M>, borrows state: S): R
+end
+
+export interface Binding<T>
+    @readonly _valueType: (function(value: T?): T?)?
+    accept: function<S, R>(self, consumer: Consumer<T, S, R>, borrows state: S): R
+end
+
+export record Bound<T, M is Member> is Binding<T>
+    @readonly _valueType: (function(value: T?): T?)?
+    @readonly adapter: Adapter<T, M>
+
+    function accept<S, R>(self, consumer: Consumer<T, S, R>, borrows state: S): R
+        return consumer:apply<M>(self.adapter, state)
+    end
+end
