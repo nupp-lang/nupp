@@ -250,6 +250,47 @@ return total
     )
 end
 
+-- The exact and integer horizontals take integer lanes; the named floating
+-- orders take floating lanes; the two refusals name the operation.
+function M.horizontalsAreTypedByTheirContract()
+    local prefix = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function fold(): (number, number)
+    local integers = assert(simd.species(array.int32, 4))
+    local bytes = assert(simd.species(array.uint8, 8))
+    local floats = assert(simd.species(array.float, 4))
+]]
+    reports(
+        prefix
+        .. [[
+    local wide: int32 = simd.horizontal.wrappingSum(integers:splat(1))
+    local narrow: uint32 = simd.horizontal.xorBits(bytes:splat(1))
+    local least: int32 = simd.horizontal.integerMin(integers:splat(1))
+    local total: float = simd.horizontal.orderedSum(floats:splat(1.0))
+    return wide + narrow, least + total
+end
+
+return fold
+]],
+        "",
+        "integer horizontals answer their lane in its carrier"
+    )
+    reports(
+        prefix
+        .. [[
+    return simd.horizontal.wrappingSum(floats:splat(1.0)), simd.horizontal.orderedSum(integers:splat(1))
+end
+
+return fold
+]],
+        "NUPP2006 NUPP2006",
+        "each contract refuses the other's lanes"
+    )
+end
+
 function M.numericSwitchLocalIsAdmitted()
     reports(
         [[

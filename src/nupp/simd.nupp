@@ -2684,7 +2684,11 @@ const simd.transpose = transpose
 ---
 --- Ordered operations follow logical lane order. Pairwise operations use the
 --- adjacent-pair tree. Algebraic operations permit reassociation; only
---- `algebraicDot` additionally permits multiply-add contraction.
+--- `algebraicDot` additionally permits multiply-add contraction. Those three
+--- orders are floating-point contracts, because addition rounds; the
+--- wrapping, bitwise and integer extremum operations below are the integer
+--- contracts, which answer the same under every association and so take one
+--- name each.
 --- @export
 local horizontal = {}
 
@@ -2813,6 +2817,57 @@ end
 --- @export
 function horizontal.numberArgMax<T, S>(_value: simd.Vector<T, S>): integer
     return 1
+end
+
+--- The lanes of an integer vector summed, wrapping in the lane's own width: a
+--- byte vector's sum wraps at a byte, as `simd.reducer.wrappingSum` wraps at
+--- its element. Every association answers the same, so there is one name.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.wrappingSum<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.wrappingSum is available only inside an AOT-compiled function", 2)
+end
+
+--- The lanes of an integer vector multiplied, wrapping in the lane's width.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.wrappingProduct<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.wrappingProduct is available only inside an AOT-compiled function", 2)
+end
+
+--- The bitwise and of every lane of an integer vector.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.andBits<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.andBits is available only inside an AOT-compiled function", 2)
+end
+
+--- The bitwise or of every lane of an integer vector.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.orBits<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.orBits is available only inside an AOT-compiled function", 2)
+end
+
+--- The bitwise exclusive or of every lane of an integer vector.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.xorBits<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.xorBits is available only inside an AOT-compiled function", 2)
+end
+
+--- The smallest lane of an integer vector, by the element's signedness.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.integerMin<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.integerMin is available only inside an AOT-compiled function", 2)
+end
+
+--- The largest lane of an integer vector, by the element's signedness.
+--- @raises string outside an AOT-compiled function
+--- @export
+function horizontal.integerMax<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.integerMax is available only inside an AOT-compiled function", 2)
 end
 
 simd.horizontal = horizontal

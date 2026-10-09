@@ -1734,12 +1734,30 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local named = (operation or "") as string
             local extremum = named:match("^propagating") ~= nil or named:match("^number") ~= nil
             local indexed = named:match("Arg") ~= nil
+            -- The wrapping, bitwise and integer extremum contracts take
+            -- integer lanes only; the named floating orders exist because
+            -- addition rounds, so they take floating lanes only.
+            local integerContract = named == "wrappingSum"
+                or named == "wrappingProduct"
+                or named == "andBits"
+                or named == "orBits"
+                or named == "xorBits"
+                or named == "integerMin"
+                or named == "integerMax"
+            local floating = element ~= nil and (element.tag == "float" or element.tag == "number")
             if element and indexed then
                 (node as any).simdHorizontal = selectedExport.member
-            elseif element and (extremum or element.tag == "float" or element.tag == "number") then
-                first, rets, pack = element, {element}, T.pack({element})
-                if element.tag == "float" then
-                    c.fixedWidth.mark(node, element)
+            elseif element and integerContract and floating then
+                c.diag("NUPP2006", argExprs[1], "simd.horizontal." .. named .. " requires an integer vector")
+            elseif element and (integerContract or extremum or floating) then
+                -- A narrow lane leaves the vector in its 32-bit carrier, as
+                -- `extract` answers it.
+                local answered = (element.tag == "uint8" or element.tag == "uint16") and T.uint32
+                    or (element.tag == "int8" or element.tag == "int16") and T.int32
+                    or element
+                first, rets, pack = answered, {answered}, T.pack({answered})
+                if answered.tag ~= "number" then
+                    c.fixedWidth.mark(node, answered)
                 end
                 (node as any).simdHorizontal = selectedExport.member
             elseif element then

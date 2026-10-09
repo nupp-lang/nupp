@@ -25,6 +25,25 @@ local ARITHMETIC = {
     "pairwiseDot",
     "algebraicDot"
 }
+-- The integer horizontals, each with one name: every association answers the
+-- same for a wrapping or bitwise fold, and an extremum selects a lane.
+local INTEGER = {"wrappingSum", "wrappingProduct", "andBits", "orBits", "xorBits", "integerMin", "integerMax"}
+-- Exact scalar references for the integer horizontals, in the lane's width:
+-- a narrow lane wraps at its own width and comes back sign- or
+-- zero-extended, as the lane leaves the vector.
+local I32 = "nupp.math.i32.%s(nupp.math.i32.wrap(a), nupp.math.i32.wrap(b))"
+local U32 = "nupp.math.u32.%s(nupp.math.u32.wrap(a), nupp.math.u32.wrap(b))"
+local INTEGER_REFERENCE = {
+    int8 = {wrap = "((v + 128) % 256) - 128", add = "wrap(a + b)", mul = "wrap(a * b)", bits = "wrap(" .. I32 .. ")", ones = "-1"},
+    uint8 = {wrap = "v % 256", add = "wrap(a + b)", mul = "wrap(a * b)", bits = U32, ones = "255"},
+    int16 = {wrap = "((v + 32768) % 65536) - 32768", add = "wrap(a + b)", mul = "wrap(a * b)", bits = "wrap(" .. I32 .. ")", ones = "-1"},
+    uint16 = {wrap = "v % 65536", add = "wrap(a + b)", mul = "wrap(a * b)", bits = U32, ones = "65535"},
+    int32 = {add = I32:format("add"), mul = I32:format("mul"), bits = I32, ones = "-1"},
+    uint32 = {add = U32:format("add"), mul = U32:format("mul"), bits = U32, ones = "4294967295"},
+    int64 = {add = "(a + b) as int64", mul = "(a * b) as int64", bits = "(a %s b) as int64", ones = "-1LL"},
+    uint64 = {add = "(a + b) as uint64", mul = "(a * b) as uint64", bits = "(a %s b) as uint64", ones = "18446744073709551615ULL"},
+}
+local BIT_OPERATORS = {andBits = "&", orBits = "|", xorBits = "~"}
 
 function M.generate(options)
     options = options or {}
@@ -58,7 +77,7 @@ function M.generate(options)
             'local span = require("nupp.mem.span")',
             'local simd = require("nupp.simd")',
         }
-        local valueCount = floating and 13 or 4
+        local valueCount = floating and 13 or 4 + #INTEGER
         for _, width in ipairs(widths) do
             assert(width == "preferred" or (type(width) == "number" and width >= 2 and width <= 64 and width % 1 == 0))
             local name = "horizontal_" .. ty .. "_" .. tostring(width)
@@ -97,6 +116,15 @@ local function %s(exclusive output: span.WriteSpan<%s>, exclusive positions: spa
                     "    results:store(output, %d, results:splat(simd.horizontal.%s(a)), resultMask)\n    indices:store(positions, %d, indices:splat(simd.horizontal.%s(a)), indexMask)\n"
                 ):format(at + index, operation, index, ARGS[index])
             end
+            if not floating then
+                for index, operation in ipairs(INTEGER) do
+                    source[
+                        #source + 1
+                    ] = (
+                        "    results:store(output, %d, results:splat(simd.horizontal.%s(a)), resultMask)\n"
+                    ):format(4 + index, operation)
+                end
+            end
             source[#source + 1] = "    return species.lanes\nend\n"
         end
         source[
@@ -124,6 +152,45 @@ end
             floating and " or (value == 0 and best == 0 and 1 / value > 1 / best)" or "",
             floating and " or (value == 0 and best == 0 and 1 / value < 1 / best)" or ""
         )
+        if not floating then
+            local reference = INTEGER_REFERENCE[ty]
+            local bitwise = {}
+            for _, name in ipairs({"andBits", "orBits", "xorBits"}) do
+                local operand = (ty == "int64" or ty == "uint64") and BIT_OPERATORS[name] or name
+                bitwise[#bitwise + 1] = ("local function %s(a: %s, b: %s): %s\n    return %s\nend"):format(
+                    name,
+                    scalar,
+                    scalar,
+                    scalar,
+                    reference.bits:format(operand)
+                )
+            end
+            source[
+                #source + 1
+            ] = (
+                [[
+%s
+local function wrappingSum(a: %s, b: %s): %s
+    return %s
+end
+local function wrappingProduct(a: %s, b: %s): %s
+    return %s
+end
+%s
+]]
+            ):format(
+                reference.wrap and ("local function wrap(v: %s): %s\n    return %s\nend"):format(scalar, scalar, reference.wrap) or "",
+                scalar,
+                scalar,
+                scalar,
+                reference.add,
+                scalar,
+                scalar,
+                scalar,
+                reference.mul,
+                table.concat(bitwise, "\n")
+            )
+        end
         if floating then
             source[
                 #source + 1
@@ -226,6 +293,7 @@ local function run(): number
                     checked = checked + 2
                 end
 %s
+%s
             end
             nupp.drop(output)
             nupp.drop(positions)
@@ -255,6 +323,42 @@ end
             scalar,
             floating and "                    products[i] = multiply(values[i], i <= active and right[i] or 0)" or "",
             floating and 9 or 0,
+            floating and "" or (
+                [[                local sum: %s = %s
+                local product: %s = %s
+                local allBits: %s = %s
+                local anyBits: %s = %s
+                local oddBits: %s = %s
+                local least, most = values[1], values[1]
+                for i = 1, lanes do
+                    sum = wrappingSum(sum, values[i])
+                    product = wrappingProduct(product, values[i])
+                    allBits = andBits(allBits, values[i])
+                    anyBits = orBits(anyBits, values[i])
+                    oddBits = xorBits(oddBits, values[i])
+                    if values[i] < least then least = values[i] end
+                    if values[i] > most then most = values[i] end
+                end
+                assert(output[5] == sum, "wrapping horizontal sum")
+                assert(output[6] == product, "wrapping horizontal product")
+                assert(output[7] == allBits, "horizontal and")
+                assert(output[8] == anyBits, "horizontal or")
+                assert(output[9] == oddBits, "horizontal xor")
+                assert(output[10] == least, "integer horizontal min")
+                assert(output[11] == most, "integer horizontal max")
+                checked = checked + 7]]
+            ):format(
+                scalar,
+                ty == "int64" and "0LL" or ty == "uint64" and "0ULL" or "0",
+                scalar,
+                ty == "int64" and "1LL" or ty == "uint64" and "1ULL" or "1",
+                scalar,
+                INTEGER_REFERENCE[ty].ones,
+                scalar,
+                ty == "int64" and "0LL" or ty == "uint64" and "0ULL" or "0",
+                scalar,
+                ty == "int64" and "0LL" or ty == "uint64" and "0ULL" or "0"
+            ),
             floating
             and [[                local sum, product, dot = 0.0, 1.0, 0.0
                 local sumScale, dotScale = 0.0, 0.0
@@ -358,6 +462,7 @@ end
             explicitReducerMasks = {"all", "positive-only", "none"},
             explicitReducerMixedSpecies = options.mixedLanes or {2, 8},
             explicitReducerMixedShape = "scalar seed, masked whole vectors in one region, scalar tail",
+            integerHorizontals = INTEGER,
             floatElementReducers = "every floating contract over the float witness, binary32 after every operation",
             explicitReducerLengths = "0 through max(40, 2 * lanes + 1); Preferred through 129",
             loopLengths = {minimum = 0, maximum = 40},

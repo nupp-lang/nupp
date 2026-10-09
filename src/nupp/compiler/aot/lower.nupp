@@ -2760,6 +2760,15 @@ local function call(
             propagatingArgMax = {arity = 1, order = "propagating", kind = "arg_max"},
             numberArgMin = {arity = 1, order = "number", kind = "arg_min"},
             numberArgMax = {arity = 1, order = "number", kind = "arg_max"},
+            -- The exact integer contracts: wrapping and bitwise operations
+            -- answer the same under every association, so each has one name.
+            wrappingSum = {arity = 1, order = "exact", kind = "sum"},
+            wrappingProduct = {arity = 1, order = "exact", kind = "product"},
+            andBits = {arity = 1, order = "exact", kind = "and"},
+            orBits = {arity = 1, order = "exact", kind = "or"},
+            xorBits = {arity = 1, order = "exact", kind = "xor"},
+            integerMin = {arity = 1, order = "integer", kind = "min"},
+            integerMax = {arity = 1, order = "integer", kind = "max"},
         }
         local horizontal = operations[operation]
         if horizontal == nil then
@@ -2776,11 +2785,19 @@ local function call(
             context.reject(lower.site(node), "explicit SIMD horizontal dot operands need the same element and species")
         end
         local kind = (horizontal as any).kind
+        local order = (horizontal as any).order
         local extremum = kind == "min" or kind == "max" or kind == "arg_min" or kind == "arg_max"
-        -- Sums, products and dots are floating-point contracts: their named
-        -- orders exist because addition rounds. An extremum selects a lane it
-        -- was given, so it is defined at every element the species admits.
-        if not extremum and element ~= "f32" and element ~= "f64" then
+        local floating = element == "f32" or element == "f64"
+        -- Ordered, pairwise and algebraic sums, products and dots are
+        -- floating-point contracts: their named orders exist because addition
+        -- rounds. The exact and integer contracts wrap or select, so they are
+        -- integer contracts. A NaN-policy extremum selects a lane it was
+        -- given, so it is defined at every element the species admits.
+        if order == "exact" or order == "integer" then
+            if floating then
+                context.reject(lower.site(node), "simd.horizontal." .. operation .. " requires an integer vector")
+            end
+        elseif not extremum and not floating then
             context.reject(lower.site(node), "explicit SIMD horizontal arithmetic requires a floating-point vector")
         end
         kernel.usesSimd = true
@@ -2788,7 +2805,7 @@ local function call(
         return new scalarIR.Simd(
             op = "simd_horizontal",
             args = args,
-            intrinsic = (horizontal as any).order .. "_" .. kind,
+            intrinsic = order .. "_" .. kind,
             type = (indexed and "f64" or genericSimdScalar(element)) as scalarIR.Type,
             source = lower.site(node)
         )

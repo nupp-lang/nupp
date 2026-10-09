@@ -264,6 +264,10 @@ its compensation in binary32, a dot rounds each product before adding it (or
 fuses the two under the algebraic contract), and the extrema round nothing. The
 initial value is rounded to the element. `value()` answers that element, so a
 `float` kernel finishes in `float` without a conversion it did not write.
+The integer horizontals, `simd.horizontal.wrappingSum`, `wrappingProduct`,
+`andBits`, `orBits`, `xorBits`, `integerMin` and `integerMax`, fold a vector's
+lanes in the lane's own width: a byte vector's sum wraps at a byte and leaves
+the vector as a byte lane does, sign- or zero-extended to its 32-bit carrier.
 
 ## Verification
 
@@ -283,7 +287,8 @@ corpus feeds one reducer the seed as a scalar, whole vectors inside a region
 and the remaining elements as scalars, at two fixed widths, and compares it
 against the same contributions made one at a time. Every floating contract runs
 twice, over `number` and over the `float` witness, the latter against a
-binary32 reference built from `nupp.math.f32`.
+binary32 reference built from `nupp.math.f32`. The integer horizontals compare
+against exact wrapping and bitwise folds in the lane's width.
 
 Algebraic checks use a different contract. For finite inputs whose intermediate
 values neither overflow nor underflow, the corpus compares two rounded paths

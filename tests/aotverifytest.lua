@@ -194,6 +194,77 @@ return {total = total}
     verify.program(program)
 end
 
+-- The integer horizontals are admitted over integer lanes only, and the
+-- floating orders over floating lanes only; a forged intrinsic is refused.
+function M.integerHorizontalsAreRecheckedAgainstTheirLanes()
+    local program = lowered(
+        [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function fold(value: int32): int32
+    local species = assert(simd.species(array.int32, 4))
+    return simd.horizontal.wrappingSum(species:splat(value))
+end
+return {fold = fold}
+]],
+        "integer-horizontal.nupp"
+    )
+    verify.program(program)
+    local function expression(node, predicate)
+        if type(node) ~= "table" then
+            return nil
+        end
+        if node.op ~= nil and predicate(node) then
+            return node
+        end
+        for _, child in pairs(node) do
+            local found = expression(child, predicate)
+            if found then
+                return found
+            end
+        end
+
+        return nil
+    end
+    local horizontal = expression(program.body, function(node)
+        return node.op == "simd_horizontal"
+    end)
+    assert(horizontal, "no horizontal reduction")
+    assert(horizontal.intrinsic == "exact_sum", "the wrapping sum is the exact contract: " .. tostring(horizontal.intrinsic))
+    local function changed(field, value, message)
+        local kept = horizontal[field]
+        horizontal[field] = value
+        refuses(program, message)
+        horizontal[field] = kept
+        verify.program(program)
+    end
+    -- A floating order over integer lanes, a dot the exact contract never
+    -- had, and a wrapping sum over floating lanes are each refused.
+    changed("intrinsic", "ordered_sum", "invalid generic SIMD horizontal operation")
+    changed("intrinsic", "exact_dot", "invalid generic SIMD horizontal operation")
+    local floating = lowered(
+        [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function fold(value: float): float
+    local species = assert(simd.species(array.float, 4))
+    return simd.horizontal.orderedSum(species:splat(value))
+end
+return {fold = fold}
+]],
+        "float-horizontal.nupp"
+    )
+    verify.program(floating)
+    local summed = expression(floating.body, function(node)
+        return node.op == "simd_horizontal"
+    end)
+    assert(summed, "no floating horizontal reduction")
+    summed.intrinsic = "exact_sum"
+    refuses(floating, "invalid generic SIMD horizontal operation")
+end
+
 function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[

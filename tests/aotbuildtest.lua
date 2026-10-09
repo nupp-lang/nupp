@@ -6706,6 +6706,16 @@ local function narrow(borrows input: span.Span<float>, seed: float): (float, flo
     return ordered:value(), dotted:value(), compensated:value(), low:value()
 end
 
+--- The integer horizontals over one masked vector.
+@aot
+local function integerHorizontals(borrows input: span.Span<int32>): (int32, int32, int32, int32, int32, int32, int32)
+    local s = assert(simd.species(array.int32, 4))
+    local v = s:load(input, 1, s:tail(#input))
+    return simd.horizontal.wrappingSum(v), simd.horizontal.wrappingProduct(v), simd.horizontal.andBits(v),
+        simd.horizontal.orBits(v), simd.horizontal.xorBits(v), simd.horizontal.integerMin(v),
+        simd.horizontal.integerMax(v)
+end
+
 return {
     masks = masks,
     preferredMasks = preferredMasks,
@@ -6716,6 +6726,7 @@ return {
     exact = exact,
     extremes = extremes,
     narrow = narrow,
+    integerHorizontals = integerHorizontals,
 }
 ]]
 
@@ -6971,6 +6982,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         "exact",
         "extremes",
         "narrow",
+        "integer_horizontals",
     }) do
         symbols[
             name
@@ -7009,6 +7021,10 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotNarrow;")
     for _, symbol in ipairs(symbols.narrow) do
         ffi.cdef(("void %s(const float *, float, size_t, NuppAotNarrow *);"):format(symbol))
+    end
+    ffi.cdef("typedef struct { int32_t v1, v2, v3, v4, v5, v6, v7; } NuppAotIntegerHorizontals;")
+    for _, symbol in ipairs(symbols.integer_horizontals) do
+        ffi.cdef(("void %s(const int32_t *, size_t, NuppAotIntegerHorizontals *);"):format(symbol))
     end
 
     -- Mask splat, select, mask conversion and a widening numeric conversion.
@@ -7184,6 +7200,33 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 test.equal(tonumber(actual.v3), compensated:value(), label .. " compensated float sum")
                 test.equal(tonumber(actual.v4), low:value(), label .. " propagating float min")
             end
+        end
+    end
+
+    -- The integer horizontals over one masked vector, against exact folds.
+    local i32 = nupp.math.i32
+    local lanes = ffi.new("int32_t[4]", {-7, 2147483647, 3, 12})
+    for count = 0, 4 do
+        local sum, product, allBits, anyBits, oddBits = 0, 1, -1, 0, 0
+        local least, most = nil, nil
+        for i = 0, 3 do
+            local x = i < count and lanes[i] or 0
+            sum, product = i32.add(sum, x), i32.mul(product, x)
+            allBits, anyBits, oddBits = i32.andBits(allBits, x), i32.orBits(anyBits, x), i32.xorBits(oddBits, x)
+            least = least == nil and x or math.min(least, x)
+            most = most == nil and x or math.max(most, x)
+        end
+        for _, symbol in ipairs(symbols.integer_horizontals) do
+            local actual = ffi.new("NuppAotIntegerHorizontals")
+            lib[symbol](lanes, count, actual)
+            local label = symbol .. " count " .. count
+            test.equal(actual.v1, sum, label .. " wrapping sum")
+            test.equal(actual.v2, product, label .. " wrapping product")
+            test.equal(actual.v3, allBits, label .. " and")
+            test.equal(actual.v4, anyBits, label .. " or")
+            test.equal(actual.v5, oddBits, label .. " xor")
+            test.equal(actual.v6, least, label .. " min")
+            test.equal(actual.v7, most, label .. " max")
         end
     end
 

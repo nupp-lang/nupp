@@ -304,10 +304,12 @@ local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, strin
     return out, typeName
 end
 
---- `op` over two lane scalars.
+--- `op` over two lane scalars: a sum or product in the lane's own
+--- arithmetic, or one of the bitwise operations an integer lane has.
 local function combine(ctx: context.Context, found: species.Species, operation: string, a: string, b: string): string
     local instruction = operation == "product" and (found.float and "fmul" or "mul")
-        or (found.float and "fadd" or "add")
+        or operation == "sum" and (found.float and "fadd" or "add")
+        or operation
 
     return context.value(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, a, b))
 end
@@ -404,6 +406,17 @@ local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, s
     local t = found.scalar
     local zero = found.float and "0.0" or "0"
     local one = found.float and "1.0" or "1"
+
+    if order == "exact" then
+        -- Wrapping and bitwise operations answer the same under every
+        -- association, in the lane's own width: a byte sum wraps at a byte,
+        -- and leaves the vector as a byte lane does.
+        local result = values[1]
+        for index = 2, #values do
+            result = combine(ctx, found, kind, result, values[index])
+        end
+        return lanes.fromLane(ctx, found, result)
+    end
 
     if kind == "sum" or kind == "product" or kind == "dot" then
         local operation = kind == "product" and "product" or "sum"

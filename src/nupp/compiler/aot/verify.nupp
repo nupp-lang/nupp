@@ -1671,20 +1671,31 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 propagating_arg_max = true,
                 number_arg_min = true,
                 number_arg_max = true,
+                exact_sum = true,
+                exact_product = true,
+                exact_and = true,
+                exact_or = true,
+                exact_xor = true,
+                integer_min = true,
+                integer_max = true,
             }
             -- An extremum selects a lane rather than combining lanes, so it
             -- rounds nothing and is admitted at every element. The two that
             -- answer a lane index answer it in the same binary64 a mask's
-            -- `first` does.
+            -- `first` does. The exact and integer contracts wrap or select
+            -- integer lanes; the named floating orders exist because
+            -- addition rounds, so they take floating lanes only.
             local indexed = intrinsic:match("_arg_m[ai][xn]$") ~= nil
             local extremum = indexed or intrinsic:match("^propagating_m") ~= nil or intrinsic:match("^number_m") ~= nil
+            local integerContract = intrinsic:match("^exact_") ~= nil or intrinsic:match("^integer_") ~= nil
+            local floating = vectorElement == "f32" or vectorElement == "f64"
             holds(
                 vectorFamily == "vector"
                 and #args == (dot and 2 or 1)
                 and (args[2] == nil or args[2].type == args[1].type)
                 and node.type == (indexed and "f64" or genericSimdScalar(vectorElement))
                 and admittedHorizontal[intrinsic] == true
-                and (extremum or vectorElement == "f32" or vectorElement == "f64"),
+                and (integerContract and not floating or not integerContract and (extremum or floating)),
                 "invalid generic SIMD horizontal operation"
             )
         else
