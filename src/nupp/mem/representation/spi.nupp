@@ -14,8 +14,7 @@ export type CastElements = function<T>(element: ctype<T>, pointer: any): any
 ---
 --- `representation` is `native`, the only family Nupp compiles for, and the facade
 --- checks it before publishing this table: a provider built for some other layout
---- cannot be selected into a program whose layout is already compiled. The integer
---- facade must use the exact integer provider attached to this storage family.
+--- cannot be selected into a program whose layout is already compiled.
 ---
 --- Allocation, descriptors, scalar codecs, and copies must agree on byte order,
 --- alignment, width, and pointer units. Decode inputs contain at least the scalar
@@ -32,9 +31,6 @@ export interface CstorageProvider
 
     --- The storage family this table implements, which must be `native`.
     @readonly representation: string
-
-    --- Integer operations sharing this storage representation, where it carries them.
-    @readonly integers: Int64Provider?
 
     --- Struct descriptors and row operations sharing this storage family.
     @readonly structs: StructvalueProvider?
@@ -138,73 +134,6 @@ export interface CstorageProvider
 
     --- Encodes an IEEE-754 binary64 value using the target storage byte order.
     @readonly encodeFloat64: function(value: number): string
-end
-
---- 64-bit signed and unsigned arithmetic for generated portable operations.
----
---- Values must retain their full width rather than round through a Lua number.
---- Arithmetic, comparisons, shifts, and conversions must agree with the signedness
---- created by int64/uint64. toNumber is the explicit potentially inexact conversion.
---- When physical storage supplies integers, this must be that same implementation.
-export interface Int64Provider
-    @readonly priority: integer?
-
-    --- Constructs or converts a signed 64-bit value.
-    @readonly int64: function(value: any): any
-
-    --- Constructs or converts an unsigned 64-bit value.
-    @readonly uint64: function(value: any): any
-
-    --- Adds two full-width values.
-    @readonly add: function(left: any, right: any): any
-
-    --- Subtracts the right operand.
-    @readonly sub: function(left: any, right: any): any
-
-    --- Multiplies full-width values.
-    @readonly mul: function(left: any, right: any): any
-
-    --- Divides using the integer representation semantics.
-    @readonly div: function(left: any, right: any): any
-
-    --- Computes the corresponding integer remainder.
-    @readonly mod: function(left: any, right: any): any
-
-    --- Raises to an integer power.
-    @readonly pow: function(left: any, right: any): any
-
-    --- Negates the value.
-    @readonly neg: function(value: any): any
-
-    --- Computes 64-bit conjunction.
-    @readonly band: function(left: any, right: any): any
-
-    --- Computes 64-bit disjunction.
-    @readonly bor: function(left: any, right: any): any
-
-    --- Computes 64-bit exclusive-or.
-    @readonly bxor: function(left: any, right: any): any
-
-    --- Inverts all 64 bits.
-    @readonly bnot: function(value: any): any
-
-    --- Shifts left within the 64-bit representation.
-    @readonly lshift: function(value: any, count: number): any
-
-    --- Shifts right with zero fill.
-    @readonly rshift: function(value: any, count: number): any
-
-    --- Shifts right with sign extension.
-    @readonly arshift: function(value: any, count: number): any
-
-    --- Returns a negative number, zero, or a positive number for ordering.
-    @readonly compare: function(left: any, right: any): number
-
-    --- Converts to a Lua number, which may lose integer precision.
-    @readonly toNumber: function(value: any): number
-
-    --- Returns an exact decimal representation.
-    @readonly toString: function(value: any): string
 end
 
 --- Struct-value operations supplied as part of the storage family.

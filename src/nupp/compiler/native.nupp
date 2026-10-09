@@ -147,7 +147,7 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
-    ["runtime.int64"] = {name = "int64", runtimeModule = "nupp.runtime.int64", portableRuntime = true, requires = {}},
+    ["runtime.int64"] = {name = "int64", requires = {}},
     [
         "runtime.structvalue"
     ] = {name = "structvalue", runtimeModule = "nupp.runtime.structvalue", portableRuntime = true, requires = {}},

@@ -313,6 +313,71 @@ return m
 local m = {}
 
 @aot
+local function land(a: int64, b: int64): int64
+    return a & b
+end
+@aot
+local function lor(a: int64, b: int64): int64
+    return a | b
+end
+@aot
+local function lxor(a: int64, b: int64): int64
+    return a ~ b
+end
+@aot
+local function lnot(a: int64): int64
+    return ~a
+end
+@aot
+local function lshl(a: int64, b: int64): int64
+    return a << b
+end
+@aot
+local function lshr(a: int64, b: int64): int64
+    return a >> b
+end
+@aot
+local function lsar(a: int64, b: int64): int64
+    return a ~>> b
+end
+@aot
+local function luand(a: uint64, b: uint64): uint64
+    return a & b
+end
+@aot
+local function luor(a: uint64, b: uint64): uint64
+    return a | b
+end
+@aot
+local function luxor(a: uint64, b: uint64): uint64
+    return a ~ b
+end
+@aot
+local function lunot(a: uint64): uint64
+    return ~a
+end
+@aot
+local function lushl(a: uint64, b: uint64): uint64
+    return a << b
+end
+@aot
+local function lushr(a: uint64, b: uint64): uint64
+    return a >> b
+end
+@aot
+local function lusar(a: uint64, b: uint64): uint64
+    return a ~>> b
+end
+@aot
+local function lurol(a: uint64, count: integer): uint64
+    return nupp.math.u64.rotateLeft(a, count)
+end
+@aot
+local function luror(a: uint64, count: integer): uint64
+    return nupp.math.u64.rotateRight(a, count)
+end
+
+@aot
 local function lpow(a: int64, b: int64): int64
     return a ^ b
 end
@@ -413,6 +478,23 @@ m.lmixlt = lmixlt
 m.lmixeq = lmixeq
 m.lnumlt = lnumlt
 m.lnumeq = lnumeq
+
+m.land = land
+m.lor = lor
+m.lxor = lxor
+m.lnot = lnot
+m.lshl = lshl
+m.lshr = lshr
+m.lsar = lsar
+m.luand = luand
+m.luor = luor
+m.luxor = luxor
+m.lunot = lunot
+m.lushl = lushl
+m.lushr = lushr
+m.lusar = lusar
+m.lurol = lurol
+m.luror = luror
 
 m.lpow = lpow
 m.lmixdiv = lmixdiv
@@ -601,6 +683,16 @@ do
     pairs2("lmixeq", IV, UV)
     pairs2("lnumlt", IV, NV)
     pairs2("lnumeq", UV, NV)
+    for _, f in ipairs({"land", "lor", "lxor"}) do pairs2(f, IV, IV) end
+    for _, a in ipairs(IV) do cases[#cases + 1] = {"wide64", "lnot", {a, n = 1}} end
+    local IC = {I(-65), I(-64), I(-63), I(-1), I(0), I(1), I(31), I(32), I(63), I(64), I(65)}
+    for _, f in ipairs({"lshl", "lshr", "lsar"}) do pairs2(f, IV, IC) end
+    for _, f in ipairs({"luand", "luor", "luxor"}) do pairs2(f, UV, UV) end
+    for _, a in ipairs(UV) do cases[#cases + 1] = {"wide64", "lunot", {a, n = 1}} end
+    local UC = {U(-65), U(-64), U(-63), U(-1), U(0), U(1), U(31), U(32), U(63), U(64), U(65)}
+    for _, f in ipairs({"lushl", "lushr", "lusar"}) do pairs2(f, UV, UC) end
+    local RC = {-65, -64, -63, -1, 0, 1, 31, 32, 63, 64, 65}
+    for _, f in ipairs({"lurol", "luror"}) do pairs2(f, UV, RC) end
     pairs2("lpow", IV, IV)
     pairs2("lmixdiv", IV, UV)
     pairs2("lmixsub", IV, UV)

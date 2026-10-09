@@ -212,7 +212,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.right = rewrite(value.right)
             yield nil
         end
-        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i32_rotl", "i32_rotr", "u32_rotl", "u32_rotr", "i64_add", "i64_sub", "i64_mul", "i64_div", "i64_mod", "i64_pow", "u64_add", "u64_sub", "u64_mul", "u64_div", "u64_mod", "u64_pow", "u64_and", "u64_or", "u64_xor", "u64_shl", "u64_shr" -> do
+        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i32_rotl", "i32_rotr", "u32_rotl", "u32_rotr", "i64_add", "i64_sub", "i64_mul", "i64_div", "i64_mod", "i64_pow", "i64_and", "i64_or", "i64_xor", "i64_shl", "i64_shr", "i64_sar", "u64_add", "u64_sub", "u64_mul", "u64_div", "u64_mod", "u64_pow", "u64_and", "u64_or", "u64_xor", "u64_shl", "u64_shr", "u64_sar", "u64_rotl", "u64_rotr" -> do
             local value = node as scalarIR.Fixed
             value.left = rewrite(value.left)
             value.right = rewrite(value.right)
@@ -223,7 +223,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.value = rewrite(value.value)
             yield nil
         end
-        case "f32_sqrt", "f32_exp", "u32_not", "u32_popcount", "u32_ctz", "u32_clz", "u64_not", "u64_popcount", "u64_ctz", "u64_clz", "u64_prefix_xor" -> do
+        case "f32_sqrt", "f32_exp", "u32_not", "u32_popcount", "u32_ctz", "u32_clz", "i64_not", "u64_not", "u64_popcount", "u64_ctz", "u64_clz", "u64_prefix_xor" -> do
             local value = node as scalarIR.FixedUnary
             value.value = rewrite(value.value)
             yield nil

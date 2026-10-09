@@ -180,8 +180,12 @@ end
 -- reader; any other key is still an interface name and still checked.
 function M.descriptorsIgnoreDollarKeysAndStillRefuseOtherUnknownKeys()
     fixture(
-        {["nupp/spi.json"] = [[{"$schema":"https://example.com/spi.json","$version":2,
-            "example.api.Codec":["example.first"]}]]},
+        {
+            [
+                "nupp/spi.json"
+            ] = [[{"$schema":"https://example.com/spi.json","$version":2,
+            "example.api.Codec":["example.first"]}]]
+        },
         function(dir)
             local entries, problem = discovery.read(dir, {dependencies = {}}, {dependencies = {}}, {})
             assert(entries, tostring(problem))
@@ -575,10 +579,7 @@ error("provider initialization failed")]]
     end)
 end
 
-local TARGET_PROFILES = {
-    {host = "native"},
-    {host = "browser", marker = "__nuppBrowser"},
-}
+local TARGET_PROFILES = {{host = "native"}, {host = "browser", marker = "__nuppBrowser"},}
 
 function M.hostAndVmFallbacksRetainSpiOverrides()
     local instances = require("providerstate")
@@ -721,7 +722,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.representation = "native"
                         provider.layout, provider.reference = {}, function()
                         end
-                        provider.integers, provider.structs, provider.host = {}, {referenceValued = true}, {}
+                        provider.structs, provider.host = {referenceValued = true}, {}
                     end
                     providers[name] = provider
                     preloads[name] = function()
@@ -785,7 +786,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
-                        for _, member in ipairs({"install", "installDriver", "delegatedCanPark", "delegatedPark", "derive"}) do
+                        for _, member in ipairs({
+                            "install",
+                            "installDriver",
+                            "delegatedCanPark",
+                            "delegatedPark",
+                            "derive"
+                        }) do
                             assert(
                                 host[member] == expected[member],
                                 label .. ": " .. member .. " came from another provider"
@@ -931,10 +938,7 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
     }
     for _, case in ipairs(expectations) do
         for index, profile in ipairs(TARGET_PROFILES) do
-            assert(
-                surface.supports(case[1], profile.host) == case[index + 1],
-                profile.host .. ": " .. case[1]
-            )
+            assert(surface.supports(case[1], profile.host) == case[index + 1], profile.host .. ": " .. case[1])
         end
     end
 end
@@ -977,7 +981,6 @@ local SELECTING_FACADES = {
     {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
     {"nupp.mac", "nupp.mac.spi.Provider"},
     {"nupp.random", "nupp.random.spi.Provider"},
-    {"nupp.runtime.int64", "nupp.mem.representation.spi.Int64Provider"},
     {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
     {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},
@@ -1048,6 +1051,7 @@ function M.everySelectingFacadeRefusesATieForTheHighestPriority()
                         for index = 1, #priorities do
                             shown[index] = tostring(priorities[index])
                         end
+
                         return shown
                     end)(),
                     ","

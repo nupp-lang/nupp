@@ -124,6 +124,9 @@ record admit.Fixed
     --- The type every operand has to have been established in.
     operand: string
 
+    --- Per-position operand types where they differ from `operand`.
+    operands: {string}?
+
     --- Names the result type.
     result: string
 end
@@ -277,6 +280,22 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
         new admit.Fixed(identity = "f32.toBits", op = "f32_to_bits", arity = 1, operand = "f32", result = "u32"),
         new admit.Fixed(identity = "u64.andBits", op = "u64_and", arity = 2, operand = "u64", result = "u64"),
         new admit.Fixed(identity = "u64.sub", op = "u64_sub", arity = 2, operand = "u64", result = "u64"),
+        new admit.Fixed(
+            identity = "u64.rotateLeft",
+            op = "u64_rotl",
+            arity = 2,
+            operand = "u64",
+            operands = {"u64", "f64"},
+            result = "u64"
+        ),
+        new admit.Fixed(
+            identity = "u64.rotateRight",
+            op = "u64_rotr",
+            arity = 2,
+            operand = "u64",
+            operands = {"u64", "f64"},
+            result = "u64"
+        ),
         new admit.Fixed(identity = "u64.popcount", op = "u64_popcount", arity = 1, operand = "u64", result = "u32"),
         new admit.Fixed(identity = "u64.trailingZeros", op = "u64_ctz", arity = 1, operand = "u64", result = "u32"),
         new admit.Fixed(identity = "u64.leadingZeros", op = "u64_clz", arity = 1, operand = "u64", result = "u32"),

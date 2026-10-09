@@ -100,6 +100,21 @@ local function addWide(left: uint64, right: uint64): uint64
     return left + right
 end
 
+@aot
+local function unsignedBits(left: uint64, right: uint64, count: uint64): (uint64, uint64, uint64, uint64, uint64)
+    return left & right, left | right, left ~ right, left << count, left >> count
+end
+
+@aot
+local function signedBits(value: int64, count: int64): (int64, int64, int64)
+    return ~value, value >> count, value ~>> count
+end
+
+@aot
+local function rotateWide(value: uint64, count: integer): (uint64, uint64)
+    return nupp.math.u64.rotateLeft(value, count), nupp.math.u64.rotateRight(value, count)
+end
+
 local wideInput = array.scalar(array.uint64, 2)
 do
     local writable = wideInput:write()
@@ -117,6 +132,13 @@ local exact = addWide(wideInput:read()[2], 1 as uint64)
 assert(tostring(exact) == "9007199254740993")
 assert(wideOutput:read()[1] == (0 as uint64))
 assert(tostring(wideOutput:read()[2]) == "9007199254740993")
+local banded, joined, toggled, shiftedLeft, shiftedRight = unsignedBits(0xf0 as uint64, 0x0f as uint64, 4 as uint64)
+assert(banded == (0 as uint64) and joined == (0xff as uint64) and toggled == (0xff as uint64))
+assert(shiftedLeft == (0xf00 as uint64) and shiftedRight == (0x0f as uint64))
+local inverted, logical, arithmetic = signedBits(-2 as int64, 1 as int64)
+assert(inverted == (1 as int64) and tostring(logical) == "9223372036854775807" and arithmetic == (-1 as int64))
+local rotatedLeft, rotatedRight = rotateWide(1 as uint64, 1)
+assert(rotatedLeft == (2 as uint64) and tostring(rotatedRight) == "9223372036854775808")
 
 @aot
 local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows source: span.ByteSpan): nil

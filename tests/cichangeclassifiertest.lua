@@ -56,7 +56,11 @@ end
 -- change does, and nothing less.
 function M.toolChangeSelectsWhatACompilerChangeDoes()
     local compiler = jobsFor("src/nupp/compiler/check/callexpr.nupp")
-    for _, path in ipairs({"src/nupp/tools/lsp/init.nupp", "src/nupp/tools/doc/theme.css", "src/nupp/tools/main.nupp"}) do
+    for _, path in ipairs({
+        "src/nupp/tools/lsp/init.nupp",
+        "src/nupp/tools/doc/theme.css",
+        "src/nupp/tools/main.nupp"
+    }) do
         local jobs = jobsFor(path)
         for name in pairs(compiler) do
             test.assert(jobs[name], ("%s should select %s"):format(path, name))
@@ -154,6 +158,7 @@ end
 -- tests left a change to one uncompiled until something else selected the job.
 function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("tests/wasm-aot/project/src/main.nupp", {"browser-wasm"})
+    selects("tests/wasm-aot/simd-project/src/main.nupp", {"browser-wasm"})
     selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
     selects("tests/simd/primitives.lua", {
         "browser-wasm",

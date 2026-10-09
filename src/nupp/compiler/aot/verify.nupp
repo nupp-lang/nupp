@@ -246,11 +246,20 @@ const verify.FIXED_BINARY = {
     ["u64_xor"] = "u64",
     ["u64_shl"] = "u64",
     ["u64_shr"] = "u64",
+    ["u64_sar"] = "u64",
+    ["u64_rotl"] = "u64",
+    ["u64_rotr"] = "u64",
     ["i64_add"] = "i64",
     ["i64_sub"] = "i64",
     ["i64_mul"] = "i64",
     ["i64_div"] = "i64",
     ["i64_mod"] = "i64",
+    ["i64_and"] = "i64",
+    ["i64_or"] = "i64",
+    ["i64_xor"] = "i64",
+    ["i64_shl"] = "i64",
+    ["i64_shr"] = "i64",
+    ["i64_sar"] = "i64",
     ["u64_div"] = "u64",
     ["u64_mod"] = "u64",
     ["i64_pow"] = "i64",
@@ -1536,8 +1545,11 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif verify.FIXED_BINARY[tostring(op)] ~= nil then
         local element = verify.FIXED_BINARY[tostring(op)]
         local pair = node as scalarIR.Fixed
+        local rotate = op == "u64_rotl" or op == "u64_rotr"
         holds(
-            node.type == element and pair.left.type == element and pair.right.type == element,
+            node.type == element
+            and pair.left.type == element
+            and (pair.right.type == element or rotate and pair.right.type == "i64"),
             "invalid fixed-width binary operation"
         )
         scalarWalk(pair.left, values, scope)
@@ -1550,9 +1562,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local counted = node as scalarIR.FixedUnary
         holds(node.type == "u32" and counted.value.type == "u32", "invalid uint32 bit count")
         scalarWalk(counted.value, values, scope)
-    elseif op == "u64_not" then
+    elseif op == "u64_not" or op == "i64_not" then
         local complemented = node as scalarIR.FixedUnary
-        holds(node.type == "u64" and complemented.value.type == "u64", "invalid uint64 complement")
+        local width = op == "u64_not" and "u64" or "i64"
+        holds(node.type == width and complemented.value.type == width, "invalid 64-bit complement")
         scalarWalk(complemented.value, values, scope)
     elseif op == "u64_popcount" or op == "u64_ctz" or op == "u64_clz" then
         -- The count is a small number whatever the width it counted, so these

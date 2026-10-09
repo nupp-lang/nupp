@@ -1,7 +1,7 @@
 const out = document.querySelector('#result');
 const name = new URL(location.href).searchParams.get('app') || 'aot';
 try {
-  if (!['aot', 'native', 'workers', 'http', 'platform', 'gpu'].includes(name)) throw new Error('Invalid package name');
+  if (!['aot', 'native', 'workers', 'http', 'platform', 'gpu', 'simd'].includes(name)) throw new Error('Invalid package name');
   const {runPackagedNuppLuaJITApp} = await import(`./${name}-app/app-runtime.mjs`);
   const started = performance.now();
   const result = await runPackagedNuppLuaJITApp(new URL(`./${name}-app/nupp-browser-app.json`, location.href).href);

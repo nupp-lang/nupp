@@ -610,8 +610,8 @@ end
 export const answer = answer
 
 @aot
-local function literalCounts(): (uint32, uint32, uint32, uint64, uint64, uint64)
-    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5), nupp.math.u64.andBits(68719476735ULL, 4294967296ULL), nupp.math.u64.sub(0ULL, 1ULL)
+local function literalCounts(): (uint32, uint32, uint32, uint64, uint64, uint64, uint64, uint64)
+    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5), nupp.math.u64.andBits(68719476735ULL, 4294967296ULL), nupp.math.u64.sub(0ULL, 1ULL), nupp.math.u64.rotateLeft(1ULL, 63), nupp.math.u64.rotateRight(1ULL, 1)
 end
 export const literalCounts = literalCounts
 
@@ -1282,10 +1282,7 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             local dir = gpuProject()
             local manifest = assert(read(dir .. "/nupp.lua"))
             if browser then
-                manifest = manifest:gsub(
-                    'aot = "require"',
-                    'host = "browser", aot = "require-wasm"'
-                )
+                manifest = manifest:gsub('aot = "require"', 'host = "browser", aot = "require-wasm"')
             end
             local file = assert(io.open(dir .. "/nupp.lua", "wb"))
             file:write(manifest)
@@ -1356,8 +1353,7 @@ end
 function M.browserGpuChecksShareTheGeneratedInterface()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"
-    local source = assert(read(path))
-        :gsub('aot = "require"', 'host = "browser", aot = "require-wasm"')
+    local source = assert(read(path)):gsub('aot = "require"', 'host = "browser", aot = "require-wasm"')
     local file = assert(io.open(path, "wb"))
     assert(file:write(source))
     file:close()
@@ -1535,11 +1531,15 @@ local gpu = require("nupp.gpu")
 
 @aot(target = "gpu")
 local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
-]] .. body .. [[
+]]
+        .. body
+        .. [[
 end
 
 local function tiledCpu(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
-]] .. body .. [[
+]]
+        .. body
+        .. [[
 end
 
 export const tiled = tiled
@@ -2635,8 +2635,7 @@ function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
     local dir = project(nil)
     withKeys(
         dir,
-        'host = "browser", aot = "require-wasm", '
-        .. 'aotFeatures = {minimum = "scalar", maximum = "simd128"},'
+        'host = "browser", aot = "require-wasm", ' .. 'aotFeatures = {minimum = "scalar", maximum = "simd128"},'
     )
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -3674,7 +3673,7 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     )
     test.equal(
         compiled,
-        "4294967296ULL\n36\t32\t64\t3ULL\t4294967296ULL\t18446744073709551615ULL\n1017ULL\n2147483649\t4294967295\t2147483646\t2\t1073741824\t2147483646",
+        "4294967296ULL\n36\t32\t64\t3ULL\t4294967296ULL\t18446744073709551615ULL\t9223372036854775808ULL\t9223372036854775808ULL\n1017ULL\n2147483649\t4294967295\t2147483646\t2\t1073741824\t2147483646",
         "uint64 literals and operations agree on both routes"
     )
 end
@@ -4222,8 +4221,12 @@ end
 function M.theGuestRuntimeIrIsCompiledFromTheCurrentSources()
     local hash = require("nupp.compiler.hash")
     local c = HERE .. "/../native/crates/native/c/"
+
     -- A Windows checkout may carry CRLF line endings; the digest is of the text.
-    local function text(path) return (assert(read(path)):gsub("\r\n", "\n")) end
+    local function text(path)
+        return (assert(read(path)):gsub("\r\n", "\n"))
+    end
+
     local digest = hash.sha256(text(c .. "ks_rt.c") .. text(c .. "ks_lua.h"))
     local ir = assert(read(HERE .. "/../src/nupp/compiler/aot/llvm/lua/runtime-i686.ll"))
     local recorded = ir:match("\n; Inputs: ks_rt%.c ks_lua%.h, sha256 (%x+)%.\n")
@@ -5958,8 +5961,7 @@ function M.anAotBuildRunsNoCCompiler()
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' "
-                .. "build --target native 2>&1; echo \"__exit__:$?\""
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' " .. "build --target native 2>&1; echo \"__exit__:$?\""
             ):format(dir, cacheFor(dir), NUPP)
         )
     )
@@ -7151,18 +7153,22 @@ end
 -- exactly and refuses another by naming both versions.
 function M.aUnitsManifestInAnotherFormatIsRefusedOnRead()
     local path = os.tmpname()
+
     local function write(text)
         local handle = assert(io.open(path, "wb"))
         handle:write(text)
         handle:close()
     end
+
     write(('{"schemaVersion":%d,"target":"x","units":[]}'):format(aot.UNITS_SCHEMA_VERSION))
     local manifest, err = aot.readUnitsManifest(path)
     assert(manifest and manifest.target == "x", tostring(err))
     write('{"schemaVersion":2,"target":"x","units":[]}')
     manifest, err = aot.readUnitsManifest(path)
     assert(
-        manifest == nil and err:find("schemaVersion 2", 1, true) and err:find("reads " .. aot.UNITS_SCHEMA_VERSION, 1, true),
+        manifest == nil
+        and err:find("schemaVersion 2", 1, true)
+        and err:find("reads " .. aot.UNITS_SCHEMA_VERSION, 1, true),
         tostring(err)
     )
     write("not json")

@@ -30,7 +30,9 @@ local function diagsOf(src, opts)
     return table.concat(out, " "), diags
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean check for:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean check for:\n" .. src
+end)
 
 local M = {}
 
@@ -247,6 +249,7 @@ return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negat
     assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
     assert(nativeCode:find("68719476735ULL", 1, true), "native output materializes annotated uint64 literals")
     assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
+    assert(not nativeCode:find('require("nupp.runtime.int64")', 1, true), "native output needs no wide integer module")
     local nativeChunk = assert(loadstring(nativeCode))
     local _, _, _, masked, forms, grouped, negative = nativeChunk()
     testAssert.equal(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
@@ -299,7 +302,9 @@ return #readable, readable[1].value
 ]]
     local tree = parser.parse(source, "wasm-view.nupp")
     testAssert.equal(
-        #check.check(tree, "wasm-view.nupp", sharedEnv, {host = "browser"}),
+        #check.check(tree, "wasm-view.nupp", sharedEnv, {
+            host = "browser"
+        }),
         0,
         "Wasm views check through both required contracts"
     )
@@ -348,7 +353,11 @@ function M.arenaLowersThroughTheStorageContract()
     sharedEnv.loaded = {}
     local tree = parser.parse(source, "wasm-arena.nupp")
     local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {host = "browser"})
-    testAssert.equal(#diags, 0, "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    testAssert.equal(
+        #diags,
+        0,
+        "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or "")
+    )
     local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
     testAssert.equal(#genDiags, 0, "an arena lowers through the storage contract")
     assert(code:find("require(\"ffi\")", 1, true), code)
@@ -432,7 +441,11 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     local root = HERE .. "/.."
     local env = envMod.new(root)
     local diags = check.check(result, path, env, {host = "browser"})
-    testAssert.equal(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
+    testAssert.equal(
+        diags[1] and diags[1].msg or "",
+        "",
+        "the browser HTTP provider must not reach a native implementation"
+    )
 end
 
 function M.httpBodyHelpersRejectMalformedRuntimeInputs()
@@ -779,6 +792,7 @@ end
 
 function M.gpuAvailabilityAnswersWithoutRaising()
     local ffi = require("ffi")
+
     local function native(features, createStatus)
         local released = 0
         local fixture = {
@@ -806,10 +820,12 @@ function M.gpuAvailabilityAnswersWithoutRaising()
                 testAssert.equal(status, 0)
             end,
         }
+
         return require("providerstate").nativeGpu(fixture), function()
             return released
         end
     end
+
     local withoutFeature = native(0, 0)
     testAssert.equal(withoutFeature.available(), false, "a provider built without GPU support has no device")
     local noAdapter = native(4, 1)
@@ -1878,6 +1894,8 @@ function M.nativeFeaturesAreResolvedEffects()
     local http = effectsOf("local http = require('nupp.io.http')")
     assert(http["runtime.http"], "the HTTP module records its facade dependency")
 
+    assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
+
     local shadowed = effectsOf(
         table.concat({"local nupp = {digest = {hexDigest = function() end}}", "nupp.digest.hexDigest()",}, "\n")
     )
@@ -2250,7 +2268,10 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         )
     )
 
-    testAssert.equal((diagsOf("const files = require('nupp.io.files')\nlocal n: number = files.read('x')")), "NUPP2001:2")
+    testAssert.equal(
+        (diagsOf("const files = require('nupp.io.files')\nlocal n: number = files.read('x')")),
+        "NUPP2001:2"
+    )
     assertClean(
         "const files = require('nupp.io.files')\nlocal paths: {nupp.io.path.Path} = assert(files.glob('src/**/*.nupp'))"
     )
@@ -2308,7 +2329,10 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-    testAssert.equal((diagsOf(table.concat({"const http = require('nupp.io.http')", "http.client()",}, "\n"))), "NUPP2004:2")
+    testAssert.equal(
+        (diagsOf(table.concat({"const http = require('nupp.io.http')", "http.client()",}, "\n"))),
+        "NUPP2004:2"
+    )
     testAssert.equal(
         (
             diagsOf(
@@ -3078,7 +3102,10 @@ function M.moduleRequireTyped()
         (diagsOf(table.concat({"local geom = require('fixtures.geom')", "geom.make('a', 2)",}, "\n"))),
         "NUPP2006:2"
     )
-    testAssert.equal((diagsOf(table.concat({"local geom = require('fixtures.geom')", "geom.nope()",}, "\n"))), "NUPP2004:2")
+    testAssert.equal(
+        (diagsOf(table.concat({"local geom = require('fixtures.geom')", "geom.nope()",}, "\n"))),
+        "NUPP2004:2"
+    )
 end
 
 function M.moduleRequireDeclarationFile()

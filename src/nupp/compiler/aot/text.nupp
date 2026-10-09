@@ -70,6 +70,7 @@ const text.ONE_OPERAND = {
     ["u32_popcount"] = true,
     ["u32_ctz"] = true,
     ["u32_clz"] = true,
+    ["i64_not"] = true,
     ["u64_not"] = true,
     ["u64_popcount"] = true,
     ["u64_ctz"] = true,

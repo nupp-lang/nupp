@@ -1912,20 +1912,25 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
     local bitwise = admit.BITWISE[written]
     if bitwise ~= nil then
         -- A 64-bit operand keeps its width rather than being narrowed to the
-        -- 32-bit pattern used by the ordinary bitwise family.
-        local wide = left.type == "u64" or right.type == "u64"
-        if wide and written ~= "~>>" then
-            local u64Ops: {
+        -- 32-bit pattern used by the ordinary bitwise family. The checker has
+        -- already selected the result width and signedness from the operands.
+        local wide = semanticValueType((node as any).inferredType)
+        if wide == "i64" or wide == "u64" then
+            local wideOps: {
                 [string]: string
-            } = {["&"] = "u64_and", ["|"] = "u64_or", ["~"] = "u64_xor", ["<<"] = "u64_shl", [">>"] = "u64_shr",}
+            } = {["&"] = "and", ["|"] = "or", ["~"] = "xor", ["<<"] = "shl", [">>"] = "shr", ["~>>"] = "sar",}
+            local operation = wideOps[written]
+            if operation == nil then
+                context.reject(source, "wide bitwise operator " .. written .. " is not admitted")
+            end
 
             return new scalarIR.Fixed(
-                op = u64Ops[written] as scalarIR.FixedOp,
-                left = lower.convert(left, "u64", source, context),
+                op = (wide .. "_" .. (operation as string)) as scalarIR.FixedOp,
+                left = lower.convert(left, wide, source, context),
                 -- A shift count is converted to the operand width and masked to
                 -- 63 in the backend, as the 32-bit pair masks its count to 31.
-                right = lower.convert(right, "u64", source, context),
-                type = "u64",
+                right = lower.convert(right, wide, source, context),
+                type = wide,
                 source = source
             )
         end
@@ -2030,6 +2035,7 @@ const FIXED_UNARY: {
     ["u32_popcount"] = true,
     ["u32_ctz"] = true,
     ["u32_clz"] = true,
+    ["i64_not"] = true,
     ["u64_not"] = true,
     ["u64_popcount"] = true,
     ["u64_ctz"] = true,
@@ -2056,46 +2062,47 @@ local function fixedCall(
     end
 
     for position, argument in ipairs(args) do
+        local operand = fixed.operands ~= nil and (fixed.operands as {string})[position] or fixed.operand
         -- A `float` read widens to a number where it is loaded, as it does in
         -- the Lua body, and the checker types it as the `float` it came from.
         -- Narrowing it back is exact, so an f32 operand takes the load itself.
-        if fixed.operand == "f32" and argument.op == "widen_f32_f64" then
+        if operand == "f32" and argument.op == "widen_f32_f64" then
             argument = (argument as scalarIR.Convert).value
             args[position] = argument
         end
-        if argument.op == "constant" and fixed.operand ~= "f64" then
+        if argument.op == "constant" and operand ~= "f64" then
             local literal = argument as scalarIR.Constant
             local number = tonumber(literal.value)
-            if fixed.operand == "i32" or fixed.operand == "u32" then
+            if operand == "i32" or operand == "u32" then
                 local exact = number ~= nil
                     and number % 1 == 0
-                    and number >= (fixed.operand == "u32" and 0 or lower.INT32_MIN)
-                    and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
+                    and number >= (operand == "u32" and 0 or lower.INT32_MIN)
+                    and number <= (operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
                 if not exact then
-                    context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
+                    context.reject(source, path .. " needs an exact " .. operand .. " literal")
                 end
                 args[
                     position
                 ] = new scalarIR.IntConstant(
                     op = "constant_i32",
                     value = literal.value,
-                    type = fixed.operand,
+                    type = operand,
                     source = literal.source
                 )
-            elseif fixed.operand == "i64" or fixed.operand == "u64" then
+            elseif operand == "i64" or operand == "u64" then
                 if number == nil
                     or number % 1 ~= 0
                     or number > 9007199254740992
-                    or number < (fixed.operand == "u64" and 0 or -9007199254740992)
+                    or number < (operand == "u64" and 0 or -9007199254740992)
                 then
-                    context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
+                    context.reject(source, path .. " needs an exact " .. operand .. " literal")
                 end
                 args[
                     position
                 ] = new scalarIR.Int64Constant(
                     op = "constant_i64",
                     value = ("%.0f"):format(number as number),
-                    type = fixed.operand,
+                    type = operand,
                     source = literal.source
                 )
             else
@@ -2108,7 +2115,7 @@ local function fixedCall(
                     source = argument.source
                 )
             end
-        elseif fixed.operand == "f64" and (argument.type == "i32" or argument.type == "u32") then
+        elseif operand == "f64" and (argument.type == "i32" or argument.type == "u32") then
             -- Widening, which is the one direction that invents nothing. Every
             -- 32-bit integer is exactly a binary64, so promoting one to reach an
             -- entry conversion loses no value and establishes no refinement --
@@ -2118,14 +2125,18 @@ local function fixedCall(
             -- which is `wrap`'s declared `integer` argument arriving as the
             -- integer the loop index is.
             args[position] = lower.convert(argument, "f64", argument.source, context)
-        elseif argument.type ~= fixed.operand then
+        elseif argument.type ~= operand then
             context.reject(
                 source,
                 path .. " argument " .. tostring(
                     position
-                ) .. " is " .. tostring(argument.type) .. " and was never established as " .. fixed.operand
+                ) .. " is " .. tostring(argument.type) .. " and was never established as " .. operand
             )
         end
+    end
+
+    if fixed.op == "u64_rotl" or fixed.op == "u64_rotr" then
+        args[2] = lower.convert(args[2], "i64", args[2].source, context)
     end
 
     if fixed.form == "binary" then
@@ -4132,8 +4143,13 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
         return new scalarIR.Unary(op = "neg", value = negated as scalarIR.Expr, type = "f64", source = source)
     elseif written == "not" and value.type == "bool" then
         return new scalarIR.Unary(op = "not", value = value, type = "bool", source = source)
-    elseif written == "~" and value.type == "u64" then
-        return new scalarIR.FixedUnary(op = "u64_not", value = value, type = "u64", source = source)
+    elseif written == "~" and (value.type == "i64" or value.type == "u64") then
+        return new scalarIR.FixedUnary(
+            op = (value.type .. "_not") as scalarIR.FixedUnaryOp,
+            value = value,
+            type = value.type,
+            source = source
+        )
     elseif written == "~" and bitOperand(value) then
         local result = new scalarIR.Unary(op = "bnot", value = value, type = "i32", source = source)
         return node.fixedArithmetic == "u32.notBits" and lower.convert(result, "u32", source, kernel.context) or result

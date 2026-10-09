@@ -522,6 +522,9 @@ const WIDE_BINARY: {
     ["i64_add"] = "add",
     ["i64_sub"] = "sub",
     ["i64_mul"] = "mul",
+    ["i64_and"] = "and",
+    ["i64_or"] = "or",
+    ["i64_xor"] = "xor",
 }
 const BITWISE: {[string]: string} = {["band"] = "and", ["bor"] = "or", ["bxor"] = "xor",}
 
@@ -961,14 +964,34 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         local nan = context.value(ctx, ("fcmp uno float %s, %s"):format(decoded, decoded))
 
         return context.value(ctx, ("select i1 %s, float %s, float %s"):format(nan, F32_CANONICAL_NAN, decoded)), "f32"
-    elseif operation == "u64_shl" or operation == "u64_shr" then
+    elseif operation == "u64_shl"
+        or operation == "u64_shr"
+        or operation == "u64_sar"
+        or operation == "i64_shl"
+        or operation == "i64_shr"
+        or operation == "i64_sar"
+    then
         local binary = node as scalarIR.Fixed
         local a, at, b, bt = operands(ctx, binary.left, binary.right)
         local shift = context.value(ctx, ("and i64 %s, 63"):format(u64Bits(ctx, b, bt)))
+        local instruction = operation:sub(-3) == "shl" and "shl" or operation:sub(-3) == "shr" and "lshr" or "ashr"
 
         return context.value(
             ctx,
-            ("%s i64 %s, %s"):format(operation == "u64_shl" and "shl" or "lshr", u64Bits(ctx, a, at), shift)
+            ("%s i64 %s, %s"):format(instruction, u64Bits(ctx, a, at), shift)
+        ), operation:sub(1, 1) == "u"
+            and "u64"
+            or "i64"
+    elseif operation == "u64_rotl" or operation == "u64_rotr" then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local value = u64Bits(ctx, a, at)
+        local funnel = operation == "u64_rotl" and "llvm.fshl.i64" or "llvm.fshr.i64"
+        local callee = prelude.intrinsic(ctx.module, funnel, "i64 @NAME(i64, i64, i64)")
+
+        return context.value(
+            ctx,
+            ("call i64 %s(i64 %s, i64 %s, i64 %s)"):format(callee, value, value, u64Bits(ctx, b, bt))
         ), "u64"
     elseif WIDE_HELPER[operation] then
         local binary = node as scalarIR.Fixed
@@ -1024,13 +1047,14 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         local helper = prelude.use(ctx.module, operation == "f32_to_f16" and "nupp.f32.to.f16" or "nupp.f32.to.bf16")
 
         return context.value(ctx, ("call i32 %s(float %s)"):format(helper, operand)), "u32"
-    elseif operation == "u32_not" or operation == "u64_not" then
+    elseif operation == "u32_not" or operation == "u64_not" or operation == "i64_not" then
         local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
         if operation == "u32_not" then
             return context.value(ctx, ("xor i32 %s, -1"):format(u32Bits(ctx, value, t))), "u32"
         end
 
-        return context.value(ctx, ("xor i64 %s, -1"):format(u64Bits(ctx, value, t))), "u64"
+        return context.value(ctx, ("xor i64 %s, -1"):format(u64Bits(ctx, value, t))), operation == "u64_not" and "u64"
+            or "i64"
     elseif operation == "u32_popcount" or operation == "u32_ctz" or operation == "u32_clz" then
         local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
         local bits = u32Bits(ctx, value, t)

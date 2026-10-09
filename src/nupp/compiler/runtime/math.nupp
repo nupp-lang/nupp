@@ -501,6 +501,16 @@ function u64.sub(a: uint64, b: uint64): uint64
     return a - b
 end
 
+function u64.rotateLeft(a: uint64, count: integer): uint64
+    local amount = band(count, 63)
+    return (a << amount) | (a >> band(-amount, 63))
+end
+
+function u64.rotateRight(a: uint64, count: integer): uint64
+    local amount = band(count, 63)
+    return (a >> amount) | (a << band(-amount, 63))
+end
+
 -- Like the u32 runtime functions above, these return a Lua number. Each count
 -- is in 0..64; calling the public nupp.math namespace here would make its
 -- installer require itself on portable targets.
