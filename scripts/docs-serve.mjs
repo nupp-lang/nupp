@@ -25,33 +25,48 @@ const playgroundDist = path.join(playgroundDir, "dist");
 const port = Number(process.env.PORT || 8000);
 const skipBuild = process.argv.includes("--no-build");
 
-function run(label, cmd, args, opts = {}) {
+// Runs one build step. A required step that fails ends the run; an optional
+// one reports the failure and answers false, so the server can come up
+// without what it would have produced.
+function run(label, cmd, args, { optional = false, ...opts } = {}) {
   console.log(`\n> ${label}: ${cmd} ${args.join(" ")}`);
   const result = spawnSync(cmd, args, { stdio: "inherit", cwd: root, ...opts });
-  if (result.error) {
-    console.error(`${label} failed to start: ${result.error.message}`);
-    process.exit(1);
-  }
-  if (result.status !== 0) {
-    console.error(`${label} exited with status ${result.status}`);
-    process.exit(result.status ?? 1);
-  }
+  const failure = result.error
+    ? `${label} failed to start: ${result.error.message}`
+    : result.status !== 0
+      ? `${label} exited with status ${result.status}`
+      : null;
+  if (failure === null) return true;
+  console.error(failure);
+  if (!optional) process.exit(result.status || 1);
+  return false;
 }
 
+// The playground needs the browser guest, which only builds on Linux and is
+// otherwise a CI artifact, so on a laptop its build fails more often than
+// not. The docs are what a reader of this server usually wants, and they do
+// not depend on it: a failed playground build is reported, and the docs are
+// served without the playground route.
+let playgroundAvailable = true;
 if (!skipBuild) {
   run("docs build", path.join(root, "bin/nupp"), ["doc", "--kind", "site"]);
   // The playground's own `npm run build` also serves; `node build.mjs`
   // alone just builds dist/, which is all that's wanted here.
-  run("playground build", "node", ["build.mjs"], { cwd: playgroundDir });
+  playgroundAvailable = run("playground build", "node", ["build.mjs"], { cwd: playgroundDir, optional: true });
+  if (!playgroundAvailable) {
+    console.error("\nthe playground did not build; serving the docs without it");
+  }
 } else {
   console.log("--no-build: serving whatever is already in build/docs and editors/playground/dist");
 }
 
-for (const [label, dir] of [["build/docs", docsDir], ["editors/playground/dist", playgroundDist]]) {
-  if (!existsSync(dir)) {
-    console.error(`\n${label} does not exist — remove --no-build, or build it first.`);
-    process.exit(1);
-  }
+if (!existsSync(docsDir)) {
+  console.error("\nbuild/docs does not exist; remove --no-build, or build it first.");
+  process.exit(1);
+}
+if (!existsSync(playgroundDist)) {
+  playgroundAvailable = false;
+  console.error("\neditors/playground/dist does not exist; serving the docs without the playground");
 }
 
 const TYPES = {
@@ -88,6 +103,11 @@ const PLAYGROUND_PREFIX = "/playground";
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
   if (url.pathname === PLAYGROUND_PREFIX || url.pathname.startsWith(PLAYGROUND_PREFIX + "/")) {
+    if (!playgroundAvailable) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("the playground is not built on this machine; see editors/playground/README.md");
+      return;
+    }
     serveFrom(playgroundDist, url.pathname.slice(PLAYGROUND_PREFIX.length), res);
     return;
   }
@@ -96,7 +116,11 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, () => {
   console.log(`\ndocs:       http://localhost:${port}/`);
-  console.log(`playground: http://localhost:${port}${PLAYGROUND_PREFIX}/`);
+  if (playgroundAvailable) {
+    console.log(`playground: http://localhost:${port}${PLAYGROUND_PREFIX}/`);
+  } else {
+    console.log("playground: not built; its route answers 503");
+  }
   console.log("\nCtrl+C to stop.");
 });
 
