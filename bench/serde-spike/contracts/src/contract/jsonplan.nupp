@@ -2,6 +2,7 @@ module contract.jsonplan
 
 local core = require("contract.value")
 local json = require("nupp.codec.json")
+local errors = require("contract.errors")
 
 export type Selection = "traverse" | "omit" | "redact"
 export interface Policy<M is core.Member>
@@ -65,17 +66,34 @@ local function build<M is core.Member>(
     description: core.Description<M>,
     policy: Policy<M>,
     direction: core.Direction,
-    seen: {[core.Description<M>]: Plan<M>}
+    seen: {[core.Description<M>]: Plan<M>},
+    path: string
 ): Plan<M>
     local prior = seen[description]
     if prior ~= nil then
         return prior
     end
     if direction == "read" and not description.canRead then
-        error("binding has no construction operation", 2)
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "binding has no construction operation",
+                path = path,
+                cause = nil
+            ),
+            0
+        )
     end
     if description.kind == "opaque" or description.kind == "atom" then
-        error("JSON does not support " .. description.kind, 2)
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "JSON does not support " .. description.kind,
+                path = path,
+                cause = nil
+            ),
+            0
+        )
     end
     local result = new Plan<M>(
         description = description,
@@ -89,10 +107,19 @@ local function build<M is core.Member>(
     seen[description] = result
     for _, child in ipairs(description.children) do
         local member = child.member
+        local childPath = path .. "[" .. json.encode(member.name) .. "]"
         local action = policy:select(member, direction)
         result.actions[member] = action
         if action ~= "traverse" and direction == "read" and child.required and not child.hasDefault then
-            error("omitted member has no default: " .. member.name, 2)
+            error(
+                new errors.Error(
+                    code = "unsupported",
+                    message = "omitted member has no default",
+                    path = childPath,
+                    cause = nil
+                ),
+                0
+            )
         end
         if description.kind == "structure" or description.kind == "union" then
             local name = policy:name(member)
@@ -100,7 +127,15 @@ local function build<M is core.Member>(
                 result.omittedNames[name] = true
             else
                 if result.names[name] ~= nil then
-                    error("colliding JSON member name: " .. name, 2)
+                    error(
+                        new errors.Error(
+                            code = "contract",
+                            message = "colliding JSON member name: " .. name,
+                            path = childPath,
+                            cause = nil
+                        ),
+                        0
+                    )
                 end
                 result.names[name] = member
                 result.keys[member] = json.encodedString(name)
@@ -108,7 +143,11 @@ local function build<M is core.Member>(
             end
         end
         if action == "traverse" then
-            result.children[member] = build(child:describe(direction), policy, direction, seen)
+            local ok, described = pcall(child.describe, child, direction)
+            if not ok then
+                error(errors.wrap(described, childPath, nil), 0)
+            end
+            result.children[member] = build(described as core.Description<M>, policy, direction, seen, childPath)
         end
     end
 
@@ -120,5 +159,5 @@ export function resolve<M is core.Member>(
     policy: Policy<M>,
     direction: core.Direction
 ): Plan<M>
-    return build(description, policy, direction, {})
+    return build(description, policy, direction, {}, "$")
 end

@@ -32,6 +32,27 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
+function M.abortingWritersDiscardsOnlyUnpublishedBytes()
+    for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+        local output = require("nupp.text").newBuffer()
+        output:put("prefix")
+        local writer = provider.newWriter(output)
+        writer:startArray():write(1)
+        writer:abort()
+        writer:abort()
+        writer:close()
+        assert(output:tostring() == "prefix")
+        assert(not pcall(writer.write, writer, 2))
+        writer = provider.newWriter(output)
+        writer:startArray():write(1)
+        writer:flush()
+        writer:write(2)
+        writer:abort()
+        writer:close()
+        assert(output:tostring() == "prefix[1")
+    end
+end
+
 local function refused(value, reason)
     return value == nil and type(reason) == "string" and reason ~= ""
 end

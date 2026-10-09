@@ -22,3 +22,18 @@ export function wrap(problem: unknown, path: string, byte: integer?): Error
     end
     return new Error(code = "model", message = tostring(problem), path = path, byte = byte, cause = problem)
 end
+
+export function prefix(problem: unknown, parent: string): Error
+    local inner = wrap(problem, "$", nil)
+    if parent == "$" then
+        return inner
+    end
+
+    return new Error(
+        code = inner.code,
+        message = inner.message,
+        path = parent .. inner.path:sub(2),
+        byte = inner.byte,
+        cause = inner.cause
+    )
+end

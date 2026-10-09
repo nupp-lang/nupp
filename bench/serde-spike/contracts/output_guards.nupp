@@ -1,0 +1,36 @@
+local core = require("contract.value")
+local documents = require("example.document")
+local errors = require("contract.errors")
+local json = require("contract.jsoncodec")
+local model = require("example.richmodel")
+local text = require("nupp.text")
+
+local binding = model.binding(model.newModel())
+local codec = json.codec(model.policy(true))
+local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
+value.next = value
+local buffer = text.newBuffer()
+buffer:put("prefix")
+
+local function cyclic(): nil
+    codec:encodeInto(binding, value, buffer)
+end
+
+local ok, problem = pcall(cyclic)
+assert(not ok and getmetatable(problem) == errors.Error, tostring(problem))
+assert((problem as errors.Error).code == "limit", tostring(problem))
+assert(buffer:tostring() == "prefix")
+value.next = nil
+
+local record Custom is core.Atom
+    @readonly family: table
+end
+value.document = documents.list({documents.atom(new Custom(family = {}))})
+local accepted, unsupported = pcall(codec.encode, codec, binding, value)
+assert(not accepted and getmetatable(unsupported) == errors.Error)
+local failure = unsupported as errors.Error
+assert(failure.code == "unsupported")
+assert(failure.path == '$["document"][1]', failure.path)
+value.document = nil
+assert(codec:encode(binding, value) == '{"identifier":"cycle","created":0}')
+print("output limits bound cycles and document errors retain their containing logical paths")

@@ -1,0 +1,96 @@
+local core = require("contract.value")
+local json = require("contract.jsoncodec")
+local model = require("example.richmodel")
+local errors = require("contract.errors")
+
+local record Counts
+    writes: integer = 0
+    reads: integer = 0
+    failure: table?
+end
+
+local record Counted<T, M is core.Member> is core.Adapter<T, M>
+    @readonly adapter: core.Adapter<T, M>
+    @readonly counts: Counts
+    function describe(self, direction: core.Direction): core.Description<M>
+        if direction == "write" then
+            self.counts.writes += 1
+        else
+            self.counts.reads += 1
+        end
+        if self.counts.failure ~= nil then
+            error(self.counts.failure, 0)
+        end
+
+        return self.adapter:describe(direction)
+    end
+
+    function write(self, borrows value: T, exclusive writer: core.Writer<M>): nil
+        self.adapter:write(value, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): T
+        return self.adapter:read(reader)
+    end
+end
+
+local record Wrap<T> is core.Consumer<T, nil, nil>
+    @readonly counts: Counts
+    result: core.Binding<T>?
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
+        self.result = new core.Bound<T, M>(adapter = new Counted<T, M>(adapter = adapter, counts = self.counts))
+    end
+end
+
+local function counted<T>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
+    local wrapper = new Wrap<T>(counts = counts)
+    binding:accept(wrapper, nil)
+    return assert(wrapper.result)
+end
+
+local schema = model.newModel()
+local counts = new Counts()
+local binding = counted(model.binding(schema), counts)
+local profile = model.policy(true)
+local codec = json.codec(profile, 2)
+assert(codec:cachedBindings() == 0 and counts.reads == 0 and counts.writes == 0)
+local bytes = '{"identifier":"cached","created":0}'
+local value = codec:decode(binding, bytes)
+assert(counts.reads == 1 and counts.writes == 0)
+assert(codec:encode(binding, value) == bytes)
+assert(counts.writes == 1)
+for _ = 1, 20 do
+    assert(codec:encode(binding, value) == bytes)
+    assert(codec:decode(binding, bytes).id == "cached")
+end
+assert(counts.writes == 1 and counts.reads == 1 and codec:cachedBindings() == 1)
+
+local alternate = json.codec(model.policy(false))
+assert(alternate:encode(binding, value):find('"id":"cached"', 1, true))
+assert(counts.writes == 2)
+
+local second, third = new Counts(), new Counts()
+local secondBinding = counted(model.binding(schema), second)
+local thirdBinding = counted(model.binding(schema), third)
+codec:encode(secondBinding, value)
+codec:encode(binding, value)
+codec:encode(thirdBinding, value)
+assert(codec:cachedBindings() == 2)
+codec:encode(binding, value)
+assert(counts.writes == 2, "the recently used adapter was evicted")
+codec:encode(secondBinding, value)
+assert(second.writes == 2, "the least recently used adapter was retained")
+
+local failure: table = {}
+local bad = new Counts(failure = failure)
+local invalid = counted(model.binding(schema), bad)
+for _ = 1, 2 do
+    local ok, problem = pcall(codec.encode, codec, invalid, value)
+    assert(not ok and getmetatable(problem) == errors.Error and (problem as errors.Error).cause == failure)
+end
+assert(bad.writes == 1)
+codec:clear()
+assert(codec:cachedBindings() == 0)
+assert(not pcall(codec.encode, codec, invalid, value))
+assert(bad.writes == 2)
+print("codec extensions initialize lazily by adapter, profile, and direction with bounded retention")

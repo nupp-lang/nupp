@@ -7,12 +7,22 @@ local json = require("nupp.codec.json")
 local base64 = require("nupp.codec.base64")
 local numbers = require("contract.numbers")
 local identities = require("contract.jsondocument")
+local extensions = require("contract.jsonextensions")
+
+export record Budget
+    @readonly maxDepth: integer = 128
+    @readonly maxValues: integer = 1000000
+    depth: integer = 0
+    values: integer = 0
+end
 
 local writeContents: function<D>(
     adapter: core.DocumentAdapter<D>,
     borrows value: D,
     exclusive sink: json.Writer,
-    factory: plans.PolicyFactory
+    factory: plans.PolicyFactory,
+    cache: extensions.Scope?,
+    budget: Budget
 ): nil
 
 local record Frame<M is core.Member>
@@ -30,6 +40,8 @@ export record Output<M is core.Member> is core.Writer<M>
     @private @readonly factory: plans.PolicyFactory
     @private @readonly policy: plans.Policy<M>
     @private @readonly root: plans.Plan<M>
+    @private @readonly cache: extensions.Scope?
+    @private @readonly budget: Budget
     @private frames: {Frame<M>}
     @private keyMode: boolean
     @private keyCount: integer
@@ -45,6 +57,8 @@ export record Output<M is core.Member> is core.Writer<M>
         self:live()
         local ok, problem = pcall(adapter.write, adapter, value, self)
         if not ok then
+            self.closed = true
+            self.sink:abort()
             error(errors.wrap(problem, self:path(), nil), 0)
         end
     end
@@ -87,6 +101,10 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function position(exclusive self, member: M): nil
         self:live()
+        self.budget.values += 1
+        if self.budget.values > self.budget.maxValues then
+            self:limit("value limit exceeded")
+        end
         if self.keyMode then
             error("JSON map keys must be scalar", 2)
         end
@@ -107,6 +125,18 @@ export record Output<M is core.Member> is core.Writer<M>
             end
             frame.count += 1
         end
+    end
+
+    function limit(exclusive self, message: string): nil
+        self.closed = true
+        error(new errors.Error(code = "limit", message = message, path = self:path(), cause = nil), 0)
+    end
+
+    function enter(exclusive self): nil
+        if self.budget.depth >= self.budget.maxDepth then
+            self:limit("nesting limit exceeded")
+        end
+        self.budget.depth += 1
     end
 
     function claim(exclusive self, name: string): nil
@@ -231,14 +261,29 @@ export record Output<M is core.Member> is core.Writer<M>
     function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         self:live()
         self:select(member)
-        error("JSON atom requires a model conversion", 2)
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "JSON atom requires a model conversion",
+                path = self:path(),
+                cause = nil
+            ),
+            0
+        )
     end
 
     function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         self:live()
         self:select(member)
         self:position(member)
-        writeContents(adapter, value, self.sink, self.factory)
+        self:enter()
+        local depth = self.budget.depth
+        local ok, problem = pcall(writeContents, adapter, value, self.sink, self.factory, self.cache, self.budget)
+        self.budget.depth = depth - 1
+        if not ok then
+            self.closed = true
+            error(errors.prefix(problem, self:path()), 0)
+        end
     end
 
     function child(exclusive self, member: M): plans.Plan<M>
@@ -263,6 +308,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self:select(member)
         local plan = self:child(member)
         self:position(member)
+        self:enter()
         if kind == "array" then
             self.sink:startArray()
         else
@@ -275,6 +321,7 @@ export record Output<M is core.Member> is core.Writer<M>
             error("wrong aggregate size", 2)
         end
         table.remove(self.frames)
+        self.budget.depth -= 1
         if kind == "array" then
             self.sink:endArray()
         else
@@ -354,7 +401,14 @@ export record Output<M is core.Member> is core.Writer<M>
         self:claim(name)
         self.sink:key(name)
         frame.count += 1
-        writeContents(adapter, value, self.sink, self.factory)
+        self:enter()
+        local depth = self.budget.depth
+        local ok, problem = pcall(writeContents, adapter, value, self.sink, self.factory, self.cache, self.budget)
+        self.budget.depth = depth - 1
+        if not ok then
+            self.closed = true
+            error(errors.prefix(problem, self:path()), 0)
+        end
     end
 
     function close(takes self): nil
@@ -366,14 +420,21 @@ export function output<M is core.Member>(
     exclusive sink: json.Writer,
     factory: plans.PolicyFactory,
     policy: plans.Policy<M>,
-    root: plans.Plan<M>
+    root: plans.Plan<M>,
+    cache: extensions.Scope?,
+    budget: Budget?
 ): affine(Output<M>) borrows (sink)
+    assert(cache == nil or cache:profile() == factory, "JSON extensions belong to another profile")
+    local limits = budget or new Budget()
+    assert(limits.maxDepth > 0 and limits.maxDepth <= 1024 and limits.maxValues > 0, "invalid JSON output limits")
     return new Output<M>(
         anchor = sink,
         sink = sink,
         factory = factory,
         policy = policy,
         root = root,
+        cache = cache,
+        budget = limits,
         frames = {},
         keyMode = false,
         keyCount = 0,
@@ -383,16 +444,16 @@ end
 
 local record ContentsConsumer<D> is core.IntoConsumer<D, D, json.Writer, nil>
     @readonly factory: plans.PolicyFactory
+    @readonly cache: extensions.Scope
+    @readonly budget: Budget
     function apply<N is core.Member>(
         self,
         adapter: core.Adapter<D, N>,
         borrows value: D,
         exclusive sink: json.Writer
     ): nil
-        local description = adapter:describe("write")
-        local policy = self.factory:policy<N>(description.member)
-        local plan = plans.resolve(description, policy, "write")
-        local writer = output(sink, self.factory, policy, plan)
+        local operation = self.cache:resolve(adapter, "write")
+        local writer = output(sink, self.factory, operation.policy, operation.plan, self.cache, self.budget)
         writer:emit(adapter, value)
         writer:close()
     end
@@ -402,8 +463,14 @@ writeContents = function<D>(
     adapter: core.DocumentAdapter<D>,
     borrows value: D,
     exclusive sink: json.Writer,
-    factory: plans.PolicyFactory
+    factory: plans.PolicyFactory,
+    cache: extensions.Scope?,
+    budget: Budget
 ): nil
-    local consumer = new ContentsConsumer<D>(factory = factory)
+    local consumer = new ContentsConsumer<D>(
+        factory = factory,
+        cache = cache or extensions.scope(factory),
+        budget = budget
+    )
     adapter:contents():acceptInto(consumer, value, sink)
 end

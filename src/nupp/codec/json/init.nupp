@@ -243,6 +243,10 @@ local record WriterImpl is Writer
         self.raw:flush()
     end
 
+    function abort(exclusive self): nil
+        self.raw:abort()
+    end
+
     function close(takes self): nil
         self.raw:close()
     end

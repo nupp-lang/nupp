@@ -497,7 +497,18 @@ function json.newWriter(exclusive out: Buffer, nullValue: any?): any
         end
     end
 
+    local aborted = false
+
+    function writer:abort(): nil
+        aborted, closed = true, true
+        parts, stack = {}, {}
+        pending = 0
+    end
+
     function writer:close(): nil
+        if aborted then
+            return
+        end
         if closed then
             error("writer is already closed", 2)
         end

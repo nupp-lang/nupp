@@ -1,0 +1,101 @@
+local core = require("contract.value")
+local codec = require("contract.jsoncodec")
+local plans = require("contract.jsonplan")
+local json = require("nupp.codec.json")
+
+local record Counts
+    created: integer = 0
+    closed: integer = 0
+end
+local record Resource is nupp.Closeable
+    @readonly counts: Counts
+    text: string
+    function close(takes self): nil
+        self.counts.closed += 1
+    end
+end
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local record Description is core.Description<Member>
+    @readonly member: Member
+    @readonly kind: core.Kind = "string"
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<Member>} = {}
+end
+local record Adapter is core.Adapter<Resource, Member>
+    @readonly counts: Counts
+    @readonly description: Description
+    @readonly fail: boolean
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: Resource, exclusive writer: core.Writer<Member>): nil
+        writer:writeString(self.description.member, value.text)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Resource
+        self.counts.created += 1
+        local result = new Resource(counts = self.counts, text = "")
+        result.text = reader:readString(self.description.member)
+        assert(not self.fail, "model rejected the value")
+
+        return result
+    end
+end
+local record Policy<M is core.Member> is plans.Policy<M>
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        error("no timestamp mapping", 2)
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        error("no timestamp mapping", 2)
+    end
+end
+local record Factory is plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        return new Policy<M>()
+    end
+end
+
+local counts = new Counts()
+local member = new Member(name = "resource")
+
+local function binding(fail: boolean): core.Binding<Resource>
+    return new core.Bound<Resource, Member>(
+        adapter = new Adapter(counts = counts, description = new Description(member = member), fail = fail)
+    )
+end
+
+local jsonCodec = codec.codec(new Factory())
+local accepted = binding(false)
+do
+    local resource = jsonCodec:decode(accepted, '"kept"')
+    assert(resource.text == "kept")
+    assert(jsonCodec:encode(accepted, resource) == '"kept"')
+end
+assert(counts.created == 1 and counts.closed == 1)
+
+local function decodeAndClose(selected: core.Binding<Resource>, input: string): nil
+    local resource = jsonCodec:decode(selected, input)
+    resource:close()
+end
+
+assert(not pcall(decodeAndClose, accepted, '"value" trailing'))
+assert(counts.created == 2 and counts.closed == 2)
+assert(not pcall(decodeAndClose, binding(true), '"value"'))
+assert(counts.created == 3 and counts.closed == 3)
+print("owning decode results transfer cleanup and aborted construction closes exactly once")

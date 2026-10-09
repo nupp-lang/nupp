@@ -125,6 +125,13 @@ export record Cursor
         local frame = self.frames[#self.frames]
         if frame == nil then
             self.roots += 1
+            -- Validate the complete frame before the model commits its result.
+            -- In particular, an owning result must not be created and then lost
+            -- because a later codec-level finish discovers trailing input.
+            self:space()
+            if self.position <= #self.input then
+                self:fail("trailing input")
+            end
         else
             frame.phase = "after"
             frame.count += 1

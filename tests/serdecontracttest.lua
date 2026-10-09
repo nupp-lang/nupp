@@ -44,8 +44,20 @@ function M.schemaExtensionsInitializeLazilyAndKeepFailuresAndScopesSeparate()
     assert(status == 0, output)
 end
 
+function M.codecExtensionsReuseOperationsWithBoundedRetention()
+    local status, output = call({"run", "codec_extensions.nupp"})
+    assert(status == 0, output)
+    status, output = call({"run", "codec_cache_scope.lua"})
+    assert(status == 0, output)
+end
+
 function M.resourceExtensionsOwnCleanupAndExpireBorrowedHandles()
     local status, output = call({"run", "resources.nupp"})
+    assert(status == 0, output)
+end
+
+function M.owningDecodeResultsAndAbortedConstructionKeepCleanup()
+    local status, output = call({"run", "owned_decode.nupp"})
     assert(status == 0, output)
 end
 
@@ -89,7 +101,7 @@ function M.dataExtensionsRejectOwnedInitializerResults()
 end
 
 function M.directOutputAndStructuredFailuresPreserveTheirContracts()
-    for _, file in ipairs({"buffer_output.nupp", "errors.nupp"}) do
+    for _, file in ipairs({"buffer_output.nupp", "errors.nupp", "output_guards.nupp"}) do
         local status, output = call({"run", file})
         assert(status == 0, output)
     end

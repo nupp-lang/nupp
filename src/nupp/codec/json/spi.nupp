@@ -173,6 +173,13 @@ export interface Writer is nupp.Closeable
     --- @param self the writer
     flush: @nosuspend function(exclusive self: Writer): nil
 
+    --- Discards staged bytes and prevents further writes.
+    ---
+    --- Bytes already flushed to the destination remain there. Repeated aborts
+    --- and closing an aborted writer are harmless.
+    --- @param self the writer
+    abort: @nosuspend function(exclusive self: Writer): nil
+
     --- Verifies and publishes a complete root, then releases backing state.
     ---
     --- ```nupp
