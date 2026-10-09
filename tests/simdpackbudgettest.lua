@@ -1,10 +1,13 @@
 local packs = require("tests.simd.native-packs")
 local M = {}
 
+-- The byte ceilings moved from 2.7 MB when the lane arithmetic (floor
+-- remainder and division, fma, saturation, popcount, mulHigh and the
+-- direct math forms) joined the primitive, edge and map corpora.
 local ceilings = {
     species = {files = 41, bytes = 400000, probes = 640},
-    native = {files = 128, bytes = 2700000, probes = 850},
-    wasm = {files = 128, bytes = 2700000, probes = 850},
+    native = {files = 128, bytes = 3000000, probes = 850},
+    wasm = {files = 128, bytes = 3000000, probes = 850},
 }
 
 local function measure(generated)
