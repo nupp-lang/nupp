@@ -6388,6 +6388,26 @@ local function sums(borrows input: span.Span<number>, seed: number): (number, nu
     return ordered:value(), pairwise:value(), compensated:value(), algebraic:value()
 end
 
+--- The math constants a kernel may name: the infinities that seed the
+--- extremum reducers, and pi.
+@aot
+local function extremes(borrows input: span.Span<number>): (number, number, number)
+    local s = assert(simd.species(array.number, 4))
+    local low = simd.reducer.propagatingMin(math.huge)
+    local high = simd.reducer.propagatingMax(-math.huge)
+    do
+        local cursor: uint32 = 0
+        while cursor < #input do
+            local rest = s:tail(#input - cursor)
+            local v = s:load(input, cursor + 1, rest)
+            low:add(v, rest)
+            high:add(v, rest)
+            cursor = cursor + s.lanes
+        end
+    end
+    return low:value(), high:value(), math.pi
+end
+
 @aot
 local function dot(borrows input: span.Span<number>, seed: number): number
     local s = assert(simd.species(array.number, 4))
@@ -6439,6 +6459,7 @@ return {
     sums = sums,
     dot = dot,
     exact = exact,
+    extremes = extremes,
 }
 ]]
 
@@ -6452,7 +6473,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     test.equal(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
-    for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact"}) do
+    for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact", "extremes"}) do
         symbols[
             name
         ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
@@ -6480,6 +6501,10 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     end
     for _, symbol in ipairs(symbols.exact) do
         ffi.cdef(("void %s(const int32_t *, int32_t, size_t, NuppAotExact *);"):format(symbol))
+    end
+    ffi.cdef("typedef struct { double v1, v2, v3; } NuppAotExtremes;")
+    for _, symbol in ipairs(symbols.extremes) do
+        ffi.cdef(("void %s(const double *, size_t, NuppAotExtremes *);"):format(symbol))
     end
 
     -- Mask splat, select, mask conversion and a widening numeric conversion.
@@ -6614,6 +6639,19 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             test.equal(actual.v4, expected, symbol .. " algebraic count " .. count)
             test.equal(actual.v1, expected, symbol .. " ordered whole count " .. count)
         end
+    end
+
+    -- `math.huge` seeds the extrema, so an empty span answers the infinities,
+    -- and `math.pi` is the constant Lua answers.
+    for _, symbol in ipairs(symbols.extremes) do
+        local actual = ffi.new("NuppAotExtremes")
+        lib[symbol](doubles, 0, actual)
+        test.equal(actual.v1, math.huge, symbol .. " empty min")
+        test.equal(actual.v2, -math.huge, symbol .. " empty max")
+        test.equal(actual.v3, math.pi, symbol .. " pi")
+        lib[symbol](doubles, 4, actual)
+        test.equal(actual.v1, -3.5, symbol .. " min")
+        test.equal(actual.v2, 7.25, symbol .. " max")
     end
 
     -- Exact integer reducers with masked contributions.

@@ -980,7 +980,14 @@ return {constants = constants}
     program.resultSourceTypes[1] = "uint64"
 
     original = number.value
+    -- An infinity is a constant a kernel can name; only NaN has no spelling.
     number.value = "1e999"
+    verify.program(program)
+    number.value = "inf"
+    verify.program(program)
+    number.value = "-inf"
+    verify.program(program)
+    number.value = "nan"
     refuses(program, "invalid constant")
     number.value = original
     verify.program(program)

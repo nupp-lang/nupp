@@ -2318,4 +2318,48 @@ function M.presizingReservesArraySlotsOnlyForASequence()
     testAssert.equal(sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"), "3", "a run from 1 is still reserved")
 end
 
+-- A multi-owner region that the generator parks in a module-level cache
+-- captures the locals its body reads into a state frame. When the fold has
+-- replaced every read of a scalar local with its value, and so deleted the
+-- declaration, the frame must not be filled from that name, and the folded
+-- reads must be emitted as values rather than as frame slots.
+function M.foldedScalarLocalsAreNotCapturedByAnOwnershipFrame()
+    local src = [[
+const array = require("nupp.mem.array")
+local function report(name: string, bad: number): nil end
+local function run(): number
+    local n: integer = 7
+    do
+        const xs = array.scalar(array.number, n)
+        const ys = array.scalar(array.number, n)
+        const wx = xs:write()
+        const wy = ys:write()
+        for i = 1, n do
+            wx[i] = i
+            wy[i] = n - i
+        end
+        nupp.drop(wx)
+        nupp.drop(wy)
+        local bad = 0
+        for i = 1, n do
+            if xs:read()[i] + ys:read()[i] ~= n then
+                bad = bad + 1
+            end
+        end
+        report("sum", bad)
+        return bad
+    end
+    return -1
+end
+return run()
+]]
+    local code = compile(src, 1)
+    assert(code:find("{[0]=0", 1, true), "the region must take the cached state frame form:\n" .. code)
+    assert(not code:find("=n ", 1, true) and not code:find("=n,", 1, true) and not code:find("=n}", 1, true),
+        "a folded local must not be captured by the frame:\n" .. code)
+    assert(not code:find("local n ", 1, true), "the folded declaration is gone:\n" .. code)
+    local chunk = assert(loadstring(code, "@folded-capture"))
+    testAssert.equal(chunk(), 0, "the region body reads the folded value")
+end
+
 return M

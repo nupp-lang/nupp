@@ -73,6 +73,11 @@ end
 --- @raises string when the spelling is not a number
 function text.decimal(spelling: string): string
     local value = tonumber(spelling)
+    if spelling == "inf" then
+        value = math.huge
+    elseif spelling == "-inf" then
+        value = -math.huge
+    end
     if value == nil then
         error("not a numeric literal: " .. spelling, 0)
     end

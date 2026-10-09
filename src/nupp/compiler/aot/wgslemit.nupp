@@ -95,6 +95,12 @@ local function literal(value: any, type_: string): string
     if type_ == "u32" then
         return text:match("u$") and text or text .. "u"
     end
+    local number = tonumber(text)
+    if number == math.huge or number == -math.huge then
+        -- WGSL has no literal for an infinity, and a constant expression that
+        -- overflows is a compile error there rather than the value.
+        error("an infinite constant is not available in a GPU kernel", 0)
+    end
 
     return text
 end

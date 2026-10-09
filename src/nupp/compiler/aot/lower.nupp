@@ -4994,6 +4994,22 @@ local function expressionRaw(
             )
         end
 
+        if objectName == "math" and object == nil then
+            -- The two constants of the closed math set. `math.huge` is spelled
+            -- `inf`, which every backend reads back as the infinity, so the
+            -- seed of an extremum reducer is the same word it is in Lua.
+            local member = (indexed.name as lexer.Token).text
+            local spelled = member == "huge" and "inf" or member == "pi" and ("%.17g"):format(math.pi) or nil
+            if spelled ~= nil then
+                return new scalarIR.Constant(
+                    op = "constant",
+                    value = spelled as string,
+                    type = "f64",
+                    source = lower.site(node)
+                )
+            end
+        end
+
         return fieldRead(indexed, lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel), kernel)
     elseif kind == "binop" and (node as cst.Binop).op ~= nil then
         local operator = node as cst.Binop

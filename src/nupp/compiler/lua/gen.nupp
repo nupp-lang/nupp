@@ -4364,7 +4364,10 @@ function gen.generate(
             if not node or cst.isToken(node) then
                 return
             end
-            if node.kind == "name" and node.token or pluck.functionAssignment(node) then
+            -- A read folded to its value is not a read of the binding: the
+            -- fold may have deleted the declaration, so a frame slot filled
+            -- from it would read an undefined name.
+            if node.kind == "name" and node.token and not node.folded or pluck.functionAssignment(node) then
                 local definition = pluck.functionAssignment(node) or node.token.definition
                 if definition then
                     local token = definition.token
@@ -5178,7 +5181,10 @@ function gen.generate(
             e(")")
             return
         end
-        if kind == "name" and x.token and x.token.definition then
+        -- A read the optimizer folded to its value is emitted as that value
+        -- below; routing it through the frame would read a binding whose
+        -- declaration the fold may have deleted.
+        if kind == "name" and x.token and x.token.definition and not x.folded then
             local framed = emitDepth.captureFrames[x.token.definition]
             if framed then
                 e(framed, sourceLine(x))

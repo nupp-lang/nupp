@@ -382,6 +382,9 @@ local function numericSpelling(value: string): boolean
     if sign == nil or body == nil then
         return false
     end
+    if body == "inf" then
+        return true
+    end
     if (body as string):match("^0[xX]") ~= nil then
         if (body as string):match("^0[xX]%x+$") ~= nil then
             return true
@@ -1596,14 +1599,12 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "invalid 64-bit integer constant"
         )
     elseif op == "constant" then
+        -- An infinite constant is a value a kernel can name (`math.huge`, the
+        -- seed of an extremum reducer) and every backend can spell; only NaN
+        -- has no spelling a source could have written.
         local number = tonumber(node.value)
         holds(
-            node.type == "f64"
-            and numericSpelling(node.value)
-            and number ~= nil
-            and number == number
-            and number ~= math.huge
-            and number ~= -math.huge,
+            node.type == "f64" and numericSpelling(node.value) and number ~= nil and number == number,
             "invalid constant"
         )
     elseif op == "bool" then
