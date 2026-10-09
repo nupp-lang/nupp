@@ -4,9 +4,9 @@ order: 633
 
 # SIMD programming
 
-A SIMD instruction applies one operation to several values held side by side
-in one wide register. In Nupp an `@aot` function asks for that through
-`nupp.simd`, and the same source runs as ordinary Lua one value at a time:
+With *SIMD* (single instruction, multiple data), a processor applies an
+operation to several values at once. In Nupp, an [`@aot`](index.md) function
+uses `nupp.simd` to multiply a sequence of values in groups:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -23,18 +23,17 @@ local function scale(exclusive output: span.WriteSpan<float>, borrows input: spa
 end
 ```
 
-This page teaches the model behind that kernel, starting from what a
-processor does with one value and ending with the loop shapes a compiler
-cannot vectorize on its own. Every example is a complete program. See
-[simd.md](simd.md) for the reference to every operation named here.
+This *kernel*, a function that computes over a block of data, multiplies each
+input by `factor` and writes the result to `output`. The same source runs
+under ordinary Lua one value at a time; the caller below shows how to supply
+its data.
 
 ## Scalar instructions
 
-A processor executes instructions. An arithmetic instruction takes two values
-from registers, the small storage slots inside the processor, combines them,
-and writes the result back to a register. An instruction that works on one
-value at a time is **scalar**: multiply this number by that one, produce one
-answer.
+A processor executes *instructions*, operations such as loading a value,
+adding two values, or choosing where execution continues. Arithmetic uses
+*registers*, small storage locations inside the processor. A *scalar*
+multiplication takes a pair of numbers and produces one answer:
 
 ```nupp
 local values = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0}
@@ -43,23 +42,21 @@ for i = 1, #values do
 end
 ```
 
-Written this way, the loop is eight multiplications, one after the other,
-each a scalar instruction. The processor also loads every value, stores every
-result, counts the loop, and checks whether it is done, so the instruction
-count is several times eight.
+This loop describes eight scalar multiplications. Running it also requires
+reading the values, writing the results, and controlling the loop; a source
+operation does not correspond to a fixed number of processor instructions.
 
 ## Vector lanes
 
-Every processor you are likely to run on has a second set of registers that
-are much wider. On the ARM processors in Apple silicon and most phones these
-are the NEON registers, 128 bits wide. On x86 they are the SSE and AVX
-registers, 128, 256, or 512 bits wide. WebAssembly has a 128-bit set called
-SIMD128. A wide register holds several values side by side, and a wide
-instruction applies one operation to all of them at once.
+SIMD packs several values into a wide register. ARM's *NEON* instructions,
+used on Apple silicon, operate on 128-bit vectors. On x86, *SSE*, *AVX*, and
+*AVX-512* provide widths of 128, 256, and 512 bits when the processor supports
+them. WebAssembly's *SIMD128* extension provides 128-bit vector operations
+that its runtime maps to the host processor.
 
-SIMD stands for single instruction, multiple data. The values packed into a
-wide register are a **vector**, and each slot in it is a **lane**. The lane
-count depends on the size of each value:
+A *vector* is a group of values of one type, and a *lane* is one position in
+that group. The value in a lane is an *element*. Its size determines how many
+lanes fit in a register:
 
 | Element type | Bits each | Lanes in a 128-bit register |
 | --- | --- | --- |
@@ -69,21 +66,22 @@ count depends on the size of each value:
 | `uint32`, `int32` | 32 | 4 |
 | `number` (binary64) | 64 | 2 |
 
-With four-lane `float` vectors, the scalar loop above becomes two
-multiplications instead of eight: load four values, multiply all four by two
-in one instruction, store four results, and repeat. The NEON instruction that
-does it is `fmul.4s`, floating multiply over four singles, and it appears in
-generated code later on this page.
+`float` uses [*binary32*](numeric-semantics.md), a 32-bit floating-point
+representation; `number`
+uses *binary64*, which has 64 bits and more precision. A 128-bit register
+therefore holds four `float` values or two `number` values.
 
-Species, masks, and reducers exist to write loops that use these instructions
-without writing assembly, and to handle the elements that do not divide
-evenly into lanes.
+Scaling eight values stored as `float` needs two four-lane multiplications:
+load four values, multiply all four by two, store four results, and repeat.
+The NEON instruction `fmul.4s` multiplies four binary32 values at once. Nupp's
+array storage gives the opening kernel the contiguous values these loads
+need; the Lua table in the scalar example has a different layout.
 
 ## Suitable work
 
-Lanes pay when a loop applies the same small arithmetic to a long run of
-values of one type. Four lanes can do close to four times the work per
-instruction, and sixteen byte lanes close to sixteen. Work with that shape
+SIMD is useful when a loop applies the same operation to many values of one
+type. A four-lane multiply produces four results per instruction, though the
+whole loop still pays for memory access and setup. Work with that shape
 includes:
 
 - pixels in an image, samples in a sound, or vertices in a mesh
@@ -92,38 +90,36 @@ includes:
 - sums, dot products, and minimums over a column of measurements
 - hashing, checksum, and compression inner loops
 
-Lanes do not help when there is no run of identical operations to pack:
-walking a linked structure, calling a different function per element, or a
-table of mixed Lua values. Every lane of a vector holds the same element type
-and does the same thing on every instruction. A loop whose body differs from
-one element to the next has nothing for the lanes to share, and a loop over a
-few dozen elements finishes before the setup pays for itself.
+Following a linked list has a different constraint: the next address depends
+on the previous load, so consecutive steps cannot be loaded together. Mixed
+Lua values and calls to a different function per element also lack the uniform
+data and operations these kernels need.
 
-The shape of a loop decides whether it can use lanes at all, and the shape is
-yours to choose. The sections below are those shapes.
+Different conditions per element can still use SIMD by selecting which lanes
+to update. Small inputs can benefit too, but setup takes a larger share of
+their running time. The useful group size depends on the work and the target.
 
 ## Kernels
 
-Ordinary Nupp runs on LuaJIT, which has no vector instructions to offer. SIMD
-belongs to the ahead-of-time path: an [`@aot`](index.md) function lowers to
-native code through LLVM before the program runs, and inside it `nupp.simd`
-provides vectors, lanes, and masks. Three modules work together:
+Nupp's explicit SIMD operations use the *ahead-of-time* (AOT) path: an `@aot`
+function lowers to native code through LLVM during a build. LLVM is the
+compiler backend that selects and optimizes processor instructions. The
+kernel uses these modules to connect its data to those instructions:
 
 - [`nupp.mem.array`](nupp.mem.array) allocates owned, contiguous storage of
-  one element type. Its element witnesses, such as `array.float`, also name
-  the element a species is for.
-- [`nupp.mem.span`](nupp.mem.span) is a bounds-checked view of that storage.
-  An `@aot` function takes spans rather than Lua tables, because a span is a
-  pointer and a count, which native code can read.
-- `nupp.simd` is the vector library. A **species** describes the vectors of
-  one element type on the target being compiled for, and every operation
-  hangs off it.
+  one element type. Contiguous means the elements sit next to each other in
+  memory. A *type witness*, such as `array.float`, names the element type
+  when passed to an allocation or species constructor.
+- [`nupp.mem.span`](nupp.mem.span) provides a *span*, a bounds-checked view of
+  storage. Its native representation includes an address and an element
+  count, so the kernel can read the data without navigating a Lua table.
+- [`nupp.simd`](nupp.simd) provides vector operations. A *species* describes
+  their element type and lane count, such as four `float` lanes on NEON.
 
-A `nupp.simd` kernel is ordinary Nupp. With AOT off, or when the function is
-called before a build, the same source runs as plain Lua one lane at a time
-and gives the answers the compiled code gives. The examples on this page all
-run under `nupp run` with no build step. Here is the opening kernel with the
-code that calls it:
+With AOT off, `simd.species` supplies one lane and the loop runs under ordinary
+Lua. Each example followed by output runs with `nupp run` without an AOT
+build; shorter snippets illustrate parts of a kernel. The opening
+kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -141,15 +137,11 @@ end
 
 local values = array.scalar(array.float, 10)
 local doubled = array.scalar(array.float, 10)
-do
-    local writable = values:write()
+with writable = values:write() do
     for i = 1, #writable do writable[i] = i end
-    nupp.drop(writable)
 end
-do
-    local out = doubled:write()
+with out = doubled:write() do
     scale(out, values:read(), 2.0)
-    nupp.drop(out)
 end
 local result = doubled:read()
 for i = 1, #result do io.write(result[i], " ") end
@@ -160,44 +152,59 @@ print()
 2 4 6 8 10 12 14 16 18 20
 ```
 
-`array.scalar` allocates ten zeroed floats. `write` lends out an exclusive
-writable span and `read` a shared one, and `nupp.drop` ends the writable
-borrow so the storage can be read again. The kernel sees only the spans.
+`array.scalar` allocates ten zeroed floats. `write` lends out an *exclusive
+borrow*, a writable view that prevents other access to the same storage while
+it is live. `read` lends out a shared read-only view. Each `with` ends its
+writable borrow when the body exits, so the storage can be read again. See
+[exact affine scopes](../../runtime/ownership/exact-scopes.md) for `with` and
+[ownership and borrowing](../../runtime/ownership/borrowing.md) for the borrow
+rules.
 
 ## Species, chunks, and tails
 
-The kernel has four parts.
+The kernel's signature, species, and loop describe how memory becomes groups
+of values.
 
-**The signature.** `output` is a writable span the function has exclusive
-access to, and `input` is a span it borrows for reading. The ownership words
-tell the compiler the two cannot overlap, which lets it read and write whole
+### Span parameters
+
+`output` is a writable span the function has exclusive access to, and `input`
+is a span it borrows for reading. The ownership words tell the compiler the
+two cannot overlap, which lets it read and write whole
 vectors without a store changing a value it is about to load. The `assert`
 relates the two lengths, and the compiler takes it as proof that every index
 valid in `input` is valid in `output`.
 
-**The species.** `simd.species(array.float)` is the species for `float` on
-whatever the code is compiled for: four lanes on NEON, one lane on a target
-with no vector registers or when the function runs as plain Lua. The source
-never writes a lane count, and a kernel written against the species is
-correct at every width.
+### Lane counts
 
-**The loop.** `species:over(#input)` walks the span one vector at a time. On
-each pass it binds `at` to the one-based offset of the next chunk and
-`active` to a **mask**, one boolean per lane, saying which lanes of the chunk
-hold real elements. Ten floats on a four-lane species is three passes:
-elements one to four, five to eight, and nine to ten with the last two lanes
-off.
+`simd.species(array.float)` is the species for `float` on the selected target:
+four lanes on NEON, one lane on a target with no vector registers or when the
+function runs as plain Lua. The source
+never writes a lane count, so this element-by-element multiplication works
+at every width.
 
-**Load, compute, store.** `species:load(input, at, active)` reads up to four
-floats into a vector. Multiplying a vector by a scalar multiplies every lane.
+### Chunks and masks
+
+`species:over(#input)` walks the span one vector at a time, a traversal called
+*strip-mining*. On each pass it binds `at` to the one-based offset of the next
+*chunk*, a group of up to a vector's worth of elements, and `active` to a
+*mask*, one boolean per lane, saying which lanes hold real elements. Ten
+floats on a four-lane species take three passes: elements one to four, five
+to eight, and nine to ten with the last two lanes off.
+
+### Masked loads and stores
+
+`species:load(input, at, active)` reads the active lanes into a vector: up to
+four floats on NEON. Multiplying a vector by a scalar multiplies every lane.
 `species:store` writes the lanes back under the same mask. The mask is what
-lets one loop handle both the full chunks and the ragged end, the **tail**.
-Without it a kernel needs a vector loop for the full chunks and a second,
-scalar loop for whatever is left.
+lets one loop handle both the full chunks and a final partial chunk, the
+*tail*. Inactive lanes do not read or write past the span. An alternative is
+to process full chunks in one loop and the remaining elements in a scalar
+loop.
 
 ## Compiling a kernel
 
-A build target with an `aot` policy compiles its `@aot` functions:
+A build target with an `aot` policy compiles its `@aot` functions. In
+`nupp.lua`, the target can require AOT compilation:
 
 ```lua
 targets = {
@@ -205,16 +212,17 @@ targets = {
 }
 ```
 
-`nupp build` then lowers every `@aot` function into a shared library under
-`build/lib/` and writes each module with a wrapper that calls into it. Before
+`nupp build` then lowers the target's `@aot` functions into a shared library
+under its output directory's `lib/` and writes wrappers that call it. Before
 building, `nupp aot` says what the compiler makes of each function:
 
 ```text [nupp aot scale.nupp]
 scale.nupp: scale, kernel, explicit simd
 ```
 
-"Explicit simd" means the loop runs in lanes because the source said so. The
-assembly shows the instruction from the start of this page doing the work:
+"Explicit simd" means the source uses vector operations. *Assembly* names
+the processor instructions selected for the function; this excerpt shows
+the scale kernel built for NEON:
 
 ```text [nupp aot --emit asm --function scale scale.nupp]
 LBB1_11:
@@ -226,14 +234,14 @@ LBB1_11:
 
 `q1` and `q2` are 128-bit registers, each loaded with four floats. `fmul.4s`
 multiplies all four lanes by the factor in `v0`. The code generator has
-unrolled the loop, so each pass handles several vectors. See
-[build-and-artifacts.md](build-and-artifacts.md) for the policies, the
+*unrolled* the loop, repeating its body so each pass handles several vectors.
+See [build-and-artifacts.md](build-and-artifacts.md) for the policies, the
 feature tiers a build ships, and what the build writes.
 
 ## Auto-vectorization
 
-The same function written as a plain loop, with no `nupp.simd` at all, lowers
-to the same instruction:
+The same function written as a plain loop, with no `nupp.simd` operations,
+also lowers to vector multiplies in this NEON build:
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -257,14 +265,21 @@ LBB0_6:
       fmul.4s v4, v4, v0[0]
 ```
 
-LLVM's **auto-vectorizer** recognized a loop that applies one operation to
-every element of an array and used lanes on its own. Timed over a million
-floats on an Apple silicon laptop, the two functions both take 0.07 ms.
+LLVM's *auto-vectorizer* is a compiler pass that turns scalar operations into
+vector operations. Here it recognized independent multiplications over
+contiguous storage. In the recorded measurement over a million floats on an
+Apple silicon laptop, both versions took 0.07 ms.
 
-A compiler vectorizes a loop when it can prove the lanes would do exactly
-what the scalar code did, in the same order, with the same rounding. It gives
-up, silently, when it cannot prove that, and `nupp aot` reports the function
-as "scalar". The shapes it gives up on are the rest of this page:
+A compiler may vectorize a loop when it can preserve the program's required
+behavior and expects the transformation to be worthwhile. Independent
+iterations can run together; an iteration that depends on the previous
+result needs a transformation that preserves that dependency's meaning.
+
+`nupp aot` reports "scalar" when the function has no explicit SIMD operations
+in Nupp's *intermediate representation* (IR), the form passed to the backend.
+That includes the plain `scale` loop above that LLVM vectorizes. Read
+the generated assembly to see whether LLVM used lanes. The rest of this page
+shows explicit SIMD for loop shapes that can need it:
 
 - a loop whose body runs a different number of times for different elements
 - a floating-point sum, because adding in another order gives another answer
@@ -274,57 +289,75 @@ as "scalar". The shapes it gives up on are the rest of this page:
 - byte arithmetic that needs more than a byte of room
 - data laid out as interleaved records
 
-For those, the loop that uses lanes has to say so. A kernel that says so is
-also reported as "explicit simd" rather than "scalar", so a later compiler
-version cannot change its mind about the loop.
+Explicit SIMD puts the lane operations in the source, and `nupp aot` reports
+the kernel as "explicit simd". Their presence in Nupp IR does not depend on
+LLVM's auto-vectorization decisions. LLVM can also vectorize some searches,
+interleaved accesses, and ordered reductions; the result depends on the loop
+and target. See
+[LLVM's vectorization guide](https://llvm.org/docs/Vectorizers.html)
+for its supported transformations.
 
 ## Vectors and species
 
-A **vector** is an immutable value holding one element per lane. It comes
-from `species:load`, from `species:splat(value)`, which fills every lane with
-one value, or from `species:iota(first, step)`, which fills the lanes with an
-arithmetic sequence. Arithmetic between two vectors is lane by lane. A scalar
-on the right of an operator is splatted first, so `v * factor` and `v + 1.0`
-read as they would on one value:
+A vector in `nupp.simd` is immutable: an operation produces a new value. A
+load reads its elements from memory. A *splat* repeats one value in every
+lane, while `species:iota(first, step)` produces an arithmetic sequence.
+Arithmetic between vectors operates lane by lane; a scalar on the right is
+splatted first:
 
 ```nupp:fragment
 local species = simd.species(array.float)
-local ones = species:splat(1.0)              -- 1 1 1 1
-local ramp = species:iota(0.0, 0.5)          -- 0 0.5 1 1.5
-local sum = ones + ramp                      -- 1 1.5 2 2.5
-local scaled = sum * 2.0                     -- 2 3 4 5
+local ones = species:splat(1.0)
+local ramp = species:iota(0.0, 0.5)
+local sum = ones + ramp
+local scaled = sum * 2.0
 ```
 
-A **species** is a vector type: an element and a lane count.
-`simd.species(array.float)` is the **preferred** species, as wide as the
-target's registers allow. `simd.species(array.float, 4)` is a **fixed**
-species with four logical lanes on every target, which the compiler
-implements in however many registers that takes. Prefer the preferred species
-unless an algorithm needs a known lane count, such as a four-by-four matrix
-transpose. `species.lanes` reads the count either way.
+With four lanes, `ones` contains `1, 1, 1, 1`, and `ramp` contains
+`0, 0.5, 1, 1.5`. Adding them and multiplying by two gives
+`2, 3, 4, 5` in `scaled`.
+
+`simd.species(array.float)` is the *preferred species*, sized for the vector
+width selected by the build. `simd.species(array.float, 4)` is a *fixed
+species* with four logical lanes on every AOT tier, which the compiler
+implements in however many registers that takes. Under ordinary Lua execution,
+even a fixed species has one lane. `species.lanes` reads the count either way.
+
+Prefer the preferred species unless an algorithm needs a known lane count,
+such as a four-by-four matrix transpose. An algorithm that depends on that
+count needs a separate scalar implementation when running as ordinary Lua.
 
 Species exist for every storage element: `uint8` through `uint64`, their
 signed forms, `float`, and `number`. The element is named by the witness
 `nupp.mem.array` allocates with, so a kernel over `array.uint8` storage loads
 it with the `array.uint8` species.
 
-::: tip Vectors do not escape
-A vector is a register, not a Lua value. It lives in locals inside the `@aot`
-function and reaches memory through `store`. There is no vector type to
-return or to put in a table.
-:::
+Vector arithmetic requires compatible species. A two-lane vector cannot be
+added directly to a four-lane vector:
+
+```nupp:fragment
+local pairs = simd.species(array.float, 2)
+local quads = simd.species(array.float, 4)
+local mixed = pairs:splat(1.0) + quads:splat(1.0) -- NUPP2006
+```
+
+Construct both operands from the same species when they represent matching
+lanes.
+
+A vector stays in locals inside the `@aot` function. Store its elements into
+memory, extract a scalar lane, or reduce it to a scalar to pass results back
+to the caller. A vector cannot cross the function's native entry boundary or
+be stored in a Lua table.
 
 ## Masks
 
-A scalar loop decides with `if`. A vector loop cannot branch per lane,
-because one instruction does the same thing to every lane, so it computes a
-mask and uses it to choose values. Comparing two vectors, or a vector and a
-scalar, gives a mask. `mask:select(a, b)` builds a vector that takes `a`
-where the mask is true and `b` where it is false. Masks combine with `&`, and
-`mask:any()`, `mask:all()`, and `mask:count()` summarize them. The `active`
-mask from `over` is a mask like any other.
+A scalar `if` chooses a branch for one condition. Different lanes can meet
+different conditions, so a vector comparison produces a mask with one result
+per lane. `mask:select(a, b)` chooses `a` where the mask is true and `b` where
+it is false.
 
-Clamping every value into a range is the plain case:
+*Clamping* keeps a value inside a range: replace values below the lower bound
+with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -343,8 +376,7 @@ local function clamp(exclusive values: span.WriteSpan<float>, low: float, high: 
 end
 
 local samples = array.scalar(array.float, 6)
-do
-    local writable = samples:write()
+with writable = samples:write() do
     writable[1] = -5.0
     writable[2] = 0.25
     writable[3] = 1.5
@@ -352,7 +384,6 @@ do
     writable[5] = 42.0
     writable[6] = 1.0
     clamp(writable, 0.0, 1.0)
-    nupp.drop(writable)
 end
 local result = samples:read()
 for i = 1, #result do io.write(result[i], " ") end
@@ -364,16 +395,21 @@ print()
 ```
 
 `(v < low):select(low, v)` takes `low` where `v` is below it and keeps `v`
-elsewhere. Both arms are always computed; the mask only picks. An `if`
-becomes a mask and a select, and the branch not taken is paid for anyway. For
-a body of a few arithmetic operations that costs little. For a body that is
-expensive on one side and rarely true, measure before assuming.
+elsewhere. The arguments to `select` are evaluated before it chooses, so it
+does not skip an expensive or invalid expression on an unselected side. Use
+an ordinary `if` when the decision applies to the whole group.
+
+Masks combine with `&`, which keeps lanes true only where both masks are
+true. `mask:any()` tests whether any lane is true, `mask:all()` tests whether
+every lane is true, and `mask:count()` counts true lanes. The `active` mask
+from `over` supports these same operations.
 
 ## Divergent loops
 
-The first shape the auto-vectorizer refuses is a loop whose trip count
-depends on the element. For each input, count how many times it has to be
-halved before it drops to one or below:
+A loop's *trip count* is the number of iterations it executes. When that
+count depends on the element, neighboring inputs can require different
+amounts of work. For each positive, finite input, count how many times it
+must be halved before it drops to one or below:
 
 ```nupp:fragment
 for i = 1, #input do
@@ -387,12 +423,11 @@ for i = 1, #input do
 end
 ```
 
-The inner `while` runs zero times for a small input and twenty for a large
-one, so four neighboring elements need four different trip counts, and no
-compiler runs that in lanes. The kernel can: keep all four lanes in the loop
-until the slowest is done, and stop updating the lanes that finished early.
-This is a **divergent** loop, because the lanes diverge in how long they
-take, and the mask of lanes still working is conventionally named `live`:
+The inner `while` runs zero times for `0.5`, once for `2`, and twenty times
+for `1000000`. To run these inputs together, keep the vector loop running
+until its slowest lane finishes, and stop updating lanes that finish earlier.
+This is a *divergent loop*: its lanes need different numbers of iterations.
+The mask named `live` tracks the lanes that still have work:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -418,19 +453,15 @@ end
 
 local input = array.scalar(array.number, 5)
 local output = array.scalar(array.number, 5)
-do
-    local w = input:write()
+with w = input:write() do
     w[1] = 1.0
     w[2] = 2.0
     w[3] = 100.0
     w[4] = 0.5
     w[5] = 1000000.0
-    nupp.drop(w)
 end
-do
-    local w = output:write()
+with w = output:write() do
     halvings(w, input:read())
-    nupp.drop(w)
 end
 local result = output:read()
 for i = 1, #result do io.write(result[i], " ") end
@@ -446,20 +477,25 @@ Inside, each lane is updated only where `live` is true, and `live` shrinks as
 lanes finish. Starting `live` from `active` keeps the tail's empty lanes out
 of the loop from the first pass.
 
-Written over `float` instead of `number`, so there are four lanes rather than
-two, the kernel counts the halvings of a million random floats in 4.1 ms
-where the scalar loop takes 13.0 ms. That is a little over three times
-faster, not four: the vector loop runs as long as its slowest lane, so every
-lane pays for the largest input in its chunk, and the cost grows with the
-lane count. A wider species is not always a faster one.
+Using `float` instead of `number` gives four lanes on NEON instead of two.
+In the recorded measurement over a million random floats, that version took
+4.1 ms and the scalar loop took 13.0 ms. The distribution of inputs matters:
+if one lane needs twenty iterations and its neighbors need one, the vector
+loop still executes twenty. Wider groups can spend more work on lanes that
+have already finished, so a wider species need not be faster.
 
 ## Reductions
 
-A **reduction** folds many values into one: a sum, a product, a minimum, a
-count. Floating-point reductions are the second shape the auto-vectorizer
-refuses, because floating-point addition is not associative. Adding the same
-numbers in a different order can give a different result, since each
-addition rounds:
+A *reduction* combines many values into one: a sum, a product, a minimum, or
+a count. A floating-point sum must account for *rounding*, the step that
+fits each arithmetic result into the available precision.
+
+### Summation order
+
+Addition is *associative* when changing its grouping preserves its result.
+Floating-point addition does not have that property: these expressions have
+the same mathematical value, two, but produce different floating-point
+results:
 
 ```nupp
 local big = 1e100
@@ -472,30 +508,68 @@ print(1 + (big + (1 - big)))
 1
 ```
 
-A scalar loop that adds `values[1]`, then `values[2]`, then `values[3]` has
-one order. A four-lane loop keeps four running totals, one per lane, and
-combines them at the end, which is another order and in general another
-answer. The compiler may not change the answer, so it leaves the loop
-scalar. A kernel that wants lanes says which order it accepts.
+At the magnitude of `1e100`, binary64 cannot represent a difference of one.
+The additions involving `big` lose those small contributions before the
+large values cancel.
 
-`simd.reducer` is where it says so. A reducer takes contributions through
-`add` and answers through `value`, and its constructor names the
-**contract**, the order it promises:
+A scalar sum adds each element to one running total. A vector sum can keep
+a total per lane and combine them at the end, which changes the grouping and
+can change the answer. The compiler needs permission for that change; it can
+also use lanes for loading or other arithmetic while preserving the sum's
+order.
 
-- `orderedSum` adds in element order, exactly what the scalar loop does. It
-  runs in lanes, but the lanes fold in order, so it gains the least.
+### Reducer contracts
+
+`simd.reducer` provides a *reducer*, an accumulator that accepts
+contributions through `add` and returns its result through `value`. Its
+constructor names the *numerical contract*, the rules for grouping and
+rounding those contributions:
+
+- `orderedSum` adds in contribution order, including lane order within each
+  vector. Its additions remain dependent on the preceding total.
 - `pairwiseSum` adds adjacent pairs, then pairs of those, in a tree. The tree
-  is fixed, so the answer is the same on every target, and it loses far less
-  precision than the ordered sum on long inputs.
-- `algebraicSum` permits any grouping. It is the fastest, because the
-  compiler may keep as many partial sums as it likes, and the low bits of the
-  answer may differ from one target to another.
+  includes the initial value as its first leaf and is independent of vector
+  width. It reduces the number of successive rounding steps for each input,
+  though it is not more accurate for every input sequence.
+- `algebraicSum` permits regrouping, so the compiler can keep independent
+  partial sums. The answer can vary between targets and between compiled and
+  ordinary Lua execution; cancellation can make the difference substantial.
 - `compensatedSum` carries the rounding error of each addition beside the
-  total and adds it back at the end. It recovers the two in the example
-  above, where an ordered sum answers zero.
+  total and adds the correction at the end. It improves accuracy at the cost
+  of extra arithmetic and still has finite precision.
 
-Timed over the floats one to one million, whose exact sum is
-500,000,500,000:
+### Compensation
+
+A compensated reducer can preserve the small contributions when it receives
+`1`, `big`, `1`, and `-big` separately:
+
+```nupp
+local simd = require("nupp.simd")
+local big = 1e100
+local ordered = simd.reducer.orderedSum(0.0)
+local compensated = simd.reducer.compensatedSum(0.0)
+for _, value in ipairs({1, big, 1, -big}) do
+    ordered:add(value)
+    compensated:add(value)
+end
+print(ordered:value())
+print(compensated:value())
+```
+
+```text [nupp run compensation.nupp]
+0
+2
+```
+
+It cannot recover precision already lost before `add`. Passing `1 + big`
+and `1 - big` as two contributions would give it `big` and `-big`, whose sum
+is zero.
+
+### Accuracy and cost
+
+The recorded timings below use binary32 reducers over the floats one to one
+million, whose exact sum is 500,000,500,000. Every addition rounds to
+binary32, so the chosen grouping affects the result:
 
 | Reducer | Time | Answer |
 | --- | --- | --- |
@@ -504,16 +578,20 @@ Timed over the floats one to one million, whose exact sum is
 | `pairwiseSum` | 0.33 ms | 500,000,489,472 |
 | `algebraicSum` | 0.13 ms | 500,007,927,808 |
 
-Four contracts give three answers, and the scalar loop's is the least
-accurate, because binary32 runs out of digits long before a million.
-Choosing a reducer chooses a numerical contract first and a speed second,
-which is why there is no plain `sum`. The ordered reducer costs what the
-scalar loop costs; what it adds is the named contract, and a scalar
-continuation that contributes to the same reducer in program order. See
+The same inputs produce different answers under these contracts. For this
+sequence, the pairwise sum is the most accurate of the measured variants;
+the algebraic sum is the fastest. Those rankings are properties of this
+measurement, not guarantees of the API.
+
+Choose the numerical contract before comparing speed. A reducer can accept
+scalar and vector contributions in the same function, so a scalar loop that
+handles remaining elements can contribute to the same total. See
 [reducer contributions](numeric-semantics.md#reducer-contributions) for the
 ordering rules.
 
-The loop is the one from the earlier kernels. Passing the chunk's mask to
+### Sums
+
+The loop has the same structure as the earlier kernels. Passing its mask to
 `add` keeps the tail's empty lanes from contributing:
 
 ```nupp
@@ -531,6 +609,30 @@ local function total(borrows values: span.Span<number>): number
     return sum:value()
 end
 
+local values = array.scalar(array.number, 10)
+with w = values:write() do
+    for i = 1, #w do w[i] = i end
+end
+print(total(values:read()))
+```
+
+```text [nupp run sum.nupp]
+55
+```
+
+`algebraicSum(0.0)` accumulates in `number`. Passing `array.float` before
+the initial value selects binary32 accumulation instead.
+
+### Dot products
+
+A *dot product* multiplies corresponding elements of two sequences and sums
+the products. A dot reducer takes both values for each contribution:
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
 @aot
 local function dot(borrows left: span.Span<float>, borrows right: span.Span<float>): float
     assert(#left == #right, "length mismatch")
@@ -542,49 +644,41 @@ local function dot(borrows left: span.Span<float>, borrows right: span.Span<floa
     return sum:value()
 end
 
-local values = array.scalar(array.number, 10)
-do
-    local w = values:write()
-    for i = 1, #w do w[i] = i end
-    nupp.drop(w)
-end
-print(total(values:read()))
-
 local a = array.scalar(array.float, 3)
 local b = array.scalar(array.float, 3)
-do
-    local wa, wb = a:write(), b:write()
+with wa = a:write(), wb = b:write() do
     wa[1], wa[2], wa[3] = 1.0, 2.0, 3.0
     wb[1], wb[2], wb[3] = 4.0, 5.0, 6.0
-    nupp.drop(wa)
-    nupp.drop(wb)
 end
 print(dot(a:read(), b:read()))
 ```
 
-```text [nupp run sum.nupp]
-55
+```text [nupp run dot.nupp]
 32
 ```
 
-`algebraicSum(0.0)` accumulates in `number`. `pairwiseDot(array.float, 0.0)`
-names its element, so it accumulates in binary32 and answers a `float`,
-rounding as a scalar `float` loop would at every step. A **dot product** is
-the sum of the pairwise products of two sequences, and the dot reducers take
-two values per contribution.
+Here the products are `4`, `10`, and `18`, which sum to `32`.
+`pairwiseDot(array.float, 0.0)` rounds each product to binary32, then rounds
+each addition in its pairwise tree. It need not match a left-to-right sum.
 
-The same families exist for products, for minimums and maximums with a
-choice of how to treat NaN, for the position of the minimum or maximum, and
-for the integer operations, where addition wraps and needs no contract.
-`simd.horizontal` reduces one vector to one scalar under the same names, for
-the end of a hand-written loop where a lane-wise accumulator has to become a
-number.
+### Other reductions
+
+Reducers also support products, minimums, maximums, the positions of extrema,
+and integer and boolean operations. Minimums and maximums offer contracts for
+handling *NaN* (not a number), the floating-point value produced by operations
+such as zero divided by zero. Wrapping integer sums have their own contract:
+the result wraps at the named element width, and regrouping preserves it.
+See [simd.md#reductions](simd.md#reductions) for the reducer families.
+
+A *horizontal reduction* combines the lanes of one vector into a scalar.
+Use `simd.horizontal` when a loop already maintains a vector of partial
+results and needs to combine them at the end.
 
 ## Searches
 
-A search stops at the first match. That early exit is a branch, and a vector
-loop takes it with a mask and `any()`. Find the first byte equal to a needle,
-or zero:
+A *search* finds an element that meets a condition. This kernel uses a mask
+to find the first byte equal to `needle`, the byte being sought, and returns
+its one-based position or zero when no byte matches:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -612,25 +706,27 @@ print(find(text, ("z"):byte()))
 0
 ```
 
-Comparing sixteen bytes to the needle gives a sixteen-lane mask. `& active`
-discards matches in lanes past the end of the text, and `hit:first()` answers
-the one-based lane of the first match. The parameter is `uint32` because the
-narrow integer types describe storage: a scalar value in a kernel is at least
+On NEON, comparing sixteen bytes to the needle gives a sixteen-lane mask.
+`& active` discards matches in lanes past the end of the text, and
+`hit:first()` returns the one-based lane of the first match. The parameter is
+`uint32` because the narrow integer types describe storage: a scalar value
+in a kernel is at least
 thirty-two bits wide, even when it is compared against byte lanes.
 
 `span.fromString` makes a byte span of a string without copying it. The
-string is a `const` so the span has a rooted value to borrow from.
+string is a `const` so it remains the stable source the span borrows from.
 
-Over ten million bytes with the needle in the last position, the kernel
-finds it in 0.16 ms where the scalar loop takes 0.48 ms.
+In the recorded measurement over ten million bytes with the needle in the
+last position, the kernel took 0.16 ms and the scalar loop took 0.48 ms.
+Moving the match near the start changes the amount of work, so benchmark the
+positions your application encounters.
 
 ## Filters
 
-A filter keeps the elements that pass a test and packs them together at the
-front of the output. In lanes that is `compress`: given a mask, move the
-selected lanes to the front of the vector. The output cursor then advances by
-the number kept rather than by the lane count, and a tail mask of that count
-stores only the lanes that mean something:
+A *filter* keeps elements that pass a test, preserving their order. Vector
+*compression* moves the selected lanes to the front of a vector. The
+*output cursor*, the number of elements already written, advances by the
+number kept, and a mask limits the store to those lanes:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -654,16 +750,12 @@ end
 
 local input = array.scalar(array.float, 8)
 local output = array.scalar(array.float, 8)
-do
-    local w = input:write()
+with w = input:write() do
     for i = 1, #w do w[i] = i * 0.5 end
-    nupp.drop(w)
 end
 local count: integer
-do
-    local w = output:write()
+with w = output:write() do
     count = above(w, input:read(), 2.0)
-    nupp.drop(w)
 end
 local result = output:read()
 for i = 1, count do io.write(result[i], " ") end
@@ -680,49 +772,70 @@ so its arithmetic stays at that width inside the kernel.
 
 ## Bytes and records
 
-The shapes above cover most numeric loops. Three more come up as soon as the
-data is bytes, and each has a section in the reference.
+Byte and record processing also needs operations that change lane widths,
+rearrange fields, or select values from a small table.
 
-**Widening.** Byte arithmetic overflows a byte. A weighted sum of three color
-channels needs sixteen bits, so a byte kernel converts its lanes to a wider
-species, computes there, and converts back. `species:widen(array.uint16)` is
-the sixteen-bit species with the same lane count as the byte species, which
-takes two registers, and `convert` moves lanes between the two. See [the
-`grey` kernel](simd.md#wider-lanes-and-the-last-lane) for the whole kernel.
+### Widening
 
-**Interleaved records.** Pixels arrive as `R G B R G B`, not as three
-arrays. `species:loadTriples` reads three vectors at once, one per channel,
-and `storeTriples` writes them back; pairs and quads have the same forms. On
-NEON each is a single instruction. See
+A `uint8` lane can hold values from zero through 255. An intermediate result
+such as `200 * 3` exceeds that range and wraps if calculated in a byte lane.
+*Widening* moves values into a larger element type before the arithmetic:
+
+```nupp:fragment
+local bytes = simd.species(array.uint8)
+local words = bytes:widen(array.uint16)
+local value = bytes:splat(200)
+local product = words:convert(value) * 3
+```
+
+Every lane of `product` holds 600. The wider species keeps the byte species'
+lane count: on NEON, sixteen 16-bit lanes occupy two 128-bit registers.
+*Narrowing* moves to a smaller element type with the same lane count. Choose
+how to handle values outside its range before converting back. See the
+[`grey` kernel](simd.md#wider-lanes-and-the-last-lane) for weighted color
+arithmetic.
+
+### Interleaved records
+
+RGB pixels can arrive as `R G B R G B`, with the fields of each pixel next
+to each other. These are *interleaved records*. `species:loadTriples` reads
+them into three vectors, one per channel, and `storeTriples` writes them
+back. Pairs and quads have the same forms. On NEON, a full group of native
+width uses `ld3` or `st3`; a partial group needs different handling. See
 [interleaved records](simd.md#interleaved-records) for the RGB to RGBA
 example.
 
-**Table lookups.** A vector serves as a sixteen-entry table, and
-`value:swizzle(indices)` reads an entry per lane. Base64 maps six-bit values
-to letters with it in one instruction. See
+### Table lookups
+
+A *table lookup* uses an index to select an entry from a collection.
+`value:swizzle(indices)` treats a vector as that collection and selects an
+entry for each result lane. A sixteen-lane byte vector holds sixteen entries;
+Base64's 64-character alphabet occupies four such vectors. A NEON byte lookup
+can read from those four vectors with one table instruction. See
 [table lookups](simd.md#table-lookups) for the alphabet example.
 
-When the data is structs rather than scalars, loading one field of each
-struct reads memory with gaps between the values. Column storage from
-`nupp.mem.soa` keeps each field contiguous, and
-`species:load(rows, at, "x", active)` reads a whole column. See
-[structure-of-arrays.md](../../runtime/data/structure-of-arrays.md) for the
-row views a kernel takes.
+### Column storage
+
+Loading one field from each struct can leave gaps between the values read.
+*Column storage* from `nupp.mem.soa` keeps the values of each field
+contiguous. `species:load(rows, at, "x", active)` reads one vector-sized
+chunk of the `x` column. See
+[column spans](../../runtime/data/structure-of-arrays.md#column-spans) for the
+views a kernel takes.
 
 ## Feature tiers
 
-A kernel names no lane count and no instruction set. What it lowers to is
-decided per **feature tier**: NEON on ARM, the x86 tiers (a baseline, AVX2,
-and AVX-512) chosen by the build's `aotFeatures`, and SIMD128 for Wasm. On a
-tier with no vector registers, `simd.species` is one lane wide and the loop
-runs an element at a time, as it does under plain Lua.
+A kernel using the preferred species names no lane count or instruction set.
+The build selects a *feature tier*, a set of processor capabilities the
+compiled function may use: NEON on ARM, an x86 baseline, AVX2, AVX-512, or
+SIMD128 for Wasm. The preferred species has one lane on a scalar tier, while
+a fixed species retains its requested logical lane count in AOT code.
 
-The one-lane form is correct but slow as Lua, because every vector operation
-is a library call. A kernel that is called often without a build, or that
-ships to a scalar Wasm tier, asks `simd.vectors(array.float)` instead. It
-answers the species where vectors exist and `nil` where they do not, decided
-at compile time per tier, so the scalar loop in the `else` branch is the only
-code that exists on a scalar tier:
+Under ordinary Lua, both species forms have one lane. The vector operations
+use library helpers, so a plain scalar loop can cost less. Use
+`simd.vectors(array.float)` when the kernel has its own scalar implementation:
+it returns a species where vector registers are available and `nil` where
+they are not. AOT resolves this choice at compile time for each tier:
 
 ```nupp:fragment
 if species = simd.vectors(array.float) then
@@ -734,71 +847,71 @@ else
 end
 ```
 
-A build compiles the kernel once per tier it ships, and the library picks the
-one for the machine it runs on. The source is the same on every tier.
+A native build can include several tiers and select a supported one when the
+library loads. The source is shared across tiers. See
+[library dispatch](build-and-artifacts.md#library-dispatch) for native
+wrappers and [AOT targets](index.md) for target selection.
 
 ## Measurement
 
-`nupp aot FILE` says "scalar" or "explicit simd" per function, and `nupp aot
---emit asm --function NAME FILE` shows the instructions. If the plain loop
-already shows `fmul.4s`, the auto-vectorizer did the work and a `nupp.simd`
-version ties at best. Read the report before timing anything.
+`nupp aot FILE` says whether each function uses explicit SIMD in Nupp IR, and
+`nupp aot --emit asm --function NAME FILE` shows the instructions LLVM chose.
+If the plain loop already shows `fmul.4s`, the auto-vectorizer did the work
+of vectorizing its multiplication. That instruction alone does not establish
+equal performance: the versions can differ in loads, loop control, tails,
+and other work.
 
 Time the whole function. Setup, the tail, and the reducer's final fold are
-part of the cost. The times on this page are best-of-ten wall-clock times of
-complete functions over a million elements, on one Apple silicon laptop, with
-the kernels built under `aot = "require"`. They show the shape of each
-result, not a figure to quote. See [benchmarks.md](../benchmarks.md) for
-measuring with an interval.
+part of the cost. The recorded times on this page are the shortest of ten
+wall-clock measurements of complete functions on one Apple silicon laptop,
+with the kernels built under `aot = "require"`. The numeric examples use a
+million elements; the search uses ten million bytes. These timings describe
+those runs. The best of ten does not show measurement uncertainty. See
+[benchmarks.md](../benchmarks.md) for comparisons with a confidence interval.
 
-Expect memory to be the limit. A loop that does one multiply per element is
-finished with arithmetic long before the next cache line arrives, and no
-lane count changes that. Lanes pay when there is enough arithmetic per
-element to fill them, which is why the divergent loop and the search gained
-three times and the scale loop gained nothing.
+Measure the sizes and input distributions the application uses. A loop with
+little arithmetic per element can be *memory-bound*: its rate is limited by
+moving data rather than by performing arithmetic. Wider vectors cannot
+exceed the available memory bandwidth. A divergent loop can instead spend
+time on lanes that have finished, and a search's cost depends on where it
+finds a match.
 
 ## Glossary
 
-The terms this page introduced, in the order a kernel meets them.
+These terms connect the processor model to the Nupp operations.
 
-- **Scalar**: one value, or an instruction that works on one value.
-- **Vector**: several values of one type packed into a wide register. In
-  `nupp.simd`, an immutable value living in a kernel's locals.
-- **Lane**: one slot of a vector. A 128-bit register has four `float` lanes
+- *Scalar*: one value, or an instruction that works on one value.
+- *Vector*: a group of values of one type. It can occupy one or several
+  registers; in `nupp.simd`, it is an immutable value in a kernel's locals.
+- *Lane*: one slot of a vector. A 128-bit register has four `float` lanes
   or sixteen `uint8` lanes.
-- **SIMD**: single instruction, multiple data. One instruction that operates
+- *SIMD*: single instruction, multiple data. One instruction that operates
   on every lane of a vector at once.
-- **Species**: a vector type, an element and a lane count.
+- *Species*: a vector type, an element and a lane count.
   `simd.species(array.float)` is the preferred species for `float`; a fixed
   species names its lane count.
-- **Mask**: one boolean per lane. Produced by comparisons, consumed by
+- *Mask*: one boolean per lane. Produced by comparisons, consumed by
   `select`, masked loads and stores, and reducers.
-- **Tail**: the last, partial chunk of a span that does not fill a vector,
+- *Tail*: the last, partial chunk of a span that does not fill a vector,
   and the mask that marks its real lanes.
-- **Strip-mining**: walking an array a vector's width at a time, which is
+- *Strip-mining*: walking an array a vector's width at a time, which is
   what `species:over` does.
-- **Splat**: filling every lane with one scalar.
-- **Divergent loop**: a loop whose trip count differs per lane, run until the
+- *Splat*: filling every lane with one scalar.
+- *Divergent loop*: a loop whose trip count differs per lane, run until the
   slowest lane finishes under a shrinking `live` mask.
-- **Reduction**: folding many values into one. Horizontal operations do it
+- *Reduction*: folding many values into one. Horizontal operations do it
   across the lanes of one vector; reducers do it across a whole loop.
-- **Contract**: the order a reduction promises. Ordered, pairwise, algebraic,
-  and compensated are the floating-point contracts.
-- **Auto-vectorizer**: the compiler pass that turns a scalar loop into lanes
+- *Contract*: the grouping and rounding rules a reduction promises.
+  Ordered, pairwise, algebraic, and compensated are floating-point contracts.
+- *Auto-vectorizer*: the compiler pass that turns a scalar loop into lanes
   when it can prove the answer is unchanged.
-- **Feature tier**: one instruction set a build compiles a kernel for, such
+- *Feature tier*: one instruction set a build compiles a kernel for, such
   as NEON, AVX2, or SIMD128.
-- **Widen** and **narrow**: moving lanes to the next larger or smaller
+- *Widen* and *narrow*: moving lanes to the next larger or smaller
   element type with the same lane count.
 
 ::: seealso
-- [simd.md](simd.md) for the reference to every operation on this page
+- [simd.md](simd.md) for the complete vector API
 - [cpu-kernels.md](cpu-kernels.md) for bounds proofs, ownership, and
   inspecting generated code
-- [numeric-semantics.md](numeric-semantics.md) for the rounding and ordering
-  guarantees the reducers keep
-- [structure-of-arrays.md](../../runtime/data/structure-of-arrays.md) for
-  column storage of struct fields
-- [benchmarks.md](../benchmarks.md) for measuring a change with a confidence
-  interval
 :::
