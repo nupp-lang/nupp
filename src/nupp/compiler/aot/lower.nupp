@@ -6711,6 +6711,19 @@ local function localStmt(
     for position, token in ipairs(names) do
         local annotation = stat.types ~= nil and (stat.types as {cst.Node})[position] or nil
         local expected = annotatedValueType(annotation, context) or values[position].type
+        -- A `float` read from a span or a field arrives widened to binary64, and
+        -- a binary32 consumer peels the widening off the load. A local would
+        -- stop that: bound without an annotation it held the binary64, so
+        -- `nupp.math.f32.mul(value, 0.5)` was refused over a `value` the
+        -- checker types as `float`, where the same read written inline was
+        -- admitted. Bind it at the width the checker gave it, as `: float`
+        -- would.
+        if annotation == nil and values[position].op == "widen_f32_f64" and #exprs == #names then
+            local inferred = semanticValueType((exprs[position] as any).inferredType)
+            if inferred == "f32" then
+                expected = "f32"
+            end
+        end
         if expected == nil then
             context.reject(
                 lower.site(stat),

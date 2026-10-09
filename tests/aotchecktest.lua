@@ -175,6 +175,22 @@ end
 
 return {scale = scale}
 ]],
+    -- The same read bound to an unannotated local first: the local keeps the
+    -- `float` the checker gave it rather than the widened binary64.
+    ["floatlocal.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function halve(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        local value = input[index]
+        output[index] = nupp.math.f32.mul(value, 0.5)
+    end
+end
+
+return {halve = halve}
+]],
     -- A number literal passed to a `uint32` parameter, which the literal fits.
     ["literalwidth.nupp"] = [[
 local valuebuilder = require("nupp.codec.valuebuilder")
