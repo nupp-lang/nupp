@@ -35,19 +35,33 @@ permissions:
   # The browser guest it calls fetches the pinned LLVM artifact.
   actions: read
 
-# Grouped per commit rather than per branch, so no push ever discards another
-# push's answer. The previous shape kept one pending run per branch, so a newer
-# commit cancelled an older one still waiting and the commit in between had no
-# result at all -- which is the opposite of what a retained trunk history is for.
+# Grouped per ref, so a newer push to the same ref cancels the older run.
 #
-# It matters more now than it did: a worktree branch push is the run whose
-# result lets that commit reach `main`, so cancelling it does not save work, it
-# throws away the only thing standing between the commit and the trunk.
+# This was briefly grouped per commit, to keep a result against every commit in
+# the trunk's history rather than only against the tip. It cost more than it
+# bought: a per-commit group is a group of one, so nothing ever supersedes
+# anything, and the macOS leg takes an hour and a half against commits that land
+# every few minutes. The queue grows without bound, and the answer a run finally
+# gives is about a commit twenty commits behind the tip -- which leaves the tip,
+# the one commit anybody is going to act on, the last thing to be tested.
+#
+# What is given up is the ability to say "this commit was green and the next one
+# was red" directly. A cancelled run means a later run covers both commits, so a
+# failure there is bisected rather than read off. That is the cheaper half of the
+# trade, because the trunk is fixed forward: what matters is that the tip is
+# tested promptly, and under the per-commit shape it never was.
+#
+# A worktree branch loses nothing by this. The old shape kept its run alive on
+# the grounds that it is the only thing standing between that commit and the
+# trunk, but a second push to the same branch has already replaced the commit
+# that run was answering about; the branch's tip is the only answer its task
+# wants, and that is the run that survives.
+#
+# The event name is in the key so a push cannot cancel the nightly backstop
+# declared above: a scheduled run's `github.ref` is `refs/heads/main` too.
 concurrency:
-  group: >-
-    ${{ github.workflow }}-${{ github.event_name == 'push'
-    && github.event.after || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Everything a run can decide before it provisions anything. This is the job
