@@ -1834,6 +1834,14 @@ end)
 -- The worker side
 ----------------------------------------------------------------------------
 
+local function workerFailure(problem: any): any
+    if cancellation.is(problem) then
+        return problem
+    end
+
+    return debug.traceback(tostring(problem), 2)
+end
+
 local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any, preparedOutput: any): nil
     if not ok then
         if cancellation.is(answer) then
@@ -1931,24 +1939,27 @@ function workers.runScheduler(): nil
             answerTask(outbox, {kind = "reply", id = id, cancelled = true, deadline = deadline,})
         else
             local preparedOutput: any = nil
-            local ok, answer = pcall(function(): Packed
-                if frame.error ~= nil then
-                    error(frame.error, 0)
-                end
-                local moduleName = frame.module as string
-                local member = frame.member as string
-                local moduleValue = require(moduleName)
-                local callable = outlinedSendables[sendableKey(moduleName, member)]
+            local ok, answer = xpcall(
+                function(): Packed
+                    if frame.error ~= nil then
+                        error(frame.error, 0)
+                    end
+                    local moduleName = frame.module as string
+                    local member = frame.member as string
+                    local moduleValue = require(moduleName)
+                    local callable = outlinedSendables[sendableKey(moduleName, member)]
                     or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
-                if type(callable) ~= "function" then
-                    error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
-                end
-                local descriptor = sendableDescriptors[callable]
-                preparedOutput = descriptor and descriptor.output or nil
-                local arguments = packedValue(frame.encoding, frame.bytes, frame.value)
+                    if type(callable) ~= "function" then
+                        error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
+                    end
+                    local descriptor = sendableDescriptors[callable]
+                    preparedOutput = descriptor and descriptor.output or nil
+                    local arguments = packedValue(frame.encoding, frame.bytes, frame.value)
 
-                return pack(callable(unpack(arguments.values, 1, arguments.count)))
-            end)
+                    return pack(callable(unpack(arguments.values, 1, arguments.count)))
+                end,
+                workerFailure
+            )
             local cancelled, finishedDeadline = native.workerTaskFinish(id)
             if ok and cancelled then
                 releasePlantedMoved((answer as Packed).values, 0)

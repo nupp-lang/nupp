@@ -176,6 +176,13 @@ raise a sibling's failure: the application scope is fail-fast, rather than a
 supervisor. Use [`gather`](#whole-family-calls) when failures should remain
 beside individual results.
 
+A single failure is raised unchanged. If other children fail while the scope
+drains, leaving the scope raises a value with `primary` holding the first
+failure and `suppressed` holding the later failures in observation order.
+`suppressedCount` includes nil-valued failures, which leave holes in that array.
+Cancelled siblings do not add failures. String conversion includes the primary
+failure and each suppressed failure.
+
 The block is not a child of the scope, so a failure the block itself raises does
 not cancel the children: they run to completion before the failure propagates.
 Call `scope:cancel()` first where that is not wanted, or run the body with

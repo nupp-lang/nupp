@@ -674,23 +674,34 @@ local function laneCheckpoint(): (boolean, boolean)
     return checkpointCancelled, checkpointDeadline
 end
 
+local function workerFailure(problem: any): any
+    if cancellation.is(problem) then
+        return problem
+    end
+
+    return debug.traceback(tostring(problem), 2)
+end
+
 --- Runs a task frame and answers the reply the pool should carry back.
 local function runFrame(frame: any): any
     checkpointCancelled = false
     checkpointDeadline = false
-    local ok, answer = pcall(function(): Packed
-        local moduleName = frame.module as string
-        local member = frame.member as string
-        local moduleValue = require(moduleName)
-        local callable = outlinedSendables[sendableKey(moduleName, member)]
+    local ok, answer = xpcall(
+        function(): Packed
+            local moduleName = frame.module as string
+            local member = frame.member as string
+            local moduleValue = require(moduleName)
+            local callable = outlinedSendables[sendableKey(moduleName, member)]
             or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
-        if type(callable) ~= "function" then
-            error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
-        end
-        local arguments = codec.decode(assert(base64.decode(frame.payload as string)))
+            if type(callable) ~= "function" then
+                error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
+            end
+            local arguments = codec.decode(assert(base64.decode(frame.payload as string)))
 
-        return pack(callable(unpack(arguments.values, 1, arguments.count)))
-    end)
+            return pack(callable(unpack(arguments.values, 1, arguments.count)))
+        end,
+        workerFailure
+    )
     if not ok then
         if cancellation.is(answer) then
             local cancelled = answer as any

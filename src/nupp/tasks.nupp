@@ -185,6 +185,7 @@ local type ScopeState = {
     onSettle: (function(Child))?,
     live: integer,
     failure: any,
+    suppressed: Packed?,
     failed: boolean,
     cancellation: tasks.Cancellation?,
     deadline: number?,
@@ -505,6 +506,23 @@ local function releaseUncalled(child: Child): nil
     end
 end
 
+--- Keeps secondary failures beside the primary failure.
+---
+--- The same shape a block's cleanup gives a cleanup failure: the primary first,
+--- the rest beside it, and text that names both.
+local function withSuppressed(primary: any, suppressed: Packed): any
+    return setmetatable({primary = primary, suppressed = suppressed.values, suppressedCount = suppressed.count,}, {
+        __tostring = function(value: any): string
+            local text = tostring(value.primary)
+            for index = 1, value.suppressedCount do
+                text = text .. "\ncleanup: " .. tostring(value.suppressed[index])
+            end
+
+            return text
+        end,
+    })
+end
+
 --- Records the first failure the scope owns.
 ---
 --- Fail-fast is about ownership rather than timing: the failure belongs to the
@@ -514,6 +532,14 @@ local function ownFailure(owner: ScopeState, problem: any): nil
     if not owner.failed then
         owner.failed = true
         owner.failure = problem
+    else
+        const suppressed = owner.suppressed
+        if suppressed == nil then
+            owner.suppressed = pack(problem)
+        else
+            suppressed.count = suppressed.count + 1
+            suppressed.values[suppressed.count] = problem
+        end
     end
 end
 
@@ -1444,6 +1470,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         onSettle = nil,
         live = 0,
         failure = nil,
+        suppressed = nil,
         failed = false,
         cancellation = nil,
         deadline = deadline,
@@ -1596,6 +1623,10 @@ local function closeScope(owner: ScopeState): nil
     end
     owner.closed = true
     if owner.failed then
+        const suppressed = owner.suppressed
+        if suppressed ~= nil then
+            error(withSuppressed(owner.failure, suppressed), 0)
+        end
         error(owner.failure, 0)
     end
     const cancelled = owner.cancellation
@@ -1706,23 +1737,6 @@ end
 -- Running a body in a scope
 ----------------------------------------------------------------------------
 
---- A failure that ended a body, with what settling its family raised after it.
----
---- The same shape a block's cleanup gives a cleanup failure: the primary first,
---- the rest beside it, and text that names both.
-local function withSuppressed(primary: any, suppressed: any): any
-    return setmetatable({primary = primary, suppressed = {suppressed},}, {
-        __tostring = function(value: any): string
-            local text = tostring(value.primary)
-            for _, reason in ipairs(value.suppressed as {any}) do
-                text = text .. "\ncleanup: " .. tostring(reason)
-            end
-
-            return text
-        end,
-    })
-end
-
 local function runImpl(...: any): ...any
     local limit: integer? = nil
     local timeoutMs: number? = nil
@@ -1754,12 +1768,15 @@ local function runImpl(...: any): ...any
         cancelImpl(owner, "the body failed")
     end
     const settled, settleProblem = pcall(closeScope, owner)
-    if scopeOwned or settled or settleProblem == problem then
+    if settled or settleProblem == problem then
         error(problem, 0)
+    end
+    if scopeOwned and owner.failed and problem == owner.failure then
+        error(settleProblem, 0)
     end
     -- Draining found a problem of its own -- a child failing while it unwound. It does
     -- not replace what ended the body, and is kept beside it.
-    error(withSuppressed(problem, settleProblem), 0)
+    error(withSuppressed(problem, pack(settleProblem)), 0)
 end
 
 --- Runs `body` in a new scope and settles the scope however the body ends.

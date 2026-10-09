@@ -508,6 +508,12 @@ export function unobserved(): string
 end
 ```
 
+A worker failure carries its message and the worker's traceback back to the
+caller. The stack is captured before the worker call unwinds, so it identifies
+where the worker failed. Cancellation keeps its separate identity and does not
+become a failure with a traceback. A bytecode payload stripped of debug
+information retains stack frames but cannot recover stripped names or lines.
+
 Both raise. A scope is fail-fast rather than a supervisor, so a failure is
 handled where the scope is left, not by awaiting the task that carries it. Where
 each item should keep its own outcome, give each one a scope of its own, as the

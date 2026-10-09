@@ -548,8 +548,12 @@ export function pair(value: integer): (integer, string)
     return value * 2, "done"
 end
 
-export function fail(): nil
+local function failInsideWorker(): nil
     error("deliberate worker failure", 0)
+end
+
+export function fail(): nil
+    failInsideWorker()
 end
 
 export record Box
@@ -764,6 +768,11 @@ local ok, problem = pcall(function(): nil
     end
 end)
 print(ok, tostring(problem):find("deliberate worker failure", 1, true) ~= nil)
+assert(tostring(problem):find("stack traceback:", 1, true) ~= nil, tostring(problem))
+assert(tostring(problem):find("nupp-worker", 1, true) ~= nil, tostring(problem))
+if arg[1] == "check-stack" then
+    assert(tostring(problem):find("failInsideWorker", 1, true) ~= nil, tostring(problem))
+end
 
 local copied, copyProblem = pcall(function(): nil
     with scope = tasks.open() do
@@ -848,7 +857,7 @@ end
     local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
     assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
     local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
-    local rustOutput, rustRanOk = run(dir, rustExecutable)
+    local rustOutput, rustRanOk = run(dir, rustExecutable .. " check-stack")
     assert(rustRanOk, "the Rust worker host runs the Nupp payload: " .. rustOutput)
     assert(rustOutput == expected, "the Rust host preserves structured worker and shared-byte results: " .. rustOutput)
     os.execute("rm -rf '" .. dir .. "'")
@@ -865,7 +874,9 @@ local function recordModule(name, from, to)
         lines[#lines + 1] = ("    function(): any return new R%d(v = %d) end,"):format(index, index)
     end
     lines[#lines + 1] = "}\n"
-    lines[#lines + 1] = ("export function make(index: integer): any\n    return makers[index - %d]()\nend\n"):format(from - 1)
+    lines[
+        #lines + 1
+    ] = ("export function make(index: integer): any\n    return makers[index - %d]()\nend\n"):format(from - 1)
 
     return table.concat(lines, "\n")
 end
@@ -877,13 +888,17 @@ end
 -- later task sent to it failed.
 function M.aTasksFailureLeavesItsLaneRunning()
     local dir = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-        ["src/shapes.nupp"] = [[
+        [
+            "src/shapes.nupp"
+        ] = [[
 module shapes
 
 export record Point
@@ -898,7 +913,9 @@ end
         ["src/recs0.nupp"] = recordModule("recs0", 1, 100),
         ["src/recs1.nupp"] = recordModule("recs1", 101, 200),
         ["src/recs2.nupp"] = recordModule("recs2", 201, 300),
-        ["src/points.nupp"] = [[
+        [
+            "src/points.nupp"
+        ] = [[
 module points
 
 const shapes = require("shapes")
@@ -907,7 +924,9 @@ export function sum(point: shapes.Point): integer
     return point.x + point.y
 end
 ]],
-        ["src/jobs.nupp"] = [[
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
 
 const recs0 = require("recs0")
@@ -927,7 +946,9 @@ export function make(index: integer): any
     return recs2.make(index)
 end
 ]],
-        ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const jobs = require("jobs")
 const points = require("points")
 const shapes = require("shapes")
@@ -1191,13 +1212,17 @@ end
 -- array twice. The transfer walk refuses it first, with the array still owned.
 function M.aRegionWhoseExtentWasForgedIsRefusedBeforeItCrosses()
     local dir = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-        ["src/jobs.nupp"] = [[
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
 
 const heap = require("nupp.mem.heap")
@@ -1209,7 +1234,9 @@ export function inspect(takes frame: heap.Array<uint8>, region: sharedbytes.Regi
     return count + region:length()
 end
 ]],
-        ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const jobs = require("jobs")
 const heap = require("nupp.mem.heap")
 const sharedbytes = require("nupp.mem.sharedbytes")
@@ -1247,20 +1274,26 @@ end
 -- starts. `taskstest` holds the same for coroutine children; this is the fork.
 function M.aSpawnedChildForkingOnAFullScopeDoesNotDeadlock()
     local dir = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-        ["src/jobs.nupp"] = [[
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
 
 export function compress(name: string, path: string): integer
     return #name + #path
 end
 ]],
-        ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const jobs = require("jobs")
 const tasks = require("nupp.tasks")
 
@@ -1295,13 +1328,17 @@ end
 -- free it.
 function M.aLongLivedScopeListsOnlyTheWorkerTasksItStillOwes()
     local dir = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-        ["src/jobs.nupp"] = [[
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
 
 const heap = require("nupp.mem.heap")
@@ -1318,7 +1355,9 @@ export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(he
     return frame
 end
 ]],
-        ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 const jobs = require("jobs")
@@ -1357,8 +1396,10 @@ print(owing)
     local built, builtOk = run(dir, "'" .. NUPP .. "' build")
     assert(builtOk, "the worker binary builds: " .. built)
     local output, ranOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
-    assert(ranOk and output == "true\ttrue\n1\n",
-        "settled worker tasks left the scope and the unconsumed moved result stayed: " .. output)
+    assert(
+        ranOk and output == "true\ttrue\n1\n",
+        "settled worker tasks left the scope and the unconsumed moved result stayed: " .. output
+    )
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1676,9 +1717,7 @@ local handle = assert(io.open("input.txt", "r"))
 return 1
 ]],
         -- And the workers surface carries both halves.
-        [
-            "workerstyped.nupp"
-        ] = [[
+        ["workerstyped.nupp"] = [[
 local tasks = require("nupp.tasks")
 local wrong: integer = tasks.open
 return wrong

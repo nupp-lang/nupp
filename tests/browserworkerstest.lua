@@ -205,4 +205,75 @@ return open
     end
 end
 
+function M.laneFailuresKeepTheirStackAndCancellationIdentity()
+    local effects = require("nupp.runtime.browser.effects")
+    local cancellation = require("nupp.suspension.cancellation")
+    local base64 = require("nupp.codec.base64")
+    local moduleName = "browser-worker-failure-fixture"
+    local providerName = "nupp.runtime.browser.workers"
+    local previousModule = package.loaded[moduleName]
+    local previousProvider = package.loaded[providerName]
+    local previousRequest = effects.request
+    local previousCheckpoint = _G.nupp.__workerCheckpoint
+    local replies = {}
+    local frames = 0
+
+    local function failInsideWorker()
+        error("browser worker failure", 0)
+    end
+
+    package.loaded[moduleName] = {
+        fail = function()
+            failInsideWorker()
+        end,
+        cancel = function()
+            error(cancellation.create("fixture", "its deadline passed"), 0)
+        end,
+        succeed = function()
+            return 42
+        end,
+    }
+    package.loaded[providerName] = nil
+    local ok, problem = pcall(function()
+        local workers = require(providerName)
+        effects.request = function(kind, payload, resume)
+            check.equal(kind, "lane")
+            if payload.operation == "reply" then
+                replies[#replies + 1] = payload
+            end
+            frames = frames + 1
+            local member = ({"fail", "cancel", "succeed"})[frames]
+            resume({
+                ok = true,
+                value = member
+                and {
+                    module = moduleName,
+                    member = member,
+                    task = frames,
+                    payload = base64.encode(codec.encode(packed())),
+                }
+                or nil
+            })
+
+            return function()
+            end
+        end
+        workers.runScheduler()
+    end)
+    effects.request = previousRequest
+    package.loaded[moduleName] = previousModule
+    package.loaded[providerName] = previousProvider
+    _G.nupp.__workerCheckpoint = previousCheckpoint
+    assert(ok, tostring(problem))
+    check.equal(#replies, 3)
+    check.equal(replies[1].status, "failed")
+    check.matches(replies[1].error, "browser worker failure")
+    check.matches(replies[1].error, "stack traceback:")
+    check.matches(replies[1].error, "failInsideWorker")
+    check.equal(replies[2].status, "cancelled")
+    check.equal(replies[2].deadline, true)
+    check.equal(replies[2].error, nil)
+    check.equal(replies[3].status, "done")
+end
+
 return M
