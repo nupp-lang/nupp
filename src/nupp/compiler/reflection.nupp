@@ -197,7 +197,6 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                 for _, name in ipairs(t.fieldOrder or {}) do
                     local fieldType = t.byname and t.byname[name] or nil
                     local stored = fieldType ~= nil
-                        and fieldType.tag ~= "func"
                         and fieldType.tag ~= "typeobject"
                         and not (t.nestedTypes and t.nestedTypes[name])
                         and not (t.privateFields and t.privateFields[name])

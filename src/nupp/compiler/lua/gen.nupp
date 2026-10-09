@@ -1648,7 +1648,6 @@ function gen.generate(
             for _, field in ipairs(nominal.fieldOrder or {}) do
                 local fieldType = nominal.byname and nominal.byname[field] or nil
                 local stored = fieldType ~= nil
-                    and fieldType.tag ~= "func"
                     and fieldType.tag ~= "typeobject"
                     and not (nominal.nestedTypes and nominal.nestedTypes[field])
                     and not (nominal.privateFields and nominal.privateFields[field])

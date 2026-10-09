@@ -28,6 +28,34 @@ end
 
 local M = {}
 
+function M.constructionKeepsStoredCallbacksAndOmitsMethods()
+    local result = run(
+        [[
+local events = require("nupp.events")
+@derive(events.Event)
+local record Action
+    callback: function(): integer
+    extra: integer = 5
+    function evaluate(self): integer
+        return self.callback() + self.extra
+    end
+end
+local description = Action.reflect()
+local bus: events.MessageBus<integer> = events.newMessageBus()
+local result = 0
+bus:observe(1, Action, |event| -> do result = event:evaluate() end)
+bus:emit(1, Action, callback = function(): integer return 7 end)
+return {construction = description.types[description.root].construction, result = result}
+]]
+    )
+    testAssert.equal(#result.construction.params, 2)
+    testAssert.equal(result.construction.params[1].name, "callback")
+    testAssert.equal(result.construction.params[1].optional, false)
+    testAssert.equal(result.construction.params[2].name, "extra")
+    testAssert.equal(result.construction.params[2].optional, true)
+    testAssert.equal(result.result, 12)
+end
+
 function M.recordsExposeTypeWitnessesAndLazyDescriptors()
     local result, code = run(
         [[
@@ -102,10 +130,16 @@ return User
     testAssert.equal(type(key.id), "number", "the JSON extension key has no typed id")
     local info = User:reflect()
     local codec = info:extension(key)
-    testAssert.equal(codec, _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec, "the key read back the codec")
-    local ok, problem = pcall(info.extension, info, {build = function()
-        return "untyped"
-    end})
+    testAssert.equal(
+        codec,
+        _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec,
+        "the key read back the codec"
+    )
+    local ok, problem = pcall(info.extension, info, {
+        build = function()
+            return "untyped"
+        end
+    })
     testAssert.equal(ok, false, "an untyped extension token was resolved")
     assert(tostring(problem):find("not an extension key", 1, true), tostring(problem))
 end
