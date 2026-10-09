@@ -83,6 +83,11 @@ function M.execution(execution, family, element, requested)
                     group = "masked"
                 elseif key:match("^simd_loop_reducers_" .. element .. "%.loop_[%w_]+$") then
                     group, width = "loop", "scalar"
+                else
+                    width = key:match("^simd_mixed_reducers_" .. element .. "_(%d+)%.mixed_[%w_]+$")
+                    if width then
+                        group = "mixed"
+                    end
                 end
             end
             assert(group, "unexpected reducer probe: " .. key)
@@ -135,14 +140,18 @@ function M.execution(execution, family, element, requested)
         end
     else
         expected = {horizontal = {widths, 1}}
-        if element == "number"
-            or element == "int32"
-            or element == "uint32"
-            or element == "int64"
-            or element == "uint64"
-        then
-            expected.masked = {widths, element == "number" and 14 or 7}
-            expected.loop = {{"scalar"}, element == "number" and 21 or 9}
+        -- The authored reducers take the floating elements and the 32- and
+        -- 64-bit integers: one probe per contract through a scalar loop, a
+        -- masked region at every requested width, and the mixed
+        -- scalar-region-scalar shape at widths 2 and 8.
+        local contracts = element == "number" and 21
+            or element == "float" and 18
+            or (element == "int32" or element == "uint32" or element == "int64" or element == "uint64") and 9
+            or nil
+        if contracts ~= nil then
+            expected.masked = {widths, contracts}
+            expected.loop = {{"scalar"}, contracts}
+            expected.mixed = {{"2", "8"}, contracts}
         end
     end
     for group, spec in pairs(expected) do
