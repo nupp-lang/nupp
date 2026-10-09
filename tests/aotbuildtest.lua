@@ -6571,6 +6571,134 @@ function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
     end
 end
 
+||||||| parent of 8ee07a87d (Show widened species and carried lanes in the SIMD guide)
+--- The two kernels `Species.widen` and a computed lane index were added for:
+--- a byte-to-grey conversion whose weighted sum needs the lanes of a byte
+--- register held in sixteen bits, and a prefix sum carrying its last lane
+--- without naming how many lanes the species has.
+local WIDTH_COUPLED_KERNEL = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+--- Grey from packed RGB bytes, three per pixel of `out`. The weighted sum
+--- needs sixteen bits, so the byte species widens to a `uint16` species with
+--- the same lanes. A short `rgb` reads zero past its end.
+@aot
+local function grey(exclusive out: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): integer
+    local bytes = assert(simd.species(array.uint8))
+    local wide = bytes:widen(array.uint16)
+    local at: uint32 = 0
+    local written: uint32 = 0
+    while at + 3 * bytes.lanes <= #rgb and written + bytes.lanes <= #out do
+        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+        bytes:store(out, written + 1, bytes:convert(sum >> 8))
+        at = at + 3 * bytes.lanes
+        written = written + bytes.lanes
+    end
+    if written < #out then
+        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+        bytes:store(out, written + 1, bytes:convert(sum >> 8), bytes:tail(#out - written))
+    end
+    return #out
+end
+
+--- An inclusive prefix sum whose carry is the last lane of each vector,
+--- named by the species' lane count rather than a literal.
+@aot
+local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
+    assert(#out == #input, "one sum per input")
+    local s = assert(simd.species(array.uint32))
+    local carry = s:splat(0)
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local sums = s:load(input, cursor + 1):orderedPrefixSum() + carry
+        s:store(out, cursor + 1, sums)
+        carry = s:splat(sums:extract(s.lanes))
+        cursor = cursor + s.lanes
+    end
+    if cursor < #input then
+        local rest = s:tail(#input - cursor)
+        local sums = s:load(input, cursor + 1, rest):orderedPrefixSum() + carry
+        s:store(out, cursor + 1, sums, rest)
+    end
+    return #input
+end
+
+return {grey = grey, prefix = prefix}
+]]
+
+function M.widenedSpeciesAndComputedLanesAgreeWithScalarOracles()
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(WIDTH_COUPLED_KERNEL)
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local symbols = {}
+    for _, name in ipairs({"grey", "prefix"}) do
+        symbols[
+            name
+        ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
+    end
+    for _, symbol in ipairs(symbols.grey) do
+        ffi.cdef(("double %s(uint8_t *, const uint8_t *, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.prefix) do
+        ffi.cdef(("double %s(uint32_t *, const uint32_t *, size_t, size_t);"):format(symbol))
+    end
+
+    -- Every pixel count around one, two and three byte registers, so the
+    -- widened sum is checked in full vectors and in a masked tail.
+    for pixels = 0, 67 do
+        local rgb = ffi.new("uint8_t[?]", pixels * 3 + 1)
+        for i = 0, pixels * 3 - 1 do
+            rgb[i] = (i * 73 + 11) % 256
+        end
+        for _, symbol in ipairs(symbols.grey) do
+            local actual = ffi.new("uint8_t[?]", pixels + 1)
+            for i = 0, pixels do
+                actual[i] = 61
+            end
+            local written = lib[symbol](actual, rgb, pixels, pixels * 3)
+            test.equal(written, pixels, symbol .. " pixels " .. pixels)
+            for i = 0, pixels - 1 do
+                local expected = math.floor((rgb[3 * i] * 77 + rgb[3 * i + 1] * 150 + rgb[3 * i + 2] * 29) / 256)
+                test.equal(actual[i], expected, symbol .. " pixels " .. pixels .. " pixel " .. i)
+            end
+            test.equal(actual[pixels], 61, symbol .. " pixels " .. pixels .. " writes nothing past the end")
+        end
+    end
+
+    -- Every count around one, two and three registers of uint32, with values
+    -- that wrap the running sum, so the carried lane is checked both as the
+    -- last lane of a full vector and as the seed of a masked tail.
+    for count = 0, 35 do
+        local input = ffi.new("uint32_t[?]", count + 1)
+        for i = 0, count - 1 do
+            input[i] = (i % 5 == 4) and 0xC0000000 or (i * 1000003 + 7)
+        end
+        for _, symbol in ipairs(symbols.prefix) do
+            local actual = ffi.new("uint32_t[?]", count + 1)
+            for i = 0, count do
+                actual[i] = 61
+            end
+            local written = lib[symbol](actual, input, count, count)
+            test.equal(written, count, symbol .. " count " .. count)
+            local running = 0ULL
+            for i = 0, count - 1 do
+                running = (running + input[i]) % 4294967296ULL
+                test.equal(actual[i], tonumber(running), symbol .. " count " .. count .. " lane " .. i)
+            end
+            test.equal(actual[count], 61, symbol .. " count " .. count .. " writes nothing past the end")
+        end
+    end
+end
+
 function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local ffi = require("ffi")
     local dir = project("require")

@@ -112,6 +112,81 @@ end
 
 A guard for the whole run makes each access a single copy. On NEON that is `ld2`, `ld3` or `ld4` and `st2`, `st3` or `st4`. A run that crosses the end of the span reads zero past it and writes nothing there, one lane at a time. The same layout change written as rounds of `deinterleave` or a stride-three `swizzle` costs several shuffles, where the load instruction does it for free.
 
+## Wider lanes and the last lane
+
+A byte kernel often needs more than a byte for its arithmetic. Grey from RGB weights three bytes and sums them in sixteen bits, and the sum wants every lane the byte register holds: on a 128-bit tier a `uint8` species has sixteen lanes where a `uint16` one has eight. `species:widen(array.uint16)` is the `uint16` species with the receiver's lane count, whatever the tier makes it, so the kernel never names a register width. Its vectors take two native registers, the way a `Fixed<N>` species past one register does, and `convert` moves lanes between the two species because their counts agree:
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function grey(exclusive out: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): integer
+    local bytes = assert(simd.species(array.uint8))
+    local wide = bytes:widen(array.uint16)
+    local at: uint32 = 0
+    local written: uint32 = 0
+    while at + 3 * bytes.lanes <= #rgb and written + bytes.lanes <= #out do
+        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+        bytes:store(out, written + 1, bytes:convert(sum >> 8))
+        at = at + 3 * bytes.lanes
+        written = written + bytes.lanes
+    end
+    if written < #out then
+        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+        bytes:store(out, written + 1, bytes:convert(sum >> 8), bytes:tail(#out - written))
+    end
+    return #out
+end
+```
+
+On NEON the loop is `ld3`, widening multiplies and multiply-accumulates, a shift and a narrowing store. `narrow` is the inverse: a widened species narrows back to the one it came from, and a preferred species narrows to one with half the lanes the narrower element's own register holds. The ladder is `uint8`, `uint16`, `uint32`, `uint64`, the same for signed integers, and `float` to `number`; a step is the next element of the same signedness, nothing is wider than 64 bits or narrower than 8, and a witness that is not the next step is refused where the function is lowered.
+
+`convert` and `reinterpret` keep their rules across such a pair. A conversion needs the lane counts to agree, which `widen` guarantees; a reinterpretation also needs the element widths to agree, so between a species and its `widen` the word is `convert`, and between two species of one width either is:
+
+```nupp:fragment
+local floats = assert(simd.species(array.float))
+local doubles = floats:widen(array.number)
+local precise = doubles:convert(floats:load(input, at + 1))      -- fpext, lane for lane
+local words = assert(simd.species(array.uint32)):reinterpret(floats:load(input, at + 1))
+local rounded = floats:convert(precise)                           -- fptrunc, back to the same lanes
+```
+
+At the checker a widened species keeps the receiver's species identity, so `wide` above is a `simd.Species<uint16, simd.Preferred>`, the same type `simd.species(array.uint16)` has. They are different species once the function is lowered, one with the lane count of a `uint8` register and the other with its own, and a vector of one meets a vector of the other only through `convert`.
+
+A lane index is decided where the function is lowered, so it may be the species' lane count or arithmetic on it, not only a literal: `sums:extract(species.lanes)` is the last lane of any species, and `species.lanes - 1` the one before it. A prefix scan carries its last lane into the next vector without a `Fixed<N>` species chosen for the sake of writing `extract(N)`:
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
+    assert(#out == #input, "one sum per input")
+    local s = assert(simd.species(array.uint32))
+    local carry = s:splat(0)
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local sums = s:load(input, cursor + 1):orderedPrefixSum() + carry
+        s:store(out, cursor + 1, sums)
+        carry = s:splat(sums:extract(s.lanes))
+        cursor = cursor + s.lanes
+    end
+    if cursor < #input then
+        local rest = s:tail(#input - cursor)
+        local sums = s:load(input, cursor + 1, rest):orderedPrefixSum() + carry
+        s:store(out, cursor + 1, sums, rest)
+    end
+    return #input
+end
+```
+
+An index past the lanes the tier gives the species is refused with its position, as a literal past them always was, and so is one no tier can fold, such as a parameter. `insert` and `align`'s offset take the same indices.
+
 ## Table lookups
 
 `value:swizzle(indices)` reads lane `indices[i]` of `value` into lane `i`, and zero where the index is outside `1..lanes`. A small table is a vector, so a lookup is one swizzle. Up to three more vectors continue the run of lanes: an index in `lanes+1..2*lanes` reads the second, and so on through the fourth. A sixty-four-byte alphabet on a sixteen-lane byte species is four table vectors and one lookup:
