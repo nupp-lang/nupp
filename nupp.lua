@@ -132,11 +132,9 @@ local RESOURCES = {
     {source = "src/nupp/spi/init.nupp", output = "nupp/compiler/nupp/spi/init.nupp"},
     {source = "src/nupp/text/spi.nupp", output = "nupp/compiler/nupp/text/spi.nupp"},
     {source = "src/nupp/random/spi.nupp", output = "nupp/compiler/nupp/random/spi.nupp"},
-    {
-        source = "src/nupp/mem/representation/spi.nupp",
-        output = "nupp/compiler/nupp/mem/representation/spi.nupp"
-    },
+    {source = "src/nupp/mem/representation/spi.nupp", output = "nupp/compiler/nupp/mem/representation/spi.nupp"},
     {source = "src/nupp/codec/json/spi.nupp", output = "nupp/compiler/nupp/codec/json/spi.nupp"},
+    {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},
     {source = "src/nupp/io/path/spi.nupp", output = "nupp/compiler/nupp/io/path/spi.nupp"},
     {source = "src/nupp/time/spi.nupp", output = "nupp/compiler/nupp/time/spi.nupp"},
     {source = "src/nupp/io/uri/spi.nupp", output = "nupp/compiler/nupp/io/uri/spi.nupp"},
@@ -171,10 +169,7 @@ local RESOURCES = {
     {source = "src/nupp/io/files/path.nupp", output = "nupp/compiler/nupp/io/files/path.nupp"},
     {source = "src/nupp/gpu/spi.nupp", output = "nupp/compiler/nupp/gpu/spi.nupp"},
     {source = "src/nupp/suspension/cancellation.nupp", output = "nupp/compiler/nupp/suspension/cancellation.nupp"},
-    {
-        source = "src/nupp/mem/representation/init.nupp",
-        output = "nupp/compiler/nupp/mem/representation/init.nupp"
-    },
+    {source = "src/nupp/mem/representation/init.nupp", output = "nupp/compiler/nupp/mem/representation/init.nupp"},
     {source = "src/nupp/runtime/provider/workers.nupp", output = "nupp/compiler/nupp/runtime/provider/workers.nupp"},
     {
         source = "src/nupp/runtime/provider/suspension.nupp",

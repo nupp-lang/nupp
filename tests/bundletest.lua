@@ -168,6 +168,7 @@ local json = require("nupp.codec.json")
 assert(component_started == nil)
 log.info("starting component")
 component_json = json.encode({answer = 42})
+component_exact = json.encode({value = json.numberToken("18446744073709551615")})
 component_started = true
 return true
 ]],
@@ -194,6 +195,10 @@ return game
         artifact:find('package.preload["nupp.runtime.provider.lunajson"]', 1, true),
         "the component carries providers reached through service facades"
     )
+    assert(
+        artifact:find('package.preload["nupp.codec.json.number"]', 1, true),
+        "the component carries the provider's numeric token validator"
+    )
 
     local script = [[
 _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
@@ -208,6 +213,7 @@ assert(component_json == nil)
 component.start()
 assert(component_started == true)
 assert(component_json == '{"answer":42}')
+assert(component_exact == '{"value":18446744073709551615}')
 ]]
     local scriptFile = assert(io.open(dir .. "/run.lua", "wb"))
     scriptFile:write(script)
