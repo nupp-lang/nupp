@@ -6267,12 +6267,20 @@ end
 return {scan = scan}
 ]]
     local files = {["proved.nupp"] = body:gsub("CONDITION", "cursor < #cps and cps[cursor + 1] > 0xF")}
+    -- A read displaced past the cursor is refused naming the room the
+    -- comparison actually gave it; every other shape falls back to the rule.
+    local base = "span loads need a counted-loop index or cursor + 1 under cursor < #span"
     local rejected = {
-        {"reversed", "#cps > cursor and cps[cursor + 1] > 0xF"},
-        {"disjunction", "cursor < #cps or cps[cursor + 1] > 0xF"},
-        {"otherspan", "cursor < #other and cps[cursor + 1] > 0xF"},
-        {"inclusive", "cursor <= #cps and cps[cursor + 1] > 0xF"},
-        {"offset", "cursor < #cps and cps[cursor + 2] > 0xF"},
+        {"reversed", "#cps > cursor and cps[cursor + 1] > 0xF", base},
+        {"disjunction", "cursor < #cps or cps[cursor + 1] > 0xF", base},
+        {"otherspan", "cursor < #other and cps[cursor + 1] > 0xF", base},
+        {"inclusive", "cursor <= #cps and cps[cursor + 1] > 0xF", base},
+        {
+            "offset",
+            "cursor < #cps and cps[cursor + 2] > 0xF",
+            "span loads at cursor + 2 need cursor + 1 < #cps or cursor + 2 <= #cps dominating them; "
+            .. "the bounds give cursor room for 1 element of cps",
+        },
     }
     for _, case in ipairs(rejected) do
         files[case[1] .. ".nupp"] = body:gsub("CONDITION", function()
@@ -6286,11 +6294,7 @@ return {scan = scan}
     for _, case in ipairs(rejected) do
         out, code = run(dir, scalar .. case[1] .. ".nupp")
         test.equal(code, 1, case[1] .. " is not the proof\n" .. out)
-        assert(
-            out:find(case[1] .. ".nupp:6:", 1, true)
-            and out:find("span loads need a counted-loop index or cursor + 1 under cursor < #span", 1, true),
-            case[1] .. ": " .. out
-        )
+        assert(out:find(case[1] .. ".nupp:6:", 1, true) and out:find(case[3], 1, true), case[1] .. ": " .. out)
     end
 end
 
