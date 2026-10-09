@@ -23,6 +23,28 @@ on:
 permissions:
   contents: read
   actions: read
+
+# A newer push to the same ref cancels the older run, as it does for the
+# Compiler matrix.
+#
+# The literal prefix is load-bearing, and the reason is particular to a
+# reusable workflow: inside one, `github.workflow` is the *caller's* workflow
+# name, not this file's. This workflow is reached three ways -- pushed to
+# directly, called by `release.yml` on a tag, and called by
+# `wasm-playground.yml`, which the Compiler matrix's `browser-wasm` job calls
+# in turn. Without the prefix that last path computes the same group the
+# Compiler matrix gives its own top-level run, so a matrix run would cancel
+# itself the moment it reached this workflow.
+#
+# Keying on the caller is what makes the rest safe. A tag's release build
+# groups per tag, so it cannot collide with a branch push, and a direct push
+# run and a nested call on one ref stay in separate groups rather than
+# cancelling each other.
+concurrency:
+  group: >-
+    browser-guest-${{ github.workflow }}-${{ github.event_name
+    }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   guest:
     runs-on: ubuntu-24.04
