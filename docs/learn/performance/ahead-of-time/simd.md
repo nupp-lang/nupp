@@ -4,7 +4,7 @@ order: 633
 
 # AOT SIMD
 
-AOT code runs in vector lanes through explicit `nupp.simd` operations. A loop written without them is a scalar loop, whatever LLVM later makes of it. This page is the reference; [SIMD from the ground up](simd-guide.md) teaches the model it assumes.
+AOT code runs in vector lanes through explicit `nupp.simd` operations. A loop written without them is a scalar loop, whatever LLVM later makes of it. This page is the reference. See [simd-programming.md](simd-programming.md) for the model it assumes.
 
 ```nupp
 local array = require("nupp.mem.array")

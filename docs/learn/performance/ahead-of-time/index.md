@@ -98,7 +98,7 @@ Each page owns one part of the AOT pipeline.
   representative measurement.
 - [Lua values](lua-values.md) covers table and string construction through the
   VM-rooted builder ABI.
-- [SIMD from the ground up](simd-guide.md) teaches what SIMD is and how a
+- [SIMD programming](simd-programming.md) teaches what SIMD is and how a
   loop uses lanes, from the first kernel to reducers, with runnable examples.
 - [SIMD](simd.md) covers `nupp.simd` species, masks, reducers, and
   target feature tiers.
@@ -124,8 +124,8 @@ annotation that changes the answer, and it says so per function.
 
 By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
 and a tail. A loop without those operations is scalar. See
-[SIMD from the ground up](simd-guide.md) to learn the model and
-[AOT SIMD](simd.md) for the reference.
+[simd-programming.md](simd-programming.md) for the model and
+[simd.md](simd.md) for the reference.
 
 ### Does a project need a C compiler?
 

@@ -144,7 +144,7 @@ end
 ```
 
 See [ahead-of-time compilation](learn/performance/ahead-of-time/index.md),
-[SIMD from the ground up](learn/performance/ahead-of-time/simd-guide.md),
+[SIMD programming](learn/performance/ahead-of-time/simd-programming.md),
 [SIMD](learn/performance/ahead-of-time/simd.md), and
 [GPU compute](learn/performance/ahead-of-time/gpu.md).
 
