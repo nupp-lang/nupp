@@ -40,8 +40,25 @@ UTF-8 text; arbitrary bytes are a [](nupp.mem.span) of bytes, never a string
 holding binary. Tables and functions are refused, naming the argument's
 position. Structured data is encoded into bytes by the library that owns it.
 
-A host names its own resources with integers it assigns. A byte result arrives
-as a byte span the caller owns.
+A byte span is a borrow, so it crosses through a bound kind whose signature
+says so; `call` and `post` take their arguments as `any`, which a borrow cannot
+cross, and carry the other values only:
+
+```nupp:fragment
+local host = nupp.host
+local span = nupp.mem.span
+
+local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
+local digest = host.bind<Digest>("app.digest")
+
+const text = "hello"
+local length, echoed = digest(bytes = span.fromString(text))
+```
+
+A byte result arrives as a byte span the caller owns. A string or byte value
+has a size limit: a string at most 64 KiB, bytes sent to the host at most
+64 MiB, and bytes answered at most 16 MiB. A host names its own resources with
+integers it assigns.
 
 ## Results nobody is waiting for
 

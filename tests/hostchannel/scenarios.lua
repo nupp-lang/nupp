@@ -147,10 +147,12 @@ function scenarios.lateReleases()
     return {cancelled = not ok and tostring(problem) or "not cancelled", live = live}
 end
 
--- A late handler that tries to wait is refused, and other deliveries carry on.
+-- A late handler that would wait is refused, and other deliveries carry on. A
+-- call the host answers at once never waits, so this one is answered later.
 function scenarios.lateCannotWait()
     local open = host.bind("test.open", function(id)
-        host.call("test.close", id)
+        host.call("test.slow", "x", 10)
+        host.post("test.close", id)
     end)
     scoped(30, function(scope)
         scope:spawn(function()
@@ -229,6 +231,14 @@ function scenarios.posts()
     end
     local notes = host.call("test.notes")
     return {notes = notes}
+end
+
+-- Natively, with no suspension handler around it, a call the host does not
+-- answer at once is refused rather than left to block the host's own call.
+function scenarios.unansweredWithoutAHandler()
+    local problem = failure(host.call, "test.slow", span.fromString("x"), 10)
+    local echoed = host.call("test.echo", "answered at once")
+    return {problem = problem, echoed = echoed}
 end
 
 return scenarios
