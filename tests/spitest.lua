@@ -932,6 +932,8 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
         {"nupp.runtime.provider.nativecompression", true, false},
         {"nupp.runtime.browser.time", false, true},
         {"nupp.runtime.browser.workers", false, true},
+        {"nupp.runtime.provider.nativehost", true, false},
+        {"nupp.runtime.browser.host", false, true},
         -- The compiler may carry the transport helper without selecting a browser
         -- provider.
         {"nupp.runtime.browser.memory", true, true},
@@ -972,6 +974,7 @@ local SELECTING_FACADES = {
     {"nupp.compression", "nupp.compression.spi.Provider"},
     {"nupp.digest", "nupp.digest.spi.Provider"},
     {"nupp.gpu", "nupp.gpu.spi.Provider"},
+    {"nupp.host", "nupp.host.spi.Provider"},
     {"nupp.io.files", "nupp.io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},

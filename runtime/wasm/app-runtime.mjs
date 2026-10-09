@@ -1,3 +1,11 @@
+import {hostEffectBoundToFrame, performHostEffect} from "./host-channel.mjs";
+
+export {closeHostChannel, createHostChannel} from "./host-channel.mjs";
+
+// What one answer's text may hold: the guest reads it from a one-MiB slot, and
+// the bridge adds its lease descriptors beside the responses.
+const RESPONSE_TEXT_BUDGET = 896 * 1024;
+
 const DEFAULT_LIMITS = Object.freeze({
   maxEffects: 256,
   maxEffectBytes: 4 * 1024 * 1024,
@@ -786,6 +794,7 @@ async function performEffect(effect, options) {
     else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
     else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
     else if (effect.kind === "gpu") value = await performGpuEffect(effect, options);
+    else if (effect.kind === "host") value = await performHostEffect(effect, options);
     else throw new Error(`unsupported browser effect ${effect.kind}`);
     return {id: effect.id, ok: true, value};
   } catch (error) {
@@ -796,8 +805,26 @@ async function performEffect(effect, options) {
 // A transfer lease belongs to the frame that carried it: the guest takes its bytes
 // back when the frame is answered, so a request naming one settles inside it.
 function boundToFrame(effect) {
+  if (effect?.kind === "host") return hostEffectBoundToFrame(effect);
   return effect?.lease !== undefined || effect?.bodyLease !== undefined ||
     effect?.resultLease !== undefined || effect?.spans !== undefined;
+}
+
+// Answers what fits the guest's text slot. Responses held to this frame always
+// go, since their leases return with it; settled detached ones fill the rest in
+// the order they settled, and what is left waits for the next frame.
+function packedResponses(held, detached) {
+  const responses = [...held];
+  let used = held.reduce((total, response) => total + JSON.stringify(response).length + 1, 64);
+  let taken = 0;
+  while (taken < detached.settled.length) {
+    const size = JSON.stringify(detached.settled[taken]).length + 1;
+    if (used + size > RESPONSE_TEXT_BUDGET && responses.length > 0) break;
+    used += size;
+    taken++;
+  }
+  responses.push(...detached.settled.splice(0, taken));
+  return responses;
 }
 
 function detachedEffects(options) {
@@ -854,6 +881,5 @@ export async function handleBrowserEffects(message, options = {}) {
   } else if (message.kind === "poll" || wake === "turn") {
     await nextHostTurn();
   }
-  responses.push(...detached.settled.splice(0));
-  return {responses};
+  return {responses: packedResponses(responses, detached)};
 }

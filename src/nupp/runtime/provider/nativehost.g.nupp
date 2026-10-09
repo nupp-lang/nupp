@@ -1,0 +1,210 @@
+@!internal
+module nupp.runtime.provider.nativehost
+
+--[[
+The embedding application's answers to [](nupp.host) requests.
+
+An application embedding the runtime registers a C handler per kind
+(`nupp_host_register`). A request calls that handler directly, with its
+arguments borrowed for the length of the call; the handler answers then or
+later with `nupp_host_answer`, and either way the answer waits in the runtime
+until a poll delivers it. A program not run by an embedding application has no
+host: `nupp run` installs none, so every request is refused by name.
+
+Without a suspension handler a park blocks inside the very call the host made,
+so the host could never answer a request it did not answer at once. Such a
+request is refused rather than left to hang; run it under a handler, such as a
+[](nupp.host.pump), and drive it with `nupp_runtime_poll`.
+]]
+
+local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
+local values = require("nupp.host.internal.values")
+local ffi = require("ffi")
+
+local unpackValues: any = rawget(_G, "unpack") or (table as any).unpack
+
+local provider = {}
+
+-- Answers are delivered before timers in a pass, so a reply and the deadline it
+-- raced resolve in the order the host produced them.
+const SOURCE_ORDER = 15
+
+const OPERATION_CALL = 0
+const OPERATION_POST = 1
+
+local loaded, channel = pcall(require, "nupp.host.native")
+if not loaded or type(channel) ~= "table" or not channel.attached() then
+    channel = nil
+end
+
+local nextRequest: integer = 1
+local pending: {[integer]: any} = {}
+local pendingCount: integer = 0
+local source: any = nil
+
+local function report(kind: string, problem: any): nil
+    io.stderr:write("nupp: host " .. kind .. ": " .. tostring(problem) .. "\n")
+end
+
+local refusingHandler = new suspensionHost.Handler(
+    park = function(_: any, _: any, _: any): nil
+        error("nupp: a host late handler cannot suspend; release with host.post", 0)
+    end,
+    canPark = function(_: any): boolean
+        return false
+    end,
+    shutdown = function(_: any): nil
+    end
+)
+
+local function runLate(kind: string, late: any, ...: any): nil
+    local installed = suspensionHost.install(refusingHandler)
+    local ok, problem = pcall(late, ...)
+    installed:close()
+    if not ok then
+        report(kind, "late handler failed: " .. tostring(problem))
+    end
+end
+
+local function decodeTaken(status: any, kinds: any, ...: any): (any, any, any)
+    if status == nil then
+        return nil, nil, nil
+    elseif status == false then
+        return false, kinds, nil
+    end
+    local count = #(kinds as string)
+    local decoded: any = {...}
+    for position = 1, count do
+        if (kinds as string):sub(position, position) == "y" then
+            local text = decoded[position]
+            decoded[position] = values.byteSpan(text, ffi.cast("const uint8_t *", text), #text)
+        end
+    end
+
+    return true, count, decoded
+end
+
+-- Moves a delivered answer into Lua values, byte results as spans the caller
+-- owns, and frees the runtime's copy. Answers nothing while unanswered, then
+-- `true, count, values` or `false, message`.
+local function takeAnswer(request: integer): (any, any, any)
+    return decodeTaken(channel.take(request))
+end
+
+local function forget(request: integer): nil
+    if pending[request] ~= nil then
+        pending[request] = nil
+        pendingCount = pendingCount - 1
+    end
+end
+
+-- Delivers every answer the host has given since the last pass.
+local function deliver(): integer
+    local delivered: integer = 0
+    for _, request in ipairs(channel.ready()) do
+        local entry = pending[request]
+        if entry ~= nil then
+            local ok, count, decoded = takeAnswer(request)
+            if ok ~= nil then
+                forget(request)
+                delivered = delivered + 1
+                if entry.cancelled then
+                    if ok and entry.late ~= nil then
+                        runLate(entry.kind, entry.late, unpackValues(decoded, 1, count))
+                    end
+                elseif entry.resume ~= nil then
+                    entry.resume({ok = ok, count = count, values = decoded})
+                end
+            end
+        end
+    end
+
+    return delivered
+end
+
+local function readiness(): any
+    if source == nil or source.released then
+        source = suspension.source("nupp.host", SOURCE_ORDER, deliver, nil, function(): boolean
+            return pendingCount > 0
+        end)
+    end
+
+    return source
+end
+
+local function dispatch(operation: integer, kind: string, ...: any): integer
+    if channel == nil then
+        error("nupp: no host answers " .. kind .. "; no embedding application is attached", 0)
+    end
+    local count = select("#", ...)
+    local bytes: any = nil
+    for position = 1, count do
+        local tag, value, length = values.classify(kind, position, (select(position, ...)))
+        if tag == "bytes" then
+            bytes = bytes or {}
+            bytes[position] = {tonumber(ffi.cast("uintptr_t", value)), length}
+        end
+    end
+    local request = nextRequest
+    nextRequest = nextRequest + 1
+    local found, problem = channel.dispatch(operation, request, kind, count, bytes, ...)
+    if not found then
+        error("nupp: " .. tostring(problem), 0)
+    end
+
+    return request
+end
+
+function provider.attached(): boolean
+    return channel ~= nil
+end
+
+function provider.call(kind: string, late: any, ...: any): ...any
+    local request = dispatch(OPERATION_CALL, kind, ...)
+    local ok, count, decoded = takeAnswer(request)
+    if ok == nil then
+        local entry = {kind = kind, late = late, cancelled = false, resume = nil}
+        pending[request] = entry
+        pendingCount = pendingCount + 1
+        if not suspension.handled() then
+            entry.cancelled = true
+            channel.cancel(request)
+            error(
+                "nupp: host "
+                .. kind
+                .. " was not answered during the call, and nothing can wait for it here;"
+                .. " run it under a suspension handler such as nupp.host.pump",
+                0
+            )
+        end
+        local answer = suspension.suspend("host " .. kind, function(
+            resume: function(any): nil,
+            context: any
+        ): function()
+            context:uses(readiness())
+            entry.resume = resume
+            return function(): nil
+                if pending[request] ~= nil then
+                    entry.cancelled = true
+                    entry.resume = nil
+                    channel.cancel(request)
+                end
+            end
+        end)
+        ok, count, decoded = answer.ok, answer.count, answer.values
+    end
+    if not ok then
+        error("nupp: host " .. kind .. " failed: " .. tostring(count), 0)
+    end
+
+    return unpackValues(decoded, 1, count)
+end
+
+-- The runtime discards a post's answer itself and reports its failure, so
+-- nothing here waits on or remembers one.
+function provider.post(kind: string, ...: any): nil
+    dispatch(OPERATION_POST, kind, ...)
+end
+
+export = provider

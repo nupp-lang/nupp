@@ -1923,6 +1923,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["nupp.io.uri.newURI('https://example.com')"] = "runtime.uri",
         ["nupp.util.uuid7()"] = "runtime.uuid",
         ["nupp.system.availableParallelism()"] = "runtime.system",
+        ["nupp.host.attached()"] = "runtime.host",
     }
     for source, effect in pairs(expected) do
         local found = effectsOf(source)

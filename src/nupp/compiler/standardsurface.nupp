@@ -23,6 +23,12 @@ local MODULES: {[string]: {
     ["nupp.digest"] = facility("runtime", "runtime.bitops"),
     ["nupp.mac.spi"] = {kind = "common"},
     ["nupp.system.spi"] = {kind = "common"},
+    ["nupp.host"] = facility("host", "runtime.host"),
+    ["nupp.host.spi"] = {kind = "common"},
+    ["nupp.host.pump"] = {kind = "common"},
+    ["nupp.host.internal.values"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.runtime.provider.nativehost"] = facility("runtime", "native.host"),
+    ["nupp.runtime.browser.host"] = facility("runtime", "runtime.host"),
     ["nupp.digest.spi"] = {kind = "common"},
     ["nupp.digest.internal.context"] = {kind = "common"},
     ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),
@@ -151,6 +157,7 @@ local MODULES: {[string]: {
 
 local BROWSER_IMPLEMENTATIONS = {
     ["nupp.runtime.browser.system"] = true,
+    ["nupp.runtime.browser.host"] = true,
     ["nupp.runtime.browser.webgpu.internal"] = true,
     ["nupp.runtime.browser.http"] = true,
     ["nupp.runtime.browser.files"] = true,

@@ -6,11 +6,12 @@
 //! mistaken for another. LuaJIT is only entered through `HostRuntime`, whose C
 //! shim protects every operation that can raise.
 
+use crate::host_channel::{self, HostCancel, HostChannel, HostHandler, Owned};
 use crate::{
     Component, HostError, HostRuntime, LuaFunction, LuaState, ManagedHandle, ManagedValue, Reload,
     ReloadVerdict,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -79,6 +80,50 @@ impl Default for NuppValue {
 
 pub struct NuppRuntime {
     inner: HostRuntime,
+    // Boxed so the pointer the Lua state holds stays put while the runtime moves.
+    channel: Box<HostChannel>,
+    // Whether this runtime's channel answers the state's `nupp.host` requests;
+    // a second runtime attached to a state does not.
+    answers_host: Cell<bool>,
+}
+
+/// Boxes a new runtime and gives it its state's host channel when it is free.
+fn boxed_runtime(inner: HostRuntime) -> Result<*mut NuppRuntime, Failure> {
+    let runtime = Box::into_raw(Box::new(NuppRuntime {
+        inner,
+        channel: Box::new(HostChannel::new()),
+        answers_host: Cell::new(false),
+    }));
+    // SAFETY: freshly boxed above and not yet visible to anything else.
+    let installed = unsafe {
+        let boxed = &*runtime;
+        boxed.channel.set_runtime(runtime.cast());
+        boxed
+            .inner
+            .install_host_channel((&*boxed.channel as *const HostChannel).cast())
+    };
+    match installed {
+        Ok(answers) => {
+            // SAFETY: as above.
+            unsafe { (*runtime).answers_host.set(answers) };
+            Ok(runtime)
+        }
+        Err(error) => {
+            // SAFETY: as above; nothing else holds the pointer.
+            drop(unsafe { Box::from_raw(runtime) });
+            Err(Failure::runtime(ERROR_RUNTIME, error))
+        }
+    }
+}
+
+impl NuppRuntime {
+    fn detach_host_channel(&self) {
+        if self.answers_host.replace(false) {
+            self.inner
+                .clear_host_channel((&*self.channel as *const HostChannel).cast());
+            self.channel.clear();
+        }
+    }
 }
 
 thread_local! {
@@ -167,6 +212,9 @@ impl Drop for Entry {
 
 impl Drop for NuppRuntime {
     fn drop(&mut self) {
+        // An attached state outlives its runtime; it must not keep a pointer
+        // to the channel this drop frees.
+        self.detach_host_channel();
         // Every name this runtime issued dies with it. A host that frees a
         // component after the runtime finds nothing to release, which is what
         // releasing it would have done anyway.
@@ -499,7 +547,7 @@ pub unsafe extern "C" fn nupp_runtime_new(
             let flags = config_flags(config, CONFIG_OPEN_LIBRARIES)?;
             let runtime = HostRuntime::owned(flags & CONFIG_OPEN_LIBRARIES != 0, None)
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
-            out.write(Box::into_raw(Box::new(NuppRuntime { inner: runtime })));
+            out.write(boxed_runtime(runtime)?);
             Ok(())
         })
     }
@@ -535,7 +583,7 @@ pub unsafe extern "C" fn nupp_runtime_attach(
                     message: failure.to_string(),
                 },
             )?;
-            out.write(Box::into_raw(Box::new(NuppRuntime { inner: runtime })));
+            out.write(boxed_runtime(runtime)?);
             Ok(())
         })
     }
@@ -977,6 +1025,7 @@ pub unsafe extern "C" fn nupp_runtime_shutdown(
             }
             // SAFETY: this is the only call running in the state, so no other
             // reference to the runtime exists for the length of this borrow.
+            (*entry.runtime).detach_host_channel();
             (*entry.runtime)
                 .inner
                 .shutdown()
@@ -1355,6 +1404,200 @@ pub unsafe extern "C" fn nupp_component_release(
             component_for(entry.runtime(), component)?;
             registry().names.remove(&key(component));
             Ok(())
+        })
+    }
+}
+
+/// A kind is two or more dot-separated names of letters, digits, `_` and `-`,
+/// outside the runtime's own `nupp.` names.
+fn checked_kind(kind: &[u8]) -> Result<(), Failure> {
+    let well_formed = !kind.is_empty()
+        && kind.len() <= 128
+        && kind.contains(&b'.')
+        && !kind.starts_with(b".")
+        && !kind.ends_with(b".")
+        && !kind.windows(2).any(|pair| pair == b"..")
+        && kind
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'));
+    if !well_formed {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            format!(
+                "host kind {:?} must be dot-separated names",
+                String::from_utf8_lossy(kind)
+            ),
+        ));
+    }
+    if kind.starts_with(b"nupp.") {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            format!(
+                "host kind {} is reserved for the runtime",
+                String::from_utf8_lossy(kind)
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn host_channel_of(entry: &Entry) -> Result<&HostChannel, Failure> {
+    // SAFETY: a runtime whose state is entered is never freed; see Drop.
+    let runtime = unsafe { &*entry.runtime };
+    if !runtime.answers_host.get() {
+        return Err(Failure {
+            status: STATUS_INCOMPATIBLE,
+            category: ERROR_COMPATIBILITY,
+            message: "another runtime attached to this Lua state answers its host requests"
+                .to_owned(),
+        });
+    }
+    Ok(&runtime.channel)
+}
+
+/// Copies one answered value, refusing what the channel's value model cannot
+/// carry: a handle, a non-finite number, text that is not UTF-8, or a value
+/// past its size limit.
+fn owned_answer(position: usize, value: &NuppValue) -> Result<Owned, Failure> {
+    let refuse = |problem: &str| {
+        Failure::invalid(
+            ERROR_RUNTIME,
+            format!("host answer value {position} {problem}"),
+        )
+    };
+    let bytes = || -> Result<Vec<u8>, Failure> {
+        if value.length == 0 {
+            return Ok(Vec::new());
+        }
+        if value.data.is_null() {
+            return Err(refuse("has a length but no bytes"));
+        }
+        // SAFETY: the host passes `length` readable bytes at `data` for the
+        // length of this call, and they are copied before it returns.
+        Ok(unsafe { std::slice::from_raw_parts(value.data, value.length) }.to_vec())
+    };
+    Ok(match value.kind {
+        VALUE_NIL => Owned::Nil,
+        VALUE_BOOLEAN => Owned::Boolean(value.boolean != 0),
+        VALUE_NUMBER => {
+            if !value.number.is_finite() {
+                return Err(refuse("is not a finite number"));
+            }
+            Owned::Number(value.number)
+        }
+        VALUE_STRING => {
+            if value.length > host_channel::MAX_STRING_BYTES {
+                return Err(refuse("is a string longer than 64 KiB; answer bytes"));
+            }
+            let text = bytes()?;
+            if std::str::from_utf8(&text).is_err() {
+                return Err(refuse("is a string that is not UTF-8; answer bytes"));
+            }
+            Owned::Text(text)
+        }
+        VALUE_BYTES => {
+            if value.length > host_channel::MAX_ANSWER_BYTES {
+                return Err(refuse("is more than 16 MiB of bytes"));
+            }
+            Owned::Bytes(bytes()?)
+        }
+        VALUE_HANDLE => return Err(refuse("is a handle, which a host answer cannot carry")),
+        _ => return Err(refuse("has an unknown kind")),
+    })
+}
+
+fn answer_failure(request: u64, error: host_channel::AnswerError) -> Failure {
+    let message = match error {
+        host_channel::AnswerError::Unknown => {
+            format!("no host request {request} is waiting for an answer")
+        }
+        host_channel::AnswerError::AlreadyAnswered => {
+            format!("host request {request} was already answered")
+        }
+    };
+    Failure::invalid(ERROR_RUNTIME, message)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_host_register(
+    runtime: *mut NuppRuntime,
+    kind: *const c_char,
+    handler: Option<HostHandler>,
+    cancel: Option<HostCancel>,
+    userdata: *mut c_void,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let entry = enter(runtime)?;
+            if kind.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_CONFIGURATION,
+                    "nupp_host_register needs a kind",
+                ));
+            }
+            let kind = CStr::from_ptr(kind).to_bytes();
+            checked_kind(kind)?;
+            host_channel_of(&entry)?.register(kind, handler, cancel, userdata);
+            Ok(())
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_host_answer(
+    runtime: *mut NuppRuntime,
+    request: u64,
+    results: *const NuppValue,
+    count: usize,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let entry = enter(runtime)?;
+            let channel = host_channel_of(&entry)?;
+            if count > host_channel::MAX_VALUES {
+                return Err(Failure::invalid(
+                    ERROR_RUNTIME,
+                    "a host answer carries at most 255 values",
+                ));
+            }
+            if count > 0 && results.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_RUNTIME,
+                    "nupp_host_answer was given a count without its values",
+                ));
+            }
+            let mut owned = Vec::with_capacity(count);
+            for index in 0..count {
+                owned.push(owned_answer(index + 1, &*results.add(index))?);
+            }
+            channel
+                .answer(request, owned)
+                .map_err(|failure| answer_failure(request, failure))
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_host_fail(
+    runtime: *mut NuppRuntime,
+    request: u64,
+    message: *const c_char,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let entry = enter(runtime)?;
+            let channel = host_channel_of(&entry)?;
+            let message = if message.is_null() {
+                b"the host failed the request".to_vec()
+            } else {
+                CStr::from_ptr(message).to_bytes().to_vec()
+            };
+            channel
+                .fail(request, message)
+                .map_err(|failure| answer_failure(request, failure))
         })
     }
 }

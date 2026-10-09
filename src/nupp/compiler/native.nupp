@@ -678,6 +678,15 @@ local FEATURES: {[string]: native.Feature} = {
     [
         "native.system"
     ] = {name = "system", module = "nupp.runtime.provider.nativesystem", requires = {"runtime.native"},},
+    ["runtime.host"] = {
+        name = "host_runtime",
+        module = "nupp.host",
+        runtimeModule = "nupp.host",
+        portableRuntime = true,
+        -- A host call suspends, so whatever calls one needs yieldable cleanup.
+        requires = {"runtime.suspension"},
+    },
+    ["native.host"] = {name = "host", module = "nupp.runtime.provider.nativehost", requires = {"runtime.suspension"}},
     [
         "native.crypto"
     ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native"},},

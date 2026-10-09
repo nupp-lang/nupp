@@ -9,6 +9,7 @@
 #[doc(hidden)]
 pub mod cli;
 mod embed;
+mod host_channel;
 mod lua;
 mod mcode;
 mod payload;
@@ -361,6 +362,25 @@ impl HostRuntime {
     /// HTTP, process and timer pumps a host that owns the event loop drives.
     pub fn poll(&self) -> Result<(), HostError> {
         self.lua()?.poll_suspension().map_err(HostError::Lua)
+    }
+
+    /// Hands this state's `nupp.host` requests to `channel`, unless another
+    /// runtime attached to the state already answers them.
+    pub(crate) fn install_host_channel(
+        &self,
+        channel: *const std::ffi::c_void,
+    ) -> Result<bool, HostError> {
+        host_channel::install_shim();
+        self.lua()?
+            .install_host_channel(channel)
+            .map_err(HostError::Lua)
+    }
+
+    /// Detaches `channel` from this state, if the state is still open.
+    pub(crate) fn clear_host_channel(&self, channel: *const std::ffi::c_void) {
+        if let Ok(lua) = self.lua() {
+            let _ = lua.clear_host_channel(channel);
+        }
     }
 
     /// Installs the Rust-owned native worker and shared-byte adapters for one

@@ -1,0 +1,468 @@
+@!internal
+module nupp.runtime.browser.host
+
+--[[
+The page's answers to [](nupp.host) requests.
+
+Every request is a `host` effect naming an operation. `call` and `post` carry the
+request's values as an object keyed by position beside an explicit count, which
+survives the bridge's JSON round trip where an array's `null`s would not. A byte
+value up to one MiB crosses as a read lease the page copies and releases before
+its handler runs, so a slow handler never holds the frame that carried it; a
+larger one is uploaded first in one-MiB `upload` chunks the page reassembles.
+
+A host's byte results stay with the page until fetched. Its answer announces
+their sizes, and the caller, still inside its own wait, admits them against the
+guest's reassembly budget and `fetch`es them in pieces into storage it owns.
+The page releases a result when its last byte is fetched, or when the guest
+`abandon`s it; until then the result is the page's. A caller cancelled before
+that point never received its result, so the page releases it rather than
+`late`.
+]]
+
+local effects = require("nupp.runtime.browser.effects")
+local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
+local values = require("nupp.host.internal.values")
+local ffi = require("ffi")
+
+local unpackValues: any = rawget(_G, "unpack") or (table as any).unpack
+
+local provider = {}
+
+--- The guest memory committed to byte results being fetched, at most.
+const RESULT_BUDGET_BYTES = 16 * 1024 * 1024
+
+--- How many posts may wait to ship before posting raises.
+const MAX_PENDING_POSTS = 1024
+
+local memoryModule: any = nil
+
+local function memory(): any
+    if memoryModule == nil then
+        memoryModule = require("nupp.runtime.browser.memory")
+    end
+
+    return memoryModule
+end
+
+local nextTransfer = 1
+local pendingPosts = 0
+local admittedBytes = 0
+local admissionWaiters: {any} = {}
+
+local function noop(_: any): nil
+end
+
+-- A request the guest makes for its own bookkeeping, never waited on.
+local function control(payload: any): nil
+    effects.request("host", payload, noop)
+end
+
+local function report(kind: string, problem: any): nil
+    io.stderr:write("nupp: host " .. kind .. ": " .. tostring(problem) .. "\n")
+end
+
+local refusingHandler = new suspensionHost.Handler(
+    park = function(_: any, _: any, _: any): nil
+        error("nupp: a host late handler cannot suspend; release with host.post", 0)
+    end,
+    canPark = function(_: any): boolean
+        return false
+    end,
+    shutdown = function(_: any): nil
+    end
+)
+
+-- Runs `late` where nothing may park, so a call that would wait raises instead.
+local function runLate(kind: string, late: any, ...: any): nil
+    local installed = suspensionHost.install(refusingHandler)
+    local ok, problem = pcall(late, ...)
+    installed:close()
+    if not ok then
+        report(kind, "late handler failed: " .. tostring(problem))
+    end
+end
+
+local function encodeArguments(kind: string, allowUploads: boolean, ...: any): (integer, any, any, any)
+    local count = select("#", ...)
+    local encoded: any = {}
+    local spans: any = nil
+    local uploads: any = nil
+    -- What the request itself lends. A frame carries two MiB of leases, so one
+    -- request lends at most one and its other byte values are uploaded first.
+    local lent: integer = 0
+    for position = 1, count do
+        local tag, value, length = values.classify(kind, position, (select(position, ...)))
+        if tag == "bytes" then
+            local size = length as integer
+            if lent + size > values.CHUNK_BYTES then
+                if not allowUploads then
+                    error(string.format("nupp: host %s carries more than the one MiB of bytes a post may", kind), 0)
+                end
+                uploads = uploads or {}
+                local transfer = nextTransfer
+                nextTransfer = nextTransfer + 1
+                uploads[#uploads + 1] = {transfer = transfer, pointer = value, size = size}
+                encoded[tostring(position)] = {transfer = transfer}
+            else
+                lent = lent + size
+                spans = spans or {}
+                spans[#spans + 1] = {pointer = value, size = size}
+                encoded[tostring(position)] = {bytes = #spans}
+            end
+        elseif tag ~= "nil" then
+            encoded[tostring(position)] = value
+        end
+    end
+
+    return count, encoded, spans, uploads
+end
+
+-- Lends each span for the frame that carries the request. The page copies and
+-- releases a read lease when it dispatches the request.
+local function lendSpans(spans: any): any
+    if spans == nil then
+        return nil
+    end
+    local guestMemory = memory()
+    local lent: any = {}
+    for index, span in ipairs(spans) do
+        lent[index] = {lease = guestMemory.lease(span.pointer, span.size, false), bytes = span.size}
+    end
+
+    return lent
+end
+
+local function releaseLeases(lent: any): nil
+    if lent == nil then
+        return
+    end
+    local guestMemory = memory()
+    for _, span in ipairs(lent) do
+        guestMemory.releaseLease(span.lease)
+    end
+end
+
+-- Queues each upload's chunks ahead of the request that names it, so the page
+-- has reassembled a value before it dispatches the call. Answers the cancel
+-- functions and the leases the chunks hold.
+local function queueUploads(uploads: any): (any, any)
+    local cancels: any = {}
+    local leases: any = {}
+    local guestMemory = memory()
+    for _, upload in ipairs(uploads) do
+        local base: any = ffi.cast("const uint8_t *", upload.pointer)
+        local offset = 0
+        while offset < upload.size do
+            local length = math.min(values.CHUNK_BYTES, upload.size - offset)
+            local lease = guestMemory.lease(base + offset, length, false)
+            leases[#leases + 1] = lease
+            cancels[#cancels + 1] = effects.request(
+                "host",
+                {
+                    op = "upload",
+                    transfer = upload.transfer,
+                    offset = offset,
+                    total = upload.size,
+                    spans = {{lease = lease, bytes = length}},
+                },
+                function(_: any): nil
+                    guestMemory.releaseLease(lease)
+                end
+            )
+            offset = offset + length
+        end
+    end
+
+    return cancels, leases
+end
+
+local function decodeScalars(value: any, count: integer): any
+    local decoded: any = {}
+    local encoded = type(value.v) == "table" and value.v or {}
+    for position = 1, count do
+        local item = encoded[tostring(position)]
+        if item == nil then
+            item = encoded[position]
+        end
+        decoded[position] = item
+    end
+
+    return decoded
+end
+
+local function resultCount(kind: string, value: any): integer
+    local count = value.n
+    if type(count) ~= "number" or count < 0 or count % 1 ~= 0 or count > 255 then
+        error("nupp: host " .. kind .. " answered without a valid result count", 0)
+    end
+
+    return count as integer
+end
+
+local function release(amount: integer): nil
+    admittedBytes = admittedBytes - amount
+    while #admissionWaiters > 0 do
+        local waiter = admissionWaiters[1]
+        if admittedBytes + waiter.size > RESULT_BUDGET_BYTES then
+            return
+        end
+        table.remove(admissionWaiters, 1)
+        admittedBytes = admittedBytes + waiter.size
+        waiter.resume(true)
+    end
+end
+
+-- Waits until `size` more bytes fit the guest's reassembly budget, then holds
+-- them for the caller. Waiters are admitted in arrival order.
+local function admit(kind: string, size: integer): nil
+    if #admissionWaiters == 0 and admittedBytes + size <= RESULT_BUDGET_BYTES then
+        admittedBytes = admittedBytes + size
+        return
+    end
+    suspension.suspend("host " .. kind .. " result admission", function(resume: function(any): nil): function()
+        local waiter = {size = size, resume = resume}
+        admissionWaiters[#admissionWaiters + 1] = waiter
+        return function(): nil
+            for index = #admissionWaiters, 1, -1 do
+                if admissionWaiters[index] == waiter then
+                    table.remove(admissionWaiters, index)
+                end
+            end
+        end
+    end)
+end
+
+-- Fetches the byte results the page announced into storage the caller owns. The
+-- page owns them until the last byte arrives; a caller stopped before that
+-- abandons them, and the page releases them itself.
+local function fetchBytes(kind: string, value: any, decoded: any): nil
+    local result = value.result
+    local announced = value.bytes
+    local total: integer = 0
+    for _, entry in ipairs(announced) do
+        local size = entry.size
+        if type(size) ~= "number" or size < 0 or size % 1 ~= 0 or size > values.MAX_INBOUND_BYTES then
+            control({op = "abandon", result = result})
+            error("nupp: host " .. kind .. " answered a byte value larger than 16 MiB", 0)
+        end
+        total = total + (size as integer)
+    end
+    if total > RESULT_BUDGET_BYTES then
+        control({op = "abandon", result = result})
+        error(string.format("nupp: host %s answered %d bytes, more than the 16 MiB a result may hold", kind, total), 0)
+    end
+    local admitted, admissionProblem = pcall(admit, kind, total)
+    if not admitted then
+        control({op = "abandon", result = result})
+        error(admissionProblem, 0)
+    end
+    local storage: any = {}
+    local guestMemory = memory()
+    local fetched, problem = pcall(suspension.suspend, "host " .. kind .. " result", function(
+        resume: function(any): nil
+    ): function()
+        local outstanding = 0
+        local failure: any = nil
+        local cancels: any = {}
+        local leases: any = {}
+
+        local function settled(response: any): nil
+            outstanding = outstanding - 1
+            if failure == nil and (type(response) ~= "table" or response.ok ~= true) then
+                failure = type(response) == "table" and response.error or "invalid fetch response"
+            end
+            if outstanding == 0 then
+                resume(failure)
+            end
+        end
+
+        for index, entry in ipairs(announced) do
+            local size = entry.size as integer
+            local buffer = ffi.new("uint8_t[?]", math.max(size, 1))
+            storage[index] = buffer
+            local offset = 0
+            while offset < size do
+                local length = math.min(values.CHUNK_BYTES, size - offset)
+                local lease = guestMemory.lease(buffer + offset, length, true)
+                leases[#leases + 1] = lease
+                outstanding = outstanding + 1
+                cancels[#cancels + 1] = effects.request(
+                    "host",
+                    {
+                        op = "fetch",
+                        result = result,
+                        index = index,
+                        offset = offset,
+                        spans = {{lease = lease, bytes = length}},
+                    },
+                    function(response: any): nil
+                        guestMemory.releaseLease(lease)
+                        settled(response)
+                    end
+                )
+                offset = offset + length
+            end
+        end
+        if outstanding == 0 then
+            resume(nil)
+        end
+
+        return function(): nil
+            for _, cancel in ipairs(cancels) do
+                cancel()
+            end
+            for _, lease in ipairs(leases) do
+                guestMemory.releaseLease(lease)
+            end
+            control({op = "abandon", result = result})
+        end
+    end)
+    release(total)
+    if not fetched then
+        error(problem, 0)
+    end
+    if problem ~= nil then
+        control({op = "abandon", result = result})
+        error("nupp: host " .. kind .. " result could not be fetched: " .. tostring(problem), 0)
+    end
+    for index, entry in ipairs(announced) do
+        local position = entry.index
+        decoded[position] = values.byteSpan(storage[index], storage[index], entry.size)
+    end
+end
+
+-- Hands a late answer to `late`, or has the page release a result the caller
+-- never came to own.
+local function deliverLate(kind: string, late: any, response: any): nil
+    if type(response) ~= "table" or response.ok ~= true or type(response.value) ~= "table" then
+        return
+    end
+    local value = response.value
+    if value.result ~= nil then
+        control({op = "abandon", result = value.result})
+        return
+    end
+    if late == nil then
+        return
+    end
+    local ok, count = pcall(resultCount, kind, value)
+    if not ok then
+        report(kind, count)
+        return
+    end
+    runLate(kind, late, unpackValues(decodeScalars(value, count), 1, count))
+end
+
+function provider.attached(): boolean
+    return true
+end
+
+function provider.call(kind: string, late: any, ...: any): ...any
+    local count, encoded, spans, uploads = encodeArguments(kind, true, ...)
+    local uploadCancels: any = nil
+    local uploadLeases: any = nil
+    if uploads ~= nil then
+        uploadCancels, uploadLeases = queueUploads(uploads)
+    end
+    local lent = lendSpans(spans)
+    local payload: any = {op = "call", name = kind, n = count, v = encoded, spans = lent}
+    local ok, suspended = pcall(suspension.suspend, "host " .. kind, function(resume: function(any): nil): function()
+        local cancelCall = effects.request("host", payload, resume, function(response: any): nil
+            deliverLate(kind, late, response)
+        end)
+        return function(): nil
+            local unshipped = cancelCall()
+            local anyUploadShipped = false
+            if uploadCancels ~= nil then
+                for _, cancel in ipairs(uploadCancels) do
+                    if not cancel() then
+                        anyUploadShipped = true
+                    end
+                end
+            end
+            if anyUploadShipped then
+                for _, upload in ipairs(uploads) do
+                    control({op = "abort", transfer = upload.transfer})
+                end
+            end
+            if not unshipped then
+                control({op = "cancel", target = payload.id})
+            end
+        end
+    end)
+    local answer: any = suspended
+    releaseLeases(lent)
+    if uploadLeases ~= nil then
+        local guestMemory = memory()
+        for _, lease in ipairs(uploadLeases) do
+            guestMemory.releaseLease(lease)
+        end
+    end
+    if not ok then
+        error(answer, 0)
+    end
+    local response = answer as any
+    if type(response) ~= "table" or type(response.ok) ~= "boolean" then
+        error("nupp: host " .. kind .. " returned an invalid response", 0)
+    end
+    if not response.ok then
+        error("nupp: host " .. kind .. " failed: " .. tostring(response.error), 0)
+    end
+    local value = response.value
+    if type(value) ~= "table" then
+        error("nupp: host " .. kind .. " returned an invalid response value", 0)
+    end
+    local resultsCount = resultCount(kind, value)
+    local decoded = decodeScalars(value, resultsCount)
+    if value.result ~= nil then
+        if type(value.bytes) ~= "table" then
+            control({op = "abandon", result = value.result})
+            error("nupp: host " .. kind .. " announced a result without its byte values", 0)
+        end
+        fetchBytes(kind, value, decoded)
+    end
+
+    return unpackValues(decoded, 1, resultsCount)
+end
+
+function provider.post(kind: string, ...: any): nil
+    if pendingPosts >= MAX_PENDING_POSTS then
+        error("nupp: host " .. kind .. " cannot be posted: 1024 posts are already waiting to ship", 0)
+    end
+    local count, encoded, spans = encodeArguments(kind, false, ...)
+    -- Nothing roots the caller's spans once post returns, so the bytes are copied
+    -- into strings this request keeps until the page has dispatched it.
+    local copies: any = nil
+    if spans ~= nil then
+        copies = {}
+        for index, span in ipairs(spans) do
+            local copy = ffi.string(span.pointer, span.size)
+            copies[index] = copy
+            span.pointer = ffi.cast("const uint8_t *", copy)
+        end
+    end
+    local lent = lendSpans(spans)
+    pendingPosts = pendingPosts + 1
+    effects.request(
+        "host",
+        {
+            op = "post",
+            name = kind,
+            n = count,
+            v = encoded,
+            spans = lent
+        },
+        function(response: any): nil
+            pendingPosts = pendingPosts - 1
+            releaseLeases(lent)
+            copies = nil
+            if type(response) == "table" and response.ok == false then
+                report(kind, "post failed: " .. tostring(response.error))
+            end
+        end
+    )
+end
+
+export = provider

@@ -4,7 +4,7 @@ import {nativeInitialization} from './native.mjs';
 import {createWorkerPool} from '../wasm/worker-pool.mjs';
 import {createGuest} from './host.mjs';
 import {createTransfers} from './transfers.mjs';
-import {handleBrowserEffects} from '../wasm/app-runtime.mjs';
+import {closeHostChannel, handleBrowserEffects} from '../wasm/app-runtime.mjs';
 const encoder = new TextEncoder();
 // A turn is one guest frame round trip on a page, and one task on a worker lane:
 // the effects a frame carries, the bytes it and its response move, and the guest
@@ -116,6 +116,8 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
     clearTimeout(timer);
     controller.abort(new Error('Application closed'));
     guest.close();
+    // The session is over: the page releases what the application never took.
+    closeHostChannel(options);
     options.httpBodies?.clear();
     for (const file of options.files?.handles?.values() || []) {
       try { file.access.close(); } catch {}

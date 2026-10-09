@@ -224,6 +224,17 @@ unsafe extern "C" {
         error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_clear_worker_context(state: *mut LuaState, error: *mut LuaError) -> c_int;
+    fn nupp_lua_install_host_channel(
+        state: *mut LuaState,
+        channel: *const c_void,
+        installed: *mut c_int,
+        error: *mut LuaError,
+    ) -> c_int;
+    fn nupp_lua_clear_host_channel(
+        state: *mut LuaState,
+        channel: *const c_void,
+        error: *mut LuaError,
+    ) -> c_int;
     fn nupp_lua_poll_suspension(state: *mut LuaState, error: *mut LuaError) -> c_int;
 }
 
@@ -481,6 +492,28 @@ impl Lua {
         // protected raw global writes, so no metatable callback can retain or
         // observe the soon-to-be-invalid Rust ownership pointers.
         self.protected(|error| unsafe { nupp_lua_clear_worker_context(self.state.as_ptr(), error) })
+    }
+
+    /// Hands `nupp.host` requests in this state to `channel`, unless another
+    /// runtime's channel already has them; answers whether this one does.
+    pub(crate) fn install_host_channel(&self, channel: *const c_void) -> Result<bool, String> {
+        let mut installed: c_int = 0;
+        // SAFETY: `channel` stays owned by the embedding runtime until it clears
+        // it again; the shim stores it as lightuserdata and writes `installed`
+        // only on success.
+        self.protected(|error| unsafe {
+            nupp_lua_install_host_channel(self.state.as_ptr(), channel, &raw mut installed, error)
+        })?;
+        Ok(installed != 0)
+    }
+
+    /// Detaches `channel` from this state if it is the one installed.
+    pub(crate) fn clear_host_channel(&self, channel: *const c_void) -> Result<(), String> {
+        // SAFETY: the state is live and owner-thread-affine; the shim performs
+        // raw global reads and writes beneath a protected frame.
+        self.protected(|error| unsafe {
+            nupp_lua_clear_host_channel(self.state.as_ptr(), channel, error)
+        })
     }
 
     pub(crate) fn install_component(&self, bytes: &[u8], name: &CStr) -> Result<c_int, String> {

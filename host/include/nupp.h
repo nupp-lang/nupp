@@ -217,6 +217,58 @@ NUPP_API nupp_status nupp_runtime_poll(
     nupp_error **error
 );
 
+/* Answers a `nupp.host` request of one kind. `arguments` are borrowed for the
+ * length of the call: copy what an answer given later needs. A handler answers
+ * with nupp_host_answer or nupp_host_fail, at once or later from the host's
+ * loop, and either way the waiting task resumes at the next nupp_runtime_poll.
+ * It may call back into the runtime. */
+typedef void (*nupp_host_handler)(
+    nupp_runtime *runtime,
+    uint64_t request,
+    const char *kind,
+    const nupp_value *arguments,
+    size_t argument_count,
+    void *userdata
+);
+
+/* Tells a host that nothing waits for `request` any more. Advisory: the request
+ * may still be answered, and its answer goes to the caller's late cleanup. */
+typedef void (*nupp_host_cancel)(nupp_runtime *runtime, uint64_t request, void *userdata);
+
+/* Registers, replaces, or with a null handler removes, the handler for `kind`,
+ * two or more dot-separated names outside `nupp.`. Refused with
+ * NUPP_STATUS_INCOMPATIBLE on a runtime attached to a state another runtime
+ * already answers host requests for. */
+NUPP_API nupp_status nupp_host_register(
+    nupp_runtime *runtime,
+    const char *kind,
+    nupp_host_handler handler,
+    nupp_host_cancel cancel,
+    void *userdata,
+    nupp_error **error
+);
+
+/* Answers `request` with `result_count` values, copied before this returns:
+ * nil, booleans, finite numbers, UTF-8 strings up to 64 KiB, and bytes up to
+ * 16 MiB. Handles are refused. Ownership of whatever the results name passes to
+ * the program here; an answer to a request its caller abandoned goes to that
+ * caller's late cleanup. An answer to a post is discarded. */
+NUPP_API nupp_status nupp_host_answer(
+    nupp_runtime *runtime,
+    uint64_t request,
+    const nupp_value *results,
+    size_t result_count,
+    nupp_error **error
+);
+
+/* Fails `request`; the caller raises `message`. A failed post is reported. */
+NUPP_API nupp_status nupp_host_fail(
+    nupp_runtime *runtime,
+    uint64_t request,
+    const char *message,
+    nupp_error **error
+);
+
 NUPP_API void nupp_reload_config_init(nupp_reload_config *config);
 
 /* Builds `entry` in watch mode, runs its chunk, and leaves the session open.

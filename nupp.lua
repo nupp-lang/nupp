@@ -367,6 +367,13 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/codec/hex.nupp", output = "nupp/compiler/nupp/codec/hex.nupp"},
     {source = "src/nupp/system/init.nupp", output = "nupp/compiler/nupp/system/init.nupp"},
+    {source = "src/nupp/host/spi.nupp", output = "nupp/compiler/nupp/host/spi.nupp"},
+    {source = "src/nupp/host/init.nupp", output = "nupp/compiler/nupp/host/init.nupp"},
+    {source = "src/nupp/host/pump.nupp", output = "nupp/compiler/nupp/host/pump.nupp"},
+    {
+        source = "src/nupp/runtime/provider/nativehost.g.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativehost.g.nupp"
+    },
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
     {source = "src/nupp/util/init.nupp", output = "nupp/compiler/nupp/util/init.nupp"},
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
@@ -422,6 +429,8 @@ for _, resource in ipairs({
     "src/nupp/compiler/runtime/typewitness.nupp",
     "src/nupp/digest/internal/sha256.nupp",
     "src/nupp/runtime/browser/effects.g.nupp",
+    "src/nupp/host/internal/values.g.nupp",
+    "src/nupp/runtime/browser/host.g.nupp",
     "src/nupp/runtime/browser/response.g.nupp",
     "src/nupp/runtime/browser/workercodec.g.nupp",
     "src/nupp/runtime/browser/crypto.g.nupp",

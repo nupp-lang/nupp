@@ -105,6 +105,12 @@ typedef struct WorkerModulesCall {
     const void *host;
 } WorkerModulesCall;
 
+typedef struct HostChannelCall {
+    ProtectedCall call;
+    const void *channel;
+    int installed;
+} HostChannelCall;
+
 typedef struct WorkerContextCall {
     ProtectedCall call;
     const void *inbox;
@@ -489,6 +495,7 @@ static int add_resource(lua_State *state) {
 }
 
 extern int nupp_luaopen_workers(lua_State *state);
+extern int nupp_luaopen_host_channel(lua_State *state);
 extern int nupp_luaopen_sharedbytes(lua_State *state);
 
 static void preload_opener(lua_State *state, const char *name,
@@ -506,6 +513,42 @@ static int install_worker_modules(lua_State *state) {
     preload_opener(state, "nupp.mem.sharedbytes.native", nupp_luaopen_sharedbytes);
     lua_pushlightuserdata(state, (void *)context->host);
     lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerHost");
+    return 0;
+}
+
+/* Gives `nupp.host` requests in this state to an embedding application. A state
+ * that already has a channel keeps it: the first runtime on a state answers its
+ * requests, and `installed` says whether this one is it. Raw, so a globals
+ * metatable can neither fake nor hide the marker. */
+static int install_host_channel(lua_State *state) {
+    HostChannelCall *context = (HostChannelCall *)lua_touserdata(state, 1);
+    lua_pushliteral(state, "__nuppHostChannel");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    if (!lua_isnil(state, -1)) {
+        context->installed = lua_touserdata(state, -1) == context->channel;
+        lua_pop(state, 1);
+        return 0;
+    }
+    lua_pop(state, 1);
+    preload_opener(state, "nupp.host.native", nupp_luaopen_host_channel);
+    lua_pushliteral(state, "__nuppHostChannel");
+    lua_pushlightuserdata(state, (void *)context->channel);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    context->installed = 1;
+    return 0;
+}
+
+/* Detaches the channel, if it is this one, before its owner goes away. */
+static int clear_host_channel(lua_State *state) {
+    HostChannelCall *context = (HostChannelCall *)lua_touserdata(state, 1);
+    lua_pushliteral(state, "__nuppHostChannel");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    if (lua_touserdata(state, -1) == context->channel) {
+        lua_pushliteral(state, "__nuppHostChannel");
+        lua_pushnil(state);
+        lua_rawset(state, LUA_GLOBALSINDEX);
+    }
+    lua_pop(state, 1);
     return 0;
 }
 
@@ -946,6 +989,20 @@ int nupp_lua_install_worker_modules(lua_State *state, const void *host,
     NuppLuaError *error) {
     WorkerModulesCall context = {{error, 0}, host};
     return protect(state, install_worker_modules, &context.call);
+}
+
+int nupp_lua_install_host_channel(lua_State *state, const void *channel,
+    int *installed, NuppLuaError *error) {
+    HostChannelCall context = {{error, 0}, channel, 0};
+    int status = protect(state, install_host_channel, &context.call);
+    if (status == 0) *installed = context.installed;
+    return status;
+}
+
+int nupp_lua_clear_host_channel(lua_State *state, const void *channel,
+    NuppLuaError *error) {
+    HostChannelCall context = {{error, 0}, channel, 0};
+    return protect(state, clear_host_channel, &context.call);
 }
 
 int nupp_lua_worker_host_installed(lua_State *state, int *installed,

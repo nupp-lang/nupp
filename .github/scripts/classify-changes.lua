@@ -68,6 +68,8 @@ local rules = {
     {"^src/nupp/bench/", {"library", "measurement"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
     {"^src/nupp/io/", {"library", "native"}},
+    -- The host facility's browser and native providers both implement it.
+    {"^src/nupp/host/", {"library", "browser", "native"}},
     {"^src/nupp/", {"library"}},
 
     {"^native/", {"native"}},

@@ -32,6 +32,9 @@ nupp_handle_release
 nupp_value_release
 nupp_runtime_shutdown
 nupp_runtime_poll
+nupp_host_register
+nupp_host_answer
+nupp_host_fail
 nupp_reload_config_init
 nupp_reload_open
 nupp_reload_attach

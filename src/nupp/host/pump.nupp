@@ -1,0 +1,177 @@
+module nupp.host.pump
+
+--[[
+`nupp.host.pump` runs one operation at a time for an application that embeds
+the runtime and owns its own loop. Reach for it from the exports such an
+application calls, so that an operation which waits -- on a [](nupp.host)
+request, a timer, the network -- parks instead of blocking the call that
+started it.
+
+`start` runs an operation until it finishes or parks, and says which; the
+application keeps calling `poll` from its loop, after answering whatever it was
+asked, until the operation finishes. Each poll is one non-blocking pass over the
+runtime's readiness sources, and an operation they make ready resumes inside
+that pass.
+
+```nupp:fragment
+local pump = nupp.host.pump
+
+local session = pump.newPump()
+
+export function frame(dt: number): pump.State
+    if session:parked() then
+        return session:poll()
+    end
+    return session:start(function(): boolean
+        return update(dt)
+    end)
+end
+```
+
+An operation answers whether the application should keep running: `false`
+reports `"stopped"`, anything else `"continue"`. A failure is raised from the
+`start` or `poll` that observes it. `cancel` unwinds a parked operation, raising
+a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its
+cleanup runs before the application shuts down.
+]]
+
+local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
+local cancellation = require("nupp.suspension.cancellation")
+
+--- What a `start` or `poll` left the operation doing.
+export type State = "parked" | "continue" | "stopped"
+
+local function resumeTask(pump: any, task: thread, keepRunning: boolean?): nil
+    if coroutine.status(task) ~= "suspended" then
+        return
+    end
+    local succeeded, failure = coroutine.resume(task, keepRunning)
+    if not succeeded and pump.failure == nil then
+        pump.failure = failure
+    end
+end
+
+local function settled(pump: any): State
+    local failure = pump.failure
+    if failure ~= nil then
+        pump.failure = nil
+        pump.active = nil
+        error(failure, 0)
+    end
+    local task = pump.active
+    if task ~= nil and coroutine.status(task) ~= "dead" then
+        return "parked"
+    end
+    pump.active = nil
+    if pump.result == false then
+        pump.result = nil
+        return "stopped"
+    end
+    pump.result = nil
+
+    return "continue"
+end
+
+--- Runs one parked operation at a time for a host-owned loop.
+export record Pump
+    @private handler: suspensionHost.Handler
+    @private active: thread?
+    @private result: boolean?
+    @private failure: any?
+
+    --- Runs `body` until it finishes or parks.
+    --- @raises string when another operation is still parked, or what `body` raised
+    function start(self: Pump, body: function(): boolean?): State
+        if self.active ~= nil then
+            error("nupp.host.pump: an operation is already parked", 2)
+        end
+        self.result = nil
+        self.failure = nil
+        local pump = self
+        local task = coroutine.create(function(): nil
+            local succeeded, result = pcall(function(): boolean?
+                with installation = suspensionHost.install(pump.handler) do
+                    return body()
+                end
+            end)
+            if succeeded then
+                pump.result = result
+            else
+                pump.failure = result
+            end
+        end)
+        self.active = task
+        resumeTask(self, task)
+
+        return settled(self)
+    end
+
+    --- Makes one non-blocking pass over the readiness sources, resuming the
+    --- parked operation if they make it ready.
+    --- @raises string when nothing is parked, or what the operation raised
+    function poll(self: Pump): State
+        if self.active == nil then
+            error("nupp.host.pump: no operation is parked", 2)
+        end
+        suspension.poll()
+
+        return settled(self)
+    end
+
+    --- Whether an operation is parked between the host's turns.
+    function parked(self: Pump): boolean
+        return self.active ~= nil
+    end
+
+    --- Unwinds a parked operation, raising a cancellation inside it.
+    --- @raises string when the operation does not unwind
+    function cancel(self: Pump): nil
+        local task = self.active
+        if task == nil then
+            return
+        end
+        resumeTask(self, task, false)
+        if coroutine.status(task) ~= "dead" then
+            error("nupp.host.pump: the parked operation did not unwind", 2)
+        end
+        self.active = nil
+        self.result = nil
+        self.failure = nil
+    end
+end
+
+--- Creates an idle pump.
+--- @export
+export function newPump(): Pump
+    local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
+    pump.handler = new suspensionHost.Handler(
+        park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, _: function(): nil): nil
+            local task = assert(coroutine.running())
+
+            local function wake(): nil
+                -- Another driver may poll the same sources. Resume now, inside
+                -- the pass that settled the wait, so a one-shot source is
+                -- released before anything can poll it a second time.
+                resumeTask(pump, task)
+            end
+
+            while not waiting:ready() do
+                waiting:onResume(wake)
+                if not waiting:ready() then
+                    local keepRunning = coroutine.yield()
+                    if keepRunning == false then
+                        error(cancellation.create("nupp.host.pump", "the host stopped while it was parked"), 0)
+                    end
+                end
+            end
+        end,
+        canPark = function(_: suspensionHost.Handler): boolean
+            return true
+        end,
+        shutdown = function(_: suspensionHost.Handler): nil
+        end
+    )
+
+    return pump
+end
