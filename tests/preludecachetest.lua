@@ -232,6 +232,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
     for name, value in pairs(package.loaded) do
         saved[name] = value
     end
+
     -- What a lane does between suites: every compiler module is loaded afresh,
     -- except the one that owns type identity.
     local function unloadAllButTypes()
@@ -241,6 +242,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             end
         end
     end
+
     local function restore()
         for name in pairs(package.loaded) do
             if saved[name] == nil then
@@ -276,8 +278,11 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             end
         end
         table.sort(shared)
-        test.equal(#shared, 0, "no two interned types share an id:\n  "
-            .. table.concat(shared, "\n  ", 1, math.min(#shared, 10)))
+        test.equal(
+            #shared,
+            0,
+            "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
+        )
 
         local source = "local function loadMatcher(configuration: string): nupp.peg.Peg<...any>\n"
             .. "    return nupp.peg.compile(configuration)\n"
@@ -304,7 +309,8 @@ function M.aStoredPreludeFromAnotherIdentityIsNotRestored()
     local store = dir .. "/store"
     local script = dir .. "/identity.lua"
     local file = assert(io.open(script, "wb"))
-    file:write([[
+    file:write(
+        [[
 local project, store, extra = arg[1], arg[2], tonumber(arg[3])
 local types = require("nupp.compiler.types")
 for index = 1, extra do
@@ -324,13 +330,21 @@ for _, entries in pairs(types.identity().arenas) do
     end
 end
 print("shared ids: " .. shared)
-]])
+]]
+    )
     file:close()
+
     local function run(extra)
-        local pipe = assert(io.popen(("NUPP_COMPILER_ROOT='%s' LUA_PATH='%s' luajit '%s' '%s' '%s' %d 2>&1")
-            :format(ROOT, package.path, script, dir, store, extra)))
+        local pipe = assert(
+            io.popen(
+                (
+                    "NUPP_COMPILER_ROOT='%s' LUA_PATH='%s' luajit '%s' '%s' '%s' %d 2>&1"
+                ):format(ROOT, package.path, script, dir, store, extra)
+            )
+        )
         local out = pipe:read("*a")
         pipe:close()
+
         return out
     end
 
@@ -394,9 +408,7 @@ local function writeImageFixture(roots, identity)
     end
     local data
     local ok, why = pcall(function()
-        assert(
-            loadfile(ROOT .. "/editors/playground/tools/generate-prelude-image.lua")
-        )(bundle, output, "image")
+        assert(loadfile(ROOT .. "/editors/playground/tools/generate-prelude-image.lua"))(bundle, output, "image")
         local written = assert(io.open(output, "rb"))
         data = written:read("*a");
         written:close()
@@ -501,6 +513,29 @@ function M.portableImageDoesNotOverwriteAlreadyInternedTables()
     assert(decoded.globals.left == live and decoded.stringLib == live)
     assert(live.preserved and live.text == nil and live.self == nil)
     assert(getmetatable(live) == liveMeta)
+end
+
+function M.portableImageExcludesRuntimeWitnessCachesOnly()
+    local roots, identity = imageFixture()
+    local expected = writeImageFixture(roots, identity)
+    require("nupp.compiler.runtime.reflect").install(_G.nupp)
+    local reflect = assert(_G.nupp.__reflect)
+    local owner = roots.globals.left
+    owner[assert(reflect.targetsKey)] = {
+        owner = owner,
+        executable = function()
+        end
+    }
+    owner[assert(reflect.infoKey)] = {
+        owner = owner,
+        executable = function()
+        end
+    }
+    test.equal(writeImageFixture(roots, identity), expected)
+    -- An unrelated anonymous key is still an invalid image. The exclusion is
+    -- by the runtime's exact private keys, not by the shape of user data.
+    owner[{}] = true
+    assert(not pcall(writeImageFixture, roots, identity))
 end
 
 function M.portableImageRejectsMalformedCompactData()

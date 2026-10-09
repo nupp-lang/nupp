@@ -72,6 +72,13 @@ local tables = {}
 local pending = {}
 local metatables = {}
 
+-- Declaration links and cached reflection descriptors belong to the running
+-- compiler, not its checked prelude. In particular, declaration links retain
+-- executable type objects and cannot be copied into this inert data image.
+local runtimeReflect = _G.nupp and rawget(_G.nupp, "__reflect")
+local targetsKey = runtimeReflect and runtimeReflect.targetsKey
+local infoKey = runtimeReflect and runtimeReflect.infoKey
+
 local function scalar(value)
     local kind = type(value)
     return kind == "nil" or kind == "boolean" or kind == "number" or kind == "string"
@@ -111,7 +118,7 @@ local function entries(value)
     local out = {}
     local seenOrder = {}
     for key, child in pairs(value) do
-        if key ~= "trivia" then
+        if key ~= "trivia" and key ~= targetsKey and key ~= infoKey then
             if key == "triviaCount" then
                 child = 0
             end
