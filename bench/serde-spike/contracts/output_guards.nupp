@@ -24,6 +24,9 @@ value.next = nil
 
 local record Custom is core.Atom
     @readonly family: table
+    function snapshot(borrows self): core.Atom
+        return new Custom(family = self.family)
+    end
 end
 value.document = documents.list({documents.atom(new Custom(family = {}))})
 local accepted, unsupported = pcall(codec.encode, codec, binding, value)

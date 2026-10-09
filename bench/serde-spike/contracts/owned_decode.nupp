@@ -99,3 +99,70 @@ assert(counts.created == 2 and counts.closed == 2)
 assert(not pcall(decodeAndClose, binding(true), '"value"'))
 assert(counts.created == 3 and counts.closed == 3)
 print("owning decode results transfer cleanup and aborted construction closes exactly once")
+
+local record Field is core.Child<Member>
+    @readonly member: Member
+    @readonly target: core.Description<Member>
+    @readonly required: boolean = true
+    @readonly hasDefault: boolean = false
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.target
+    end
+end
+local record ReadField is core.MemberConsumer<Member, Resource>
+    function apply(self, exclusive state: Resource, field: Member, exclusive reader: core.Reader<Member>): nil
+        state.text = reader:readString(field)
+    end
+end
+local record SkipField is core.UnknownConsumer<Resource>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: Resource,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        reader:skipValue()
+    end
+end
+local readField, skipField = new ReadField(), new SkipField()
+local record Aggregate is core.Adapter<Resource, Member>
+    @readonly counts: Counts
+    @readonly description: Description
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: Resource, exclusive writer: core.Writer<Member>): nil
+        error("encode not used by this construction fixture")
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Resource
+        self.counts.created += 1
+        local result = new Resource(counts = self.counts, text = "")
+        reader:readStruct(self.description.member, result, readField, skipField)
+        assert(result.text ~= "", "required text")
+
+        return result
+    end
+end
+local textMember = new Member(name = "text", index = 1)
+local aggregate: core.Binding<Resource> = new core.Bound<Resource, Member>(
+    adapter = new Aggregate(
+        counts = counts,
+        description = new Description(
+            member = member,
+            kind = "structure",
+            children = {new Field(member = textMember, target = new Description(member = textMember))}
+        )
+    )
+)
+do
+    local result = jsonCodec:decode(aggregate, '{"text":"aggregate"}')
+    assert(result.text == "aggregate")
+end
+assert(counts.created == 4 and counts.closed == 4)
+assert(not pcall(decodeAndClose, aggregate, '{"text":"partial","unknown":[}'))
+assert(counts.created == 5 and counts.closed == 5)
+assert(not pcall(decodeAndClose, aggregate, '{}'))
+assert(counts.created == 6 and counts.closed == 6)
+print("aggregate callbacks borrow owning construction state exclusively")

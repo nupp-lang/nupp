@@ -13,6 +13,10 @@ export record Reader is core.DocumentReader, nupp.Closeable
         self.expired = true
     end
 
+    function finish(self): nil
+        assert(not self.expired and self.used, "document adapter did not consume its value")
+    end
+
     function live(self): nil
         assert(not self.expired, "document reader scope has expired")
         assert(not self.used, "document value has already been consumed")
@@ -88,7 +92,17 @@ export record Reader is core.DocumentReader, nupp.Closeable
         return self.value:atom()
     end
 
-    function elements<S>(exclusive self, kind: core.Kind, state: S, consumer: core.DocumentElement<S>): nil
+    function readDocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:consume("document")
+        local value = self.value:document()
+        local child = new Reader(value = value, source = value:context() or self.source, used = false, expired = false)
+        local result = adapter:readContents(child)
+        assert(child.used, "document adapter did not consume its contents")
+
+        return result
+    end
+
+    function elements<S>(exclusive self, kind: core.Kind, exclusive state: S, consumer: core.DocumentElement<S>): nil
         self:consume(kind)
         for index = 1, self.value:size() do
             local value = self.value:at(index)
@@ -103,15 +117,15 @@ export record Reader is core.DocumentReader, nupp.Closeable
         end
     end
 
-    function readList<S>(exclusive self, state: S, consumer: core.DocumentElement<S>): nil
+    function readList<S>(exclusive self, exclusive state: S, consumer: core.DocumentElement<S>): nil
         self:elements("list", state, consumer)
     end
 
-    function readTuple<S>(exclusive self, state: S, consumer: core.DocumentElement<S>): nil
+    function readTuple<S>(exclusive self, exclusive state: S, consumer: core.DocumentElement<S>): nil
         self:elements("tuple", state, consumer)
     end
 
-    function members<S>(exclusive self, kind: core.Kind, state: S, consumer: core.DocumentMember<S>): nil
+    function members<S>(exclusive self, kind: core.Kind, exclusive state: S, consumer: core.DocumentMember<S>): nil
         self:consume(kind)
         for index = 1, self.value:size() do
             local field = self.value:field(index)
@@ -122,20 +136,20 @@ export record Reader is core.DocumentReader, nupp.Closeable
                 used = false,
                 expired = false
             )
-            consumer:apply(state, new documents.Name(name = field.name), child)
+            consumer:apply(state, field.name, child)
             assert(child.used, "document callback did not consume its value")
         end
     end
 
-    function readStruct<S>(exclusive self, state: S, consumer: core.DocumentMember<S>): nil
+    function readStruct<S>(exclusive self, exclusive state: S, consumer: core.DocumentMember<S>): nil
         self:members("structure", state, consumer)
     end
 
-    function readUnion<S>(exclusive self, state: S, consumer: core.DocumentMember<S>): nil
+    function readUnion<S>(exclusive self, exclusive state: S, consumer: core.DocumentMember<S>): nil
         self:members("union", state, consumer)
     end
 
-    function readMap<S>(exclusive self, state: S, consumer: core.DocumentEntry<S>): nil
+    function readMap<S>(exclusive self, exclusive state: S, consumer: core.DocumentEntry<S>): nil
         self:consume("map")
         for index = 1, self.value:size() do
             local entry = self.value:entry(index)
@@ -163,5 +177,7 @@ end
 
 export function snapshot(value: documents.Document): documents.Document
     local input = reader(value)
-    return documents.documentAdapter():readContents(input)
+    local result = documents.documentAdapter():readContents(input)
+    input:finish()
+    return result
 end

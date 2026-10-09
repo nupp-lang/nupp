@@ -84,6 +84,7 @@ function M.richDocumentsRetainSemanticValuesAcrossReadersAndProfiles()
     for _, file in ipairs({
         "documents.nupp",
         "model_document.nupp",
+        "semantic_bridge.nupp",
         "scalars.lua",
         "document_scope.lua",
         "selection.lua"

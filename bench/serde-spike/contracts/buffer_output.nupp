@@ -12,6 +12,9 @@ codec.encodeInto(binding, documents.string("ok"), buffer, profile)
 assert(buffer:tostring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
+    function snapshot(borrows self): core.Atom
+        return new Unsupported(family = self.family)
+    end
 end
 local value = documents.list({documents.string("already written"), documents.atom(new Unsupported(family = {}))})
 

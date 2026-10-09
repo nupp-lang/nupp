@@ -1,0 +1,31 @@
+{
+  "baseCommit": "35eb23148ea47aa84b6a32fa9342dcf4b3487b97",
+  "scope": "Separate contract fixture, not production serde",
+  "checks": [
+    {
+      "command": "nupp check --json",
+      "cwd": "bench/serde-spike/contracts",
+      "ok": true,
+      "diagnostics": 0
+    },
+    {
+      "command": "nupp test serdecontracttest --json",
+      "passed": 13,
+      "failed": 1,
+      "failure": "Negative reader-escape fixture retained the old callback state signature; corrected to exclusive."
+    },
+    {
+      "command": "nupp test --case=serdecontracttest/richDocumentsRetainSemanticValuesAcrossReadersAndProfiles --case=serdecontracttest/scopedReadersRejectRetentionAndIncorrectConsumption --case=serdecontracttest/externalModelsRoundTripBothRepresentationsAndDocuments --json",
+      "passed": 3,
+      "failed": 0
+    }
+  ],
+  "coverage": [
+    "Exclusive borrowed construction state with exactly-once resource cleanup",
+    "Nested semantic document boundaries",
+    "Copied mutable atom snapshots",
+    "Logical document member names independent of wire-field identities",
+    "Direct record/indexed/schema-document reconstruction without wire serialization",
+    "Explicit refusal of null collapse in a record with no presence carrier"
+  ]
+}

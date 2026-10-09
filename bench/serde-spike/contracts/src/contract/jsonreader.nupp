@@ -166,6 +166,11 @@ export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
         end
     end
 
+    function readAtom(exclusive self, member: M): core.Atom
+        self:live()
+        error("JSON atom requires a model conversion", 2)
+    end
+
     function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
         self:live()
         local mark = self.cursor:mark()
@@ -195,7 +200,7 @@ export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     function object<S>(
         exclusive self,
         member: M,
-        state: S,
+        exclusive state: S,
         consume: core.MemberConsumer<M, S>,
         unknown: core.UnknownConsumer<S>,
         union: boolean
@@ -240,7 +245,7 @@ export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     function readStruct<S>(
         exclusive self,
         member: M,
-        state: S,
+        exclusive state: S,
         consume: core.MemberConsumer<M, S>,
         unknown: core.UnknownConsumer<S>
     ): nil
@@ -250,14 +255,20 @@ export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     function readUnion<S>(
         exclusive self,
         member: M,
-        state: S,
+        exclusive state: S,
         consume: core.MemberConsumer<M, S>,
         unknown: core.UnknownConsumer<S>
     ): nil
         self:object(member, state, consume, unknown, true)
     end
 
-    function array<S>(exclusive self, member: M, state: S, consume: core.ElementConsumer<M, S>, size: integer?): nil
+    function array<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>,
+        size: integer?
+    ): nil
         self:live()
         self.cursor:start("array")
         local index: integer = 0
@@ -285,15 +296,21 @@ export record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
         end
     end
 
-    function readList<S>(exclusive self, member: M, state: S, consume: core.ElementConsumer<M, S>): nil
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         self:array(member, state, consume, nil)
     end
 
-    function readTuple<S>(exclusive self, member: M, size: integer, state: S, consume: core.ElementConsumer<M, S>): nil
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
         self:array(member, state, consume, size)
     end
 
-    function readMap<S>(exclusive self, member: M, state: S, consume: core.EntryConsumer<M, S>): nil
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
         self:live()
         self.cursor:start("object")
         while true do

@@ -48,6 +48,7 @@ end
 
 export interface Atom
     @readonly family: table
+    snapshot: function(borrows self: Atom): Atom
 end
 
 export record ContextKey<V>
@@ -85,23 +86,24 @@ export interface DocumentReader
     readFloat: function(exclusive self: DocumentReader): Float
     readBigInteger: function(exclusive self: DocumentReader): string
     readAtom: function(exclusive self: DocumentReader): Atom
-    readList: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentElement<S>): nil
-    readTuple: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentElement<S>): nil
-    readStruct: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentMember<S>): nil
-    readUnion: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentMember<S>): nil
-    readMap: function<S>(exclusive self: DocumentReader, state: S, consume: DocumentEntry<S>): nil
+    readDocument: function<D>(exclusive self: DocumentReader, adapter: DocumentAdapter<D>): D
+    readList: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
+    readTuple: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
+    readStruct: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
+    readUnion: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
+    readMap: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentEntry<S>): nil
 end
 
 export interface DocumentEntry<S>
-    apply: function(self, state: S, exclusive key: DocumentReader, exclusive value: DocumentReader): nil
+    apply: function(self, exclusive state: S, exclusive key: DocumentReader, exclusive value: DocumentReader): nil
 end
 
 export interface DocumentElement<S>
-    apply: function(self, state: S, index: integer, exclusive value: DocumentReader): nil
+    apply: function(self, exclusive state: S, index: integer, exclusive value: DocumentReader): nil
 end
 
 export interface DocumentMember<S>
-    apply: function<F is WireField>(self, state: S, field: F, exclusive value: DocumentReader): nil
+    apply: function(self, exclusive state: S, name: string, exclusive value: DocumentReader): nil
 end
 
 export interface UnknownReader
@@ -110,7 +112,7 @@ export interface UnknownReader
 end
 
 export interface UnknownConsumer<S>
-    apply: function<F is WireField>(self, state: S, field: F, exclusive value: UnknownReader): nil
+    apply: function<F is WireField>(self, exclusive state: S, field: F, exclusive value: UnknownReader): nil
 end
 
 export interface Members<M is Member, S>
@@ -118,15 +120,15 @@ export interface Members<M is Member, S>
 end
 
 export interface ElementConsumer<M is Member, S>
-    apply: function(self, state: S, index: integer, exclusive reader: Reader<M>): nil
+    apply: function(self, exclusive state: S, index: integer, exclusive reader: Reader<M>): nil
 end
 
 export interface MemberConsumer<M is Member, S>
-    apply: function(self, state: S, member: M, exclusive reader: Reader<M>): nil
+    apply: function(self, exclusive state: S, member: M, exclusive reader: Reader<M>): nil
 end
 
 export interface EntryConsumer<M is Member, S>
-    apply: function(self, state: S, exclusive key: Reader<M>, exclusive value: Reader<M>): nil
+    apply: function(self, exclusive state: S, exclusive key: Reader<M>, exclusive value: Reader<M>): nil
 end
 
 export interface Writer<M is Member> is nupp.Closeable
@@ -194,30 +196,31 @@ export interface Reader<M is Member>
     readString: function(exclusive self: Reader<M>, member: M): string
     readBytes: function(exclusive self: Reader<M>, member: M): string
     readTimestamp: function(exclusive self: Reader<M>, member: M): Timestamp
+    readAtom: function(exclusive self: Reader<M>, member: M): Atom
     readDocument: function<D>(exclusive self: Reader<M>, member: M, adapter: DocumentAdapter<D>): D
     readStruct: function<S>(
         exclusive self: Reader<M>,
         member: M,
-        state: S,
+        exclusive state: S,
         consume: MemberConsumer<M, S>,
         unknown: UnknownConsumer<S>
     ): nil
     readUnion: function<S>(
         exclusive self: Reader<M>,
         member: M,
-        state: S,
+        exclusive state: S,
         consume: MemberConsumer<M, S>,
         unknown: UnknownConsumer<S>
     ): nil
-    readList: function<S>(exclusive self: Reader<M>, member: M, state: S, consume: ElementConsumer<M, S>): nil
+    readList: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: ElementConsumer<M, S>): nil
     readTuple: function<S>(
         exclusive self: Reader<M>,
         member: M,
         size: integer,
-        state: S,
+        exclusive state: S,
         consume: ElementConsumer<M, S>
     ): nil
-    readMap: function<S>(exclusive self: Reader<M>, member: M, state: S, consume: EntryConsumer<M, S>): nil
+    readMap: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: EntryConsumer<M, S>): nil
     containerSize: function(self): integer?
 end
 

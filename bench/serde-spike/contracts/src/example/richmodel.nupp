@@ -114,6 +114,7 @@ local record PacketStorage is Storage<Packet>
     end
 
     function finish(self, state: State<Packet>): Packet
+        assert(state.notePresence ~= "null", "Packet cannot retain explicit null separately from absence")
         return new Packet(
             id = assert(state.id),
             created = assert(state.created),
@@ -369,12 +370,17 @@ local record ChoiceState
     value: Choice?
 end
 local record ReadChoice is core.MemberConsumer<Member, ChoiceState>
-    function apply(self, state: ChoiceState, member: Member, exclusive reader: core.Reader<Member>): nil
+    function apply(self, exclusive state: ChoiceState, member: Member, exclusive reader: core.Reader<Member>): nil
         state.value = new Choice(text = reader:readString(member))
     end
 end
 local record UnknownChoice is core.UnknownConsumer<ChoiceState>
-    function apply<F is core.WireField>(self, state: ChoiceState, field: F, exclusive reader: core.UnknownReader): nil
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: ChoiceState,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
         state.value = new Choice(field = field, payload = reader:captureValue(documents.documentAdapter()))
     end
 end
@@ -426,7 +432,12 @@ local record Fields<T> is core.Members<Member, T>
     end
 end
 local record Unknown<T> is core.UnknownConsumer<State<T>>
-    function apply<F is core.WireField>(self, state: State<T>, field: F, exclusive reader: core.UnknownReader): nil
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: State<T>,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
         reader:skipValue()
     end
 end
@@ -444,7 +455,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
         return self.storage:finish(state)
     end
 
-    function apply(self, state: State<T>, member: Member, exclusive reader: core.Reader<Member>): nil
+    function apply(self, exclusive state: State<T>, member: Member, exclusive reader: core.Reader<Member>): nil
         local model = self.model
         if member == model.id then
             state.id = reader:readString(member)

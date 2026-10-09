@@ -95,19 +95,23 @@ export record Contents is core.DocumentReader
         error("JSON atoms require model context", 2)
     end
 
-    function readTuple<S>(exclusive self, state: S, consume: core.DocumentElement<S>): nil
+    function readDocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        error("JSON document boundaries require model context", 2)
+    end
+
+    function readTuple<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
         error("JSON tuples require model context", 2)
     end
 
-    function readUnion<S>(exclusive self, state: S, consume: core.DocumentMember<S>): nil
+    function readUnion<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
         error("JSON unions require model context", 2)
     end
 
-    function readMap<S>(exclusive self, state: S, consume: core.DocumentEntry<S>): nil
+    function readMap<S>(exclusive self, exclusive state: S, consume: core.DocumentEntry<S>): nil
         error("JSON typed maps require model context", 2)
     end
 
-    function readList<S>(exclusive self, state: S, consume: core.DocumentElement<S>): nil
+    function readList<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
         self:live()
         self.cursor:start("array")
         local index: integer = 0
@@ -124,7 +128,7 @@ export record Contents is core.DocumentReader
         end
     end
 
-    function readStruct<S>(exclusive self, state: S, consume: core.DocumentMember<S>): nil
+    function readStruct<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
         self:live()
         self.cursor:start("object")
         while true do
@@ -134,8 +138,7 @@ export record Contents is core.DocumentReader
             end
             local mark = self.cursor:mark()
             local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
-            local field = new Name(name = key)
-            local ok, problem = pcall(consume.apply, consume, state, field, child)
+            local ok, problem = pcall(consume.apply, consume, state, key, child)
             child.expired = true
             if not ok then
                 error(problem, 0)

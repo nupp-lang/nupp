@@ -1,0 +1,44 @@
+local core = require("contract.value")
+local documents = require("example.document")
+local bridge = require("example.documentcodec")
+local model = require("example.richmodel")
+local contexts = require("contract.context")
+
+local schema = model.newModel()
+local packetBinding, indexedBinding, documentBinding = model.binding(
+    schema
+), model.indexed(schema), model.documentBinding(schema)
+local context = contexts.builder({}, {}):freeze()
+local packet = new model.Packet(
+    id = "outer",
+    created = new core.Timestamp(seconds = "-1", nanos = 1),
+    labels = {[7] = "seven"},
+    document = documents.document(documents.list({documents.null(), documents.string("value")})),
+    next = new model.Packet(id = "inner", created = new core.Timestamp(seconds = "0", nanos = 999999999)),
+    choice = model.knownChoice("ok")
+)
+local logical = bridge.fromBinding(packetBinding, packet, context)
+assert(logical:get("identifier") == nil and assert(logical:get("id")):string() == "outer")
+assert(assert(logical:get("created")):timestamp().nanos == 1)
+assert(assert(logical:get("labels")):entry(1).key:integer().decimal == "7")
+assert(assert(logical:get("document")).kind == "document")
+assert(assert(logical:get("document")):document().kind == "document")
+local indexed = bridge.into(indexedBinding, logical)
+local typed = bridge.into(documentBinding, bridge.fromBinding(indexedBinding, indexed, context))
+assert(typed:schema() == schema)
+assert(assert(typed:get("created")):timestamp().seconds == "-1")
+local restored = bridge.into(packetBinding, bridge.fromBinding(documentBinding, typed, context))
+assert(restored.id == packet.id and restored.created.nanos == 1)
+assert(assert(restored.next).created.nanos == 999999999)
+assert(assert(restored.labels)[7] == "seven")
+assert(assert(restored.document):document():at(1).kind == "null")
+local nullNote = documents.object({
+    new documents.Entry(name = "id", value = documents.string("null")),
+    new documents.Entry(name = "created", value = documents.timestamp(packet.created)),
+    new documents.Entry(name = "note", value = documents.null())
+})
+local retainedNull = bridge.into(indexedBinding, nullNote)
+assert(assert(bridge.fromBinding(indexedBinding, retainedNull):get("note")).kind == "null")
+assert(not pcall(bridge.into, packetBinding, nullNote))
+assert(not pcall(bridge.into, packetBinding, documents.string("wrong kind")))
+print("direct cross-binding reconstruction retains exact values, typed keys, boundaries, and presence")

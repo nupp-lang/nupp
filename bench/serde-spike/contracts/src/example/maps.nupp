@@ -36,7 +36,7 @@ local record Read<M is core.Member> is core.EntryConsumer<M, {[integer]: string}
     @readonly value: M
     function apply(
         self,
-        state: {[integer]: string},
+        exclusive state: {[integer]: string},
         exclusive key: core.Reader<M>,
         exclusive value: core.Reader<M>
     ): nil

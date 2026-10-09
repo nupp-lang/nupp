@@ -1,7 +1,6 @@
 module example.document
 
 local core = require("contract.value")
-local jsonFields = require("contract.jsondocument")
 local plans = require("contract.jsonplan")
 local json = require("nupp.codec.json")
 local timestamps = require("example.timestamps")
@@ -118,7 +117,7 @@ export record Document
 
     function atom(self): core.Atom
         assert(self.kind == "atom", "document is not an atom")
-        return self.atomValue as core.Atom
+        return (self.atomValue as core.Atom):snapshot()
     end
 
     function entry(self, index: integer): MapEntry
@@ -131,6 +130,11 @@ export record Document
         return assert(self.fields[index], "document member out of range")
     end
 
+    function document(self): Document
+        assert(self.kind == "document", "document is not a boundary")
+        return self.elements[1]
+    end
+
     function context(self): core.Context?
         return self.source
     end
@@ -140,6 +144,7 @@ local root = new Member(name = "$document")
 local element = new Member(name = "$element")
 local write: function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
 local read: function(exclusive reader: core.DocumentReader): Document
+local adapter: core.DocumentAdapter<Document>
 
 local record Fields is core.Members<Member, Document>
     function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
@@ -194,6 +199,8 @@ write = function(borrows value: Document, member: Member, exclusive writer: core
         writer:writeBigInteger(member, value.text as string)
     elseif value.kind == "atom" then
         writer:writeAtom(member, value.atomValue as core.Atom)
+    elseif value.kind == "document" then
+        writer:writeDocument(member, value:document(), adapter)
     elseif value.kind == "map" then
         writer:writeMap(member, value:size(), value, entries)
     elseif value.kind == "tuple" then
@@ -210,20 +217,19 @@ write = function(borrows value: Document, member: Member, exclusive writer: core
 end
 
 local record AddElement is core.DocumentElement<{Document}>
-    function apply(self, state: {Document}, index: integer, exclusive reader: core.DocumentReader): nil
+    function apply(self, exclusive state: {Document}, index: integer, exclusive reader: core.DocumentReader): nil
         state[index] = read(reader)
     end
 end
 local record AddField is core.DocumentMember<{Entry}>
-    function apply<F is core.WireField>(self, state: {Entry}, field: F, exclusive reader: core.DocumentReader): nil
-        local name = getmetatable(field) == Name and (field as Name).name or jsonFields.name(field)
+    function apply(self, exclusive state: {Entry}, name: string, exclusive reader: core.DocumentReader): nil
         state[#state + 1] = new Entry(name = name, value = read(reader))
     end
 end
 local record AddEntry is core.DocumentEntry<{MapEntry}>
     function apply(
         self,
-        state: {MapEntry},
+        exclusive state: {MapEntry},
         exclusive key: core.DocumentReader,
         exclusive value: core.DocumentReader
     ): nil
@@ -268,6 +274,8 @@ read = function(exclusive reader: core.DocumentReader): Document
         text = reader:readBigInteger()
     elseif kind == "atom" then
         atomValue = reader:readAtom()
+    elseif kind == "document" then
+        items[1] = reader:readDocument(adapter)
     elseif kind == "map" then
         reader:readMap(mapEntries, addEntry)
     elseif kind == "tuple" then
@@ -337,9 +345,7 @@ local record Adapter is core.DocumentAdapter<Document>
         return read(reader)
     end
 end
-local adapter: core.DocumentAdapter<Document> = new Adapter(
-    binding = new core.Bound<Document, Member>(adapter = new Contents())
-)
+adapter = new Adapter(binding = new core.Bound<Document, Member>(adapter = new Contents()))
 
 export function documentAdapter(): core.DocumentAdapter<Document>
     return adapter
@@ -352,6 +358,10 @@ end
 export function numberToken(value: string): Document
     json.numberToken(value)
     return new Document(kind = "numberToken", text = value, elements = {}, fields = {})
+end
+
+export function document(value: Document): Document
+    return new Document(kind = "document", elements = {value}, fields = {})
 end
 
 export function null(): Document
@@ -415,8 +425,8 @@ export function timestamp(value: core.Timestamp): Document
     return new Document(kind = "timestamp", time = value, elements = {}, fields = {})
 end
 
-export function atom(value: core.Atom): Document
-    return new Document(kind = "atom", atomValue = value, elements = {}, fields = {})
+export function atom(borrows value: core.Atom): Document
+    return new Document(kind = "atom", atomValue = value:snapshot(), elements = {}, fields = {})
 end
 
 export function tuple(values: {Document}): Document

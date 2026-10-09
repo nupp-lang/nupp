@@ -8,6 +8,9 @@ local model = require("example.richmodel")
 local record Custom is core.Atom
     @readonly family: table
     @readonly payload: string
+    function snapshot(borrows self): core.Atom
+        return new Custom(family = self.family, payload = self.payload)
+    end
 end
 local family: table = {}
 local atom = new Custom(family = family, payload = "custom")
@@ -49,10 +52,31 @@ assert(snapshot:at(7):timestamp().nanos == 500000000)
 assert(assert(snapshot:at(8):get("ok")):boolean())
 assert(snapshot:at(9):entry(1).key:integer().decimal == "7")
 assert(snapshot:at(9):entry(1).value.kind == "null")
-assert(snapshot:at(10):atom() == atom)
+assert(snapshot:at(10):atom().family == atom.family)
 assert(assert(snapshot:at(9):entry(1).value:context()):get(key) == "retained")
 local jsonValue = documents.tuple({snapshot:at(2), snapshot:at(3), snapshot:at(6), snapshot:at(9), documents.null()})
 local bytes = json.encode(documents.documentAdapter():contents(), jsonValue, model.policy(true))
 assert(bytes == '[18446744073709551615,-0e-2,"AP9ibG9i",{"7":null},null]')
 assert(not pcall(json.encode, documents.documentAdapter():contents(), snapshot, model.policy(true)))
 print("rich documents snapshot exact values, typed keys, nulls, atoms, and context without wire serialization")
+
+local boundary = documents.document(documents.document(documents.string("nested")))
+local copied = readers.snapshot(boundary)
+assert(copied.kind == "document" and copied:document().kind == "document")
+assert(copied:document():document():string() == "nested")
+assert(json.encode(documents.documentAdapter():contents(), copied, model.policy(true)) == '"nested"')
+
+local record Mutable is core.Atom
+    @readonly family: table
+    payload: string
+    function snapshot(borrows self): core.Atom
+        return new Mutable(family = self.family, payload = self.payload)
+    end
+end
+local mutable = new Mutable(family = family, payload = "original")
+local retained = documents.atom(mutable)
+mutable.payload = "changed"
+local exported = retained:atom() as Mutable
+assert(exported.payload == "original")
+exported.payload = "changed again"
+assert((readers.snapshot(retained):atom() as Mutable).payload == "original")
