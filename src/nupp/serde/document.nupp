@@ -1,0 +1,503 @@
+module nupp.serde.document
+
+local core = require("nupp.serde.value")
+local plans = require("nupp.serde.jsonplan")
+local json = require("nupp.codec.json")
+local timestamps = require("nupp.serde.timestamps")
+
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+
+export record Entry
+    @readonly name: string
+    @readonly value: Document
+end
+
+export record Name is core.WireField
+    @readonly name: string
+    function diagnosticLabel(self): string
+        return self.name
+    end
+end
+
+export record MapEntry
+    @readonly key: Document
+    @readonly value: Document
+end
+
+export record Document
+    @readonly kind: core.Kind
+    @private @readonly text: string?
+    @private @readonly flag: boolean?
+    @private @readonly time: core.Timestamp?
+    @private @readonly integerValue: core.Integer?
+    @private @readonly decimalValue: core.Decimal?
+    @private @readonly floatValue: core.Float?
+    @private @readonly atomValue: core.Atom?
+    @private @readonly entries: {MapEntry}?
+    @private @readonly elements: {Document}
+    @private @readonly fields: {Entry}
+    @private @readonly source: core.Context?
+
+    function size(self): integer
+        if self.kind == "structure" or self.kind == "union" then
+            return #self.fields
+        elseif self.kind == "map" then
+            return #(self.entries as {MapEntry})
+        else
+            return #self.elements
+        end
+    end
+
+    function at(self, index: integer): Document
+        local value = self.elements[index]
+        if value == nil then
+            error("document index out of range", 2)
+        end
+
+        return value
+    end
+
+    function get(self, name: string): Document?
+        for _, field in ipairs(self.fields) do
+            if field.name == name then
+                return field.value
+            end
+        end
+
+        return nil
+    end
+
+    function string(self): string
+        assert(self.kind == "string", "document is not a string")
+        return self.text as string
+    end
+
+    function numberToken(self): string
+        assert(self.kind == "numberToken", "document is not a number token")
+        return self.text as string
+    end
+
+    function boolean(self): boolean
+        assert(self.kind == "boolean", "document is not a boolean")
+        return self.flag as boolean
+    end
+
+    function integer(self): core.Integer
+        assert(self.kind == "integer", "document is not an integer")
+        return self.integerValue as core.Integer
+    end
+
+    function decimal(self): core.Decimal
+        assert(self.kind == "decimal", "document is not a decimal")
+        return self.decimalValue as core.Decimal
+    end
+
+    function float(self): core.Float
+        assert(self.kind == "float", "document is not a float")
+        return self.floatValue as core.Float
+    end
+
+    function bytes(self): string
+        assert(self.kind == "bytes", "document is not bytes")
+        return self.text as string
+    end
+
+    function bigInteger(self): string
+        assert(self.kind == "bigInteger", "document is not a big integer")
+        return self.text as string
+    end
+
+    function timestamp(self): core.Timestamp
+        assert(self.kind == "timestamp", "document is not a timestamp")
+        return self.time as core.Timestamp
+    end
+
+    function atom(self): core.Atom
+        assert(self.kind == "atom", "document is not an atom")
+        return (self.atomValue as core.Atom):snapshot()
+    end
+
+    function entry(self, index: integer): MapEntry
+        assert(self.kind == "map", "document is not a map")
+        return assert((self.entries as {MapEntry})[index], "document entry out of range")
+    end
+
+    function field(self, index: integer): Entry
+        assert(self.kind == "structure" or self.kind == "union", "document has no named members")
+        return assert(self.fields[index], "document member out of range")
+    end
+
+    function document(self): Document
+        assert(self.kind == "document", "document is not a boundary")
+        return self.elements[1]
+    end
+
+    function context(self): core.Context?
+        return self.source
+    end
+end
+
+local root = new Member(name = "$document")
+local element = new Member(name = "$element")
+local write: function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
+local read: function(exclusive reader: core.DocumentReader): Document
+local adapter: core.DocumentAdapter<Document>
+
+local record Fields is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        for _, field in ipairs(value.fields) do
+            write(field.value, new Member(name = field.name), writer)
+        end
+    end
+end
+local record Elements is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        for _, child in ipairs(value.elements) do
+            write(child, element, writer)
+        end
+    end
+end
+local record One is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        write(value, element, writer)
+    end
+end
+local one = new One()
+local record Entries is core.Members<Member, Document>
+    function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        for _, entry in ipairs(value.entries as {MapEntry}) do
+            writer:writeEntry(entry.key, one, entry.value, one)
+        end
+    end
+end
+local fields, elements, entries = new Fields(), new Elements(), new Entries()
+
+write = function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
+    if value.kind == "null" then
+        writer:writeNull(member)
+    elseif value.kind == "boolean" then
+        writer:writeBoolean(member, value.flag as boolean)
+    elseif value.kind == "string" then
+        writer:writeString(member, value.text as string)
+    elseif value.kind == "numberToken" then
+        writer:writeNumberToken(member, value.text as string)
+    elseif value.kind == "bytes" then
+        writer:writeBytes(member, value.text as string)
+    elseif value.kind == "timestamp" then
+        writer:writeTimestamp(member, value.time as core.Timestamp)
+    elseif value.kind == "integer" then
+        writer:writeInteger(member, value.integerValue as core.Integer)
+    elseif value.kind == "decimal" then
+        writer:writeDecimal(member, value.decimalValue as core.Decimal)
+    elseif value.kind == "float" then
+        local item = value.floatValue as core.Float
+        writer:writeFloat(member, item.value, item.width)
+    elseif value.kind == "bigInteger" then
+        writer:writeBigInteger(member, value.text as string)
+    elseif value.kind == "atom" then
+        writer:writeAtom(member, value.atomValue as core.Atom)
+    elseif value.kind == "document" then
+        writer:writeDocument(member, value:document(), adapter)
+    elseif value.kind == "map" then
+        writer:writeMap(member, value:size(), value, entries)
+    elseif value.kind == "tuple" then
+        writer:writeTuple(member, #value.elements, value, elements)
+    elseif value.kind == "union" then
+        writer:writeUnion(member, value, fields)
+    elseif value.kind == "structure" then
+        writer:writeStruct(member, value, fields)
+    elseif value.kind == "list" then
+        writer:writeList(member, #value.elements, value, elements)
+    else
+        error("unsupported document kind: " .. value.kind, 2)
+    end
+end
+
+local record AddElement is core.DocumentElement<{Document}>
+    function apply(self, exclusive state: {Document}, index: integer, exclusive reader: core.DocumentReader): nil
+        state[index] = read(reader)
+    end
+end
+local record AddField is core.DocumentMember<{Entry}>
+    function apply(self, exclusive state: {Entry}, name: string, exclusive reader: core.DocumentReader): nil
+        state[#state + 1] = new Entry(name = name, value = read(reader))
+    end
+end
+local record AddEntry is core.DocumentEntry<{MapEntry}>
+    function apply(
+        self,
+        exclusive state: {MapEntry},
+        exclusive key: core.DocumentReader,
+        exclusive value: core.DocumentReader
+    ): nil
+        local keyValue = read(key)
+        state[#state + 1] = new MapEntry(key = keyValue, value = read(value))
+    end
+end
+local addElement, addField, addEntry = new AddElement(), new AddField(), new AddEntry()
+
+read = function(exclusive reader: core.DocumentReader): Document
+    local kind = reader:kind()
+    local source = reader:context()
+    local text: string? = nil
+    local flag: boolean? = nil
+    local time: core.Timestamp? = nil
+    local integerValue: core.Integer? = nil
+    local decimalValue: core.Decimal? = nil
+    local floatValue: core.Float? = nil
+    local atomValue: core.Atom? = nil
+    local mapEntries: {MapEntry} = {}
+    local items: {Document} = {}
+    local members: {Entry} = {}
+    if kind == "null" then
+        reader:readNull()
+    elseif kind == "boolean" then
+        flag = reader:readBoolean()
+    elseif kind == "string" then
+        text = reader:readString()
+    elseif kind == "numberToken" then
+        text = reader:readNumberToken()
+    elseif kind == "bytes" then
+        text = reader:readBytes()
+    elseif kind == "timestamp" then
+        time = reader:readTimestamp()
+    elseif kind == "integer" then
+        integerValue = reader:readInteger()
+    elseif kind == "decimal" then
+        decimalValue = reader:readDecimal()
+    elseif kind == "float" then
+        floatValue = reader:readFloat()
+    elseif kind == "bigInteger" then
+        text = reader:readBigInteger()
+    elseif kind == "atom" then
+        atomValue = reader:readAtom()
+    elseif kind == "document" then
+        items[1] = reader:readDocument(adapter)
+    elseif kind == "map" then
+        reader:readMap(mapEntries, addEntry)
+    elseif kind == "tuple" then
+        reader:readTuple(items, addElement)
+    elseif kind == "union" then
+        reader:readUnion(members, addField)
+    elseif kind == "list" then
+        reader:readList(items, addElement)
+    elseif kind == "structure" then
+        reader:readStruct(members, addField)
+    else
+        error("unsupported document input: " .. kind, 2)
+    end
+
+    return new Document(
+        kind = kind,
+        text = text,
+        flag = flag,
+        time = time,
+        integerValue = integerValue,
+        decimalValue = decimalValue,
+        floatValue = floatValue,
+        atomValue = atomValue,
+        entries = mapEntries,
+        elements = items,
+        fields = members,
+        source = source
+    )
+end
+
+local record Description is core.Description<Member>
+    @readonly kind: core.Kind
+    @readonly member: Member
+    @readonly nullable: boolean
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean
+    @readonly children: {core.Child<Member>}
+end
+local description = new Description(kind = "dynamic", member = root, nullable = true, canRead = false, children = {})
+
+local record Contents is core.Adapter<Document, Member>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return description
+    end
+
+    function write(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
+        write(value, root, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Document
+        error("document input uses the document contents reader", 2)
+    end
+end
+
+local record Adapter is core.DocumentAdapter<Document>
+    function discard(self, takes value: Document): nil
+        local _copy = @unsafe nupp.release(value)
+    end
+
+    @readonly binding: core.Binding<Document>
+    function context(self, borrows document: Document): core.Context?
+        return document.source
+    end
+
+    function contents(self): core.Binding<Document>
+        return self.binding
+    end
+
+    function readContents(self, exclusive reader: core.DocumentReader): Document
+        return read(reader)
+    end
+end
+adapter = new Adapter(binding = new core.Bound<Document, Member>(adapter = new Contents()))
+
+export function documentAdapter(): core.DocumentAdapter<Document>
+    return adapter
+end
+
+export function string(value: string): Document
+    return new Document(kind = "string", text = value, elements = {}, fields = {})
+end
+
+export function numberToken(value: string): Document
+    json.numberToken(value)
+    return new Document(kind = "numberToken", text = value, elements = {}, fields = {})
+end
+
+export function document(value: Document): Document
+    return new Document(kind = "document", elements = {value}, fields = {})
+end
+
+export function null(): Document
+    return new Document(kind = "null", elements = {}, fields = {})
+end
+
+export function list(values: {Document}): Document
+    local copy: {Document} = {}
+    for index, value in ipairs(values) do
+        copy[index] = value
+    end
+
+    return new Document(kind = "list", elements = copy, fields = {})
+end
+
+export function object(values: {Entry}): Document
+    local copy: {Entry} = {}
+    local seen: {[string]: boolean} = {}
+    for index, value in ipairs(values) do
+        if seen[value.name] then
+            error("duplicate document member", 2)
+        end
+        seen[value.name] = true
+        copy[index] = value
+    end
+
+    return new Document(kind = "structure", elements = {}, fields = copy)
+end
+
+export function boolean(value: boolean): Document
+    return new Document(kind = "boolean", flag = value, elements = {}, fields = {})
+end
+
+export function integer(value: core.Integer): Document
+    return new Document(kind = "integer", integerValue = value, elements = {}, fields = {})
+end
+
+export function decimal(value: core.Decimal): Document
+    return new Document(kind = "decimal", decimalValue = value, elements = {}, fields = {})
+end
+
+export function float(value: core.Float): Document
+    return new Document(kind = "float", floatValue = value, elements = {}, fields = {})
+end
+
+export function bigInteger(value: string): Document
+    assert(
+        value:match("^-?[0-9]+$") and (value == "0" or value == "-0" or value:match("^-?[1-9][0-9]*$")),
+        "invalid big integer"
+    )
+
+    return new Document(kind = "bigInteger", text = value, elements = {}, fields = {})
+end
+
+export function bytes(value: string): Document
+    return new Document(kind = "bytes", text = value, elements = {}, fields = {})
+end
+
+export function timestamp(value: core.Timestamp): Document
+    assert(value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
+    return new Document(kind = "timestamp", time = value, elements = {}, fields = {})
+end
+
+export function atom(borrows value: core.Atom): Document
+    return new Document(kind = "atom", atomValue = value:snapshot(), elements = {}, fields = {})
+end
+
+export function tuple(values: {Document}): Document
+    local copy: {Document} = {}
+    for index, value in ipairs(values) do
+        copy[index] = value
+    end
+
+    return new Document(kind = "tuple", elements = copy, fields = {})
+end
+
+export function union(name: string, value: Document): Document
+    return new Document(kind = "union", elements = {}, fields = {new Entry(name = name, value = value)})
+end
+
+export function map(values: {MapEntry}): Document
+    local copy: {MapEntry} = {}
+    for index, value in ipairs(values) do
+        copy[index] = value
+    end
+
+    return new Document(kind = "map", elements = {}, fields = {}, entries = copy)
+end
+
+export function withContext(value: Document, context: core.Context): Document
+    return new Document(
+        kind = value.kind,
+        text = value.text,
+        flag = value.flag,
+        time = value.time,
+        integerValue = value.integerValue,
+        decimalValue = value.decimalValue,
+        floatValue = value.floatValue,
+        atomValue = value.atomValue,
+        entries = value.entries,
+        elements = value.elements,
+        fields = value.fields,
+        source = context
+    )
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    @readonly epoch: boolean
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        return self.epoch and json.numberToken(timestamps.epoch(value)) or json.encoded(timestamps.dateTime(value))
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        if kind == "number" then
+            return timestamps.parseEpoch(text)
+        else
+            return timestamps.parseDateTime(text)
+        end
+    end
+end
+
+export function policy<M is core.Member>(member: M, epoch: boolean): plans.Policy<M>?
+    if getmetatable(member) ~= Member then
+        return nil
+    end
+    return new Policy<M>(epoch = epoch)
+end

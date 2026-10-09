@@ -1,0 +1,41 @@
+local provider = {}
+
+interface provider.Inspect
+    inspect: function(self): string
+end
+
+function provider.text(value: string): string
+    return value
+end
+
+@comptime
+function provider.derive(info: nupp.derive.Info): nupp.derive.Result<provider.Inspect>
+    local signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({nupp.types.string}))
+
+    return nupp.derive.implement{
+        methods = {
+            inspect = nupp.derive.forward{
+                helper = nupp.derive.helper(provider, "text"),
+                arguments = {nupp.derive.constant(info.name)}
+            }
+        },
+        statics = {
+            kind = nupp.derive.member{
+                signature = signature,
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(provider, "text"),
+                    arguments = {nupp.derive.constant(info.kind)}
+                }
+            },
+            fields = nupp.derive.member{
+                signature = signature,
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(provider, "text"),
+                    arguments = {nupp.derive.constant(tostring(#info.fields))}
+                }
+            },
+        },
+    }
+end
+
+return provider

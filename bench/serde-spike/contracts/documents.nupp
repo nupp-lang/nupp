@@ -1,8 +1,8 @@
-local core = require("contract.value")
-local documents = require("example.document")
-local readers = require("example.documentreader")
-local contexts = require("contract.context")
-local json = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local readers = require("nupp.serde.documentreader")
+local contexts = require("nupp.serde.context")
+local json = require("nupp.serde.json")
 local model = require("example.richmodel")
 
 local record Custom is core.Atom

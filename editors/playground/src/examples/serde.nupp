@@ -1,36 +1,23 @@
--- Serde keeps a value's shape, its representation, and its wire format apart.
--- A derived binding joins the record to a schema, a codec profile decides the
--- JSON policy, and the format work is prepared once rather than rebuilt for
--- every value.
-const serde = require("nupp.serde")
-const json = require("nupp.codec.json")
+-- Select a value binding independently of its wire format.
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+local documents = require("nupp.serde.document")
 
-@derive(nupp.derive.Serde)
 local record User
     id: uint32
     name: string?
     tags: {string}?
 end
 
-local users = json.newCodec():prepare(serde.of(User))
+local users = serde.binding(User)
+local bytes = json.encode(users, new User(id = 41, name = "Ada", tags = {"admin"}))
+print(bytes)
+local restored = json.decode(users, bytes)
+print(restored.id, restored.name or "anonymous")
 
--- The schema already says what each member is, so encoding walks the record
--- rather than discovering its shape at run time.
-local text = users:encode(new User(id = 41, name = "Ada", tags = {"admin"}))
-print(text)
+-- Documents preserve data without choosing an application declaration.
+local contents = documents.documentAdapter():contents()
+local loose = json.decodeDocument(documents.documentAdapter(), [[{"ok":true,"count":3}]])
+print(json.encode(contents, loose))
 
--- Decoding answers a value and a problem instead of raising, and the value is
--- typed: `restored.name` is `string?` here, not `any`.
-local restored, problem = users:decode(text)
-if restored then
-    print(restored.id, restored.name or "anonymous")
-end
-print(problem or "no problem")
-
--- Data whose shape is not known until it arrives still has plain JSON, with no
--- schema and no binding in the way.
-local loose = assert(json.decode([[{"ok":true,"count":3}]]))
-print(json.encode(loose))
-
--- try breaking it: decode `[[{"id":"41"}]]`, or give `tags` a number, and read
--- what the codec reports rather than what it silently accepts
+-- Try decoding [[{"id":"41"}]] or assigning a number to tags.

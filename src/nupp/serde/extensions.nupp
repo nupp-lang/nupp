@@ -1,0 +1,88 @@
+module nupp.serde.extensions
+
+--[[
+Typed lazy extensions for model-owned schemas and bindings.
+The host owns its cache; keys carry the result type and initialization function.
+]]
+
+--- An identity and initializer for one extension result.
+export record Key<H is table, V is nupp.Copyable>
+    @private @readonly build: function(host: H): V
+    @private @readonly _hostType: (function(host: H): H)?
+    @private @readonly _valueType: (function(value: V): V)?
+end
+
+local record Entry
+    state: "initializing" | "ready" | "failed"
+    value: unknown
+end
+
+--- A cache owned by one immutable schema or binding.
+export record Cache<H is table>
+    @private @readonly host: H
+    @private entries: {[unknown]: Entry}
+    @private @readonly limit: integer
+    @private count: integer
+    @private active: integer
+
+    --- Resolves an extension on first use and reuses its result.
+    --- @raises string when initialization recurs or the cache is full
+    --- @raises unknown when the extension initializer fails
+    function get<V is nupp.Copyable>(self, key: Key<H, V>): V
+        local entries = self.entries
+        local found = entries[key]
+        if found ~= nil then
+            if found.state == "ready" then
+                return found.value as V
+            elseif found.state == "failed" then
+                error(found.value, 0)
+            else
+                error("nupp: recursive extension initialization", 2)
+            end
+        end
+        if self.count >= self.limit then
+            error("nupp: extension cache limit exceeded", 2)
+        end
+        local entry = new Entry(state = "initializing", value = nil)
+        entries[key] = entry
+        self.count += 1
+        self.active += 1
+        local ok, result = pcall(key.build, self.host)
+        self.active -= 1
+        if not ok then
+            entry.state = "failed"
+            entry.value = result
+            error(result, 0)
+        end
+        entry.value = result
+        entry.state = "ready"
+
+        return result as V
+    end
+
+    --- Drops cached results without invalidating results held by callers.
+    --- @raises string while an initializer is running
+    function clear(self): nil
+        if self.active ~= 0 then
+            error("nupp: extension cache is initializing", 2)
+        end
+        self.entries = {}
+        self.count = 0
+    end
+end
+
+--- Creates an extension identity with a typed initializer.
+export function key<H is table, V is nupp.Copyable>(build: function(host: H): V): Key<H, V>
+    return new Key<H, V>(build = build)
+end
+
+--- Creates a bounded cache for an immutable host.
+--- @raises string when the entry limit is not positive
+export function cache<H is table>(host: H, limit: integer?): Cache<H>
+    local maximum = limit or 256
+    if maximum < 1 then
+        error("nupp: extension cache limit must be positive", 2)
+    end
+
+    return new Cache<H>(host = host, entries = {}, limit = maximum, count = 0, active = 0)
+end

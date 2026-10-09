@@ -1,0 +1,351 @@
+module nupp.serde.nativereader
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local documents = require("nupp.serde.document")
+local readers = require("nupp.serde.documentreader")
+local numbers = require("nupp.serde.numbers")
+export type Value = {unknown}
+export type Materialize = function(value: unknown): documents.Document
+
+local function node(value: unknown): Value
+    return value as Value
+end
+
+local function nodeKind(value: Value): core.Kind
+    return value[1] as core.Kind
+end
+
+local function nodeSize(value: Value): integer
+    local tag = nodeKind(value)
+    if tag == "structure" or tag == "union" or tag == "map" then
+        return math.floor((#value - 1) / 2)
+    end
+
+    return #value - 1
+end
+
+local record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly names: {[string]: M} = {}
+    @readonly children: {[M]: Plan<M>} = {}
+end
+
+local function plan<M is core.Member>(description: core.Description<M>, seen: {[core.Description<M>]: Plan<M>}): Plan<M>
+    local prior = seen[description]
+    if prior ~= nil then
+        return prior
+    end
+    assert(description.canRead, "binding has no construction operation")
+    local result = new Plan<M>(description = description)
+    seen[description] = result
+    for _, child in ipairs(description.children) do
+        assert(result.names[child.member.name] == nil, "duplicate logical member name")
+        result.names[child.member.name] = child.member
+        result.children[child.member] = plan(child:describe("read"), seen)
+    end
+
+    return result
+end
+
+local record Unknown is core.UnknownReader, nupp.Closeable
+    @readonly value: Value
+    @readonly source: core.Context?
+    @readonly materialize: Materialize
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        assert(not self.expired and not self.used, "unknown document reader is no longer usable")
+    end
+
+    function skipValue(exclusive self): nil
+        self:live()
+        self.used = true
+    end
+
+    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        self.used = true
+        local value = self.materialize(self.value)
+        if self.source ~= nil then
+            value = documents.withContext(value, self.source)
+        end
+        local reader = readers.reader(value)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+end
+
+local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+    @readonly value: Value
+    @readonly source: core.Context?
+    @readonly materialize: Materialize
+    @readonly plan: Plan<M>
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function scoped(self, value: Value, selected: Plan<M>): Input<M>
+        return new Input<M>(value = value, plan = selected, source = self.source, materialize = self.materialize)
+    end
+
+    function live(self): nil
+        assert(not self.expired and not self.used, "document value reader is no longer usable")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.source
+    end
+
+    function isNull(self): boolean
+        self:live()
+        return nodeKind(self.value) == "null"
+    end
+
+    function consume(exclusive self, kind: core.Kind): nil
+        self:live()
+        assert(nodeKind(self.value) == kind, "document kind does not match the binding")
+        self.used = true
+    end
+
+    function readNull(exclusive self, member: M): nil
+        assert(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
+        self:consume("null")
+    end
+
+    function readBoolean(exclusive self, member: M): boolean
+        self:consume("boolean")
+        return self.value[2] as boolean
+    end
+
+    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        self:consume("integer")
+        return numbers.integer(self.value[2] as string, width, signed)
+    end
+
+    function readFloat(exclusive self, member: M, width: 32 | 64): number
+        self:consume("float")
+        return numbers.floating(self.value[2] as number, width, true)
+    end
+
+    function readBigInteger(exclusive self, member: M): string
+        self:consume("bigInteger")
+        return self.value[2] as string
+    end
+
+    function readDecimal(exclusive self, member: M): core.Decimal
+        self:consume("decimal")
+        return new core.Decimal(coefficient = self.value[2] as string, exponent = self.value[3] as integer)
+    end
+
+    function readNumberToken(exclusive self, member: M): string
+        self:consume("numberToken")
+        return self.value[2] as string
+    end
+
+    function readString(exclusive self, member: M): string
+        self:consume("string")
+        return self.value[2] as string
+    end
+
+    function readBytes(exclusive self, member: M): string
+        self:consume("bytes")
+        return self.value[2] as string
+    end
+
+    function readTimestamp(exclusive self, member: M): core.Timestamp
+        self:consume("timestamp")
+        return new core.Timestamp(seconds = self.value[2] as string, nanos = self.value[3] as integer)
+    end
+
+    function readAtom(exclusive self, member: M): core.Atom
+        self:consume("atom")
+        error("native persistence does not represent atoms", 2)
+    end
+
+    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        self:consume("document")
+        local contents = self.materialize(self.value[2])
+        local context = self.source
+        if contents:context() == nil and context ~= nil then
+            contents = documents.withContext(contents, context)
+        end
+        local reader = readers.reader(contents)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+
+    function size(self): integer?
+        if nodeKind(self.value) == "structure"
+            or nodeKind(self.value) == "union"
+            or nodeKind(self.value) == "map"
+            or nodeKind(self.value) == "list"
+            or nodeKind(self.value) == "tuple"
+        then
+            return nodeSize(self.value)
+        end
+
+        return nil
+    end
+
+    function containerSize(self): integer?
+        self:live()
+        return self:size()
+    end
+
+    function slot(self, index: integer): Plan<M>
+        local child = assert(self.plan.description.children[index], "binding has no container child")
+        return assert(self.plan.children[child.member])
+    end
+
+    function child(self, value: Value, child: Plan<M>): Input<M>
+        return new Input<M>(value = value, plan = child, source = self.source, materialize = self.materialize)
+    end
+
+    function object<S>(
+        exclusive self,
+        kind: core.Kind,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:consume(kind)
+        if kind == "union" then
+            assert(nodeSize(self.value) == 1, "union requires exactly one alternative")
+        end
+        for index = 1, nodeSize(self.value) do
+            local name = self.value[index * 2] as string
+            local value = node(self.value[index * 2 + 1])
+            local member = self.plan.names[name]
+            if member ~= nil then
+                local child = self:child(value, assert(self.plan.children[member]))
+                consume:apply(state, member, child)
+                assert(child.used, "member callback did not consume its value")
+            else
+                local child = new Unknown(value = value, source = self.source, materialize = self.materialize)
+                unknown:apply(state, new documents.Name(name = name), child)
+                assert(child.used, "unknown callback did not consume its value")
+            end
+        end
+    end
+
+    function readStruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("structure", state, consume, unknown)
+    end
+
+    function readUnion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("union", state, consume, unknown)
+    end
+
+    function array<S>(
+        exclusive self,
+        kind: core.Kind,
+        size: integer?,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:consume(kind)
+        assert(size == nil or nodeSize(self.value) == size, "wrong tuple size")
+        for index = 1, nodeSize(self.value) do
+            local child = self:child(node(self.value[index + 1]), self:slot(kind == "tuple" and index or 1))
+            consume:apply(state, index, child)
+            assert(child.used, "element callback did not consume its value")
+        end
+    end
+
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        self:array("list", nil, state, consume)
+    end
+
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:array("tuple", size, state, consume)
+    end
+
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        self:consume("map")
+        for index = 1, nodeSize(self.value) do
+            local keyDocument = node(self.value[index * 2])
+            local valueDocument = node(self.value[index * 2 + 1])
+            local key = self:scoped(keyDocument, self:slot(1))
+            local value = self:scoped(valueDocument, self:slot(2))
+            consume:apply(state, key, value)
+            assert(key.used and value.used, "entry callback did not consume key and value")
+        end
+    end
+end
+
+local function input<M is core.Member>(
+    value: Value,
+    selected: Plan<M>,
+    source: core.Context?,
+    materialize: Materialize
+): Input<M>
+    return new Input<M>(value = value, plan = selected, source = source, materialize = materialize)
+end
+
+export interface Decoder<T>
+    read: function(self, value: Value, source: core.Context?): T
+end
+local record Reconstruction<T, M is core.Member> is Decoder<T>
+    @readonly adapter: core.Adapter<T, M>
+    @readonly selected: Plan<M>
+    @readonly discard: core.Discard<T>
+    @readonly materialize: Materialize
+    function read(self, value: Value, source: core.Context?): T
+        local reader = input(value, self.selected, source, self.materialize)
+        local result = self.adapter:read(reader)
+        if not reader.used then
+            error(publication.failure(self.discard, result, "binding did not consume its value"), 0)
+        end
+
+        return result
+    end
+end
+export function decoderFor<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    description: core.Description<M>,
+    discard: core.Discard<T>,
+    materialize: Materialize
+): Decoder<T>
+    return new Reconstruction<T, M>(
+        adapter = adapter,
+        selected = plan(description, {}),
+        discard = discard,
+        materialize = materialize
+    )
+end

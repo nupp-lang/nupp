@@ -1,0 +1,173 @@
+local core = require("nupp.serde.value")
+local smithy = require("example.smithy")
+local protocol = require("example.smithyxml")
+local codec = require("example.xmlcodec")
+local syntax = require("example.xmlsyntax")
+local assembly = require("example.xmlassembly")
+local structure = require("nupp.serde.structure")
+local scalar = require("nupp.serde.scalar")
+local lists = require("nupp.serde.list")
+local documents = require("nupp.serde.document")
+local readers = require("nupp.serde.documentreader")
+local model = smithy.parse(
+    [[{"smithy":"2.0","shapes":{
+ "test#Request":{"type":"structure","traits":{"smithy.api#xmlName":"Request","smithy.api#xmlNamespace":{"uri":"urn:test"}},"members":{
+  "attributeId":{"target":"smithy.api#String","traits":{"smithy.api#xmlName":"id","smithy.api#xmlAttribute":{}}},
+  "elementId":{"target":"smithy.api#String","traits":{"smithy.api#xmlName":"id","smithy.api#xmlNamespace":{"uri":"urn:test"}}},
+  "items":{"target":"test#Items","traits":{"smithy.api#xmlName":"item","smithy.api#xmlNamespace":{"uri":"urn:test"},"smithy.api#xmlFlattened":{}}},
+  "empty":{"target":"smithy.api#String"},
+  "absent":{"target":"smithy.api#String"}
+ }},
+ "test#Items":{"type":"list","member":{"target":"smithy.api#String"}}
+}}]]
+)
+local shape = model:shape("test#Request")
+local root = smithy.root(shape)
+local attributeId = assert(shape:member("attributeId"))
+local elementId = assert(shape:member("elementId"))
+local items = assert(shape:member("items"))
+local empty = assert(shape:member("empty"))
+local record Request
+    attributeId: string
+    elementId: string
+    items: {string}
+    empty: string
+    unknown: {smithy.UnknownField} = {}
+end
+local record Builder is nupp.Closeable
+    attributeId: string?
+    elementId: string?
+    items: {string} = {}
+    empty: string = ""
+    unknown: {smithy.UnknownField} = {}
+    function close(takes self): nil
+    end
+end
+local record Construction is structure.Construction<Request, Builder>
+    function begin(self): Builder
+        return new Builder()
+    end
+
+    function finish(self, takes value: Builder): Request
+        local owned: Builder = value
+        local result = new Request(
+            attributeId = assert(owned.attributeId),
+            elementId = assert(owned.elementId),
+            items = owned.items,
+            empty = owned.empty,
+            unknown = owned.unknown
+        )
+        owned:close()
+
+        return result
+    end
+end
+local record Capture is core.UnknownConsumer<Builder>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: Builder,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        state.unknown[
+            #state.unknown + 1
+        ] = new smithy.UnknownField(field = field, value = reader:captureValue(documents.documentAdapter()))
+    end
+end
+local record Additional is core.Members<smithy.Member, Request>
+    function apply(self, borrows value: Request, exclusive writer: core.Writer<smithy.Member>): nil
+        for _, entry in ipairs(value.unknown) do
+            writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+        end
+    end
+end
+local fields: {structure.Field<Request, Builder, smithy.Member>} = {
+    structure.field<Request, Builder, string, smithy.Member>(
+        attributeId,
+        function(borrows value: Request): string borrows (value)
+            return value.attributeId
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.attributeId = value
+        end,
+        scalar.text(attributeId),
+        true,
+        false
+    ),
+    structure.field<Request, Builder, string, smithy.Member>(
+        elementId,
+        function(borrows value: Request): string borrows (value)
+            return value.elementId
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.elementId = value
+        end,
+        scalar.text(elementId),
+        true,
+        false
+    ),
+    structure.field<Request, Builder, {string}, smithy.Member>(
+        items,
+        function(borrows value: Request): {string} borrows (value)
+            return value.items
+        end,
+        function(exclusive state: Builder, value: {string}): nil
+            state.items = value
+        end,
+        lists.adapter(items, items.target:at(1), scalar.text(items.target:at(1))),
+        false,
+        true
+    ),
+    structure.field<Request, Builder, string, smithy.Member>(
+        empty,
+        function(borrows value: Request): string borrows (value)
+            return value.empty
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.empty = value
+        end,
+        scalar.text(empty),
+        false,
+        true
+    )
+}
+local recordBinding = new core.Bound<Request, smithy.Member>(
+    adapter = structure.adapter(root, fields, new Construction(), new Capture(), new Additional())
+)
+local documentBinding = smithy.binding(shape)
+local policy = protocol.policy()
+local xml = codec.codec(policy)
+local wire = [[<r:Request xmlns:r="urn:test" xmlns:x="urn:unknown" id="attr"><r:item>first</r:item><r:id>element</r:id><empty></empty><r:item>second &amp; third</r:item><x:extra x:code="z"><x:nested>owned</x:nested></x:extra></r:Request>]]
+local record = xml:decode(recordBinding, wire)
+assert(record.attributeId == "attr" and record.elementId == "element" and record.empty == "")
+assert(#record.items == 2 and record.items[2] == "second & third" and #record.unknown == 1)
+local document = xml:decode(documentBinding, wire)
+assert(assert(document:get("items")):at(2):string() == record.items[2])
+assert(document:get("absent") == nil and assert(document:get("empty")):string() == "")
+local unknown = assert(assert(document:context()):get(smithy.unknownFieldsContext))
+assert(#unknown == 1 and syntax.identity(unknown[1].field).namespaceUri == "urn:unknown")
+local recordBytes = xml:encode(recordBinding, record)
+local documentBytes = xml:encode(documentBinding, document)
+local again = xml:decode(recordBinding, documentBytes)
+assert(again.attributeId == record.attributeId and #again.items == 2 and #again.unknown == 1)
+local snapshot = readers.snapshot(document)
+assert(#xml:encode(documentBinding, snapshot) > 0)
+local changed = wire:gsub("xmlns:r=", "xmlns:changed="):gsub("r:", "changed:")
+assert(xml:decode(recordBinding, changed).elementId == "element")
+assert(not pcall(xml.decode, xml, recordBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
+assert(not pcall(xml.decode, xml, documentBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
+assert(not pcall(xml.decode, xml, recordBinding, '<!DOCTYPE Request><Request/>'))
+assert(not pcall(xml.decode, xml, recordBinding, wire:sub(1, #wire - 2)))
+local foreign = codec.codec(protocol.policy())
+assert(not pcall(foreign.encode, foreign, recordBinding, record))
+-- Captured subtrees retain expanded identities while the writer chooses prefixes.
+local parsed = assembly.parse(recordBytes)
+local last = parsed.content[#parsed.content] as assembly.Node
+assert(last.field.namespaceUri == "urn:unknown" and last.field.localName == "extra")
+assert(last.attributes[1].field.namespaceUri == "urn:unknown")
+assert(assembly.text(last.content[1] as assembly.Node) == "owned")
+local noItems = xml:decode(documentBinding, '<n:Request xmlns:n="urn:test" id="a"><n:id>b</n:id><empty/></n:Request>')
+assert(noItems:get("items") == nil and assert(noItems:get("empty")):string() == "")
+
+assert(not pcall(xml.decode, xml, recordBinding, '<Request xmlns:unused=""/>'))
+assert(not pcall(xml.decode, xml, recordBinding, (wire:gsub("element", "\239\191\190"))))

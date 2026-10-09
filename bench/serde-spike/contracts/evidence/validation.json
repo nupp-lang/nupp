@@ -1,0 +1,121 @@
+{
+  "revision": "297d21124574cd3db13a5c7e0ccd4be42813264a",
+  "workingTree": true,
+  "date": "2026-10-09",
+  "checks": [
+    {
+      "command": "nupp test --exclude-group=external-corpus --exclude-group=wasm-conformance --exclude-group=measurement",
+      "total": 5149,
+      "passed": 5081,
+      "skipped": 5,
+      "notExecuted": 3,
+      "failed": 60,
+      "note": "Initial broad run. Failures included removed unrelated annotation hydration and derive iteration, stale docs/fixtures, and eight canceled long fixture builds. All failing or canceled selections were rerun after repair."
+    },
+    {
+      "command": "nupp test --rerun=/private/tmp/nupp-serde-broad-failures.json",
+      "total": 94,
+      "passed": 93,
+      "failed": 1,
+      "note": "All behavioral failures cleared. The one remaining failure was stale top-level CLI help, corrected before the final documentation run."
+    },
+    {
+      "command": "nupp test serdecontracttest clidoctest doctest",
+      "total": 143,
+      "passed": 143,
+      "failed": 0
+    },
+    {
+      "command": "nupp bc --check src/contract/hotpath.nupp",
+      "cwd": "bench/serde-spike/contracts",
+      "exitCode": 0
+    },
+    {
+      "command": "rm -rf build/cache && nupp check --json",
+      "ok": true,
+      "diagnostics": 0,
+      "compiledModules": 508
+    },
+    {
+      "command": "nupp fixpoint",
+      "ok": true,
+      "result": "fixpoint ok: /private/tmp/nupp-open-serialization/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua rebuilds itself byte-identically"
+    },
+    {
+      "command": "packageBrowserApp and run-browser.mjs",
+      "ok": true,
+      "evidence": "browser-conformance.json",
+      "note": "Final typed views, context, document precision, repeated Buffer output, declaration defaults, and native-persistence refusal in the real i386 LuaJIT browser guest."
+    }
+  ],
+  "scope": "Local native LuaJIT, portable LuaJIT syntax, native AOT provider, and actual browser guest. Stock Lua 5.1 source-profile refusal is tested; no unsupported backend is claimed.",
+  "logSha256": {
+    "broad-tests": "3795e24e97126204def694c7a1292c6387ba77160125821fd02785d335628312",
+    "broad-repair-run": "021bac1f2dbf364960f023d37bdb798c0f1ecc351bc9047ff8714b7c338a894c",
+    "final-contract-tests": "340714d7d74d66d12a36fd72d96fb6e9f7255e269bd8051cf8c2d33cdd5950f2",
+    "hotpath-bytecode": "1cfad4e15199f744e6b7ce7505d06b704471684cb93a0a252627a6e0400b5887",
+    "final-cold-check": "32086d707985916e8d65e689d9e7c4e21df6eb882acca23722e7ca6c07f9812d",
+    "final-fixpoint": "acf2f6160ed494d7cc1892704bb6ca933d864343b0602190a0411e725698fb50"
+  },
+  "sourceSha256": {
+    "native/crates/native/c/ks_lua.h": "d46acd5b2847f98a26ccb25fde5209277a7be2d972b14737a6d51d59372fcd10",
+    "src/nupp/codec/json/aot.nupp": "55b8e039c8c8037a30d343f9e80d304ec44574138641dcfc17541f4cb478e850",
+    "src/nupp/codec/json/init.nupp": "fc7c22ae469c3643df9499d36ccd81876275662c982be0cf7f5241b9ca7e76fc",
+    "src/nupp/compiler/annotations.nupp": "3507d184039a2bc24686026f7e3671707b10555b4238137e80f3dd27e2a67832",
+    "src/nupp/compiler/aot/llvm/lua/runtime-i686.ll": "8699ceabd3d83dbace0eb25a58bdc4543ede482b3afcb9bd3ccfc2fd1a8f0be2",
+    "src/nupp/compiler/check/derive.nupp": "ee97304483cc8830bbf2a17ec9df61538776da6ac4a85ed4da5a6dab7cf0873d",
+    "src/nupp/compiler/check/init.nupp": "13424771d0624f054bd649bff90fc889cda0e2ba15cebca8c819c4a9a4659e73",
+    "src/nupp/compiler/decls/prelude.d.nupp": "ef27439e7055d305c22ebc975ad5505e04be304c1cd518289ea4097c770da956",
+    "src/nupp/compiler/lua/gen.nupp": "5396e9aaa8826832101472b4dea28a3127d5a848284629e4172fcedc578ec160",
+    "src/nupp/compiler/lua/typewitness.nupp": "b0e843e1bb694a202eeb0ce305fdd6ccf93713629c93a3aeeb06e2986f340f3a",
+    "src/nupp/compiler/project/env.nupp": "0549ca06f9c91a6086189291ac49e7fdfd9e233021964bd4605be50b747e0e93",
+    "src/nupp/compiler/reflection.nupp": "4ce24b6705c97eb52a682672f4dcd1140f75eb93c075540831e255c80db73f0f",
+    "src/nupp/compiler/runtime/reflect.nupp": "e7c439a9d532023819b638b43b8f1806490fb0f08b5a69d829646614fd5192c2",
+    "src/nupp/compiler/standardsurface.nupp": "343c649f5e3cce855f273755776c3a7ea713e524e0689c21e410837dd110cbff",
+    "src/nupp/compiler/types/relations.nupp": "d1bf90a17b355e2f968c90cfa6b853f5e94da27c75c73644a3acccc36204f502",
+    "src/nupp/derive.nupp": "742ac68e0998d40f3cb8b9f18e5f125e5b18e9d84d04b508c3eb646c6a48ae7f",
+    "src/nupp/runtime/browser/playground.g.nupp": "eb406677262ec46c34d43124ff8b6b0003f0a49a22b479a9c0b2311b5df97f03",
+    "src/nupp/serde/accessors.nupp": "bb3c677e034600bab2c516c807ef80d3b6c845bf9075f83ff07e5284a4180c28",
+    "src/nupp/serde/context.nupp": "66aa03e9122fa3d78c71d37c0f7ee53197e02f787128965bbe6fe799c19f7565",
+    "src/nupp/serde/debug.nupp": "dfa9f781f8ec154a13f3f2fb5dbe81dea2120fc72c52024b5c352c6e4d6e236f",
+    "src/nupp/serde/declaration.nupp": "39d8e5e64798332539eb0f30ae41deedcd441d0982ee04c209ca74f843b029f3",
+    "src/nupp/serde/defaultjson.nupp": "fb9b59fb132dce7ba7b11ad4bf3782ca3dcc2b6c87c50295ec391a810622c07a",
+    "src/nupp/serde/document.nupp": "b5fcf14c48ce834da2a2b11032fceb1b585ad0f9594d01346037a9d6ee0276c9",
+    "src/nupp/serde/documentcodec.nupp": "1842f3c223f97d62e1540db1744fed3eaf180f8a978f25847c7ca45ded3e24bb",
+    "src/nupp/serde/documentreader.nupp": "78b762590f58a1f57b2f3989ba954929f98b96a2b3333ba4120f16bff772515b",
+    "src/nupp/serde/documentwriter.nupp": "57126c38553b3e0f79df32d2e2e75ad3660671290ffdff345de92e5089f9785f",
+    "src/nupp/serde/errors.nupp": "3b5a44d90c96419574725e8ad4f8aa74cec0798ac611a494cf5ffae3b98fd16c",
+    "src/nupp/serde/extensions.nupp": "fce348312bbc60a1c04a8de8b1e659c022ca5450236c7ca28f73450a9e4340e9",
+    "src/nupp/serde/indexed.nupp": "1e3fefad504b8bbd2baa591e01571b9e4b4fbc12596711acf4d0335c3c2d80ee",
+    "src/nupp/serde/init.nupp": "13e8ebef7011ab210d2066f321aceb4e14a290df9945d27b1d76c1fb33bd9fe9",
+    "src/nupp/serde/json.nupp": "37da2a7511af6585ea0e2f8561510634edc937356858269ea70584af6fdaa47e",
+    "src/nupp/serde/jsoncompiled.nupp": "81fb637b26de48b09a6c01c3497893b179110491a14a34eae270ea0e02197d65",
+    "src/nupp/serde/jsondiagnostic.nupp": "ea833fb2d0345d57a76c12f12567490282090dd0599935ba9459ddc0c447281f",
+    "src/nupp/serde/jsondocument.nupp": "732fcd8a105e411bad36420380797ad27c9eaa2ae88cf673decd406dc60c6636",
+    "src/nupp/serde/jsonencoder.nupp": "5378c2c5f891daf3636e063182d6acec2a5c8807e924dc2a259882613105a1ca",
+    "src/nupp/serde/jsonextensions.nupp": "84e561bb3373ef60e01d3de5d86d3af66afb0935c8355fae1b257ed70f4712f3",
+    "src/nupp/serde/jsonlower.nupp": "99ef9accf12f2a7cd3f80fce6b0eab7f9cbc000dda1e39d5646ea4da9725064a",
+    "src/nupp/serde/jsonplan.nupp": "31d5a2256a4748dd0477794ad57f27e80a177d3566bfffa9210c07fa822b9ca3",
+    "src/nupp/serde/jsonreader.nupp": "61cef4a4b58400afcf13ec7cf536676d5882bcb382ee758bb3fc2e86753ff431",
+    "src/nupp/serde/jsonsyntax.nupp": "26e268809238a8e92d3953a50342613d7a7f49d4e7ddc34fdb848fb1fdd4f1eb",
+    "src/nupp/serde/jsonwriter.nupp": "d2d604f49adeecffada8e478cb813c2646ecdfa23517819c1988d556c8d90e5b",
+    "src/nupp/serde/list.nupp": "10c26656a98d5bfe3154a5556e0f6dac1a9e308a18d468ea08458eafeff2dce8",
+    "src/nupp/serde/native.nupp": "9fdd47d916263ea175dece6e3026f170838598d572ea00d77ec21d47d9245730",
+    "src/nupp/serde/nativereader.nupp": "eb00872bd33058b5e2779f8ae272697a3bedf9c0736651f33e331d5e1814ec29",
+    "src/nupp/serde/nativewriter.nupp": "d119be45d4075df9b97e3cb1d5157df6df1cd83f864fa1c055d57ee260a98fef",
+    "src/nupp/serde/numbers.nupp": "7848ec99e234d8c923e2ad6052e60394ae310d477a11d2e3d8535b99b1450677",
+    "src/nupp/serde/persistence.nupp": "99ab5ecf917fc03f79fd3a1a73f747ef95d5ca9b77b60208c470581833848b90",
+    "src/nupp/serde/publication.nupp": "e21e7f37d26f258f1650af0ce240e07974d3e0e071a708780a3e678530153f4d",
+    "src/nupp/serde/resources.nupp": "791a3f0ce05eabce81f1850c4461eacffa60449d5ce340f8dce7d1055123198f",
+    "src/nupp/serde/scalar.nupp": "1c5fa7a3d3541c15786523c5f42d99b3e768ebbc08ca46df5513714d9bf92351",
+    "src/nupp/serde/structure.nupp": "3ca9ac7f2d0b158e3a48b5d2d090443ea5094503acceccd144b62368dcd3b10c",
+    "src/nupp/serde/timestamps.nupp": "25582ffad9d86a2207400b9ec1b0e3449e0fa0c32e43b5bd54b09705ff393c6c",
+    "src/nupp/serde/value.nupp": "0f4e8fb143e6d06cc052b4cae1ce3b4dbdcda407ab34701520ea48cb8dd01fb4",
+    "src/nupp/serde/view.nupp": "a65e23773bdf88ccefec0814b32128673a08e5ba8a3076a2c93f14495847340d",
+    "src/nupp/tools/cli/migrate.nupp": "07cc829c9a30478c91854ce118db852e281a9433f3c27e58ddd1cc6637fae01d",
+    "src/nupp/tools/doc/extract.nupp": "1322a94774e75a166ee7ea6a30fe1b91f23ab26881ae706c1e62817b66d05d22",
+    "src/nupp/tools/explain.nupp": "e40df1ad0f2c8d79cc9e238b50002bf63d8916bfd39d836605a8857ad624c335",
+    "src/nupp/tools/migrate.nupp": "2604148193eac2f47e00927c4064b76cf17c2a0430107937227ca7c5adcb6825",
+    "src/nupp/tools/reference.nupp": "5651b7ea5205b0907f7a59a750856a0b19c43fdcb53c53ff11a88096e7086da2"
+  }
+}

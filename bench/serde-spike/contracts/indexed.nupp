@@ -1,0 +1,117 @@
+local core = require("nupp.serde.value")
+local indexed = require("nupp.serde.indexed")
+local scalar = require("nupp.serde.scalar")
+local structure = require("nupp.serde.structure")
+local smithy = require("example.smithy")
+local json = require("nupp.serde.json")
+local documents = require("nupp.serde.document")
+local numbers = require("nupp.serde.numbers")
+
+local model = smithy.parse(
+    [[{"smithy":"2.0","shapes":{"example#Row":{"type":"structure","members":{
+ "email":{"target":"smithy.api#String"},"count":{"target":"smithy.api#Long"},
+ "payload":{"target":"smithy.api#Document"},"bytes":{"target":"smithy.api#Blob"}
+}}}}]]
+)
+local shape = model:shape("example#Row")
+local root = smithy.root(shape)
+local email, count = assert(shape:member("email")), assert(shape:member("count"))
+local payload, bytes = assert(shape:member("payload")), assert(shape:member("bytes"))
+local record Email
+    text: string
+end
+local record EmailConversion is scalar.Conversion<Email, string>
+    function project(self, borrows value: Email): string
+        return value.text:sub(1)
+    end
+
+    function restore(self, value: string): Email
+        assert(value:find("@", 1, true), "invalid email")
+        return new Email(text = value)
+    end
+end
+local emailAdapter = scalar.convert(scalar.text(email), new EmailConversion())
+local layout = indexed.layout(root)
+local emailSlot = layout:addDefault(email, emailAdapter, function(): Email
+    return new Email(text = "default@example.com")
+end)
+local countSlot = layout:add(count, scalar.integer(count, 64, true), false)
+local payloadSlot = layout:add(payload, scalar.document(payload, documents.documentAdapter()), false)
+local bytesSlot = layout:add(bytes, scalar.bytes(bytes), false)
+local binding = layout:binding()
+local codec = json.codec(smithy.policy(true, false))
+local first, second = codec:decode(binding, '{}'), codec:decode(binding, '{}')
+assert(first:has(emailSlot) and not first:has(countSlot))
+assert(first:get(emailSlot) ~= second:get(emailSlot))
+assert(first:get(emailSlot)).text = "changed@example.com"
+assert(assert(second:get(emailSlot)).text == "default@example.com")
+first:set(countSlot, numbers.integer("-9223372036854775808", 64, true))
+first:set(payloadSlot, documents.null())
+first:set(bytesSlot, "\0\255binary")
+local encoded = codec:encode(binding, first)
+assert(encoded:find('"count":-9223372036854775808', 1, true))
+assert(encoded:find('"payload":null', 1, true))
+local decoded = codec:decode(binding, encoded)
+assert(assert(decoded:get(countSlot)).decimal == "-9223372036854775808")
+assert(decoded:has(payloadSlot) and assert(decoded:get(payloadSlot)).kind == "null")
+assert(decoded:get(bytesSlot) == "\0\255binary")
+assert(not pcall(codec.decode, codec, binding, '{"email":"invalid"}'))
+assert(not pcall(codec.decode, codec, binding, '{"count":9223372036854775808}'))
+local empty = layout:value()
+
+local record InspectField<
+    S is nupp.Closeable,
+    M is core.Member
+> is structure.FieldConsumer<indexed.Value, S, M, integer>
+    @readonly source: indexed.Value
+    function apply<V is nupp.Copyable>(
+        self,
+        member: M,
+        has: structure.Has<indexed.Value>,
+        get: structure.Get<indexed.Value, V>,
+        set: structure.Set<S, V>,
+        adapter: core.Adapter<V, M>,
+        fallback: (function(): V)?
+    ): integer
+        if has(self.source) then
+            if get.kind == "borrowed" then
+                get.read(self.source)
+            else
+                get.read(self.source)
+            end
+            return 1
+        elseif fallback ~= nil then
+            fallback()
+            return 2
+        else
+            return 0
+        end
+    end
+end
+local record InspectStructure<M is core.Member> is structure.Consumer<indexed.Value, M, integer>
+    @readonly source: indexed.Value
+    function apply<S is nupp.Closeable>(
+        self,
+        member: M,
+        fields: const{structure.Field<indexed.Value, S, M>},
+        construction: structure.Construction<indexed.Value, S>,
+        unknown: core.UnknownConsumer<S>,
+        additional: core.Members<M, indexed.Value>?
+    ): integer
+        local result: integer = 0
+        for _, field in ipairs(fields) do
+            result += field:accept(new InspectField<S, M>(source = self.source))
+        end
+
+        return result
+    end
+end
+local record Inspect is core.Consumer<indexed.Value, nil, integer>
+    @readonly source: indexed.Value
+    function apply<M is core.Member>(self, adapter: core.Adapter<indexed.Value, M>, borrows state: nil): integer
+        return assert(structure.inspect(adapter, new InspectStructure<M>(source = self.source)))
+    end
+end
+assert(binding:accept(new Inspect(source = empty), nil) == 2)
+assert(binding:accept(new Inspect(source = decoded), nil) == 4)
+assert(codec:encode(binding, empty) == '{"email":"default@example.com"}')

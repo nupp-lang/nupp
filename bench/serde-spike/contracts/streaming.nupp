@@ -1,0 +1,152 @@
+local core = require("nupp.serde.value")
+local smithy = require("example.smithy")
+local scalar = require("nupp.serde.scalar")
+local structures = require("nupp.serde.structure")
+local indexed = require("nupp.serde.indexed")
+local bridge = require("nupp.serde.documentcodec")
+local json = require("nupp.serde.json")
+local protocol = require("example.smithyprotocol")
+local routing = require("example.routing")
+
+local model = smithy.parse(
+    [[{"smithy":"2.0","shapes":{
+ "example#Stream":{"type":"blob","traits":{"smithy.api#streaming":{}}},
+ "example#Request":{"type":"structure","members":{
+  "name":{"target":"smithy.api#String","traits":{"smithy.api#httpQuery":"name"}},
+  "payload":{"target":"smithy.api#String"},
+  "stream":{"target":"example#Stream","traits":{"smithy.api#httpPayload":{}}}
+ }}
+}}]]
+)
+local shape = model:shape("example#Request")
+local root = smithy.root(shape)
+local name, payload = assert(shape:member("name")), assert(shape:member("payload"))
+local streaming = assert(shape:member("stream"))
+local record Stream
+    reads: integer = 0
+    function next(self): string?
+        self.reads += 1
+        return self.reads == 1 and "unbuffered bytes" or nil
+    end
+end
+local record Description is core.Description<smithy.Member>
+    @readonly member: smithy.Member
+    @readonly kind: core.Kind = "opaque"
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = false
+    @readonly children: {core.Child<smithy.Member>} = {}
+end
+local record Streaming is core.Adapter<Stream, smithy.Member>
+    @readonly description: Description
+    function describe(self, direction: core.Direction): core.Description<smithy.Member>
+        return self.description
+    end
+
+    function write(self, borrows value: Stream, exclusive writer: core.Writer<smithy.Member>): nil
+        error("stream must be routed outside finite serialization")
+    end
+
+    function read(self, exclusive reader: core.Reader<smithy.Member>): Stream
+        error("stream must be supplied by the transport")
+    end
+end
+local record Request
+    name: string
+    payload: string
+    stream: Stream
+end
+local record Builder is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+local record Construction is structures.Construction<Request, Builder>
+    function begin(self): Builder
+        return new Builder()
+    end
+
+    function finish(self, takes state: Builder): Request
+        local owned: Builder = state
+        owned:close()
+        error("encoding-only request")
+    end
+end
+local streamAdapter = new Streaming(description = new Description(member = streaming))
+local fields: {structures.Field<Request, Builder, smithy.Member>} = {
+    structures.field<Request, Builder, string, smithy.Member>(
+        name,
+        function(borrows value: Request): string borrows (value)
+            return value.name
+        end,
+        function(exclusive state: Builder, value: string): nil
+            error("encoding only")
+        end,
+        scalar.text(name),
+        false,
+        false
+    ),
+    structures.field<Request, Builder, string, smithy.Member>(
+        payload,
+        function(borrows value: Request): string borrows (value)
+            return value.payload
+        end,
+        function(exclusive state: Builder, value: string): nil
+            error("encoding only")
+        end,
+        scalar.text(payload),
+        false,
+        false
+    ),
+    structures.field<Request, Builder, Stream, smithy.Member>(
+        streaming,
+        function(borrows value: Request): Stream borrows (value)
+            return value.stream
+        end,
+        function(exclusive state: Builder, value: Stream): nil
+            error("encoding only")
+        end,
+        streamAdapter,
+        false,
+        false
+    )
+}
+local binding = new core.Bound<Request, smithy.Member>(
+    adapter = structures.adapter(root, fields, new Construction(), nil, nil)
+)
+local stream = new Stream()
+local request = new Request(name = "a b", payload = "metadata", stream = stream)
+local body = json.codec(protocol.body(smithy.policy(true, false)))
+local parameters = routing.codec(protocol.parameters(shape))
+assert(body:encode(binding, request) == '{"payload":"metadata"}')
+assert(routing.query(parameters:encode(binding, request)) == 'name=a%20b')
+local layout = indexed.layout(root)
+local nameSlot = layout:add(name, scalar.text(name), false)
+local payloadSlot = layout:add(payload, scalar.text(payload), false)
+local streamSlot = layout:add(streaming, streamAdapter, false)
+local slots = layout:value()
+slots:set(nameSlot, request.name)
+slots:set(payloadSlot, request.payload)
+slots:set(streamSlot, stream)
+assert(body:encode(layout:binding(), slots) == '{"payload":"metadata"}')
+assert(routing.query(parameters:encode(layout:binding(), slots)) == 'name=a%20b')
+assert(stream.reads == 0 and slots:get(streamSlot) == stream)
+assert(
+    not pcall(function(): nil
+        bridge.fromBinding(binding, request)
+    end)
+)
+local finite = json.codec(smithy.policy(true, false))
+assert(
+    not pcall(function(): nil
+        finite:encode(binding, request)
+    end)
+)
+assert(
+    not pcall(function(): nil
+        finite:decode(smithy.binding(shape), '{"stream":"not a finite blob"}')
+    end)
+)
+assert(stream.reads == 0)
+-- Transport owns the stream; serialization only supplied the finite metadata.
+assert(stream:next() == "unbuffered bytes" and stream:next() == nil)

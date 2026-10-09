@@ -1,0 +1,628 @@
+module example.xmlcodec
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local syntax = require("example.xmlsyntax")
+local assembly = require("example.xmlassembly")
+local numbers = require("nupp.serde.numbers")
+local documents = require("nupp.serde.document")
+local documentReaders = require("nupp.serde.documentreader")
+local bridge = require("nupp.serde.documentcodec")
+local contexts = require("nupp.serde.context")
+local utf8 = require("nupp.text.utf8")
+
+export interface Policy
+    field: function<M is core.Member>(self, member: M): syntax.Field
+    flattened: function<M is core.Member>(self, member: M): boolean
+end
+local family: table = {}
+local supported: {[string]: boolean} = {string = true, boolean = true, integer = true, structure = true, list = true}
+
+local function identity(field: syntax.Field): string
+    return field.role .. ":" .. #field.namespaceUri .. ":" .. field.namespaceUri .. field.localName
+end
+
+local record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly field: syntax.Field
+    @readonly flattened: boolean
+    @readonly children: {[M]: Plan<M>} = {}
+    @readonly ordered: {Plan<M>} = {}
+    @readonly mappings: {assembly.Mapping<M>} = {}
+end
+
+local function plan<M is core.Member>(
+    description: core.Description<M>,
+    policy: Policy,
+    direction: core.Direction,
+    seen: {[core.Description<M>]: Plan<M>}
+): Plan<M>
+    local previous = seen[description]
+    if previous ~= nil then
+        return previous
+    end
+    assert(not description.nullable, "XML fixture has no null representation")
+    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    local kind = description.kind
+    assert(supported[kind], "unsupported XML fixture kind: " .. kind)
+    local field = policy:field(description.member)
+    assert(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
+    local flattened = policy:flattened(description.member)
+    assert(not flattened or kind == "list", "only XML lists can be flattened")
+    assert(
+        field.role ~= "attribute" or kind == "string" or kind == "boolean" or kind == "integer",
+        "XML attribute must be scalar"
+    )
+    local result = new Plan<M>(description = description, field = field, flattened = flattened)
+    seen[description] = result
+    local names: {[string]: boolean} = {}
+    for index, child in ipairs(description.children) do
+        local selected = plan(child:describe(direction), policy, direction, seen)
+        result.children[child.member] = selected
+        result.ordered[index] = selected
+        if kind == "structure" then
+            local key = identity(selected.field)
+            assert(not names[key], "colliding expanded XML field")
+            names[key] = true
+            result.mappings[
+                index
+            ] = new assembly.Mapping<M>(member = child.member, field = selected.field, repeated = selected.flattened)
+        else
+            assert(
+                kind == "list" and index == 1 and selected.field.role == "element",
+                "XML list requires one element binding"
+            )
+        end
+    end
+    if kind == "list" then
+        assert(#result.ordered == 1, "XML list requires an element binding")
+    end
+
+    return result
+end
+
+local record Slot
+    state: "initializing" | "ready" | "failed" = "initializing"
+    value: unknown
+end
+
+local record Scope
+    @readonly policy: Policy
+    @readonly writes: {[unknown]: Slot} = {}
+    @readonly reads: {[unknown]: Slot} = {}
+    count: integer = 0
+    active: integer = 0
+    function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>, direction: core.Direction): Plan<M>
+        local cache = direction == "write" and self.writes or self.reads
+        local previous = cache[adapter]
+        if previous ~= nil then
+            if previous.state == "ready" then
+                return previous.value as Plan<M>
+            elseif previous.state == "failed" then
+                error(previous.value, 0)
+            else
+                error("recursive XML extension initialization", 2)
+            end
+        end
+        assert(self.count < 256, "XML fixture extension cache is full")
+        local slot = new Slot()
+        cache[adapter] = slot
+        self.count += 1
+        self.active += 1
+        local ok, selected = pcall(function(): Plan<M>
+            local description = adapter:describe(direction)
+            assert(description.kind == "structure", "XML fixture root must be a structure")
+            return plan(description, self.policy, direction, {})
+        end)
+        self.active -= 1
+        slot.state = ok and "ready" or "failed"
+        slot.value = selected
+        if not ok then
+            error(selected, 0)
+        end
+
+        return selected as Plan<M>
+    end
+end
+
+local record Opaque is core.Atom
+    @readonly family: table
+    @readonly node: assembly.Node
+    function snapshot(borrows self): core.Atom
+        return new Opaque(family = family, node = assembly.copy(self.node))
+    end
+end
+local record Unknown is core.UnknownReader, nupp.Closeable
+    @readonly node: assembly.Node
+    @readonly source: core.Context
+    used: boolean = false
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed and not self.used, "XML unknown reader has expired")
+    end
+
+    function skipValue(exclusive self): nil
+        self:live()
+        self.used = true
+    end
+
+    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        local value = documents.withContext(
+            documents.atom(new Opaque(family = family, node = assembly.copy(self.node))),
+            self.source
+        )
+        local reader = documentReaders.reader(value)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+        self.used = true
+
+        return result
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+end
+local record Group<M is core.Member>
+    @readonly member: M?
+    @readonly values: {assembly.Node}
+end
+local record Collect<M is core.Member> is assembly.Consumer<M, {Group<M>}>
+    function apply(self, exclusive state: {Group<M>}, member: M, values: const{assembly.Node}): nil
+        local owned: {assembly.Node} = {}
+        for _, node in ipairs(values) do
+            owned[#owned + 1] = assembly.copy(node)
+        end
+        state[#state + 1] = new Group<M>(member = member, values = owned)
+    end
+
+    function unknown(self, exclusive state: {Group<M>}, value: assembly.Node): nil
+        state[#state + 1] = new Group<M>(values = {value})
+    end
+end
+local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+    @readonly selected: Plan<M>
+    @readonly value: assembly.Node
+    @readonly source: core.Context
+    @readonly depth: integer = 0
+    used: boolean = false
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed and not self.used, "XML reader has expired")
+        assert(self.depth <= 128, "XML nesting limit exceeded")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.source
+    end
+
+    function isNull(self): boolean
+        self:live()
+        return false
+    end
+
+    function consume(exclusive self, member: M, kind: string): nil
+        self:live()
+        assert(
+            member == self.selected.description.member and kind == self.selected.description.kind,
+            "XML adapter does not match its description"
+        )
+        self.used = true
+    end
+
+    function readString(exclusive self, member: M): string
+        self:consume(member, "string")
+        return assembly.text(self.value)
+    end
+
+    function readBytes(exclusive self, member: M): string
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        self:consume(member, "integer")
+        assert(
+            width == self.selected.description.width and signed == self.selected.description.signed,
+            "integer access does not match its schema"
+        )
+
+        return numbers.integer(assembly.text(self.value), width, signed)
+    end
+
+    function child(self, selected: Plan<M>, value: assembly.Node): affine(Input<M>)
+        return new Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
+    end
+
+    function readStruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:consume(member, "structure")
+        local groups: {Group<M>} = {}
+        assembly.read(self.value, self.selected.mappings, groups, new Collect<M>())
+        for _, group in ipairs(groups) do
+            local selected = group.member ~= nil and self.selected.children[group.member] or nil
+            local node = group.values[1]
+            if selected ~= nil then
+                if selected.flattened then
+                    local content: {string | assembly.Node} = {}
+                    for _, value in ipairs(group.values) do
+                        content[#content + 1] = value
+                    end
+                    node = new assembly.Node(field = selected.field, attributes = {}, content = content)
+                end
+                local reader = self:child(selected, node)
+                consume:apply(state, selected.description.member, reader)
+                assert(reader.used, "XML member was not consumed")
+            else
+                local reader: affine(Unknown) = new Unknown(node = node, source = self.source)
+                unknown:apply(state, node.field, reader)
+                assert(reader.used, "unknown XML field was not consumed")
+            end
+        end
+    end
+
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function containerSize(self): integer?
+        self:live()
+        return nil
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+
+    function readNull(exclusive self, member: M): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readBoolean(exclusive self, member: M): boolean
+        self:consume(member, "boolean")
+        local text = assembly.text(self.value)
+        assert(text == "true" or text == "false", "invalid XML boolean")
+        return text == "true"
+    end
+
+    function readFloat(exclusive self, member: M, width: 32 | 64): number
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readBigInteger(exclusive self, member: M): string
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readDecimal(exclusive self, member: M): core.Decimal
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readNumberToken(exclusive self, member: M): string
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readTimestamp(exclusive self, member: M): core.Timestamp
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readAtom(exclusive self, member: M): core.Atom
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readUnion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        self:consume(member, "list")
+        assert(#self.value.attributes == 0, "XML list has attributes")
+        local selected = self.selected.ordered[1]
+        local index: integer = 0
+        for _, item in ipairs(self.value.content) do
+            if type(item) == "string" then
+                assert((item as string):match("^%s*$") ~= nil, "XML list has mixed content")
+            else
+                local node = item as assembly.Node
+                assert(
+                    self.selected.flattened or identity(node.field) == identity(selected.field),
+                    "unexpected XML list element"
+                )
+                index += 1
+                local input = self:child(selected, node)
+                consume:apply(state, index, input)
+                assert(input.used, "XML list item was not consumed")
+            end
+        end
+    end
+
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        error("unsupported XML fixture operation", 2)
+    end
+end
+
+local record Frame<M is core.Member>
+    @readonly selected: Plan<M>
+    @readonly node: assembly.Node
+    @readonly seen: {[M]: boolean} = {}
+end
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly root: Plan<M>
+    @readonly policy: Policy
+    @readonly frames: {Frame<M>} = {}
+    result: assembly.Node?
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed, "XML writer has expired")
+        assert(#self.frames <= 128, "XML nesting limit exceeded")
+    end
+
+    function selected(self, member: M): Plan<M>
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            assert(self.root.description.member == member, "foreign XML root member")
+            return self.root
+        end
+
+        return assert(frame.selected.children[member], "foreign XML member")
+    end
+
+    function include(exclusive self, member: M): boolean
+        self:selected(member)
+        return true
+    end
+
+    function put(exclusive self, member: M, kind: string, value: assembly.Node): nil
+        local selected = self:selected(member)
+        assert(selected.description.kind == kind, "XML adapter does not match its description")
+        local frame = assert(self.frames[#self.frames], "scalar XML root is unsupported")
+        if frame.selected.description.kind == "structure" then
+            assert(not frame.seen[member], "duplicate XML member")
+            frame.seen[member] = true
+        end
+        if selected.field.role == "attribute" then
+            frame.node.attributes[
+                #frame.node.attributes + 1
+            ] = new syntax.Attribute(field = selected.field, value = assembly.text(value))
+        elseif selected.flattened then
+            for _, item in ipairs(value.content) do
+                assert(type(item) ~= "string", "invalid flattened XML content")
+                local node = item as assembly.Node
+                frame.node.content[
+                    #frame.node.content + 1
+                ] = new assembly.Node(field = selected.field, attributes = node.attributes, content = node.content)
+            end
+        else
+            frame.node.content[#frame.node.content + 1] = value
+        end
+    end
+
+    function scalar(exclusive self, member: M, kind: string, value: string): nil
+        self:put(
+            member,
+            kind,
+            new assembly.Node(field = self:selected(member).field, attributes = {}, content = {value})
+        )
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        assert(utf8.isValid(value), "invalid UTF-8 string")
+        self:scalar(member, "string", value)
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        local selected = self:selected(member)
+        self:scalar(
+            member,
+            "integer",
+            numbers.integer(
+                value.decimal,
+                selected.description.width as(8 | 16 | 32 | 64),
+                selected.description.signed == true
+            ).decimal
+        )
+    end
+
+    function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
+        local selected = self:selected(member)
+        assert(selected.description.kind == kind, "XML aggregate does not match its description")
+        local node = new assembly.Node(field = selected.field, attributes = {}, content = {})
+        self.frames[#self.frames + 1] = new Frame<M>(selected = selected, node = node)
+        emit:apply(source, self)
+        self.frames[#self.frames] = nil
+        if #self.frames == 0 then
+            assert(self.result == nil, "XML root was written twice")
+            self.result = node
+        else
+            self:put(member, kind, node)
+        end
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", source, emit)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self:live()
+        local selected = syntax.identity(field)
+        local frame = assert(self.frames[#self.frames], "unknown XML field outside structure")
+        assert(frame.selected.description.kind == "structure", "unknown XML field outside structure")
+        for _, mapping in ipairs(frame.selected.mappings) do
+            assert(identity(mapping.field) ~= identity(selected), "unknown XML field collides with a known member")
+        end
+        local source = adapter:context(value)
+        assert(
+            source ~= nil and source.codec == family and source.profile == self.policy,
+            "unknown XML value needs its original protocol context"
+        )
+        local captured = bridge.fromBinding(adapter:contents(), value)
+        local atom = captured:atom()
+        assert(getmetatable(atom) == Opaque and atom.family == family, "unknown XML value is not an owned subtree")
+        local node = assembly.copy((atom as Opaque).node)
+        assert(identity(node.field) == identity(selected), "unknown XML identity changed")
+        if selected.role == "attribute" then
+            frame.node.attributes[
+                #frame.node.attributes + 1
+            ] = new syntax.Attribute(field = selected, value = assembly.text(node))
+        else
+            frame.node.content[#frame.node.content + 1] = node
+        end
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:scalar(member, "boolean", value and "true" or "false")
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "list", source, emit)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported XML fixture operation", 2)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        error("unsupported XML fixture operation", 2)
+    end
+end
+
+local function output<M is core.Member>(selected: Plan<M>, policy: Policy): affine(Output<M>)
+    return new Output<M>(root = selected, policy = policy)
+end
+
+local function input<M is core.Member>(selected: Plan<M>, bytes: string, source: core.Context): affine(Input<M>)
+    local node = assembly.parse(bytes)
+    assert(identity(node.field) == identity(selected.field), "unexpected XML root")
+    return new Input<M>(selected = selected, value = node, source = source)
+end
+
+local record Encode<T> is core.Consumer<T, T, string>
+    @readonly scope: Scope
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
+        local selected = self.scope:resolve(adapter, "write")
+        local writer = output(selected, self.scope.policy)
+        adapter:write(value, writer)
+        local result = assembly.encode(assert(writer.result, "XML binding did not write its root"))
+        assert(#result <= 16777216, "XML output exceeds byte limit")
+
+        return result
+    end
+end
+local record Decode<T> is core.Consumer<T, nil, T>
+    @readonly binding: core.Binding<T>
+    @readonly scope: Scope
+    @readonly bytes: string
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): T
+        local selected = self.scope:resolve(adapter, "read")
+        local source = contexts.builder(family, self.scope.policy as table):freeze()
+        local reader = input(selected, self.bytes, source)
+        local value = adapter:read(reader)
+        if not reader.used then
+            error(publication.failure(self.binding, value, "XML binding did not consume its root"), 0)
+        end
+
+        return value
+    end
+end
+export interface Codec
+    encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
+    decode: function<T>(self, binding: core.Binding<T>, bytes: string): T
+end
+local record Cached is Codec
+    @readonly scope: Scope
+    function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
+        return binding:accept(new Encode<T>(scope = self.scope), value)
+    end
+
+    function decode<T>(self, binding: core.Binding<T>, bytes: string): T
+        assert(#bytes <= 16777216, "XML input exceeds byte limit")
+        return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
+    end
+end
+export function codec(policy: Policy): Codec
+    return new Cached(scope = new Scope(policy = policy))
+end

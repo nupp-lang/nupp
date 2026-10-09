@@ -507,7 +507,7 @@ local function nativeComplete(plan: any, visiting: any, known: any): boolean
 end
 
 local function scalarShape(plan: any): any
-    local code = plan.kind == "boolean" and 1
+    local code: integer = plan.kind == "boolean" and 1
         or plan.kind == "string" and 2
         or plan.kind == "number" and 3
         or plan.kind == "integer" and plan.minimum == -128 and plan.maximum == 127 and 9
@@ -518,6 +518,10 @@ local function scalarShape(plan: any): any
         or plan.minimum == 0 and plan.maximum == 65535 and 7
         or plan.minimum == 0 and plan.maximum == 4294967295 and 8
         or 5
+
+    if plan.strictInteger then
+        code += 32
+    end
 
     if plan.hasLiteral then
         return {[SERDE_SCALAR] = code, [SERDE_LITERAL] = plan.literalValue,}
@@ -645,7 +649,23 @@ end
 
 function json.compileSerde(plan: any, unknownMembers: string): any
     local complete = nativeComplete(plan, {}, {})
-    return {plan = plan, shape = serdeShape(plan, {}, unknownMembers == "reject", complete), complete = complete,}
+    local finish = plan.deferRoot and plan.factory or nil
+    local root = plan
+    if finish ~= nil then
+        root = {}
+        for key, value in pairs(plan) do
+            if key ~= "factory" then
+                root[key] = value
+            end
+        end
+    end
+
+    return {
+        plan = plan,
+        shape = serdeShape(root, {}, unknownMembers == "reject", complete),
+        complete = complete,
+        finish = finish
+    }
 end
 
 function json.decodeSerde(schema: any, text: string): (any?, string?)
@@ -660,10 +680,17 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
         SERDE_MARKERS
     )
     if not ok then
+        if type(value) ~= "string" then
+            error(value, 0)
+        end
         error(withoutPosition(value), 0)
     end
     if code ~= 0 then
         failDecode(code, position, text)
+    end
+
+    if schema.finish ~= nil then
+        value = schema.finish(value)
     end
 
     return value, nil
@@ -681,10 +708,17 @@ function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, st
         SERDE_MARKERS
     )
     if not ok then
+        if type(value) ~= "string" then
+            error(value, 0)
+        end
         error(withoutPosition(value), 0)
     end
     if code ~= 0 then
         failDecode(code, position, code == 1 and input:tostring() or "")
+    end
+
+    if schema.finish ~= nil then
+        value = schema.finish(value)
     end
 
     return value, nil

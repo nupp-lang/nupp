@@ -1,0 +1,5 @@
+local serde = require("nupp.serde")
+local record Value
+    name: string
+end
+local binding = serde.binding(Value)

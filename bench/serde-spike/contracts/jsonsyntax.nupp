@@ -1,4 +1,4 @@
-local syntax = require("contract.jsonsyntax")
+local syntax = require("nupp.serde.jsonsyntax")
 
 local cursor = syntax.reader(
     [[ { "huge": 123456789012345678901234567890, "tiny": 1e-9000, "nulls": [null,false,"\uD83D\uDE00"] } ]]

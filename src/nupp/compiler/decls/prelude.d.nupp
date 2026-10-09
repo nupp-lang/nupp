@@ -887,13 +887,13 @@ end
 --- mutable syntax objects, or another provider's output. It does see normalized
 --- declaration and field docblocks.
 ---
---- Three providers ship with the compiler and cross the same boundary a package
---- provider does: `Debug`, `JSON`, and `Serde`.
+--- The shipped `Debug` provider crosses the same boundary as a package provider.
+--- Serialization uses explicit bindings instead of derive recipes.
 ---
 --- #### Derive the shipped providers
 ---
 --- ```nupp
---- @derive(nupp.derive.Debug, nupp.derive.JSON)
+--- @derive(nupp.derive.Debug)
 --- local record Settings
 ---     host: string = "localhost"
 ---     port: integer = 8080
@@ -995,70 +995,6 @@ record nupp.derive
     --- ```
     Debug: Provider
 
-    --- Generates `writeJSON(writer)`, a static `fromJSON(text): T?, string?`, a
-    --- `fieldCodec`, and `nupp.codec.json.JSONEncodable` conformance.
-    ---
-    --- Encoding is deterministic: fields follow declaration order and string map keys
-    --- sort by byte order, so a value always produces the same bytes. A decode error
-    --- names the path that failed rather than saying the document was bad.
-    ---
-    --- ```nupp
-    --- @derive(nupp.derive.JSON)
-    --- local record User
-    ---     @json(name = "user_id")
-    ---     id: integer
-    ---     name: string
-    --- end
-    ---
-    --- local user = new User(id = 7, name = "ada")
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- user:writeJSON(writer)
-    --- writer:close()
-    --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
-    ---
-    --- local decoded, failure = User.fromJSON('{"name": "ada"}')
-    --- assert(decoded == nil and failure == '$.user_id: required field is absent')
-    --- ```
-    JSON: Provider
-
-    --- Derives a format-neutral schema and physical binding for a record or struct.
-    --- It generates no per-format methods; codecs prepare and cache the binding.
-    ---
-    --- ```nupp
-    --- @derive(nupp.derive.Serde)
-    --- local record User
-    ---     id: uint32
-    ---     name: string?
-    --- end
-    ---
-    --- local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-    --- local text = prepared:encode(new User(id = 7, name = "ada"))
-    --- ```
-    Serde: Provider
-
-    --- Semantic configuration visible to providers as `Info` annotations.
-    ---
-    --- Each of these is the checked shape of a field annotation. A provider reads
-    --- what was written from `Field.annotations` or `Info.annotations`; the shipped
-    --- providers read the same projection rather than consulting a second planner.
-    --- The checked shape of `@json`, written on a record or on one of its fields.
-    interface JSONOptions
-        --- What decoding does with a key the record does not declare. Written on the
-        --- record, and `reject` when omitted.
-        unknown: ("reject" | "ignore")?
-
-        --- The key this field encodes to and decodes from.
-        name: string?
-
-        --- Removes the field from both directions. Requires a default.
-        omit: boolean?
-
-        --- Omits nil, false, empty strings, and empty tables when encoding. Encoding
-        --- only: a field left out of the output is still required coming back in.
-        omitEmpty: boolean?
-    end
-
     --- The checked shape of `@event`, written on a declaration deriving
     --- `nupp.events.Event`.
     interface EventOptions
@@ -1114,7 +1050,7 @@ record nupp.derive
         --- The source-free constant default value. Read only when `hasDefault` is true.
         @readonly defaultValue: any
 
-        --- The field's typed annotations in source order, `@json` and `@debug` among
+        --- The field's typed annotations in source order, `@debug` among
         --- them.
         @readonly annotations: {nupp.reflect.Annotation}
 
@@ -2089,6 +2025,9 @@ record nupp.reflect
     --- assert(HandlerShape == "message:string->boolean")
     --- ```
     record Node
+        --- Whether a nominal value has no ownership obligation or scoped borrow.
+        @readonly copyable: boolean?
+
         @readonly kind: string
         @readonly name: string?
         @readonly nominal: boolean?

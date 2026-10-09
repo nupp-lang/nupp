@@ -1,0 +1,35 @@
+@!internal
+module nupp.serde.jsonlower
+
+local core = require("nupp.serde.value")
+local plans = require("nupp.serde.jsonplan")
+
+-- The native provider owns this erased syntax recipe. Only lowering of checked
+-- operations may produce one; a value description is not an access recipe.
+export record Recipe<T>
+    @readonly syntax: any
+    @readonly resultType: (function(value: T): T)?
+end
+
+export interface Resolver<M is core.Member>
+    resolve: function<T>(self, adapter: core.Adapter<T, M>, plan: plans.Plan<M>, path: string): Recipe<T>?
+end
+
+local json = require("nupp.codec.json")
+local errors = require("nupp.serde.errors")
+export record Budget
+    values: integer = 0
+    function step(self, path: string): nil
+        self.values += 1
+        if self.values > 1000000 then
+            error(new errors.Error(code = "limit", message = "value limit exceeded", path = path, cause = nil), 0)
+        end
+    end
+end
+export interface Encoding<T>
+    @readonly dynamic: boolean
+    write: function(self, borrows value: T, exclusive sink: json.Writer, budget: Budget?): nil
+end
+export interface EncodeResolver<M is core.Member>
+    resolve: function<T>(self, adapter: core.Adapter<T, M>, plan: plans.Plan<M>, path: string): Encoding<T>?
+end

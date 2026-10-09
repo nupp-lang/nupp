@@ -1,7 +1,8 @@
 # Traversal controls
 
 These Nupp-source controls compare traversal mechanisms with one scalar writer
-and syntax reader. They are a subset of the S0 experiment, not its completion.
+and syntax reader. They isolate traversal mechanisms; the broader production workloads and the
+final architecture decision are documented in [the performance report](../contracts/performance.md).
 
 ```sh
 cd bench/serde-spike/traversal
@@ -30,9 +31,9 @@ heap size. Separate diagnostic processes measure each variant's code budget
 without sharing traces with another variant. Repeated processes are required for a duration verdict; samples from
 one process are not independent forks.
 
-Nested containers, rich scalars, documents, custom conversions, exclusions,
-allocation counters, portable execution, and AOT comparison remain
-required before the broader traversal contract can be selected from this data.
+Nested containers, rich scalars, documents, conversions, allocation costs, and
+portable/native provider execution are measured by the contract breadth harness.
+The flat controls alone do not establish a general performance ranking.
 
 The retained arm64 macOS run at `27f3f9f44` used five processes and seven
 samples per case. Runtime-generated decoding with 128 alternating models
@@ -55,3 +56,6 @@ its encode and decode paths are then exercised outside the timed region.
 They do not measure direction-specific initialization. The report records
 Nupp's enlarged LuaJIT trace capacities, numeric abort reasons, host load,
 source hashes, raw samples, and independent-process intervals.
+
+The final rerun is retained in `results/arm64-macos-final-controls`; the report
+above records the combined design decision and the limits of each experiment.

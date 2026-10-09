@@ -17,7 +17,7 @@ local M = {}
 
 function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
     local descriptor = reflection.describe(recursiveNode(T.string), "Node")
-    testAssert.equal(descriptor.schema, 5, "reflection schema")
+    testAssert.equal(descriptor.schema, 6, "reflection schema")
     testAssert.equal(descriptor.root, 1, "root index")
     testAssert.equal(descriptor.fields[1].name, "value", "declaration order begins with value")
     testAssert.equal(descriptor.fields[2].name, "next", "declaration order retains next")

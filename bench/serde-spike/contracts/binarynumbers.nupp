@@ -1,0 +1,46 @@
+local integers = require("example.binarynumbers")
+local numbers = require("nupp.serde.numbers")
+local cases = {
+    numbers.integer("0", 8, false),
+    numbers.integer("-1", 8, true),
+    numbers.integer("127", 8, true),
+    numbers.integer("-128", 8, true),
+    numbers.integer("255", 8, false),
+    numbers.integer("32767", 16, true),
+    numbers.integer("-32768", 16, true),
+    numbers.integer("65535", 16, false),
+    numbers.integer("2147483647", 32, true),
+    numbers.integer("-2147483648", 32, true),
+    numbers.integer("4294967295", 32, false),
+    numbers.integer("9223372036854775807", 64, true),
+    numbers.integer("-9223372036854775808", 64, true),
+    numbers.integer("18446744073709551615", 64, false),
+    numbers.integer("9007199254740993", 64, false)
+}
+for _, value in ipairs(cases) do
+    local bytes = integers.encode(value)
+    local restored = integers.decode(bytes, value.width, value.signed)
+    assert(restored.decimal == value.decimal and #bytes == value.width / 8)
+end
+assert(integers.encode(cases[12]) == "\127" .. string.rep("\255", 7))
+assert(integers.encode(cases[13]) == "\128" .. string.rep("\0", 7))
+assert(integers.encode(cases[14]) == string.rep("\255", 8))
+assert(integers.encode(cases[15]) == "\0\32\0\0\0\0\0\1")
+assert(not pcall(integers.decode, "\0", 64, true))
+assert(not pcall(integers.decode, string.rep("\0", 9), 64, false))
+
+local core = require("nupp.serde.value")
+local positional = require("example.binarypositional")
+local layout = {
+    new positional.Slot(kind = "integer", width = 64, signed = false),
+    new positional.Slot(kind = "bytes"),
+    new positional.Slot(kind = "integer", width = 16, signed = true)
+}
+local values: {positional.Value} = {cases[14], "\0\255bytes", numbers.integer("-32768", 16, true)}
+local bytes = positional.encode(layout, values)
+local restored = positional.decode(layout, bytes)
+assert((restored[1] as core.Integer).decimal == "18446744073709551615")
+assert(restored[2] == "\0\255bytes" and (restored[3] as core.Integer).decimal == "-32768")
+assert(not pcall(positional.decode, layout, bytes:sub(1, #bytes - 1)))
+assert(not pcall(positional.decode, layout, bytes .. "\0"))
+assert(not pcall(positional.decode, {}, bytes))

@@ -1,7 +1,7 @@
-local core = require("contract.value")
-local documents = require("example.document")
-local errors = require("contract.errors")
-local json = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local errors = require("nupp.serde.errors")
+local json = require("nupp.serde.json")
 local model = require("example.richmodel")
 local text = require("nupp.text")
 

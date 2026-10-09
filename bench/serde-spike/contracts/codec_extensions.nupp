@@ -1,7 +1,7 @@
-local core = require("contract.value")
-local json = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local json = require("nupp.serde.json")
 local model = require("example.richmodel")
-local errors = require("contract.errors")
+local errors = require("nupp.serde.errors")
 
 local record Counts
     writes: integer = 0
@@ -34,7 +34,7 @@ local record Counted<T, M is core.Member> is core.Adapter<T, M>
     end
 end
 
-local record Wrap<T> is core.Consumer<T, nil, nil>
+local record Wrap<T is nupp.Copyable> is core.Consumer<T, nil, nil>
     @readonly counts: Counts
     result: core.Binding<T>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
@@ -42,7 +42,7 @@ local record Wrap<T> is core.Consumer<T, nil, nil>
     end
 end
 
-local function counted<T>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
+local function counted<T is nupp.Copyable>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
     local wrapper = new Wrap<T>(counts = counts)
     binding:accept(wrapper, nil)
     return assert(wrapper.result)
@@ -94,3 +94,12 @@ assert(codec:cachedBindings() == 0)
 assert(not pcall(codec.encode, codec, invalid, value))
 assert(bad.writes == 2)
 print("codec extensions initialize lazily by adapter, profile, and direction with bounded retention")
+
+local directCounts = new Counts()
+local directBinding = counted(model.binding(schema), directCounts)
+local directProfile = model.policy(true)
+for _ = 1, 3 do
+    local restored = json.decode(directBinding, bytes, directProfile)
+    assert(json.encode(directBinding, restored, directProfile) == bytes)
+end
+assert(directCounts.reads == 1 and directCounts.writes == 1, "convenience calls rebuilt protocol schema extensions")

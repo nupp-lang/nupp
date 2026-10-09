@@ -22,7 +22,11 @@ stubs = {}
 function stubs.fromPixels(pixels) end
 ]]
     local parsed = parser.parse(source, "library/stubs.lua")
-    local diagnostics = check.check(parsed, "library/stubs.lua", nil, {declareGlobals = true, declarationFile = true, strict = false})
+    local diagnostics = check.check(parsed, "library/stubs.lua", nil, {
+        declareGlobals = true,
+        declarationFile = true,
+        strict = false
+    })
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.code ~= "NUPP2002", "a stub is refused for not returning: " .. diagnostic.msg)
     end
@@ -264,11 +268,13 @@ function M.aDeclarationTreeMayNameATypeAFileReadLaterDeclares()
     local root = os.tmpname()
     os.remove(root)
     assert(os.execute("mkdir -p '" .. root .. "/types'") == 0)
+
     local function write(name, text)
         local f = assert(io.open(root .. "/types/" .. name, "wb"))
         f:write(text)
         f:close()
     end
+
     write("a.lua", [[
 ---@class game
 game = {}
@@ -286,8 +292,11 @@ local Shape = {}
     local parsed = parser.parse("local n: number = game.area({width = 2})\n", root .. "/main.nupp")
     local diagnostics = check.check(parsed, root .. "/main.nupp", env)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    testAssert.equal(#(env.ambientTypeProblems or {}), 0, env.ambientTypeProblems and env.ambientTypeProblems[1]
-        and env.ambientTypeProblems[1].msg)
+    testAssert.equal(
+        #(env.ambientTypeProblems or {}),
+        0,
+        env.ambientTypeProblems and env.ambientTypeProblems[1] and env.ambientTypeProblems[1].msg
+    )
     os.execute("rm -rf '" .. root .. "'")
 end
 
@@ -418,6 +427,148 @@ return M
     testAssert.equal(T.tostring(moduleType.byname.count), "integer | string", "a body write widens")
     testAssert.equal(T.tostring(moduleType.byname.limit), "integer", "a literal widens to its type")
     testAssert.equal(T.tostring(moduleType.byname.late), "integer?", "a body-only write is absent at load")
+end
+
+function M.serializationMigrationUsesResolvedDeclarationsAndPreservesErrors()
+    local source = [[
+local derive = require("nupp.derive")
+local syntax = require("nupp.codec.json")
+local text = require("nupp.text")
+@derive(derive.Debug, derive.JSON)
+@json(unknown = "ignore")
+local record User
+    @json(name = "user_name", omitEmpty = true)
+    name: string = ""
+    @json(omit = true)
+    secret: string = "default"
+end
+local user, problem = User.fromJSON('{"user_name":"Ada","extra":true}')
+assert(user ~= nil and problem == nil and user.name == "Ada")
+local absent, failure = User.fromJSON('{"user_name":false}')
+assert(absent == nil and type(failure) == "string")
+local buffer = text.newBuffer()
+local writer = syntax.newWriter(buffer)
+assert(user):writeJSON(writer)
+writer:close()
+assert(buffer:tostring() == '{"user_name":"Ada"}')
+assert(user:debug():find("Ada", 1, true))
+]]
+    local plan, problem = migrate.plan(source, "serialization-migration.nupp")
+    assert(plan, problem)
+    assert(plan.destination == plan.source and plan.dialect == "serde")
+    assert(not plan.text:find("@json", 1, true), plan.text)
+    assert(not plan.text:find("derive.JSON", 1, true), plan.text)
+    assert(plan.text:find("@derive(derive.Debug)", 1, true), plan.text)
+    assert(plan.text:find("local function UserJSON()", 1, true), plan.text)
+    assert(plan.text:find('name = "user_name"', 1, true), plan.text)
+    assert(plan.text:find("omitEmpty = true", 1, true), plan.text)
+    local parsed = parser.parse(plan.text, plan.destination)
+    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    local env = envMod.new(".", {cache = false})
+    local diagnostics = check.check(parsed, plan.destination, env)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg .. "\n" .. plan.text)
+    local code, errors = require("nupp.compiler.lua.gen").generate(parsed, "serialization_migration")
+    testAssert.equal(#errors, 0)
+    assert(loadstring(code))()
+    local again = assert(migrate.plan(plan.text, plan.destination))
+    assert(#again.edits == 0 and again.text == plan.text, "migration is not idempotent")
+end
+
+function M.serializationMigrationLeavesShadowedNamesAndHandwrittenMethodsAlone()
+    local source = [[
+local serde = require("nupp.serde")
+@derive(nupp.derive.Serde)
+local record Value
+    count: integer
+end
+local selected = serde.of(Value)
+do
+    local serde = {of = function(value: integer): integer return value end}
+    assert(serde.of(2) == 2)
+end
+local record Handwritten
+    function writeJSON(self, value: string): string return value end
+end
+function Handwritten.fromJSON(value: string): string return value end
+local handwritten = new Handwritten()
+assert(handwritten:writeJSON("x") == Handwritten.fromJSON("x"))
+return selected
+]]
+    local plan, problem = migrate.plan(source, "shadowed-migration.nupp")
+    assert(plan, problem)
+    assert(plan.text:find(".binding(Value)", 1, true), plan.text)
+    assert(plan.text:find("serde.of(2)", 1, true), plan.text)
+    assert(plan.text:find('handwritten:writeJSON("x")', 1, true), plan.text)
+    assert(plan.text:find('Handwritten.fromJSON("x")', 1, true), plan.text)
+end
+
+function M.serializationMigrationRefusesNestedPoliciesAndConflictingMethods()
+    local source = [[
+@derive(nupp.derive.JSON)
+local record Child
+    @json(name = "wire")
+    value: string
+end
+@derive(nupp.derive.JSON)
+local record Parent child: Child end
+return Parent.fromJSON('{"child":{"wire":"value"}}')
+]]
+    local plan, problem = migrate.plan(source, "nested-policy.nupp")
+    assert(plan == nil and problem:find("nested JSON policies", 1, true), tostring(problem))
+    plan, problem = migrate.plan(
+        [[
+@derive(nupp.derive.JSON)
+local record Conflict
+    function writeJSON(self): nil end
+end
+]],
+        "conflicting-migration.nupp"
+    )
+    assert(plan == nil and problem:find("handwritten member", 1, true), tostring(problem))
+end
+
+function M.serializationMigrationDefersForwardMappingsUntilUse()
+    local source = [[
+@derive(nupp.derive.JSON)
+@json(unknown = "ignore")
+local record Parent child: Child end
+@derive(nupp.derive.JSON)
+local record Child value: string end
+local restored, problem = Parent.fromJSON('{"child":{"value":"forward"}}')
+assert(restored ~= nil and problem == nil and restored.child.value == "forward")
+]]
+    local plan, problem = migrate.plan(source, "forward-policy.nupp")
+    assert(plan, problem)
+    local parsed = parser.parse(plan.text, plan.destination)
+    assert(#parsed.errors == 0)
+    local env = envMod.new(".", {cache = false})
+    local diagnostics = check.check(parsed, plan.destination, env)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local code, errors = require("nupp.compiler.lua.gen").generate(parsed, "forward_policy")
+    assert(#errors == 0)
+    assert(loadstring(code))()
+end
+
+function M.serializationMigrationRefusesImplicitRecordUnionPolicies()
+    local source = [[
+@derive(nupp.derive.JSON)
+local record First
+    kind: "first"
+    value: string
+end
+@derive(nupp.derive.JSON)
+local record Second
+    kind: "second"
+    count: integer
+end
+@derive(nupp.derive.JSON)
+local record Envelope
+    value: First | Second
+end
+local value = Envelope.fromJSON('{}')
+]]
+    local plan, problem = migrate.plan(source, "record-union.nupp")
+    assert(plan == nil and tostring(problem):find("explicit union adapter", 1, true), tostring(problem))
 end
 
 return M

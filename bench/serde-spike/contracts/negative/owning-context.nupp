@@ -1,0 +1,6 @@
+local context = require("nupp.serde.context")
+local record Resource is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+return context.key<Resource>()

@@ -1,0 +1,377 @@
+module nupp.serde.jsonreader
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local errors = require("nupp.serde.errors")
+local plans = require("nupp.serde.jsonplan")
+local syntax = require("nupp.serde.jsonsyntax")
+local documents = require("nupp.serde.jsondocument")
+local numbers = require("nupp.serde.numbers")
+local base64 = require("nupp.codec.base64")
+local json = require("nupp.codec.json")
+
+export record Input<M is core.Member> is core.Reader<M>
+    @private @readonly cursor: syntax.Cursor
+    @private @readonly policy: plans.Policy<M>
+    @private @readonly plan: plans.Plan<M>
+    @private @readonly sourceContext: core.Context?
+    @private @readonly mapKey: string?
+    @private usedKey: boolean
+    @private expired: boolean
+
+    function expire(self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        if self.expired then
+            error("value reader scope has expired", 2)
+        end
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.sourceContext
+    end
+
+    function isNull(self): boolean
+        self:live()
+        return self.mapKey == nil and self.cursor:peek() == "null"
+    end
+
+    function key(self): string?
+        self:live()
+        local key = self.mapKey
+        if key ~= nil then
+            if self.usedKey then
+                error("map key has already been consumed", 2)
+            end
+            self.usedKey = true
+        end
+
+        return key
+    end
+
+    function readNull(exclusive self, member: M): nil
+        self:live()
+        if not self.plan.description.nullable and self.plan.description.kind ~= "null" then
+            error("binding does not admit null", 2)
+        end
+        if self.mapKey ~= nil then
+            error("JSON map key cannot be null", 2)
+        end
+        self.cursor:readNull()
+    end
+
+    function readBoolean(exclusive self, member: M): boolean
+        local key = self:key()
+        if key ~= nil then
+            if key == "true" then
+                return true
+            elseif key == "false" then
+                return false
+            end
+            error("JSON map key is not a boolean", 2)
+        end
+
+        return self.cursor:readBoolean()
+    end
+
+    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        local key = self:key()
+        return numbers.integer(key or self.cursor:readNumber(), width, signed)
+    end
+
+    function readFloat(exclusive self, member: M, width: 32 | 64): number
+        self:live()
+        if self.mapKey ~= nil then
+            error("JSON map key cannot be a float", 2)
+        end
+        local value = tonumber(self.cursor:readNumber())
+        if value == nil then
+            error("invalid float", 2)
+        end
+
+        return numbers.floating(value, width)
+    end
+
+    function readBigInteger(exclusive self, member: M): string
+        self:live()
+        local value = self.cursor:readNumber()
+        if not value:match("^%-?%d+$") then
+            error("expected big integer", 2)
+        end
+
+        return value
+    end
+
+    function readDecimal(exclusive self, member: M): core.Decimal
+        self:live()
+        local token = self.cursor:readNumber()
+        local mantissa, exponent = token:match("^(.-)[eE]([+-]?%d+)$")
+        if mantissa == nil then
+            mantissa, exponent = token, "0"
+        end
+        local whole, fraction = mantissa:match("^(.-)%.(%d+)$")
+        local parsed = tonumber(exponent)
+        if parsed == nil or parsed < -2147483648 or parsed > 2147483647 then
+            error("decimal exponent is out of range", 2)
+        end
+        local scale = parsed as integer
+        if whole ~= nil and scale - #fraction < -2147483648 then
+            error("decimal exponent is out of range", 2)
+        end
+        if whole ~= nil then
+            local coefficient = whole .. fraction
+            local negative = coefficient:sub(1, 1) == "-"
+            local digits = negative and coefficient:sub(2) or coefficient
+            digits = digits:gsub("^0+", "")
+            if digits == "" then
+                digits = "0"
+            end
+            return new core.Decimal(coefficient = (negative and "-" or "") .. digits, exponent = scale - #fraction)
+        end
+
+        return new core.Decimal(coefficient = mantissa, exponent = scale)
+    end
+
+    function readNumberToken(exclusive self, member: M): string
+        self:live()
+        return self.cursor:readNumber()
+    end
+
+    function readString(exclusive self, member: M): string
+        local key = self:key()
+        return key or self.cursor:readString()
+    end
+
+    function readBytes(exclusive self, member: M): string
+        self:live()
+        local value, problem = base64.decode(self.cursor:readString())
+        if value == nil then
+            error(problem, 2)
+        end
+
+        return value
+    end
+
+    function readTimestamp(exclusive self, member: M): core.Timestamp
+        self:live()
+        local kind = self.cursor:peek()
+        if kind == "string" then
+            return self.policy:parseTimestamp(member, self.cursor:readString(), "string")
+        elseif kind == "number" then
+            return self.policy:parseTimestamp(member, self.cursor:readNumber(), "number")
+        else
+            error("expected a timestamp", 2)
+        end
+    end
+
+    function readAtom(exclusive self, member: M): core.Atom
+        self:live()
+        error("JSON atom requires a model conversion", 2)
+    end
+
+    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        local mark = self.cursor:mark()
+        local reader = documents.contents(self.cursor, self.sourceContext)
+        local ok, result = pcall(adapter.readContents, adapter, reader)
+        reader:expire()
+        if not ok then
+            error(result, 0)
+        end
+        local complete, problem = pcall(self.cursor.consumed, self.cursor, mark)
+        if not complete then
+            error(publication.failure(adapter, result as D, problem), 0)
+        end
+
+        return result as D
+    end
+
+    function child(self, member: M): Input<M>
+        return new Input<M>(
+            cursor = self.cursor,
+            policy = self.policy,
+            plan = self.plan:child(member) or self.plan,
+            sourceContext = self.sourceContext,
+            mapKey = nil,
+            usedKey = false,
+            expired = false
+        )
+    end
+
+    function object<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>,
+        union: boolean
+    ): nil
+        self:live()
+        self.cursor:start("object")
+        local count: integer = 0
+        while true do
+            local name = self.cursor:nextKey()
+            if name == nil then
+                break
+            end
+            count += 1
+            local field = self.plan:member(name)
+            local mark = self.cursor:mark()
+            if field ~= nil and self.plan:action(field) == "traverse" then
+                self.cursor:selectMember(field.name)
+                local reader = self:child(field)
+                local ok, problem = pcall(consume.apply, consume, state, field, reader)
+                reader.expired = true
+                if not ok then
+                    error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
+                end
+            elseif field ~= nil or self.plan:omitsName(name) then
+                self.cursor:skipValue()
+            else
+                local reader = documents.unknown(self.cursor, self.sourceContext)
+                local identity = new documents.Name(name = name)
+                local ok, problem = pcall(unknown.apply, unknown, state, identity, reader)
+                reader:expire()
+                if not ok then
+                    error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
+                end
+            end
+            self.cursor:consumed(mark)
+        end
+        if union and count ~= 1 then
+            error("union requires exactly one alternative", 2)
+        end
+    end
+
+    function readStruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object(member, state, consume, unknown, false)
+    end
+
+    function readUnion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object(member, state, consume, unknown, true)
+    end
+
+    function array<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>,
+        size: integer?
+    ): nil
+        self:live()
+        self.cursor:start("array")
+        local index: integer = 0
+        while self.cursor:nextElement() do
+            index += 1
+            local mark = self.cursor:mark()
+            local reader = new Input<M>(
+                cursor = self.cursor,
+                policy = self.policy,
+                plan = self.plan:slot(size ~= nil and index or 1) or self.plan,
+                sourceContext = self.sourceContext,
+                mapKey = nil,
+                usedKey = false,
+                expired = false
+            )
+            local ok, problem = pcall(consume.apply, consume, state, index, reader)
+            reader.expired = true
+            if not ok then
+                error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
+            end
+            self.cursor:consumed(mark)
+        end
+        if size ~= nil and index ~= size then
+            error("wrong tuple size", 2)
+        end
+    end
+
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        self:array(member, state, consume, nil)
+    end
+
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:array(member, state, consume, size)
+    end
+
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        self:live()
+        self.cursor:start("object")
+        while true do
+            local name = self.cursor:nextKey()
+            if name == nil then
+                break
+            end
+            local mark = self.cursor:mark()
+            local reader = new Input<M>(
+                cursor = self.cursor,
+                policy = self.policy,
+                plan = self.plan:slot(2) or self.plan,
+                sourceContext = self.sourceContext,
+                mapKey = nil,
+                usedKey = false,
+                expired = false
+            )
+            local key = new Input<M>(
+                cursor = syntax.reader(json.encode(name)),
+                policy = self.policy,
+                plan = self.plan:slot(1) or self.plan,
+                sourceContext = self.sourceContext,
+                mapKey = name,
+                usedKey = false,
+                expired = false
+            )
+            local ok, problem = pcall(consume.apply, consume, state, key, reader)
+            reader.expired, key.expired = true, true
+            if not ok then
+                error(errors.wrap(problem, self.cursor:path(), self.cursor:offset()), 0)
+            end
+            if not key.usedKey then
+                error("map key was not consumed", 2)
+            end
+            self.cursor:consumed(mark)
+        end
+    end
+
+    function containerSize(self): integer?
+        self:live()
+        return nil
+    end
+end
+
+export function input<M is core.Member>(
+    cursor: syntax.Cursor,
+    policy: plans.Policy<M>,
+    plan: plans.Plan<M>,
+    context: core.Context?
+): Input<M>
+    return new Input<M>(
+        cursor = cursor,
+        policy = policy,
+        plan = plan,
+        sourceContext = context,
+        mapKey = nil,
+        usedKey = false,
+        expired = false
+    )
+end

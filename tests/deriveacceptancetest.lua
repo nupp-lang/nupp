@@ -11,6 +11,15 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function run(source)
+    source = [[local serde = require("nupp.serde")
+local typedJSON = require("nupp.serde.json")
+local function decode<T>(binding: serde.Binding<T>, bytes: string): (T?, string?)
+    local ok, value = pcall(typedJSON.decode, binding, bytes)
+    if not ok then return nil, tostring(value) end
+    return value as T, nil
+end
+]]
+        .. source
     local parsed = parser.parse(source, "derive_acceptance.g.nupp")
     assert(#parsed.errors == 0, "acceptance fixture parses")
     local diagnostics = check.check(parsed, "derive_acceptance.g.nupp", env)
@@ -62,8 +71,6 @@ end
 function M.matchesManifestAndBuildCacheJSONCorpora()
     local result = run(
         [[
-@derive(nupp.derive.JSON)
-@json(unknown = "reject")
 local record ModuleCache
     sourceHash: string
     interfaceHash: string
@@ -93,15 +100,15 @@ local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, value in ipairs(corpora) do
     local writer = nupp.codec.json.newWriter(out)
-    value:writeJSON(writer)
+    typedJSON.writeValue(serde.binding(ModuleCache), value, writer)
     writer:close()
     bytes[index] = out:get()
-    local decoded, why = ModuleCache.fromJSON(bytes[index])
+    local decoded, why = decode(serde.binding(ModuleCache), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
         and (decoded as ModuleCache).sourceHash == value.sourceHash
         and (decoded as ModuleCache).interfaceHash == value.interfaceHash
 end
-local rejected, failure = ModuleCache.fromJSON(
+local rejected, failure = decode(serde.binding(ModuleCache),
     '{"sourceHash":"x","interfaceHash":"y","dependencies":[],"effects":[],"extra":1}'
 )
 return {bytes = bytes, accepted = accepted, rejected = rejected, failure = failure}
@@ -125,7 +132,7 @@ return {bytes = bytes, accepted = accepted, rejected = rejected, failure = failu
         "derived cache bytes differ from the pinned ordering"
     )
     assert(
-        result.rejected == nil and result.failure:find("unknown field", 1, true),
+        result.rejected == nil and result.failure:find("unknown member", 1, true),
         "strict manifest validation accepted an unknown key"
     )
 end
@@ -135,8 +142,7 @@ function M.runsTheExternalTecsMCPRequestCorpus()
         [[
 -- Proving case adapted from tecs.io.mcp.transport.Request. Its private loader.CPtr
 -- handle is intentionally outside JSON; the constrained result model refuses it.
-@derive(nupp.derive.Debug, nupp.derive.JSON)
-@json(unknown = "reject")
+@derive(nupp.derive.Debug)
 local record TecsMCPRequest
     name: string
     arguments: string
@@ -158,16 +164,16 @@ local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, request in ipairs(corpus) do
     local writer = nupp.codec.json.newWriter(out)
-    request:writeJSON(writer)
+    typedJSON.writeValue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
     bytes[index] = out:get()
     debugged[index] = request:debug()
-    local decoded, why = TecsMCPRequest.fromJSON(bytes[index])
+    local decoded, why = decode(serde.binding(TecsMCPRequest), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
         and (decoded as TecsMCPRequest).name == request.name
         and (decoded as TecsMCPRequest).arguments == request.arguments
 end
-local malformed, failure = TecsMCPRequest.fromJSON(
+local malformed, failure = decode(serde.binding(TecsMCPRequest),
     '{"name":"world.list","arguments":"{}","_handle":1}'
 )
 return {

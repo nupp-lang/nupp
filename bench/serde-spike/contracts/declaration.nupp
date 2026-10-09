@@ -1,5 +1,5 @@
-local declarations = require("contract.declaration")
-local codecs = require("contract.jsoncodec")
+local declarations = require("nupp.serde.declaration")
+local codecs = require("nupp.serde.json")
 
 local record Address
     city: string
@@ -70,3 +70,43 @@ local encoded = codec:encode(containers, sample)
 assert(encoded:find('"signed":-9223372036854775808', 1, true))
 assert(encoded:find('"unsigned":18446744073709551615', 1, true))
 assert(codec:decode(containers, encoded).unsigned == sample.unsigned)
+
+local record Enumerated
+    state: "ready" | "done"
+    number: 1 | 2
+    optional: "left" | "right" | nil
+    entries: {"one" | "two"}
+end
+local enumerated = declarations.binding(Enumerated)
+local enumValue = codec:decode(enumerated, '{"state":"ready","number":2,"optional":null,"entries":["two"]}')
+assert(enumValue.state == "ready" and enumValue.number == 2 and enumValue.optional == nil)
+assert(codec:decode(enumerated, codec:encode(enumerated, enumValue)).entries[1] == "two")
+for _, input in ipairs({
+    '{"state":"unknown","number":1,"entries":[]}',
+    '{"state":"done","number":3,"entries":[]}',
+    '{"state":"done","number":1,"optional":"up","entries":[]}',
+    '{"state":"done","number":1,"entries":["three"]}'
+}) do
+    assert(not pcall(codec.decode, codec, enumerated, input), input)
+end
+
+local record Shaped
+    point: {
+        x: number,
+        y: number,
+        label: string?
+    }
+    nested: {{active: boolean}}
+end
+local shaped = declarations.binding(Shaped)
+local point = codec:decode(shaped, '{"point":{"x":1.5,"y":2.5},"nested":[{"active":true}]}')
+assert(point.point.x == 1.5 and point.point.label == nil and point.nested[1].active)
+assert(codec:decode(shaped, codec:encode(shaped, point)).point.y == 2.5)
+for _, input in ipairs({
+    '{"point":{"x":1},"nested":[]}',
+    '{"point":{"x":1,"y":2,"extra":true},"nested":[]}',
+    '{"point":{"x":"wrong","y":2},"nested":[]}',
+    '{"point":{"x":1,"y":2},"nested":[{}]}'
+}) do
+    assert(not pcall(codec.decode, codec, shaped, input), input)
+end

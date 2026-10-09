@@ -1,0 +1,499 @@
+module nupp.serde.jsonwriter
+
+local core = require("nupp.serde.value")
+local errors = require("nupp.serde.errors")
+local plans = require("nupp.serde.jsonplan")
+local json = require("nupp.codec.json")
+local base64 = require("nupp.codec.base64")
+local numbers = require("nupp.serde.numbers")
+local identities = require("nupp.serde.jsondocument")
+local extensions = require("nupp.serde.jsonextensions")
+
+export record Budget
+    @readonly maxDepth: integer = 128
+    @readonly maxValues: integer = 1000000
+    depth: integer = 0
+    values: integer = 0
+end
+
+local writeContents: function<D>(
+    adapter: core.DocumentAdapter<D>,
+    borrows value: D,
+    exclusive sink: json.Writer,
+    factory: plans.PolicyFactory,
+    cache: extensions.Scope?,
+    budget: Budget
+): nil
+
+local record Frame<M is core.Member>
+    kind: "object" | "array" | "map"
+    plan: plans.Plan<M>
+    count: integer
+    seen: {[string]: boolean}
+    currentName: string?
+    currentIndex: integer?
+end
+
+export record Output<M is core.Member> is core.Writer<M>
+    @private @readonly anchor: unknown
+    @private sink: json.Writer borrows (anchor)
+    @private @readonly factory: plans.PolicyFactory
+    @private @readonly policy: plans.Policy<M>
+    @private @readonly root: plans.Plan<M>
+    @private @readonly cache: extensions.Scope?
+    @private @readonly budget: Budget
+    @private frames: {Frame<M>}
+    @private keyMode: boolean
+    @private keyCount: integer
+    @private closed: boolean
+    @private roots: integer = 0
+
+    function live(self): nil
+        if self.closed then
+            error("value writer scope has expired", 2)
+        end
+    end
+
+    function emit<T>(exclusive self, adapter: core.Adapter<T, M>, borrows value: T): nil
+        self:live()
+        local ok, problem = pcall(adapter.write, adapter, value, self)
+        if ok and (self.roots ~= 1 or #self.frames ~= 0) then
+            ok = false
+            problem = new errors.Error(
+                code = "contract",
+                message = "binding must write exactly one root value",
+                path = "$",
+                cause = nil
+            )
+        end
+        if not ok then
+            self.closed = true
+            self.sink:abort()
+            error(errors.wrap(problem, self:path(), nil), 0)
+        end
+    end
+
+    function path(self): string
+        local parts: {string} = {"$"}
+        for _, frame in ipairs(self.frames) do
+            if frame.currentName ~= nil then
+                parts[#parts + 1] = "[" .. json.encode(frame.currentName) .. "]"
+            elseif frame.currentIndex ~= nil then
+                parts[#parts + 1] = "[" .. tostring(frame.currentIndex) .. "]"
+            end
+        end
+
+        return table.concat(parts)
+    end
+
+    function select(exclusive self, member: M): nil
+        local frame = self.frames[#self.frames]
+        if frame ~= nil then
+            if frame.kind == "object" then
+                frame.currentName = member.name
+            elseif frame.kind == "array" then
+                frame.currentIndex = frame.count + 1
+            end
+        end
+    end
+
+    function include(exclusive self, member: M): boolean
+        self:live()
+        self:select(member)
+        local frame = self.frames[#self.frames]
+        local action = frame ~= nil and frame.plan:action(member) or "traverse"
+        if action == "redact" then
+            self:writeString(member, "[redacted]")
+        end
+
+        return action == "traverse"
+    end
+
+    function position(exclusive self, member: M): nil
+        self:live()
+        self.budget.values += 1
+        if self.budget.values > self.budget.maxValues then
+            self:limit("value limit exceeded")
+        end
+        if self.keyMode then
+            error("JSON map keys must be scalar", 2)
+        end
+        local frame = self.frames[#self.frames]
+        if frame ~= nil then
+            if frame.kind == "object" then
+                local key = frame.plan:key(member)
+                local name = frame.plan:wireName(member)
+                if key == nil and frame.plan.description.kind == "dynamic" then
+                    name = self.policy:name(member)
+                    key = json.encodedString(name)
+                end
+                if key == nil then
+                    error("member was not selected for JSON: " .. member.name, 2)
+                end
+                self:claim(assert(name))
+                self.sink:key(key)
+            end
+            frame.count += 1
+        else
+            self.roots += 1
+            if self.roots ~= 1 then
+                error(
+                    new errors.Error(
+                        code = "contract",
+                        message = "binding wrote more than one root value",
+                        path = "$",
+                        cause = nil
+                    ),
+                    0
+                )
+            end
+        end
+    end
+
+    function limit(exclusive self, message: string): nil
+        self.closed = true
+        error(new errors.Error(code = "limit", message = message, path = self:path(), cause = nil), 0)
+    end
+
+    function enter(exclusive self): nil
+        if self.budget.depth >= self.budget.maxDepth then
+            self:limit("nesting limit exceeded")
+        end
+        self.budget.depth += 1
+    end
+
+    function claim(exclusive self, name: string): nil
+        local frame = assert(self.frames[#self.frames], "key outside an object")
+        if frame.seen[name] then
+            error("duplicate JSON member: " .. name, 2)
+        end
+        frame.seen[name] = true
+    end
+
+    function key(exclusive self, text: string): nil
+        self:live()
+        self.keyCount += 1
+        if self.keyCount ~= 1 then
+            error("map key emitted more than one value", 2)
+        end
+        local frame = assert(self.frames[#self.frames])
+        frame.currentName = text
+        self:claim(text)
+        self.sink:key(text)
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        self:live()
+        self:select(member)
+        local description = self:child(member).description
+        if not description.nullable and description.kind ~= "null" then
+            error("binding does not admit null", 2)
+        end
+        self:position(member)
+        self.sink:null()
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:live()
+        self:select(member)
+        if self.keyMode then
+            self:key(value and "true" or "false")
+        else
+            self:position(member)
+            self.sink:write(value)
+        end
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        self:live()
+        self:select(member)
+        numbers.integer(value.decimal, value.width, value.signed)
+        local encoded = json.numberToken(value.decimal)
+        if self.keyMode then
+            self:key(value.decimal)
+        else
+            self:position(member)
+            self.sink:write(encoded)
+        end
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        self:live()
+        self:select(member)
+        value = numbers.floating(value, width)
+        self:position(member)
+        self.sink:write(value)
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        self:live()
+        self:select(member)
+        if not value:match("^%-?%d+$") then
+            error("expected big integer", 2)
+        end
+        self:position(member)
+        self.sink:write(json.numberToken(value))
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        self:live()
+        self:select(member)
+        if not value.coefficient:match("^%-?%d+$") then
+            error("invalid decimal coefficient", 2)
+        end
+        if value.exponent < -2147483648 or value.exponent > 2147483647 then
+            error("decimal exponent is out of range", 2)
+        end
+        self:position(member)
+        self.sink:write(json.numberToken(value.coefficient .. "e" .. tostring(value.exponent)))
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        self:live()
+        self:select(member)
+        self:position(member)
+        self.sink:write(json.numberToken(value))
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        self:live()
+        self:select(member)
+        if self.keyMode then
+            self:key(value)
+        else
+            self:position(member)
+            self.sink:write(value)
+        end
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        self:live()
+        self:select(member)
+        self:position(member)
+        self.sink:write(base64.encode(value))
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        self:live()
+        self:select(member)
+        local encoded = self.policy:timestamp(member, value)
+        self:position(member)
+        self.sink:write(encoded)
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        self:live()
+        self:select(member)
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "JSON atom requires a model conversion",
+                path = self:path(),
+                cause = nil
+            ),
+            0
+        )
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        self:live()
+        self:select(member)
+        self:position(member)
+        self:enter()
+        local depth = self.budget.depth
+        local ok, problem = pcall(writeContents, adapter, value, self.sink, self.factory, self.cache, self.budget)
+        self.budget.depth = depth - 1
+        if not ok then
+            self.closed = true
+            error(errors.prefix(problem, self:path()), 0)
+        end
+    end
+
+    function child(exclusive self, member: M): plans.Plan<M>
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            return self.root
+        end
+
+        return frame.plan:child(member) or frame.plan
+    end
+
+    function aggregate<S>(
+        exclusive self,
+        member: M,
+        borrows source: S,
+        emit: core.Members<M, S>,
+        kind: "object" | "array" | "map",
+        expected: integer?
+    ): nil
+        self:live()
+        self:select(member)
+        local plan = self:child(member)
+        self:position(member)
+        self:enter()
+        if kind == "array" then
+            self.sink:startArray()
+        else
+            self.sink:startObject()
+        end
+        local frame = new Frame<M>(kind = kind, plan = plan, count = 0, seen = {})
+        self.frames[#self.frames + 1] = frame
+        emit:apply(source, self)
+        if expected ~= nil and frame.count ~= expected then
+            error("wrong aggregate size", 2)
+        end
+        table.remove(self.frames)
+        self.budget.depth -= 1
+        if kind == "array" then
+            self.sink:endArray()
+        else
+            self.sink:endObject()
+        end
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        self:aggregate(member, source, emit, "object", nil)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        self:aggregate(member, source, emit, "object", 1)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        self:aggregate(member, source, emit, "array", size)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        self:aggregate(member, source, emit, "array", size)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        self:aggregate(member, source, emit, "map", size)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil or frame.kind ~= "map" then
+            error("entry outside map", 2)
+        end
+        frame.currentName = "<key>"
+        self.keyMode, self.keyCount = true, 0
+        keyEmit:apply(key, self)
+        self.keyMode = false
+        assert(self.keyCount == 1, "map key did not emit a value")
+        local before = frame.count
+        valueEmit:apply(value, self)
+        if frame.count ~= before + 1 then
+            error("map entry must emit one value", 2)
+        end
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil or frame.kind ~= "object" or self.keyMode then
+            error("unknown field outside object", 2)
+        end
+        local name = identities.name(field)
+        frame.currentName = name
+        if frame.plan:member(name) ~= nil or frame.plan:omitsName(name) then
+            error("unknown field collides with a known member", 2)
+        end
+        local source = adapter:context(value)
+        if source ~= nil and source.profile ~= self.factory then
+            error("unknown value cannot be replayed under another profile", 2)
+        end
+        self:claim(name)
+        self.sink:key(name)
+        frame.count += 1
+        self:enter()
+        local depth = self.budget.depth
+        local ok, problem = pcall(writeContents, adapter, value, self.sink, self.factory, self.cache, self.budget)
+        self.budget.depth = depth - 1
+        if not ok then
+            self.closed = true
+            error(errors.prefix(problem, self:path()), 0)
+        end
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+end
+
+export function output<M is core.Member>(
+    exclusive sink: json.Writer,
+    factory: plans.PolicyFactory,
+    policy: plans.Policy<M>,
+    root: plans.Plan<M>,
+    cache: extensions.Scope?,
+    budget: Budget?
+): affine(Output<M>) borrows (sink)
+    assert(cache == nil or cache:profile() == factory, "JSON extensions belong to another profile")
+    local limits = budget or new Budget()
+    assert(limits.maxDepth > 0 and limits.maxDepth <= 1024 and limits.maxValues > 0, "invalid JSON output limits")
+    return new Output<M>(
+        anchor = sink,
+        sink = sink,
+        factory = factory,
+        policy = policy,
+        root = root,
+        cache = cache,
+        budget = limits,
+        frames = {},
+        keyMode = false,
+        keyCount = 0,
+        closed = false
+    )
+end
+
+local record ContentsConsumer<D> is core.IntoConsumer<D, D, json.Writer, nil>
+    @readonly factory: plans.PolicyFactory
+    @readonly cache: extensions.Scope
+    @readonly budget: Budget
+    function apply<N is core.Member>(
+        self,
+        adapter: core.Adapter<D, N>,
+        borrows value: D,
+        exclusive sink: json.Writer
+    ): nil
+        local operation = self.cache:resolve(adapter, "write")
+        local writer = output(sink, self.factory, operation.policy, operation.plan, self.cache, self.budget)
+        writer:emit(adapter, value)
+        writer:close()
+    end
+end
+
+writeContents = function<D>(
+    adapter: core.DocumentAdapter<D>,
+    borrows value: D,
+    exclusive sink: json.Writer,
+    factory: plans.PolicyFactory,
+    cache: extensions.Scope?,
+    budget: Budget
+): nil
+    local consumer = new ContentsConsumer<D>(
+        factory = factory,
+        cache = cache or extensions.scope(factory),
+        budget = budget
+    )
+    adapter:contents():acceptInto(consumer, value, sink)
+end

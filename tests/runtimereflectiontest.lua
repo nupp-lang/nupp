@@ -98,140 +98,25 @@ return quiet.value
     testAssert.equal(code:find("_G.nupp.__reflect", 1, true), nil, "unused reflection runtime")
 end
 
-function M.jsonCodecIsAllocatedByTheRuntimeExtensionCache()
+function M.extensionsAreTypedAndLazy()
     local User = run([[
-@derive(nupp.derive.JSON)
-local record User
-    id: integer
-end
-return User
+local record User id: integer end
+return {target = User, info = User.reflect()}
 ]])
-    local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
-    testAssert.equal(entry.codec, nil, "derive eagerly allocated a JSON codec")
-    local info = User:reflect()
-    local first = info:extension(_G.nupp.__reflect.json)
-    local second = info:extension(_G.nupp.__reflect.json)
-    testAssert.equal(first, second, "extension cache")
-    testAssert.equal(entry.codec, first, "JSON extension owns codec allocation")
-end
-
--- The JSON codec's extension key is a typed key like any other, so reading
--- it back through a descriptor answers the codec, and an untyped token with a
--- `build` of its own is refused rather than given a slot.
-function M.jsonExtensionKeyIsTyped()
-    local User = run([[
-@derive(nupp.derive.JSON)
-local record User
-    id: integer
-end
-return User
-]])
-    local key = _G.nupp.__reflect.json
-    testAssert.equal(type(key.id), "number", "the JSON extension key has no typed id")
-    local info = User:reflect()
-    local codec = info:extension(key)
-    testAssert.equal(
-        codec,
-        _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec,
-        "the key read back the codec"
-    )
-    local ok, problem = pcall(info.extension, info, {
+    local reflection = _G.nupp.reflect
+    local calls = 0
+    local key = reflection.extensionKey(function(info)
+        calls = calls + 1
+        return info.name
+    end)
+    assert(User.info:extension(key) == "User")
+    assert(User.info:extension(key) == "User" and calls == 1)
+    local ok, problem = pcall(User.info.extension, User.info, {
         build = function()
             return "untyped"
         end
     })
-    testAssert.equal(ok, false, "an untyped extension token was resolved")
-    assert(tostring(problem):find("not an extension key", 1, true), tostring(problem))
-end
-
--- `fieldCodec` was the one member of the derived runtime whose answer depended on what
--- had run before it. The codec is allocated on demand and memoized into `entry.codec`,
--- and one of the two implementations read that field rather than asking for the codec,
--- so asking first answered nil. There is one implementation now, and this asks it
--- first.
-function M.fieldCodecAnswersACodecWhenItIsAskedFirst()
-    local User = run([[
-@derive(nupp.derive.JSON)
-local record User
-    id: integer
-end
-return User
-]])
-    local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
-    testAssert.equal(entry.codec, nil, "the codec is allocated on demand")
-
-    local derive = require("nupp.derive")
-    testAssert.equal(
-        type(derive.fieldCodec(entry)),
-        "table",
-        "the module answered no codec when it was asked before anything else"
-    )
-end
-
-function M.derivedJSONCachesEncodedSchemaConstants()
-    local User = run(
-        [[
-@derive(nupp.derive.JSON)
-local record User
-    kind: "user"
-    id: integer
-end
-local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-local user = new User(kind = "user", id = 7)
-user:writeJSON(writer)
-writer:close()
-return User
-]]
-    )
-    local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
-    local kind = entry.schema.fields[1]
-    assert(kind.encodedName ~= nil, "the derived key was not cached")
-    assert(kind.jsonType.encoded ~= nil, "the literal value was not cached")
-    testAssert.equal(
-        kind.encodedName,
-        require("nupp.codec.json").encodedString("kind"),
-        "the derived key did not use the interned representation"
-    )
-end
-
--- A type witness reaches JSON through its Serde binding and the JSON codec,
--- and the record's own derived member writes the same document.
-function M.jsonUsesOneTypeWitness()
-    local result = run(
-        [[
-@derive(nupp.derive.JSON, nupp.derive.Serde)
-local record User
-    id: integer
-end
-local user = new User(id = 7)
-local out = require("nupp.text").newBuffer()
-out:put("prefix:")
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-local writer = nupp.codec.json.newWriter(out)
-prepared:write(user, writer)
-writer:close()
-local explicitWrite = out:get()
-writer = nupp.codec.json.newWriter(out)
-user:writeJSON(writer)
-writer:close()
-local memberWrite = out:get()
-local text = prepared:encode(user)
-local restored, problem = prepared:decode(text)
-return {
-    explicitWrite = explicitWrite,
-    memberWrite = memberWrite,
-    text = text,
-    id = restored and restored.id,
-    problem = problem,
-}
-]]
-    )
-    testAssert.equal(result.explicitWrite, 'prefix:{"id":7}', "explicit JSON write")
-    testAssert.equal(result.memberWrite, '{"id":7}', "member JSON write")
-    testAssert.equal(result.text, '{"id":7}', "explicit JSON encode")
-    testAssert.equal(result.id, 7, "type witness decode")
-    testAssert.equal(result.problem, nil, "type witness decode error")
+    assert(not ok and tostring(problem):find("not an extension key", 1, true), tostring(problem))
 end
 
 function M.genericConsumersReceiveUnannotatedTypeMetadata()

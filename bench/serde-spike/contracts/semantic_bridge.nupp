@@ -1,8 +1,8 @@
-local core = require("contract.value")
-local documents = require("example.document")
-local bridge = require("example.documentcodec")
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local bridge = require("nupp.serde.documentcodec")
 local model = require("example.richmodel")
-local contexts = require("contract.context")
+local contexts = require("nupp.serde.context")
 
 local schema = model.newModel()
 local packetBinding, indexedBinding, documentBinding = model.binding(

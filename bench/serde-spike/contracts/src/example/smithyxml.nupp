@@ -1,0 +1,29 @@
+module example.smithyxml
+
+local core = require("nupp.serde.value")
+local smithy = require("example.smithy")
+local xml = require("example.xmlcodec")
+local syntax = require("example.xmlsyntax")
+local record Policy is xml.Policy
+    function field<M is core.Member>(self, member: M): syntax.Field
+        assert(getmetatable(member) == smithy.Member, "expected Smithy member")
+        local selected = member as smithy.Member
+        local name = selected:trait("smithy.api#xmlName")
+        local namespace = selected:trait("smithy.api#xmlNamespace")
+        local attribute = selected:trait("smithy.api#xmlAttribute")
+
+        return new syntax.Field(
+            namespaceUri = namespace ~= nil and assert(namespace:get("uri")):string() or "",
+            localName = name ~= nil and name:string() or selected.name,
+            role = attribute ~= nil and "attribute" or "element"
+        )
+    end
+
+    function flattened<M is core.Member>(self, member: M): boolean
+        assert(getmetatable(member) == smithy.Member, "expected Smithy member")
+        return (member as smithy.Member):trait("smithy.api#xmlFlattened") ~= nil
+    end
+end
+export function policy(): xml.Policy
+    return new Policy()
+end

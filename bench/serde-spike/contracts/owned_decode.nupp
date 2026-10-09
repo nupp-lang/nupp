@@ -1,6 +1,6 @@
-local core = require("contract.value")
-local codec = require("contract.jsoncodec")
-local plans = require("contract.jsonplan")
+local core = require("nupp.serde.value")
+local codec = require("nupp.serde.json")
+local plans = require("nupp.serde.jsonplan")
 local json = require("nupp.codec.json")
 
 local record Counts
@@ -31,6 +31,7 @@ local record Adapter is core.Adapter<Resource, Member>
     @readonly counts: Counts
     @readonly description: Description
     @readonly fail: boolean
+    @readonly consume: boolean = true
     function describe(self, direction: core.Direction): core.Description<Member>
         return self.description
     end
@@ -42,7 +43,9 @@ local record Adapter is core.Adapter<Resource, Member>
     function read(self, exclusive reader: core.Reader<Member>): Resource
         self.counts.created += 1
         local result = new Resource(counts = self.counts, text = "")
-        result.text = reader:readString(self.description.member)
+        if self.consume then
+            result.text = reader:readString(self.description.member)
+        end
         assert(not self.fail, "model rejected the value")
 
         return result
@@ -75,7 +78,10 @@ local counts = new Counts()
 local member = new Member(name = "resource")
 
 local function binding(fail: boolean): core.Binding<Resource>
-    return new core.Bound<Resource, Member>(
+    return new core.OwnedBound<Resource, Member>(
+        drop = function(takes value: Resource): nil
+            value:close()
+        end,
         adapter = new Adapter(counts = counts, description = new Description(member = member), fail = fail)
     )
 end
@@ -146,7 +152,10 @@ local record Aggregate is core.Adapter<Resource, Member>
     end
 end
 local textMember = new Member(name = "text", index = 1)
-local aggregate: core.Binding<Resource> = new core.Bound<Resource, Member>(
+local aggregate: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
+    drop = function(takes value: Resource): nil
+        value:close()
+    end,
     adapter = new Aggregate(
         counts = counts,
         description = new Description(
@@ -166,3 +175,18 @@ assert(counts.created == 5 and counts.closed == 5)
 assert(not pcall(decodeAndClose, aggregate, '{}'))
 assert(counts.created == 6 and counts.closed == 6)
 print("aggregate callbacks borrow owning construction state exclusively")
+
+local before = counts.closed
+local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
+    drop = function(takes value: Resource): nil
+        value:close()
+    end,
+    adapter = new Adapter(
+        counts = counts,
+        description = new Description(member = member),
+        fail = false,
+        consume = false
+    )
+)
+assert(not pcall(decodeAndClose, unconsumed, '"ignored"'))
+assert(counts.closed == before + 1 and counts.closed == counts.created, "JSON publication leaked an owned result")

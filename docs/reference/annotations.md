@@ -332,7 +332,6 @@ any of their names.
 | `@relax` | guarantee names | function |
 | `@derive` | qualified comptime providers | record, struct |
 | `@cli` | command and field options for the `nupp.cli` derives | record, field |
-| `@json` | JSON record or field options | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
 | `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
@@ -415,8 +414,8 @@ contracts a public signature is allowed to carry.
 
 ### `@derive`
 
-`@derive` accepts `nupp.derive.Debug`, `nupp.derive.JSON`,
-`nupp.derive.Serde`, or an exported comptime provider, and adds checked members
+`@derive` accepts `nupp.derive.Debug` or an exported comptime provider and adds
+checked members
 or format-neutral materialization data without exposing source or AST macros:
 
 ```nupp
@@ -427,12 +426,10 @@ local record Point
 end
 ```
 
-`Debug` and `Serde` admit records and structs. `JSON` admits records. A package
-provider declares its result contract and decides which target it accepts.
-`@json` and `@debug` configure their corresponding format and renderer; Serde
-itself is format-neutral. The reserved annotations are visible through a
-provider's `Info`. See [Declaration derives](derives.md) for the recipe
-capabilities, generated methods, JSON policies, and failure rules.
+`Debug` admits records and structs. A package provider chooses its supported
+targets. `@debug` configures the renderer; serialization mappings belong to an
+explicit [binding](../learn/runtime/data/serde.md). See
+[derives.md](derives.md) for provider contracts and generated methods.
 
 ### `@deprecated`
 
@@ -807,7 +804,7 @@ and compiler extensions.
 ::: seealso
 - [lints.md](lints.md) for the lints `@allow` reaches and how a project moves
   their levels
-- [derives.md](derives.md) for what `@derive`, `@json`, and `@debug` generate
+- [derives.md](derives.md) for what `@derive` and `@debug` generate
 - [effects.md](../learn/language/effects.md) for the `@effects` vocabulary in full
 - [diagnostics.md](diagnostics.md) for every code an annotation can report
 :::

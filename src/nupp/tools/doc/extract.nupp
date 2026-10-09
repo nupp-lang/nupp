@@ -73,7 +73,7 @@ record extract.Member
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
 
-    --- What it was annotated with, as written, such as `@derive(nupp.derive.JSON)`.
+    --- What it was annotated with, as written, such as `@derive(nupp.derive.Debug)`.
     annotations: {string}?
 end
 

@@ -1,0 +1,226 @@
+module nupp.serde.nativewriter
+
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local numbers = require("nupp.serde.numbers")
+local json = require("nupp.codec.json")
+
+export type Value = {unknown}
+local record Budget
+    nodes: integer = 0
+end
+local record Frame
+    @readonly kind: core.Kind
+    @readonly value: Value
+    @readonly names: {[string]: boolean} = {}
+    count: integer = 0
+    inEntry: boolean = false
+    readingKey: boolean = false
+    key: Value?
+end
+local fromContents: function<D>(
+    adapter: core.DocumentAdapter<D>,
+    borrows value: D,
+    depth: integer,
+    budget: Budget
+): Value
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly frames: {Frame} = {}
+    @readonly depth: integer
+    @readonly budget: Budget
+    result: Value?
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed, "native writer has expired")
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+
+    function include(exclusive self, member: M): boolean
+        self:live()
+        return true
+    end
+
+    function put(exclusive self, member: M, value: Value): nil
+        self:live()
+        self.budget.nodes += 1
+        assert(self.budget.nodes <= 1000000, "native persistence tree limit exceeded")
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            assert(self.result == nil, "native root was written twice")
+            self.result = value
+        elseif frame.kind == "structure" or frame.kind == "union" then
+            assert(not frame.names[member.name], "duplicate native member")
+            frame.names[member.name] = true
+            frame.value[#frame.value + 1] = member.name
+            frame.value[#frame.value + 1] = value
+            frame.count += 1
+        elseif frame.kind == "map" then
+            assert(frame.inEntry, "native value outside a map entry")
+            if frame.readingKey then
+                assert(frame.key == nil, "map key was written twice")
+                frame.key = value
+            else
+                frame.value[#frame.value + 1] = assert(frame.key, "map entry has no key")
+                frame.value[#frame.value + 1] = value
+                frame.key = nil
+                frame.count += 1
+            end
+        else
+            frame.value[#frame.value + 1] = value
+            frame.count += 1
+        end
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        self:put(member, {"null"})
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:put(member, {"boolean", value})
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        self:put(member, {"string", value})
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        self:put(member, {"bytes", value})
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        json.numberToken(value)
+        self:put(member, {"numberToken", value})
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        documents.bigInteger(value)
+        self:put(member, {"bigInteger", value})
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        numbers.integer(value.decimal, value.width, value.signed)
+        self:put(member, {"integer", value.decimal, value.width, value.signed})
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        self:put(member, {"float", numbers.floating(value, width, true), width})
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        documents.bigInteger(value.coefficient)
+        assert(value.exponent % 1 == 0 and math.abs(value.exponent) <= 9007199254740991, "invalid decimal exponent")
+        self:put(member, {"decimal", value.coefficient, value.exponent})
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        numbers.integer(value.seconds, 64, true)
+        assert(value.nanos % 1 == 0 and value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
+        self:put(member, {"timestamp", value.seconds, value.nanos})
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        error("native persistence refuses atoms without an explicit adapter", 2)
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        self:put(member, {"document", fromContents(adapter, value, self.depth + #self.frames + 1, self.budget)})
+    end
+
+    function aggregate<S>(
+        exclusive self,
+        member: M,
+        kind: core.Kind,
+        size: integer?,
+        borrows source: S,
+        emit: core.Members<M, S>
+    ): nil
+        self:live()
+        assert(self.depth + #self.frames < 128, "native persistence nesting limit exceeded")
+        local frame = new Frame(kind = kind, value = {kind})
+        self.frames[#self.frames + 1] = frame
+        emit:apply(source, self)
+        assert(size == nil or size == frame.count, "wrong native aggregate size")
+        self.frames[#self.frames] = nil
+        self:put(member, frame.value)
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", nil, source, emit)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "union", 1, source, emit)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "list", size, source, emit)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "tuple", size, source, emit)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "map", size, source, emit)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        self:live()
+        local frame = assert(self.frames[#self.frames], "entry outside map")
+        assert(frame.kind == "map" and not frame.inEntry, "entry outside map")
+        frame.inEntry, frame.readingKey = true, true
+        keyEmit:apply(key, self)
+        assert(frame.key ~= nil, "map key was not written")
+        frame.readingKey = false
+        local before = frame.count
+        valueEmit:apply(value, self)
+        assert(frame.count == before + 1, "map value was not written")
+        frame.inEntry = false
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self:live()
+        assert(getmetatable(field) == documents.Name, "wire field needs an explicit logical identity mapping")
+        local frame = assert(self.frames[#self.frames], "unknown field outside structure")
+        assert(frame.kind == "structure" or frame.kind == "union", "unknown field outside structure")
+        local name = (field as documents.Name).name
+        assert(not frame.names[name], "unknown field collides with a logical member")
+        frame.names[name] = true
+        frame.value[#frame.value + 1] = name
+        frame.value[#frame.value + 1] = fromContents(adapter, value, self.depth + #self.frames, self.budget)
+        frame.count += 1
+    end
+end
+local record Capture<T> is core.Consumer<T, T, Value>
+    @readonly depth: integer
+    @readonly budget: Budget
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): Value
+        local writer = new Output<M>(depth = self.depth, budget = self.budget)
+        adapter:write(value, writer)
+        assert(#writer.frames == 0, "unfinished native aggregate")
+        local result = assert(writer.result, "binding did not emit a value")
+
+        return result
+    end
+end
+fromContents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, depth: integer, budget: Budget): Value
+    assert(depth <= 128, "native persistence nesting limit exceeded")
+    return adapter:contents():accept(new Capture<D>(depth = depth, budget = budget), value)
+end
+export function value<T>(binding: core.Binding<T>, borrows value: T): Value
+    return binding:accept(new Capture<T>(depth = 0, budget = new Budget()), value)
+end

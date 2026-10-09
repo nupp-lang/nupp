@@ -55,10 +55,9 @@ assert(info == User.reflect())
 assert(info.fields[1].name == "id")
 ```
 
-The compiler emits the small runtime registry only for a record that calls
-`reflect()` or needs it for a derive, and the descriptor itself is allocated on
-the first call. A program that neither reflects on a record nor derives JSON
-pulls in neither the data nor the registry.
+The compiler emits descriptor data when a declaration witness is used for
+reflection, a binding, or a derive that requests it. Merely constructing an
+instance does not request the descriptor.
 
 ### Extensions
 
@@ -68,7 +67,7 @@ it against that descriptor, and every later call with the same key returns what
 was built. Key identity is assigned a dense process-local slot rather than a
 name, so two extensions that happen to describe the same thing stay separate
 without making object keys the host's cache representation. Slot numbers are not
-persistent identifiers. Schemas and serde bindings use the same facility.
+persistent identifiers.
 
 The state of a build in progress is kept as well as the finished one. An
 extension whose `build` reflects its way back to the descriptor it is being
@@ -76,20 +75,10 @@ built for is reported as a recursive initialization instead of recurring until
 the stack runs out, and a build that failed once is reported the same way every
 time rather than retried.
 
-The JSON derive was the mechanism's first user: its decoder and field codec are
-not built when the record is declared, and the JSON extension builds them the
-first time JSON is used. An application may define its own typed key.
-Registering arbitrary hosts remains internal; reflection descriptors, schemas,
-and serde bindings are the public hosts.
-
-::: deepdive
-Format-specific behavior is allocated against the descriptor on first request
-rather than generated for every declaration that could want it. Generating per
-declaration pays for every format on every record that mentions it, whether or
-not a value is ever encoded, and the cost lands in the binary rather than in the
-program that asked for the format.
-
-:::
+Applications may define their own typed extension keys. Serialization also
+caches schema extensions lazily, keyed by the selected binding, codec, protocol
+policy, and direction. See [serde.md](../runtime/data/serde.md) for how external
+models own those choices.
 
 ## Type witnesses
 
@@ -127,42 +116,28 @@ declaration itself keeps the witness where the API needs it and out of every
 signature between here and there.
 :::
 
-## JSON through a type witness
+## Serialization bindings
 
-`@derive(nupp.derive.JSON)` makes JSON available as generated record members.
-When the caller names the type rather than holding a value, the witness is a
-Serde binding: derive `nupp.derive.Serde` as well and prepare the binding with
-the JSON codec, which accepts the record name directly, so callers never
-construct a separate schema object.
+A type witness supplies neutral field access and construction. A binding
+chooses how that declaration participates in a data model, and a codec chooses
+the wire representation:
 
 ```nupp
-@derive(nupp.derive.JSON, nupp.derive.Serde)
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
 local record User
-    id: integer
+    id: uint32
     name: string
 end
-
-local user = new User(id = 7, name = "ada")
-local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-user:writeJSON(writer)
-writer:close()
-local text = out:get()
-
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-local restored, problem = prepared:decode(text)
-
-assert(prepared:encode(user) == text)
-assert(problem == nil)
-assert(restored and restored.id == 7)
+local binding = serde.binding(User)
+local text = json.encode(binding, new User(id = 7, name = "Ada"))
+assert(json.decode(binding, text).name == "Ada")
 ```
 
-`writeJSON` and the static `fromJSON` discover the declaration from the value's
-own metatable. `nupp.serde.of(User)` takes the `Type<T>` witness explicitly,
-which is what an API boundary wants, or code that runs before a value exists.
-See [Declaration derives](../../reference/derives.md#json) for the options, wire
-format, and validation rules, and [JSON](nupp.codec.json) for the generic encoder
-underneath them.
+A declaration may have several bindings. Protocol names, field mappings, and
+conversion rules belong to the selected binding or codec policy, rather than
+to a universal representation attached to the type. See
+[serde.md](../runtime/data/serde.md) for mappings and runtime models.
 
 ## Comptime reflection
 
@@ -207,10 +182,9 @@ Annotation names, arguments, values, and referenced types all contribute to the
 fingerprint, which is computed from the canonical semantic graph rather than
 from the checker's process-local type identities.
 
-A generated result is therefore invalidated when serialization metadata changes
-and not only when a field type does: renaming a JSON key with `@json(name =
-"user_id")` gives the descriptor a new fingerprint, so whatever a comptime block
-generated from it is generated again.
+A generated result is invalidated when an annotation changes as well as when a
+field type changes. Changing `@debug(redact = true)`, for example, changes the
+descriptor fingerprint and invalidates results derived from it.
 
 ### Field codecs
 

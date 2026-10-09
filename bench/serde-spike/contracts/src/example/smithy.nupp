@@ -1,9 +1,9 @@
 module example.smithy
 
-local core = require("contract.value")
-local documents = require("example.document")
-local jsonDocument = require("contract.jsondocument")
-local syntax = require("contract.jsonsyntax")
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local jsonDocument = require("nupp.serde.jsondocument")
+local syntax = require("nupp.serde.jsonsyntax")
 
 export record Shape
     @readonly id: string
@@ -158,22 +158,27 @@ export function parse(source: string): Model
     return load(value)
 end
 
-local plans = require("contract.jsonplan")
+local plans = require("nupp.serde.jsonplan")
 local json = require("nupp.codec.json")
-local timestamps = require("example.timestamps")
+local timestamps = require("nupp.serde.timestamps")
 
 export const schemaContext = core.contextKey<Shape>()
 export const memberContext = core.contextKey<Member>()
 local wireFieldContext = core.contextKey<core.WireField>()
+export record UnknownField
+    @readonly field: core.WireField
+    @readonly value: documents.Document
+end
+export const unknownFieldsContext = core.contextKey<{UnknownField}>()
 
 local function defaultValue(shape: Shape, value: documents.Document): documents.Document
-    local numbers = require("contract.numbers")
+    local numbers = require("nupp.serde.numbers")
     if shape.kind == "string" or shape.kind == "enum" then
         return documents.string(value:string())
     elseif shape.kind == "boolean" then
         return documents.boolean(value:boolean())
     elseif shape.kind == "document" then
-        return value
+        return documents.document(value)
     elseif shape.kind == "byte"
         or shape.kind == "short"
         or shape.kind == "integer"
@@ -217,6 +222,7 @@ local record Child is core.Child<Member>
 end
 
 local record State
+    @readonly unknown: {UnknownField} = {}
     @readonly fields: {documents.Entry} = {}
     @readonly elements: {documents.Document} = {}
     @readonly entries: {documents.MapEntry} = {}
@@ -250,6 +256,13 @@ local record Fields is core.Members<Member, documents.Document>
                 )
             end
         end
+        local context = source:context()
+        local unknown = context ~= nil and context:get(unknownFieldsContext) or nil
+        if unknown ~= nil then
+            for _, entry in ipairs(unknown) do
+                writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+            end
+        end
     end
 end
 
@@ -268,11 +281,13 @@ local record Unknown is core.UnknownConsumer<State>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        -- This fixture uses JSON field identities. XML and numbered wire fields
-        -- have separate model assembly and preserve their own identities.
         local value = reader:captureValue(documents.documentAdapter())
+        if getmetatable(field) ~= jsonDocument.Name then
+            state.unknown[#state.unknown + 1] = new UnknownField(field = field, value = value)
+            return
+        end
         local context = assert(value:context(), "unknown JSON content requires its source context")
-        local contexts = require("contract.context")
+        local contexts = require("nupp.serde.context")
         local metadata = contexts.builder(context.codec, context.profile, context)
         metadata:set(wireFieldContext, field)
         state.fields[
@@ -343,7 +358,9 @@ local record Adapter is core.Adapter<documents.Document, Member>
     function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Member>): nil
         local kind = self.description.kind
         local member = self.member
-        if value.kind == "null" then
+        if kind == "document" then
+            writer:writeDocument(member, value:document(), documents.documentAdapter())
+        elseif value.kind == "null" then
             assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
             writer:writeNull(member)
         elseif kind == "string" then
@@ -351,7 +368,11 @@ local record Adapter is core.Adapter<documents.Document, Member>
         elseif kind == "boolean" then
             writer:writeBoolean(member, value:boolean())
         elseif kind == "integer" then
-            writer:writeInteger(member, value:integer())
+            local numbers = require("nupp.serde.numbers")
+            writer:writeInteger(
+                member,
+                numbers.integer(value:integer().decimal, self.description.width as(8 | 16 | 32 | 64), true)
+            )
         elseif kind == "float" then
             writer:writeFloat(member, value:float().value, self.description.width as(32 | 64))
         elseif kind == "bigInteger" then
@@ -362,8 +383,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
             writer:writeBytes(member, value:bytes())
         elseif kind == "timestamp" then
             writer:writeTimestamp(member, value:timestamp())
-        elseif kind == "document" then
-            writer:writeDocument(member, value, documents.documentAdapter())
+
         elseif kind == "structure" then
             writer:writeStruct(member, value, new Fields(shape = member.target, adapters = self.adapters))
         elseif kind == "union" then
@@ -392,10 +412,14 @@ local record Adapter is core.Adapter<documents.Document, Member>
     end
 
     function read(self, exclusive reader: core.Reader<Member>): documents.Document
+        local context = reader:context()
         local kind = self.description.kind
         local member = self.member
         local value: documents.Document
-        if reader:isNull() then
+        local unknown: {UnknownField} = {}
+        if kind == "document" then
+            value = documents.document(reader:readDocument(member, documents.documentAdapter()))
+        elseif reader:isNull() then
             assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
             reader:readNull(member)
             value = documents.null()
@@ -420,10 +444,9 @@ local record Adapter is core.Adapter<documents.Document, Member>
             value = documents.bytes(reader:readBytes(member))
         elseif kind == "timestamp" then
             value = documents.timestamp(reader:readTimestamp(member))
-        elseif kind == "document" then
-            value = reader:readDocument(member, documents.documentAdapter())
+
         else
-            local state = new State()
+            local state = new State(unknown = unknown)
             if kind == "structure" then
                 reader:readStruct(member, state, new ReadFields(adapters = self.adapters), new Unknown())
                 local present: {[string]: boolean} = {}
@@ -466,8 +489,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
                 error("unsupported Smithy shape: " .. member.target.kind, 2)
             end
         end
-        local context = reader:context()
-        local contexts = require("contract.context")
+        local contexts = require("nupp.serde.context")
         local source = contexts.builder(
             context ~= nil and context.codec or {},
             context ~= nil and context.profile or {},
@@ -475,6 +497,9 @@ local record Adapter is core.Adapter<documents.Document, Member>
         )
         source:set(schemaContext, member.target)
         source:set(memberContext, member)
+        if #unknown > 0 then
+            source:set(unknownFieldsContext, unknown)
+        end
 
         return documents.withContext(value, source:freeze())
     end
@@ -517,6 +542,9 @@ local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
     elseif shape.kind == "structure" or shape.kind == "union" or shape.kind == "list" or shape.kind == "map" then
         kind = shape.kind
     end
+    if member:trait("smithy.api#streaming") ~= nil then
+        kind = "opaque"
+    end
     local nullable = member.container.traits:get("smithy.api#sparse") ~= nil
         and (member.container.kind == "list" or member.container.kind == "map" and member.name == "value")
     local description = new Description(
@@ -547,9 +575,16 @@ local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
     return result
 end
 
+export function root(shape: Shape): Member
+    return new Member(name = shape.id, container = shape, target = shape, traits = documents.object({}))
+end
+
+export function memberAdapter(member: Member): core.Adapter<documents.Document, Member>
+    return adapter(member, {})
+end
+
 export function binding(shape: Shape): core.Binding<documents.Document>
-    local root = new Member(name = shape.id, container = shape, target = shape, traits = documents.object({}))
-    return new core.Bound<documents.Document, Member>(adapter = adapter(root, {}))
+    return new core.Bound<documents.Document, Member>(adapter = adapter(root(shape), {}))
 end
 
 local record Policy<M is core.Member> is plans.Policy<M>

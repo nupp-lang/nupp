@@ -1,0 +1,47 @@
+local files = require("nupp.io.files")
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+
+-- Config file
+local record Config
+    volume: integer = 50
+    muted: boolean = false
+end
+local configFile = assert(files.createTemporaryFile())
+local configPath = configFile:path()
+assert(files.write(configPath, '{"volume":20}'))
+local configBinding = serde.binding(Config)
+local configBytes = assert(files.read(configPath))
+local config = json.decode(configBinding, configBytes)
+config.volume = 75
+assert(files.writeAtomic(configPath, json.encode(configBinding, config)))
+local savedConfig = assert(files.read(configPath))
+assert(json.decode(configBinding, savedConfig).volume == 75)
+
+-- Nested HTTP response
+local record User
+    id: uint32
+    name: string
+end
+local record Response
+    user: User
+    roles: {string}
+end
+local responseBinding = serde.binding(Response)
+local response = json.decode(responseBinding, '{"user":{"id":17,"name":"Ada"},"roles":["editor"]}')
+assert(response.user.name == "Ada" and response.roles[1] == "editor")
+
+-- Game save
+local native = require("nupp.serde.native")
+local record Save
+    level: integer
+    inventory: {string}
+end
+local saveFile = assert(files.createTemporaryFile())
+local savePath = saveFile:path()
+local saveBinding = serde.binding(Save)
+local save = new Save(level = 12, inventory = {"key", "map"})
+assert(files.write(savePath, native.encode(saveBinding, save)))
+local saveBytes = assert(files.read(savePath))
+local restored = native.decode(saveBinding, saveBytes)
+assert(restored.level == 12 and restored.inventory[2] == "map")

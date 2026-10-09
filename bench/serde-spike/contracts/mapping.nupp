@@ -1,0 +1,111 @@
+local declarations = require("nupp.serde.declaration")
+local json = require("nupp.serde.json")
+local debug = require("nupp.serde.debug")
+local record User
+    userId: integer
+    displayName: string
+    sessionToken: string? = "fresh"
+    tags: {string} = {}
+end
+local source = new User(userId = 42, displayName = "Ada", sessionToken = "secret", tags = {"private"})
+local fields = {
+    userId = new declarations.FieldOptions(name = "id"),
+    displayName = new declarations.FieldOptions(name = "display_name"),
+}
+local public = declarations.binding(User, new declarations.Options(fields = fields, unknownMembers = "ignore"))
+fields.userId = new declarations.FieldOptions(name = "changed")
+local codec = json.codec(declarations.policy())
+assert(codec:encode(public, source) == '{"id":42,"display_name":"Ada"}')
+local first = codec:decode(public, '{"display_name":"A","id":1,"extra":{"nested":[true,null]}}')
+local second = codec:decode(public, '{"id":2,"display_name":"B"}')
+assert(first.sessionToken == "fresh" and #first.tags == 0)
+first.tags[1] = "isolated"
+assert(#second.tags == 0 and second.sessionToken == "fresh")
+assert(not pcall(codec.decode, codec, public, '{"id":1,"display_name":"A","extra":[bad]}'))
+local snake = declarations.binding(User, new declarations.Options(naming = "snakeCase"))
+local bytes = codec:encode(snake, source)
+assert(bytes:find('"user_id"', 1, true) and bytes:find('"display_name"', 1, true))
+assert(codec:decode(snake, bytes).userId == 42)
+assert(not pcall(codec.decode, codec, snake, '{"user_id":1,"display_name":"A","extra":true}'))
+local partial = declarations.binding(
+    User,
+    new declarations.Options(fields = {displayName = new declarations.FieldOptions()})
+)
+assert(codec:encode(partial, source) == '{"displayName":"Ada"}')
+local ok, problem = pcall(codec.decode, codec, partial, "not JSON")
+assert(not ok and tostring(problem):find("constructor requires an explicit mapping for userId", 1, true))
+assert(
+    not pcall(function(): nil
+        declarations.binding(User, new declarations.Options(fields = {typo = new declarations.FieldOptions()}))
+    end)
+)
+local collision = declarations.binding(
+    User,
+    new declarations.Options(
+        fields = {
+            userId = new declarations.FieldOptions(name = "same"),
+            displayName = new declarations.FieldOptions(name = "same"),
+        }
+    )
+)
+assert(not pcall(codec.encode, codec, collision, source))
+assert(debug.render(public, source) == 'User { userId = 42, displayName = "Ada" }')
+assert(codec:encode(declarations.binding(User), source):find('"sessionToken":"secret"', 1, true))
+
+local record Event
+    createdAt: integer
+    optionalAt: integer?
+end
+local events = declarations.binding(
+    Event,
+    new declarations.Options(
+        fields = {
+            createdAt = new declarations.FieldOptions(representation = declarations.iso8601Seconds),
+            optionalAt = new declarations.FieldOptions(representation = declarations.iso8601Seconds),
+        }
+    )
+)
+assert(codec:encode(events, new Event(createdAt = -1)) == '{"createdAt":"1969-12-31T23:59:59Z","optionalAt":null}')
+assert(codec:decode(events, '{"createdAt":"2000-02-29T12:00:00Z","optionalAt":null}').createdAt == 951825600)
+assert(not pcall(codec.decode, codec, events, '{"createdAt":"2001-02-29T00:00:00Z"}'))
+assert(not pcall(codec.decode, codec, events, '{"createdAt":"1970-01-01T00:00:00.1Z"}'))
+
+assert(
+    not pcall(function(): nil
+        declarations.binding(
+            User,
+            new declarations.Options(
+                fields = {tags = new declarations.FieldOptions(representation = declarations.iso8601Seconds),}
+            )
+        )
+    end)
+)
+
+local record Empty
+    blank: string = ""
+    disabled: boolean = false
+    items: {string} = {}
+    missing: string?
+    zero: integer = 0
+end
+local empty = declarations.binding(
+    Empty,
+    new declarations.Options(
+        fields = {
+            blank = new declarations.FieldOptions(omitEmpty = true),
+            disabled = new declarations.FieldOptions(omitEmpty = true),
+            items = new declarations.FieldOptions(omitEmpty = true),
+            missing = new declarations.FieldOptions(omitEmpty = true),
+            zero = new declarations.FieldOptions(omitEmpty = true),
+        }
+    )
+)
+assert(codec:encode(empty, new Empty()) == '{"zero":0}')
+local restored = codec:decode(empty, '{}')
+assert(restored.blank == "" and not restored.disabled and #restored.items == 0 and restored.missing == nil)
+assert(
+    codec:encode(
+        empty,
+        new Empty(blank = "text", disabled = true, items = {"value"})
+    ) == '{"blank":"text","disabled":true,"items":["value"],"zero":0}'
+)

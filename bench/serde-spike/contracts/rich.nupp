@@ -1,6 +1,6 @@
 local model = require("example.richmodel")
-local core = require("contract.value")
-local json = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local json = require("nupp.serde.json")
 local schema = model.newModel()
 local binding = model.binding(schema)
 local first, second = model.policy(true), model.policy(false)
@@ -35,7 +35,7 @@ for _, profile in ipairs({first, second}) do
     assert(actual.created.seconds == "-1" and actual.created.nanos == 123456789)
 end
 
-local documents = require("example.document")
+local documents = require("nupp.serde.document")
 local withDocument = new model.Packet(
     id = "doc",
     created = value.created,
@@ -57,14 +57,14 @@ assert(items:size() == 3 and items:at(1).kind == "null")
 assert(items:at(2):numberToken() == "123456789012345678901234567890")
 assert(json.encode(binding, documentValue, first) == documentBytes)
 
-local timestamps = require("example.timestamps")
+local timestamps = require("nupp.serde.timestamps")
 for _, seconds in ipairs({"900719925474099312345", "-900719925474099312345", "-1", "0"}) do
     local stamp = new core.Timestamp(seconds = seconds, nanos = 123456789)
     local actual = timestamps.parseEpoch(timestamps.epoch(stamp))
     assert(actual.seconds == seconds and actual.nanos == stamp.nanos)
 end
 
-local debug = require("contract.debug")
+local debug = require("nupp.serde.debug")
 local child = new model.Packet(id = "child", created = value.created, choice = model.knownChoice("known"))
 local parent = new model.Packet(
     id = "parent",

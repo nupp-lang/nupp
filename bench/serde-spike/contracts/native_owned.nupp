@@ -1,0 +1,128 @@
+local core = require("nupp.serde.value")
+local native = require("nupp.serde.native")
+local documents = require("nupp.serde.document")
+local record Counts
+    created: integer = 0
+    closed: integer = 0
+end
+local record Resource is nupp.Closeable
+    @readonly counts: Counts
+    text: string
+    function close(takes self): nil
+        self.counts.closed += 1
+    end
+end
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local record Description is core.Description<Member>
+    @readonly member: Member
+    @readonly kind: core.Kind = "string"
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<Member>} = {}
+end
+local record Adapter is core.Adapter<Resource, Member>
+    @readonly counts: Counts
+    @readonly description: Description
+    @readonly fail: boolean
+    @readonly consume: boolean = true
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: Resource, exclusive writer: core.Writer<Member>): nil
+        writer:writeString(self.description.member, value.text)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): Resource
+        self.counts.created += 1
+        local result = new Resource(counts = self.counts, text = "")
+        if self.consume then
+            result.text = reader:readString(self.description.member)
+        end
+        assert(not self.fail, "model rejected the value")
+
+        return result
+    end
+end
+
+local counts = new Counts()
+local member = new Member(name = "resource")
+
+local function binding(fail: boolean): core.Binding<Resource>
+    return new core.OwnedBound<Resource, Member>(
+        drop = function(takes value: Resource): nil
+            value:close()
+        end,
+        adapter = new Adapter(counts = counts, description = new Description(member = member), fail = fail)
+    )
+end
+
+local selected = binding(false)
+local codec = native.codec()
+local bytes = native.encodeDocument(documents.documentAdapter(), documents.string("retained"))
+for index = 1, 3 do
+    local resource = codec:decode(selected, bytes)
+    assert(resource.text == "retained")
+    assert(codec:encode(selected, resource) == bytes)
+end
+assert(counts.created == 3 and counts.closed == 3)
+
+local function rejected(target: core.Binding<Resource>): nil
+    local resource = codec:decode(target, bytes)
+    resource:close()
+end
+
+assert(not pcall(rejected, binding(true)))
+assert(counts.created == 4 and counts.closed == 4)
+codec:clear()
+assert(counts.closed == 4, "codec cache owned decoded resources")
+print("native reconstruction transfers owned results and closes aborted construction exactly once")
+
+local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
+    drop = function(takes value: Resource): nil
+        value:close()
+    end,
+    adapter = new Adapter(
+        counts = counts,
+        description = new Description(member = member),
+        fail = false,
+        consume = false
+    )
+)
+assert(not pcall(rejected, unconsumed))
+assert(counts.created == 5 and counts.closed == 5, "underconsumption leaked an owned decode result")
+
+local record ResourceDocument is core.DocumentAdapter<Resource>
+    @readonly counts: Counts
+    @readonly binding: core.Binding<Resource>
+    function context(self, borrows value: Resource): core.Context?
+        return nil
+    end
+
+    function contents(self): core.Binding<Resource>
+        return self.binding
+    end
+
+    function readContents(self, exclusive reader: core.DocumentReader): Resource
+        self.counts.created += 1
+        return new Resource(counts = self.counts, text = "unconsumed document")
+    end
+
+    function discard(self, takes value: Resource): nil
+        value:close()
+    end
+end
+local document = new ResourceDocument(counts = counts, binding = selected)
+
+local function rejectedDocument(): nil
+    local resource = native.decodeDocument(document, bytes)
+    resource:close()
+end
+
+assert(not pcall(rejectedDocument))
+assert(counts.created == 6 and counts.closed == 6, "document publication leaked an owned result")

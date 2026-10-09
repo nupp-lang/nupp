@@ -1,0 +1,1316 @@
+module nupp.serde.declaration
+
+local core = require("nupp.serde.value")
+local access = require("nupp.serde.accessors")
+local structure = require("nupp.serde.structure")
+local plans = require("nupp.serde.jsonplan")
+local json = require("nupp.codec.json")
+local numbers = require("nupp.serde.numbers")
+local timestamps = require("nupp.serde.timestamps")
+local lowering = require("nupp.serde.jsonlower")
+
+export interface View
+    resolve: function<M is core.Member>(
+        self,
+        info: nupp.reflect.Info,
+        index: integer,
+        member: M
+    ): core.Adapter<unknown, M>?
+end
+export const iso8601Seconds: "iso8601Seconds" = "iso8601Seconds"
+export record FieldOptions
+    @readonly omitEmpty: boolean = false
+    @readonly representation: "iso8601Seconds"?
+    @readonly name: string?
+end
+export record Options
+    @readonly fields: const{[string]: FieldOptions}?
+    @readonly naming: "identity" | "snakeCase" | "camelCase" = "identity"
+    @readonly unknownMembers: "reject" | "ignore" = "reject"
+    @readonly view: View?
+end
+local cacheKey: table = {}
+local wideRuntime: any
+
+local function wide(): any
+    if wideRuntime == nil then
+        local ok, runtime = pcall(_G.require, "ffi")
+        if not ok then
+            error("declaration binding: this target has no exact 64-bit carrier", 2)
+        end
+        wideRuntime = runtime
+    end
+
+    return wideRuntime
+end
+
+local record Member is core.Member
+    @readonly annotations: const{nupp.reflect.Annotation} = {}
+    @readonly label: string?
+    @readonly wireName: string?
+    @readonly representation: "iso8601Seconds"?
+    @readonly name: string
+    @readonly index: integer?
+end
+
+local record Description is core.Description<Member>
+    @readonly member: Member
+    @readonly kind: core.Kind
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: const{core.Child<Member>} = {}
+end
+
+local record Scalar is core.Adapter<unknown, Member>
+    @readonly description: Description
+    @readonly integer: boolean = false
+
+    function describe(self, direction: core.Direction): core.Description<Member>
+        if self.description.kind == "integer" and self.description.width == 64 then
+            wide()
+        end
+        return self.description
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        local member = self.description.member
+        local kind = self.description.kind
+        if kind == "string" then
+            writer:writeString(member, (value as string):sub(1))
+        elseif kind == "boolean" then
+            writer:writeBoolean(member, value == true)
+        elseif kind == "float" then
+            writer:writeFloat(member, (value as number) * 1, self.description.width as(32 | 64))
+        elseif kind == "numberToken" then
+            local number = (value as number) + 0
+            assert(
+                number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
+                "expected a finite integer"
+            )
+            writer:writeNumberToken(member, ("%.17g"):format(number))
+        elseif kind == "integer" then
+            local decimal: string
+            if self.description.width == 64 then
+                -- tostring on the exact carrier includes LuaJIT's width suffix.
+                decimal = tostring(value):gsub("[Uu]?[Ll][Ll]$", "")
+            else
+                decimal = ("%.0f"):format((value as number) + 0)
+            end
+            writer:writeInteger(
+                member,
+                new core.Integer(
+                    decimal = decimal,
+                    width = self.description.width as(8 | 16 | 32 | 64),
+                    signed = self.description.signed == true
+                )
+            )
+        elseif kind == "null" then
+            writer:writeNull(member)
+        else
+            error("declaration field requires an explicit value adapter", 2)
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        local member = self.description.member
+        local kind = self.description.kind
+        if kind == "string" then
+            return reader:readString(member)
+        elseif kind == "boolean" then
+            return reader:readBoolean(member)
+        elseif kind == "float" then
+            return reader:readFloat(member, self.description.width as(32 | 64))
+        elseif kind == "numberToken" then
+            local number = tonumber(reader:readNumberToken(member))
+            assert(
+                number ~= nil and number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
+                "expected a finite integer"
+            )
+            return number
+        elseif kind == "integer" then
+            local decimal = reader:readInteger(
+                member,
+                self.description.width as(8 | 16 | 32 | 64),
+                self.description.signed == true
+            ).decimal
+            if self.description.width == 64 then
+                local runtime: any = wide()
+                local magnitude: any = runtime.new("uint64_t", 0)
+                local negative = decimal:sub(1, 1) == "-"
+                for position = negative and 2 or 1, #decimal do
+                    magnitude = magnitude * 10 + (assert(decimal:byte(position)) - 48)
+                end
+                if self.description.signed then
+                    if negative then
+                        return runtime.cast("int64_t", 0 - magnitude)
+                    end
+                    return runtime.cast("int64_t", magnitude)
+                end
+                return magnitude
+            end
+            return tonumber(decimal)
+        elseif kind == "null" then
+            reader:readNull(member)
+            return nil
+        else
+            error("declaration field requires an explicit value adapter", 2)
+        end
+    end
+end
+
+local record EpochSeconds is core.Adapter<unknown, Member>
+    @readonly description: Description
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        local seconds = (value as number) + 0
+        assert(
+            seconds == seconds and seconds % 1 == 0 and math.abs(seconds) <= 9007199254740991,
+            "expected exact integer epoch seconds"
+        )
+        writer:writeTimestamp(
+            self.description.member,
+            new core.Timestamp(seconds = ("%.0f"):format(seconds), nanos = 0)
+        )
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        local timestamp = reader:readTimestamp(self.description.member)
+        local seconds = tonumber(timestamp.seconds)
+        assert(
+            timestamp.nanos == 0 and seconds ~= nil and math.abs(seconds) <= 9007199254740991,
+            "timestamp does not fit integer epoch seconds"
+        )
+
+        return seconds
+    end
+end
+
+local record Link is core.Adapter<unknown, Member>
+    target: core.Adapter<unknown, Member>?
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return assert(self.target, "incomplete declaration graph"):describe(direction)
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        assert(self.target, "incomplete declaration graph"):write(value, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        return assert(self.target, "incomplete declaration graph"):read(reader)
+    end
+end
+
+local record LiteralSet is core.Adapter<unknown, Member>
+    @readonly target: core.Adapter<unknown, Member>
+    @readonly values: {[unknown]: boolean}
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.target:describe(direction)
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        assert(self.values[value], "value is outside the declaration's literals")
+        self.target:write(value, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        local value = self.target:read(reader)
+        assert(self.values[value], "value is outside the declaration's literals")
+        return value
+    end
+end
+
+local record Nullable is core.Adapter<unknown, Member>
+    @readonly member: Member
+    @readonly target: core.Adapter<unknown, Member>
+    writeDescription: Description?
+    readDescription: Description?
+    function describe(self, direction: core.Direction): core.Description<Member>
+        local prior: Description?
+        if direction == "write" then
+            prior = self.writeDescription
+        else
+            prior = self.readDescription
+        end
+        if prior ~= nil then
+            return prior
+        end
+        local target = self.target:describe(direction)
+        local result = new Description(
+            member = self.member,
+            kind = target.kind,
+            nullable = true,
+            width = target.width,
+            signed = target.signed,
+            canRead = target.canRead,
+            children = target.children
+        )
+        if direction == "write" then
+            self.writeDescription = result
+        else
+            self.readDescription = result
+        end
+
+        return result
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        if value == nil then
+            writer:writeNull(self.member)
+        else
+            self.target:write(value, writer)
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        if reader:isNull() then
+            reader:readNull(self.member)
+            return nil
+        end
+
+        return self.target:read(reader)
+    end
+end
+
+local record Construction is structure.Construction<unknown, access.Builder<unknown>>
+    @readonly selected: access.Access<unknown>
+    function begin(self): access.Builder<unknown>
+        return self.selected:begin()
+    end
+
+    function finish(self, takes state: access.Builder<unknown>): unknown
+        return self.selected:finish(state)
+    end
+end
+
+local record Checked is core.Adapter<unknown, Member>
+    @readonly declarationAccess: access.Access<unknown>?
+    @readonly target: core.Adapter<unknown, Member>
+    @readonly problem: string?
+    function describe(self, direction: core.Direction): core.Description<Member>
+        if direction == "read" and self.problem ~= nil then
+            error(self.problem, 2)
+        end
+        return self.target:describe(direction)
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        self.target:write(value, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        assert(self.problem == nil, self.problem)
+        return self.target:read(reader)
+    end
+end
+
+local record Child is core.Child<Member>
+    @readonly member: Member
+    @readonly required: boolean = true
+    @readonly hasDefault: boolean = false
+    @readonly adapter: core.Adapter<unknown, Member>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.adapter:describe(direction)
+    end
+end
+
+local record SequenceState
+    @readonly values: {unknown} = {}
+    count: integer = 0
+end
+
+local record EmitElements is core.Members<Member, unknown>
+    @readonly adapters: {core.Adapter<unknown, Member>}
+    @readonly tuple: boolean
+    function apply(self, borrows source: unknown, exclusive writer: core.Writer<Member>): nil
+        local count = self.tuple and #self.adapters or #(source as {unknown})
+        for index = 1, count do
+            self.adapters[self.tuple and index or 1]:write((source as {unknown})[index], writer)
+        end
+    end
+end
+
+local record ReadElements is core.ElementConsumer<Member, SequenceState>
+    @readonly adapters: {core.Adapter<unknown, Member>}
+    @readonly tuple: boolean
+    function apply(self, exclusive state: SequenceState, index: integer, exclusive reader: core.Reader<Member>): nil
+        assert(index == state.count + 1, "nonsequential element")
+        local value = self.adapters[self.tuple and index or 1]:read(reader)
+        assert(
+            self.tuple or value ~= nil,
+            "a Nupp array cannot retain a null element; use a document or explicit mapping"
+        )
+        state.values[index] = value
+        state.count = index
+    end
+end
+
+local record Sequence is core.Adapter<unknown, Member>
+    @readonly description: Description
+    @readonly elements: EmitElements
+    @readonly consume: ReadElements
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        if self.elements.tuple then
+            writer:writeTuple(self.description.member, #self.elements.adapters, value, self.elements)
+        else
+            writer:writeList(self.description.member, #(value as {unknown}), value, self.elements)
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        local state = new SequenceState()
+        if self.elements.tuple then
+            reader:readTuple(self.description.member, #self.elements.adapters, state, self.consume)
+        else
+            reader:readList(self.description.member, state, self.consume)
+        end
+
+        return state.values
+    end
+end
+
+local record One is core.Members<Member, unknown>
+    @readonly adapter: core.Adapter<unknown, Member>
+    function apply(self, borrows source: unknown, exclusive writer: core.Writer<Member>): nil
+        self.adapter:write(source, writer)
+    end
+end
+
+local record MapState
+    @readonly values: {[unknown]: unknown} = {}
+    @readonly seen: {[unknown]: boolean} = {}
+end
+
+local record EmitEntries is core.Members<Member, unknown>
+    @readonly key: One
+    @readonly value: One
+    function apply(self, borrows source: unknown, exclusive writer: core.Writer<Member>): nil
+        for key, value in pairs(source as {[unknown]: unknown}) do
+            writer:writeEntry(key, self.key, value, self.value)
+        end
+    end
+end
+
+local record ReadEntries is core.EntryConsumer<Member, MapState>
+    @readonly key: One
+    @readonly value: One
+    function apply(
+        self,
+        exclusive state: MapState,
+        exclusive key: core.Reader<Member>,
+        exclusive value: core.Reader<Member>
+    ): nil
+        local name = self.key.adapter:read(key)
+        assert(name ~= nil and name == name, "invalid map key")
+        assert(not state.seen[name], "duplicate map key")
+        local item = self.value.adapter:read(value)
+        assert(item ~= nil, "a Nupp map cannot retain a null value; use a document or explicit mapping")
+        state.seen[name] = true
+        state.values[name] = item
+    end
+end
+
+local record Map is core.Adapter<unknown, Member>
+    @readonly description: Description
+    @readonly entries: EmitEntries
+    @readonly consume: ReadEntries
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.description
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
+        writer:writeMap(self.description.member, nil, value, self.entries)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): unknown
+        local state = new MapState()
+        reader:readMap(self.description.member, state, self.consume)
+        return state.values
+    end
+end
+
+local record Graph
+    @readonly options: Options
+    @readonly root: access.Access<unknown>
+    @readonly nodes: {[Member]: {[integer]: Link}} = {}
+    @readonly members: {[integer]: {Member}} = {}
+    @readonly accesses: {[integer]: access.Access<unknown>} = {}
+end
+
+local resolve: function(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
+
+local function typeLabel(info: nupp.reflect.Info, index: integer, seen: {[integer]: boolean}): string?
+    if seen[index] then
+        return nil
+    end
+    seen[index] = true
+    local node: any = info.types[index]
+    if node.kind == "record" or node.kind == "struct" then
+        return node.name as string
+    elseif node.kind == "const" then
+        return typeLabel(info, node.element, seen)
+    elseif node.kind == "union" then
+        local result: string?
+        for _, child in ipairs(node.members) do
+            if info.types[child].kind ~= "nil" then
+                local selected = typeLabel(info, child, seen)
+                if selected == nil or result ~= nil then
+                    return nil
+                end
+                result = selected
+            end
+        end
+        return result
+    end
+
+    return nil
+end
+
+local function wireName(name: string, naming: "identity" | "snakeCase" | "camelCase"): string
+    if naming == "snakeCase" then
+        return name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2"):lower()
+    elseif naming == "camelCase" then
+        local result = name:gsub("_([%a])", string.upper)
+        return result
+    else
+        return name
+    end
+end
+
+local record Ignore<S> is core.UnknownConsumer<S>
+    function apply<F is core.WireField>(self, exclusive state: S, field: F, exclusive reader: core.UnknownReader): nil
+        reader:skipValue()
+    end
+end
+
+local function recordAdapter(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
+    local selected = graph.accesses[index]
+    if selected == nil then
+        selected = graph.root:nested(index)
+        graph.accesses[index] = selected
+    end
+    local members = graph.members[index]
+    if members == nil then
+        members = {}
+        local whitelist = index == graph.root.typeIndex and graph.options.fields or nil
+        local known: {[string]: boolean} = {}
+        for position, field in ipairs(selected.fields) do
+            known[field.name] = true
+            local options = whitelist ~= nil and whitelist[field.name] or nil
+            members[
+                position
+            ] = new Member(
+                name = field.name,
+                index = position,
+                annotations = field.annotations,
+                label = typeLabel(selected.info, field.typeIndex, {}),
+                wireName = options ~= nil and options.name or wireName(field.name, graph.options.naming),
+                representation = options ~= nil and options.representation or nil
+            )
+        end
+        if whitelist ~= nil then
+            for name in pairs(whitelist) do
+                assert(known[name], "unknown declaration field: " .. name)
+            end
+        end
+        graph.members[index] = members
+    end
+    local parameters: {[string]: const access.Parameter} = {}
+    for _, parameter in ipairs(selected.parameters) do
+        parameters[parameter.name] = parameter
+    end
+    local matched: {[string]: boolean} = {}
+    local fields: {structure.Field<unknown, access.Builder<unknown>, Member>} = {}
+    local whitelist = index == graph.root.typeIndex and graph.options.fields or nil
+    for position, field in ipairs(selected.fields) do
+        if whitelist == nil or whitelist[field.name] ~= nil then
+            local parameter = parameters[field.name]
+            local compatible = parameter ~= nil and parameter.typeIndex == field.typeIndex
+            if compatible then
+                matched[field.name] = true
+            end
+            local child = resolve(graph, field.typeIndex, members[position])
+            local target: core.Adapter<unknown, Member> = new Checked(
+                target = child,
+                problem = not compatible and ("field " .. field.name .. " requires an explicit construction mapping")
+                or nil
+            )
+            local fieldOptions = whitelist ~= nil and whitelist[field.name] or nil
+            local present: structure.Has<unknown>?
+            if fieldOptions ~= nil and fieldOptions.omitEmpty then
+                present = function(borrows source: unknown): boolean
+                    local value = selected:get(source, field)
+                    if value == nil or value == "" or value == false then
+                        return false
+                    end
+                    if type(value) == "table" then
+                        for _ in pairs(value as {[unknown]: unknown}) do
+                            return true
+                        end
+                        return false
+                    end
+
+                    return true
+                end
+            end
+            fields[#fields + 1] = structure.field<unknown, access.Builder<unknown>, unknown, Member>(
+                members[position],
+                function(borrows value: unknown): unknown borrows (value)
+                    return selected:get(value, field)
+                end,
+                function(exclusive state: access.Builder<unknown>, value: unknown): nil
+                    state:set(assert(parameter, "field has no construction parameter"), value)
+                end,
+                target,
+                parameter ~= nil and not parameter.optional,
+                field.hasDefault or parameter == nil,
+                present
+            )
+        end
+    end
+    local problem = selected:constructionError()
+    for _, parameter in ipairs(selected.parameters) do
+        if not matched[parameter.name] and not parameter.optional then
+            problem = "constructor requires an explicit mapping for " .. parameter.name
+        end
+    end
+
+    return new Checked(
+        target = structure.adapter(
+            member,
+            fields,
+            new Construction(selected = selected),
+            graph.options.unknownMembers == "ignore" and new Ignore<access.Builder<unknown>>() or nil,
+            nil,
+            true
+        ),
+        problem = problem,
+        declarationAccess = #fields == #selected.fields and selected or nil
+    )
+end
+
+local record ShapeState is nupp.Closeable
+    values: {[string]: unknown} = {}
+    present: {[string]: boolean} = {}
+    closed: boolean = false
+    function close(takes self): nil
+        self.closed = true
+        self.values, self.present = {}, {}
+    end
+end
+
+local record ShapeConstruction is structure.Construction<unknown, ShapeState>
+    @readonly required: {string}
+    function begin(self): ShapeState
+        return new ShapeState()
+    end
+
+    function finish(self, takes state: ShapeState): unknown
+        assert(not state.closed, "shape construction is closed")
+        for _, name in ipairs(self.required) do
+            assert(state.present[name], "missing construction field: " .. name)
+        end
+        local result = state.values
+        state:close()
+
+        return result
+    end
+end
+
+local function nullable(info: nupp.reflect.Info, index: integer): boolean
+    local node: any = info.types[index]
+    if node.kind == "nil" then
+        return true
+    end
+    if node.kind == "const" then
+        return nullable(info, node.element)
+    end
+    if node.kind == "union" then
+        for _, member in ipairs(node.members) do
+            if info.types[member].kind == "nil" then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function shapeAdapter(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
+    local node: any = graph.root.info.types[index]
+    assert(node.index == nil or next(node.index) == nil, "shape indexers require an explicit binding")
+    local fields: {structure.Field<unknown, ShapeState, Member>} = {}
+    local required: {string} = {}
+    for position, field in ipairs(node.fields) do
+        assert(field.read ~= nil, "shape field is not readable")
+        local name: string = field.name
+        local child = new Member(
+            name = name,
+            index = position,
+            wireName = wireName(name, graph.options.naming),
+            label = typeLabel(graph.root.info, field.read, {})
+        )
+        local needed = not nullable(graph.root.info, field.read)
+        if needed then
+            required[#required + 1] = name
+        end
+        fields[#fields + 1] = structure.field<unknown, ShapeState, unknown, Member>(
+            child,
+            function(borrows value: unknown): unknown borrows (value)
+                return (value as {[string]: unknown})[name]
+            end,
+            function(exclusive state: ShapeState, value: unknown): nil
+                assert(not state.closed and not state.present[name], "shape field was already assigned")
+                state.present[name] = true
+                state.values[name] = value
+            end,
+            resolve(graph, field.read, child),
+            needed,
+            false
+        )
+    end
+
+    return structure.adapter(
+        member,
+        fields,
+        new ShapeConstruction(required = required),
+        graph.options.unknownMembers == "ignore" and new Ignore<ShapeState>() or nil
+    )
+end
+
+resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
+    local slots = graph.nodes[member]
+    if slots == nil then
+        slots = {}
+        graph.nodes[member] = slots
+    end
+    local prior = slots[index]
+    if prior ~= nil then
+        return prior
+    end
+    local link = new Link()
+    slots[index] = link
+    local node: any = graph.root.info.types[index]
+    local kind = node.kind
+    local view = graph.options.view
+    if view ~= nil then
+        local customized = view:resolve(graph.root.info, index, member)
+        if customized ~= nil then
+            link.target = customized;
+            return link
+        end
+    end
+    if member.representation == "iso8601Seconds" then
+        assert(
+            kind == "const"
+            or kind == "literal"
+            or kind == "union"
+            or kind == "integer"
+            or kind == "int8"
+            or kind == "uint8"
+            or kind == "int16"
+            or kind == "uint16"
+            or kind == "int32"
+            or kind == "uint32",
+            "ISO epoch-seconds mapping requires a Lua integer carrier"
+        )
+    end
+    if kind == "record" or kind == "struct" then
+        link.target = recordAdapter(graph, index, member)
+    elseif kind == "shape" then
+        link.target = shapeAdapter(graph, index, member)
+    elseif kind == "array" or kind == "tuple" then
+        local adapters: {core.Adapter<unknown, Member>} = {}
+        local children: {core.Child<Member>} = {}
+        local elements: {integer} = kind == "array" and {node.element} or node.members
+        for position, element in ipairs(elements) do
+            local child = new Member(name = tostring(position), index = position)
+            adapters[position] = resolve(graph, element, child)
+            children[position] = new Child(member = child, adapter = adapters[position])
+        end
+        link.target = new Sequence(
+            description = new Description(
+                member = member,
+                kind = kind == "array" and "list" or "tuple",
+                children = children
+            ),
+            elements = new EmitElements(adapters = adapters, tuple = kind == "tuple"),
+            consume = new ReadElements(adapters = adapters, tuple = kind == "tuple")
+        )
+    elseif kind == "map" and node.readKey ~= nil and node.readValue ~= nil then
+        local key = new Member(name = "key", index = 1)
+        local value = new Member(name = "value", index = 2)
+        local keyAdapter = resolve(graph, node.readKey, key)
+        local valueAdapter = resolve(graph, node.readValue, value)
+        link.target = new Map(
+            description = new Description(
+                member = member,
+                kind = "map",
+                children = {
+                    new Child(member = key, adapter = keyAdapter),
+                    new Child(member = value, adapter = valueAdapter)
+                }
+            ),
+            entries = new EmitEntries(key = new One(adapter = keyAdapter), value = new One(adapter = valueAdapter)),
+            consume = new ReadEntries(key = new One(adapter = keyAdapter), value = new One(adapter = valueAdapter))
+        )
+    elseif kind == "const" then
+        link.target = resolve(graph, node.element, member)
+    elseif kind == "literal" then
+        link.target = new LiteralSet(target = resolve(graph, node.base, member), values = {[node.value] = true})
+    elseif kind == "union" then
+        local target: integer? = nil
+        local nullable = false
+        for _, alternative in ipairs(node.members) do
+            if graph.root.info.types[alternative].kind == "nil" then
+                nullable = true
+            elseif target == nil then
+                target = alternative
+            else
+                target = -1
+            end
+        end
+        if target ~= nil and target > 0 and nullable then
+            link.target = new Nullable(member = member, target = resolve(graph, target, member))
+        else
+            local base: integer? = nil
+            local category: string? = nil
+            local values: {[unknown]: boolean} = {}
+            local supported = true
+            for _, alternative in ipairs(node.members) do
+                local choice: any = graph.root.info.types[alternative]
+                if choice.kind ~= "nil" then
+                    if choice.kind ~= "literal" then
+                        supported = false
+                        break
+                    end
+                    local primitive = graph.root.info.types[choice.base].kind
+                    local family = primitive == "integer" and "number" or primitive
+                    if category ~= nil and category ~= family then
+                        supported = false
+                        break
+                    end
+                    category = family
+                    if base == nil or primitive == "number" then
+                        base = choice.base
+                    end
+                    values[choice.value] = true
+                end
+            end
+            if supported and base ~= nil then
+                local literals: core.Adapter<unknown, Member> = new LiteralSet(
+                    target = resolve(graph, base, member),
+                    values = values
+                )
+                link.target = nullable and new Nullable(member = member, target = literals) or literals
+            else
+                link.target = new Scalar(
+                    description = new Description(member = member, kind = "opaque", canRead = false)
+                )
+            end
+        end
+    else
+        local scalar: core.Kind = "opaque"
+        local width: integer? = nil
+        local signed: boolean? = nil
+        if kind == "string" or kind == "boolean" then
+            scalar = kind
+        elseif kind == "nil" then
+            scalar = "null"
+        elseif kind == "integer" then
+            scalar = "numberToken"
+        elseif kind == "number" or kind == "float" then
+            scalar, width = "float", kind == "float" and 32 or 64
+        elseif kind == "int8"
+            or kind == "uint8"
+            or kind == "int16"
+            or kind == "uint16"
+            or kind == "int32"
+            or kind == "uint32"
+            or kind == "int64"
+            or kind == "uint64"
+        then
+            scalar, width, signed = "integer", tonumber(kind:match("%d+")) as integer, kind:sub(1, 1) == "i"
+        end
+        if member.representation == "iso8601Seconds" then
+            assert(
+                kind == "integer" or scalar == "integer" and width ~= 64,
+                "ISO epoch-seconds mapping requires a Lua integer carrier"
+            )
+            link.target = new EpochSeconds(description = new Description(member = member, kind = "timestamp"))
+            return link
+        end
+        link.target = new Scalar(
+            description = new Description(
+                member = member,
+                kind = scalar,
+                width = width,
+                signed = signed,
+                canRead = scalar ~= "opaque"
+            )
+        )
+    end
+
+    return link
+end
+
+local record Root<T is nupp.Copyable> is core.Adapter<T, Member>
+    @readonly target: core.Adapter<unknown, Member>
+    function describe(self, direction: core.Direction): core.Description<Member>
+        return self.target:describe(direction)
+    end
+
+    function write(self, borrows value: T, exclusive writer: core.Writer<Member>): nil
+        self.target:write(value as unknown, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<Member>): T
+        return self.target:read(reader) as T
+    end
+end
+
+export function binding<T is nupp.Copyable>(target: Type<T>, options: Options?): core.Binding<T>
+    local selected = access.of(target)
+    local cached = rawget(selected.info, cacheKey)
+    if options == nil and cached ~= nil then
+        return cached as core.Binding<T>
+    end
+    local root = selected as access.Access<unknown>
+    local whitelist: {[string]: FieldOptions}?
+    if options ~= nil and options.fields ~= nil then
+        whitelist = {}
+        for name, field in pairs(options.fields) do
+            whitelist[
+                name
+            ] = new FieldOptions(name = field.name, representation = field.representation, omitEmpty = field.omitEmpty)
+        end
+    end
+    local snapshot = new Options(
+        fields = whitelist,
+        naming = options ~= nil and options.naming or "identity",
+        unknownMembers = options ~= nil and options.unknownMembers or "reject",
+        view = options ~= nil and options.view or nil
+    )
+    local graph = new Graph(root = root, options = snapshot)
+    graph.accesses[selected.typeIndex] = root
+    local member = new Member(name = selected.info.name, label = selected.info.name)
+    local result: core.Binding<T> = new core.Bound<T, Member>(
+        adapter = new Root<T>(target = resolve(graph, selected.typeIndex, member))
+    )
+    if options == nil then
+        rawset(selected.info, cacheKey, result)
+    end
+
+    return result
+end
+
+local record Policy<M is core.Member> is plans.Policy<M>
+    function name(self, member: M): string
+        assert(getmetatable(member) == Member, "declaration policy requires declaration members")
+        return (member as Member).wireName or member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        assert(getmetatable(member) == Member, "declaration policy requires declaration members")
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        assert(
+            getmetatable(member) == Member and (member as Member).representation == "iso8601Seconds",
+            "a timestamp requires an explicit declaration mapping"
+        )
+
+        return json.encoded(timestamps.dateTime(value))
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        assert(
+            getmetatable(member) == Member and (member as Member).representation == "iso8601Seconds",
+            "a timestamp requires an explicit declaration mapping"
+        )
+        assert(kind == "string", "ISO timestamp requires a JSON string")
+
+        return timestamps.parseDateTime(text)
+    end
+end
+
+local record Factory is plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        assert(getmetatable(member) == Member, "declaration policy requires a declaration binding")
+        return new Policy<M>()
+    end
+end
+
+export function policy(): plans.PolicyFactory
+    return new Factory()
+end
+
+export function annotations<M is core.Member>(member: M): const{nupp.reflect.Annotation}?
+    if getmetatable(member) ~= Member then
+        return nil
+    end
+    return (member as Member).annotations
+end
+
+export function label<M is core.Member>(member: M): string?
+    if getmetatable(member) ~= Member then
+        return nil
+    end
+    return (member as Member).label
+end
+
+-- A parser carrier may replace a builder only when its checked operations
+-- produce the declaration's exact stored values. Custom views can change the
+-- carrier even when the value description looks identical.
+local function nativeCarrier(info: nupp.reflect.Info, index: integer, syntax: any): boolean
+    local node: any = info.types[index]
+    local kind = node.kind
+    if kind == "const" then
+        return nativeCarrier(info, node.element, syntax)
+    elseif kind == "array" then
+        return syntax.kind == "list" and nativeCarrier(info, node.element, syntax.element)
+    elseif kind == "map" then
+        return syntax.kind == "map"
+            and info.types[node.readKey].kind == "string"
+            and nativeCarrier(info, node.readValue, syntax.value)
+    elseif kind == "tuple" then
+        if syntax.kind ~= "tuple" or #node.members ~= #syntax.items then
+            return false
+        end
+        for position, member in ipairs(node.members) do
+            if not nativeCarrier(info, member, syntax.items[position]) then
+                return false
+            end
+        end
+        return true
+    elseif kind == "record" then
+        return syntax.access == "record" and syntax.typeObject == nupp.reflect.runtimeType(info, index)
+    elseif kind == "string" or kind == "boolean" then
+        return syntax.kind == kind
+    elseif kind == "number" then
+        return syntax.kind == "number" or syntax.kind == "integer" or syntax.kind == "unsigned"
+    elseif kind == "integer" then
+        return syntax.kind == "integer" or syntax.kind == "unsigned"
+    elseif kind == "int8"
+        or kind == "int16"
+        or kind == "int32"
+        or kind == "uint8"
+        or kind == "uint16"
+        or kind == "uint32"
+    then
+        local width = assert(tonumber(kind:match("%d+")))
+        local signed = kind:sub(1, 1) == "i"
+        local limit = 2 ^ (width - (signed and 1 or 0))
+        return (syntax.kind == "integer" or syntax.kind == "unsigned")
+            and syntax.minimum ~= nil
+            and syntax.maximum ~= nil
+            and syntax.minimum >= (signed and -limit or 0)
+            and syntax.maximum < limit
+    end
+
+    return false
+end
+
+local function directRecord<T>(selected: access.Access<unknown>, recipe: lowering.Recipe<T>): nil
+    local node: any = selected.info.types[selected.typeIndex]
+    if node.kind ~= "record"
+        or node.construction == nil
+        or node.construction.declared
+        or recipe.syntax.kind ~= "structure"
+    then
+        return
+    end
+    local fields: {[string]: any} = {}
+    local count = 0
+    for _, field in ipairs(node.fields) do
+        if field.stored then
+            if not field.readable then
+                return
+            end
+            fields[field.name] = field
+            count += 1
+        end
+    end
+    if count ~= #recipe.syntax.fields then
+        return
+    end
+    for _, field in ipairs(recipe.syntax.fields) do
+        local stored = fields[field.name]
+        if stored == nil or not nativeCarrier(selected.info, stored.read, field.target) then
+            return
+        end
+        local default = stored.defaultValue
+        if stored.hasDefault
+            and default ~= nil
+            and type(default) ~= "number"
+            and type(default) ~= "string"
+            and type(default) ~= "boolean"
+        then
+            return
+        end
+    end
+    for _, field in ipairs(recipe.syntax.fields) do
+        local stored = fields[field.name]
+        field.hasDefault = stored.hasDefault == true
+        field.defaultValue = stored.defaultValue
+    end
+    recipe.syntax.access = "record"
+    recipe.syntax.typeObject = assert(nupp.reflect.runtimeType(selected.info, selected.typeIndex))
+    recipe.syntax.factory = nil
+end
+
+-- Collection elements need no user construction hooks. Failure diagnostics can
+-- then replay syntax with the actual element index without replaying user code.
+local function inertRecipe(syntax: any): boolean
+    if syntax.factory ~= nil then
+        return false
+    end
+    if syntax.kind == "structure" then
+        if syntax.access ~= "record" then
+            return false
+        end
+        for _, field in ipairs(syntax.fields) do
+            if not inertRecipe(field.target) then
+                return false
+            end
+        end
+    elseif syntax.kind == "list" then
+        return inertRecipe(syntax.element)
+    elseif syntax.kind == "map" then
+        return inertRecipe(syntax.value)
+    elseif syntax.kind == "tuple" then
+        for _, item in ipairs(syntax.items) do
+            if not inertRecipe(item) then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+-- The private adapter identities prove that unwrapping preserves operations.
+-- Custom views and conversions have different identities and are declined.
+export function nativeRecipe<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    plan: plans.Plan<M>,
+    resolver: lowering.Resolver<M>,
+    path: string
+): lowering.Recipe<T>?
+    local identity = getmetatable(adapter)
+    if identity == Root or identity == Checked or identity == Link then
+        local wrapper = adapter as unknown as {target: core.Adapter<unknown, M>}
+        local result = resolver:resolve(wrapper.target, plan, path)
+        if result ~= nil and identity == Checked then
+            local selected = (adapter as unknown as Checked).declarationAccess
+            if selected ~= nil then
+                directRecord(selected, result)
+            end
+        end
+        return result as unknown as lowering.Recipe<T>?
+    elseif identity == Sequence then
+        local sequence = adapter as unknown as Sequence
+        local items: {any} = {}
+        for index, child in ipairs(sequence.description.children) do
+            local nested = assert(plan:child(child.member as unknown as M))
+            local target = sequence.elements.adapters[index] as unknown as core.Adapter<unknown, M>
+            local recipe = resolver:resolve(target, nested, path)
+            if recipe == nil or not inertRecipe(recipe.syntax) then
+                return nil
+            end
+            items[index] = recipe.syntax
+        end
+        return new lowering.Recipe<T>(
+            syntax = sequence.elements.tuple and {kind = "tuple", items = items} or {kind = "list", element = items[1]}
+        )
+    elseif identity == Map then
+        local mapping = adapter as unknown as Map
+        local children = mapping.description.children
+        local key = resolver:resolve(
+            mapping.entries.key.adapter as unknown as core.Adapter<unknown, M>,
+            assert(plan:child(children[1].member as unknown as M)),
+            path
+        )
+        if key == nil or key.syntax.kind ~= "string" then
+            return nil
+        end
+        local value = resolver:resolve(
+            mapping.entries.value.adapter as unknown as core.Adapter<unknown, M>,
+            assert(plan:child(children[2].member as unknown as M)),
+            path
+        )
+        if value == nil or not inertRecipe(value.syntax) then
+            return nil
+        end
+        return new lowering.Recipe<T>(syntax = {kind = "map", value = value.syntax})
+    elseif identity == Scalar then
+        local scalar = adapter as unknown as Scalar
+        local description = scalar.description
+        local kind = description.kind
+        if kind == "string" or kind == "boolean" or kind == "float" and description.width == 64 then
+            return new lowering.Recipe<T>(syntax = {kind = kind == "float" and "number" or kind})
+        elseif kind == "integer" and description.width ~= 64 then
+            local width = description.width as integer
+            local signed = description.signed == true
+            local limit = 2 ^ (width - (signed and 1 or 0))
+            return new lowering.Recipe<T>(
+                syntax = {
+                    kind = signed and "integer" or "unsigned",
+                    minimum = signed and -limit or 0,
+                    maximum = limit - 1,
+                    strictInteger = true,
+                    width = width,
+                    signed = signed
+                }
+            )
+        elseif kind == "numberToken" then
+            return new lowering.Recipe<T>(syntax = {kind = "integer"})
+        end
+    end
+
+    return nil
+end
+
+local record ScalarEncoding is lowering.Encoding<unknown>
+    @readonly dynamic: boolean = false
+    @readonly path: string
+    @readonly description: Description
+    function write(self, borrows value: unknown, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        if budget ~= nil then
+            budget:step(self.path)
+        end
+        local kind = self.description.kind
+        if kind == "string" then
+            sink:write((value as string):sub(1))
+        elseif kind == "boolean" then
+            sink:write(value == true)
+        elseif kind == "float" then
+            sink:write(numbers.floating((value as number) * 1, self.description.width as(32 | 64)))
+        elseif kind == "numberToken" then
+            local number = (value as number) + 0
+            assert(
+                number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
+                "expected a finite integer"
+            )
+            sink:write(json.numberToken(("%.17g"):format(number)))
+        else
+            local decimal = ("%.0f"):format((value as number) + 0)
+            numbers.integer(decimal, self.description.width as(8 | 16 | 32 | 64), self.description.signed == true)
+            sink:write(json.numberToken(decimal))
+        end
+    end
+end
+
+local errors = require("nupp.serde.errors")
+local record SequenceEncoding is lowering.Encoding<unknown>
+    @readonly dynamic: boolean = true
+    @readonly path: string
+    @readonly items: {lowering.Encoding<unknown>}
+    @readonly tuple: boolean
+    function write(self, borrows value: unknown, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        assert(budget):step(self.path)
+        local values = value as {unknown}
+        local count = self.tuple and #self.items or #values
+        sink:startArray()
+        for index = 1, count do
+            local child = self.items[self.tuple and index or 1]
+            local ok, problem = pcall(child.write, child, values[index], sink, budget)
+            if not ok then
+                error(errors.prefix(problem, self.path .. "[" .. tostring(index) .. "]"), 0)
+            end
+        end
+        sink:endArray()
+    end
+end
+local record MapEncoding is lowering.Encoding<unknown>
+    @readonly dynamic: boolean = true
+    @readonly path: string
+    @readonly item: lowering.Encoding<unknown>
+    function write(self, borrows value: unknown, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        assert(budget):step(self.path)
+        sink:startObject()
+        for key, item in pairs(value as {[string]: unknown}) do
+            sink:key(key)
+            local ok, problem = pcall(self.item.write, self.item, item, sink, budget)
+            if not ok then
+                error(errors.prefix(problem, self.path .. "[" .. json.encode(key) .. "]"), 0)
+            end
+        end
+        sink:endObject()
+    end
+end
+
+local function stringKey(adapter: core.Adapter<unknown, Member>): boolean
+    local identity = getmetatable(adapter)
+    if identity == Checked or identity == Link then
+        return stringKey((adapter as unknown as {target: core.Adapter<unknown, Member>}).target)
+    end
+
+    return identity == Scalar and (adapter as Scalar).description.kind == "string"
+end
+
+export function nativeEncoding<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    plan: plans.Plan<M>,
+    resolver: lowering.EncodeResolver<M>,
+    path: string
+): lowering.Encoding<T>?
+    local identity = getmetatable(adapter)
+    if identity == Root or identity == Checked or identity == Link then
+        local wrapper = adapter as unknown as {target: core.Adapter<unknown, M>}
+        return resolver:resolve(wrapper.target, plan, path) as unknown as lowering.Encoding<T>?
+    elseif identity == Sequence then
+        local sequence = adapter as unknown as Sequence
+        local items: {lowering.Encoding<unknown>} = {}
+        for index, child in ipairs(sequence.description.children) do
+            local nested = assert(plan:child(child.member as unknown as M))
+            local item = resolver:resolve(
+                sequence.elements.adapters[index] as unknown as core.Adapter<unknown, M>,
+                nested,
+                "$"
+            )
+            if item == nil then
+                return nil
+            end
+            items[index] = item
+        end
+        return new SequenceEncoding(
+            items = items,
+            tuple = sequence.elements.tuple,
+            path = path
+        ) as unknown as lowering.Encoding<T>
+    elseif identity == Map then
+        local mapping = adapter as unknown as Map
+        if not stringKey(mapping.entries.key.adapter) then
+            return nil
+        end
+        local nested = assert(plan:child(mapping.description.children[2].member as unknown as M))
+        local item = resolver:resolve(mapping.entries.value.adapter as unknown as core.Adapter<unknown, M>, nested, "$")
+        if item == nil then
+            return nil
+        end
+        return new MapEncoding(item = item, path = path) as unknown as lowering.Encoding<T>
+    elseif identity == Scalar then
+        local scalar = adapter as unknown as Scalar
+        local kind = scalar.description.kind
+        if kind == "string"
+            or kind == "boolean"
+            or kind == "float"
+            or kind == "numberToken"
+            or kind == "integer" and scalar.description.width ~= 64
+        then
+            return new ScalarEncoding(description = scalar.description, path = path) as unknown as lowering.Encoding<T>
+        end
+    end
+
+    return nil
+end

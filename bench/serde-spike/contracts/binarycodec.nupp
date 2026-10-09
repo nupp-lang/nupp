@@ -1,0 +1,219 @@
+local core = require("nupp.serde.value")
+local codec = require("example.binarycodec")
+local syntax = require("example.binary")
+local declarations = require("nupp.serde.declaration")
+local structure = require("nupp.serde.structure")
+local indexed = require("nupp.serde.indexed")
+local bridge = require("nupp.serde.documentcodec")
+local documents = require("nupp.serde.document")
+local scalar = require("nupp.serde.scalar")
+
+local record Numbers is codec.Policy
+    function number<M is core.Member>(self, member: M): integer
+        return member.index or 1
+    end
+end
+local policy = new Numbers()
+local binary = codec.codec(policy)
+local record Packet
+    name: string
+    serial: uint64
+    pair: {int32, string}
+end
+local binding = declarations.binding(Packet)
+local packet = new Packet(name = "direct", serial = 18446744073709551615ULL, pair = {-32768, "pair"})
+local bytes = binary:encode(binding, packet)
+local restored = binary:decode(binding, bytes)
+assert(
+    restored.name == packet.name
+    and restored.serial == packet.serial
+    and restored.pair[1] == -32768
+    and restored.pair[2] == "pair"
+)
+local source = syntax.reader(bytes)
+local entries: {syntax.Entry} = {}
+while true do
+    local entry = source:next()
+    if entry == nil then
+        break
+    end
+    entries[#entries + 1] = entry
+end
+assert(#entries == 3 and entries[2].bytes == string.rep("\255", 8))
+local reordered = syntax.encode({entries[3], entries[1], entries[2]})
+assert(binary:decode(binding, reordered).serial == packet.serial)
+assert(not pcall(binary.decode, binary, binding, bytes:sub(1, #bytes - 1)))
+assert(not pcall(binary.decode, binary, binding, syntax.encode({entries[1], entries[1], entries[2], entries[3]})))
+local extended = new syntax.Entry(field = entries[3].field, bytes = entries[3].bytes .. "\0")
+assert(not pcall(binary.decode, binary, binding, syntax.encode({entries[1], entries[2], extended})))
+
+-- Reuse the declaration's public field operations with dense indexed storage.
+-- The binary codec never learns the declaration's member type or constructor.
+local record IndexField<T, S is nupp.Closeable, M is core.Member> is structure.FieldConsumer<T, S, M, nil>
+    @readonly layout: indexed.Layout<M>
+    @readonly required: boolean
+    function apply<V is nupp.Copyable>(
+        self,
+        member: M,
+        has: structure.Has<T>,
+        get: structure.Get<T, V>,
+        set: structure.Set<S, V>,
+        adapter: core.Adapter<V, M>,
+        fallback: (function(): V)?
+    ): nil
+        if fallback ~= nil then
+            self.layout:addDefault(member, adapter, fallback)
+        else
+            self.layout:add(member, adapter, self.required)
+        end
+    end
+end
+local record IndexStructure<T, M is core.Member> is structure.Consumer<T, M, core.Binding<indexed.Value>>
+    function apply<S is nupp.Closeable>(
+        self,
+        member: M,
+        fields: const{structure.Field<T, S, M>},
+        construction: structure.Construction<T, S>,
+        unknown: core.UnknownConsumer<S>,
+        additional: core.Members<M, T>?
+    ): core.Binding<indexed.Value>
+        assert(additional == nil, "this indexed fixture needs fixed known fields")
+        local layout = indexed.layout(member)
+        for _, field in ipairs(fields) do
+            field:accept(new IndexField<T, S, M>(layout = layout, required = field.required))
+        end
+
+        return layout:binding()
+    end
+end
+local record IndexBinding<T> is core.Consumer<T, nil, core.Binding<indexed.Value>>
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): core.Binding<indexed.Value>
+        return assert(structure.inspect(adapter, new IndexStructure<T, M>()))
+    end
+end
+-- Declaration bindings wrap their structure adapter, so use a separately owned
+-- model for inspectable record/indexed access below.
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local root = new Member(name = "Envelope")
+local name = new Member(name = "name", index = 1)
+local blob = new Member(name = "blob", index = 2)
+local record Captured
+    @readonly field: syntax.Field
+    @readonly value: documents.Document
+end
+local record Envelope
+    name: string
+    blob: string
+    unknown: {Captured} = {}
+end
+local record Builder is nupp.Closeable
+    name: string?
+    blob: string?
+    unknown: {Captured} = {}
+    function close(takes self): nil
+    end
+end
+local record Construction is structure.Construction<Envelope, Builder>
+    function begin(self): Builder
+        return new Builder()
+    end
+
+    function finish(self, takes state: Builder): Envelope
+        local owned: Builder = state
+        local value = new Envelope(name = assert(owned.name), blob = assert(owned.blob), unknown = owned.unknown)
+        owned:close()
+        return value
+    end
+end
+local record Unknown is core.UnknownConsumer<Builder>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: Builder,
+        identity: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        state.unknown[
+            #state.unknown + 1
+        ] = new Captured(field = syntax.identity(identity), value = reader:captureValue(documents.documentAdapter()))
+    end
+end
+local record Additional is core.Members<Member, Envelope>
+    function apply(self, borrows value: Envelope, exclusive writer: core.Writer<Member>): nil
+        for _, entry in ipairs(value.unknown) do
+            writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+        end
+    end
+end
+local fields: {structure.Field<Envelope, Builder, Member>} = {
+    structure.field<Envelope, Builder, string, Member>(
+        name,
+        function(borrows value: Envelope): string borrows (value)
+            return value.name
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.name = value
+        end,
+        scalar.text(name),
+        true,
+        false
+    ),
+    structure.field<Envelope, Builder, string, Member>(
+        blob,
+        function(borrows value: Envelope): string borrows (value)
+            return value.blob
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.blob = value
+        end,
+        scalar.bytes(blob),
+        true,
+        false
+    )
+}
+local plain = new core.Bound<Envelope, Member>(adapter = structure.adapter(root, fields, new Construction(), nil, nil))
+local dynamic = plain:accept(new IndexBinding<Envelope>(), nil)
+local envelope = new Envelope(name = "wire", blob = "\0\255bytes")
+local encoded = binary:encode(plain, envelope)
+local indexedValue = binary:decode(dynamic, encoded)
+assert(binary:encode(dynamic, indexedValue) == encoded)
+assert(bridge.into(plain, bridge.fromBinding(dynamic, indexedValue)).blob == envelope.blob)
+local opened = new core.Bound<Envelope, Member>(
+    adapter = structure.adapter(root, fields, new Construction(), new Unknown(), new Additional())
+)
+local reader = syntax.reader(encoded)
+local first, second = assert(reader:next()), assert(reader:next())
+local future = new syntax.Entry(field = new syntax.Field(number = 47, wire = 200), bytes = "\0future\255")
+local captured = binary:decode(opened, syntax.encode({future, second, first}))
+assert(captured.blob == envelope.blob and #captured.unknown == 1)
+assert(captured.unknown[1].field.number == 47 and captured.unknown[1].field.wire == 200)
+local replay = syntax.reader(binary:encode(opened, captured))
+assert(assert(replay:next()).bytes == envelope.name)
+assert(assert(replay:next()).bytes == envelope.blob)
+assert(assert(replay:next()).bytes == future.bytes)
+assert(replay:next() == nil)
+assert(not pcall(binary.decode, binary, plain, syntax.encode({first, second, future})))
+local foreign = codec.codec(new Numbers())
+assert(not pcall(foreign.encode, foreign, opened, captured))
+local wrongWire = new syntax.Entry(field = new syntax.Field(number = 1, wire = 2), bytes = "name")
+assert(not pcall(binary.decode, binary, opened, syntax.encode({wrongWire, second})))
+
+local record Skip is core.UnknownConsumer<Builder>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: Builder,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        reader:skipValue()
+    end
+end
+local skipping = new core.Bound<Envelope, Member>(
+    adapter = structure.adapter(root, fields, new Construction(), new Skip(), nil)
+)
+local skipped = binary:decode(skipping, syntax.encode({future, first, second}))
+assert(skipped.name == envelope.name and #skipped.unknown == 0)
+local malformed = new syntax.Entry(field = first.field, bytes = "\255")
+assert(not pcall(binary.decode, binary, plain, syntax.encode({malformed, second})))

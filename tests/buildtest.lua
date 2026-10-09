@@ -847,10 +847,8 @@ end
 function M.jsonBuildReportsColdAndWarmDeriveObservations()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
-        [
-            "model.g.nupp"
-        ] = [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
+        ["model.g.nupp"] = [[
+@derive(nupp.derive.Debug)
 local record Model
     value: integer = 0
 end
@@ -860,15 +858,15 @@ return new Model()
     local first = require(
         "testjson"
     ).decode(captureJson(("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)))
-    assert(first.ok and #first.derives == 2, "cold build reports all derives")
+    assert(first.ok and #first.derives == 1, "cold build reports all derives")
     local byProvider = {}
     for _, observation in ipairs(first.derives) do
         byProvider[observation.provider] = observation
     end
-    assert(byProvider["nupp.derive.Debug"] and byProvider["nupp.derive.JSON"], "build observations name every provider")
-    local json = byProvider["nupp.derive.JSON"]
+    assert(byProvider["nupp.derive.Debug"], "build observations name every provider")
+    local json = byProvider["nupp.derive.Debug"]
     assert(
-        json.generatedMembers == 3 and json.canonicalBytes > 0 and json.renderedBytes > 0,
+        json.generatedMembers == 1 and json.canonicalBytes > 0 and json.renderedBytes > 0,
         "build observations expose bounded generation facts"
     )
     local coldBytes = read(dir .. "/build/model.lua")
@@ -876,7 +874,7 @@ return new Model()
     local second = require(
         "testjson"
     ).decode(captureJson(("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)))
-    assert(second.ok and #second.derives == 2, "cached build preserves derive observations")
+    assert(second.ok and #second.derives == 1, "cached build preserves derive observations")
     for index, observation in ipairs(first.derives) do
         testAssert.equal(
             second.derives[index].semanticFingerprint,
@@ -972,7 +970,11 @@ function M.remarksOutTakesAnAttachedPath()
     local record = json.decode(read(dir .. "/account.json"))
     testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
     assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
-    local refused = capture(("cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""):format(dir, NUPP))
+    local refused = capture(
+        (
+            "cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""
+        ):format(dir, NUPP)
+    )
     assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
     os.execute("rm -rf " .. string.format("%q", dir))
 end

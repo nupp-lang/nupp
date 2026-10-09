@@ -78,7 +78,7 @@ local function run(options: any): integer
             local plan, planErr, planDiagnostic = planner.plan(source, path, dialect)
             if not plan then
                 failed(path .. ": " .. tostring(planErr), planDiagnostic)
-            elseif fs.exists(plan.destination) then
+            elseif plan.destination ~= plan.source and fs.exists(plan.destination) then
                 failed(
                     plan.destination .. " already exists",
                     report.fileDiagnostic(
@@ -105,11 +105,14 @@ local function run(options: any): integer
         -- still listed, as untouched, so a reader sees what was asked for and not
         -- only what was reached before the stop.
         local function attempt(plan: any): boolean
-            local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
-            if not wrote then
-                fileFailed(plan.destination, writeErr, "check that the destination is writable")
-                public[#public + 1] = publicPlan(plan, false, asJson)
-                return false
+            local inplace = plan.destination == plan.source
+            if not inplace then
+                local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
+                if not wrote then
+                    fileFailed(plan.destination, writeErr, "check that the destination is writable")
+                    public[#public + 1] = publicPlan(plan, false, asJson)
+                    return false
+                end
             end
             local result = parser.parse(plan.text, plan.destination)
             local checked = #result.errors == 0 and check.check(result, plan.destination, env as {[string]: any})
@@ -123,14 +126,23 @@ local function run(options: any): integer
             end
             if fatal then
                 failed(plan.destination .. ": " .. fatal.code .. ": " .. fatal.msg, fatal)
-                public[#public + 1] = publicPlan(plan, true, asJson)
+                public[#public + 1] = publicPlan(plan, not inplace, asJson)
                 return false
             end
-            local removed, removeErr = os.remove(plan.source)
-            if not removed then
-                fileFailed(plan.source, removeErr, "remove the source by hand; the migrated file is in place")
-                public[#public + 1] = publicPlan(plan, true, asJson)
-                return false
+            if inplace then
+                local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
+                if not wrote then
+                    fileFailed(plan.destination, writeErr, "check that the destination is writable")
+                    public[#public + 1] = publicPlan(plan, false, asJson)
+                    return false
+                end
+            else
+                local removed, removeErr = os.remove(plan.source)
+                if not removed then
+                    fileFailed(plan.source, removeErr, "remove the source by hand; the migrated file is in place")
+                    public[#public + 1] = publicPlan(plan, true, asJson)
+                    return false
+                end
             end
             public[#public + 1] = publicPlan(plan, true, asJson)
             completed[plan] = true
@@ -180,10 +192,10 @@ local function run(options: any): integer
     return #errors == 0 and 0 or 1
 end
 
---- Migrate typed foreign source into gradual Nupp.
+--- Migrates annotated Lua or retired serialization APIs.
 ---
---- Without --dry-run, each destination is checked and written atomically before
---- its source is removed. Existing destinations are never replaced.
+--- Annotated Lua moves to a checked `.g.nupp` destination. Serialization
+--- migrations update `.nupp` files only after the replacement type-checks.
 ---
 --- Examples:
 ---
@@ -196,9 +208,9 @@ local record Migrate
     --- Print the migration plan without changing files.
     dryRun: boolean = false
 
-    --- Resolve ambiguous comment annotations for this migration.
+    --- Select the source migration dialect.
     @cli(value = "DIALECT")
-    dialect: "auto" | "luacats" | "emmy" | "luadoc" = "auto"
+    dialect: "auto" | "luacats" | "emmy" | "luadoc" | "serde" = "auto"
 
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})

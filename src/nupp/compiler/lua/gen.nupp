@@ -1706,7 +1706,23 @@ function gen.generate(
                 end
                 return rendered
             elseif argument.kind == "witness" then
-                return argument.runtimePath or error("invalid derived type witness")
+                local subject = x.deriveWitnesses and x.deriveWitnesses[argument.witnessIndex]
+                local path = argument.runtimePath or error("invalid derived type witness")
+                assert(subject, "missing semantic derived type witness")
+                needRuntimeEffect("stdlib.typewitness")
+                local reflection = require("nupp.compiler.reflection")
+                local data = literal.renderData(
+                    reflection.describe(subject, subject.runtimePath or subject.name)
+                ) .. "," .. literal.renderData(reflection.runtimeReferences(subject))
+                return "(_G.nupp.__reflect.known("
+                    .. path
+                    .. ") and "
+                    .. path
+                    .. " or _G.nupp.__reflect.ensure("
+                    .. path
+                    .. ",function() return "
+                    .. data
+                    .. " end))"
             elseif argument.kind == "array" then
                 local children = {}
                 for index, child in ipairs(argument.values or {}) do

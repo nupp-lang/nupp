@@ -115,8 +115,12 @@ end
 local function apply(source: string, edits: {migrate.Edit}): string
     table.sort(edits, function(a, b)
         if a.offset == b.offset then
+            if a.length ~= b.length then
+                return a.length > b.length
+            end
             return a.newText > b.newText
         end
+
         return a.offset > b.offset
     end)
     for _, edit in ipairs(edits) do
@@ -124,6 +128,453 @@ local function apply(source: string, edits: {migrate.Edit}): string
     end
 
     return source
+end
+
+-- Migration uses checked module and declaration identities. A same-named method
+-- on an unrelated value is never evidence that it belongs to serialization.
+local function serdePlan(source: string, path: string): (migrate.Plan?, string?, any)
+    local parsed = parser.parse(source, path)
+    if #parsed.errors > 0 then
+        return nil, parsed.errors[1].msg, parsed.errors[1]
+    end
+    local env = require("nupp.compiler.project.env").new(".", {cache = false})
+    require("nupp.compiler.check").check(parsed, path, env as {[string]: any}, {legacySerializationMigration = true})
+    local lexer = require("nupp.compiler.syntax.lexer")
+    local edits: {migrate.Edit} = {}
+    local problem: any = nil
+    local used: {[string]: boolean} = {}
+    for _, token in ipairs(parsed.tokens) do
+        used[token.text] = true
+    end
+
+    local function fresh(base: string): string
+        local name, index = base, 1
+        while used[name] do
+            index += 1
+            name = base .. tostring(index)
+        end
+        used[name] = true
+
+        return name
+    end
+
+    local serdeName, jsonName, decodeName = fresh("serde"), fresh("serdeJSON"), fresh("decodeJSON")
+    local needsSerde, needsJSON, needsDecode = false, false, false
+
+    local function refuse(node: any, message: string): nil
+        local token = cst.firstToken(node)
+        problem = problem
+            or {
+                filename = path,
+                code = "NUPP0003",
+                msg = message,
+                line = token and token.line,
+                col = token and token.col,
+                offset = token and token.offset,
+                length = token and #token.text
+            }
+    end
+
+    local function replace(node: any, text: string): nil
+        local first, last = cst.firstToken(node), cst.lastToken(node)
+        if first and last then
+            edits[
+                #edits + 1
+            ] = new migrate.Edit(
+                offset = first.offset,
+                length = last.offset + #last.text - first.offset,
+                newText = text
+            )
+        end
+    end
+
+    local editedAnnotations: {[any]: boolean} = {}
+
+    local function annotationEdit(annotation: any, replacement: string): nil
+        if editedAnnotations[annotation] then
+            return
+        end
+        editedAnnotations[annotation] = true
+        local first = assert(cst.firstToken(annotation))
+        local last = annotation.close or annotation.name
+        edits[
+            #edits + 1
+        ] = new migrate.Edit(
+            offset = first.offset,
+            length = math.floor(last.offset + #last.text - first.offset),
+            newText = replacement
+        )
+    end
+
+    local seen: {[any]: boolean} = {}
+    local nodes: {any} = {}
+
+    local function visit(node: any): nil
+        if type(node) ~= "table" or cst.isToken(node) or seen[node] then
+            return
+        end
+        seen[node] = true
+        nodes[#nodes + 1] = node
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(parsed.root)
+    local records: {[any]: any} = {}
+
+    local function options(annotations: any): any
+        local out: any = {}
+        for _, annotation in ipairs(annotations or {}) do
+            if annotation.name and annotation.name.text == "json" then
+                annotationEdit(annotation, "")
+                for _, argument in ipairs(annotation.annotationArgs or {}) do
+                    local name, value = argument.name and argument.name.text, argument.expr
+                    if name == nil or value == nil or value.token == nil then
+                        refuse(annotation, "JSON migration requires literal annotation options")
+                    elseif value.kind == "string" then
+                        out[name] = lexer.stringValue(value.token.text)
+                    elseif value.token.text == "true" or value.token.text == "false" then
+                        out[name] = value.token.text == "true"
+                    else
+                        refuse(argument, "JSON migration requires literal annotation options")
+                    end
+                end
+            end
+        end
+
+        return out
+    end
+
+    for _, node in ipairs(nodes) do
+        if node.kind == "recordDecl" then
+            local legacy, json = false, false
+            for _, annotation in ipairs(node.deriveApplications or {}) do
+                local retained: {string} = {}
+                local changed = false
+                for _, argument in ipairs(annotation.annotationArgs or {}) do
+                    if argument.deriveProviderModule == "nupp.derive"
+                        and (argument.deriveProviderMember == "JSON" or argument.deriveProviderMember == "Serde")
+                    then
+                        legacy, changed = true, true
+                        json = json or argument.deriveProviderMember == "JSON"
+                    else
+                        retained[#retained + 1] = typeText(argument)
+                    end
+                end
+                if changed then
+                    annotationEdit(
+                        annotation,
+                        #retained == 0 and "" or "@derive(" .. table.concat(retained, ", ") .. ")"
+                    )
+                end
+            end
+            if legacy then
+                if node.generics ~= nil or #(node.qualifiers or {}) > 0 or node.visibility == "nested" then
+                    refuse(node, "migrate this generic or nested declaration with an explicit binding factory")
+                end
+                local mapping: any = {node = node, name = node.name.text, json = json}
+                local recordOptions = options(node.annotations)
+                -- Statement annotations can wrap the declaration separately.
+                for _, wrapper in ipairs(nodes) do
+                    if wrapper.kind == "pragmaStmt" and wrapper.name and wrapper.name.text == "json" then
+                        local target = wrapper.stat
+                        while target and target.kind == "pragmaStmt" do
+                            target = target.stat
+                        end
+                        if target == node then
+                            local extra = options({wrapper})
+                            for key, value in pairs(extra) do
+                                recordOptions[key] = value
+                            end
+                        end
+                    end
+                end
+                local fields: {string} = {}
+                local custom = recordOptions.unknown ~= nil
+                for _, field in ipairs(node.entries or {}) do
+                    if json
+                        and field.name
+                        and (
+                            field.name.text == "writeJSON"
+                            or field.name.text == "fromJSON"
+                            or field.name.text == "fieldCodec"
+                        )
+                    then
+                        refuse(field, "resolve the handwritten member's conflict with the JSON derive before migrating")
+                    end
+                    if field.kind == "fieldDecl" and field.name then
+                        local fieldOptions = options(field.annotations)
+                        custom = custom or next(fieldOptions) ~= nil
+                        if not fieldOptions.omit then
+                            local arguments: {string} = {}
+                            if fieldOptions.name ~= nil then
+                                arguments[#arguments + 1] = "name = " .. string.format("%q", fieldOptions.name)
+                            end
+                            if fieldOptions.omitEmpty then
+                                arguments[#arguments + 1] = "omitEmpty = true"
+                            end
+                            fields[
+                                #fields + 1
+                            ] = "[" .. string.format(
+                                "%q",
+                                field.name.text
+                            ) .. "] = new " .. serdeName .. ".FieldOptions(" .. table.concat(arguments, ", ") .. ")"
+                        end
+                    end
+                end
+                if custom then
+                    mapping.binding = fresh(node.name.text .. "JSON")
+                    local cached = fresh(node.name.text .. "JSONBinding")
+                    local arguments = "fields = {" .. table.concat(fields, ", ") .. "}"
+                    if recordOptions.unknown ~= nil then
+                        arguments = arguments .. ", unknownMembers = " .. string.format("%q", recordOptions.unknown)
+                    end
+                    local last = assert(cst.lastToken(node))
+                    addEdit(
+                        edits,
+                        last.offset + #last.text,
+                        "\nlocal "
+                        .. cached
+                        .. ": "
+                        .. serdeName
+                        .. ".Binding<"
+                        .. mapping.name
+                        .. ">?\nlocal function "
+                        .. mapping.binding
+                        .. "(): "
+                        .. serdeName
+                        .. ".Binding<"
+                        .. mapping.name
+                        .. ">\n    if "
+                        .. cached
+                        .. " == nil then\n        "
+                        .. cached
+                        .. " = "
+                        .. serdeName
+                        .. ".binding("
+                        .. mapping.name
+                        .. ", new "
+                        .. serdeName
+                        .. ".Options("
+                        .. arguments
+                        .. "))\n    end\n    return assert("
+                        .. cached
+                        .. ")\nend\n"
+                    )
+                    needsSerde = true
+                end
+                records[node.resolvedType or node.hoistedType] = mapping
+            end
+        end
+    end
+
+    local function nominal(t: any): any
+        if t and (t.tag == "ctype" or t.tag == "typeobject") then
+            t = t.of
+        end
+        return t and (t.origin or t)
+    end
+
+    local function nestedPolicy(t: any, owner: any, visited: {[any]: boolean}): boolean
+        t = nominal(t)
+        if t == nil or visited[t] then
+            return false
+        end
+        visited[t] = true
+        if t ~= owner and records[t] and records[t].binding then
+            return true
+        end
+        if t.tag == "nominal" or t.tag == "shape" then
+            for _, child in pairs(t.byname or {}) do
+                if nestedPolicy(child, owner, visited) then
+                    return true
+                end
+            end
+        elseif t.tag == "union" or t.tag == "intersection" then
+            for _, child in ipairs(t.members) do
+                if nestedPolicy(child, owner, visited) then
+                    return true
+                end
+            end
+        elseif t.tag == "tuple" then
+            for _, child in ipairs(t.elems) do
+                if nestedPolicy(child, owner, visited) then
+                    return true
+                end
+            end
+        elseif t.tag == "array" or t.tag == "const" then
+            return nestedPolicy(t.elem, owner, visited)
+        elseif t.tag == "map" then
+            return nestedPolicy(t.value, owner, visited)
+        end
+
+        return false
+    end
+
+    local function needsUnionAdapter(t: any, visited: {[any]: boolean}): boolean
+        t = nominal(t)
+        if t == nil or visited[t] then
+            return false
+        end
+        visited[t] = true
+        if t.tag == "union" then
+            local count, literals = 0, true
+            local family: string? = nil
+            for _, child in ipairs(t.members) do
+                if child.tag ~= "nil" then
+                    count += 1
+                    local base = child.tag == "literal" and child.base.tag or nil
+                    if base == "integer" then
+                        base = "number"
+                    end
+                    literals = literals and base ~= nil and (family == nil or family == base)
+                    family = base
+                    if needsUnionAdapter(child, visited) then
+                        return true
+                    end
+                end
+            end
+            return count > 1 and not literals
+        elseif t.tag == "nominal" or t.tag == "shape" then
+            for _, child in pairs(t.byname or {}) do
+                if needsUnionAdapter(child, visited) then
+                    return true
+                end
+            end
+        elseif t.tag == "tuple" then
+            for _, child in ipairs(t.elems) do
+                if needsUnionAdapter(child, visited) then
+                    return true
+                end
+            end
+        elseif t.tag == "array" or t.tag == "const" then
+            return needsUnionAdapter(t.elem, visited)
+        elseif t.tag == "map" then
+            return needsUnionAdapter(t.value, visited)
+        end
+
+        return false
+    end
+
+    for _, mapping in pairs(records) do
+        if needsUnionAdapter(mapping.node.resolvedType or mapping.node.hoistedType, {}) then
+            refuse(mapping.node, "select an explicit union adapter before migrating this declaration")
+        end
+    end
+
+    local function selected(mapping: any, at: any): string
+        needsSerde = true
+        local owner = nominal(mapping.node.resolvedType or mapping.node.hoistedType)
+        if nestedPolicy(owner, owner, {}) then
+            refuse(at, "select nested JSON policies explicitly with a binding adapter before migrating this call")
+        end
+        if mapping.binding then
+            if assert(cst.firstToken(at)).offset <= assert(cst.lastToken(mapping.node)).offset then
+                refuse(at, "move this serialization call after the declaration's explicit JSON mapping")
+            end
+            return mapping.binding .. "()"
+        end
+
+        return serdeName .. ".binding(" .. mapping.name .. ")"
+    end
+
+    for _, node in ipairs(nodes) do
+        local callee = node.kind == "call" and node.obj or nil
+        local identity = callee and callee.exactCallExport
+        if identity and identity.module == "nupp.serde" and identity.member == "of" then
+            replace(callee, serdeName .. ".binding")
+            needsSerde = true
+        elseif callee and callee.kind == "dotIndex" and callee.name.text == "fromJSON" then
+            local mapping = records[nominal(callee.obj.inferredType)]
+            if mapping and mapping.json then
+                local args = node.args and node.args.exprs or {}
+                if #args ~= 1 then
+                    refuse(node, "fromJSON migration expects one input expression")
+                else
+                    replace(node, decodeName .. "(" .. selected(mapping, node) .. ", " .. typeText(args[1]) .. ")")
+                    needsJSON, needsDecode = true, true
+                end
+            end
+        elseif node.kind == "methodCall" and node.name.text == "writeJSON" then
+            local mapping = records[nominal(node.obj.inferredType)]
+            if mapping and mapping.json then
+                local args = node.args and node.args.exprs or {}
+                if #args ~= 1 then
+                    refuse(node, "writeJSON migration expects one writer expression")
+                else
+                    replace(
+                        node,
+                        jsonName .. ".writeValue(" .. selected(
+                            mapping,
+                            node
+                        ) .. ", " .. typeText(node.obj) .. ", " .. typeText(args[1]) .. ")"
+                    )
+                    needsJSON = true
+                end
+            end
+        end
+    end
+    if problem ~= nil then
+        return nil, problem.msg, problem
+    end
+    local imports: {string} = {}
+    if needsSerde then
+        imports[#imports + 1] = "local " .. serdeName .. ' = require("nupp.serde")'
+    end
+    if needsJSON then
+        imports[#imports + 1] = "local " .. jsonName .. ' = require("nupp.serde.json")'
+    end
+    if needsDecode then
+        imports[
+            #imports + 1
+        ] = "local function "
+            .. decodeName
+            .. "<T>(binding: "
+            .. serdeName
+            .. ".Binding<T>, bytes: string): (T?, string?)\n"
+            .. "    local ok, result = pcall("
+            .. jsonName
+            .. ".decode, binding, bytes)\n"
+            .. "    if not ok then return nil, tostring(result) end\n"
+            .. "    return result as T, nil\nend"
+    end
+    if #imports > 0 then
+        local offset = source:match("^#![^\n]*\n") and (assert(source:find("\n", 1, true)) + 1) or 1
+        for _, node in ipairs(nodes) do
+            if node.kind == "moduleStmt" then
+                local last = assert(cst.lastToken(node))
+                offset = last.offset + #last.text
+                break
+            end
+        end
+        addEdit(edits, offset, "\n" .. table.concat(imports, "\n") .. "\n")
+    end
+    -- Replacements of an entire call include its arguments. Overlapping rewrites
+    -- need a second pass rather than silently dropping one of their operations.
+    table.sort(edits, function(a, b)
+        if a.offset == b.offset then
+            return a.length < b.length
+        end
+        return a.offset < b.offset
+    end)
+    local finish = 0
+    for _, edit in ipairs(edits) do
+        if edit.offset < finish then
+            local message = "migrate nested serialization calls separately"
+            return nil, message, {filename = path, code = "NUPP0003", msg = message}
+        end
+        finish = edit.offset + edit.length
+    end
+
+    return new migrate.Plan(
+        source = path,
+        destination = path,
+        text = apply(source, edits),
+        edits = edits,
+        warnings = {},
+        dialect = "serde"
+    ), nil
 end
 
 --- Plans a source-family migration. Extension dispatch belongs here, not in a
@@ -134,6 +585,13 @@ end
 --- @return the same reason as a diagnostic, with its code and, for a parse error,
 ---   its position
 function migrate.plan(source: string, path: string, dialect: string?): (migrate.Plan?, string?, any)
+    if path:match("%.nupp$") then
+        if dialect ~= nil and dialect ~= "auto" and dialect ~= "serde" then
+            local message = "a Nupp source migration requires the serde dialect"
+            return nil, message, {filename = path, code = "NUPP0003", msg = message}
+        end
+        return serdePlan(source, path)
+    end
     if not path:match("%.lua$") then
         local message = "unsupported migration source extension in " .. path
         return nil, message, {filename = path, code = "NUPP0003", msg = message}

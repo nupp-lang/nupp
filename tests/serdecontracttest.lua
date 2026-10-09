@@ -25,10 +25,7 @@ function M.externalMembersEraseBehindACheckedBinding()
         "erasure.nupp",
         "extensions.nupp",
         "src/contract/dispatch.nupp",
-        "src/contract/value.nupp",
-        "src/contract/jsonsyntax.nupp",
         "src/contract/render.nupp",
-        "src/contract/extensions.nupp",
         "src/example/model.nupp",
         "src/example/other.nupp"
     })
@@ -71,6 +68,31 @@ function M.runtimeSmithyModelsKeepIdentitiesTraitsAndProtocolContexts()
     assert(status == 0, output)
 end
 
+function M.protocolRoutingReusesBindingsAcrossBodiesHeadersAndQueries()
+    local status, output = call({"run", "routing.nupp"})
+    assert(status == 0, output)
+end
+
+function M.loadedSmithyModelsShareTypedIndexedAndDocumentPolicies()
+    local status, output = call({"run", "smithy_access.nupp"})
+    assert(status == 0, output)
+end
+
+function M.transportBackpressureAndCancellationRetainOwnedBytesOnly()
+    local status, output = call({"run", "transport_scope.lua"})
+    assert(status == 0, output)
+end
+
+function M.streamingMembersStayOutsideFiniteSerialization()
+    local status, output = call({"run", "streaming.nupp"})
+    assert(status == 0, output)
+end
+
+function M.indexedMappingsPreservePresenceFactoriesAndInspectableAccess()
+    local status, output = call({"run", "indexed.nupp"})
+    assert(status == 0, output)
+end
+
 function M.declarationBindingsCheckCarrierCapabilitiesBeforeReading()
     local status, output = call({"run", "declaration_capabilities.nupp"})
     assert(status == 0, output)
@@ -103,6 +125,23 @@ function M.owningDecodeResultsAndAbortedConstructionKeepCleanup()
     assert(status == 0, output)
 end
 
+function M.retainedDataAndCopyableBindingsRejectOwners()
+    local status, output = call({
+        "check",
+        "--json",
+        "negative/owning-copyable-binding.nupp",
+        "negative/owning-context.nupp",
+        "negative/owning-projection.nupp",
+        "negative/owning-witness.nupp"
+    })
+    local checked = json.decode(output)
+    assert(status ~= 0 and #checked.diagnostics == 4, output)
+    for _, diagnostic in ipairs(checked.diagnostics) do
+        local expected = diagnostic.file:match("owning%-witness.nupp$") and "NUPP2001" or "NUPP2116"
+        assert(diagnostic.code == expected, output)
+    end
+end
+
 function M.syntaxRetainsNumbersAndValidatesSkippedValues()
     local status, output = call({"run", "jsonsyntax.nupp"})
     assert(status == 0, output)
@@ -129,6 +168,8 @@ function M.richDocumentsRetainSemanticValuesAcrossReadersAndProfiles()
         "semantic_bridge.nupp",
         "scalars.lua",
         "document_scope.lua",
+        "document_cache_scope.lua",
+        "json_document_scope.lua",
         "selection.lua"
     }) do
         local status, output = call({"run", file})
@@ -154,6 +195,70 @@ function M.protocolFieldIdentitiesRetainNamespacesAndWireTypes()
     local status, output = call({"run", "protocolsyntax.nupp"})
     assert(status == 0, output)
     status, output = call({"run", "xmlassembly.nupp"})
+    assert(status == 0, output)
+end
+
+function M.binaryCodecUsesSchemaDirectedNumbersTuplesAndOwnedUnknownFields()
+    local status, output = call({"run", "binarynumbers.nupp"})
+    assert(status == 0, output)
+    status, output = call({"run", "binarycodec.nupp"})
+    assert(status == 0, output)
+end
+
+function M.xmlCodecSharesSmithyRecordsAndDocumentsWithOwnedSubtrees()
+    local status, output = call({"run", "xmlcodec.nupp"})
+    assert(status == 0, output)
+end
+
+function M.protocolReadersCloseOnEveryExitAndCacheFailedSelections()
+    local status, output = call({"run", "protocol_scope.lua"})
+    assert(status == 0, output)
+end
+
+function M.nativePersistenceKeepsExactTreesAndRestoresStoresTransactionally()
+    local status, output = call({"run", "native.nupp"})
+    assert(status == 0, output)
+    status, output = call({"run", "native_scope.lua"})
+    assert(status == 0, output)
+    status, output = call({"run", "native_owned.nupp"})
+    assert(status == 0, output)
+end
+
+function M.compiledRecipesMatchVisitorAndRespectRefusals()
+    local native = PROJECT .. "/native-build"
+    local status, output = process.capture({NUPP, "build", "--target", "compiled-contracts", "--json"}, {cwd = native})
+    assert(status == 0, output)
+    local built = json.decode(output)
+    assert(built.ok, output)
+    status, output = process.capture({"luajit", PROJECT .. "/compiled_scope.lua"}, {
+        cwd = native,
+        env = {
+            LUA_PATH = native .. "/build/?.lua;" .. fs.absolute(HERE .. "/../build") .. "/?.lua;" .. package.path,
+            LUA_CPATH = package.cpath
+        }
+    })
+    assert(status == 0, output)
+end
+
+function M.ordinaryProgramsNeedNoMappingTablesOrPreparation()
+    local status, output = call({"run", "ergonomics.nupp"})
+    assert(status == 0, output)
+end
+
+function M.ordinaryBindingsUseDefaultJsonWithoutImplicitModelSelection()
+    local status, output = call({"run", "default_json.nupp"})
+    assert(status == 0, output)
+end
+
+function M.declarationMappingsWhitelistRenameAndValidateConstruction()
+    local status, output = call({"run", "mapping.nupp"})
+    assert(status == 0, output)
+end
+
+function M.debugKeepsItsOwnPolicyAndReleasesLazySchemaExtensions()
+    local status, output = call({"run", "debug.nupp"})
+    assert(status == 0, output)
+    status, output = call({"run", "debug_scope.lua"})
     assert(status == 0, output)
 end
 
@@ -192,6 +297,26 @@ function M.bindingAndExtensionKeysAreInvariant()
     for name in pairs(expected) do
         assert(seen[name], "missing refusal: " .. name .. "\n" .. output)
     end
+end
+
+function M.typedViewsRetainBindingsAndSnapshotWithoutAliasing()
+    local status, output = call({"run", "view.nupp"})
+    assert(status == 0, output)
+    status, output = call({"check", "--json", "negative/owning-view.nupp"})
+    assert(status ~= 0 and output:find("Copyable", 1, true), output)
+end
+
+function M.portableSourceProfileRejectsUnsupportedRuntimeDependencies()
+    local status, output = call({"check", "--compat", "lua51", "--json", "negative/portable-profile.nupp"})
+    assert(status ~= 0, output)
+    local checked = json.decode(output)
+    local rejected = false
+    for _, diagnostic in ipairs(checked.diagnostics) do
+        rejected = rejected
+            or diagnostic.code == "NUPP3015"
+            and diagnostic.message:find('module "nupp.serde" violates compatibility', 1, true)
+    end
+    assert(rejected, output)
 end
 
 return M

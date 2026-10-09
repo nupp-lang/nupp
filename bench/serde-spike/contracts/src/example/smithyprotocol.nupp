@@ -1,0 +1,86 @@
+module example.smithyprotocol
+
+local core = require("nupp.serde.value")
+local smithy = require("example.smithy")
+local routing = require("example.routing")
+local plans = require("nupp.serde.jsonplan")
+local json = require("nupp.codec.json")
+
+local function route(member: smithy.Member): routing.Route
+    local header = member.traits:get("smithy.api#httpHeader")
+    local query = member.traits:get("smithy.api#httpQuery")
+    local stream = member:trait("smithy.api#streaming")
+    assert(header == nil or query == nil, "conflicting HTTP member locations")
+    assert(stream == nil or header == nil and query == nil, "stream cannot be a parameter")
+    if header ~= nil then
+        return new routing.Route(location = "header", name = header:string())
+    elseif query ~= nil then
+        return new routing.Route(location = "query", name = query:string())
+    elseif stream ~= nil then
+        return new routing.Route(location = "stream", name = member.name)
+    else
+        return new routing.Route(location = "body", name = member.name)
+    end
+end
+
+local record Parameters<M is core.Member> is routing.Policy<M>
+    @readonly shape: smithy.Shape
+    function route(self, member: M): routing.Route
+        assert(getmetatable(member) == smithy.Member, "expected Smithy member")
+        local selected = member as smithy.Member
+        assert(selected.container == self.shape, "foreign Smithy member")
+        return route(selected)
+    end
+end
+local record ParameterFactory is routing.Factory
+    @readonly shape: smithy.Shape
+    function policy<M is core.Member>(self, member: M): routing.Policy<M>
+        assert(
+            getmetatable(member) == smithy.Member and (member as smithy.Member).target == self.shape,
+            "foreign Smithy request"
+        )
+
+        return new Parameters<M>(shape = self.shape)
+    end
+end
+
+local record Body<M is core.Member> is plans.Policy<M>
+    @readonly base: plans.Policy<M>
+    function name(self, member: M): string
+        return self.base:name(member)
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        if route(member as smithy.Member).location ~= "body" then
+            return "omit"
+        end
+        return self.base:select(member, direction)
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        return self.base:timestamp(member, value)
+    end
+
+    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+        return self.base:parseTimestamp(member, value, kind)
+    end
+end
+local record BodyFactory is plans.PolicyFactory
+    @readonly base: plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local selected = self.base:policy(member)
+        if getmetatable(member) ~= smithy.Member then
+            return selected
+        end
+
+        return new Body<M>(base = selected)
+    end
+end
+
+export function parameters(shape: smithy.Shape): routing.Factory
+    return new ParameterFactory(shape = shape)
+end
+
+export function body(base: plans.PolicyFactory): plans.PolicyFactory
+    return new BodyFactory(base = base)
+end

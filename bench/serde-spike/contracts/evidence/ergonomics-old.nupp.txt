@@ -1,0 +1,50 @@
+local files = require("nupp.io.files")
+local serde = require("nupp.serde")
+local json = require("nupp.codec.json")
+
+-- Config file
+@derive(nupp.derive.Serde)
+local record Config
+    volume: integer = 50
+    muted: boolean = false
+end
+local configFile = assert(files.createTemporaryFile())
+local configPath = configFile:path()
+assert(files.write(configPath, '{"volume":20}'))
+local configCodec = json.newCodec():prepare(serde.of(Config))
+local configBytes = assert(files.read(configPath))
+local config = assert(configCodec:decode(configBytes))
+config.volume = 75
+assert(files.writeAtomic(configPath, configCodec:encode(config)))
+local savedConfig = assert(files.read(configPath))
+assert(assert(configCodec:decode(savedConfig)).volume == 75)
+
+-- Nested HTTP response
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string
+end
+@derive(nupp.derive.Serde)
+local record Response
+    user: User
+    roles: {string}
+end
+local responseCodec = json.newCodec():prepare(serde.of(Response))
+local response = assert(responseCodec:decode('{"user":{"id":17,"name":"Ada"},"roles":["editor"]}'))
+assert(response.user.name == "Ada" and response.roles[1] == "editor")
+
+-- Game save (JSON is the old API's available persistence format)
+@derive(nupp.derive.Serde)
+local record Save
+    level: integer
+    inventory: {string}
+end
+local saveFile = assert(files.createTemporaryFile())
+local savePath = saveFile:path()
+local saveCodec = json.newCodec():prepare(serde.of(Save))
+local save = new Save(level = 12, inventory = {"key", "map"})
+assert(files.write(savePath, saveCodec:encode(save)))
+local saveBytes = assert(files.read(savePath))
+local restored = assert(saveCodec:decode(saveBytes))
+assert(restored.level == 12 and restored.inventory[2] == "map")

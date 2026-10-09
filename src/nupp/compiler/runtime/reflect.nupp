@@ -228,19 +228,6 @@ function reflectruntime.install(namespace: any): nil
         return search(state.type)
     end
 
-    -- The JSON codec of a type deriving nupp.derive.JSON, memoized on its
-    -- descriptor like any extension. nupp.derive supplies the codec as
-    -- `buildJson` when it installs; until then no type has derived JSON.
-    if reflect.json == nil then
-        reflect.json = extensions.key(function(info: any): any
-            local build = reflect.buildJson
-            if build == nil then
-                error("nupp: JSON was not derived for this type", 2)
-            end
-
-            return build(info)
-        end)
-    end
 end
 
 export = reflectruntime

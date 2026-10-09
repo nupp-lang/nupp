@@ -1,0 +1,112 @@
+local core = require("nupp.serde.value")
+local routes = require("example.routing")
+local api = require("example.openapi")
+local plans = require("nupp.serde.jsonplan")
+local codecs = require("nupp.serde.json")
+local json = require("nupp.codec.json")
+local documents = require("nupp.serde.document")
+
+local record Policy<M is core.Member> is routes.Policy<M>
+    @readonly model: api.Model
+    @readonly collision: boolean
+    function route(self, member: M): routes.Route
+        assert(
+            member == self.model.root
+            or member == self.model.name
+            or member == self.model.secret
+            or member == self.model.identifier
+            or member == self.model.payload,
+            "foreign OpenAPI property"
+        )
+        if member == self.model.name then
+            return new routes.Route(
+                location = self.collision and "header" or "query",
+                name = self.collision and "x-token" or "display name"
+            )
+        elseif member == self.model.secret then
+            return new routes.Route(location = "header", name = "X-Token")
+        else
+            return new routes.Route(location = "body", name = member.name)
+        end
+    end
+end
+local record Factory is routes.Factory
+    @readonly model: api.Model
+    @readonly collision: boolean = false
+    calls: integer = 0
+    function policy<M is core.Member>(self, member: M): routes.Policy<M>
+        assert(member == self.model.root, "routing requires this model")
+        self.calls += 1
+        return new Policy<M>(model = self.model, collision = self.collision)
+    end
+end
+local record BodyPolicy<M is core.Member> is plans.Policy<M>
+    @readonly base: plans.Policy<M>
+    @readonly routing: routes.Policy<M>
+    function name(self, member: M): string
+        return self.base:name(member)
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        if self.routing:route(member).location ~= "body" then
+            return "omit"
+        end
+        return self.base:select(member, direction)
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+        return self.base:timestamp(member, value)
+    end
+
+    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+        return self.base:parseTimestamp(member, value, kind)
+    end
+end
+local record BodyFactory is plans.PolicyFactory
+    @readonly base: plans.PolicyFactory
+    @readonly routing: routes.Factory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local base = self.base:policy(member)
+        if getmetatable(member) ~= api.Property then
+            return base
+        end
+
+        return new BodyPolicy<M>(base = base, routing = self.routing:policy(member))
+    end
+end
+
+local model = api.model()
+local binding = api.binding(model)
+local factory = new Factory(model = model)
+local parameters = routes.codec(factory)
+local body = codecs.codec(new BodyFactory(base = api.policy("request"), routing = factory))
+local value = new api.Value(
+    name = "Ada & Bob",
+    secret = "token",
+    identifier = "ignored",
+    payload = new api.Choice(alternative = "text", value = documents.string("body")),
+    additional = {}
+)
+local result = parameters:encode(binding, value)
+assert(routes.query(result) == "display%20name=Ada%20%26%20Bob")
+assert(result[2].location == "header" and result[2].name == "X-Token" and result[2].value == "token")
+assert(body:encode(binding, value) == '{"payload":"body"}')
+local calls = factory.calls
+parameters:encode(binding, value)
+body:encode(binding, value)
+assert(factory.calls == calls, "routing and JSON reuse their schema extensions")
+parameters:clear()
+parameters:encode(binding, value)
+assert(factory.calls == calls + 1)
+assert(not pcall(parameters.encode, parameters, api.binding(api.model()), value))
+local collision = routes.codec(new Factory(model = model, collision = true))
+assert(not pcall(collision.encode, collision, binding, value))
+value.secret = "bad\r\nheader"
+assert(not pcall(parameters.encode, parameters, binding, value))
+
+local documentBinding = api.documentBinding(model)
+local whole = codecs.codec(api.policy("request"))
+value.secret = "token"
+local documentValue = whole:decode(documentBinding, whole:encode(binding, value))
+assert(routes.query(parameters:encode(documentBinding, documentValue)) == "display%20name=Ada%20%26%20Bob")
+assert(body:encode(documentBinding, documentValue) == body:encode(binding, value))

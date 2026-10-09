@@ -1155,10 +1155,15 @@ static int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int 
     if (shape_index == 0 || lua_type(L, shape_index) != 5) { return luaL_error(L, "AOT value stream shape marker needs a table"); }
     lua_rawgeti(L, builder->serde_markers_index, marker); lua_rawget(L, shape_index); return lua_gettop(L);
 }
-static inline __attribute__((always_inline)) int ks_lua_builder_scalar_validate(lua_State *L, KsLuaBuilder *builder, int eager, int actual, double value) {
+static inline __attribute__((always_inline)) int ks_lua_builder_scalar_validate(lua_State *L, KsLuaBuilder *builder, int eager, int actual, double value, int integer_token, int negative) {
     if (eager) { return 1; }
     if (builder->pending_mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) { return 1; }
     int shape = builder->pending_shape_index; int expected = builder->pending_scalar, literal = 0; if (expected == 0) { if (lua_type(L, shape) == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); if (lua_type(L, scalar) == 3) { expected = (int)lua_tonumber(L, scalar); } else { lua_settop(L, top); int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); if (lua_type(L, choices) != 5) { return luaL_error(L, "pull container shape matched a scalar value"); } } lua_settop(L, top); literal = 1; if (expected == 0) { return 1; } } else { if (lua_type(L, shape) != 3) { return luaL_error(L, "pull container shape matched a scalar value"); } expected = (int)lua_tonumber(L, shape); } } if (expected < 0) { expected = -expected; }
+    if (expected >= 32) {
+        expected -= 32;
+        if (actual == 3 && integer_token != 1) { return luaL_error(L, "nupp: expected integer token"); }
+        if (actual == 3 && expected >= 5 && expected <= 8 && negative) { return luaL_error(L, "nupp: expected unsigned integer token"); }
+    }
     if (actual != expected && !(actual == 3 && expected >= 3)) { return luaL_error(L, expected == 1 ? "nupp: expected boolean" : expected == 2 ? "nupp: expected string" : "nupp: expected number"); }
     if (expected >= 3) {
         if (!isfinite(value)) { return luaL_error(L, "nupp: expected finite number"); }
@@ -1361,7 +1366,7 @@ static inline __attribute__((always_inline)) int ks_lua_builder_string(lua_State
 static inline __attribute__((always_inline)) int ks_lua_builder_string_escapes(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, int key, int eager) {
     if (length < 64u) { return ks_lua_builder_string(L, builder, source, source_length, start, length, 1, key, eager); }
     if (key) { return ks_lua_builder_select_key(L, builder, source, source_length, start, length, 1, escapes, escape_index, escape_count); }
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); const unsigned char *decoded = NULL; size_t decoded_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &decoded, &decoded_length); lua_pushlstring(L, (const char *)decoded, decoded_length); } else { const unsigned char *ignored = NULL; size_t ignored_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &ignored, &ignored_length); } return ks_lua_builder_complete(L, builder, wanted, eager);
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0, 0, 0); const unsigned char *decoded = NULL; size_t decoded_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &decoded, &decoded_length); lua_pushlstring(L, (const char *)decoded, decoded_length); } else { const unsigned char *ignored = NULL; size_t ignored_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &ignored, &ignored_length); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
 static int ks_lua_builder_select_entry(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
     int entry = lua_gettop(L);
@@ -1452,22 +1457,22 @@ static inline __attribute__((always_inline)) int ks_lua_builder_string(lua_State
         return ks_lua_builder_select_key(L, builder, source, source_length, start, length, escaped, NULL, 0u, 0u);
     }
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager);
-    if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); } if (escaped && wanted) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } else if (wanted) { lua_pushlstring(L, (const char *)(source + first), count); }
+    if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0, 0, 0); } if (escaped && wanted) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } else if (wanted) { lua_pushlstring(L, (const char *)(source + first), count); }
     return ks_lua_builder_complete(L, builder, wanted, eager);
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }
-    double value = ks_lua_number_slice(L, source, source_length, start, length, "value stream"); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
+    double value = ks_lua_number_slice(L, source, source_length, start, length, "value stream"); ks_lua_builder_scalar_validate(L, builder, eager, 3, value, memchr(source + start, '.', length) == NULL && memchr(source + start, 'e', length) == NULL && memchr(source + start, 'E', length) == NULL, source[start] == '-'); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_integer_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }
-    double value = ks_lua_integer_slice(L, source, source_length, start, length); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
+    double value = ks_lua_integer_slice(L, source, source_length, start, length); ks_lua_builder_scalar_validate(L, builder, eager, 3, value, 1, source[start] == '-'); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_number(lua_State *L, KsLuaBuilder *builder, double value, int eager) {
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 3, value, -1, signbit(value)); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static inline __attribute__((always_inline)) int ks_lua_builder_integer64(lua_State *L, KsLuaBuilder *builder, uint64_t magnitude, int negative, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double unsigned_value = (double)magnitude; double value = negative ? -unsigned_value : unsigned_value; ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
-static inline __attribute__((always_inline)) int ks_lua_builder_decimal64(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent, negative, exact); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
+static inline __attribute__((always_inline)) int ks_lua_builder_integer64(lua_State *L, KsLuaBuilder *builder, uint64_t magnitude, int negative, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double unsigned_value = (double)magnitude; double value = negative ? -unsigned_value : unsigned_value; ks_lua_builder_scalar_validate(L, builder, eager, 3, value, 1, negative); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
+static inline __attribute__((always_inline)) int ks_lua_builder_decimal64(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent, negative, exact); ks_lua_builder_scalar_validate(L, builder, eager, 3, value, 0, negative); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
 static inline __attribute__((always_inline)) int ks_json_eight_digits(const unsigned char *source, uint32_t *value) {
     uint64_t word; memcpy(&word, source, sizeof(word)); if (((word & UINT64_C(0xf0f0f0f0f0f0f0f0)) | (((word + UINT64_C(0x0606060606060606)) & UINT64_C(0xf0f0f0f0f0f0f0f0)) >> 4u)) != UINT64_C(0x3333333333333333)) { return 0; }
     word = (word & UINT64_C(0x0f0f0f0f0f0f0f0f)) * UINT64_C(2561) >> 8u; word = (word & UINT64_C(0x00ff00ff00ff00ff)) * UINT64_C(6553601) >> 16u; *value = (uint32_t)((word & UINT64_C(0x0000ffff0000ffff)) * UINT64_C(42949672960001) >> 32u); return 1;
@@ -1506,14 +1511,14 @@ static uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder,
         value = ks_lua_number_token_value(L, source, source_length, start, length, magnitude, explicit_exponent, fraction_digits, negative, exact, integer_token); have_value = 1;
         if (!isfinite(value)) { return start + 1u; }
     }
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { if (!have_value) { value = ks_lua_number_token_value(L, source, source_length, start, length, magnitude, explicit_exponent, fraction_digits, negative, exact, integer_token); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { if (!have_value) { value = ks_lua_number_token_value(L, source, source_length, start, length, magnitude, explicit_exponent, fraction_digits, negative, exact, integer_token); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value, integer_token, negative); lua_pushnumber(L, value); }
     ks_lua_builder_complete(L, builder, wanted, eager); return UINT32_C(2147483648) | at;
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_pushed_scalar(lua_State *L, KsLuaBuilder *builder, int eager) {
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { int actual = lua_type(L, -1); double value = actual == 3 ? lua_tonumber(L, -1) : 0.0; ks_lua_builder_scalar_validate(L, builder, eager, actual, value); } else { lua_settop(L, lua_gettop(L) - 1); } return ks_lua_builder_complete(L, builder, wanted, eager);
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { int actual = lua_type(L, -1); double value = actual == 3 ? lua_tonumber(L, -1) : 0.0; ks_lua_builder_scalar_validate(L, builder, eager, actual, value, -1, signbit(value)); } else { lua_settop(L, lua_gettop(L) - 1); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_boolean(lua_State *L, KsLuaBuilder *builder, int value, int eager) {
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 1, 0.0); lua_pushboolean(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 1, 0.0, 0, 0); lua_pushboolean(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_null(lua_State *L, KsLuaBuilder *builder, int eager) {
     int wanted = ks_lua_builder_null_wanted(L, builder, eager); if (wanted) { lua_pushvalue(L, builder->null_index); } return ks_lua_builder_complete(L, builder, wanted, eager);

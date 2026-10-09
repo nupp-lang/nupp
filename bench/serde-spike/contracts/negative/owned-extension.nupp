@@ -1,4 +1,4 @@
-local extensions = require("contract.extensions")
+local extensions = require("nupp.serde.extensions")
 local record Resource is nupp.Closeable
     function close(takes self): nil
     end

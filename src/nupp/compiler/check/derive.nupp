@@ -213,6 +213,8 @@ function derive.install(c: state.Checker): derive.Ops
             end
             exports = c.env.resolveModuleExports(c.env, moduleName)
         end
+        -- Tooling keeps the resolved module even after a provider is retired.
+        arg.deriveProviderModule, arg.deriveProviderMember = moduleName, member
         local provider = exports and exports.comptimeFunctions and exports.comptimeFunctions[member] or nil
         if provider and provider.deriveProvider then
             local token = arg.expr.kind == "dotIndex" and arg.expr.name or arg.expr.token
@@ -247,8 +249,18 @@ function derive.install(c: state.Checker): derive.Ops
         n.deriveClaimedContracts = {}
         for _, application in ipairs(stat.deriveApplications or {}) do
             for _, arg in ipairs(application.annotationArgs or {}) do
-                local provider, _, spelling = resolveProvider(arg)
-                if not provider then
+                local provider, moduleName, spelling = resolveProvider(arg)
+                if c.opts.legacySerializationMigration
+                    and moduleName == "nupp.derive"
+                    and (arg.deriveProviderMember == "JSON" or arg.deriveProviderMember == "Serde")
+                then
+                    -- Type-only facts for the source rewriter. They never enter a
+                    -- normal check, exported interface, recipe, or generated code.
+                    arg.legacySerializationMigration = true
+                    if arg.deriveProviderMember == "JSON" and n.staticByname.fromJSON == nil then
+                        n.staticByname.fromJSON = T.func({T.string}, {T.optional(n), T.optional(T.string)})
+                    end
+                elseif not provider then
                     if not arg.deriveProviderUnreachable then
                         c.diag(
                             "NUPP2809",
@@ -870,11 +882,16 @@ function derive.install(c: state.Checker): derive.Ops
                     return T.any, true
                 elseif argument.kind == "witness" then
                     local subject, why = typeblueprint.validate(argument.type, permittedReferences)
-                    if not subject or subject.tag ~= "nominal" or subject.declKind ~= "record" then
+                    if not subject
+                        or subject.tag ~= "nominal"
+                        or (subject.declKind ~= "record" and subject.declKind ~= "struct")
+                    then
                         c.diag(
                             "NUPP2812",
                             provider.site.arg.expr or provider.site.arg,
-                            "derive.witness needs a named record type" .. (why and ": " .. tostring(why.message) or "")
+                            "derive.witness needs a named record or struct type" .. (
+                                why and ": " .. tostring(why.message) or ""
+                            )
                         )
 
                         return T.unknown, false
@@ -894,12 +911,27 @@ function derive.install(c: state.Checker): derive.Ops
                         c.diag(
                             "NUPP2812",
                             provider.site.arg.expr or provider.site.arg,
-                            "derive.witness cannot name this record at runtime"
+                            "derive.witness cannot name this declaration at runtime"
                         )
 
                         return T.unknown, false
                     end
                     argument.runtimePath = runtimePath
+                    -- Preserve semantic subjects on the declaration, outside the
+                    -- portable recipe. Runtime witness emission consumes them.
+                    item.stat.deriveWitnesses = item.stat.deriveWitnesses or {}
+                    local witnessIndex: integer? = nil
+                    for index, prior in ipairs(item.stat.deriveWitnesses) do
+                        if prior == subject then
+                            witnessIndex = index
+                            break
+                        end
+                    end
+                    if witnessIndex == nil then
+                        witnessIndex = #item.stat.deriveWitnesses + 1
+                        item.stat.deriveWitnesses[witnessIndex] = subject
+                    end
+                    argument.witnessIndex = witnessIndex
 
                     return T.typeObject(subject), true
                 elseif argument.kind == "array" then
@@ -1168,34 +1200,12 @@ function derive.install(c: state.Checker): derive.Ops
         plan.data = plan.data or {}
         for name, value in pairs(envelope.payload.data or {}) do
             if plan.data[name] ~= nil then
-                local prior = plan.data[name]
-                -- Debug is a serde-schema consumer. Its standalone recipe contains
-                -- the schema needed when no public Serde derive was requested; when
-                -- both providers are present, keep Serde's logical types and fold
-                -- Debug's indexed policies into the same member entries. Provider
-                -- evaluation order therefore cannot duplicate or replace the schema.
-                if name == "serde"
-                    and (prior.debugOnly or value.debugOnly)
-                    and not (prior.debugOnly and value.debugOnly)
-                then
-                    local shared = prior.debugOnly and value or prior
-                    local debugRecipe = prior.debugOnly and prior or value
-                    for index, field in ipairs(debugRecipe.fields or {}) do
-                        local target = shared.fields and shared.fields[index]
-                        if target then
-                            target.debugSkip = field.debugSkip == true
-                            target.debugRedact = field.debugRedact == true
-                        end
-                    end
-                    plan.data[name] = shared
-                else
-                    c.diag(
-                        "NUPP2802",
-                        provider.site.arg.expr or provider.site.arg,
-                        ("derive providers both define runtime data %q"):format(name)
-                    )
-                    return
-                end
+                c.diag(
+                    "NUPP2802",
+                    provider.site.arg.expr or provider.site.arg,
+                    ("derive providers both define runtime data %q"):format(name)
+                )
+                return
             else
                 plan.data[name] = value
             end
@@ -1454,7 +1464,9 @@ function derive.install(c: state.Checker): derive.Ops
                     arg.deriveProviderSpelling = spelling
                 end
                 local providerIdentity = provider and provider.identity or nil
-                if provider and providerIdentities[providerIdentity] then
+                if arg.legacySerializationMigration then
+                    -- Source migration consumes the historical type facts only.
+                elseif provider and providerIdentities[providerIdentity] then
                     local label = arg.deriveProviderSpelling or providerIdentity
                     local remove = removeProviderFix(application, arg, label, true)
                     c.diag("NUPP2801", at, "the same derive provider was requested twice", remove and {remove} or nil)

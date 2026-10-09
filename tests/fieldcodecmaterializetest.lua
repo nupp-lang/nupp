@@ -185,7 +185,7 @@ return comptime do return summarize(nupp.reflect(Pair)) end
 ]]
     testAssert.equal(
         run(src),
-        "5:record:2:left:string,right:integer",
+        "6:record:2:left:string,right:integer",
         "user comptime code reads the versioned descriptor graph"
     )
 end

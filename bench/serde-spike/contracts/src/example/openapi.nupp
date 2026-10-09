@@ -1,11 +1,11 @@
 module example.openapi
 
-local core = require("contract.value")
-local structures = require("contract.structure")
-local plans = require("contract.jsonplan")
+local core = require("nupp.serde.value")
+local structures = require("nupp.serde.structure")
+local plans = require("nupp.serde.jsonplan")
 local json = require("nupp.codec.json")
-local documents = require("example.document")
-local jsonDocument = require("contract.jsondocument")
+local documents = require("nupp.serde.document")
+local jsonDocument = require("nupp.serde.jsondocument")
 
 export type View = "request" | "response"
 export record Property is core.Member
@@ -214,6 +214,170 @@ export function binding(schema: Model): core.Binding<Value>
 
     return new core.Bound<Value, Property>(
         adapter = structures.adapter(schema.root, fields, new Construction(), new Unknown(), new Additional())
+    )
+end
+
+local record DocumentBuilder is nupp.Closeable
+    @readonly fields: {documents.Entry} = {}
+    function close(takes self): nil
+    end
+end
+local record DocumentConstruction is structures.Construction<documents.Document, DocumentBuilder>
+    function begin(self): DocumentBuilder
+        return new DocumentBuilder()
+    end
+
+    function finish(self, takes state: DocumentBuilder): documents.Document
+        local owned: DocumentBuilder = state
+        local value = documents.object(owned.fields)
+        assert(value:get("name") ~= nil and value:get("payload") ~= nil, "missing required OpenAPI property")
+        for _, name in ipairs({"secret", "id"}) do
+            if value:get(name) == nil then
+                owned.fields[#owned.fields + 1] = new documents.Entry(name = name, value = documents.string(""))
+            end
+        end
+        value = documents.object(owned.fields)
+        owned:close()
+
+        return value
+    end
+end
+local record DocumentField is structures.Field<documents.Document, DocumentBuilder, Property>
+    @readonly member: Property
+    @readonly required: boolean
+    @readonly hasDefault: boolean
+    @readonly adapter: core.Adapter<documents.Document, Property>
+    function describe(self, direction: core.Direction): core.Description<Property>
+        return self.adapter:describe(direction)
+    end
+
+    function write(self, borrows source: documents.Document, exclusive writer: core.Writer<Property>): nil
+        local value = source:get(self.member.name)
+        assert(value ~= nil or not self.required, "missing required OpenAPI property")
+        if value ~= nil then
+            self.adapter:write(value, writer)
+        end
+    end
+
+    function read(self, exclusive state: DocumentBuilder, exclusive reader: core.Reader<Property>): nil
+        state.fields[
+            #state.fields + 1
+        ] = new documents.Entry(name = self.member.name, value = self.adapter:read(reader))
+    end
+
+    function accept<R>(self, consumer: structures.FieldConsumer<documents.Document, DocumentBuilder, Property, R>): R
+        local name = self.member.name
+        return consumer:apply<documents.Document>(
+            self.member,
+            function(borrows source: documents.Document): boolean
+                return source:get(name) ~= nil
+            end,
+            structures.copiedGet<documents.Document, documents.Document>(function(
+                borrows source: documents.Document
+            ): documents.Document
+                return assert(source:get(name), "absent property")
+            end),
+            function(exclusive state: DocumentBuilder, value: documents.Document): nil
+                state.fields[#state.fields + 1] = new documents.Entry(name = name, value = value)
+            end,
+            self.adapter,
+            nil
+        )
+    end
+end
+local record DocumentScalar is core.Adapter<documents.Document, Property>
+    @readonly schema: Model
+    @readonly member: Property
+    function describe(self, direction: core.Direction): core.Description<Property>
+        return new Description(
+            member = self.member,
+            kind = self.member == self.schema.payload and "dynamic" or "string"
+        )
+    end
+
+    function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Property>): nil
+        if self.member == self.schema.payload then
+            local copied = value.kind == "string" and documents.string(value:string())
+                or documents.numberToken(value:numberToken())
+            local selected = choose(self.schema, copied)
+            if selected.alternative == "text" then
+                writer:writeString(self.member, selected.value:string())
+            else
+                writer:writeNumberToken(self.member, selected.value:numberToken())
+            end
+        else
+            writer:writeString(self.member, value:string())
+        end
+    end
+
+    function read(self, exclusive reader: core.Reader<Property>): documents.Document
+        if self.member == self.schema.payload then
+            local value = reader:readDocument(self.member, documents.documentAdapter())
+            return choose(self.schema, value).value
+        else
+            return documents.string(reader:readString(self.member))
+        end
+    end
+end
+local record DocumentUnknown is core.UnknownConsumer<DocumentBuilder>
+    function apply<F is core.WireField>(
+        self,
+        exclusive state: DocumentBuilder,
+        field: F,
+        exclusive reader: core.UnknownReader
+    ): nil
+        state.fields[
+            #state.fields + 1
+        ] = new documents.Entry(
+            name = jsonDocument.name(field),
+            value = reader:captureValue(documents.documentAdapter())
+        )
+    end
+end
+local record DocumentAdditional is core.Members<Property, documents.Document>
+    @readonly names: {[string]: boolean}
+    function apply(self, borrows value: documents.Document, exclusive writer: core.Writer<Property>): nil
+        local names: {string} = {}
+        for index = 1, value:size() do
+            local field = value:field(index)
+            if not self.names[field.name] then
+                names[#names + 1] = field.name
+            end
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            writer:writeUnknown(
+                new jsonDocument.Name(name = name),
+                assert(value:get(name)),
+                documents.documentAdapter()
+            )
+        end
+    end
+end
+export function documentBinding(schema: Model): core.Binding<documents.Document>
+    local fields: {structures.Field<documents.Document, DocumentBuilder, Property>} = {}
+    local names: {[string]: boolean} = {}
+    for _, member in ipairs({schema.name, schema.secret, schema.identifier, schema.payload}) do
+        local required = member == schema.name or member == schema.payload
+        fields[
+            #fields + 1
+        ] = new DocumentField(
+            member = member,
+            required = required,
+            hasDefault = not required,
+            adapter = new DocumentScalar(schema = schema, member = member)
+        )
+        names[member.name] = true
+    end
+
+    return new core.Bound<documents.Document, Property>(
+        adapter = structures.adapter(
+            schema.root,
+            fields,
+            new DocumentConstruction(),
+            new DocumentUnknown(),
+            new DocumentAdditional(names = names)
+        )
     )
 end
 

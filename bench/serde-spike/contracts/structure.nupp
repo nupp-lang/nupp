@@ -1,7 +1,7 @@
-local core = require("contract.value")
-local structure = require("contract.structure")
-local codec = require("contract.jsoncodec")
-local plans = require("contract.jsonplan")
+local core = require("nupp.serde.value")
+local structure = require("nupp.serde.structure")
+local codec = require("nupp.serde.json")
+local plans = require("nupp.serde.jsonplan")
 local json = require("nupp.codec.json")
 
 local record Counts

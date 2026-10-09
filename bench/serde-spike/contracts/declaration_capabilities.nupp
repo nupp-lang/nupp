@@ -1,5 +1,5 @@
-local declarations = require("contract.declaration")
-local json = require("contract.jsoncodec")
+local declarations = require("nupp.serde.declaration")
+local json = require("nupp.serde.json")
 
 local record Text
     value: string
@@ -24,3 +24,14 @@ local ok, result = pcall(function(): nil
 end)
 _G.require = original
 assert(ok, tostring(result))
+
+local record Owned is nupp.Closeable
+    value: string
+    function close(takes self): nil
+    end
+end
+-- An explicit witness cast must not turn an owning construction into an
+-- ordinary copyable result. The descriptor retains the semantic capability.
+local erased = Owned as Type<unknown>
+local owning = declarations.binding(erased)
+assert(not pcall(json.decode, owning, '{"value":"owned"}'))

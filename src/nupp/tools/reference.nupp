@@ -2079,8 +2079,8 @@ return m
 `@derive` generates a closed set of checked members on a record. It is a
 declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
-bundled providers are `nupp.derive.Debug`, `nupp.derive.JSON`, and
-`nupp.derive.Serde`; `nupp.events.Event` marks a record or struct as an event
+bundled Debug provider is `nupp.derive.Debug`;
+`nupp.events.Event` marks a record or struct as an event
 the same way; and a package exports its own as a `@comptime function` returning
 `nupp.derive.Result<T>`. A provider may also ask for the declaration's
 initializer, its constructor body or field list as a function run against

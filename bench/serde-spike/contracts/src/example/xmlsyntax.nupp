@@ -1,6 +1,6 @@
 module example.xmlsyntax
 
-local core = require("contract.value")
+local core = require("nupp.serde.value")
 local utf8 = require("nupp.text.utf8")
 
 -- This fixture accepts ASCII qualified names and UTF-8 content. It deliberately
@@ -226,6 +226,7 @@ export record Reader
                     elseif prefix ~= nil then
                         if prefix == "xmlns"
                             or prefix == "xml" and value ~= bindings.xml
+                            or value == ""
                             or value == "http://www.w3.org/2000/xmlns/"
                             or value == bindings.xml and prefix ~= "xml"
                         then
@@ -273,7 +274,11 @@ export record Reader
 end
 
 export function reader(input: string): Reader
-    if #input > 16777216 or not utf8.isValid(input) or input:find("[%z\1-\8\11\12\14-\31]") then
+    if #input > 16777216
+        or not utf8.isValid(input)
+        or input:find("[%z\1-\8\11\12\14-\31]")
+        or input:find("\239\191[\190\191]")
+    then
         error("invalid XML input", 2)
     end
     input = input:gsub("\r\n", "\n"):gsub("\r", "\n")

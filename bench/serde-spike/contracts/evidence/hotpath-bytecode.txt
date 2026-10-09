@@ -1,0 +1,356 @@
+  1 | module contract.hotpath                         | 0001  GGET     0   0      ; "_G"
+    |                                                 | 0002  TGETS    0   0   1  ; "assert"
+    |                                                 | 0003  GGET     2   0      ; "_G"
+    |                                                 | 0004  TGETS    2   2   2  ; "loadstring"
+    |                                                 | 0005  IST          2
+    |                                                 | 0006  JMP      3 => 0009
+    |                                                 | 0007  GGET     2   0      ; "_G"
+    |                                                 | 0008  TGETS    2   2   3  ; "load"
+    |                                                 | 0009  KSTR     4   4      ; "local __nupp=_G.nupp or {};_G.nupp=__nup"~
+    |                                                 | 0010  KSTR     5   5      ; "@nupp-prelude"
+    |                                                 | 0011  CALL     2   0   3
+    |                                                 | 0012  CALLM    0   2   0
+    |                                                 | 0013  CALL     0   1   1
+    |                                                 | 0014  GGET     0   6      ; "bit"
+    |                                                 | 0015  TGETS    0   0   7  ; "tobit"
+    |                                                 | 0016  GGET     1   0      ; "_G"
+    |                                                 | 0017  TGETS    1   1   8  ; "nupp"
+    |                                                 | 0018  IST          1
+    |                                                 | 0019  JMP      2 => 0021
+    |                                                 | 0020  TNEW     1   0
+    |                                                 | 0021  GGET     2   0      ; "_G"
+    |                                                 | 0022  TSETS    1   2   8  ; "nupp"
+    |                                                 | 0023  GGET     2   9      ; "rawget"
+    |                                                 | 0024  MOV      4   1
+    |                                                 | 0025  KSTR     5  10      ; "math"
+    |                                                 | 0026  CALL     2   2   3
+    |                                                 | 0027  IST          2
+    |                                                 | 0028  JMP      3 => 0030
+    |                                                 | 0029  TNEW     2   0
+    |                                                 | 0030  GGET     3  11      ; "rawset"
+    |                                                 | 0031  MOV      5   1
+    |                                                 | 0032  KSTR     6  10      ; "math"
+    |                                                 | 0033  MOV      7   2
+    |                                                 | 0034  CALL     3   1   4
+    |                                                 | 0035  FNEW     3  12      ; hotpath.nupp:1
+    |                                                 | 0036  GGET     4   0      ; "_G"
+    |                                                 | 0037  TGETS    4   4  13  ; "__nuppCleanupRegistry"
+    |                                                 | 0038  IST          4
+    |                                                 | 0039  JMP      5 => 0041
+    |                                                 | 0040  TNEW     4   0
+    |                                                 | 0041  GGET     5   0      ; "_G"
+    |                                                 | 0042  TSETS    4   5  13  ; "__nuppCleanupRegistry"
+    |                                                 | 0043  TSETS    3   4  14  ; "nupp:lua.d.nupp#__nuppCloseFile"
+    |                                                 | 0044  GGET     5  15      ; "require"
+    |                                                 | 0045  KSTR     7  16      ; "nupp.runtime.managed"
+    |                                                 | 0046  CALL     5   2   2
+    |                                                 | 0047  TGETS    5   5  17  ; "install"
+    |                                                 | 0048  MOV      7   1
+    |                                                 | 0049  GGET     8   0      ; "_G"
+    |                                                 | 0050  CALL     5   1   3
+    |                                                 | 0051  GGET     5  15      ; "require"
+    |                                                 | 0052  KSTR     7  18      ; "nupp.compiler.runtime.typewitness"
+    |                                                 | 0053  CALL     5   2   2
+    |                                                 | 0054  TGETS    5   5  17  ; "install"
+    |                                                 | 0055  MOV      7   1
+    |                                                 | 0056  CALL     5   1   2
+    |                                                 | 0057  TNEW     5   0
+    |                                                 | 0058  GGET     6  19      ; "package"
+    |                                                 | 0059  TGETS    6   6  20  ; "loaded"
+    |                                                 | 0060  TSETS    5   6  21  ; "contract.hotpath"
+    |                                                 | 0061  GGET     6  22      ; "pcall"
+    |                                                 | 0063  CALL     6   3   2
+    |                                                 | 0000  FUNCF    7
+    |                                                 | 0001  GGET     1   0      ; "io"
+    |                                                 | 0002  TGETS    1   1   1  ; "type"
+    |                                                 | 0003  MOV      3   0
+    |                                                 | 0004  CALL     1   2   2
+    |                                                 | 0005  ISNES    1   2      ; "closed file"
+    |                                                 | 0006  JMP      1 => 0008
+    |                                                 | 0007  RET0     0   1
+    |                                                 | 0008  MOV      3   0
+    |                                                 | 0009  TGETS    1   0   3  ; "close"
+    |                                                 | 0010  CALL     1   3   2
+    |                                                 | 0011  IST          1
+    |                                                 | 0012  JMP      3 => 0019
+    |                                                 | 0013  GGET     3   4      ; "error"
+    |                                                 | 0014  ISTC     5   2
+    |                                                 | 0015  JMP      5 => 0017
+    |                                                 | 0016  KSTR     5   5      ; "the file could not be closed"
+    |                                                 | 0017  KSHORT   6   0
+    |                                                 | 0018  CALL     3   1   3
+    |                                                 | 0019  RET0     0   1
+    |                                                 | 0002  TNEW     0   3
+    |                                                 | 0003  GGET     1   1      ; "_G"
+    |                                                 | 0004  TGETS    1   1   2  ; "nupp"
+    |                                                 | 0005  TGETS    1   1   3  ; "__reflect"
+    |                                                 | 0006  TGETS    1   1   4  ; "declaration"
+    |                                                 | 0007  KSTR     3   5      ; "contract.hotpath\000runtime\0001"
+    |                                                 | 0008  CALL     1   0   2
+    |                                                 | 0009  TSETM    1   0      ; 1
+  2 |
+  3 | local declarations = require("nupp.serde")      | 0010  GGET     1   6      ; "require"
+    |                                                 | 0011  KSTR     3   7      ; "nupp.serde"
+    |                                                 | 0012  CALL     1   2   2
+  4 | local json = require("nupp.serde.json")         | 0013  GGET     2   6      ; "require"
+    |                                                 | 0014  KSTR     4   8      ; "nupp.serde.json"
+    |                                                 | 0015  CALL     2   2   2
+  5 |
+  6 | local record Payload                            | 0016  TNEW     3   0
+    |                                                 | 0017  TSETS    3   3   9  ; "__index"
+    |                                                 | 0018  GGET     4   1      ; "_G"
+    |                                                 | 0019  TGETS    4   4   2  ; "nupp"
+    |                                                 | 0020  TGETS    4   4   3  ; "__reflect"
+    |                                                 | 0021  TGETS    4   4  10  ; "link"
+    |                                                 | 0022  MOV      6   3
+    |                                                 | 0023  TGETB    7   0   1
+    |                                                 | 0024  TNEW     8   0
+    |                                                 | 0025  CALL     4   1   4
+  7 |     id: uint32
+  8 |     active: boolean
+  9 |     name: string
+ 10 | end
+ 11 | local binding = declarations.binding(Payload)   | 0026  TGETS    4   1  11  ; "binding"
+    |                                                 | 0027  GGET     6   1      ; "_G"
+    |                                                 | 0028  TGETS    6   6   2  ; "nupp"
+    |                                                 | 0029  TGETS    6   6   3  ; "__reflect"
+    |                                                 | 0030  TGETS    6   6  12  ; "known"
+    |                                                 | 0031  MOV      8   3
+    |                                                 | 0032  CALL     6   2   2
+    |                                                 | 0033  ISF          6
+    |                                                 | 0034  JMP      7 => 0037
+    |                                                 | 0035  ISTC     6   3
+    |                                                 | 0036  JMP      6 => 0044
+    |                                                 | 0037  GGET     6   1      ; "_G"
+    |                                                 | 0038  TGETS    6   6   2  ; "nupp"
+    |                                                 | 0039  TGETS    6   6   3  ; "__reflect"
+    |                                                 | 0040  TGETS    6   6  13  ; "ensure"
+    |                                                 | 0041  MOV      8   3
+    |                                                 | 0042  FNEW     9  14      ; hotpath.nupp:11
+    |                                                 | 0043  CALL     6   2   3
+    |                                                 | 0044  CALL     4   2   2
+    |                                                 | 0000  FUNCF    6
+    |                                                 | 0001  TDUP     0   0
+    |                                                 | 0002  TNEW     1   0
+    |                                                 | 0003  TSETS    1   0   1  ; "annotations"
+    |                                                 | 0004  TNEW     1   4
+    |                                                 | 0005  TDUP     2   2
+    |                                                 | 0006  TNEW     3   0
+    |                                                 | 0007  TSETS    3   2   1  ; "annotations"
+    |                                                 | 0008  TSETB    2   1   1
+    |                                                 | 0009  TDUP     2   3
+    |                                                 | 0010  TNEW     3   0
+    |                                                 | 0011  TSETS    3   2   1  ; "annotations"
+    |                                                 | 0012  TSETB    2   1   2
+    |                                                 | 0013  TDUP     2   4
+    |                                                 | 0014  TNEW     3   0
+    |                                                 | 0015  TSETS    3   2   1  ; "annotations"
+    |                                                 | 0016  TSETB    2   1   3
+    |                                                 | 0017  TSETS    1   0   5  ; "fields"
+    |                                                 | 0018  TDUP     1   6
+    |                                                 | 0019  TNEW     2   0
+    |                                                 | 0020  TSETS    2   1   5  ; "fields"
+    |                                                 | 0021  TSETS    1   0   7  ; "soa"
+    |                                                 | 0022  TNEW     1   5
+    |                                                 | 0023  TDUP     2   8
+    |                                                 | 0024  TNEW     3   0
+    |                                                 | 0025  TSETS    3   2   1  ; "annotations"
+    |                                                 | 0026  TNEW     3   0
+    |                                                 | 0027  TSETS    3   2   9  ; "associatedTypes"
+    |                                                 | 0028  TNEW     3   0
+    |                                                 | 0029  TSETS    3   2  10  ; "constArguments"
+    |                                                 | 0030  TNEW     3   0
+    |                                                 | 0031  TSETS    3   2  11  ; "constParameters"
+    |                                                 | 0032  TDUP     3  12
+    |                                                 | 0033  TNEW     4   4
+    |                                                 | 0034  TDUP     5  13
+    |                                                 | 0035  TSETB    5   4   1
+    |                                                 | 0036  TDUP     5  14
+    |                                                 | 0037  TSETB    5   4   2
+    |                                                 | 0038  TDUP     5  15
+    |                                                 | 0039  TSETB    5   4   3
+    |                                                 | 0040  TSETS    4   3  16  ; "params"
+    |                                                 | 0041  TSETS    3   2  17  ; "construction"
+    |                                                 | 0042  TNEW     3   4
+    |                                                 | 0043  TDUP     4  18
+    |                                                 | 0044  TNEW     5   0
+    |                                                 | 0045  TSETS    5   4   1  ; "annotations"
+    |                                                 | 0046  TSETB    4   3   1
+    |                                                 | 0047  TDUP     4  19
+    |                                                 | 0048  TNEW     5   0
+    |                                                 | 0049  TSETS    5   4   1  ; "annotations"
+    |                                                 | 0050  TSETB    4   3   2
+    |                                                 | 0051  TDUP     4  20
+    |                                                 | 0052  TNEW     5   0
+    |                                                 | 0053  TSETS    5   4   1  ; "annotations"
+    |                                                 | 0054  TSETB    4   3   3
+    |                                                 | 0055  TSETS    3   2   5  ; "fields"
+    |                                                 | 0056  TNEW     3   0
+    |                                                 | 0057  TSETS    3   2  21  ; "index"
+    |                                                 | 0058  TNEW     3   0
+    |                                                 | 0059  TSETS    3   2  22  ; "metamethods"
+    |                                                 | 0060  TNEW     3   0
+    |                                                 | 0061  TSETS    3   2  23  ; "nestedTypes"
+    |                                                 | 0062  TNEW     3   0
+    |                                                 | 0063  TSETS    3   2  24  ; "packArguments"
+    |                                                 | 0064  TNEW     3   0
+    |                                                 | 0065  TSETS    3   2  25  ; "packParameters"
+    |                                                 | 0066  TNEW     3   0
+    |                                                 | 0067  TSETS    3   2  26  ; "parameterKinds"
+    |                                                 | 0068  TNEW     3   0
+    |                                                 | 0069  TSETS    3   2  27  ; "staticFields"
+    |                                                 | 0070  TNEW     3   0
+    |                                                 | 0071  TSETS    3   2  28  ; "supertypes"
+    |                                                 | 0072  TNEW     3   0
+    |                                                 | 0073  TSETS    3   2  29  ; "typeArguments"
+    |                                                 | 0074  TNEW     3   0
+    |                                                 | 0075  TSETS    3   2  30  ; "typeBounds"
+    |                                                 | 0076  TNEW     3   0
+    |                                                 | 0077  TSETS    3   2  31  ; "typeParameters"
+    |                                                 | 0078  TSETB    2   1   1
+    |                                                 | 0079  TDUP     2  32
+    |                                                 | 0080  TSETB    2   1   2
+    |                                                 | 0081  TDUP     2  33
+    |                                                 | 0082  TSETB    2   1   3
+    |                                                 | 0083  TDUP     2  34
+    |                                                 | 0084  TSETB    2   1   4
+    |                                                 | 0085  TSETS    1   0  35  ; "types"
+    |                                                 | 0086  TDUP     1  36
+    |                                                 | 0087  RET      0   3
+ 12 | local codec = json.codec()                      | 0045  TGETS    5   2  15  ; "codec"
+    |                                                 | 0046  CALL     5   2   1
+ 13 | local value = new Payload(id = 0, active = true~ | 0047  GGET     6   1      ; "_G"
+    |                                                 | 0048  TGETS    6   6  16  ; "setmetatable"
+    |                                                 | 0049  TDUP     8  17
+    |                                                 | 0050  MOV      9   3
+    |                                                 | 0051  CALL     6   2   3
+ 14 | local inputs: {string} = {}                     | 0052  TNEW     7   0
+ 15 | for index = 1, 16 do                            | 0053  KSHORT   8   1
+    |                                                 | 0054  KSHORT   9  16
+    |                                                 | 0055  KSHORT  10   1
+    |                                                 | 0056  FORI     8 => 0069
+    |                                                 | 0068  FORL     8 => 0057
+ 16 |     value.id = nupp.math.u32.wrap(index)        | 0057  UGET    12   0      ; __nuppBitTobit
+    |                                                 | 0058  MOV     14  11
+    |                                                 | 0059  CALL    12   2   2
+    |                                                 | 0060  MODVN   12  12   1  ; 4294967296
+    |                                                 | 0061  TSETS   12   6  18  ; "id"
+ 17 |     inputs[index] = codec:encode(binding, value~ | 0062  MOV     14   5
+    |                                                 | 0063  TGETS   12   5  19  ; "encode"
+    |                                                 | 0064  MOV     15   4
+    |                                                 | 0065  MOV     16   6
+    |                                                 | 0066  CALL    12   2   4
+    |                                                 | 0067  TSETV   12   7  11
+ 18 | end
+ 19 | local mode = arg[1] or "new-decode"             | 0069  GGET     8  20      ; "arg"
+    |                                                 | 0070  TGETB    8   8   1
+    |                                                 | 0071  IST          8
+    |                                                 | 0072  JMP      9 => 0074
+    |                                                 | 0073  KSTR     8  21      ; "new-decode"
+ 20 | local requested = assert(tonumber(arg[2] or "2~ | 0074  GGET     9  22      ; "assert"
+    |                                                 | 0075  GGET    11  23      ; "tonumber"
+    |                                                 | 0076  GGET    13  20      ; "arg"
+    |                                                 | 0077  TGETB   13  13   2
+    |                                                 | 0078  IST         13
+    |                                                 | 0079  JMP     14 => 0081
+    |                                                 | 0080  KSTR    13  24      ; "20000"
+    |                                                 | 0081  CALL    11   0   2
+    |                                                 | 0082  CALLM    9   2   0
+ 21 | assert(requested > 0 and requested % 1 == 0)    | 0083  GGET    10  22      ; "assert"
+    |                                                 | 0084  KSHORT  12   0
+    |                                                 | 0085  ISGE    12   9
+    |                                                 | 0086  JMP     12 => 0090
+    |                                                 | 0087  MODVN   12   9   2  ; 1
+    |                                                 | 0088  ISEQN   12   3      ; 0
+    |                                                 | 0089  JMP     12 => 0092
+    |                                                 | 0090  KPRI    12   1
+    |                                                 | 0091  JMP     13 => 0093
+    |                                                 | 0092  KPRI    12   2
+    |                                                 | 0093  CALL    10   1   2
+ 22 | local count = requested as integer              | 0094  MOV     10   9
+ 23 | local strings: {string} = {}                    | 0095  TNEW    11   0
+ 24 | local values: {Payload} = {}                    | 0096  TNEW    12   0
+ 25 | local checksum = 0                              | 0097  KSHORT  13   0
+ 26 | local start = os.clock()                        | 0098  GGET    14  25      ; "os"
+    |                                                 | 0099  TGETS   14  14  26  ; "clock"
+    |                                                 | 0100  CALL    14   2   1
+ 27 | if mode == "new-encode" then                    | 0101  ISNES    8  27      ; "new-encode"
+    |                                                 | 0102  JMP     15 => 0125
+ 28 |     for index = 1, count do                     | 0103  KSHORT  15   1
+    |                                                 | 0104  MOV     16  10
+    |                                                 | 0105  KSHORT  17   1
+    |                                                 | 0106  FORI    15 => 0124
+    |                                                 | 0123  FORL    15 => 0107
+ 29 |         value.id = nupp.math.u32.wrap(index % ~ | 0107  UGET    19   0      ; __nuppBitTobit
+    |                                                 | 0108  MODVN   21  18   4  ; 16
+    |                                                 | 0109  ADDVN   21  21   2  ; 1
+    |                                                 | 0110  CALL    19   2   2
+    |                                                 | 0111  MODVN   19  19   1  ; 4294967296
+    |                                                 | 0112  TSETS   19   6  18  ; "id"
+ 30 |         local bytes = codec:encode(binding, va~ | 0113  MOV     21   5
+    |                                                 | 0114  TGETS   19   5  19  ; "encode"
+    |                                                 | 0115  MOV     22   4
+    |                                                 | 0116  MOV     23   6
+    |                                                 | 0117  CALL    19   2   4
+ 31 |         strings[index % 256 + 1] = bytes        | 0118  MODVN   20  18   5  ; 256
+    |                                                 | 0119  ADDVN   20  20   2  ; 1
+    |                                                 | 0120  TSETV   19  11  20
+ 32 |         checksum += #bytes                      | 0121  LEN     20  19
+    |                                                 | 0122  ADDVV   13  13  20
+ 33 |     end                                         | 0124  JMP     15 => 0148
+ 34 | elseif mode == "new-decode" then                | 0125  ISNES    8  21      ; "new-decode"
+    |                                                 | 0126  JMP     15 => 0145
+ 35 |     for index = 1, count do                     | 0127  KSHORT  15   1
+    |                                                 | 0128  MOV     16  10
+    |                                                 | 0129  KSHORT  17   1
+    |                                                 | 0130  FORI    15 => 0144
+    |                                                 | 0143  FORL    15 => 0131
+ 36 |         local decoded = codec:decode(binding, ~ | 0131  MOV     21   5
+    |                                                 | 0132  TGETS   19   5  28  ; "decode"
+    |                                                 | 0133  MOV     22   4
+    |                                                 | 0134  MODVN   23  18   4  ; 16
+    |                                                 | 0135  ADDVN   23  23   2  ; 1
+    |                                                 | 0136  TGETV   23   7  23
+    |                                                 | 0137  CALL    19   2   4
+ 37 |         values[index % 256 + 1] = decoded       | 0138  MODVN   20  18   5  ; 256
+    |                                                 | 0139  ADDVN   20  20   2  ; 1
+    |                                                 | 0140  TSETV   19  12  20
+ 38 |         checksum += decoded.id                  | 0141  TGETS   20  19  18  ; "id"
+    |                                                 | 0142  ADDVV   13  13  20
+ 39 |     end                                         | 0144  JMP     15 => 0148
+ 40 |
+ 41 | else
+ 42 |     error("unknown trace probe mode")           | 0145  GGET    15  29      ; "error"
+    |                                                 | 0146  KSTR    17  30      ; "unknown trace probe mode"
+    |                                                 | 0147  CALL    15   1   2
+ 43 | end
+ 44 | print(mode, count, os.clock() - start, checksum~ | 0148  GGET    15  31      ; "print"
+    |                                                 | 0149  MOV     17   8
+    |                                                 | 0150  MOV     18  10
+    |                                                 | 0151  GGET    19  25      ; "os"
+    |                                                 | 0152  TGETS   19  19  26  ; "clock"
+    |                                                 | 0153  CALL    19   2   1
+    |                                                 | 0154  SUBVV   19  19  14
+    |                                                 | 0155  MOV     20  13
+    |                                                 | 0156  LEN     21  11
+    |                                                 | 0157  LEN     22  12
+    |                                                 | 0158  CALL    15   1   7
+ 45 |                                                 | 0062  FNEW     8  23      ; hotpath.nupp:1
+    |                                                 | 0064  IST          6
+    |                                                 | 0065  JMP      8 => 0074
+    |                                                 | 0066  GGET     8  19      ; "package"
+    |                                                 | 0067  TGETS    8   8  20  ; "loaded"
+    |                                                 | 0068  KPRI     9   0
+    |                                                 | 0069  TSETS    9   8  21  ; "contract.hotpath"
+    |                                                 | 0070  GGET     8  24      ; "error"
+    |                                                 | 0071  MOV     10   7
+    |                                                 | 0072  KSHORT  11   0
+    |                                                 | 0073  CALL     8   1   3
+    |                                                 | 0074  GGET     8  19      ; "package"
+    |                                                 | 0075  TGETS    8   8  20  ; "loaded"
+    |                                                 | 0076  TSETS    5   8  21  ; "contract.hotpath"
+    |                                                 | 0077  UCLO     0 => 0078
+    |                                                 | 0078  RET1     5   2
+    |                                                 | 0159  RET0     0   1
+
+-- 1 instructions of runtime preamble

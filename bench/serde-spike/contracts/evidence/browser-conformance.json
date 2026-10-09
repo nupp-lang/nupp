@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "result": {
+    "repeated": true,
+    "nativeRefused": true,
+    "roundTripped": "Reading { id = 7, label = \"intake\", samples = {3, 1, 4} }",
+    "defaultedLabel": "unnamed",
+    "missingRefused": true,
+    "debug": "Reading { id = 7, label = \"intake\", samples = {3, 1, 4} }",
+    "documents": true,
+    "encoded": "{\"sensor_id\":7,\"label\":\"intake\",\"samples\":[3,1,4]}"
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

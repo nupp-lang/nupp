@@ -1,0 +1,26 @@
+module nupp.serde.publication
+
+local core = require("nupp.serde.value")
+local errors = require("nupp.serde.errors")
+
+export function failure<T>(owner: core.Discard<T>, takes value: T, cause: unknown): unknown
+    local ok, problem = pcall(owner.discard, owner, value)
+    if ok then
+        return cause
+    end
+    local original = errors.wrap(cause, "$", nil)
+    local suppressed: {unknown} = {}
+    for _, item in ipairs(original.suppressed) do
+        suppressed[#suppressed + 1] = item
+    end
+    suppressed[#suppressed + 1] = problem
+
+    return new errors.Error(
+        code = original.code,
+        message = original.message,
+        path = original.path,
+        byte = original.byte,
+        cause = original.cause,
+        suppressed = suppressed
+    )
+end

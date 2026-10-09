@@ -1,0 +1,71 @@
+module example.registry
+
+local core = require("nupp.serde.value")
+local documents = require("nupp.serde.document")
+local bridge = require("nupp.serde.documentcodec")
+
+export interface Consumer<R>
+    apply: function<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>, borrows value: T): R
+end
+export interface Value
+    identity: function(self): string
+    accept: function<R>(self, consumer: Consumer<R>): R
+end
+local record Selected<T is nupp.Copyable> is Value
+    @readonly id: string
+    @readonly binding: core.Binding<T>
+    @readonly value: T
+    function identity(self): string
+        return self.id
+    end
+
+    function accept<R>(self, consumer: Consumer<R>): R
+        return consumer:apply<T>(self.id, self.binding, self.value)
+    end
+end
+local interface Entry
+    read: function(self, value: documents.Document): Value
+end
+local record Bound<T is nupp.Copyable> is Entry
+    @readonly id: string
+    @readonly binding: core.Binding<T>
+    function read(self, value: documents.Document): Value
+        return new Selected<T>(id = self.id, binding = self.binding, value = bridge.into(self.binding, value))
+    end
+end
+
+-- The discriminator belongs to this registry. It is never a module name or a
+-- request to load executable code, and resolution does not use global state.
+export record Registry
+    @private @readonly entries: {[string]: Entry} = {}
+    function register<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>): nil
+        assert(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
+        self.entries[identity] = new Bound<T>(id = identity, binding = binding)
+    end
+
+    function contains(self, identity: string): boolean
+        return self.entries[identity] ~= nil
+    end
+
+    function reconstruct(self, identity: string, value: documents.Document): Value
+        return assert(self.entries[identity], "unknown type discriminator: " .. identity):read(value)
+    end
+end
+
+local record Project is Consumer<documents.Document>
+    function apply<T is nupp.Copyable>(
+        self,
+        identity: string,
+        binding: core.Binding<T>,
+        borrows value: T
+    ): documents.Document
+        return bridge.fromBinding(binding, value)
+    end
+end
+export function project(value: Value): documents.Document
+    return value:accept(new Project())
+end
+
+export function registry(): Registry
+    return new Registry()
+end

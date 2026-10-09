@@ -32,3 +32,6 @@ scripts/** text eol=lf
 # Browser guest packages compare these recipe inputs by their raw digest. Keep
 # Windows consumer checkouts byte-identical to the Linux-built runtime inputs.
 runtime/luajit/** text=auto eol=lf
+
+# The serde identity helper is embedded in the compiler bundle.
+src/nupp/serde/identity.lua text eol=lf

@@ -31,564 +31,6 @@ end
 
 local M = {}
 
-function M.preparesAndCachesRecordJson()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record User
-    id: uint32
-    active: boolean
-    name: string?
-end
-
-local first = nupp.serde.of(User)
-local second = nupp.serde.of(User)
-local codec = nupp.codec.json.newCodec()
-local prepared = codec:prepare(first)
-local again = codec:prepare(first)
-local text = prepared:encode(new User(id = 41, active = true, name = "Ada"))
-local output = require("nupp.text").newBuffer()
-prepared:write(new User(id = 42, active = false), output)
-local large = string.rep("x", 4096)
-local largeOutput = require("nupp.text").newBuffer()
-largeOutput:put("prefix:")
-prepared:write(new User(id = 43, active = true, name = large), largeOutput)
-local streamed = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(streamed)
-prepared:write(new User(id = 44, active = true, name = "streamed"), writer)
-writer:close()
-local largeStreamed = require("nupp.text").newBuffer()
-local largeWriter = nupp.codec.json.newWriter(largeStreamed)
-prepared:write(new User(id = 45, active = true, name = string.rep("y", 128 * 1024)), largeWriter)
-local stagedLength = #largeStreamed
-largeWriter:close()
-local restored, problem = prepared:decode(text)
-local input = require("nupp.text").newBuffer()
-input:put("skip"):put(text):skip(4)
-local bufferedRestored, bufferedProblem = prepared:decodeBuffer(input)
-local emptyInput = require("nupp.text").newBuffer()
-local emptyRestored, emptyProblem = prepared:decodeBuffer(emptyInput)
-local rejected, rejection = prepared:decode(
-    [[{"id":41,"active":true,"name":"Ada","extra":{"nested":[1,2]}}]]
-)
-local wrongScalar, wrongScalarProblem = prepared:decode(
-    [[{"id":"41","active":true}]]
-)
-local missing, missingProblem = prepared:decode([[{"id":41}]])
-local fractional, fractionalProblem = prepared:decode(
-    [[{"id":41.5,"active":true}]]
-)
-local overflow, overflowProblem = prepared:decode(
-    [[{"id":4294967296,"active":true}]]
-)
-local nullable, nullableProblem = prepared:decode(
-    [[{"id":41,"active":true,"name":null}]]
-)
-return {
-    sameBinding = first == second,
-    samePrepared = prepared == again,
-    schemaName = first:schema().name,
-    memberIndex = first:schema():expectMember("active").index,
-    text = text,
-    buffered = output:tostring(),
-    largeBuffered = largeOutput:tostring(),
-    streamed = streamed:tostring(),
-    largeStreamedLength = #largeStreamed,
-    stagedLength = stagedLength,
-    id = restored and restored.id,
-    bufferedId = bufferedRestored and bufferedRestored.id,
-    bufferedProblem = bufferedProblem,
-    emptyRestored = emptyRestored,
-    emptyProblem = emptyProblem,
-    name = restored and restored.name,
-    problem = problem,
-    rejected = rejected,
-    rejection = rejection,
-    wrongScalar = wrongScalar,
-    wrongScalarProblem = wrongScalarProblem,
-    missing = missing,
-    missingProblem = missingProblem,
-    fractional = fractional,
-    fractionalProblem = fractionalProblem,
-    overflow = overflow,
-    overflowProblem = overflowProblem,
-    nullableId = nullable and nullable.id,
-    nullableName = nullable and nullable.name,
-    nullableProblem = nullableProblem,
-}
-]=]
-    )
-    assert(result.sameBinding and result.samePrepared, "serde preparation was not cached")
-    assert(result.schemaName == "User" and result.memberIndex == 2, "derived schema lost its logical identity")
-    assert(result.text == '{"id":41,"active":true,"name":"Ada"}', result.text)
-    assert(result.buffered == '{"id":42,"active":false}', result.buffered)
-    assert(
-        result.largeBuffered == 'prefix:{"id":43,"active":true,"name":"' .. string.rep("x", 4096) .. '"}',
-        "large prepared write did not append exactly"
-    )
-    assert(
-        result.streamed == '{"id":44,"active":true,"name":"streamed"}',
-        "prepared writer traversal did not append exactly"
-    )
-    assert(
-        result.stagedLength > 128 * 1024 and result.largeStreamedLength == result.stagedLength + 1,
-        "prepared writer did not threshold-flush during a large root"
-    )
-    assert(result.id == 41 and result.name == "Ada" and result.problem == nil, "prepared record did not round-trip")
-    assert(result.bufferedId == 41 and result.bufferedProblem == nil, "prepared buffer decode did not round-trip")
-    assert(
-        result.emptyRestored == nil and result.emptyProblem ~= nil,
-        "empty prepared buffer decode did not report malformed JSON"
-    )
-    assert(
-        result.rejected == nil and result.rejection:find("extra", 1, true),
-        "strict raw-key decoding accepted an unknown member"
-    )
-    assert(
-        result.wrongScalar == nil and result.wrongScalarProblem,
-        "native prepared decode accepted a string for uint32"
-    )
-    assert(
-        result.missing == nil and result.missingProblem:find("active", 1, true),
-        "native prepared decode accepted a missing required member"
-    )
-    assert(result.fractional == nil and result.fractionalProblem, "native prepared decode accepted a fractional uint32")
-    assert(result.overflow == nil and result.overflowProblem, "native prepared decode accepted an overflowing uint32")
-    assert(
-        result.nullableId == 41 and result.nullableName == nil and result.nullableProblem == nil,
-        "native prepared decode rejected optional null"
-    )
-end
-
--- The problem a prepared decode answers is about the document. It used to
--- carry the chunk and line inside serde, or inside the vendored parser, where
--- the failure was raised.
-function M.preparedDecodeProblemsCarryNoSourcePosition()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record User
-    id: uint32
-    name: string?
-end
-
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-local problems = {}
-for _, text in ipairs({[[{"id":1,"extra":2}]], [[{"name":"x"}]], [[{"id":01}]], [[{"id":1} x]]}) do
-    local value, problem = prepared:decode(text)
-    problems[#problems + 1] = value == nil and tostring(problem) or "accepted " .. text
-end
-return problems
-]=]
-    )
-    assert(#result == 4)
-    for _, problem in ipairs(result) do
-        assert(not problem:find("^accepted"), problem)
-        assert(not problem:find("%.lua:%d") and not problem:find("%.nupp:%d"), problem)
-    end
-end
-
--- A member past binary64 is refused where the document says it, like any other
--- decode, and a value too small for binary64 decodes to zero.
-function M.nonFiniteMembersAreRefused()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Reading
-    value: number
-end
-
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(Reading))
-local refused, problem = prepared:decode([[{"value":1e400}]])
-local tiny = prepared:decode([[{"value":1e-400}]])
-return {refused = refused == nil, problem = tostring(problem), tiny = tiny and tiny.value}
-]=]
-    )
-    assert(result.refused, "1e400 decoded")
-    assert(result.problem == "invalid JSON at byte 10: number is out of range", result.problem)
-    assert(result.tiny == 0, tostring(result.tiny))
-end
-
--- A repeated member is refused before the schema looks at either occurrence,
--- so a first occurrence of the wrong type cannot hide behind the second.
-function M.repeatedMembersAreRefused()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record User
-    id: uint32
-    name: string?
-end
-
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-local problems = {}
-for _, text in ipairs({[[{"id":"x","id":1}]], [[{"id":1,"id":2}]], [[{"id":1,"name":null,"name":"b"}]]}) do
-    local value, problem = prepared:decode(text)
-    problems[#problems + 1] = value == nil and tostring(problem) or "accepted " .. text
-end
-return problems
-]=]
-    )
-    assert(result[1] == "invalid JSON at byte 11: duplicate member name", result[1])
-    assert(result[2] == "invalid JSON at byte 9: duplicate member name", result[2])
-    assert(result[3] == "invalid JSON at byte 21: duplicate member name", result[3])
-end
-
-function M.profilesRenameKeysAndIgnoreUnknownValues()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Item
-    value: integer
-end
-local codec = nupp.codec.json.newCodec{
-    unknownMembers = "ignore",
-    fieldNames = function(member: nupp.serde.Member): string
-        return member.name == "value" and "a\"b" or member.name
-    end,
-}
-local prepared = codec:prepare(nupp.serde.of(Item))
-local text = prepared:encode(new Item(value = 7))
-local restored, problem = prepared:decode([[{"ignored":{"deep":[1,2]},"a\"b":9}]])
-return {text = text, value = restored and restored.value, problem = problem}
-]=]
-    )
-    assert(result.text == '{"a\\"b":7}', result.text)
-    assert(result.value == 9 and result.problem == nil, "profile raw-byte lookup did not decode the escaped wire name")
-end
-
-function M.dynamicValuesUseDenseResolvedSlots()
-    local result = run(
-        [=[
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Request")
-builder:required("id", serde.uint32)
-builder:defaulted("active", serde.boolean, true)
-builder:defaulted("labels", serde.map(serde.string, serde.string), {region = "us"})
-builder:optional("name", serde.string)
-local schema = builder:freeze()
-local binding = serde.dynamic(schema)
-local id = schema:expectMember("id")
-local value = binding:newValue()
-value:set(id, 11)
-local rebound = binding:bind{id = 12}
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local restored, problem = prepared:decode(prepared:encode(rebound))
-local missingOk, missing = pcall(binding.bind, binding, {name = "absent"})
-return {
-    direct = value:get(id),
-    id = restored and restored:get("id"),
-    active = restored and restored:get("active"),
-    region = restored and restored:get("labels").region,
-    problem = problem,
-    missingOk = missingOk,
-    missing = tostring(missing),
-}
-]=]
-    )
-    assert(
-        result.direct == 11 and result.id == 12 and result.active == true and result.region == "us",
-        "dynamic slots or defaults were not preserved"
-    )
-    assert(result.problem == nil, result.problem)
-    assert(
-        not result.missingOk and result.missing:find("missing required member id", 1, true),
-        "dynamic binding skipped required validation"
-    )
-end
-
-function M.dynamicValuesValidateSchemaKindsAndIntegerRanges()
-    local result = run(
-        [=[
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Range")
-builder:required("small", serde.uint8)
-local binding = serde.dynamic(builder:freeze())
-local wrongTypeOk, wrongType = pcall(binding.bind, binding, {small = "one"})
-local rangeOk, range = pcall(binding.bind, binding, {small = 256})
-local decoded, decodeProblem = nupp.codec.json.newCodec():prepare(binding):decode([[{"small":256}]])
-return {
-    wrongTypeOk = wrongTypeOk,
-    wrongType = tostring(wrongType),
-    rangeOk = rangeOk,
-    range = tostring(range),
-    decoded = decoded,
-    decodeProblem = decodeProblem,
-}
-]=]
-    )
-    assert(
-        not result.wrongTypeOk and result.wrongType:find("must be an integer", 1, true),
-        "dynamic binding accepted the wrong scalar kind"
-    )
-    assert(
-        not result.rangeOk and result.range:find("outside uint8", 1, true),
-        "dynamic binding accepted an out-of-range integer"
-    )
-    assert(
-        result.decoded == nil and result.decodeProblem:find("range", 1, true),
-        "prepared native decode accepted an out-of-range integer"
-    )
-end
-
-function M.preparedJsonEnforcesContainerContracts()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Node
-    name: string
-    children: {Node}
-end
-
-@derive(nupp.derive.Serde)
-local record Composite
-    pair: {integer, string?}
-    mode: "read" | "write"
-    counts: {[string]: integer}
-end
-
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Values")
-builder:required("items", serde.list(serde.integer))
-local binding = serde.dynamic(builder:freeze())
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-
-local sparseOk, sparseProblem = pcall(binding.bind, binding, {items = {[1] = 1, [3] = 3}})
-local mixedOk, mixedProblem = pcall(binding.bind, binding, {items = {[1] = 1, name = 2}})
-local incompleteOk, incompleteProblem = pcall(prepared.encode, prepared, binding:newValue())
-
-local optionalOk, optionalProblem = pcall(serde.list, serde.optional(serde.integer))
-
-local codec = nupp.codec.json.newCodec()
-local nodePrepared = codec:prepare(serde.of(Node))
-local node = new Node(name = "root", children = {})
-node.children[1] = node
-local cycleOk, cycleProblem = pcall(nodePrepared.encode, nodePrepared, node)
-
-local compositePrepared = codec:prepare(serde.of(Composite))
-local composite = assert(compositePrepared:decode([[{"pair":[7,null],"mode":"read","counts":{"a":2}}]]))
-local tupleOk, tupleProblem = compositePrepared:decode(
-    [[{"pair":[7,"x",9],"mode":"read","counts":{}}]]
-)
-local unionOk, unionProblem = compositePrepared:decode(
-    [[{"pair":[7,null],"mode":"other","counts":{}}]]
-)
-
-return {
-    sparseOk = sparseOk,
-    sparseProblem = tostring(sparseProblem),
-    mixedOk = mixedOk,
-    mixedProblem = tostring(mixedProblem),
-    incompleteOk = incompleteOk,
-    incompleteProblem = tostring(incompleteProblem),
-    optionalOk = optionalOk,
-    optionalProblem = tostring(optionalProblem),
-    cycleOk = cycleOk,
-    cycleProblem = tostring(cycleProblem),
-    pair = composite.pair[1],
-    pairTail = composite.pair[2],
-    mode = composite.mode,
-    count = composite.counts.a,
-    tupleOk = tupleOk,
-    tupleProblem = tostring(tupleProblem),
-    unionOk = unionOk,
-    unionProblem = tostring(unionProblem),
-}
-]=]
-    )
-    assert(not result.sparseOk and result.sparseProblem:find("holes", 1, true), result.sparseProblem)
-    assert(not result.mixedOk and result.mixedProblem:find("positive integer indexes", 1, true), result.mixedProblem)
-    assert(
-        not result.incompleteOk and result.incompleteProblem:find("missing required member items", 1, true),
-        result.incompleteProblem
-    )
-    assert(
-        not result.optionalOk and result.optionalProblem:find("cannot be optional or null", 1, true),
-        result.optionalProblem
-    )
-    assert(not result.cycleOk and result.cycleProblem:find("cyclic value", 1, true), result.cycleProblem)
-    assert(
-        result.pair == 7 and result.pairTail == nil and result.mode == "read" and result.count == 2,
-        "tuple, literal union, or map materialization changed its value"
-    )
-    assert(result.tupleOk == nil and result.tupleProblem:find("tuple length", 1, true), result.tupleProblem)
-    assert(result.unionOk == nil and result.unionProblem:find("union", 1, true), result.unionProblem)
-end
-
-function M.documentMembersStayInsideThePreparedTraversal()
-    local result = run(
-        [=[
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Envelope")
-builder:required("id", serde.uint32)
-builder:optional("payload", serde.document)
-local binding = serde.dynamic(builder:freeze())
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(binding:bind{
-    id = 9,
-    payload = {items = {1, 2}, enabled = true},
-})
-local value, problem = prepared:decode(text)
-local payload = value and value:get("payload")
-return {
-    text = text,
-    second = payload and payload.items[2],
-    enabled = payload and payload.enabled,
-    problem = problem,
-}
-]=]
-    )
-    assert(result.text:find('"payload":', 1, true), result.text)
-    assert(
-        result.second == 2 and result.enabled == true and result.problem == nil,
-        "document member did not round-trip through prepared serde"
-    )
-end
-
-function M.structsShareTheTypedWitnessAndCodec()
-    local result, code = run(
-        [=[
-@derive(nupp.derive.Serde)
-local struct Vec3
-    x: float
-    y: float
-    z: float
-end
-local witness: Type<Vec3> = Vec3
-local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(witness)
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(new Vec3(1.25, 2.5, 5.0))
-local value, problem = prepared:decode(text)
-return {text = text, y = value and value.y, problem = problem}
-]=]
-    )
-    assert(result.text == '{"x":1.25,"y":2.5,"z":5.0}', result.text)
-    assert(result.y == 2.5 and result.problem == nil, "struct serde did not round-trip")
-    assert(code:find("__derive.register", 1, true), "struct derive data was not registered")
-end
-
-function M.preparedDebugSharesRecordAndStructSerdeBindings()
-    local result, code = run(
-        [=[
-@derive(nupp.derive.Debug, nupp.derive.Serde)
-local record Credentials
-    user: string
-    @debug(redact = true)
-    password: string
-    @debug(skip = true)
-    cache: string
-end
-
-@derive(nupp.derive.Debug, nupp.derive.Serde)
-local struct Vec2
-    x: float
-    y: float
-end
-
-const serde = nupp.serde
-local binding = serde.of(Credentials)
-local prepared = serde.prepareDebug(binding)
-local again = serde.prepareDebug(binding)
-local value = new Credentials(user = "ada", password = "hunter2", cache = "cached")
-local output = require("nupp.text").newBuffer()
-prepared:write(value, output)
-local point = new Vec2(1.25, 2.5)
-return {
-    method = value:debug(),
-    prepared = prepared:format(value),
-    written = output:tostring(),
-    same = prepared == again,
-    structMethod = point:debug(),
-    structPrepared = serde.prepareDebug(serde.of(Vec2)):format(point),
-}
-]=]
-    )
-    local expected = 'Credentials { user = "ada", password = <redacted> }'
-    assert(
-        result.method == expected and result.prepared == expected and result.written == expected,
-        "record Debug paths did not share one plan"
-    )
-    assert(result.same == true, "prepared Debug was not cached on the binding")
-    assert(
-        result.structMethod == "Vec2 { x = 1.25, y = 2.5 }" and result.structPrepared == result.structMethod,
-        "struct Debug did not use its serde binding"
-    )
-    assert(not code:find("debugType", 1, true), "Debug emitted its obsolete per-field type recipe")
-    local _, serdeRecipes = code:gsub('%["serde"%]', "")
-    assert(serdeRecipes == 2, "Debug and Serde did not merge to one schema recipe per declaration")
-end
-
-function M.dynamicSchemasUseIndexedDebugMetadata()
-    local result = run(
-        [=[
-const serde = nupp.serde
-local label: nupp.serde.MetadataKey<string> = serde.metadataKey()
-local childBuilder = new serde.SchemaBuilder()
-childBuilder:structure("example.Profile")
-childBuilder:required("region", serde.string)
-local childSchema = childBuilder:freeze()
-local childBinding = serde.dynamic(childSchema)
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Credentials")
-builder:required("user", serde.string)
-builder:required("password", serde.string)
-builder:required("profile", childSchema)
-builder:optional("cache", serde.document)
-builder:metadata(label, "credentials")
-builder:memberMetadata("password", serde.debugRedact, true)
-builder:memberMetadata("cache", serde.debugSkip, true)
-local schema = builder:freeze()
-local binding = serde.dynamic(schema)
-local value = binding:bind{
-    user = "ada",
-    password = "hunter2",
-    profile = childBinding:bind{region = "us-east-1"},
-    cache = {1, 2},
-}
-local prepared = serde.prepareDebug(binding)
-local output = require("nupp.text").newBuffer()
-prepared:write(value, output)
-return {
-    formatted = prepared:format(value),
-    written = output:tostring(),
-    rootMetadata = schema:metadata(label),
-    redacted = schema:expectMember("password"):metadata(serde.debugRedact),
-}
-]=]
-    )
-    local expected = 'example.Credentials { user = "ada", password = <redacted>, '
-        .. 'profile = example.Profile { region = "us-east-1" } }'
-    assert(result.formatted == expected and result.written == expected, "dynamic Debug did not use the prepared schema")
-    assert(
-        result.rootMetadata == "credentials" and result.redacted == true,
-        "indexed schema metadata did not retain its typed values"
-    )
-end
-
-function M.debugOnlyBindingsStayInternal()
-    local result = run(
-        [=[
-@derive(nupp.derive.Debug)
-local record DebugOnly
-    value: integer
-end
-local ok, problem = pcall(function(): any
-    return nupp.serde.of(DebugOnly)
-end)
-return {debugged = (new DebugOnly(value = 7)):debug(), ok = ok, problem = tostring(problem)}
-]=]
-    )
-    assert(result.debugged == "DebugOnly { value = 7 }", result.debugged)
-    assert(
-        result.ok == false and result.problem:find("Serde was not derived", 1, true),
-        "Debug-only internal binding escaped through serde.of"
-    )
-end
-
 function M.schemaDebugPreservesWideIntegerSupport()
     local result = run(
         [=[
@@ -621,196 +63,6 @@ return (new Policies(shown = "yes", callback = noop, secretCallback = noop)):deb
     assert(result == 'Policies { shown = "yes", secretCallback = <redacted> }', result)
 end
 
-function M.recursiveContainersUseTheSameLogicalGraph()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Child
-    label: string
-end
-
-@derive(nupp.derive.Serde)
-local record Parent
-    child: Child
-    children: {Child}
-    values: {integer}
-end
-local binding = nupp.serde.of(Parent)
-local childSchema = binding:schema():expectMember("child").target as nupp.serde.Schema
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(
-    new Parent(
-        child = new Child(label = "nested"),
-        children = {new Child(label = "listed")},
-        values = {1, 2}
-    )
-)
-local value, problem = prepared:decode(text)
-return {
-    childKind = childSchema.kind,
-    childName = childSchema.name,
-    label = value and value.child.label,
-    listed = value and value.children[1].label,
-    second = value and value.values[2],
-    problem = problem,
-}
-]=]
-    )
-    assert(
-        result.childKind == "structure" and result.childName == "Child",
-        "nested declaration became an untyped document"
-    )
-    assert(
-        result.label == "nested" and result.listed == "listed" and result.second == 2 and result.problem == nil,
-        "nested prepared fallback did not preserve nominal values"
-    )
-end
-
-function M.recursiveContainerCanContainItsOwningRecord()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Node
-    name: string
-    children: {Node}
-end
-
-local binding = nupp.serde.of(Node)
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(new Node(
-    name = "root",
-    children = {new Node(name = "leaf", children = {})}
-))
-local restored, problem = prepared:decode(text)
-return {
-    text = text,
-    root = restored and restored.name,
-    leaf = restored and restored.children[1].name,
-    problem = problem,
-}
-]=]
-    )
-    assert(result.text == '{"name":"root","children":[{"name":"leaf","children":[]}]}', result.text)
-    assert(
-        result.root == "root" and result.leaf == "leaf" and result.problem == nil,
-        "recursive Serde round trip lost nominal values"
-    )
-end
-
-function M.oneSchemaSupportsNominalAndDynamicBindingsTogether()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Child
-    label: string
-end
-@derive(nupp.derive.Serde)
-local record Parent
-    child: Child
-    children: {Child}
-    values: {integer}
-end
-const serde = nupp.serde
-local nominal = serde.of(Parent)
-local childSchema = nominal:schema():expectMember("child").target as nupp.serde.Schema
-local dynamicChild = serde.dynamic(childSchema)
-local dynamicParent = serde.dynamic(nominal:schema())
-local codec = nupp.codec.json.newCodec()
-local nominalPrepared = codec:prepare(nominal)
-local dynamicPrepared = codec:prepare(dynamicParent)
-local nominalText = nominalPrepared:encode(
-    new Parent(
-        child = new Child(label = "nominal"),
-        children = {new Child(label = "nominal-list")},
-        values = {1, 2}
-    )
-)
-local dynamicText = dynamicPrepared:encode(dynamicParent:bind{
-    child = dynamicChild:bind{label = "dynamic"},
-    children = {dynamicChild:bind{label = "dynamic-list"}},
-    values = {3, 4},
-})
-local nominalValue = assert(nominalPrepared:decode(nominalText))
-local dynamicValue = assert(dynamicPrepared:decode(dynamicText))
-local child = dynamicValue:get("child") as nupp.serde.DynamicValue
-return {
-    nominal = nominalValue.child.label,
-    dynamic = child:get("label"),
-    dynamicList = (dynamicValue:get("children")[1] as nupp.serde.DynamicValue):get("label"),
-    second = dynamicValue:get("values")[2],
-}
-]=]
-    )
-    assert(
-        result.nominal == "nominal"
-        and result.dynamic == "dynamic"
-        and result.dynamicList == "dynamic-list"
-        and result.second == 4,
-        "one logical schema did not preserve its separate physical bindings"
-    )
-end
-
-function M.typedExtensionsComputeOnce()
-    local result = run(
-        [=[
-local calls = 0
-local key = nupp.reflect.extensionKey(function(schema: any): string
-    calls = calls + 1
-    return schema.name
-end)
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Extension")
-local schema = builder:freeze()
-return {first = schema:extension(key), second = schema:extension(key), calls = calls}
-]=]
-    )
-    assert(
-        result.first == "example.Extension" and result.second == result.first,
-        "typed extension returned the wrong value"
-    )
-    assert(result.calls == 1, "typed extension was recomputed")
-end
-
-function M.typedExtensionSlotsSeparateKeysAndHosts()
-    local result = run(
-        [=[
-local leftCalls = 0
-local rightCalls = 0
-local left = nupp.reflect.extensionKey(function(schema: any): string
-    leftCalls = leftCalls + 1
-    return "left:" .. schema.name
-end)
-local right = nupp.reflect.extensionKey(function(schema: any): string
-    rightCalls = rightCalls + 1
-    return "right:" .. schema.name
-end)
-const serde = nupp.serde
-local firstBuilder = new serde.SchemaBuilder()
-firstBuilder:structure("First")
-local first = firstBuilder:freeze()
-local secondBuilder = new serde.SchemaBuilder()
-secondBuilder:structure("Second")
-local second = secondBuilder:freeze()
-return {
-    left = first:extension(left),
-    leftAgain = first:extension(left),
-    right = first:extension(right),
-    otherHost = second:extension(left),
-    leftCalls = leftCalls,
-    rightCalls = rightCalls,
-}
-]=]
-    )
-    assert(
-        result.left == "left:First" and result.leftAgain == result.left,
-        "one extension slot did not retain its value"
-    )
-    assert(result.right == "right:First", "extension slots collided on one host")
-    assert(result.otherHost == "left:Second", "extension slots leaked between hosts")
-    assert(result.leftCalls == 2 and result.rightCalls == 1, "extension providers did not run once per host and slot")
-end
-
 function M.typedExtensionKeysKeepTheirValueType()
     local problems = diagnostics(
         [=[
@@ -836,193 +88,194 @@ print(narrowed)
     )
 end
 
-function M.metadataKeysKeepTheirValueType()
+-- Schema/model-specific contracts are exercised by serdecontracttest, including
+-- indexed values, documents, extension identity, ownership, and persistence.
+local imports = [[
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+]]
+
+function M.declarationBindingsAreLazyAndCached()
+    local result = run(
+        imports
+        .. [[
+local record User
+    id: uint32
+    active: boolean
+    name: string?
+end
+local binding = serde.binding(User)
+local codec = json.codec()
+local encoded = codec:encode(binding, new User(id = 41, active = false))
+local restored = codec:decode(binding, encoded)
+return {same = binding == serde.binding(User), encoded = encoded,
+    id = restored.id, active = restored.active, name = restored.name,
+    nominal = getmetatable(restored) == User}
+]]
+    )
+    assert(result.same and result.nominal)
+    assert(result.encoded == '{"id":41,"active":false,"name":null}', result.encoded)
+    assert(result.id == 41 and result.active == false and result.name == nil)
+end
+
+function M.rejectsMalformedAndOutOfRangeValues()
+    local result = run(
+        imports
+        .. [=[
+local record Value
+    id: uint32
+    active: boolean
+end
+local binding = serde.binding(Value)
+local rejected = 0
+for _, input in ipairs({
+    '{"id":0}', '{"id":-1,"active":true}', '{"id":4294967296,"active":true}',
+    '{"id":1.5,"active":true}', '{"id":"1","active":true}',
+    '{"id":1,"active":true,"id":2}', '{"id":1,"active":true,"extra":0}',
+    '{"id":1,"active":true} trailing', '{"id":1,"active":true,}',
+}) do
+    local ok, problem = pcall(json.decode, binding, input)
+    assert(not ok and tostring(problem) ~= "")
+    rejected += 1
+end
+local first = json.decode(binding, '{"id":4294967295,"active":false}')
+return {rejected = rejected, max = first.id}
+]=]
+    )
+    assert(result.rejected == 9 and result.max == 4294967295)
+end
+
+function M.nonFiniteMembersAreRefused()
+    assert(
+        run(
+            imports
+            .. [[
+local record Value value: number end
+local binding = serde.binding(Value)
+for _, value in ipairs({math.huge, -math.huge, 0 / 0}) do
+    assert(not pcall(json.encode, binding, new Value(value = value)))
+end
+return true
+]]
+        )
+    )
+end
+
+function M.structsUseTheSameWitnessAndCodec()
+    local result = run(
+        imports
+        .. [[
+local struct Vec3 x: float y: float z: float end
+local witness: Type<Vec3> = Vec3
+local binding = serde.binding(witness)
+local bytes = json.encode(binding, new Vec3(1.25, 2.5, 5.0))
+local value = json.decode(binding, bytes)
+return {bytes = bytes, y = value.y}
+]]
+    )
+    assert(result.bytes == '{"x":1.25,"y":2.5,"z":5}' and result.y == 2.5, result.bytes)
+end
+
+function M.recursiveContainersRestoreNominalValues()
+    local result = run(
+        imports
+        .. [[
+local record Node
+    name: string
+    children: {Node}
+end
+local binding = serde.binding(Node)
+local bytes = json.encode(binding, new Node(name = "root", children = {new Node(name = "leaf", children = {})}))
+local restored = json.decode(binding, bytes)
+return {bytes = bytes, leaf = restored.children[1].name,
+    nominal = getmetatable(restored.children[1]) == Node}
+]]
+    )
+    assert(result.bytes == '{"name":"root","children":[{"name":"leaf","children":[]}]}', result.bytes)
+    assert(result.leaf == "leaf" and result.nominal)
+end
+
+function M.policiesAreLocalToTheBinding()
+    local result = run(
+        imports
+        .. [[
+local record User
+    userId: integer
+    secret: string = "private"
+    labels: {string} = {}
+end
+local selected = serde.binding(User, new serde.Options(fields = {
+    userId = new serde.FieldOptions(name = "id"),
+    labels = new serde.FieldOptions(omitEmpty = true),
+}, unknownMembers = "ignore"))
+local value = new User(userId = 7)
+local first = json.decode(selected, '{"id":1,"extra":[null,true]}')
+local second = json.decode(selected, '{"id":2}')
+first.labels[1] = "changed"
+return {selected = json.encode(selected, value), ordinary = json.encode(serde.binding(User), value),
+    secret = second.secret, fresh = #second.labels == 0}
+]]
+    )
+    assert(result.selected == '{"id":7}' and result.secret == "private" and result.fresh)
+    assert(result.ordinary == '{"userId":7,"secret":"private","labels":[]}', result.ordinary)
+end
+
+function M.debugDoesNotAuthorizeOrRestrictSerialization()
+    local result = run(
+        imports
+        .. [[
+@derive(nupp.derive.Debug)
+local record Credentials
+    user: string
+    @debug(redact = true)
+    password: string
+end
+local value = new Credentials(user = "Ada", password = "secret")
+return {shown = value:debug(), bytes = json.encode(serde.binding(Credentials), value)}
+]]
+    )
+    assert(result.shown == 'Credentials { user = "Ada", password = <redacted> }', result.shown)
+    assert(result.bytes == '{"user":"Ada","password":"secret"}', result.bytes)
+end
+
+function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
+    local result = run(
+        imports
+        .. [[
+local record User id: integer end
+local binding = serde.binding(User)
+local buffer = require("nupp.text").newBuffer()
+buffer:put("prefix:")
+json.write(binding, new User(id = 7), buffer)
+local first = buffer:get()
+local writer = nupp.codec.json.newWriter(buffer)
+writer:startArray()
+json.writeValue(binding, new User(id = 8), writer)
+json.writeValue(binding, new User(id = 9), writer)
+writer:endArray()
+writer:close()
+return {first = first, embedded = buffer:get()}
+]]
+    )
+    assert(result.first == 'prefix:{"id":7}' and result.embedded == '[{"id":8},{"id":9}]')
+end
+
+function M.bindingsKeepTheirValueType()
     local problems = diagnostics(
-        [=[
-local label: nupp.serde.MetadataKey<string> = nupp.serde.metadataKey()
-local narrowed: nupp.serde.MetadataKey<integer> = label
-print(narrowed)
-]=]
+        imports
+        .. [[
+local record Left value: string end
+local record Right value: string end
+local left: serde.Binding<Left> = serde.binding(Left)
+local wrong: serde.Binding<Right> = left
+return wrong
+]]
     )
-    local first
+    local found = false
     for _, problem in ipairs(problems) do
-        if problem.severity ~= "warning" and problem.severity ~= "note" then
-            first = problem
-            break
-        end
+        found = found or problem.code == "NUPP2001"
     end
-    assert(first and first.code == "NUPP2001", "a metadata key was narrowed to another value type")
-end
-
-function M.persistedKeysTakeTheirTypeFromTheBinding()
-    local problems = diagnostics(
-        [=[
-@derive(nupp.derive.Serde)
-local record Settings
-    volume: number
-end
-const serde = nupp.serde
-local settings = serde.key("fixture.persisted.settings", serde.of(Settings))
-local store = nupp.util.newStore()
-store:set(settings, new Settings(volume = 0.5))
-store:set(settings, "loud")
-local widened: nupp.util.Key<string> = settings
-print(widened)
-]=]
-    )
-    local found = {}
-    for _, problem in ipairs(problems) do
-        if problem.severity ~= "warning" and problem.severity ~= "note" then
-            found[#found + 1] = problem.code
-        end
-    end
-    assert(
-        found[1] == "NUPP2006" and found[2] == "NUPP2001" and found[3] == nil,
-        "a binding-declared key did not fix its value type: " .. table.concat(found, ",")
-    )
-end
-
-function M.storesRoundTripThroughPlainValues()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Settings
-    volume: number
-    fullscreen: boolean
-end
-const serde = nupp.serde
-local settings = serde.key("test.persisted.settings", serde.of(Settings))
-local sourceStore = nupp.util.newStore()
-sourceStore:set(settings, new Settings(volume = 0.5, fullscreen = false))
-local saved = serde.saveStore(sourceStore)
-local text = nupp.codec.json.encode(saved)
-local restored = nupp.util.newStore()
-serde.loadStore(restored, assert(nupp.codec.json.decode(text)) as {[string]: any})
-local back = restored:get(settings)
-local decoded = assert(nupp.codec.json.decode(text)) as {[string]: any}
-return {
-    plainVolume = saved["test.persisted.settings"].volume,
-    textVolume = decoded["test.persisted.settings"].volume,
-    textFullscreen = decoded["test.persisted.settings"].fullscreen,
-    volume = back and back.volume,
-    fullscreen = back and back.fullscreen,
-    typed = back ~= nil and getmetatable(back) == getmetatable(sourceStore:get(settings)),
-}
-]=]
-    )
-    assert(result.plainVolume == 0.5, "saveStore did not write a plain value")
-    assert(
-        result.textVolume == 0.5 and result.textFullscreen == false,
-        "the saved store did not encode under its key name"
-    )
-    assert(result.volume == 0.5 and result.fullscreen == false, "loadStore did not restore the value")
-    assert(result.typed, "loadStore did not restore the record type")
-end
-
-function M.savingRejectsKeysWithoutABinding()
-    local result = run(
-        [=[
-@derive(nupp.derive.Serde)
-local record Settings
-    volume: number
-end
-const serde = nupp.serde
-local settings = serde.key("test.persisted.unbound.settings", serde.of(Settings))
-local plain: nupp.util.Key<integer> = nupp.util.newKey("test.persisted.unbound.plain")
-local anonymous: nupp.util.Key<integer> = nupp.util.newKey(nil)
-local function saving(store: nupp.util.Store): (boolean, any)
-    return pcall(function(): {[string]: any}
-        return serde.saveStore(store)
-    end)
-end
-local store = nupp.util.newStore()
-store:set(settings, new Settings(volume = 1))
-local okBound = saving(store)
-store:set(plain, 1)
-local okPlain, whyPlain = saving(store)
-store:remove(plain)
-store:set(anonymous, 1)
-local okAnonymous, whyAnonymous = saving(store)
-return {okBound = okBound, okPlain = okPlain, whyPlain = tostring(whyPlain),
-    okAnonymous = okAnonymous, whyAnonymous = tostring(whyAnonymous)}
-]=]
-    )
-    assert(result.okBound == true, "a store of bound keys did not save")
-    assert(
-        result.okPlain == false and result.whyPlain:find("test.persisted.unbound.plain has no binding", 1, true),
-        "an unbound key was saved: " .. result.whyPlain
-    )
-    assert(
-        result.okAnonymous == false and result.whyAnonymous:find("key #", 1, true),
-        "an anonymous key was saved: " .. result.whyAnonymous
-    )
-end
-
-function M.loadingRejectsUnregisteredNames()
-    local result = run(
-        [=[
-const serde = nupp.serde
-local store = nupp.util.newStore()
-local plain: nupp.util.Key<integer> = nupp.util.newKey("test.persisted.load.plain")
-local function loading(saved: {[string]: any}): (boolean, any)
-    return pcall(function(): nil
-        serde.loadStore(store, saved)
-    end)
-end
-local okMissing, whyMissing = loading({["test.persisted.load.missing"] = {}})
-local okPlain, whyPlain = loading({["test.persisted.load.plain"] = 1})
-return {okMissing = okMissing, whyMissing = tostring(whyMissing), okPlain = okPlain, whyPlain = tostring(whyPlain),
-    untouched = store:get(plain) == nil}
-]=]
-    )
-    assert(
-        result.okMissing == false and result.whyMissing:find("is not registered", 1, true),
-        "an unregistered name loaded: " .. result.whyMissing
-    )
-    assert(
-        result.okPlain == false and result.whyPlain:find("has no binding to load", 1, true),
-        "a key without a binding loaded: " .. result.whyPlain
-    )
-    assert(result.untouched, "a rejected load wrote the store")
-end
-
-function M.recordOnlyDerivesStayRecordOnly()
-    local problems = diagnostics([=[
-@derive(nupp.derive.JSON)
-local struct NotJson
-    value: int32
-end
-]=])
-    assert(
-        problems[1] and problems[1].code == "NUPP2806" and problems[1].msg:find("only for records", 1, true),
-        "general struct derive attachment broadened JSON"
-    )
-end
-
-function M.structPointersRequireAnExplicitAdapter()
-    local problems = diagnostics([=[
-@derive(nupp.derive.Serde)
-local struct Borrowed
-    value: int32*
-end
-]=])
-    assert(
-        problems[1] and problems[1].code == "NUPP2803" and problems[1].msg:find("not supported by Serde", 1, true),
-        "Serde guessed pointer ownership"
-    )
-end
-
-function M.serdeRejectsNullableListElements()
-    local problems = diagnostics([=[
-@derive(nupp.derive.Serde)
-local record Sparse
-    values: {integer?}
-end
-]=])
-    assert(
-        problems[1] and problems[1].code == "NUPP2803" and problems[1].msg:find("not supported by Serde", 1, true),
-        "Serde admitted list elements that materialize as holes"
-    )
+    assert(found, "a binding was assigned a different nominal value type")
 end
 
 return M

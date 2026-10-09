@@ -1213,17 +1213,16 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2806",
-        summary = "A record does not describe a supported JSON schema",
-        rule = "Derived JSON needs a closed supported field graph and consistent JSON "
-        .. "options. Rename duplicate keys, default omitted fields, avoid erased generic "
-        .. "records and unsupported values, and do not use int64 or uint64 as JSON numbers.",
+        summary = "A retired JSON derive rejected its schema",
+        rule = "This diagnostic belonged to the retired JSON derive. Select an explicit "
+        .. "serialization binding and codec; use nupp migrate for supported local declarations.",
         related = {"NUPP2001"},
-        docs = "docs/reference/derives.md#json",
+        docs = "docs/learn/runtime/data/serde.md#migration",
     },
     {
         code = "NUPP2807",
         summary = "A derive dependency cycle has no valid lowering",
-        rule = "Recursive Debug and JSON graphs are supported. A package provider "
+        rule = "Recursive Debug graphs are supported. A package provider "
         .. "dependency cycle must still reduce to a closed recipe rather than require "
         .. "another unfinished provider result.",
         related = {"NUPP2803", "NUPP2806", "NUPP2810"},

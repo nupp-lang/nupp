@@ -1,0 +1,205 @@
+module nupp.serde.jsondocument
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local syntax = require("nupp.serde.jsonsyntax")
+
+export record Name is core.WireField
+    @readonly name: string
+    function diagnosticLabel(self): string
+        return self.name
+    end
+end
+
+export function name(field: core.WireField): string
+    if getmetatable(field) ~= Name then
+        error("field identity is not a JSON name", 2)
+    end
+    return (field as Name).name
+end
+
+export record Contents is core.DocumentReader
+    @private @readonly cursor: syntax.Cursor
+    @private @readonly sourceContext: core.Context?
+    @private expired: boolean
+
+    function live(self): nil
+        if self.expired then
+            error("document reader scope has expired", 2)
+        end
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.sourceContext
+    end
+
+    function kind(self): core.Kind
+        self:live()
+        local token = self.cursor:peek()
+        if token == "object" then
+            return "structure"
+        elseif token == "array" then
+            return "list"
+        elseif token == "number" then
+            return "numberToken"
+        else
+            return token
+        end
+    end
+
+    function readNull(exclusive self): nil
+        self:live()
+        self.cursor:readNull()
+    end
+
+    function readBoolean(exclusive self): boolean
+        self:live()
+        return self.cursor:readBoolean()
+    end
+
+    function readNumberToken(exclusive self): string
+        self:live()
+        return self.cursor:readNumber()
+    end
+
+    function readString(exclusive self): string
+        self:live()
+        return self.cursor:readString()
+    end
+
+    function readBytes(exclusive self): string
+        error("JSON bytes require model context", 2)
+    end
+
+    function readTimestamp(exclusive self): core.Timestamp
+        error("JSON timestamps require model context", 2)
+    end
+
+    function readInteger(exclusive self): core.Integer
+        error("JSON integer width requires model context", 2)
+    end
+
+    function readDecimal(exclusive self): core.Decimal
+        error("JSON decimal interpretation requires model context", 2)
+    end
+
+    function readFloat(exclusive self): core.Float
+        error("JSON float width requires model context", 2)
+    end
+
+    function readBigInteger(exclusive self): string
+        error("JSON big integer interpretation requires model context", 2)
+    end
+
+    function readAtom(exclusive self): core.Atom
+        error("JSON atoms require model context", 2)
+    end
+
+    function readDocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        error("JSON document boundaries require model context", 2)
+    end
+
+    function readTuple<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
+        error("JSON tuples require model context", 2)
+    end
+
+    function readUnion<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
+        error("JSON unions require model context", 2)
+    end
+
+    function readMap<S>(exclusive self, exclusive state: S, consume: core.DocumentEntry<S>): nil
+        error("JSON typed maps require model context", 2)
+    end
+
+    function readList<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
+        self:live()
+        self.cursor:start("array")
+        local index: integer = 0
+        while self.cursor:nextElement() do
+            index += 1
+            local mark = self.cursor:mark()
+            local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+            local ok, problem = pcall(consume.apply, consume, state, index, child)
+            child.expired = true
+            if not ok then
+                error(problem, 0)
+            end
+            self.cursor:consumed(mark)
+        end
+    end
+
+    function readStruct<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
+        self:live()
+        self.cursor:start("object")
+        while true do
+            local key = self.cursor:nextKey()
+            if key == nil then
+                break
+            end
+            local mark = self.cursor:mark()
+            local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+            local ok, problem = pcall(consume.apply, consume, state, key, child)
+            child.expired = true
+            if not ok then
+                error(problem, 0)
+            end
+            self.cursor:consumed(mark)
+        end
+    end
+
+    function expire(self): nil
+        self.expired = true
+    end
+end
+
+export record Unknown is core.UnknownReader
+    @private @readonly cursor: syntax.Cursor
+    @private @readonly sourceContext: core.Context?
+    @private expired: boolean
+    @private used: boolean
+
+    function live(self): nil
+        if self.expired then
+            error("unknown reader scope has expired", 2)
+        end
+        if self.used then
+            error("unknown value has already been consumed", 2)
+        end
+        self.used = true
+    end
+
+    function skipValue(exclusive self): nil
+        self:live()
+        self.cursor:skipValue()
+    end
+
+    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        local mark = self.cursor:mark()
+        local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+        local ok, result = pcall(adapter.readContents, adapter, child)
+        child:expire()
+        if not ok then
+            error(result, 0)
+        end
+        local complete, problem = pcall(self.cursor.consumed, self.cursor, mark)
+        if not complete then
+            error(publication.failure(adapter, result as D, problem), 0)
+        end
+
+        return result as D
+    end
+
+    function expire(self): nil
+        self.expired = true
+    end
+end
+
+export function contents(cursor: syntax.Cursor, context: core.Context?): Contents
+    return new Contents(cursor = cursor, sourceContext = context, expired = false)
+end
+
+export function unknown(cursor: syntax.Cursor, context: core.Context?): Unknown
+    return new Unknown(cursor = cursor, sourceContext = context, expired = false, used = false)
+end

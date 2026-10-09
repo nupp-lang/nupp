@@ -207,6 +207,9 @@ function typewitness.collect(root: any, exports: any?): any
         if node.exported and node.kind == "recordDecl" then
             mark(node.resolvedType or node.hoistedType)
         end
+        for _, subject in ipairs(node.deriveWitnesses or {}) do
+            mark(subject)
+        end
         local static = parent
             and parent.obj == node
             and (

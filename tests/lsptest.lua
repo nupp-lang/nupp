@@ -349,8 +349,10 @@ function M.bareLspPrintsHelpAndServingIsSpelledServe()
         )
         local out = pipe:read("*a")
         pipe:close()
+
         return out
     end
+
     local bare = run("lsp")
     assert(bare:find("__exit__:0", 1, true), "bare lsp exits cleanly: " .. bare)
     assert(bare:find("Commands:", 1, true) and bare:find("serve", 1, true), "bare lsp prints help: " .. bare)
@@ -454,7 +456,10 @@ function M.positionsAgreeWithAScanFromTheStart()
     -- surrogate pair, so the `w` after it and a space is at character 10, not 9.
     local wide = source:find("wide", 1, true)
     local at = text.positionAtOffset(source, wide)
-    assert(at.line == 1 and at.character == 10, ("a surrogate pair is two units: got %d:%d"):format(at.line, at.character))
+    assert(
+        at.line == 1 and at.character == 10,
+        ("a surrogate pair is two units: got %d:%d"):format(at.line, at.character)
+    )
     assert(text.offsetAtPosition(source, {line = 1, character = 10}) == wide, "and counts as two on the way back")
     assert(text.offsetAtPosition(source, {line = 9, character = 0}) == nil, "a line past the end is nothing")
     assert(
@@ -480,11 +485,17 @@ function M.aLoneCarriageReturnEndsALine()
     local returned = source:find("return", 1, true)
     assert(text.positionAtOffset(source, returned).line == 3, "LF after the CR-ended line is one break")
     assert(
-        text.offsetAtPosition(source, {line = 1, character = 99}) == source:find("\rlocal", 1, true),
+        text.offsetAtPosition(source, {
+            line = 1,
+            character = 99
+        }) == source:find("\rlocal", 1, true),
         "a character past the end stops at the break"
     )
     assert(
-        text.offsetAtPosition(source, {line = 0, character = 99}) == source:find("\r\n", 1, true),
+        text.offsetAtPosition(source, {
+            line = 0,
+            character = 99
+        }) == source:find("\r\n", 1, true),
         "a CRLF line stops at its CR"
     )
     local lines = text.splitLines(source)
@@ -1289,7 +1300,12 @@ function M.theLaunchRootAndTheClientFolderAreOneFolder()
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
             params = {
-                textDocument = {uri = uri, languageId = "nupp", version = 1, text = 'local b = require("b")\nreturn b + 1\n'}
+                textDocument = {
+                    uri = uri,
+                    languageId = "nupp",
+                    version = 1,
+                    text = 'local b = require("b")\nreturn b + 1\n'
+                }
             }
         },
         {jsonrpc = "2.0", id = 2, method = "shutdown"},
@@ -1385,28 +1401,38 @@ function M.aotRefusalsArePublishedForATargetThatLowers()
     local refused = "@aot\nlocal function rest(source: string, from: integer): string\n"
         .. "    return source:sub(from)\nend\nreturn {rest = rest}\n"
     local admitted = "@aot\nlocal function rest(from: integer): integer\n    return from\nend\nreturn {rest = rest}\n"
+
     local function published(policy)
         local dir = makeDir()
-        writeInto(dir, "nupp.lua", ('return {include = {"."}, build = {targets = {app = {kind = "modules", '
-            .. 'aot = %q, aotTarget = "aarch64-apple-darwin"}}}}\n'):format(policy))
+        writeInto(
+            dir,
+            "nupp.lua",
+            (
+                'return {include = {"."}, build = {targets = {app = {kind = "modules", '
+                .. 'aot = %q, aotTarget = "aarch64-apple-darwin"}}}}\n'
+            ):format(policy)
+        )
         writeInto(dir, "method.nupp", refused)
         local uri = fileUri(dir .. "/method.nupp")
-        local out = runSession({
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = fileUri(dir), capabilities = {}}},
-            {jsonrpc = "2.0", method = "initialized", params = {}},
+        local out = runSession(
             {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = refused}}
+                {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = fileUri(dir), capabilities = {}}},
+                {jsonrpc = "2.0", method = "initialized", params = {}},
+                {
+                    jsonrpc = "2.0",
+                    method = "textDocument/didOpen",
+                    params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = refused}}
+                },
+                {
+                    jsonrpc = "2.0",
+                    method = "textDocument/didChange",
+                    params = {textDocument = {uri = uri, version = 2}, contentChanges = {{text = admitted}}}
+                },
+                {jsonrpc = "2.0", id = 2, method = "shutdown"},
+                {jsonrpc = "2.0", method = "exit"},
             },
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didChange",
-                params = {textDocument = {uri = uri, version = 2}, contentChanges = {{text = admitted}}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        }, dir)
+            dir
+        )
         os.execute("rm -rf '" .. dir .. "'")
 
         return diagnosticsFor(out, uri), out
@@ -1415,7 +1441,10 @@ function M.aotRefusalsArePublishedForATargetThatLowers()
     local lowered, out = published("require")
     assert(#lowered >= 2, "published on open and on change: " .. out)
     local first = lowered[1][1]
-    assert(first and first.code == "NUPP2905" and #lowered[1] == 1, "the refusal is published: " .. json.encode(lowered[1]))
+    assert(
+        first and first.code == "NUPP2905" and #lowered[1] == 1,
+        "the refusal is published: " .. json.encode(lowered[1])
+    )
     assert(first.range.start.line == 2 and first.range.start.character == 11, json.encode(first.range))
     assert(first.range["end"].character == 17, "the range covers the receiver: " .. json.encode(first.range))
     assert(first.severity == 1, "as an error, since the build fails on it")
@@ -2602,47 +2631,66 @@ function M.refusesARenameThatWouldRebindAName()
         {
             name = "silent.nupp",
             source = "local function first(): string\n    return \"first\"\nend\n\n"
-                .. "local function second(): string\n    return \"second\"\nend\n\n"
-                .. "print(first(), second())\n",
-            line = 0, character = 15, newName = "second", refused = true,
+            .. "local function second(): string\n    return \"second\"\nend\n\n"
+            .. "print(first(), second())\n",
+            line = 0,
+            character = 15,
+            newName = "second",
+            refused = true,
         },
         -- an inner binding captures a use of the renamed function
         {
             name = "inner.nupp",
             source = "local function greet(name: string): string\n    return \"hi \" .. name\nend\n\n"
-                .. "local function other(): string\n    local hello = \"x\"\n    return greet(hello)\nend\n\n"
-                .. "print(greet(\"x\"), other())\n",
-            line = 0, character = 15, newName = "hello", refused = true,
+            .. "local function other(): string\n    local hello = \"x\"\n    return greet(hello)\nend\n\n"
+            .. "print(greet(\"x\"), other())\n",
+            line = 0,
+            character = 15,
+            newName = "hello",
+            refused = true,
         },
         -- the renamed declaration shadows a use of an earlier one in its scope
         {
             name = "same.nupp",
             source = "local a = 1\nlocal b = 2\nprint(a, b)\n",
-            line = 1, character = 6, newName = "a", refused = true,
+            line = 1,
+            character = 6,
+            newName = "a",
+            refused = true,
         },
         -- a global the renamed function's scope would hide
         {
             name = "global.nupp",
             source = "local function show(): string\n    return \"x\"\nend\n\nprint(show())\n",
-            line = 0, character = 15, newName = "print", refused = true,
+            line = 0,
+            character = 15,
+            newName = "print",
+            refused = true,
         },
         -- the same name bound in an unrelated scope is no conflict
         {
             name = "unrelated.nupp",
             source = "local function f(): integer\n    local x = 1\n    return x\nend\n\n"
-                .. "local function g(): integer\n    local y = 2\n    return y\nend\n\nprint(f(), g())\n",
-            line = 6, character = 10, newName = "x", refused = false,
+            .. "local function g(): integer\n    local y = 2\n    return y\nend\n\nprint(f(), g())\n",
+            line = 6,
+            character = 10,
+            newName = "x",
+            refused = false,
         },
     }
     local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}}}
     for index, case in ipairs(cases) do
         case.uri = fileUri(projectDir .. "/" .. case.name)
-        messages[#messages + 1] = {
+        messages[
+            #messages + 1
+        ] = {
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
             params = {textDocument = {uri = case.uri, languageId = "nupp", version = 1, text = case.source}}
         }
-        messages[#messages + 1] = {
+        messages[
+            #messages + 1
+        ] = {
             jsonrpc = "2.0",
             id = 10 + index,
             method = "textDocument/rename",
@@ -4383,10 +4431,17 @@ end
 -- project file that spells it, opened or not.
 function M.workspaceSymbolsFindFunctionsAcrossTheProject()
     local projectDir = makeDir()
-    writeInto(projectDir, "greet.nupp", "--- Greets.\nlocal function greet(name: string): string\n"
-        .. "    return \"Hello, \" .. name\nend\n\nreturn {greet = greet}\n")
-    writeInto(projectDir, "tools.nupp", "local tools = {}\n\nfunction tools.greeting(): string\n"
-        .. "    return \"hi\"\nend\n\nreturn tools\n")
+    writeInto(
+        projectDir,
+        "greet.nupp",
+        "--- Greets.\nlocal function greet(name: string): string\n"
+        .. "    return \"Hello, \" .. name\nend\n\nreturn {greet = greet}\n"
+    )
+    writeInto(
+        projectDir,
+        "tools.nupp",
+        "local tools = {}\n\nfunction tools.greeting(): string\n" .. "    return \"hi\"\nend\n\nreturn tools\n"
+    )
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -4404,8 +4459,10 @@ function M.workspaceSymbolsFindFunctionsAcrossTheProject()
     end
     local greet = assert(found.greet, "a local function is found: " .. out)
     assert(greet.kind == 12 and greet.location.uri:match("greet%.nupp$"), "as a function, where it is declared")
-    assert(greet.location.range.start.line == 1 and greet.location.range.start.character == 15,
-        "at its name: " .. json.encode(greet.location.range))
+    assert(
+        greet.location.range.start.line == 1 and greet.location.range.start.character == 15,
+        "at its name: " .. json.encode(greet.location.range)
+    )
     assert(found["tools.greeting"], "and so is a module member, by its qualified name")
 end
 
@@ -4539,20 +4596,21 @@ end
 
 function M.generatedMembersHaveEditorIdentityAndProvenance()
     local projectDir = tempProject()
-    local source = [[@derive(nupp.derive.Debug, nupp.derive.JSON)
+    local providerFile = assert(io.open(HERE .. "/fixtures/deriveeditor.nupp", "rb"))
+    local providerSource = providerFile:read("*a")
+    providerFile:close()
+    writeFile(projectDir .. "/deriveeditor.nupp", providerSource)
+    local source = [[local provider = require("deriveeditor")
+@derive(nupp.derive.Debug, provider.derive)
 local record Model
     value: integer = 0
 end
 local model = new Model()
-local out = string.buffer.new()
-local writer = nupp.codec.json.newWriter(out)
-model:writeJSON(writer)
-writer:close()
-local json = out:tostring()
-local restored, why = Model.fromJSON(json)
-local codec = Model.fieldCodec()
+local inspected = model:inspect()
+local kind = Model.kind()
+local fields = Model.fields()
 local shown = model:debug()
-return restored, why, codec, shown
+return inspected, kind, fields, shown
 ]]
     writeFile(projectDir .. "/model.nupp", source)
     local uri = fileUri(projectDir .. "/model.nupp")
@@ -4575,25 +4633,25 @@ return restored, why, codec, shown
                 jsonrpc = "2.0",
                 id = 10,
                 method = "textDocument/hover",
-                params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1)}
+                params = {textDocument = {uri = uri}, position = at("inspect()", 1)}
             },
             {
                 jsonrpc = "2.0",
                 id = 11,
                 method = "nupp/inspect",
-                params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1)}
+                params = {textDocument = {uri = uri}, position = at("inspect()", 1)}
             },
             {
                 jsonrpc = "2.0",
                 id = 12,
                 method = "textDocument/definition",
-                params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1)}
+                params = {textDocument = {uri = uri}, position = at("inspect()", 1)}
             },
             {
                 jsonrpc = "2.0",
                 id = 13,
                 method = "textDocument/definition",
-                params = {textDocument = {uri = uri}, position = at("fromJSON(json)", 1)}
+                params = {textDocument = {uri = uri}, position = at("kind()", 1)}
             },
             {
                 jsonrpc = "2.0",
@@ -4601,7 +4659,7 @@ return restored, why, codec, shown
                 method = "textDocument/references",
                 params = {
                     textDocument = {uri = uri},
-                    position = at("writeJSON(writer)", 1),
+                    position = at("inspect()", 1),
                     context = {includeDeclaration = true}
                 }
             },
@@ -4609,36 +4667,32 @@ return restored, why, codec, shown
                 jsonrpc = "2.0",
                 id = 15,
                 method = "textDocument/references",
-                params = {
-                    textDocument = {uri = uri},
-                    position = at("fromJSON(json)", 1),
-                    context = {includeDeclaration = true}
-                }
+                params = {textDocument = {uri = uri}, position = at("kind()", 1), context = {includeDeclaration = true}}
             },
             {
                 jsonrpc = "2.0",
                 id = 16,
                 method = "textDocument/completion",
-                params = {textDocument = {uri = uri}, position = at("Model.fromJSON", #"Model.")}
+                params = {textDocument = {uri = uri}, position = at("Model.kind", #"Model.")}
             },
             {
                 jsonrpc = "2.0",
                 id = 17,
                 method = "textDocument/completion",
-                params = {textDocument = {uri = uri}, position = at("model:writeJSON", #"model:")}
+                params = {textDocument = {uri = uri}, position = at("model:inspect", #"model:")}
             },
             {jsonrpc = "2.0", id = 18, method = "textDocument/documentSymbol", params = {textDocument = {uri = uri}}},
             {
                 jsonrpc = "2.0",
                 id = 19,
                 method = "textDocument/rename",
-                params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1), newName = "encode"}
+                params = {textDocument = {uri = uri}, position = at("inspect()", 1), newName = "encode"}
             },
             {
                 jsonrpc = "2.0",
                 id = 20,
                 method = "textDocument/prepareRename",
-                params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1)}
+                params = {textDocument = {uri = uri}, position = at("inspect()", 1)}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
@@ -4650,11 +4704,11 @@ return restored, why, codec, shown
     local hoverResponse = responseWithId(out, 10)
     assert(hoverResponse.result, "generated hover failed: " .. json.encode(hoverResponse))
     local hover = hoverResponse.result.contents.value
-    assertContains(hover, "Generated by `@derive(nupp.derive.JSON)` for `Model`", "generated hover")
+    assertContains(hover, "Generated by `@derive(provider.derive)` for `Model`", "generated hover")
     assertContains(hover, "Recipe fingerprint:", "generated hover fingerprint")
     local inspected = responseWithId(out, 11).result
     assert(
-        inspected.generatedBy == "nupp.derive.JSON" and inspected.generatedOwner == "Model",
+        inspected.generatedBy == "provider.derive" and inspected.generatedOwner == "Model",
         "inspect reports generated provenance"
     )
     assert(
@@ -4665,11 +4719,11 @@ return restored, why, codec, shown
     local toDefinition = responseWithId(out, 12).result
     local fromDefinition = responseWithId(out, 13).result
     assert(
-        toDefinition.range.start.line == 0 and fromDefinition.range.start.line == 0,
+        toDefinition.range.start.line == 1 and fromDefinition.range.start.line == 1,
         "generated members navigate to their written derive request"
     )
-    assert(#responseWithId(out, 14).result == 2, "writeJSON references contain only its origin and use")
-    assert(#responseWithId(out, 15).result == 2, "fromJSON references contain only its origin and use")
+    assert(#responseWithId(out, 14).result == 2, "inspect references contain only its origin and use")
+    assert(#responseWithId(out, 15).result == 2, "kind references contain only its origin and use")
 
     local static, instance = {}, {}
     for _, item in ipairs(responseWithId(out, 16).result) do
@@ -4678,12 +4732,9 @@ return restored, why, codec, shown
     for _, item in ipairs(responseWithId(out, 17).result) do
         instance[item.label] = item
     end
-    assert(
-        static.fromJSON and static.fieldCodec and not static.default,
-        "record completion offers generated static members"
-    )
-    assert(instance.debug and instance.writeJSON, "instance completion offers generated instance members")
-    assertContains(static.fromJSON.documentation, "@derive(nupp.derive.JSON)", "completion provenance")
+    assert(static.kind and static.fields and not static.default, "record completion offers generated static members")
+    assert(instance.debug and instance.inspect, "instance completion offers generated instance members")
+    assertContains(static.kind.documentation, "@derive(provider.derive)", "completion provenance")
 
     local model
     for _, symbol in ipairs(responseWithId(out, 18).result) do
@@ -4698,15 +4749,15 @@ return restored, why, codec, shown
     end
     assert(
         children["debug (generated)"]
-        and children["writeJSON (generated)"]
-        and children["fromJSON (generated, static)"]
-        and children["fieldCodec (generated, static)"],
+        and children["inspect (generated)"]
+        and children["kind (generated, static)"]
+        and children["fields (generated, static)"],
         "document symbols expose generated members without source ranges"
     )
 
     assertContains(
         responseWithId(out, 19).error.message,
-        "change or remove @derive(nupp.derive.JSON)",
+        "change or remove @derive(provider.derive)",
         "generated rename refusal"
     )
     assert(
@@ -5864,7 +5915,9 @@ local function serveRaw(input, rootDir)
     f:write(input)
     f:close()
     local status = os.execute(
-        ("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"):format(ROOT, rootDir or scratchRoot(), infile, outfile, errfile)
+        (
+            "'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"
+        ):format(ROOT, rootDir or scratchRoot(), infile, outfile, errfile)
     )
     local out = assert(io.open(outfile, "rb")):read("*a")
     local err = assert(io.open(errfile, "rb")):read("*a")
@@ -5893,8 +5946,12 @@ end
 function M.anOversizedFrameEndsTheServerWithAFailure()
     for _, length in ipairs({"99999999999999999999", "4000000000"}) do
         local out, err, status = serveRaw(
-            frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})
-                .. "Content-Length: " .. length .. "\r\n\r\n{}"
+            frame({
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                params = {}
+            }) .. "Content-Length: " .. length .. "\r\n\r\n{}"
         )
         assert(responseWithId(out, 1), "the frame before it is answered")
         assert(status ~= 0, length .. ": the server reports a failure: " .. tostring(status))
@@ -5908,15 +5965,22 @@ end
 -- follow `shutdown` is a failure, and a frame that is not a message is answered
 -- with the error for it rather than dropped.
 function M.theServerFollowsTheProtocolLifecycle()
-    local out, err, status = serveRaw(table.concat({
-        frame({jsonrpc = "2.0", id = 1, method = "textDocument/hover", params = {}}),
-        frame({jsonrpc = "2.0", id = 2, method = "initialize", params = {}}),
-        "Content-Length: 5\r\n\r\n{abc}",
-        "Content-Length: 2\r\n\r\n[]",
-        frame({jsonrpc = "2.0", id = 3, method = "shutdown"}),
-        frame({jsonrpc = "2.0", id = 4, method = "textDocument/hover", params = {}}),
-        frame({jsonrpc = "2.0", method = "exit"}),
-    }))
+    local out, err, status = serveRaw(
+        table.concat({
+            frame({
+                jsonrpc = "2.0",
+                id = 1,
+                method = "textDocument/hover",
+                params = {}
+            }),
+            frame({jsonrpc = "2.0", id = 2, method = "initialize", params = {}}),
+            "Content-Length: 5\r\n\r\n{abc}",
+            "Content-Length: 2\r\n\r\n[]",
+            frame({jsonrpc = "2.0", id = 3, method = "shutdown"}),
+            frame({jsonrpc = "2.0", id = 4, method = "textDocument/hover", params = {}}),
+            frame({jsonrpc = "2.0", method = "exit"}),
+        })
+    )
     assert(responseWithId(out, 1).error.code == -32002, "a request before initialize: " .. out)
     assert(responseWithId(out, 2).result.capabilities, "initialize is answered")
     assert(responseWithId(out, 4).error.code == -32600, "a request after shutdown: " .. out)
@@ -5929,10 +5993,17 @@ function M.theServerFollowsTheProtocolLifecycle()
     assert(table.concat(codes, " ") == "-32700 -32600", "malformed frames are answered: " .. out)
     assert(status == 0, "exit after shutdown succeeds: " .. tostring(status) .. " " .. err)
 
-    local _, _, abrupt = serveRaw(table.concat({
-        frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}}),
-        frame({jsonrpc = "2.0", method = "exit"}),
-    }))
+    local _, _, abrupt = serveRaw(
+        table.concat({
+            frame({
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                params = {}
+            }),
+            frame({jsonrpc = "2.0", method = "exit"}),
+        })
+    )
     assert(abrupt ~= 0, "exit without shutdown fails")
     local _, _, ended = serveRaw(frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}}))
     assert(ended ~= 0, "input that ends without shutdown fails")
@@ -5944,6 +6015,7 @@ end
 function M.theTransportKeepsTheNewestVersionAndEveryFrame()
     local transport = require("nupp.tools.lsp.transport")
     local t = transport.new()
+
     local function change(version)
         return frame({
             jsonrpc = "2.0",
@@ -5951,6 +6023,7 @@ function M.theTransportKeepsTheNewestVersionAndEveryFrame()
             params = {textDocument = {uri = "file:///a.nupp", version = version}, contentChanges = {}}
         })
     end
+
     assert(t.feed(change(3) .. change(2)) == nil)
     test.equal(t.documentVersion("file:///a.nupp"), 3)
     assert(t.feed(change(4)) == nil)

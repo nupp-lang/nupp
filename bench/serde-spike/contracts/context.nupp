@@ -1,6 +1,6 @@
-local contexts = require("contract.context")
+local contexts = require("nupp.serde.context")
 local model = require("example.richmodel")
-local json = require("contract.jsoncodec")
+local json = require("nupp.serde.json")
 local key = contexts.key<model.Model>()
 local member = contexts.key<string>()
 local inherited = contexts.key<string?>()
@@ -18,7 +18,11 @@ local child = childBuilder:freeze()
 assert(child:get(key) == schema and child:get(member) == "document")
 assert(root:get(member) == nil)
 assert(root:get(inherited) == "parent" and child:get(inherited) == nil)
-assert(not pcall(builder.set, builder, member, "mutated"))
+assert(
+    not pcall(function(): nil
+        builder:set(member, "mutated")
+    end)
+)
 local policy = model.policy(true)
 local decoded = json.decode(
     model.binding(schema),

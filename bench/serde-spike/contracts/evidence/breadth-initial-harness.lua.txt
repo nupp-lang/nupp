@@ -1,0 +1,61 @@
+require("nupp.tools.jitlimits").apply()
+local native = os.getenv("NUPP_SERDE_NATIVE_BUILD")
+if native then
+    package.preload["nupp.codec.json.internal.decoder.fused"] = function()
+        return dofile(native .. "/nupp/codec/json/internal/decoder/fused.lua")
+    end
+    package.loaded["nupp.spi.index"] = {["nupp.codec.json.spi.Provider"] = {"nupp.codec.json.aot"}}
+    package.loaded["nupp.codec.json.provider"] = require("nupp.codec.json.aot")
+end
+local json = require("nupp.codec.json")
+local setupStart = os.clock()
+local cases = dofile(assert(arg[1]))
+local report = {provider = native and "aot" or "portable", setupSeconds = os.clock() - setupStart, cases = {}}
+local samples = tonumber(arg[2]) or 7
+local target = tonumber(arg[3]) or .02
+local escaped = {}
+
+local function run(work, count)
+    local start = os.clock()
+    for index = 1, count do
+        escaped[index % 256 + 1] = work()
+    end
+
+    return os.clock() - start
+end
+
+for _, case in ipairs(cases) do
+    local count, elapsed = 10, 0
+    repeat
+        elapsed = run(case.work, count)
+        if elapsed < target then
+            count = count * 2
+        end
+    until elapsed >= target or count >= 1000000
+    local times = {}
+    for index = 1, samples do
+        times[index] = run(case.work, count) / count
+    end
+    -- Allocated bytes while GC is stopped are independent of collector timing.
+    -- This is Lua heap growth, not process RSS or external/native allocation.
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    run(case.work, 64)
+    local allocated = (collectgarbage("count") - before) * 1024 / 64
+    collectgarbage("restart")
+    collectgarbage("collect")
+    report.cases[
+        #report.cases + 1
+    ] = {name = case.name, iterations = count, secondsPerValue = times, luaHeapBytesPerValue = allocated}
+end
+report.retainedKiB = collectgarbage("count")
+local util = require("jit.util")
+report.traces, report.machineCodeBytes = 0, 0
+for index = 1, 65536 do
+    if util.traceinfo(index) then
+        report.traces = report.traces + 1
+        report.machineCodeBytes = report.machineCodeBytes + #(util.tracemc(index) or "")
+    end
+end
+print(json.encode(report))

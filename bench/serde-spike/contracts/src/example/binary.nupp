@@ -1,6 +1,6 @@
 module example.binary
 
-local core = require("contract.value")
+local core = require("nupp.serde.value")
 
 -- A deliberately small, versioned fixture format. Every field is framed,
 -- including unknown wire types: u16 number, u8 wire type, u32 byte count.
@@ -28,10 +28,17 @@ local function word(value: integer, size: integer): string
 end
 
 export function encode(entries: {Entry}): string
+    assert(#entries <= 100000, "binary field count exceeded")
     local parts: {string} = {"NB1\0"}
     for _, entry in ipairs(entries) do
         local field = entry.field
-        if field.number < 1 or field.number > 65535 or field.wire < 0 or field.wire > 255 then
+        if field.number < 1
+            or field.number > 65535
+            or field.number % 1 ~= 0
+            or field.wire < 0
+            or field.wire > 255
+            or field.wire % 1 ~= 0
+        then
             error("binary field identity is out of range", 2)
         end
         if #entry.bytes > 16777216 then

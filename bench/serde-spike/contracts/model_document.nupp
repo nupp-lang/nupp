@@ -1,5 +1,5 @@
 local model = require("example.richmodel")
-local json = require("contract.jsoncodec")
+local json = require("nupp.serde.json")
 
 local schema = model.newModel()
 local binding = model.documentBinding(schema)

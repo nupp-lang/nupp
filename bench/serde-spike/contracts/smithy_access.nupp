@@ -1,0 +1,188 @@
+local core = require("nupp.serde.value")
+local smithy = require("example.smithy")
+local scalar = require("nupp.serde.scalar")
+local structures = require("nupp.serde.structure")
+local indexed = require("nupp.serde.indexed")
+local documents = require("nupp.serde.document")
+local bridge = require("nupp.serde.documentcodec")
+local json = require("nupp.serde.json")
+local protocol = require("example.smithyprotocol")
+local routing = require("example.routing")
+
+local model = smithy.parse(
+    [[{"smithy":"2.0","shapes":{
+ "example#Request":{"type":"structure","members":{
+  "name":{"target":"smithy.api#String","traits":{"smithy.api#jsonName":"Name","smithy.api#httpQuery":"name"}},
+  "token":{"target":"smithy.api#String","traits":{"smithy.api#httpHeader":"X-Token"}},
+  "created":{"target":"smithy.api#Timestamp"},
+  "payload":{"target":"smithy.api#Document"}
+ }}
+}}]]
+)
+local shape = model:shape("example#Request")
+local root = smithy.root(shape)
+local name, token = assert(shape:member("name")), assert(shape:member("token"))
+local created, payload = assert(shape:member("created")), assert(shape:member("payload"))
+local record Request
+    name: string
+    token: string
+    created: core.Timestamp
+    payload: documents.Document
+end
+local record Builder is nupp.Closeable
+    name: string?
+    token: string?
+    created: core.Timestamp?
+    payload: documents.Document?
+    function close(takes self): nil
+        self.name, self.token, self.created, self.payload = nil, nil, nil, nil
+    end
+end
+local record Construction is structures.Construction<Request, Builder>
+    function begin(self): Builder
+        return new Builder()
+    end
+
+    function finish(self, takes state: Builder): Request
+        local owned: Builder = state
+        local value = new Request(
+            name = assert(owned.name),
+            token = assert(owned.token),
+            created = assert(owned.created),
+            payload = assert(owned.payload)
+        )
+        owned:close()
+
+        return value
+    end
+end
+local textName, textToken = scalar.text(name), scalar.text(token)
+local time, document = scalar.timestamp(created), smithy.memberAdapter(payload)
+local fields: {structures.Field<Request, Builder, smithy.Member>} = {
+    structures.field<Request, Builder, string, smithy.Member>(
+        name,
+        function(borrows value: Request): string borrows (value)
+            return value.name
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.name = value
+        end,
+        textName,
+        false,
+        false
+    ),
+    structures.field<Request, Builder, string, smithy.Member>(
+        token,
+        function(borrows value: Request): string borrows (value)
+            return value.token
+        end,
+        function(exclusive state: Builder, value: string): nil
+            state.token = value
+        end,
+        textToken,
+        false,
+        false
+    ),
+    structures.field<Request, Builder, core.Timestamp, smithy.Member>(
+        created,
+        function(borrows value: Request): core.Timestamp borrows (value)
+            return value.created
+        end,
+        function(exclusive state: Builder, value: core.Timestamp): nil
+            state.created = value
+        end,
+        time,
+        false,
+        false
+    ),
+    structures.field<Request, Builder, documents.Document, smithy.Member>(
+        payload,
+        function(borrows value: Request): documents.Document borrows (value)
+            return value.payload
+        end,
+        function(exclusive state: Builder, value: documents.Document): nil
+            state.payload = value
+        end,
+        document,
+        false,
+        false
+    )
+}
+local typed = new core.Bound<Request, smithy.Member>(
+    adapter = structures.adapter(root, fields, new Construction(), nil, nil)
+)
+local layout = indexed.layout(root)
+local nameSlot = layout:add(name, textName, false)
+local tokenSlot = layout:add(token, textToken, false)
+local timeSlot = layout:add(created, time, false)
+local payloadSlot = layout:add(payload, document, false)
+local dynamic = layout:binding()
+local documentBinding = smithy.binding(shape)
+local dates = json.codec(smithy.policy(false, true))
+local epochs = json.codec(smithy.policy(true, false))
+local source = '{"Name":"Ada & Bob","token":"secret","created":"1970-01-01T00:00:02Z","payload":[null,true]}'
+local value = dates:decode(typed, source)
+local slots = dates:decode(dynamic, source)
+local doc = dates:decode(documentBinding, source)
+assert(value.name == slots:get(nameSlot) and slots:get(tokenSlot) == "secret")
+assert(assert(slots:get(timeSlot)).seconds == "2")
+assert(assert(slots:get(payloadSlot)):document():at(1).kind == "null")
+assert(epochs:encode(typed, value) == epochs:encode(dynamic, slots))
+assert(epochs:encode(typed, value) == epochs:encode(documentBinding, doc))
+local restored = bridge.into(typed, doc)
+assert(restored.created.seconds == value.created.seconds)
+local restoredSlots = bridge.into(dynamic, bridge.fromBinding(typed, value))
+assert(restoredSlots:get(nameSlot) == value.name)
+local parameters = routing.codec(protocol.parameters(shape))
+local body = json.codec(protocol.body(smithy.policy(true, false)))
+assert(routing.query(parameters:encode(typed, value)) == "name=Ada%20%26%20Bob")
+assert(routing.query(parameters:encode(dynamic, slots)) == "name=Ada%20%26%20Bob")
+assert(routing.query(parameters:encode(documentBinding, doc)) == "name=Ada%20%26%20Bob")
+local bodyBytes = body:encode(typed, value)
+assert(bodyBytes == '{"created":2,"payload":[null,true]}')
+assert(body:encode(dynamic, slots) == bodyBytes and body:encode(documentBinding, doc) == bodyBytes)
+assert(
+    not pcall(function(): nil
+        layout:add(name, textName, false)
+    end),
+    "sealed layouts cannot change"
+)
+local foreign = indexed.layout(root):value()
+assert(
+    not pcall(function(): nil
+        foreign:get(nameSlot)
+    end)
+)
+slots:remove(nameSlot)
+assert(not slots:has(nameSlot) and slots:get(nameSlot) == nil)
+
+local registries = require("example.registry")
+local registry = registries.registry()
+registry:register("example#Request", typed)
+local alternate = registries.registry()
+alternate:register("urn:example:Request", typed)
+local selected = registry:reconstruct("example#Request", doc)
+assert(selected:identity() == "example#Request")
+local projected = registries.project(selected)
+assert(assert(projected:get("created")):timestamp().seconds == "2")
+local destination = alternate:reconstruct("urn:example:Request", projected)
+assert(destination:identity() == "urn:example:Request")
+assert(not pcall(registry.reconstruct, registry, "example#Future", doc))
+assert(
+    not pcall(function(): nil
+        registry:register("example#Request", dynamic)
+    end)
+)
+assert(not alternate:contains("example#Request"))
+
+local api = require("example.openapi")
+local apiModel = api.model()
+local apiBinding = api.binding(apiModel)
+local apiJson = json.codec(api.policy("request"))
+for iteration = 1, 2 do
+    local ordinary = apiJson:decode(apiBinding, '{"name":"other","secret":"hidden","payload":7,"extra":true}')
+    assert(ordinary.name == "other" and ordinary.additional.extra ~= nil)
+    assert(dates:encode(typed, value) == source)
+    assert(apiJson:encode(apiBinding, ordinary):find('"extra":true', 1, true))
+    assert(epochs:decode(dynamic, epochs:encode(typed, value)):get(nameSlot) == value.name)
+end

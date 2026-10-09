@@ -1,0 +1,86 @@
+module example.binarynumbers
+
+local core = require("nupp.serde.value")
+local numbers = require("nupp.serde.numbers")
+
+-- Big-endian two's complement integers. Decimal carriers never pass through a
+-- double as a whole, so all 64 bits survive on portable Lua as well as LuaJIT.
+local function divide(digits: string): (string, integer)
+    local result: {string} = {}
+    local remainder: integer = 0
+    for index = 1, #digits do
+        local value = remainder * 10 + assert(digits:byte(index)) - 48
+        local digit = math.floor(value / 256)
+        remainder = value % 256
+        if digit ~= 0 or #result > 0 then
+            result[#result + 1] = string.char(digit + 48)
+        end
+    end
+
+    return #result == 0 and "0" or table.concat(result), remainder
+end
+
+local function multiply(digits: string, byte: integer): string
+    local result: {string} = {}
+    local carry = byte
+    for index = #digits, 1, -1 do
+        local value = (assert(digits:byte(index)) - 48) * 256 + carry
+        result[#result + 1] = string.char(value % 10 + 48)
+        carry = math.floor(value / 10)
+    end
+    while carry > 0 do
+        result[#result + 1] = string.char(carry % 10 + 48)
+        carry = math.floor(carry / 10)
+    end
+
+    return table.concat(result):reverse()
+end
+
+local function complement(bytes: {integer}): nil
+    local carry: integer = 1
+    for index = #bytes, 1, -1 do
+        local value = 255 - bytes[index] + carry
+        bytes[index] = value % 256
+        carry = math.floor(value / 256)
+    end
+end
+
+export function encode(borrows value: core.Integer): string
+    numbers.integer(value.decimal, value.width, value.signed)
+    local negative = value.decimal:sub(1, 1) == "-"
+    local digits = negative and value.decimal:sub(2) or value.decimal
+    local bytes: {integer} = {}
+    for index = value.width / 8 as integer, 1, -1 do
+        local remainder: integer
+        digits, remainder = divide(digits)
+        bytes[index] = remainder
+    end
+    assert(digits == "0", "integer payload overflow")
+    if negative then
+        complement(bytes)
+    end
+    local parts: {string} = {}
+    for index, byte in ipairs(bytes) do
+        parts[index] = string.char(byte)
+    end
+
+    return table.concat(parts)
+end
+
+export function decode(source: string, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+    assert(#source == width / 8, "integer payload length does not match its schema")
+    local bytes: {integer} = {}
+    for index = 1, #source do
+        bytes[index] = assert(source:byte(index))
+    end
+    local negative = signed and bytes[1] >= 128
+    if negative then
+        complement(bytes)
+    end
+    local digits = "0"
+    for _, byte in ipairs(bytes) do
+        digits = multiply(digits, byte)
+    end
+
+    return numbers.integer((negative and "-" or "") .. digits, width, signed)
+end

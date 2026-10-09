@@ -1,0 +1,2003 @@
+{
+  "revision": "297d21124574cd3db13a5c7e0ccd4be42813264a",
+  "workingTree": true,
+  "host": "macOS-26.6-arm64-arm-64bit",
+  "forks": 3,
+  "samplesPerFork": 7,
+  "note": "Current implementation costs; no supported old-API baseline for these model and document paths.",
+  "sourceSha256": {
+    "bench/serde-spike/contracts/src/contract/breadth.g.nupp": "082368f59c31e43e348a69e50ddd396064aeff80b54a565be0a202b13382ff99",
+    "bench/serde-spike/contracts/breadth.lua": "a865fb95039a2a623efe8126e00d3b85159044d6d4a71a4edb1aea6646c514a9",
+    "bench/serde-spike/contracts/run-breadth.py": "d139126c32f3b168d310667c5e72fa84aea93bcfd7001bd336ec14594a127216",
+    "src/nupp/serde/debug.nupp": "dfa9f781f8ec154a13f3f2fb5dbe81dea2120fc72c52024b5c352c6e4d6e236f",
+    "src/nupp/serde/jsonwriter.nupp": "d2d604f49adeecffada8e478cb813c2646ecdfa23517819c1988d556c8d90e5b",
+    "src/nupp/serde/accessors.nupp": "bb3c677e034600bab2c516c807ef80d3b6c845bf9075f83ff07e5284a4180c28",
+    "src/nupp/serde/view.nupp": "a65e23773bdf88ccefec0814b32128673a08e5ba8a3076a2c93f14495847340d",
+    "src/nupp/serde/declaration.nupp": "39d8e5e64798332539eb0f30ae41deedcd441d0982ee04c209ca74f843b029f3",
+    "src/nupp/serde/native.nupp": "9fdd47d916263ea175dece6e3026f170838598d572ea00d77ec21d47d9245730",
+    "src/nupp/serde/numbers.nupp": "7848ec99e234d8c923e2ad6052e60394ae310d477a11d2e3d8535b99b1450677",
+    "src/nupp/serde/jsonreader.nupp": "61cef4a4b58400afcf13ec7cf536676d5882bcb382ee758bb3fc2e86753ff431",
+    "src/nupp/serde/resources.nupp": "791a3f0ce05eabce81f1850c4461eacffa60449d5ce340f8dce7d1055123198f",
+    "src/nupp/serde/jsonplan.nupp": "31d5a2256a4748dd0477794ad57f27e80a177d3566bfffa9210c07fa822b9ca3",
+    "src/nupp/serde/jsonsyntax.nupp": "26e268809238a8e92d3953a50342613d7a7f49d4e7ddc34fdb848fb1fdd4f1eb",
+    "src/nupp/serde/jsonencoder.nupp": "5378c2c5f891daf3636e063182d6acec2a5c8807e924dc2a259882613105a1ca",
+    "src/nupp/serde/defaultjson.nupp": "fb9b59fb132dce7ba7b11ad4bf3782ca3dcc2b6c87c50295ec391a810622c07a",
+    "src/nupp/serde/indexed.nupp": "1e3fefad504b8bbd2baa591e01571b9e4b4fbc12596711acf4d0335c3c2d80ee",
+    "src/nupp/serde/jsoncompiled.nupp": "81fb637b26de48b09a6c01c3497893b179110491a14a34eae270ea0e02197d65",
+    "src/nupp/serde/errors.nupp": "3b5a44d90c96419574725e8ad4f8aa74cec0798ac611a494cf5ffae3b98fd16c",
+    "src/nupp/serde/value.nupp": "0f4e8fb143e6d06cc052b4cae1ce3b4dbdcda407ab34701520ea48cb8dd01fb4",
+    "src/nupp/serde/jsonlower.nupp": "99ef9accf12f2a7cd3f80fce6b0eab7f9cbc000dda1e39d5646ea4da9725064a",
+    "src/nupp/serde/publication.nupp": "e21e7f37d26f258f1650af0ce240e07974d3e0e071a708780a3e678530153f4d",
+    "src/nupp/serde/nativewriter.nupp": "d119be45d4075df9b97e3cb1d5157df6df1cd83f864fa1c055d57ee260a98fef",
+    "src/nupp/serde/jsondocument.nupp": "732fcd8a105e411bad36420380797ad27c9eaa2ae88cf673decd406dc60c6636",
+    "src/nupp/serde/jsonextensions.nupp": "84e561bb3373ef60e01d3de5d86d3af66afb0935c8355fae1b257ed70f4712f3",
+    "src/nupp/serde/init.nupp": "13e8ebef7011ab210d2066f321aceb4e14a290df9945d27b1d76c1fb33bd9fe9",
+    "src/nupp/serde/identity.lua": "4f9403942aa8103c9cd0aa9e5e3c5e30a21be44127259675266ec1de69ce4f47",
+    "src/nupp/serde/nativereader.nupp": "eb00872bd33058b5e2779f8ae272697a3bedf9c0736651f33e331d5e1814ec29",
+    "src/nupp/serde/scalar.nupp": "1c5fa7a3d3541c15786523c5f42d99b3e768ebbc08ca46df5513714d9bf92351",
+    "src/nupp/serde/jsondiagnostic.nupp": "ea833fb2d0345d57a76c12f12567490282090dd0599935ba9459ddc0c447281f",
+    "src/nupp/serde/persistence.nupp": "99ab5ecf917fc03f79fd3a1a73f747ef95d5ca9b77b60208c470581833848b90",
+    "src/nupp/serde/structure.nupp": "3ca9ac7f2d0b158e3a48b5d2d090443ea5094503acceccd144b62368dcd3b10c",
+    "src/nupp/serde/extensions.nupp": "fce348312bbc60a1c04a8de8b1e659c022ca5450236c7ca28f73450a9e4340e9",
+    "src/nupp/serde/document.nupp": "b5fcf14c48ce834da2a2b11032fceb1b585ad0f9594d01346037a9d6ee0276c9",
+    "src/nupp/serde/timestamps.nupp": "25582ffad9d86a2207400b9ec1b0e3449e0fa0c32e43b5bd54b09705ff393c6c",
+    "src/nupp/serde/documentwriter.nupp": "57126c38553b3e0f79df32d2e2e75ad3660671290ffdff345de92e5089f9785f",
+    "src/nupp/serde/documentcodec.nupp": "1842f3c223f97d62e1540db1744fed3eaf180f8a978f25847c7ca45ded3e24bb",
+    "src/nupp/serde/documentreader.nupp": "78b762590f58a1f57b2f3989ba954929f98b96a2b3333ba4120f16bff772515b",
+    "src/nupp/serde/context.nupp": "66aa03e9122fa3d78c71d37c0f7ee53197e02f787128965bbe6fe799c19f7565",
+    "src/nupp/serde/list.nupp": "10c26656a98d5bfe3154a5556e0f6dac1a9e308a18d468ea08458eafeff2dce8",
+    "src/nupp/serde/json.nupp": "37da2a7511af6585ea0e2f8561510634edc937356858269ea70584af6fdaa47e"
+  },
+  "cases": [
+    {
+      "provider": "aot",
+      "name": "declaration/smithy-equivalent/buffer",
+      "forkMediansNs": [
+        2399.218750000036,
+        2515.6250000000005,
+        2503.9062500000973
+      ],
+      "luaHeapBytesPerValue": [
+        3450.375,
+        3510,
+        3446
+      ],
+      "medianNs": 2503.9062500000973
+    },
+    {
+      "provider": "aot",
+      "name": "declaration/smithy-equivalent/decode",
+      "forkMediansNs": [
+        342.52929687499966,
+        262.95166015623954,
+        347.82714843750296
+      ],
+      "luaHeapBytesPerValue": [
+        160,
+        160,
+        160
+      ],
+      "medianNs": 342.52929687499966
+    },
+    {
+      "provider": "aot",
+      "name": "declaration/smithy-equivalent/embedded",
+      "forkMediansNs": [
+        2525.292968750051,
+        2509.374999999994,
+        2525.292968750051
+      ],
+      "luaHeapBytesPerValue": [
+        3562.0625,
+        3626.3125,
+        3562.3125
+      ],
+      "medianNs": 2525.292968750051
+    },
+    {
+      "provider": "aot",
+      "name": "declaration/smithy-equivalent/encode",
+      "forkMediansNs": [
+        2508.3984375000314,
+        2565.136718750069,
+        2562.890625000015
+      ],
+      "luaHeapBytesPerValue": [
+        3629.5,
+        3681,
+        3617
+      ],
+      "medianNs": 2562.890625000015
+    },
+    {
+      "provider": "aot",
+      "name": "declaration/smithy-equivalent/fresh-buffer",
+      "forkMediansNs": [
+        2526.3671874999404,
+        2584.667968750023,
+        2576.562500000018
+      ],
+      "luaHeapBytesPerValue": [
+        3629.75,
+        3694,
+        3630
+      ],
+      "medianNs": 2576.562500000018
+    },
+    {
+      "provider": "aot",
+      "name": "document/project",
+      "forkMediansNs": [
+        2760.937500000029,
+        2883.105468750018,
+        2928.4179687500205
+      ],
+      "luaHeapBytesPerValue": [
+        6573.5,
+        6467.25,
+        6524.875
+      ],
+      "medianNs": 2883.105468750018
+    },
+    {
+      "provider": "aot",
+      "name": "document/reconstruct",
+      "forkMediansNs": [
+        4193.164062500123,
+        4311.132812500132,
+        4448.046875000014
+      ],
+      "luaHeapBytesPerValue": [
+        6024.75,
+        6020.875,
+        6280.125
+      ],
+      "medianNs": 4311.132812500132
+    },
+    {
+      "provider": "aot",
+      "name": "document/registry",
+      "forkMediansNs": [
+        4341.210937499999,
+        4360.5468750001,
+        4661.132812499962
+      ],
+      "luaHeapBytesPerValue": [
+        6189.0625,
+        6185.1875,
+        6439.6875
+      ],
+      "medianNs": 4360.5468750001
+    },
+    {
+      "provider": "aot",
+      "name": "document/snapshot",
+      "forkMediansNs": [
+        5637.304687500059,
+        5741.406250000039,
+        5833.398437499886
+      ],
+      "luaHeapBytesPerValue": [
+        11233.25,
+        11232,
+        11232
+      ],
+      "medianNs": 5741.406250000039
+    },
+    {
+      "provider": "aot",
+      "name": "document/typed-snapshot",
+      "forkMediansNs": [
+        7469.335937500092,
+        7791.015624999954,
+        8220.70312499999
+      ],
+      "luaHeapBytesPerValue": [
+        12742,
+        12628.75,
+        12948.75
+      ],
+      "medianNs": 7791.015624999954
+    },
+    {
+      "provider": "aot",
+      "name": "document/typed-view-create",
+      "forkMediansNs": [
+        28.69415283203119,
+        29.078674316405728,
+        29.32968139648438
+      ],
+      "luaHeapBytesPerValue": [
+        160,
+        160,
+        160
+      ],
+      "medianNs": 29.078674316405728
+    },
+    {
+      "provider": "aot",
+      "name": "document/typed-view-encode",
+      "forkMediansNs": [
+        5872.656249999996,
+        5765.429687500101,
+        5804.296875000156
+      ],
+      "luaHeapBytesPerValue": [
+        6974.0625,
+        6976.5625,
+        6976.5625
+      ],
+      "medianNs": 5804.296875000156
+    },
+    {
+      "provider": "aot",
+      "name": "extensions/cold",
+      "forkMediansNs": [
+        13810.546875000011,
+        13855.468750000044,
+        13802.734374999958
+      ],
+      "luaHeapBytesPerValue": [
+        18356.1875,
+        18356.4375,
+        18356.4375
+      ],
+      "medianNs": 13810.546875000011
+    },
+    {
+      "provider": "aot",
+      "name": "hook/timestamp/buffer",
+      "forkMediansNs": [
+        3175.7812499999886,
+        2884.082031249895,
+        2941.9921874999227
+      ],
+      "luaHeapBytesPerValue": [
+        4587.6875,
+        4521.8125,
+        4523.8125
+      ],
+      "medianNs": 2941.9921874999227
+    },
+    {
+      "provider": "aot",
+      "name": "hook/timestamp/decode",
+      "forkMediansNs": [
+        3437.5976562500687,
+        3420.703125000049,
+        3698.242187499985
+      ],
+      "luaHeapBytesPerValue": [
+        4409.8125,
+        4094.5,
+        4410.375
+      ],
+      "medianNs": 3437.5976562500687
+    },
+    {
+      "provider": "aot",
+      "name": "hook/timestamp/embedded",
+      "forkMediansNs": [
+        3288.5742187498818,
+        3015.234374999926,
+        3058.691406250015
+      ],
+      "luaHeapBytesPerValue": [
+        4700.0625,
+        4634.1875,
+        4634.0625
+      ],
+      "medianNs": 3058.691406250015
+    },
+    {
+      "provider": "aot",
+      "name": "hook/timestamp/encode",
+      "forkMediansNs": [
+        3236.425781250052,
+        2938.3789062500246,
+        2990.1367187499736
+      ],
+      "luaHeapBytesPerValue": [
+        4769.8125,
+        4705.4375,
+        4707.8125
+      ],
+      "medianNs": 2990.1367187499736
+    },
+    {
+      "provider": "aot",
+      "name": "hook/timestamp/fresh-buffer",
+      "forkMediansNs": [
+        3282.7148437501037,
+        2982.714843749977,
+        3063.671874999931
+      ],
+      "luaHeapBytesPerValue": [
+        4774.9375,
+        4709.0625,
+        4705.4375
+      ],
+      "medianNs": 3063.671874999931
+    },
+    {
+      "provider": "aot",
+      "name": "large-string/buffer",
+      "forkMediansNs": [
+        131231.25000000792,
+        125731.24999999409,
+        126787.50000000294
+      ],
+      "luaHeapBytesPerValue": [
+        137779.75,
+        137843.625,
+        137782.125
+      ],
+      "medianNs": 126787.50000000294
+    },
+    {
+      "provider": "aot",
+      "name": "large-string/decode",
+      "forkMediansNs": [
+        37957.81250000018,
+        37704.68750000089,
+        37020.3124999996
+      ],
+      "luaHeapBytesPerValue": [
+        69874,
+        69874,
+        69874
+      ],
+      "medianNs": 37704.68750000089
+    },
+    {
+      "provider": "aot",
+      "name": "large-string/embedded",
+      "forkMediansNs": [
+        134524.99999999645,
+        132187.5000000028,
+        128025.00000000939
+      ],
+      "luaHeapBytesPerValue": [
+        137889.1875,
+        137953.1875,
+        137892.0625
+      ],
+      "medianNs": 132187.5000000028
+    },
+    {
+      "provider": "aot",
+      "name": "large-string/encode",
+      "forkMediansNs": [
+        141024.99999999464,
+        131781.25000000704,
+        137262.5000000016
+      ],
+      "luaHeapBytesPerValue": [
+        268966.875,
+        269030.75,
+        268970.875
+      ],
+      "medianNs": 137262.5000000016
+    },
+    {
+      "provider": "aot",
+      "name": "large-string/fresh-buffer",
+      "forkMediansNs": [
+        131343.74999999034,
+        132950.00000000943,
+        130343.75000000597
+      ],
+      "luaHeapBytesPerValue": [
+        268975,
+        269038.875,
+        268968.375
+      ],
+      "medianNs": 131343.74999999034
+    },
+    {
+      "provider": "aot",
+      "name": "matching/escaped-unknown/buffer",
+      "forkMediansNs": [
+        2066.6015625000337,
+        2091.113281249904,
+        2099.0234374998818
+      ],
+      "luaHeapBytesPerValue": [
+        3234.9375,
+        3235.0625,
+        3235.0625
+      ],
+      "medianNs": 2091.113281249904
+    },
+    {
+      "provider": "aot",
+      "name": "matching/escaped-unknown/decode",
+      "forkMediansNs": [
+        5171.484375000174,
+        5348.046874999874,
+        6145.507812499798
+      ],
+      "luaHeapBytesPerValue": [
+        5743.4375,
+        5487.5625,
+        5743.5625
+      ],
+      "medianNs": 5348.046874999874
+    },
+    {
+      "provider": "aot",
+      "name": "matching/escaped-unknown/embedded",
+      "forkMediansNs": [
+        2072.3632812500587,
+        2094.726562499975,
+        2108.5937500000055
+      ],
+      "luaHeapBytesPerValue": [
+        3346.1875,
+        3345.4375,
+        3343.8125
+      ],
+      "medianNs": 2094.726562499975
+    },
+    {
+      "provider": "aot",
+      "name": "matching/escaped-unknown/encode",
+      "forkMediansNs": [
+        2119.531249999973,
+        2121.777343749853,
+        2154.3945312500755
+      ],
+      "luaHeapBytesPerValue": [
+        3387.75,
+        3368.5,
+        3368.5
+      ],
+      "medianNs": 2121.777343749853
+    },
+    {
+      "provider": "aot",
+      "name": "matching/escaped-unknown/fresh-buffer",
+      "forkMediansNs": [
+        2171.777343750077,
+        2169.8242187501505,
+        2163.4765624998704
+      ],
+      "luaHeapBytesPerValue": [
+        3382.9375,
+        3382.1875,
+        3390.3125
+      ],
+      "medianNs": 2169.8242187501505
+    },
+    {
+      "provider": "aot",
+      "name": "model/load",
+      "forkMediansNs": [
+        39555.468749999374,
+        32472.656250000233,
+        43110.937500001615
+      ],
+      "luaHeapBytesPerValue": [
+        42738.625,
+        39260.375,
+        40892.375
+      ],
+      "medianNs": 39555.468749999374
+    },
+    {
+      "provider": "aot",
+      "name": "openapi/request/buffer",
+      "forkMediansNs": [
+        4018.750000000029,
+        4010.5468750000973,
+        4006.347656250031
+      ],
+      "luaHeapBytesPerValue": [
+        5938.5625,
+        6002.6875,
+        5938.6875
+      ],
+      "medianNs": 4010.5468750000973
+    },
+    {
+      "provider": "aot",
+      "name": "openapi/request/decode",
+      "forkMediansNs": [
+        5382.031250000114,
+        5033.3984374999545,
+        5561.523437499875
+      ],
+      "luaHeapBytesPerValue": [
+        6999.3125,
+        6747.4375,
+        6999.4375
+      ],
+      "medianNs": 5382.031250000114
+    },
+    {
+      "provider": "aot",
+      "name": "openapi/request/embedded",
+      "forkMediansNs": [
+        3916.406249999948,
+        4402.148437500017,
+        4173.046875000086
+      ],
+      "luaHeapBytesPerValue": [
+        5828.6875,
+        6114.8125,
+        6051.6875
+      ],
+      "medianNs": 4173.046875000086
+    },
+    {
+      "provider": "aot",
+      "name": "openapi/request/encode",
+      "forkMediansNs": [
+        4146.4843750000155,
+        4091.40624999995,
+        3971.874999999896
+      ],
+      "luaHeapBytesPerValue": [
+        6124.8125,
+        6189.0625,
+        6125.0625
+      ],
+      "medianNs": 4091.40624999995
+    },
+    {
+      "provider": "aot",
+      "name": "openapi/request/fresh-buffer",
+      "forkMediansNs": [
+        4154.492187500095,
+        4139.453125000074,
+        4044.1406250001087
+      ],
+      "luaHeapBytesPerValue": [
+        6125.8125,
+        6189.9375,
+        6125.9375
+      ],
+      "medianNs": 4139.453125000074
+    },
+    {
+      "provider": "aot",
+      "name": "policy/switch",
+      "forkMediansNs": [
+        5995.312499999968,
+        6084.765624999981,
+        5931.250000000034
+      ],
+      "luaHeapBytesPerValue": [
+        7214.6875,
+        7154.3125,
+        7152.8125
+      ],
+      "medianNs": 5995.312499999968
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/document/buffer",
+      "forkMediansNs": [
+        5882.03124999992,
+        5771.289062499966,
+        5793.164062499987
+      ],
+      "luaHeapBytesPerValue": [
+        6890.125,
+        6728.625,
+        6728.625
+      ],
+      "medianNs": 5793.164062499987
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/document/decode",
+      "forkMediansNs": [
+        6639.843750000027,
+        6387.109375000002,
+        6742.578124999989
+      ],
+      "luaHeapBytesPerValue": [
+        7483.6875,
+        7254.8125,
+        7489.1875
+      ],
+      "medianNs": 6639.843750000027
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/document/embedded",
+      "forkMediansNs": [
+        6025.781249999889,
+        5958.2031249999845,
+        5967.7734374999345
+      ],
+      "luaHeapBytesPerValue": [
+        7176.375,
+        6855.5,
+        7015.5
+      ],
+      "medianNs": 5967.7734374999345
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/document/encode",
+      "forkMediansNs": [
+        5799.999999999989,
+        5840.234375000062,
+        5854.1015625000055
+      ],
+      "luaHeapBytesPerValue": [
+        7133.1875,
+        6976.5625,
+        6973.3125
+      ],
+      "medianNs": 5840.234375000062
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/document/fresh-buffer",
+      "forkMediansNs": [
+        5880.468750000047,
+        5876.562499999935,
+        5824.609374999959
+      ],
+      "luaHeapBytesPerValue": [
+        7164.5625,
+        6979.875,
+        6988.25
+      ],
+      "medianNs": 5876.562499999935
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/indexed/buffer",
+      "forkMediansNs": [
+        5807.031250000018,
+        5860.351562500011,
+        5715.234374999937
+      ],
+      "luaHeapBytesPerValue": [
+        6890,
+        6728.5,
+        6730.625
+      ],
+      "medianNs": 5807.031250000018
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/indexed/decode",
+      "forkMediansNs": [
+        7071.484374999992,
+        6740.820312500004,
+        7212.890624999982
+      ],
+      "luaHeapBytesPerValue": [
+        8091.5625,
+        7838.0625,
+        8092.1875
+      ],
+      "medianNs": 7071.484374999992
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/indexed/embedded",
+      "forkMediansNs": [
+        5969.33593749998,
+        5905.078124999932,
+        5891.992187500011
+      ],
+      "luaHeapBytesPerValue": [
+        7176.25,
+        6855.5,
+        7019.75
+      ],
+      "medianNs": 5905.078124999932
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/indexed/encode",
+      "forkMediansNs": [
+        5799.999999999989,
+        5736.523437500007,
+        5717.187499999994
+      ],
+      "luaHeapBytesPerValue": [
+        7137.6875,
+        6976.4375,
+        6977.4375
+      ],
+      "medianNs": 5736.523437500007
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/indexed/fresh-buffer",
+      "forkMediansNs": [
+        5828.320312499957,
+        5850.585937500035,
+        5832.226562499984
+      ],
+      "luaHeapBytesPerValue": [
+        7156.875,
+        6979.75,
+        6976.5
+      ],
+      "medianNs": 5832.226562499984
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/nominal/buffer",
+      "forkMediansNs": [
+        5697.460937499989,
+        5728.906250000005,
+        5622.460937500001
+      ],
+      "luaHeapBytesPerValue": [
+        6730.75,
+        6728.375,
+        6731.25
+      ],
+      "medianNs": 5697.460937499989
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/nominal/decode",
+      "forkMediansNs": [
+        7104.687499999993,
+        6546.093749999998,
+        7134.570312499996
+      ],
+      "luaHeapBytesPerValue": [
+        7772.3125,
+        7542.0625,
+        7771.8125
+      ],
+      "medianNs": 7104.687499999993
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/nominal/embedded",
+      "forkMediansNs": [
+        5855.078124999968,
+        5828.320312500002,
+        5823.242187500028
+      ],
+      "luaHeapBytesPerValue": [
+        7016.625,
+        6855.375,
+        7016.375
+      ],
+      "medianNs": 5828.320312500002
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/nominal/encode",
+      "forkMediansNs": [
+        5756.249999999999,
+        5774.609374999996,
+        5716.015625
+      ],
+      "luaHeapBytesPerValue": [
+        6975.9375,
+        6975.9375,
+        6977.6875
+      ],
+      "medianNs": 5756.249999999999
+    },
+    {
+      "provider": "aot",
+      "name": "recursive/nominal/fresh-buffer",
+      "forkMediansNs": [
+        5680.46875,
+        5928.906249999988,
+        5799.414062499994
+      ],
+      "luaHeapBytesPerValue": [
+        6998,
+        6979.625,
+        6997.25
+      ],
+      "medianNs": 5799.414062499994
+    },
+    {
+      "provider": "aot",
+      "name": "rich/blob-buffer",
+      "forkMediansNs": [
+        142287.49999998236,
+        150056.2499999969,
+        145787.5000000053
+      ],
+      "luaHeapBytesPerValue": [
+        140676.6875,
+        140721.75,
+        140673.4375
+      ],
+      "medianNs": 145787.5000000053
+    },
+    {
+      "provider": "aot",
+      "name": "rich/blob-embedded",
+      "forkMediansNs": [
+        145056.25000000856,
+        147756.24999998626,
+        149712.4999999988
+      ],
+      "luaHeapBytesPerValue": [
+        140790.125,
+        140786,
+        140785.25
+      ],
+      "medianNs": 147756.24999998626
+    },
+    {
+      "provider": "aot",
+      "name": "rich/blob-exact-encode",
+      "forkMediansNs": [
+        149849.9999999958,
+        150274.9999999997,
+        147843.7500000096
+      ],
+      "luaHeapBytesPerValue": [
+        271888.9375,
+        271864.3125,
+        271869.4375
+      ],
+      "medianNs": 149849.9999999958
+    },
+    {
+      "provider": "aot",
+      "name": "rich/blob-fresh-buffer",
+      "forkMediansNs": [
+        149150.0000000201,
+        152912.4999999909,
+        153256.2500000001
+      ],
+      "luaHeapBytesPerValue": [
+        271866.4375,
+        271871.9375,
+        271868.6875
+      ],
+      "medianNs": 152912.4999999909
+    },
+    {
+      "provider": "aot",
+      "name": "rich/json-contents-decode",
+      "forkMediansNs": [
+        67575.00000000306,
+        66168.75000000077,
+        68756.25000000163
+      ],
+      "luaHeapBytesPerValue": [
+        6454.5625,
+        6454.3125,
+        6451.0625
+      ],
+      "medianNs": 67575.00000000306
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/document/buffer",
+      "forkMediansNs": [
+        3519.92187500004,
+        3174.218750000117,
+        3604.589843749992
+      ],
+      "luaHeapBytesPerValue": [
+        4677.4375,
+        4674.75,
+        4676.9375
+      ],
+      "medianNs": 3519.92187500004
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/document/decode",
+      "forkMediansNs": [
+        6543.5546874999245,
+        5944.531249999983,
+        6491.01562500004
+      ],
+      "luaHeapBytesPerValue": [
+        10887.625,
+        10183.5,
+        10439.125
+      ],
+      "medianNs": 6491.01562500004
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/document/embedded",
+      "forkMediansNs": [
+        3786.9140625000628,
+        3510.3515624999163,
+        3900.3906249997917
+      ],
+      "luaHeapBytesPerValue": [
+        4787.25,
+        4848.6875,
+        4787
+      ],
+      "medianNs": 3786.9140625000628
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/document/encode",
+      "forkMediansNs": [
+        3583.300781249965,
+        3254.3945312499613,
+        3711.230468749979
+      ],
+      "luaHeapBytesPerValue": [
+        4864.5625,
+        4860.125,
+        4863.5625
+      ],
+      "medianNs": 3583.300781249965
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/document/fresh-buffer",
+      "forkMediansNs": [
+        3633.007812500061,
+        3329.4921874999636,
+        3700.0976562499845
+      ],
+      "luaHeapBytesPerValue": [
+        4864.6875,
+        4862,
+        4864.1875
+      ],
+      "medianNs": 3633.007812500061
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/nominal/buffer",
+      "forkMediansNs": [
+        2447.070312499959,
+        2427.050781250023,
+        2450.2929687499754
+      ],
+      "luaHeapBytesPerValue": [
+        3446,
+        3497,
+        3446
+      ],
+      "medianNs": 2447.070312499959
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/nominal/decode",
+      "forkMediansNs": [
+        1174.462890625016,
+        1053.2714843749895,
+        1173.1445312499616
+      ],
+      "luaHeapBytesPerValue": [
+        1568,
+        1585.875,
+        1568
+      ],
+      "medianNs": 1173.1445312499616
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/nominal/embedded",
+      "forkMediansNs": [
+        2510.644531249912,
+        2499.9023437501446,
+        2477.3437500000273
+      ],
+      "luaHeapBytesPerValue": [
+        3559.5625,
+        3626.3125,
+        3562.3125
+      ],
+      "medianNs": 2499.9023437501446
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/nominal/encode",
+      "forkMediansNs": [
+        2450.6835937500305,
+        2517.0898437501187,
+        2510.644531249912
+      ],
+      "luaHeapBytesPerValue": [
+        3617,
+        3695.625,
+        3617
+      ],
+      "medianNs": 2510.644531249912
+    },
+    {
+      "provider": "aot",
+      "name": "smithy/nominal/fresh-buffer",
+      "forkMediansNs": [
+        2480.0781250000628,
+        2611.0351562500664,
+        2515.722656250101
+      ],
+      "luaHeapBytesPerValue": [
+        3630.875,
+        3694,
+        3630
+      ],
+      "medianNs": 2515.722656250101
+    },
+    {
+      "provider": "portable",
+      "name": "declaration/smithy-equivalent/buffer",
+      "forkMediansNs": [
+        2550.4882812501032,
+        2765.527343749977,
+        2825.8789062499122
+      ],
+      "luaHeapBytesPerValue": [
+        3689.8125,
+        3689.6875,
+        3689.9375
+      ],
+      "medianNs": 2765.527343749977
+    },
+    {
+      "provider": "portable",
+      "name": "declaration/smithy-equivalent/decode",
+      "forkMediansNs": [
+        5353.906249999998,
+        5279.687500000033,
+        5246.874999999956
+      ],
+      "luaHeapBytesPerValue": [
+        5046.5625,
+        5174.4375,
+        5046.6875
+      ],
+      "medianNs": 5279.687500000033
+    },
+    {
+      "provider": "portable",
+      "name": "declaration/smithy-equivalent/embedded",
+      "forkMediansNs": [
+        2679.9804687499886,
+        2936.035156250044,
+        2912.890624999845
+      ],
+      "luaHeapBytesPerValue": [
+        3799.875,
+        3801.5,
+        3800
+      ],
+      "medianNs": 2912.890624999845
+    },
+    {
+      "provider": "portable",
+      "name": "declaration/smithy-equivalent/encode",
+      "forkMediansNs": [
+        2685.156250000105,
+        2956.0546874999804,
+        2959.0820312499695
+      ],
+      "luaHeapBytesPerValue": [
+        3876.5625,
+        3873.0625,
+        3873.4375
+      ],
+      "medianNs": 2956.0546874999804
+    },
+    {
+      "provider": "portable",
+      "name": "declaration/smithy-equivalent/fresh-buffer",
+      "forkMediansNs": [
+        2727.734374999985,
+        3014.0625000001087,
+        2983.105468750032
+      ],
+      "luaHeapBytesPerValue": [
+        3877.0625,
+        3869.1875,
+        3877.1875
+      ],
+      "medianNs": 2983.105468750032
+    },
+    {
+      "provider": "portable",
+      "name": "document/project",
+      "forkMediansNs": [
+        3029.5898437500236,
+        3311.7187499999945,
+        4047.265625000025
+      ],
+      "luaHeapBytesPerValue": [
+        6580.375,
+        6573.875,
+        6573.25
+      ],
+      "medianNs": 3311.7187499999945
+    },
+    {
+      "provider": "portable",
+      "name": "document/reconstruct",
+      "forkMediansNs": [
+        4329.101562500042,
+        4398.046875000137,
+        4293.55468749993
+      ],
+      "luaHeapBytesPerValue": [
+        6022.25,
+        6201.125,
+        6024.5
+      ],
+      "medianNs": 4329.101562500042
+    },
+    {
+      "provider": "portable",
+      "name": "document/registry",
+      "forkMediansNs": [
+        4592.187500000039,
+        4558.007812499945,
+        4419.33593749999
+      ],
+      "luaHeapBytesPerValue": [
+        6186.5625,
+        6359.3125,
+        6183.0625
+      ],
+      "medianNs": 4558.007812499945
+    },
+    {
+      "provider": "portable",
+      "name": "document/snapshot",
+      "forkMediansNs": [
+        5692.96874999986,
+        5784.375000000147,
+        5628.124999999991
+      ],
+      "luaHeapBytesPerValue": [
+        11233.125,
+        11233.875,
+        11231.125
+      ],
+      "medianNs": 5692.96874999986
+    },
+    {
+      "provider": "portable",
+      "name": "document/typed-snapshot",
+      "forkMediansNs": [
+        8091.015625000254,
+        8549.999999999878,
+        9267.187499999856
+      ],
+      "luaHeapBytesPerValue": [
+        12741.875,
+        12918.625,
+        12741.875
+      ],
+      "medianNs": 8549.999999999878
+    },
+    {
+      "provider": "portable",
+      "name": "document/typed-view-create",
+      "forkMediansNs": [
+        30.12695312499998,
+        30.52520751953167,
+        30.648803710936892
+      ],
+      "luaHeapBytesPerValue": [
+        160,
+        160,
+        160
+      ],
+      "medianNs": 30.52520751953167
+    },
+    {
+      "provider": "portable",
+      "name": "document/typed-view-encode",
+      "forkMediansNs": [
+        5770.703124999971,
+        6413.476562499958,
+        6290.039062500051
+      ],
+      "luaHeapBytesPerValue": [
+        7157.4375,
+        7160.4375,
+        7157.4375
+      ],
+      "medianNs": 6290.039062500051
+    },
+    {
+      "provider": "portable",
+      "name": "extensions/cold",
+      "forkMediansNs": [
+        14315.234375000126,
+        15658.984374999907,
+        15448.437499999967
+      ],
+      "luaHeapBytesPerValue": [
+        19504.6875,
+        19339.8125,
+        19342.9375
+      ],
+      "medianNs": 15448.437499999967
+    },
+    {
+      "provider": "portable",
+      "name": "hook/timestamp/buffer",
+      "forkMediansNs": [
+        3076.171874999943,
+        3373.5351562499613,
+        3232.519531250026
+      ],
+      "luaHeapBytesPerValue": [
+        4529.9375,
+        4530.3125,
+        4530.3125
+      ],
+      "medianNs": 3232.519531250026
+    },
+    {
+      "provider": "portable",
+      "name": "hook/timestamp/decode",
+      "forkMediansNs": [
+        4012.5000000001965,
+        3890.6250000001614,
+        3961.7187499998636
+      ],
+      "luaHeapBytesPerValue": [
+        4344.0625,
+        4344.875,
+        4344.875
+      ],
+      "medianNs": 3961.7187499998636
+    },
+    {
+      "provider": "portable",
+      "name": "hook/timestamp/embedded",
+      "forkMediansNs": [
+        3208.496093749964,
+        3538.281250000004,
+        3596.3867187500596
+      ],
+      "luaHeapBytesPerValue": [
+        4645.3125,
+        4642.5625,
+        4641.6875
+      ],
+      "medianNs": 3538.281250000004
+    },
+    {
+      "provider": "portable",
+      "name": "hook/timestamp/encode",
+      "forkMediansNs": [
+        3310.8398437498713,
+        3597.656249999977,
+        3607.12890625
+      ],
+      "luaHeapBytesPerValue": [
+        4715.9375,
+        4715.0625,
+        4715.0625
+      ],
+      "medianNs": 3597.656249999977
+    },
+    {
+      "provider": "portable",
+      "name": "hook/timestamp/fresh-buffer",
+      "forkMediansNs": [
+        3351.562500000099,
+        3646.289062500009,
+        3629.589843750017
+      ],
+      "luaHeapBytesPerValue": [
+        4717.1875,
+        4717.5625,
+        4717.5625
+      ],
+      "medianNs": 3629.589843750017
+    },
+    {
+      "provider": "portable",
+      "name": "large-string/buffer",
+      "forkMediansNs": [
+        934499.9999999715,
+        930699.9999999732,
+        929725.0000000368
+      ],
+      "luaHeapBytesPerValue": [
+        7063.0625,
+        7062.6875,
+        7061.1875
+      ],
+      "medianNs": 930699.9999999732
+    },
+    {
+      "provider": "portable",
+      "name": "large-string/decode",
+      "forkMediansNs": [
+        930924.9999999824,
+        934100.0000000043,
+        941674.9999999752
+      ],
+      "luaHeapBytesPerValue": [
+        7346,
+        7475,
+        7345.75
+      ],
+      "medianNs": 934100.0000000043
+    },
+    {
+      "provider": "portable",
+      "name": "large-string/embedded",
+      "forkMediansNs": [
+        930799.9999999872,
+        936074.9999999917,
+        921400.0000000056
+      ],
+      "luaHeapBytesPerValue": [
+        7197.75,
+        7181.625,
+        7180.125
+      ],
+      "medianNs": 930799.9999999872
+    },
+    {
+      "provider": "portable",
+      "name": "large-string/encode",
+      "forkMediansNs": [
+        941349.9999999964,
+        946174.9999999825,
+        943350.0000000094
+      ],
+      "luaHeapBytesPerValue": [
+        139345.125,
+        139346.125,
+        139344.875
+      ],
+      "medianNs": 943350.0000000094
+    },
+    {
+      "provider": "portable",
+      "name": "large-string/fresh-buffer",
+      "forkMediansNs": [
+        938199.9999999556,
+        933900.0000000653,
+        941349.9999999964
+      ],
+      "luaHeapBytesPerValue": [
+        138258.3125,
+        138257.9375,
+        138256.4375
+      ],
+      "medianNs": 938199.9999999556
+    },
+    {
+      "provider": "portable",
+      "name": "matching/escaped-unknown/buffer",
+      "forkMediansNs": [
+        2047.8515624998415,
+        2167.968749999978,
+        2183.0078124999986
+      ],
+      "luaHeapBytesPerValue": [
+        3242.4375,
+        3242.4375,
+        3242.5625
+      ],
+      "medianNs": 2167.968749999978
+    },
+    {
+      "provider": "portable",
+      "name": "matching/escaped-unknown/decode",
+      "forkMediansNs": [
+        5923.63281250001,
+        6588.476562499959,
+        6149.414062499997
+      ],
+      "luaHeapBytesPerValue": [
+        5625.4375,
+        5625.4375,
+        5625.5625
+      ],
+      "medianNs": 6149.414062499997
+    },
+    {
+      "provider": "portable",
+      "name": "matching/escaped-unknown/embedded",
+      "forkMediansNs": [
+        2054.6875000001032,
+        2122.5585937499623,
+        2252.6367187501032
+      ],
+      "luaHeapBytesPerValue": [
+        3352.1875,
+        3351.3125,
+        3351.3125
+      ],
+      "medianNs": 2122.5585937499623
+    },
+    {
+      "provider": "portable",
+      "name": "matching/escaped-unknown/encode",
+      "forkMediansNs": [
+        2206.835937500033,
+        2359.4726562499445,
+        2282.910156249998
+      ],
+      "luaHeapBytesPerValue": [
+        3394.125,
+        3395.75,
+        3394.25
+      ],
+      "medianNs": 2282.910156249998
+    },
+    {
+      "provider": "portable",
+      "name": "matching/escaped-unknown/fresh-buffer",
+      "forkMediansNs": [
+        2250.5859374999036,
+        2401.171874999962,
+        2345.0195312500064
+      ],
+      "luaHeapBytesPerValue": [
+        3397.6875,
+        3397.6875,
+        3397.8125
+      ],
+      "medianNs": 2345.0195312500064
+    },
+    {
+      "provider": "portable",
+      "name": "model/load",
+      "forkMediansNs": [
+        46140.62500000182,
+        39843.749999998734,
+        40012.50000000012
+      ],
+      "luaHeapBytesPerValue": [
+        42717,
+        39091.875,
+        39161.375
+      ],
+      "medianNs": 40012.50000000012
+    },
+    {
+      "provider": "portable",
+      "name": "openapi/request/buffer",
+      "forkMediansNs": [
+        4165.624999999915,
+        5016.601562500035,
+        5117.968749999979
+      ],
+      "luaHeapBytesPerValue": [
+        6194.1875,
+        6194.5625,
+        6034.5625
+      ],
+      "medianNs": 5016.601562500035
+    },
+    {
+      "provider": "portable",
+      "name": "openapi/request/decode",
+      "forkMediansNs": [
+        6306.054687499862,
+        6245.507812500072,
+        6100.976562499992
+      ],
+      "luaHeapBytesPerValue": [
+        6998.9375,
+        6999.3125,
+        6999.3125
+      ],
+      "medianNs": 6245.507812500072
+    },
+    {
+      "provider": "portable",
+      "name": "openapi/request/embedded",
+      "forkMediansNs": [
+        4198.046874999937,
+        5328.320312499891,
+        5607.226562500019
+      ],
+      "luaHeapBytesPerValue": [
+        6307.9375,
+        6307.4375,
+        6371.4375
+      ],
+      "medianNs": 5328.320312499891
+    },
+    {
+      "provider": "portable",
+      "name": "openapi/request/encode",
+      "forkMediansNs": [
+        4480.273437500008,
+        5402.539062500031,
+        5385.351562500057
+      ],
+      "luaHeapBytesPerValue": [
+        6377.8125,
+        6378.5625,
+        6218.5625
+      ],
+      "medianNs": 5385.351562500057
+    },
+    {
+      "provider": "portable",
+      "name": "openapi/request/fresh-buffer",
+      "forkMediansNs": [
+        4481.835937500053,
+        5306.445312500129,
+        5399.804687499995
+      ],
+      "luaHeapBytesPerValue": [
+        6381.4375,
+        6381.8125,
+        6221.8125
+      ],
+      "medianNs": 5306.445312500129
+    },
+    {
+      "provider": "portable",
+      "name": "policy/switch",
+      "forkMediansNs": [
+        6741.210937499971,
+        7083.007812500042,
+        7154.101562499917
+      ],
+      "luaHeapBytesPerValue": [
+        7414.5625,
+        7417.5625,
+        7414.4375
+      ],
+      "medianNs": 7083.007812500042
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/document/buffer",
+      "forkMediansNs": [
+        5720.31250000004,
+        6339.843749999987,
+        5828.320312500045
+      ],
+      "luaHeapBytesPerValue": [
+        6976.375,
+        6914,
+        6914.875
+      ],
+      "medianNs": 5828.320312500045
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/document/decode",
+      "forkMediansNs": [
+        8283.203125000055,
+        7461.132812499986,
+        8156.6406249998845
+      ],
+      "luaHeapBytesPerValue": [
+        7569.75,
+        7563.5625,
+        7561.3125
+      ],
+      "medianNs": 8156.6406249998845
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/document/embedded",
+      "forkMediansNs": [
+        5983.593749999977,
+        6838.085937499982,
+        6807.421875000032
+      ],
+      "luaHeapBytesPerValue": [
+        7265.375,
+        7199.375,
+        7199.75
+      ],
+      "medianNs": 6807.421875000032
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/document/encode",
+      "forkMediansNs": [
+        5976.171874999981,
+        6609.5703125000455,
+        6061.328125000001
+      ],
+      "luaHeapBytesPerValue": [
+        7221.3125,
+        7160.6875,
+        7157.6875
+      ],
+      "medianNs": 6061.328125000001
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/document/fresh-buffer",
+      "forkMediansNs": [
+        6046.289062499981,
+        6780.859375000135,
+        6134.960937499972
+      ],
+      "luaHeapBytesPerValue": [
+        7227.625,
+        7183.75,
+        7163
+      ],
+      "medianNs": 6134.960937499972
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/indexed/buffer",
+      "forkMediansNs": [
+        5731.054687500024,
+        6325.781250000016,
+        6244.92187499999
+      ],
+      "luaHeapBytesPerValue": [
+        6978,
+        6911.625,
+        6914.125
+      ],
+      "medianNs": 6244.92187499999
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/indexed/decode",
+      "forkMediansNs": [
+        8686.718749999993,
+        7981.250000000003,
+        8656.249999999984
+      ],
+      "luaHeapBytesPerValue": [
+        8172.125,
+        8169.1875,
+        8171.6875
+      ],
+      "medianNs": 8656.249999999984
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/indexed/embedded",
+      "forkMediansNs": [
+        5903.710937500001,
+        6799.804687500008,
+        6841.210937500071
+      ],
+      "luaHeapBytesPerValue": [
+        7265,
+        7199.625,
+        7220.75
+      ],
+      "medianNs": 6799.804687500008
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/indexed/encode",
+      "forkMediansNs": [
+        5892.382812499978,
+        6601.953125000022,
+        6421.484374999993
+      ],
+      "luaHeapBytesPerValue": [
+        7221.4375,
+        7335.5625,
+        7160.8125
+      ],
+      "medianNs": 6421.484374999993
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/indexed/fresh-buffer",
+      "forkMediansNs": [
+        6045.312500000017,
+        6692.968749999993,
+        6526.367187500038
+      ],
+      "luaHeapBytesPerValue": [
+        7245.125,
+        7162.875,
+        7160
+      ],
+      "medianNs": 6526.367187500038
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/nominal/buffer",
+      "forkMediansNs": [
+        5483.007812500003,
+        6155.468749999997,
+        6070.1171875000155
+      ],
+      "luaHeapBytesPerValue": [
+        6913.375,
+        6911.875,
+        6911.75
+      ],
+      "medianNs": 6070.1171875000155
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/nominal/decode",
+      "forkMediansNs": [
+        8637.50000000001,
+        7857.031250000008,
+        8596.484375
+      ],
+      "luaHeapBytesPerValue": [
+        7851.5,
+        7873.5625,
+        7849.3125
+      ],
+      "medianNs": 8596.484375
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/nominal/embedded",
+      "forkMediansNs": [
+        5819.921874999998,
+        6337.695312500034,
+        6617.968750000005
+      ],
+      "luaHeapBytesPerValue": [
+        7201.375,
+        7039.75,
+        7039.75
+      ],
+      "medianNs": 6337.695312500034
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/nominal/encode",
+      "forkMediansNs": [
+        5804.6875,
+        6349.804687500002,
+        6331.0546874999945
+      ],
+      "luaHeapBytesPerValue": [
+        7157.8125,
+        7157.8125,
+        7157.8125
+      ],
+      "medianNs": 6331.0546874999945
+    },
+    {
+      "provider": "portable",
+      "name": "recursive/nominal/fresh-buffer",
+      "forkMediansNs": [
+        5896.874999999977,
+        6491.601562500014,
+        6413.867187500012
+      ],
+      "luaHeapBytesPerValue": [
+        7180.375,
+        7163.125,
+        7163
+      ],
+      "medianNs": 6413.867187500012
+    },
+    {
+      "provider": "portable",
+      "name": "rich/blob-buffer",
+      "forkMediansNs": [
+        1171550.0000001101,
+        1181899.9999999136,
+        1173250.000000081
+      ],
+      "luaHeapBytesPerValue": [
+        8278.625,
+        8277.1875,
+        8300.25
+      ],
+      "medianNs": 1173250.000000081
+    },
+    {
+      "provider": "portable",
+      "name": "rich/blob-embedded",
+      "forkMediansNs": [
+        1166900.0000001262,
+        1174299.999999917,
+        1168700.0000000226
+      ],
+      "luaHeapBytesPerValue": [
+        8388.9375,
+        8386.75,
+        8394.0625
+      ],
+      "medianNs": 1168700.0000000226
+    },
+    {
+      "provider": "portable",
+      "name": "rich/blob-exact-encode",
+      "forkMediansNs": [
+        1184549.999999973,
+        1208499.9999999902,
+        1187100.0000000186
+      ],
+      "luaHeapBytesPerValue": [
+        139471.375,
+        139474.0625,
+        139472.75
+      ],
+      "medianNs": 1187100.0000000186
+    },
+    {
+      "provider": "portable",
+      "name": "rich/blob-fresh-buffer",
+      "forkMediansNs": [
+        1181799.9999999886,
+        1180249.9999999937,
+        1179500.000000111
+      ],
+      "luaHeapBytesPerValue": [
+        139473.875,
+        139472.4375,
+        139470.375
+      ],
+      "medianNs": 1180249.9999999937
+    },
+    {
+      "provider": "portable",
+      "name": "rich/json-contents-decode",
+      "forkMediansNs": [
+        565100.0000000295,
+        559200.0000000042,
+        543175.0000000069
+      ],
+      "luaHeapBytesPerValue": [
+        5084.375,
+        5086.25,
+        5351.125
+      ],
+      "medianNs": 559200.0000000042
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/document/buffer",
+      "forkMediansNs": [
+        3389.8437500000728,
+        3830.761718750033,
+        3777.539062499967
+      ],
+      "luaHeapBytesPerValue": [
+        4916.875,
+        4914.4375,
+        4916.875
+      ],
+      "medianNs": 3777.539062499967
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/document/decode",
+      "forkMediansNs": [
+        7519.92187500005,
+        6874.999999999936,
+        7154.101562499917
+      ],
+      "luaHeapBytesPerValue": [
+        11335.0625,
+        10439.1875,
+        10439.0625
+      ],
+      "medianNs": 7154.101562499917
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/document/embedded",
+      "forkMediansNs": [
+        3485.0585937499377,
+        4291.015624999923,
+        4936.132812499716
+      ],
+      "luaHeapBytesPerValue": [
+        5024.125,
+        5024.25,
+        5092.3125
+      ],
+      "medianNs": 4291.015624999923
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/document/encode",
+      "forkMediansNs": [
+        3590.722656249962,
+        4149.023437500024,
+        3965.0390624999814
+      ],
+      "luaHeapBytesPerValue": [
+        5095.5,
+        5099,
+        5095.5
+      ],
+      "medianNs": 3965.0390624999814
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/document/fresh-buffer",
+      "forkMediansNs": [
+        3684.7656250000095,
+        4165.820312499944,
+        4044.5312500001633
+      ],
+      "luaHeapBytesPerValue": [
+        5095.0625,
+        5095.1875,
+        5104.125
+      ],
+      "medianNs": 4044.5312500001633
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/nominal/buffer",
+      "forkMediansNs": [
+        2567.4804687500496,
+        2819.531249999979,
+        3040.8203125000323
+      ],
+      "luaHeapBytesPerValue": [
+        3689.8125,
+        3691.8125,
+        3757.1875
+      ],
+      "medianNs": 2819.531249999979
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/nominal/decode",
+      "forkMediansNs": [
+        4098.2421874998645,
+        4121.484375000165,
+        4102.929687499826
+      ],
+      "luaHeapBytesPerValue": [
+        4374.5625,
+        4376.5625,
+        4377.9375
+      ],
+      "medianNs": 4102.929687499826
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/nominal/embedded",
+      "forkMediansNs": [
+        2629.2968750001037,
+        3022.363281249968,
+        3287.1093749999372
+      ],
+      "luaHeapBytesPerValue": [
+        3800.75,
+        3798.875,
+        3863.25
+      ],
+      "medianNs": 3022.363281249968
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/nominal/encode",
+      "forkMediansNs": [
+        2681.054687500052,
+        3015.527343750053,
+        3209.570312499854
+      ],
+      "luaHeapBytesPerValue": [
+        3872.125,
+        3869.875,
+        3935.25
+      ],
+      "medianNs": 3015.527343750053
+    },
+    {
+      "provider": "portable",
+      "name": "smithy/nominal/fresh-buffer",
+      "forkMediansNs": [
+        2709.4726562499477,
+        3046.484374999957,
+        3245.996093750002
+      ],
+      "luaHeapBytesPerValue": [
+        3877.0625,
+        3870.1875,
+        3934.9375
+      ],
+      "medianNs": 3046.484374999957
+    }
+  ]
+}

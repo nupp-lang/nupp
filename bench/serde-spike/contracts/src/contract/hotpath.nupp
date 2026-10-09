@@ -1,0 +1,44 @@
+module contract.hotpath
+
+local declarations = require("nupp.serde")
+local json = require("nupp.serde.json")
+
+local record Payload
+    id: uint32
+    active: boolean
+    name: string
+end
+local binding = declarations.binding(Payload)
+local codec = json.codec()
+local value = new Payload(id = 0, active = true, name = "trace probe")
+local inputs: {string} = {}
+for index = 1, 16 do
+    value.id = nupp.math.u32.wrap(index)
+    inputs[index] = codec:encode(binding, value)
+end
+local mode = arg[1] or "new-decode"
+local requested = assert(tonumber(arg[2] or "20000"))
+assert(requested > 0 and requested % 1 == 0)
+local count = requested as integer
+local strings: {string} = {}
+local values: {Payload} = {}
+local checksum = 0
+local start = os.clock()
+if mode == "new-encode" then
+    for index = 1, count do
+        value.id = nupp.math.u32.wrap(index % 16 + 1)
+        local bytes = codec:encode(binding, value)
+        strings[index % 256 + 1] = bytes
+        checksum += #bytes
+    end
+elseif mode == "new-decode" then
+    for index = 1, count do
+        local decoded = codec:decode(binding, inputs[index % 16 + 1])
+        values[index % 256 + 1] = decoded
+        checksum += decoded.id
+    end
+
+else
+    error("unknown trace probe mode")
+end
+print(mode, count, os.clock() - start, checksum, #strings, #values)

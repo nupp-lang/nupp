@@ -1,0 +1,10 @@
+local scalar = require("nupp.serde.scalar")
+local record Resource is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+
+local function invalid(value: scalar.Conversion<string, Resource>): nil
+end
+
+return invalid

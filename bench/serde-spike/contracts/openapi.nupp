@@ -1,6 +1,6 @@
 local api = require("example.openapi")
-local codec = require("contract.jsoncodec")
-local documents = require("example.document")
+local codec = require("nupp.serde.json")
+local documents = require("nupp.serde.document")
 local model = api.model()
 local binding = api.binding(model)
 local request = codec.codec(api.policy("request"))
@@ -30,3 +30,16 @@ assert(not pcall(response.decode, response, ambiguous, '{"name":"Ada","payload":
 assert(not pcall(response.encode, response, ambiguous, value))
 assert(response:decode(ambiguous, '{"name":"Ada","payload":-1}').payload.alternative == "integer")
 print("independent OpenAPI views, additional properties, and untagged alternative rules passed")
+
+local documentBinding = api.documentBinding(model)
+local documentValue = response:decode(documentBinding, response:encode(binding, restored))
+assert(response:encode(documentBinding, documentValue) == response:encode(binding, restored))
+assert(assert(documentValue:get("secret")):string() == "")
+assert(assert(assert(documentValue:get("extension")):get("x")).kind == "null")
+assert(not pcall(response.decode, response, documentBinding, '{"name":"Ada"}'))
+assert(not pcall(response.decode, response, api.documentBinding(api.model(true)), '{"name":"Ada","payload":17}'))
+
+local unordered = '{"z":null,"payload":17,"b":false,"name":"sorted","a":[1]}'
+local typedSorted = response:decode(binding, unordered)
+local documentSorted = response:decode(documentBinding, unordered)
+assert(response:encode(binding, typedSorted) == response:encode(documentBinding, documentSorted))

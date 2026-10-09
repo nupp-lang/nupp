@@ -1,0 +1,21 @@
+{
+  "baselineRevision": "77e7e20227fe1caa7b7239d8954f0fb6a6732eb2",
+  "baselineSource": "evidence/ergonomics-old.nupp.txt",
+  "replacementSource": "ergonomics.nupp",
+  "baselineSha256": "9d72cd1eca76bd64967fe1e6e45f57238504d7c918b4d2dbe192d81b88c17f38",
+  "replacementSha256": "a89154024574d327d11b8f0a4390e6ca1421f4a0b767cd9835afa1ed2d2f4008",
+  "nonblankNoncommentLines": {
+    "baseline": {
+      "config": 15,
+      "response": 13,
+      "save": 13
+    },
+    "replacement": {
+      "config": 14,
+      "response": 11,
+      "save": 13
+    }
+  },
+  "validation": "Both complete programs type-checked and executed. The final public-facade replacement also passed ordinaryProgramsNeedNoMappingTablesOrPreparation in the broad validation run. Config and save files use temporary owners and are removed automatically.",
+  "scope": "The old API supports JSON persistence; the replacement save uses the separately selected native codec. Imports shared by all examples are excluded from per-program counts. No mapping table is needed."
+}

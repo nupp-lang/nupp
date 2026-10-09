@@ -1,0 +1,107 @@
+local declarations = require("nupp.serde.declaration")
+local debug = require("nupp.serde.debug")
+local json = require("nupp.serde.json")
+local text = require("nupp.text")
+local record Credentials
+    user: string
+    @debug(redact = true)
+    password: string
+    @debug(skip = true)
+    cache: function(): nil
+    @debug(redact = true)
+    callback: function(): nil
+end
+local binding = declarations.binding(Credentials)
+local value = new Credentials(
+    user = "ada",
+    password = "secret",
+    cache = function(): nil
+        error("skipped callback was used")
+    end,
+    callback = function(): nil
+        error("redacted callback was used")
+    end
+)
+local expected = 'Credentials { user = "ada", password = <redacted>, callback = <redacted> }'
+assert(debug.render(binding, value) == expected)
+assert(not pcall(json.encode, binding, value, declarations.policy()))
+assert(debug.render(binding, value) == expected)
+local buffer = text.newBuffer()
+buffer:put("prefix:")
+debug.write(binding, value, buffer)
+assert(buffer:tostring() == "prefix:" .. expected)
+local record Other
+    name: string
+    @debug(skip = true)
+    ignored: function(): nil
+end
+local other = declarations.binding(Other)
+local instance = new Other(name = "second", ignored = function(): nil
+end)
+assert(not pcall(json.encode, other, instance, declarations.policy()))
+assert(debug.render(other, instance) == 'Other { name = "second" }')
+local record Node
+    name: string
+    next: Node?
+end
+local nodes = declarations.binding(Node)
+local cycle = new Node(name = "root")
+cycle.next = cycle
+assert(debug.render(nodes, cycle) == 'Node { name = "root", next = <cycle> }')
+local record Pair
+    first: Node
+    second: Node
+end
+local leaf = new Node(name = "shared")
+local rendered = debug.render(declarations.binding(Pair), new Pair(first = leaf, second = leaf))
+assert(not rendered:find("<cycle>", 1, true))
+local record Wide
+    signed: int64
+    unsigned: uint64
+end
+assert(
+    debug.render(
+        declarations.binding(Wide),
+        new Wide(signed = -7LL, unsigned = 9ULL)
+    ) == "Wide { signed = -7LL, unsigned = 9ULL }"
+)
+
+local record Custom is nupp.Debug
+    value: integer
+    function debug(self): string
+        return "CUSTOM(" .. self.value .. ")"
+    end
+end
+local record Nested
+    custom: Custom
+    list: {Custom}
+end
+local customized = new Custom(value = 7)
+assert(
+    debug.render(
+        debug.binding(Nested),
+        new Nested(custom = customized, list = {customized})
+    ) == "Nested { custom = CUSTOM(7), list = {CUSTOM(7)} }"
+)
+local record Printable
+    value: nupp.Debug
+end
+assert(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
+assert(
+    not pcall(json.encode, declarations.binding(Printable), new Printable(value = customized), declarations.policy())
+)
+
+local record Box<T is nupp.Debug>
+    value: T
+end
+assert(debug.derived(Box as Type<unknown>, new Box<Custom>(value = customized)) == "Box { value = CUSTOM(7) }")
+
+local record MapOwner
+    values: {[integer]: string}
+end
+assert(
+    debug.render(
+        declarations.binding(MapOwner),
+        new MapOwner(values = {[2] = "two", [10] = "ten"})
+    ) == 'MapOwner { values = {[10] = "ten", [2] = "two"} }'
+)

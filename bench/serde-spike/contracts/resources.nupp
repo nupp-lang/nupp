@@ -1,4 +1,4 @@
-local resources = require("contract.resources")
+local resources = require("nupp.serde.resources")
 local record Host
     calls: integer
     closes: integer

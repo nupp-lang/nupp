@@ -15,6 +15,11 @@ A package advertises build tools in `nupp/capabilities.json`:
 
 The descriptor is data. Runtime implementations use [SPI](spi.md).
 
+The Smithy package and version below are illustrative. A Smithy generator can
+produce optional model and client declarations; protocol serialization uses
+runtime [bindings](../runtime/data/serde.md). A dynamic client can load its model
+and create bindings without running a generator.
+
 Declare the package once as a dependency, then select its generator by
 capability name:
 

@@ -1,0 +1,70 @@
+module example.binarypositional
+
+local core = require("nupp.serde.value")
+local integers = require("example.binarynumbers")
+
+-- Tuple slots have no tags. The selected schema gives integer widths and
+-- distinguishes text from bytes; variable-sized slots carry a u32 byte count.
+-- A suffix without a schema is refused rather than guessed or captured.
+export record Slot
+    @readonly kind: "integer" | "string" | "bytes"
+    @readonly width: 8 | 16 | 32 | 64 = 64
+    @readonly signed: boolean = true
+end
+export type Value = string | core.Integer
+
+local function length(size: integer): string
+    assert(size >= 0 and size <= 16777216, "positional slot exceeds byte limit")
+    return string.char(
+        math.floor(size / 16777216) % 256,
+        math.floor(size / 65536) % 256,
+        math.floor(size / 256) % 256,
+        size % 256
+    )
+end
+
+export function encode(layout: const{Slot}, values: const{Value}): string
+    assert(#values == #layout, "positional arity does not match its schema")
+    local parts: {string} = {}
+    for index, slot in ipairs(layout) do
+        local value = values[index]
+        if slot.kind == "integer" then
+            assert(type(value) ~= "string", "integer slot requires an integer carrier")
+            local selected = value as core.Integer
+            local numbers = require("nupp.serde.numbers")
+            parts[index] = integers.encode(numbers.integer(selected.decimal, slot.width, slot.signed))
+        else
+            assert(type(value) == "string", "variable slot requires bytes")
+            local bytes = value as string
+            parts[index] = length(#bytes) .. bytes
+        end
+    end
+
+    return table.concat(parts)
+end
+
+export function decode(layout: const{Slot}, bytes: string): {Value}
+    local values: {Value} = {}
+    local position: integer = 1
+    for index, slot in ipairs(layout) do
+        local size: integer
+        if slot.kind == "integer" then
+            size = slot.width / 8 as integer
+        else
+            assert(position + 3 <= #bytes, "truncated positional slot length")
+            size = 0
+            for offset = 0, 3 do
+                size = size * 256 + assert(bytes:byte(position + offset))
+            end
+            assert(size <= 16777216, "positional slot exceeds byte limit")
+            position += 4
+        end
+        assert(position + size - 1 <= #bytes, "truncated positional slot")
+        local value = bytes:sub(position, position + size - 1)
+        values[index] = slot.kind == "integer" and integers.decode(value, slot.width, slot.signed) or value
+        position += size
+    end
+    assert(position == #bytes + 1, "positional suffix has no layout schema")
+
+    return values
+end

@@ -1,0 +1,51 @@
+module nupp.serde
+
+--[[
+Bindings select a value's access and construction independently of its codec.
+A declaration binding uses ordinary records and structs without a derive.
+
+```nupp
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+local record User
+    name: string
+end
+local users = serde.binding(User)
+assert(json.decode(users, json.encode(users, new User(name = "Ada"))).name == "Ada")
+```
+]]
+
+local core = require("nupp.serde.value")
+local declarations = require("nupp.serde.declaration")
+local accessModule = require("nupp.serde.accessors")
+
+export type Binding<T> = core.Binding<T>
+export type Member = core.Member
+export type Adapter<T, M is core.Member> = core.Adapter<T, M>
+export type Reader<M is core.Member> = core.Reader<M>
+export type Writer<M is core.Member> = core.Writer<M>
+export type Description<M is core.Member> = core.Description<M>
+export type Child<M is core.Member> = core.Child<M>
+export type Consumer<T, S, R> = core.Consumer<T, S, R>
+export type IntoConsumer<T, S, O, R> = core.IntoConsumer<T, S, O, R>
+export type DocumentAdapter<D> = core.DocumentAdapter<D>
+export type DocumentReader = core.DocumentReader
+export type Context = core.Context
+export type ContextKey<V is nupp.Copyable> = core.ContextKey<V>
+export type Bound<T is nupp.Copyable, M is core.Member> = core.Bound<T, M>
+export const Bound = core.Bound
+export type OwnedBound<T, M is core.Member> = core.OwnedBound<T, M>
+export const OwnedBound = core.OwnedBound
+export type Options = declarations.Options
+export const Options = declarations.Options
+export type FieldOptions = declarations.FieldOptions
+export const FieldOptions = declarations.FieldOptions
+
+--- Selects access and construction from a declaration.
+export const binding = declarations.binding
+
+--- Selects neutral declaration access for an external model binding.
+export const access = accessModule.of
+
+--- Interprets an integer field as epoch seconds in a JSON mapping.
+export const iso8601Seconds = declarations.iso8601Seconds

@@ -1,0 +1,264 @@
+module contract.breadth
+
+local model = require("example.richmodel")
+local smithy = require("example.smithy")
+local api = require("example.openapi")
+local registry = require("example.registry")
+local core = require("nupp.serde.value")
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+local syntax = require("nupp.codec.json")
+local text = require("nupp.text")
+local docs = require("nupp.serde.document")
+local bridge = require("nupp.serde.documentcodec")
+local readers = require("nupp.serde.documentreader")
+local views = require("nupp.serde.view")
+local cases = {}
+
+local function task(name, work)
+    local value = work()
+    assert(value ~= nil)
+    cases[#cases + 1] = {name = name, work = work}
+end
+
+local function bindingCases(name, binding, input, policy)
+    local codec = json.codec(policy)
+    local value = codec:decode(binding, input)
+    local canonical = codec:encode(binding, value)
+    assert(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
+    local buffer = text.newBuffer()
+    task(name .. "/encode", function()
+        return codec:encode(binding, value)
+    end)
+    task(name .. "/decode", function()
+        return codec:decode(binding, input)
+    end)
+    task(name .. "/buffer", function()
+        buffer:reset()
+        codec:encodeInto(binding, value, buffer)
+        return #buffer
+    end)
+    task(name .. "/fresh-buffer", function()
+        local fresh = text.newBuffer()
+        codec:encodeInto(binding, value, fresh)
+        return fresh
+    end)
+    task(name .. "/embedded", function()
+        buffer:reset()
+        local sink = syntax.newWriter(buffer)
+        sink:startArray()
+        codec:writeValue(binding, value, sink)
+        sink:endArray()
+        sink:close()
+
+        return #buffer
+    end)
+
+    return value, codec
+end
+
+local schema = model.newModel()
+local nominal, indexed, document = model.binding(schema), model.indexed(schema), model.documentBinding(schema)
+local epoch, date = model.policy(true), model.policy(false)
+local source = '{"identifier":"outer","created":0.000000001,"next":{"identifier":"inner","created":-0.5},"labels":{"7":"seven"}}'
+local value, codec = bindingCases("recursive/nominal", nominal, source, epoch)
+bindingCases("recursive/indexed", indexed, source, epoch)
+bindingCases("recursive/document", document, source, epoch)
+local logical = bridge.fromBinding(nominal, value)
+local view, viewAdapter = views.of(nominal, value), views.adapter(nominal)
+task("document/typed-view-create", function()
+    return views.of(nominal, value)
+end)
+task("document/typed-view-encode", function()
+    return codec:encodeDocument(viewAdapter, view)
+end)
+task("document/typed-snapshot", function()
+    return view:snapshot()
+end)
+task("document/snapshot", function()
+    return readers.snapshot(logical)
+end)
+task("document/project", function()
+    return bridge.fromBinding(nominal, value)
+end)
+local reconstruction = bridge.decoder(nominal)
+task("document/reconstruct", function()
+    return reconstruction:read(logical)
+end)
+local store = registry.registry()
+store:register("example#Packet", nominal)
+task("document/registry", function()
+    return store:reconstruct("example#Packet", logical)
+end)
+local dateCodec = json.codec(date)
+local alternate = false
+task("policy/switch", function()
+    alternate = not alternate
+    return (alternate and codec or dateCodec):encode(nominal, value)
+end)
+task("extensions/cold", function()
+    local fresh = json.codec(epoch)
+    return fresh:encode(nominal, value)
+end)
+local apiBinding = api.binding(api.model())
+bindingCases(
+    "openapi/request",
+    apiBinding,
+    '{"name":"other","secret":"hidden","payload":7,"extra":true}',
+    api.policy("request")
+)
+local ast = [[{"smithy":"2.0","shapes":{"example#Request":{"type":"structure","members":{"id":{"target":"smithy.api#String","traits":{"smithy.api#required":{}}},"active":{"target":"smithy.api#Boolean","traits":{"smithy.api#required":{}}},"name":{"target":"smithy.api#String","traits":{"smithy.api#required":{}}}}}}}]]
+local loaded = smithy.parse(ast)
+local smithyBinding = smithy.binding(loaded:shape("example#Request"))
+bindingCases("smithy/document", smithyBinding, '{"id":"7","active":true,"name":"sample"}', smithy.policy(false, true))
+task("model/load", function()
+    return smithy.parse(ast)
+end)
+local record Strings
+    id: string
+    active: boolean
+    name: string
+end
+local structure = require("nupp.serde.structure")
+local scalar = require("nupp.serde.scalar")
+local record StringBuilder is nupp.Closeable
+    id: string?
+    active: boolean?
+    name: string?
+    function close(takes self): nil
+        self.id, self.active, self.name = nil, nil, nil
+    end
+end
+local record StringConstruction is structure.Construction<Strings, StringBuilder>
+    function begin(self): StringBuilder
+        return new StringBuilder()
+    end
+
+    function finish(self, takes state: StringBuilder): Strings
+        local owned: StringBuilder = state
+        local active = owned.active
+        assert(active ~= nil)
+        local result = new Strings(id = assert(owned.id), active = active, name = assert(owned.name))
+        owned:close()
+
+        return result
+    end
+end
+local smithyShape = loaded:shape("example#Request")
+local idMember, activeMember, nameMember = assert(
+    smithyShape:member("id")
+), assert(smithyShape:member("active")), assert(smithyShape:member("name"))
+local smithyFields = {
+    structure.field<Strings, StringBuilder, string, smithy.Member>(
+        idMember,
+        function(borrows value: Strings): string borrows (value)
+            return value.id
+        end,
+        function(exclusive state: StringBuilder, value: string): nil
+            state.id = value
+        end,
+        scalar.text(idMember),
+        true,
+        false
+    ),
+    structure.field<Strings, StringBuilder, boolean, smithy.Member>(
+        activeMember,
+        function(borrows value: Strings): boolean borrows (value)
+            return value.active
+        end,
+        function(exclusive state: StringBuilder, value: boolean): nil
+            state.active = value
+        end,
+        scalar.boolean(activeMember),
+        true,
+        false
+    ),
+    structure.field<Strings, StringBuilder, string, smithy.Member>(
+        nameMember,
+        function(borrows value: Strings): string borrows (value)
+            return value.name
+        end,
+        function(exclusive state: StringBuilder, value: string): nil
+            state.name = value
+        end,
+        scalar.text(nameMember),
+        true,
+        false
+    )
+}
+local typedSmithy = new core.Bound<Strings, smithy.Member>(
+    adapter = structure.adapter(smithy.root(smithyShape), smithyFields, new StringConstruction(), nil, nil, true)
+)
+bindingCases("smithy/nominal", typedSmithy, '{"id":"7","active":true,"name":"sample"}', smithy.policy(false, true))
+bindingCases("declaration/smithy-equivalent", serde.binding(Strings), '{"id":"7","active":true,"name":"sample"}')
+local record Escaped
+    name: string
+end
+local escaped = serde.binding(
+    Escaped,
+    new serde.Options(fields = {name = new serde.FieldOptions(name = 'a"b')}, unknownMembers = "ignore")
+)
+bindingCases("matching/escaped-unknown", escaped, '{"unknown":{"nested":[1,null,{"x":false}]},"a\\\"b":"value"}')
+local record Event
+    createdAt: integer
+end
+local hook = serde.binding(
+    Event,
+    new serde.Options(fields = {createdAt = new serde.FieldOptions(representation = serde.iso8601Seconds)})
+)
+bindingCases("hook/timestamp", hook, '{"createdAt":"1970-01-01T00:00:02Z"}')
+local documentAdapter = docs.documentAdapter()
+local rich = docs.tuple({
+    docs.bigInteger("123456789012345678901234567890"),
+    docs.decimal(new core.Decimal(coefficient = "12345678901234567890", exponent = -9)),
+    docs.bytes(string.rep("blob", 16384))
+})
+local richCodec = json.codec(epoch)
+local richBytes = richCodec:encodeDocument(documentAdapter, rich)
+task("rich/blob-exact-encode", function()
+    return richCodec:encodeDocument(documentAdapter, rich)
+end)
+task("rich/json-contents-decode", function()
+    return richCodec:decodeDocument(documentAdapter, richBytes)
+end)
+bindingCases(
+    "large-string",
+    serde.binding(Strings),
+    '{"id":"7","active":true,"name":' .. syntax.encode(string.rep('large " payload ', 4096)) .. '}'
+)
+local richContents = documentAdapter:contents()
+local richBuffer = text.newBuffer()
+local richCanonical = richCodec:encode(richContents, rich)
+richCodec:encodeInto(richContents, rich, richBuffer)
+assert(richBuffer:tostring() == richCanonical)
+task("rich/blob-buffer", function()
+    richBuffer:reset()
+    richCodec:encodeInto(richContents, rich, richBuffer)
+    return #richBuffer
+end)
+task("rich/blob-fresh-buffer", function()
+    local fresh = text.newBuffer()
+    richCodec:encodeInto(richContents, rich, fresh)
+    return fresh
+end)
+task("rich/blob-embedded", function()
+    richBuffer:reset()
+    local sink = syntax.newWriter(richBuffer)
+    sink:startArray()
+    richCodec:writeValue(richContents, rich, sink)
+    sink:endArray()
+    sink:close()
+
+    return #richBuffer
+end)
+-- Bounded extension churn and release are checked separately from timings.
+local bounded = json.codec(epoch, 8)
+for index = 1, 64 do
+    local binding = model.binding(model.newModel())
+    local item = bounded:decode(binding, source)
+    assert(bounded:encode(binding, item) ~= "")
+    assert(bounded:cachedBindings() <= 8)
+end
+bounded:clear()
+assert(bounded:cachedBindings() == 0)
+export = cases

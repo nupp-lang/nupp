@@ -1,4 +1,4 @@
-local access = require("contract.access")
+local access = require("nupp.serde.accessors")
 
 local record Child
     count: integer

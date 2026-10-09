@@ -1,4 +1,4 @@
-const extensions = require("contract.extensions")
+const extensions = require("nupp.serde.extensions")
 local record Schema
     @readonly name: string
 end

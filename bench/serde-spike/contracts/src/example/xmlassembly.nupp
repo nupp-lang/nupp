@@ -1,6 +1,6 @@
 module example.xmlassembly
 
-local core = require("contract.value")
+local core = require("nupp.serde.value")
 local syntax = require("example.xmlsyntax")
 
 export record Node
@@ -110,4 +110,113 @@ export function read<M is core.Member, S>(
     for _, value in ipairs(unknown) do
         consumer:unknown(state, value)
     end
+end
+
+export function copy(borrows node: const Node, depth: integer?): Node
+    local current = depth or 0
+    assert(current <= 128, "XML nesting limit exceeded")
+    local attributes: {syntax.Attribute} = {}
+    for _, attribute in ipairs(node.attributes) do
+        attributes[
+            #attributes + 1
+        ] = new syntax.Attribute(
+            field = new syntax.Field(
+                namespaceUri = attribute.field.namespaceUri,
+                localName = attribute.field.localName,
+                role = attribute.field.role
+            ),
+            value = attribute.value
+        )
+    end
+    local content: {string | Node} = {}
+    for _, value in ipairs(node.content) do
+        content[#content + 1] = type(value) == "string" and value as string or copy(value as const Node, current + 1)
+    end
+
+    return new Node(
+        field = new syntax.Field(
+            namespaceUri = node.field.namespaceUri,
+            localName = node.field.localName,
+            role = node.field.role
+        ),
+        attributes = attributes,
+        content = content
+    )
+end
+
+local function escaped(value: string): string
+    local utf8 = require("nupp.text.utf8")
+    assert(
+        utf8.isValid(value) and not value:find("[%z\1-\8\11\12\14-\31]") and not value:find("\239\191[\190\191]"),
+        "invalid XML text"
+    )
+
+    return (
+        value:gsub("&", "&amp;")
+            :gsub("<", "&lt;")
+            :gsub(">", "&gt;")
+            :gsub('"', "&quot;")
+            :gsub("\r", "&#13;")
+            :gsub("\n", "&#10;")
+            :gsub("\t", "&#9;")
+    )
+end
+
+local function name(field: syntax.Field): string
+    assert(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
+    assert(field.namespaceUri ~= "http://www.w3.org/2000/xmlns/", "reserved XML namespace")
+    return field.localName
+end
+
+local function emit(node: Node, parts: {string}, depth: integer): nil
+    assert(depth <= 128, "XML nesting limit exceeded")
+    assert(node.field.role == "element", "XML root must be an element")
+    local localName = name(node.field)
+    local qualified = localName
+    if node.field.namespaceUri ~= "" then
+        if node.field.namespaceUri == "http://www.w3.org/XML/1998/namespace" then
+            qualified = "xml:" .. localName
+        else
+            qualified = "n:" .. localName
+        end
+    end
+    parts[#parts + 1] = "<" .. qualified
+    if node.field.namespaceUri ~= "" and qualified:sub(1, 2) == "n:" then
+        parts[#parts + 1] = ' xmlns:n="' .. escaped(node.field.namespaceUri) .. '"'
+    end
+    local seen: {[string]: boolean} = {}
+    for index, attribute in ipairs(node.attributes) do
+        assert(attribute.field.role == "attribute", "invalid XML attribute identity")
+        local key = identity(attribute.field)
+        assert(not seen[key], "duplicate expanded XML attribute")
+        seen[key] = true
+        local attributeName = name(attribute.field)
+        assert(attributeName ~= "xmlns", "namespace declaration is not a value attribute")
+        if attribute.field.namespaceUri == "http://www.w3.org/XML/1998/namespace" then
+            attributeName = "xml:" .. attributeName
+        elseif attribute.field.namespaceUri ~= "" then
+            local prefix = "a" .. index
+            parts[#parts + 1] = ' xmlns:' .. prefix .. '="' .. escaped(attribute.field.namespaceUri) .. '"'
+            attributeName = prefix .. ":" .. attributeName
+        end
+        parts[#parts + 1] = " " .. attributeName .. '="' .. escaped(attribute.value) .. '"'
+    end
+    parts[#parts + 1] = ">"
+    for _, value in ipairs(node.content) do
+        if type(value) == "string" then
+            parts[#parts + 1] = escaped(value as string)
+        else
+            emit(value as Node, parts, depth + 1)
+        end
+    end
+    parts[#parts + 1] = "</" .. qualified .. ">"
+end
+
+export function encode(node: Node): string
+    local parts: {string} = {}
+    emit(node, parts, 0)
+    local result = table.concat(parts)
+    assert(#result <= 16777216, "XML output exceeds byte limit")
+
+    return result
 end

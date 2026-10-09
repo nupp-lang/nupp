@@ -1,0 +1,404 @@
+module nupp.serde.documentcodec
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local documents = require("nupp.serde.document")
+local readers = require("nupp.serde.documentreader")
+local numbers = require("nupp.serde.numbers")
+local writers = require("nupp.serde.documentwriter")
+
+local record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly names: {[string]: M} = {}
+    @readonly children: {[M]: Plan<M>} = {}
+end
+
+local function plan<M is core.Member>(description: core.Description<M>, seen: {[core.Description<M>]: Plan<M>}): Plan<M>
+    local prior = seen[description]
+    if prior ~= nil then
+        return prior
+    end
+    assert(description.canRead, "binding has no construction operation")
+    local result = new Plan<M>(description = description)
+    seen[description] = result
+    for _, child in ipairs(description.children) do
+        assert(result.names[child.member.name] == nil, "duplicate logical member name")
+        result.names[child.member.name] = child.member
+        result.children[child.member] = plan(child:describe("read"), seen)
+    end
+
+    return result
+end
+
+local record Unknown is core.UnknownReader, nupp.Closeable
+    @readonly value: documents.Document
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        assert(not self.expired and not self.used, "unknown document reader is no longer usable")
+    end
+
+    function skipValue(exclusive self): nil
+        self:live()
+        self.used = true
+    end
+
+    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        self.used = true
+        local reader = readers.reader(self.value)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+end
+
+local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+    @readonly value: documents.Document
+    @readonly plan: Plan<M>
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function scoped(self, value: documents.Document, selected: Plan<M>): Input<M>
+        return new Input<M>(value = value, plan = selected)
+    end
+
+    function live(self): nil
+        assert(not self.expired and not self.used, "document value reader is no longer usable")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.value:context()
+    end
+
+    function isNull(self): boolean
+        self:live()
+        return self.value.kind == "null"
+    end
+
+    function consume(exclusive self, kind: core.Kind): nil
+        self:live()
+        assert(self.value.kind == kind, "document kind does not match the binding")
+        self.used = true
+    end
+
+    function readNull(exclusive self, member: M): nil
+        assert(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
+        self:consume("null")
+    end
+
+    function readBoolean(exclusive self, member: M): boolean
+        self:consume("boolean")
+        return self.value:boolean()
+    end
+
+    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        self:consume("integer")
+        return numbers.integer(self.value:integer().decimal, width, signed)
+    end
+
+    function readFloat(exclusive self, member: M, width: 32 | 64): number
+        self:consume("float")
+        return numbers.floating(self.value:float().value, width, true)
+    end
+
+    function readBigInteger(exclusive self, member: M): string
+        self:consume("bigInteger")
+        return self.value:bigInteger()
+    end
+
+    function readDecimal(exclusive self, member: M): core.Decimal
+        self:consume("decimal")
+        return self.value:decimal()
+    end
+
+    function readNumberToken(exclusive self, member: M): string
+        self:consume("numberToken")
+        return self.value:numberToken()
+    end
+
+    function readString(exclusive self, member: M): string
+        self:consume("string")
+        return self.value:string()
+    end
+
+    function readBytes(exclusive self, member: M): string
+        self:consume("bytes")
+        return self.value:bytes()
+    end
+
+    function readTimestamp(exclusive self, member: M): core.Timestamp
+        self:consume("timestamp")
+        return self.value:timestamp()
+    end
+
+    function readAtom(exclusive self, member: M): core.Atom
+        self:consume("atom")
+        return self.value:atom()
+    end
+
+    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        self:consume("document")
+        local contents = self.value:document()
+        local context = self.value:context()
+        if contents:context() == nil and context ~= nil then
+            contents = documents.withContext(contents, context)
+        end
+        local reader = readers.reader(contents)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+
+    function size(self): integer?
+        if self.value.kind == "structure"
+            or self.value.kind == "union"
+            or self.value.kind == "map"
+            or self.value.kind == "list"
+            or self.value.kind == "tuple"
+        then
+            return self.value:size()
+        end
+
+        return nil
+    end
+
+    function containerSize(self): integer?
+        self:live()
+        return self:size()
+    end
+
+    function slot(self, index: integer): Plan<M>
+        local child = assert(self.plan.description.children[index], "binding has no container child")
+        return assert(self.plan.children[child.member])
+    end
+
+    function child(self, value: documents.Document, child: Plan<M>): Input<M>
+        local context = self.value:context()
+        if value:context() == nil and context ~= nil then
+            value = documents.withContext(value, context)
+        end
+
+        return new Input<M>(value = value, plan = child)
+    end
+
+    function object<S>(
+        exclusive self,
+        kind: core.Kind,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:consume(kind)
+        if kind == "union" then
+            assert(self.value:size() == 1, "union requires exactly one alternative")
+        end
+        for index = 1, self.value:size() do
+            local entry = self.value:field(index)
+            local member = self.plan.names[entry.name]
+            if member ~= nil then
+                local child = self:child(entry.value, assert(self.plan.children[member]))
+                consume:apply(state, member, child)
+                assert(child.used, "member callback did not consume its value")
+            else
+                local child = new Unknown(value = entry.value)
+                unknown:apply(state, new documents.Name(name = entry.name), child)
+                assert(child.used, "unknown callback did not consume its value")
+            end
+        end
+    end
+
+    function readStruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("structure", state, consume, unknown)
+    end
+
+    function readUnion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("union", state, consume, unknown)
+    end
+
+    function array<S>(
+        exclusive self,
+        kind: core.Kind,
+        size: integer?,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:consume(kind)
+        assert(size == nil or self.value:size() == size, "wrong tuple size")
+        for index = 1, self.value:size() do
+            local child = self:child(self.value:at(index), self:slot(kind == "tuple" and index or 1))
+            consume:apply(state, index, child)
+            assert(child.used, "element callback did not consume its value")
+        end
+    end
+
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        self:array("list", nil, state, consume)
+    end
+
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:array("tuple", size, state, consume)
+    end
+
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        self:consume("map")
+        for index = 1, self.value:size() do
+            local entry = self.value:entry(index)
+            local keyDocument, valueDocument = entry.key, entry.value
+            local context = self.value:context()
+            if context ~= nil then
+                if keyDocument:context() == nil then
+                    keyDocument = documents.withContext(keyDocument, context)
+                end
+                if valueDocument:context() == nil then
+                    valueDocument = documents.withContext(valueDocument, context)
+                end
+            end
+            local key = self:scoped(keyDocument, self:slot(1))
+            local value = self:scoped(valueDocument, self:slot(2))
+            consume:apply(state, key, value)
+            assert(key.used and value.used, "entry callback did not consume key and value")
+        end
+    end
+end
+
+local function input<M is core.Member>(value: documents.Document, selected: Plan<M>): Input<M>
+    return new Input<M>(value = value, plan = selected)
+end
+
+export interface Decoder<T>
+    read: function(self, value: documents.Document): T
+end
+local record Reconstruction<T, M is core.Member> is Decoder<T>
+    @readonly adapter: core.Adapter<T, M>
+    @readonly selected: Plan<M>
+    @readonly discard: core.Discard<T>
+    function read(self, value: documents.Document): T
+        local reader = input(value, self.selected)
+        local result = self.adapter:read(reader)
+        if not reader.used then
+            error(publication.failure(self.discard, result, "binding did not consume its value"), 0)
+        end
+
+        return result
+    end
+end
+export function decoderFor<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    description: core.Description<M>,
+    discard: core.Discard<T>
+): Decoder<T>
+    return new Reconstruction<T, M>(adapter = adapter, selected = plan(description, {}), discard = discard)
+end
+
+local record Resolve<T> is core.Consumer<T, nil, nil>
+    @readonly binding: core.Binding<T>
+    result: Decoder<T>?
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
+        self.result = decoderFor(adapter, adapter:describe("read"), self.binding)
+    end
+end
+local record CachedDecoder
+    state: "initializing" | "ready" | "failed" = "initializing"
+    value: unknown
+    used: integer
+end
+local cached: {[unknown]: CachedDecoder} = {}
+local cachedCount: integer = 0
+local clock: integer = 0
+local active: integer = 0
+local capacity: integer = 256
+
+export function clear(): nil
+    assert(active == 0, "document reconstruction cache is initializing")
+    cached, cachedCount = {}, 0
+end
+
+export function cachedBindings(): integer
+    return cachedCount
+end
+
+export function decoder<T>(binding: core.Binding<T>): Decoder<T>
+    clock += 1
+    local found = cached[binding]
+    if found ~= nil then
+        found.used = clock
+        assert(found.state ~= "initializing", "recursive document reconstruction initialization")
+        if found.state == "failed" then
+            error(found.value, 0)
+        else
+            -- Invariant binding identity fixes T. Operations retain only the model
+            -- and construction behavior, never documents or per-call context.
+            return found.value as Decoder<T>
+        end
+    end
+    if cachedCount >= capacity then
+        local oldest: unknown = nil
+        local age = clock + 1
+        for key, entry in pairs(cached) do
+            if entry.state ~= "initializing" and entry.used < age then
+                oldest, age = key, entry.used
+            end
+        end
+        assert(oldest ~= nil, "document reconstruction capacity exhausted during initialization")
+        cached[oldest] = nil
+        cachedCount -= 1
+    end
+    local entry = new CachedDecoder(used = clock)
+    cached[binding] = entry
+    cachedCount += 1
+    active += 1
+    local resolve = new Resolve<T>(binding = binding)
+    local ok, problem = pcall(binding.accept, binding, resolve, nil)
+    active -= 1
+    if not ok or resolve.result == nil then
+        entry.state = "failed"
+        entry.value = ok and "binding did not supply its adapter" or problem
+        error(entry.value, 0)
+    end
+    entry.state, entry.value = "ready", resolve.result
+
+    return resolve.result as Decoder<T>
+end
+
+export function fromBinding<T>(binding: core.Binding<T>, borrows value: T, context: core.Context?): documents.Document
+    return writers.fromBinding(binding, value, context)
+end
+
+export function into<T>(binding: core.Binding<T>, value: documents.Document): T
+    return decoder(binding):read(value)
+end

@@ -6,6 +6,7 @@ local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
 local members = require("nupp.compiler.types.members")
 local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.types.relations")
 local cst = require("nupp.compiler.syntax.cst")
 
 local record reflection
@@ -16,11 +17,11 @@ local record reflection
     bindRuntimeDeclarations: function(any, string): nil
 end
 
-reflection.SCHEMA = 5
+reflection.SCHEMA = 6
 
 -- Associated types, annotations, and comments have no runtime identity. Count
 -- semantic runtime declarations rather than embedding their byte offsets.
-function reflection.bindRuntimeDeclarations(root: any, filename: string): nil
+function reflection.bindRuntimeDeclarations(root: any, moduleIdentity: string): nil
     local ordinal: integer = 0
 
     local function visit(node: any): nil
@@ -41,7 +42,7 @@ function reflection.bindRuntimeDeclarations(root: any, filename: string): nil
             ordinal += 1
             local nominal = node.resolvedType or node.hoistedType
             if nominal then
-                nominal.runtimeDeclarationKey = filename .. "\0runtime\0" .. tostring(ordinal)
+                nominal.runtimeDeclarationKey = moduleIdentity .. "\0runtime\0" .. tostring(ordinal)
             end
         end
         for _, child in ipairs(node) do
@@ -211,6 +212,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             -- is optional when the field has a default or already admits nil; a
             -- declaration with several constructors has no single contract and says
             -- so, which is what `nupp.types.construction` refuses.
+            out.copyable = relations.isCopyable(t)
             local entries = t.constructorEntries or {}
             if #entries > 1 then
                 out.construction = {overloaded = true, requiresFactory = true, params = {}}

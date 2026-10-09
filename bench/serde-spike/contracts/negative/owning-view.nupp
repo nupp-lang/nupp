@@ -1,0 +1,11 @@
+local core = require("nupp.serde.value")
+local views = require("nupp.serde.view")
+local record Owned is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+
+local function retain(binding: core.Binding<Owned>, takes value: Owned): nil
+    local owned: Owned = value
+    local escaped = views.of(binding, owned)
+end

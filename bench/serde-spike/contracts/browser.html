@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Serialization browser contract</title>
+<pre id="result" data-status="running">Loading serialization contract</pre>
+<pre id="terminal"></pre>
+<script type="module">
+const output = document.querySelector('#result');
+try {
+    const {runPackagedNuppLuaJITApp} = await import('./app/app-runtime.mjs');
+    const result = await runPackagedNuppLuaJITApp(new URL('./app/nupp-browser-app.json', location.href).href);
+    if (!result.documents || !result.nativeRefused || !result.missingRefused || !result.repeated ||
+        result.defaultedLabel !== 'unnamed' || result.debug !== result.roundTripped ||
+        JSON.parse(result.encoded).sensor_id !== 7) throw new Error(JSON.stringify(result));
+    output.textContent = JSON.stringify({ok: true, result});
+    output.dataset.status = 'passed';
+} catch (error) {
+    output.textContent = JSON.stringify({ok: false, error: String(error.stack || error)});
+    output.dataset.status = 'failed';
+}
+</script>

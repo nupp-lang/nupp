@@ -112,35 +112,26 @@ Both return a value that `write` appends without another walk or validation.
 string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 
-## Typed documents
+## Typed values
 
-A record or struct that derives `nupp.derive.Serde` is encoded and decoded
-through a codec from `newCodec`, which prepares the type's binding once and
-then reads and writes it in one traversal:
+Select a declaration binding and pass it to the typed JSON codec. A binding
+chooses the model independently of the format.
 
 ```nupp
-@derive(nupp.derive.Serde)
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
 local record User
     id: uint32
 end
-
-local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
-local user, problem = prepared:decode([[{"id":41}]])
-assert(problem == nil and user and user.id == 41)
-assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
+local users = serde.binding(User)
+local value = json.decode(users, '{"id":41}')
+assert(json.encode(users, value) == '{"id":41}')
 ```
 
-`newCodec{unknownMembers = "ignore"}` accepts members the schema does not name,
-and `fieldNames` renames members on the wire.
-
-::: seealso
-- [](nupp.serde) for schemas, bindings and the prepared traversal
-- [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
-  the `nupp.derive.JSON` members a record can carry for itself
-:::
+See [serde.md](docs/learn/runtime/data/serde.md) for mappings, documents, and
+external models.
 ]==]
 const {type Buffer} = require("nupp.text")
-const {type JsonCodec, type JsonProfile} = require("nupp.serde")
 
 const native = require("nupp.codec.json.provider")
 
@@ -164,8 +155,7 @@ export type EncodedString = contracts.EncodedString
 
 --- Values that can write a complete JSON value through a checked writer.
 ---
---- `derive.JSON` answers a contract in terms of it, and a hand-written record
---- satisfies it with a `writeJSON` member:
+--- A handwritten record satisfies it with a `writeJSON` member:
 ---
 --- ```nupp
 --- local record Money is nupp.codec.json.JSONEncodable
@@ -497,32 +487,6 @@ export function newWriter(exclusive out: Buffer, nullValue: any?): Writer
 end
 
 --- Creates a schema-driven JSON codec with an immutable wire profile.
----
---- The codec prepares a `nupp.serde.Binding<T>` once and then performs each
---- complete scalar structure traversal in one native call. It is the one typed
---- JSON entry point: derive `nupp.derive.Serde` for the type and prepare its
---- binding here.
----
---- ```nupp
---- @derive(nupp.derive.Serde)
---- local record User
----     id: uint32
---- end
----
---- local codec = nupp.codec.json.newCodec()
---- local prepared = codec:prepare(nupp.serde.of(User))
---- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
---- ```
---- @param options the wire policy: unknownMembers and fieldNames
---- @return the schema-driven codec
---- @raises string when unknownMembers is not reject or ignore
---- @export
-export function newCodec(options: JsonProfile?): JsonCodec
-    -- Loaded on first use: a program that never prepares a binding does not
-    -- load the schema layer.
-    return require("nupp.serde").newJsonCodec(options)
-end
-
 --- Sentinel that decodes from and encodes as JSON null.
 --- @export
 export const NULL: any = native.NULL

@@ -1,4 +1,4 @@
-local contexts = require("contract.context")
+local contexts = require("nupp.serde.context")
 local strings = contexts.key<string>()
 local builder = contexts.builder({}, {})
 builder:set(strings, 123)

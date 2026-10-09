@@ -1,0 +1,518 @@
+module nupp.serde.debug
+
+local core = require("nupp.serde.value")
+local declarations = require("nupp.serde.declaration")
+local text = require("nupp.text")
+local identity = require("nupp.serde.identity") as function(borrows value: unknown): integer?
+
+local customFamily: table = {}
+local record CustomText is core.Atom
+    @readonly family: table
+    @readonly text: string
+    function snapshot(borrows self: CustomText): core.Atom
+        return new CustomText(family = customFamily, text = self.text:sub(1))
+    end
+end
+local record CustomDescription<M is core.Member> is core.Description<M>
+    @readonly kind: core.Kind = "atom"
+    @readonly member: M
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = false
+    @readonly children: const{core.Child<M>} = {}
+end
+local record Custom<M is core.Member> is core.Adapter<unknown, M>
+    @readonly description: CustomDescription<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        assert(direction == "write", "a Debug view cannot decode values")
+        return self.description
+    end
+
+    function write(self, borrows value: unknown, exclusive writer: core.Writer<M>): nil
+        local printable = value as nupp.Debug
+        writer:writeAtom(self.description.member, new CustomText(family = customFamily, text = printable:debug()))
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): unknown
+        error("a Debug view cannot decode values", 2)
+    end
+end
+
+local function customDebug(info: nupp.reflect.Info, index: integer, seen: {[integer]: boolean}): boolean
+    if seen[index] then
+        return false
+    end
+    seen[index] = true
+    local node: any = info.types[index]
+    if node.kind == "record" and node.deriveKey ~= nil then
+        return false
+    end
+    for _, field in ipairs(node.fields or {}) do
+        if field.name == "debug" and field.read ~= nil then
+            local method: any = info.types[field.read]
+            local receiver: any = method.parameters ~= nil
+                and method.parameters[1] ~= nil
+                and info.types[method.parameters[1].type]
+                or nil
+            local selfType = method.parameters ~= nil
+                and method.parameters[1] ~= nil
+                and (method.parameters[1].type == index or receiver.kind == "typevar" and receiver.bound == index)
+            if method.kind == "func"
+                and #(method.parameters or {}) == 1
+                and #(method.returns or {}) == 1
+                and selfType
+                and method.parameters[1].mode == "plain"
+                and info.types[method.returns[1]].kind == "string"
+            then
+                return true
+            end
+        end
+    end
+    if node.kind == "typevar" and node.bound ~= nil then
+        return customDebug(info, node.bound, seen)
+    end
+
+    return false
+end
+
+local record View is declarations.View
+    function resolve<M is core.Member>(
+        self,
+        info: nupp.reflect.Info,
+        index: integer,
+        member: M
+    ): core.Adapter<unknown, M>?
+        if customDebug(info, index, {}) then
+            return new Custom<M>(description = new CustomDescription<M>(member = member))
+        end
+        return nil
+    end
+end
+local bindingKey: table = {}
+export function binding<T is nupp.Copyable>(target: Type<T>): core.Binding<T>
+    local info = nupp.reflect.runtime(target)
+    local prior = rawget(info, bindingKey)
+    if prior ~= nil then
+        return prior as core.Binding<T>
+    end
+    local result = declarations.binding(target, new declarations.Options(view = new View()))
+    rawset(info, bindingKey, result)
+
+    return result
+end
+
+local type Action = "traverse" | "skip" | "redact"
+
+local function action<M is core.Member>(member: M): Action
+    local annotations: const{nupp.reflect.Annotation} = declarations.annotations(member) or {}
+    local skip, redact = false, false
+    for _, annotation in ipairs(annotations) do
+        if annotation.name == "debug" then
+            for _, argument in ipairs(annotation.arguments) do
+                if argument.name == "skip" then
+                    skip = argument.value == true
+                elseif argument.name == "redact" then
+                    redact = argument.value == true
+                end
+            end
+        end
+    end
+    assert(not (skip and redact), "a debug field cannot be both skipped and redacted")
+
+    return skip and "skip" or redact and "redact" or "traverse"
+end
+
+local record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly actions: {[M]: Action} = {}
+    @readonly children: {[M]: Plan<M>} = {}
+end
+
+local function plan<M is core.Member>(description: core.Description<M>, seen: {[core.Description<M>]: Plan<M>}): Plan<M>
+    local previous = seen[description]
+    if previous ~= nil then
+        return previous
+    end
+    assert(description.kind ~= "opaque", "debug field requires an explicit binding")
+    local result = new Plan<M>(description = description)
+    seen[description] = result
+    for _, child in ipairs(description.children) do
+        local selected = action(child.member)
+        result.actions[child.member] = selected
+        if selected == "traverse" then
+            result.children[child.member] = plan(child:describe("write"), seen)
+        end
+    end
+
+    return result
+end
+
+local record Slot
+    state: "initializing" | "ready" | "failed"
+    value: unknown
+    used: integer
+end
+local record Cache
+    @readonly capacity: integer
+    entries: {[unknown]: Slot} = {}
+    count: integer = 0
+    clock: integer = 0
+    active: integer = 0
+    function clear(self): nil
+        assert(self.active == 0, "Debug extensions are initializing")
+        self.entries, self.count, self.clock = {}, 0, 0
+    end
+
+    function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>): Plan<M>
+        self.clock += 1
+        local slot = self.entries[adapter]
+        if slot ~= nil then
+            slot.used = self.clock
+            if slot.state == "ready" then
+                return slot.value as Plan<M>
+            elseif slot.state == "failed" then
+                error(slot.value, 0)
+            else
+                error("recursive Debug extension initialization", 2)
+            end
+        end
+        if self.count >= self.capacity then
+            local oldest: unknown = nil
+            local age = self.clock + 1
+            for key, entry in pairs(self.entries) do
+                if entry.state ~= "initializing" and entry.used < age then
+                    oldest, age = key, entry.used
+                end
+            end
+            assert(oldest ~= nil, "Debug extension capacity exhausted by active initialization")
+            self.entries[oldest] = nil
+            self.count -= 1
+        end
+        slot = new Slot(state = "initializing", value = nil, used = self.clock)
+        self.entries[adapter] = slot
+        self.count += 1
+        self.active += 1
+        local ok, result = pcall(function(): Plan<M>
+            return plan(adapter:describe("write"), {})
+        end)
+        self.active -= 1
+        slot.state, slot.value = ok and "ready" or "failed", result
+        if not ok then
+            error(result, 0)
+        end
+
+        return result as Plan<M>
+    end
+end
+local record State
+    @readonly cache: Cache
+    @readonly parts: {string} = {}
+    @readonly active: {[integer]: boolean} = {}
+end
+local record MapEntry
+    @readonly key: string
+    @readonly parts: {string}
+end
+
+local function compareEntries(left: MapEntry, right: MapEntry): boolean
+    return left.key < right.key
+end
+
+local record Frame<M is core.Member>
+    @readonly plan: Plan<M>
+    @readonly kind: core.Kind
+    count: integer = 0
+    entry: boolean = false
+    @readonly entries: {MapEntry} = {}
+end
+local contents: function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, state: State, depth: integer): nil
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly root: Plan<M>
+    @readonly state: State
+    @readonly depth: integer
+    @readonly frames: {Frame<M>} = {}
+    rootWritten: boolean = false
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed, "debug writer has expired")
+    end
+
+    function add(self, value: string): nil
+        self.state.parts[#self.state.parts + 1] = value
+    end
+
+    function selected(self, member: M): Plan<M>
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            return self.root
+        end
+
+        return frame.plan.children[member] or frame.plan
+    end
+
+    function position(exclusive self, member: M): nil
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            assert(not self.rootWritten, "debug root was written twice")
+            self.rootWritten = true
+        elseif frame.kind == "map" then
+            assert(frame.entry, "debug map value outside entry")
+        else
+            if frame.count > 0 then
+                self:add(", ")
+            end
+            frame.count += 1
+            if frame.kind == "structure" or frame.kind == "union" then
+                self:add(member.name .. " = ")
+            end
+        end
+    end
+
+    function token(exclusive self, member: M, value: string): nil
+        self:position(member)
+        self:add(value)
+    end
+
+    function include(exclusive self, member: M): boolean
+        self:live()
+        local frame = self.frames[#self.frames]
+        local selected = frame ~= nil and frame.plan.actions[member] or "traverse"
+        if selected == "skip" then
+            return false
+        elseif selected == "redact" then
+            self:token(member, "<redacted>");
+            return false
+        else
+            return true
+        end
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        self:token(member, "nil")
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:token(member, value and "true" or "false")
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        self:token(member, value.decimal .. (value.width == 64 and (value.signed and "LL" or "ULL") or ""))
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        self:token(member, tostring(value))
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        self:token(member, ("%q"):format(value))
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        self:token(member, "bytes(" .. #value .. ")")
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        self:token(member, value.coefficient .. "e" .. value.exponent)
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        self:token(member, "timestamp(" .. value.seconds .. ", " .. value.nanos .. ")")
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        if value.family == customFamily then
+            self:token(member, (value as CustomText).text:sub(1))
+        else
+            self:token(member, "<atom>")
+        end
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        self:position(member)
+        contents(adapter, value, self.state, self.depth + #self.frames + 1)
+    end
+
+    function aggregate<S>(exclusive self, member: M, kind: core.Kind, borrows source: S, emit: core.Members<M, S>): nil
+        self:live()
+        assert(self.depth + #self.frames < 128, "debug nesting limit exceeded")
+        self:position(member)
+        local id = identity(source)
+        if id ~= nil and self.state.active[id] then
+            self:add("<cycle>");
+            return
+        end
+        if id ~= nil then
+            self.state.active[id] = true
+        end
+        local label = kind == "structure" and declarations.label(member) or nil
+        self:add(label ~= nil and label .. " { " or "{")
+        local frame = new Frame<M>(plan = self:selected(member), kind = kind)
+        self.frames[#self.frames + 1] = frame
+        emit:apply(source, self)
+        if kind == "map" then
+            table.sort(frame.entries, compareEntries)
+            for index, entry in ipairs(frame.entries) do
+                if index > 1 then
+                    self:add(", ")
+                end
+                for _, part in ipairs(entry.parts) do
+                    self:add(part)
+                end
+            end
+        end
+        self.frames[#self.frames] = nil
+        self:add(label ~= nil and " }" or "}")
+        if id ~= nil then
+            self.state.active[id] = nil
+        end
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", source, emit)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "union", source, emit)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "list", source, emit)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "tuple", source, emit)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "map", source, emit)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        self:live()
+        local frame = assert(self.frames[#self.frames], "debug entry outside map")
+        assert(frame.kind == "map" and not frame.entry, "debug entry outside map")
+        local start = #self.state.parts + 1
+        frame.count += 1
+        frame.entry = true
+        self:add("[")
+        keyEmit:apply(key, self)
+        self:add("] = ")
+        valueEmit:apply(value, self)
+        frame.entry = false
+        local parts: {string} = {}
+        for index = start, #self.state.parts do
+            parts[#parts + 1] = self.state.parts[index]
+        end
+        for index = #self.state.parts, start, -1 do
+            self.state.parts[index] = nil
+        end
+        frame.entries[#frame.entries + 1] = new MapEntry(key = tostring(key), parts = parts)
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self:live()
+        local frame = assert(self.frames[#self.frames], "unknown debug field outside structure")
+        if frame.count > 0 then
+            self:add(", ")
+        end
+        frame.count += 1
+        self:add("unknown(" .. field:diagnosticLabel() .. ") = ")
+        contents(adapter, value, self.state, self.depth + #self.frames)
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+end
+
+local function output<M is core.Member>(selected: Plan<M>, state: State, depth: integer): affine(Output<M>)
+    return new Output<M>(root = selected, state = state, depth = depth)
+end
+
+local record Render<T> is core.Consumer<T, T, nil>
+    @readonly state: State
+    @readonly depth: integer = 0
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): nil
+        local selected = self.state.cache:resolve(adapter)
+        local writer = output(selected, self.state, self.depth)
+        adapter:write(value, writer)
+        assert(writer.rootWritten, "debug binding did not emit a value")
+    end
+end
+contents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, state: State, depth: integer): nil
+    assert(depth <= 128, "debug nesting limit exceeded")
+    adapter:contents():accept(new Render<D>(state = state, depth = depth), value)
+end
+export interface Renderer
+    render: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
+    write: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    clear: function(self): nil
+    cachedBindings: function(self): integer
+end
+local record Implementation is Renderer
+    @readonly cache: Cache
+    function render<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
+        local state = new State(cache = self.cache)
+        selectedBinding:accept(new Render<T>(state = state), value)
+        return table.concat(state.parts)
+    end
+
+    function write<T>(self, selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+        local state = new State(cache = self.cache)
+        selectedBinding:accept(new Render<T>(state = state), value)
+        for _, part in ipairs(state.parts) do
+            buffer:put(part)
+        end
+    end
+
+    function clear(self): nil
+        self.cache:clear()
+    end
+
+    function cachedBindings(self): integer
+        return self.cache.count
+    end
+end
+export function renderer(capacity: integer?): Renderer
+    local limit = capacity or 256
+    assert(limit > 0, "Debug extension capacity must be positive")
+    return new Implementation(cache = new Cache(capacity = limit))
+end
+
+local defaultRenderer = renderer()
+export function render<T>(selectedBinding: core.Binding<T>, borrows value: T): string
+    return defaultRenderer:render(selectedBinding, value)
+end
+
+export function write<T>(selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    defaultRenderer:write(selectedBinding, value, buffer)
+end
+
+-- The derive forwarding method supplies its own declaration witness. Generic
+-- arguments need no runtime carrier specialization for this write-only view;
+-- reflected bounds select custom Debug methods without constructing a value.
+export function derived(target: Type<unknown>, borrows value: unknown): string
+    return defaultRenderer:render(binding(target), value)
+end

@@ -1,5 +1,5 @@
-local core = require("contract.value")
-local codec = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local codec = require("nupp.serde.json")
 local root, visible, skipped, redacted = {name = "Root"}, {name = "visible"}, {name = "skipped"}, {name = "redacted"}
 local gets, describes, constructs = 0, 0, 0
 

@@ -1,7 +1,16 @@
-const {type Member} = require("nupp.serde")
-
 local json = require("nupp.codec.json")
 local serde = require("nupp.serde")
+local typedJSON = require("nupp.serde.json")
+
+local function decoded<T>(binding: serde.Binding<T>, bytes: string): (T?, string?)
+    local ok, value = pcall(typedJSON.decode, binding, bytes)
+    if not ok then
+        return nil, tostring(value)
+    end
+
+    return value as T, nil
+end
+
 local newBuffer = require("nupp.text").newBuffer
 
 -- Malformed text and an unmatched shape are answered, not raised.
@@ -9,12 +18,10 @@ local function refused(value: any, reason: string?): boolean
     return value == nil and reason ~= nil
 end
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
 local record FastChild
     label: string
 end
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
 local record FastEnvelope
     id: uint32
     child: FastChild
@@ -22,20 +29,17 @@ local record FastEnvelope
     labels: {[string]: string}
 end
 
-@derive(nupp.derive.Serde)
 local record AdvancedEnvelope
     pair: {string, integer}
     state: 'ready' | 'done'
 end
 
-@derive(nupp.derive.Serde)
 local record OptionalDefault
     name: string
     enabled: boolean = false
     note: string?
 end
 
-@derive(nupp.derive.Serde)
 local record LiteralTuple
     kind: 'pair'
     items: {string, integer}
@@ -43,67 +47,79 @@ local record LiteralTuple
 end
 
 local fastSource = [[{"id":41,"child":{"label":"one"},"children":[{"label":"two"}],"labels":{"region":"us"}}]]
-local fastPrepared = json.newCodec():prepare(serde.of(FastEnvelope))
-local advancedPrepared = json.newCodec():prepare(serde.of(AdvancedEnvelope))
+local fastPrepared = serde.binding(FastEnvelope)
+local advancedPrepared = serde.binding(AdvancedEnvelope)
 local fastBuffer = newBuffer()
 fastBuffer:put(fastSource)
 
 local test = {}
 
 function test.run(): nil
-    local typed, typedProblem = fastPrepared:decode(fastSource)
+    local typed, typedProblem = decoded(fastPrepared, fastSource)
     assert(typedProblem == nil and typed ~= nil and typed.id == 41)
     assert(typed.child.label == "one" and typed.children[1].label == "two" and typed.labels.region == "us")
     local input = newBuffer()
     input:put(fastSource)
-    local buffered, bufferedProblem = fastPrepared:decodeBuffer(input)
+    local buffered, bufferedProblem = decoded(fastPrepared, input:tostring())
     assert(bufferedProblem == nil and buffered ~= nil and buffered.id == 41)
     assert(buffered.child.label == "one" and buffered.children[1].label == "two")
-    local advanced, advancedProblem = advancedPrepared:decode([[{"pair":["x",2],"state":"ready"}]])
+    local advanced, advancedProblem = decoded(advancedPrepared, [[{"pair":["x",2],"state":"ready"}]])
     assert(advancedProblem == nil and advanced ~= nil and advanced.pair[2] == 2 and advanced.state == "ready")
-    local badAdvanced, badAdvancedProblem = advancedPrepared:decode([[{"pair":["x",2],"state":"other"}]])
+    local badAdvanced, badAdvancedProblem = decoded(advancedPrepared, [[{"pair":["x",2],"state":"other"}]])
     assert(badAdvanced == nil and badAdvancedProblem ~= nil)
-    local derived, derivedProblem = FastEnvelope.fromJSON(fastSource)
+    local derived, derivedProblem = decoded(serde.binding(FastEnvelope), fastSource)
     assert(derivedProblem == nil and derived ~= nil and derived.child.label == "one")
-    local rejected, rejection = fastPrepared:decode(
+    local rejected, rejection = decoded(
+        fastPrepared,
         [[{"id":1,"child":{"label":"x"},"children":[],"labels":{},"extra":true}]]
     )
     assert(rejected == nil and rejection ~= nil and rejection:find("extra", 1, true) ~= nil)
-    local wrongScalar, wrongScalarProblem = fastPrepared:decode(
+    local wrongScalar, wrongScalarProblem = decoded(
+        fastPrepared,
         [[{"id":"1","child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(wrongScalar == nil and wrongScalarProblem ~= nil)
-    local missing, missingProblem = fastPrepared:decode([[{"id":1,"child":{"label":"x"},"children":[]}]])
+    local missing, missingProblem = decoded(fastPrepared, [[{"id":1,"child":{"label":"x"},"children":[]}]])
     assert(missing == nil and missingProblem ~= nil and missingProblem:find("labels", 1, true) ~= nil)
-    local fractional, fractionalProblem = fastPrepared:decode(
+    local fractional, fractionalProblem = decoded(
+        fastPrepared,
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(fractional == nil and fractionalProblem ~= nil)
-    local overflow, overflowProblem = fastPrepared:decode(
+    local overflow, overflowProblem = decoded(
+        fastPrepared,
         [[{"id":4294967296,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(overflow == nil and overflowProblem ~= nil)
-    local derivedWrong, derivedWrongProblem = FastEnvelope.fromJSON(
+    local derivedWrong, derivedWrongProblem = decoded(
+        serde.binding(FastEnvelope),
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(derivedWrong == nil and derivedWrongProblem ~= nil)
-    local optionalDefaultPlan = json.newCodec():prepare(serde.of(OptionalDefault))
-    local optionalDefault = assert(optionalDefaultPlan:decode([[{"name":"x","note":null}]]))
+    local optionalDefaultPlan = serde.binding(OptionalDefault)
+    local optionalDefault = assert(decoded(optionalDefaultPlan, [[{"name":"x","note":null}]]))
     assert(optionalDefault.name == "x" and optionalDefault.enabled == false and optionalDefault.note == nil)
-    local literalTuplePlan = json.newCodec():prepare(serde.of(LiteralTuple))
-    local literalTuple = assert(literalTuplePlan:decode([[{"kind":"pair","items":["x",2]}]]))
+    local literalTuplePlan = serde.binding(LiteralTuple)
+    local literalTuple = assert(decoded(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]]))
     assert(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
-    local wrongLiteral, wrongLiteralProblem = literalTuplePlan:decode([[{"kind":"other","items":["x",2]}]])
+    local wrongLiteral, wrongLiteralProblem = decoded(literalTuplePlan, [[{"kind":"other","items":["x",2]}]])
     assert(wrongLiteral == nil and wrongLiteralProblem ~= nil)
-    local wrongTuple, wrongTupleProblem = literalTuplePlan:decode([[{"kind":"pair","items":["x"]}]])
+    local wrongTuple, wrongTupleProblem = decoded(literalTuplePlan, [[{"kind":"pair","items":["x"]}]])
     assert(wrongTuple == nil and wrongTupleProblem ~= nil)
-    local renamed = json.newCodec{
-        unknownMembers = "ignore",
-        fieldNames = function(member: Member): string
-            return member.name == "id" and "i\"d" or member.name
-        end,
-    }:prepare(serde.of(FastEnvelope))
-    local renamedValue, renamedProblem = renamed:decode(
+    local renamed = serde.binding(
+        FastEnvelope,
+        new serde.Options(
+            unknownMembers = "ignore",
+            fields = {
+                id = new serde.FieldOptions(name = "i\"d"),
+                child = new serde.FieldOptions(),
+                children = new serde.FieldOptions(),
+                labels = new serde.FieldOptions(),
+            }
+        )
+    )
+    local renamedValue, renamedProblem = decoded(
+        renamed,
         [[{"ignored":{"deep":[1,2]},"i\u0022d":42,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(renamedProblem == nil and renamedValue ~= nil and renamedValue.id == 42)
@@ -189,19 +205,19 @@ function test.run(): nil
 end
 
 function test.preparedDecode(): FastEnvelope
-    return assert(fastPrepared:decode(fastSource))
+    return assert(decoded(fastPrepared, fastSource))
 end
 
 function test.preparedBufferDecode(): FastEnvelope
-    return assert(fastPrepared:decodeBuffer(fastBuffer))
+    return require("nupp.serde.json").decodeBuffer(fastPrepared, fastBuffer)
 end
 
 function test.preparedBufferCopyDecode(): FastEnvelope
-    return assert(fastPrepared:decode(fastBuffer:tostring()))
+    return assert(decoded(fastPrepared, fastBuffer:tostring()))
 end
 
 function test.derivedDecode(): FastEnvelope
-    return assert(FastEnvelope.fromJSON(fastSource))
+    return assert(decoded(serde.binding(FastEnvelope), fastSource))
 end
 
 function test.source(): string

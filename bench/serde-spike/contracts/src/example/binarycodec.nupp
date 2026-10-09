@@ -1,0 +1,595 @@
+module example.binarycodec
+
+local core = require("nupp.serde.value")
+local publication = require("nupp.serde.publication")
+local syntax = require("example.binary")
+local integers = require("example.binarynumbers")
+local positional = require("example.binarypositional")
+local documents = require("nupp.serde.document")
+local documentReaders = require("nupp.serde.documentreader")
+local bridge = require("nupp.serde.documentcodec")
+local contexts = require("nupp.serde.context")
+local utf8 = require("nupp.text.utf8")
+
+export interface Policy
+    number: function<M is core.Member>(self, member: M): integer
+end
+local family: table = {}
+local wire: {[string]: integer} = {string = 1, bytes = 2, integer = 3, structure = 4, tuple = 5}
+
+local record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly field: syntax.Field
+    @readonly children: {[M]: Plan<M>} = {}
+    @readonly numbered: {[integer]: Plan<M>} = {}
+    @readonly ordered: {Plan<M>} = {}
+    @readonly positional: {positional.Slot} = {}
+end
+
+local function plan<M is core.Member>(
+    description: core.Description<M>,
+    policy: Policy,
+    direction: core.Direction,
+    seen: {[core.Description<M>]: Plan<M>}
+): Plan<M>
+    local previous = seen[description]
+    if previous ~= nil then
+        return previous
+    end
+    assert(not description.nullable, "binary fixture has no null representation")
+    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    local kind = description.kind
+    local tag = assert(wire[kind], "unsupported binary fixture kind: " .. kind)
+    local number = policy:number(description.member)
+    assert(number >= 1 and number <= 65535, "binary field number is out of range")
+    local result = new Plan<M>(description = description, field = new syntax.Field(number = number, wire = tag))
+    seen[description] = result
+    if kind == "integer" then
+        assert(
+            description.width == 8 or description.width == 16 or description.width == 32 or description.width == 64,
+            "binary integer needs a width"
+        )
+        assert(description.signed ~= nil, "binary integer needs a signedness")
+    end
+    for index, child in ipairs(description.children) do
+        local selected = plan(child:describe(direction), policy, direction, seen)
+        assert(result.children[child.member] == nil, "duplicate binary member")
+        result.children[child.member] = selected
+        result.ordered[index] = selected
+        if kind == "structure" then
+            assert(result.numbered[selected.field.number] == nil, "colliding binary field number")
+            result.numbered[selected.field.number] = selected
+        elseif kind == "tuple" then
+            local childKind = selected.description.kind
+            assert(
+                childKind == "integer" or childKind == "string" or childKind == "bytes",
+                "positional fixture slots must be scalar"
+            )
+            result.positional[
+                index
+            ] = new positional.Slot(
+                kind = childKind,
+                width = (selected.description.width or 64) as(8 | 16 | 32 | 64),
+                signed = selected.description.signed ~= false
+            )
+        else
+            error("scalar binary description has children", 2)
+        end
+    end
+
+    return result
+end
+
+local record Slot
+    state: "initializing" | "ready" | "failed" = "initializing"
+    value: unknown
+end
+
+local record Scope
+    @readonly policy: Policy
+    @readonly writes: {[unknown]: Slot} = {}
+    @readonly reads: {[unknown]: Slot} = {}
+    count: integer = 0
+    active: integer = 0
+    function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>, direction: core.Direction): Plan<M>
+        local cache = direction == "write" and self.writes or self.reads
+        local previous = cache[adapter]
+        if previous ~= nil then
+            if previous.state == "ready" then
+                return previous.value as Plan<M>
+            elseif previous.state == "failed" then
+                error(previous.value, 0)
+            else
+                error("recursive binary extension initialization", 2)
+            end
+        end
+        assert(self.count < 256, "binary fixture extension cache is full")
+        local slot = new Slot()
+        cache[adapter] = slot
+        self.count += 1
+        self.active += 1
+        local ok, selected = pcall(function(): Plan<M>
+            local description = adapter:describe(direction)
+            assert(description.kind == "structure", "binary fixture root must be a structure")
+            return plan(description, self.policy, direction, {})
+        end)
+        self.active -= 1
+        slot.state = ok and "ready" or "failed"
+        slot.value = selected
+        if not ok then
+            error(selected, 0)
+        end
+
+        return selected as Plan<M>
+    end
+end
+
+local record Opaque is core.Atom
+    @readonly family: table
+    @readonly field: syntax.Field
+    @readonly bytes: string
+    function snapshot(borrows self): core.Atom
+        return new Opaque(
+            family = family,
+            field = new syntax.Field(number = self.field.number, wire = self.field.wire),
+            bytes = self.bytes:sub(1)
+        )
+    end
+end
+
+local record Unknown is core.UnknownReader, nupp.Closeable
+    @readonly entry: syntax.Entry
+    @readonly source: core.Context
+    used: boolean = false
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed and not self.used, "binary unknown reader has expired")
+    end
+
+    function skipValue(exclusive self): nil
+        self:live()
+        self.used = true
+    end
+
+    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        local value = documents.withContext(
+            documents.atom(new Opaque(family = family, field = self.entry.field, bytes = self.entry.bytes)),
+            self.source
+        )
+        local reader = documentReaders.reader(value)
+        local result = adapter:readContents(reader)
+        local complete, problem = pcall(reader.finish, reader)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+        self.used = true
+
+        return result
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+end
+
+local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+    @readonly selected: Plan<M>
+    @readonly value: positional.Value
+    @readonly source: core.Context
+    @readonly depth: integer = 0
+    used: boolean = false
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed and not self.used, "binary reader has expired")
+        assert(self.depth <= 128, "binary nesting limit exceeded")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.source
+    end
+
+    function isNull(self): boolean
+        self:live()
+        return false
+    end
+
+    function consume(exclusive self, member: M, kind: string): nil
+        self:live()
+        assert(
+            member == self.selected.description.member and kind == self.selected.description.kind,
+            "binary adapter does not match its description"
+        )
+        self.used = true
+    end
+
+    function readString(exclusive self, member: M): string
+        self:consume(member, "string")
+        assert(type(self.value) == "string", "invalid string carrier")
+        assert(utf8.isValid(self.value as string), "invalid UTF-8 string")
+        return self.value as string
+    end
+
+    function readBytes(exclusive self, member: M): string
+        self:consume(member, "bytes")
+        assert(type(self.value) == "string", "invalid byte carrier")
+        return self.value as string
+    end
+
+    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        self:consume(member, "integer")
+        assert(
+            width == self.selected.description.width and signed == self.selected.description.signed,
+            "integer access does not match its schema"
+        )
+        if type(self.value) == "string" then
+            return integers.decode(self.value as string, width, signed)
+        else
+            local numbers = require("nupp.serde.numbers")
+            return numbers.integer((self.value as core.Integer).decimal, width, signed)
+        end
+    end
+
+    function child(self, selected: Plan<M>, value: positional.Value): affine(Input<M>)
+        return new Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
+    end
+
+    function readStruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:consume(member, "structure")
+        local reader = syntax.reader(self.value as string)
+        local seen: {[M]: boolean} = {}
+        while true do
+            local entry = reader:next()
+            if entry == nil then
+                break
+            end
+            local child = self.selected.numbered[entry.field.number]
+            if child ~= nil then
+                assert(entry.field.wire == child.field.wire, "binary wire type does not match its schema")
+                assert(not seen[child.description.member], "duplicate binary scalar member")
+                seen[child.description.member] = true
+                local input = self:child(child, entry.bytes)
+                consume:apply(state, child.description.member, input)
+                assert(input.used, "binary member was not consumed")
+            else
+                local input: affine(Unknown) = new Unknown(entry = entry, source = self.source)
+                unknown:apply(state, entry.field, input)
+                assert(input.used, "unknown binary field was not consumed")
+            end
+        end
+    end
+
+    function readTuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:consume(member, "tuple")
+        assert(size == #self.selected.ordered, "tuple access does not match its schema")
+        local values = positional.decode(self.selected.positional, self.value as string)
+        for index, value in ipairs(values) do
+            local input = self:child(self.selected.ordered[index], value)
+            consume:apply(state, index, input)
+            assert(input.used, "binary tuple slot was not consumed")
+        end
+    end
+
+    function containerSize(self): integer?
+        self:live()
+        return self.selected.description.kind == "tuple" and #self.selected.ordered or nil
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+
+    function readNull(exclusive self, member: M): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readBoolean(exclusive self, member: M): boolean
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readFloat(exclusive self, member: M, width: 32 | 64): number
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readBigInteger(exclusive self, member: M): string
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readDecimal(exclusive self, member: M): core.Decimal
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readNumberToken(exclusive self, member: M): string
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readTimestamp(exclusive self, member: M): core.Timestamp
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readAtom(exclusive self, member: M): core.Atom
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readUnion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+end
+
+local record Frame<M is core.Member>
+    @readonly selected: Plan<M>
+    @readonly entries: {syntax.Entry} = {}
+    @readonly values: {positional.Value} = {}
+    @readonly seen: {[M]: boolean} = {}
+end
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly root: Plan<M>
+    @readonly policy: Policy
+    @readonly frames: {Frame<M>} = {}
+    result: string?
+    closed: boolean = false
+    function live(self): nil
+        assert(not self.closed, "binary writer has expired")
+        assert(#self.frames <= 128, "binary nesting limit exceeded")
+    end
+
+    function selected(self, member: M): Plan<M>
+        self:live()
+        local frame = self.frames[#self.frames]
+        if frame == nil then
+            assert(self.root.description.member == member, "foreign binary root member")
+            return self.root
+        end
+
+        return assert(frame.selected.children[member], "foreign binary member")
+    end
+
+    function include(exclusive self, member: M): boolean
+        self:selected(member)
+        return true
+    end
+
+    function put(exclusive self, member: M, kind: string, value: positional.Value): nil
+        local selected = self:selected(member)
+        assert(selected.description.kind == kind, "binary adapter does not match its description")
+        local frame = self.frames[#self.frames]
+        assert(frame ~= nil, "scalar binary root is unsupported")
+        assert(not frame.seen[member], "duplicate binary member")
+        frame.seen[member] = true
+        if frame.selected.description.kind == "tuple" then
+            local position = #frame.values + 1
+            assert(frame.selected.ordered[position] == selected, "tuple members are out of order")
+            frame.values[position] = value
+        else
+            local bytes = type(value) == "string" and value as string or integers.encode(value as core.Integer)
+            frame.entries[#frame.entries + 1] = new syntax.Entry(field = selected.field, bytes = bytes)
+        end
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        assert(utf8.isValid(value), "invalid UTF-8 string")
+        self:put(member, "string", value)
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        self:put(member, "bytes", value)
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        local selected = self:selected(member)
+        local numbers = require("nupp.serde.numbers")
+        self:put(
+            member,
+            "integer",
+            numbers.integer(
+                value.decimal,
+                selected.description.width as(8 | 16 | 32 | 64),
+                selected.description.signed == true
+            )
+        )
+    end
+
+    function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
+        local selected = self:selected(member)
+        assert(selected.description.kind == kind, "binary aggregate does not match its description")
+        local frame = new Frame<M>(selected = selected)
+        self.frames[#self.frames + 1] = frame
+        emit:apply(source, self)
+        self.frames[#self.frames] = nil
+        local bytes = kind == "structure" and syntax.encode(frame.entries)
+            or positional.encode(selected.positional, frame.values)
+        if #self.frames == 0 then
+            assert(self.result == nil, "binary root was written twice")
+            self.result = bytes
+        else
+            self:put(member, kind, bytes)
+        end
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", source, emit)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        assert(size == #self:selected(member).ordered, "tuple arity does not match its schema")
+        self:aggregate(member, "tuple", source, emit)
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        self:live()
+        local selected = syntax.identity(field)
+        local frame = assert(self.frames[#self.frames], "unknown binary field outside structure")
+        assert(frame.selected.description.kind == "structure", "unknown positional slot has no schema")
+        assert(frame.selected.numbered[selected.number] == nil, "unknown binary field collides with a known member")
+        local source = adapter:context(value)
+        assert(
+            source ~= nil and source.codec == family and source.profile == self.policy,
+            "unknown binary value needs its original protocol context"
+        )
+        local captured = bridge.fromBinding(adapter:contents(), value)
+        local atom = captured:atom()
+        assert(
+            getmetatable(atom) == Opaque and atom.family == family,
+            "unknown binary value is not an owned wire payload"
+        )
+        local opaque = atom as Opaque
+        assert(
+            opaque.field.number == selected.number and opaque.field.wire == selected.wire,
+            "unknown binary identity changed"
+        )
+        frame.entries[#frame.entries + 1] = new syntax.Entry(field = selected, bytes = opaque.bytes)
+    end
+
+    function close(takes self): nil
+        self.closed = true
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        error("unsupported binary fixture operation", 2)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        error("unsupported binary fixture operation", 2)
+    end
+end
+
+local function output<M is core.Member>(selected: Plan<M>, policy: Policy): affine(Output<M>)
+    return new Output<M>(root = selected, policy = policy)
+end
+
+local function input<M is core.Member>(selected: Plan<M>, bytes: string, source: core.Context): affine(Input<M>)
+    return new Input<M>(selected = selected, value = bytes, source = source)
+end
+
+local record Encode<T> is core.Consumer<T, T, string>
+    @readonly scope: Scope
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
+        local selected = self.scope:resolve(adapter, "write")
+        local writer = output(selected, self.scope.policy)
+        adapter:write(value, writer)
+        local result = assert(writer.result, "binary binding did not write its root"):sub(1)
+        assert(#result <= 16777216, "binary output exceeds byte limit")
+
+        return result
+    end
+end
+local record Decode<T> is core.Consumer<T, nil, T>
+    @readonly binding: core.Binding<T>
+    @readonly scope: Scope
+    @readonly bytes: string
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): T
+        local selected = self.scope:resolve(adapter, "read")
+        local source = contexts.builder(family, self.scope.policy as table):freeze()
+        local reader = input(selected, self.bytes, source)
+        local value = adapter:read(reader)
+        if not reader.used then
+            error(publication.failure(self.binding, value, "binary binding did not consume its root"), 0)
+        end
+
+        return value
+    end
+end
+export interface Codec
+    encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
+    decode: function<T>(self, binding: core.Binding<T>, bytes: string): T
+end
+local record Cached is Codec
+    @readonly scope: Scope
+    function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
+        return binding:accept(new Encode<T>(scope = self.scope), value)
+    end
+
+    function decode<T>(self, binding: core.Binding<T>, bytes: string): T
+        assert(#bytes <= 16777216, "binary input exceeds byte limit")
+        return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
+    end
+end
+export function codec(policy: Policy): Codec
+    return new Cached(scope = new Scope(policy = policy))
+end

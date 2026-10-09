@@ -3731,7 +3731,7 @@ function checkMod.check(
     end)
     result.moduleExports = c.moduleExports
     result.cNamespaceType = c.cNamespaceType()
-    reflection.bindRuntimeDeclarations(result.root, filename or "<unknown>")
+    reflection.bindRuntimeDeclarations(result.root, result.moduleName or result.declaredModuleName or "<chunk>")
 
     if opts.compat == "lua51" and not c.declarationFile then
         local failed = false

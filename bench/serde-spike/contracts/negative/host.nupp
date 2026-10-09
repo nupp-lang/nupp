@@ -1,4 +1,4 @@
-const extensions = require("contract.extensions")
+const extensions = require("nupp.serde.extensions")
 const model = require("example.model")
 local record Other
     name: string

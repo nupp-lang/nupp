@@ -1,4 +1,4 @@
-local core = require("contract.value")
+local core = require("nupp.serde.value")
 local xml = require("example.xmlsyntax")
 local assembly = require("example.xmlassembly")
 local record Member is core.Member

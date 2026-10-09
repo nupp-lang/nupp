@@ -1,12 +1,12 @@
 module example.richmodel
 
-local core = require("contract.value")
-local plans = require("contract.jsonplan")
+local core = require("nupp.serde.value")
+local plans = require("nupp.serde.jsonplan")
 local json = require("nupp.codec.json")
-local timestamps = require("example.timestamps")
-local documents = require("example.document")
+local timestamps = require("nupp.serde.timestamps")
+local documents = require("nupp.serde.document")
 local maps = require("example.maps")
-local contexts = require("contract.context")
+local contexts = require("nupp.serde.context")
 
 local record Member is core.Member
     @readonly name: string
@@ -587,7 +587,7 @@ export function newModel(collision: boolean?): Model
     )
 end
 
-local function bind<T>(model: Model, storage: Storage<T>): core.Binding<T>
+local function bind<T is nupp.Copyable>(model: Model, storage: Storage<T>): core.Binding<T>
     return new core.Bound<T, Member>(
         adapter = new Adapter<T>(
             model = model,

@@ -1,0 +1,282 @@
+module example.routing
+
+local core = require("nupp.serde.value")
+
+export type Location = "header" | "query" | "body" | "stream"
+export record Route
+    @readonly location: Location
+    @readonly name: string
+end
+export interface Policy<M is core.Member>
+    route: function(self, member: M): Route
+end
+export interface Factory
+    policy: function<M is core.Member>(self, member: M): Policy<M>
+end
+export record Parameter
+    @readonly location: "header" | "query"
+    @readonly name: string
+    @readonly value: string
+end
+
+local function escape(value: string): string
+    return (value:gsub("[^A-Za-z0-9_.~-]", function(byte: string): string
+        return ("%%%02X"):format(assert(byte:byte()))
+    end))
+end
+
+local record Output<M is core.Member> is core.Writer<M>
+    @readonly parameters: {Parameter}
+    @readonly selected: {[M]: Route}
+    depth: integer = 0
+
+    function include(exclusive self, member: M): boolean
+        return self.selected[member] ~= nil
+    end
+
+    function token(exclusive self, member: M, value: string): nil
+        assert(self.depth == 1 and self.selected[member] ~= nil, "parameter outside the selected structure")
+        local route = assert(self.selected[member])
+        assert(route.location == "header" or route.location == "query", "parameter has another location")
+        if route.location == "header" then
+            assert(not value:find("[\r\n]"), "invalid header value")
+        end
+        self.parameters[
+            #self.parameters + 1
+        ] = new Parameter(
+            location = route.location,
+            name = route.name,
+            value = route.location == "query" and escape(value) or value
+        )
+    end
+
+    function writeNull(exclusive self, member: M): nil
+        error("null has no parameter representation in this protocol", 2)
+    end
+
+    function writeString(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeBoolean(exclusive self, member: M, value: boolean): nil
+        self:token(member, value and "true" or "false")
+    end
+
+    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+        self:token(member, value.decimal)
+    end
+
+    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+        assert(value == value and value ~= math.huge and value ~= -math.huge, "nonfinite parameter")
+        self:token(member, ("%.17g"):format(value))
+    end
+
+    function writeNumberToken(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeBigInteger(exclusive self, member: M, value: string): nil
+        self:token(member, value)
+    end
+
+    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+        self:token(member, value.coefficient .. "e" .. tostring(value.exponent))
+    end
+
+    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+        error("timestamp parameters require an explicit protocol conversion", 2)
+    end
+
+    function writeBytes(exclusive self, member: M, value: string): nil
+        error("blob parameters require an explicit protocol conversion", 2)
+    end
+
+    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+        error("atom parameters require an explicit protocol conversion", 2)
+    end
+
+    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+        error("documents have no parameter representation in this protocol", 2)
+    end
+
+    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        assert(self.depth == 0, "nested parameter structure")
+        self.depth = 1
+        emit:apply(source, self)
+        self.depth = 0
+    end
+
+    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        error("unions have no parameter representation in this protocol", 2)
+    end
+
+    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        error("lists require an explicit protocol parameter style", 2)
+    end
+
+    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        error("tuples have no parameter representation in this protocol", 2)
+    end
+
+    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        error("maps require an explicit protocol parameter style", 2)
+    end
+
+    function writeEntry<K, V>(
+        exclusive self,
+        borrows key: K,
+        keyEmit: core.Members<M, K>,
+        borrows value: V,
+        valueEmit: core.Members<M, V>
+    ): nil
+        error("map entry outside a parameter map", 2)
+    end
+
+    function writeUnknown<F is core.WireField, D>(
+        exclusive self,
+        field: F,
+        borrows value: D,
+        adapter: core.DocumentAdapter<D>
+    ): nil
+        error("unknown members have no parameter routing", 2)
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local record Selection<M is core.Member>
+    @readonly routes: {[M]: Route}
+end
+local record Entry
+    state: "initializing" | "ready" | "failed" = "initializing"
+    value: unknown
+end
+local record Scope
+    @private entries: {[unknown]: Entry} = {}
+    @private count: integer = 0
+    @private active: integer = 0
+
+    function clear(self): nil
+        assert(self.active == 0, "parameter extensions are initializing")
+        self.entries = {}
+        self.count = 0
+    end
+
+    function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>, factory: Factory): Selection<M>
+        local entry = self.entries[adapter]
+        if entry ~= nil then
+            assert(entry.state ~= "initializing", "recursive parameter extension")
+            if entry.state == "failed" then
+                error(entry.value, 0)
+            elseif entry.state ~= "ready" then
+                error("invalid parameter extension state", 0)
+            end
+            return entry.value as Selection<M>
+        end
+        assert(self.count < 256, "parameter extension cache is full")
+        entry = new Entry()
+        self.entries[adapter] = entry
+        self.count += 1
+        self.active += 1
+        local ok, value = pcall(function(): Selection<M>
+            local description = adapter:describe("write")
+            assert(description.kind == "structure", "parameters require a structure")
+            local policy = factory:policy(description.member)
+            local routes: {[M]: Route} = {}
+            local names: {[string]: boolean} = {}
+            for _, child in ipairs(description.children) do
+                local route = policy:route(child.member)
+                if route.location == "header" or route.location == "query" then
+                    local field = child:describe("write")
+                    assert(
+                        field.kind == "string"
+                        or field.kind == "boolean"
+                        or field.kind == "integer"
+                        or field.kind == "float"
+                        or field.kind == "numberToken"
+                        or field.kind == "bigInteger"
+                        or field.kind == "decimal",
+                        "unsupported parameter representation"
+                    )
+                    local identity = route.location .. ":" .. (
+                        route.location == "header" and route.name:lower() or route.name
+                    )
+                    assert(not names[identity], "colliding parameter name")
+                    names[identity] = true
+                    if route.location == "header" then
+                        assert(route.name:match("^[!#$%%&'*+.^_`|~%w-]+$"), "invalid header name")
+                    end
+                    routes[
+                        child.member
+                    ] = new Route(
+                        location = route.location,
+                        name = route.location == "query" and escape(route.name) or route.name
+                    )
+                end
+            end
+
+            return new Selection<M>(routes = routes)
+        end)
+        self.active -= 1
+        entry.state = ok and "ready" or "failed"
+        entry.value = value
+        if not ok then
+            error(value, 0)
+        end
+
+        return value as Selection<M>
+    end
+end
+
+local function output<M is core.Member>(parameters: {Parameter}, selected: {[M]: Route}): affine(Output<M>)
+    return new Output<M>(parameters = parameters, selected = selected)
+end
+
+local record Encode<T> is core.Consumer<T, T, {Parameter}>
+    @readonly factory: Factory
+    @readonly scope: Scope
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): {Parameter}
+        local selected = self.scope:resolve(adapter, self.factory)
+        local parameters: {Parameter} = {}
+        local writer = output(parameters, selected.routes)
+        adapter:write(value, writer)
+        writer:close()
+
+        return parameters
+    end
+end
+
+export interface Codec
+    encode: function<T>(self, binding: core.Binding<T>, borrows value: T): {Parameter}
+    clear: function(self): nil
+end
+local record Cached is Codec
+    @readonly factory: Factory
+    @readonly scope: Scope
+    function encode<T>(self, binding: core.Binding<T>, borrows value: T): {Parameter}
+        return binding:accept(new Encode<T>(factory = self.factory, scope = self.scope), value)
+    end
+
+    function clear(self): nil
+        self.scope:clear()
+    end
+end
+export function codec(factory: Factory): Codec
+    return new Cached(factory = factory, scope = new Scope())
+end
+
+export function encode<T>(binding: core.Binding<T>, borrows value: T, factory: Factory): {Parameter}
+    return binding:accept(new Encode<T>(factory = factory, scope = new Scope()), value)
+end
+
+export function query(parameters: {Parameter}): string
+    local parts: {string} = {}
+    for _, parameter in ipairs(parameters) do
+        if parameter.location == "query" then
+            parts[#parts + 1] = parameter.name .. "=" .. parameter.value
+        end
+    end
+
+    return table.concat(parts, "&")
+end

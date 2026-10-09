@@ -1,0 +1,468 @@
+module nupp.serde.native
+
+local core = require("nupp.serde.value")
+local target = require("nupp.runtime.target")
+local publication = require("nupp.serde.publication")
+local documents = require("nupp.serde.document")
+local bridge = require("nupp.serde.nativereader")
+local readers = require("nupp.serde.documentreader")
+local writers = require("nupp.serde.nativewriter")
+local numbers = require("nupp.serde.numbers")
+local json = require("nupp.codec.json")
+local contexts = require("nupp.serde.context")
+export const identity: table = {}
+local profile: table = {}
+
+-- Version 1 is a LuaJIT-local tagged tree encoded by string.buffer. Names are
+-- durable field identities; runtime slots and declaration fingerprints are not.
+local header = "NUPP\0LJ\1"
+local maxBytes: integer = 16777216
+local maxDepth: integer = 128
+local maxNodes: integer = 1000000
+local materialize: bridge.Materialize
+local supported: {
+    [string]: boolean
+} = {
+    null = true,
+    boolean = true,
+    integer = true,
+    float = true,
+    bigInteger = true,
+    decimal = true,
+    numberToken = true,
+    string = true,
+    bytes = true,
+    timestamp = true,
+    document = true,
+    dynamic = true,
+    structure = true,
+    union = true,
+    list = true,
+    tuple = true,
+    map = true
+}
+
+local function runtime(): any
+    assert(
+        target.host == "native" and rawget(_G, "__nuppBrowser") == nil,
+        "native persistence requires a native LuaJIT host"
+    )
+    local ok, jit = pcall(_G.require, "jit")
+    assert(ok and type(jit) == "table", "native persistence requires LuaJIT")
+    local loaded, buffer = pcall(_G.require, "string.buffer")
+    assert(loaded, "native persistence requires LuaJIT string.buffer")
+
+    return buffer
+end
+
+local function validate<M is core.Member>(
+    description: core.Description<M>,
+    direction: core.Direction,
+    seen: {[core.Description<M>]: boolean}
+): nil
+    if seen[description] then
+        return
+    end
+    seen[description] = true
+    assert(supported[description.kind], "unsupported native persistence kind: " .. description.kind)
+    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    for _, child in ipairs(description.children) do
+        validate(child:describe(direction), direction, seen)
+    end
+end
+
+local record Slot
+    state: "initializing" | "ready" | "failed" = "initializing"
+    failure: unknown
+    decoder: unknown
+end
+local record Entry
+    used: integer
+    write: Slot?
+    read: Slot?
+end
+local record Scope
+    @readonly capacity: integer
+    entries: {[unknown]: Entry} = {}
+    count: integer = 0
+    active: integer = 0
+    clock: integer = 0
+    function resolve<T, M is core.Member>(
+        self,
+        adapter: core.Adapter<T, M>,
+        binding: core.Binding<T>,
+        direction: core.Direction
+    ): bridge.Decoder<T>?
+        self.clock += 1
+        local entry = self.entries[binding]
+        if entry == nil then
+            if self.count >= self.capacity then
+                local oldest: unknown = nil
+                local age = self.clock + 1
+                for key, candidate in pairs(self.entries) do
+                    local busy = candidate.write ~= nil and candidate.write.state == "initializing"
+                        or candidate.read ~= nil and candidate.read.state == "initializing"
+                    if not busy and candidate.used < age then
+                        oldest, age = key, candidate.used
+                    end
+                end
+                assert(oldest ~= nil, "native extension capacity exhausted by active initialization")
+                self.entries[oldest] = nil
+                self.count -= 1
+            end
+            entry = new Entry(used = self.clock)
+            self.entries[binding] = entry
+            self.count += 1
+        end
+        entry.used = self.clock
+        local previous: Slot?
+        if direction == "write" then
+            previous = entry.write
+        else
+            previous = entry.read
+        end
+        if previous ~= nil then
+            if previous.state == "ready" then
+                return previous.decoder as bridge.Decoder<T>?
+            elseif previous.state == "failed" then
+                error(previous.failure, 0)
+            else
+                error("recursive native extension initialization", 2)
+            end
+        end
+        local slot = new Slot()
+        if direction == "write" then
+            entry.write = slot
+        else
+            entry.read = slot
+        end
+        self.active += 1
+        local ok, problem = pcall(function(): bridge.Decoder<T>?
+            local description = adapter:describe(direction)
+            validate(description, direction, {})
+            if direction == "read" then
+                return bridge.decoderFor(adapter, description, binding, materialize)
+            else
+                return nil
+            end
+        end)
+        self.active -= 1
+        slot.state = ok and "ready" or "failed"
+        if not ok then
+            slot.failure = problem;
+            error(problem, 0)
+        end
+        slot.decoder = problem
+
+        return problem as bridge.Decoder<T>?
+    end
+
+    function clear(self): nil
+        assert(self.active == 0, "cannot clear an initializing native extension cache")
+        self.entries, self.count, self.clock = {}, 0, 0
+    end
+end
+local record Check<T> is core.Consumer<T, nil, nil>
+    @readonly binding: core.Binding<T>
+    @readonly direction: core.Direction
+    @readonly scope: Scope
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
+        self.scope:resolve(adapter, self.binding, self.direction)
+    end
+end
+local record Read<T> is core.Consumer<T, nil, bridge.Decoder<T>>
+    @readonly binding: core.Binding<T>
+    @readonly scope: Scope
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): bridge.Decoder<T>
+        local selected = assert(self.scope:resolve(adapter, self.binding, "read"), "missing native decoder")
+        return selected
+    end
+end
+local record Budget
+    nodes: integer = 0
+    function take(self, depth: integer): nil
+        self.nodes += 1
+        assert(self.nodes <= maxNodes and depth <= maxDepth, "native persistence tree limit exceeded")
+    end
+end
+
+local function text(value: unknown): string
+    assert(type(value) == "string", "expected native string")
+    return value as string
+end
+
+local function integer(value: unknown): integer
+    assert(type(value) == "number", "expected native integer")
+    local number = value as number
+    assert(number == number and number % 1 == 0 and math.abs(number) <= 9007199254740991, "invalid native integer")
+    return number as integer
+end
+
+local function unpack(value: unknown, budget: Budget, depth: integer): documents.Document
+    budget:take(depth)
+    assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
+    local node = value as {unknown}
+    local size = #node
+    for key in pairs(value as {[unknown]: unknown}) do
+        assert(
+            type(key) == "number" and (key as number) >= 1 and (key as number) <= size and (key as number) % 1 == 0,
+            "native node is not a dense array"
+        )
+    end
+    local kind = text(node[1])
+    if kind == "null" then
+        assert(size == 1, "invalid native null")
+        return documents.null()
+    elseif kind == "string" or kind == "bytes" or kind == "numberToken" or kind == "bigInteger" then
+        assert(size == 2, "invalid native scalar")
+        local scalar = text(node[2])
+        if kind == "string" then
+            return documents.string(scalar)
+        elseif kind == "bytes" then
+            return documents.bytes(scalar)
+        elseif kind == "numberToken" then
+            return documents.numberToken(scalar)
+        else
+            return documents.bigInteger(scalar)
+        end
+    elseif kind == "boolean" then
+        assert(size == 2 and type(node[2]) == "boolean", "invalid native boolean")
+        return documents.boolean(node[2] as boolean)
+    elseif kind == "integer" then
+        assert(size == 4 and type(node[4]) == "boolean", "invalid native integer")
+        local width = integer(node[3])
+        assert(width == 8 or width == 16 or width == 32 or width == 64, "invalid native integer width")
+        return documents.integer(numbers.integer(text(node[2]), width as(8 | 16 | 32 | 64), node[4] as boolean))
+    elseif kind == "float" then
+        assert(size == 3 and type(node[2]) == "number", "invalid native float")
+        local width = integer(node[3])
+        assert(width == 32 or width == 64, "invalid native float width")
+        return documents.float(
+            new core.Float(
+                value = numbers.floating(node[2] as number, width as(32 | 64), true),
+                width = width as(32 | 64)
+            )
+        )
+    elseif kind == "decimal" then
+        assert(size == 3, "invalid native decimal")
+        local coefficient = text(node[2])
+        documents.bigInteger(coefficient)
+        return documents.decimal(new core.Decimal(coefficient = coefficient, exponent = integer(node[3])))
+    elseif kind == "timestamp" then
+        assert(size == 3, "invalid native timestamp")
+        local seconds = numbers.integer(text(node[2]), 64, true).decimal
+        return documents.timestamp(new core.Timestamp(seconds = seconds, nanos = integer(node[3])))
+    elseif kind == "document" then
+        assert(size == 2, "invalid native document boundary")
+        return documents.document(unpack(node[2], budget, depth + 1))
+    elseif kind == "structure" or kind == "union" then
+        assert(size % 2 == 1 and (kind ~= "union" or size == 3), "invalid native named aggregate")
+        local fields: {documents.Entry} = {}
+        for index = 2, size, 2 do
+            fields[
+                #fields + 1
+            ] = new documents.Entry(name = text(node[index]), value = unpack(node[index + 1], budget, depth + 1))
+        end
+        if kind == "union" then
+            return documents.union(fields[1].name, fields[1].value)
+        else
+            return documents.object(fields)
+        end
+    elseif kind == "list" or kind == "tuple" then
+        local values: {documents.Document} = {}
+        for index = 2, size do
+            values[#values + 1] = unpack(node[index], budget, depth + 1)
+        end
+        return kind == "list" and documents.list(values) or documents.tuple(values)
+    elseif kind == "map" then
+        assert(size % 2 == 1, "invalid native map")
+        local values: {documents.MapEntry} = {}
+        for index = 2, size, 2 do
+            values[
+                #values + 1
+            ] = new documents.MapEntry(
+                key = unpack(node[index], budget, depth + 1),
+                value = unpack(node[index + 1], budget, depth + 1)
+            )
+        end
+        return documents.map(values)
+    end
+    error("unsupported native value tag: " .. kind, 2)
+end
+
+materialize = function(value: unknown): documents.Document
+    return unpack(value, new Budget(), 0)
+end
+
+local function validateTree(value: unknown, budget: Budget, depth: integer): nil
+    budget:take(depth)
+    assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
+    local node = value as {unknown}
+    local size = #node
+    for key in pairs(value as {[unknown]: unknown}) do
+        assert(
+            type(key) == "number" and (key as number) >= 1 and (key as number) <= size and (key as number) % 1 == 0,
+            "native node is not a dense array"
+        )
+    end
+    local kind = text(node[1])
+    if kind == "structure" or kind == "union" then
+        assert(size % 2 == 1 and (kind ~= "union" or size == 3), "invalid native named aggregate")
+        local names: {[string]: boolean} = {}
+        for index = 2, size, 2 do
+            local name = text(node[index])
+            assert(not names[name], "duplicate native member")
+            names[name] = true
+            validateTree(node[index + 1], budget, depth + 1)
+        end
+    elseif kind == "list" or kind == "tuple" then
+        for index = 2, size do
+            validateTree(node[index], budget, depth + 1)
+        end
+    elseif kind == "map" then
+        assert(size % 2 == 1, "invalid native map")
+        for index = 2, size do
+            validateTree(node[index], budget, depth + 1)
+        end
+    elseif kind == "document" then
+        assert(size == 2, "invalid native document boundary")
+        validateTree(node[2], budget, depth + 1)
+    elseif kind == "null" then
+        assert(size == 1, "invalid native null")
+    elseif kind == "string" or kind == "bytes" or kind == "numberToken" or kind == "bigInteger" then
+        assert(size == 2, "invalid native scalar")
+        local scalar = text(node[2])
+        if kind == "numberToken" then
+            json.numberToken(scalar)
+        elseif kind == "bigInteger" then
+            assert(
+                scalar:match("^-?[0-9]+$") and (scalar == "0" or scalar == "-0" or scalar:match("^-?[1-9][0-9]*$")),
+                "invalid big integer"
+            )
+        end
+    elseif kind == "boolean" then
+        assert(size == 2 and type(node[2]) == "boolean", "invalid native boolean")
+    elseif kind == "integer" then
+        assert(size == 4 and type(node[4]) == "boolean", "invalid native integer")
+        local width = integer(node[3])
+        assert(width == 8 or width == 16 or width == 32 or width == 64, "invalid native integer width")
+        numbers.integer(text(node[2]), width as(8 | 16 | 32 | 64), node[4] as boolean)
+    elseif kind == "float" then
+        assert(size == 3 and type(node[2]) == "number", "invalid native float")
+        local width = integer(node[3])
+        assert(width == 32 or width == 64, "invalid native float width")
+        numbers.floating(node[2] as number, width as(32 | 64), true)
+    elseif kind == "decimal" then
+        assert(size == 3, "invalid native decimal")
+        local coefficient = text(node[2])
+        assert(
+            coefficient:match("^-?[0-9]+$")
+            and (coefficient == "0" or coefficient == "-0" or coefficient:match("^-?[1-9][0-9]*$")),
+            "invalid big integer"
+        )
+        integer(node[3])
+    elseif kind == "timestamp" then
+        assert(size == 3, "invalid native timestamp")
+        numbers.integer(text(node[2]), 64, true)
+        local nanos = integer(node[3])
+        assert(nanos >= 0 and nanos < 1000000000, "invalid timestamp nanos")
+    else
+        error("unsupported native value tag: " .. kind, 2)
+    end
+end
+
+local function encodeValue<T>(binding: core.Binding<T>, borrows value: T, scope: Scope): string
+    local buffer = runtime()
+    binding:accept(new Check<T>(binding = binding, direction = "write", scope = scope), nil)
+    local tree = writers.value(binding, value)
+    local result = header .. (buffer.encode(tree) as string)
+    assert(#result <= maxBytes, "native persistence output exceeds byte limit")
+
+    return result
+end
+
+local function decodeValue<T>(binding: core.Binding<T>, bytes: string, scope: Scope): T
+    local buffer = runtime()
+    local selected = binding:accept(new Read<T>(binding = binding, scope = scope), nil)
+    assert(#bytes <= maxBytes and bytes:sub(1, #header) == header, "unsupported native persistence frame")
+    local value = buffer.decode(bytes:sub(#header + 1))
+    validateTree(value, new Budget(), 0)
+
+    return selected:read(value as bridge.Value, contexts.builder(identity, profile):freeze())
+end
+
+local function decodeContents<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
+    local buffer = runtime()
+    assert(#bytes <= maxBytes and bytes:sub(1, #header) == header, "unsupported native persistence frame")
+    local value = documents.withContext(
+        unpack(buffer.decode(bytes:sub(#header + 1)), new Budget(), 0),
+        contexts.builder(identity, profile):freeze()
+    )
+    local reader = readers.reader(value)
+    local result = adapter:readContents(reader)
+    local complete, problem = pcall(reader.finish, reader)
+    if not complete then
+        error(publication.failure(adapter, result, problem), 0)
+    end
+
+    return result
+end
+
+export interface Codec
+    encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
+    decode: function<T>(self, binding: core.Binding<T>, bytes: string): T
+    encodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+    decodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
+    clear: function(self): nil
+    cachedBindings: function(self): integer
+end
+local record Cached is Codec
+    @readonly scope: Scope
+    function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
+        return encodeValue(binding, value, self.scope)
+    end
+
+    function decode<T>(self, binding: core.Binding<T>, bytes: string): T
+        return decodeValue(binding, bytes, self.scope)
+    end
+
+    function encodeDocument<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+        return encodeValue(adapter:contents(), value, self.scope)
+    end
+
+    function decodeDocument<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
+        return decodeContents(adapter, bytes)
+    end
+
+    function clear(self): nil
+        self.scope:clear()
+    end
+
+    function cachedBindings(self): integer
+        return self.scope.count
+    end
+end
+export function codec(capacity: integer?): Codec
+    runtime()
+    local size = capacity or 256
+    assert(size > 0 and size % 1 == 0, "invalid native cache capacity")
+    return new Cached(scope = new Scope(capacity = size))
+end
+
+local defaultCodec = new Cached(scope = new Scope(capacity = 256))
+
+export function encode<T>(binding: core.Binding<T>, borrows value: T): string
+    return defaultCodec:encode(binding, value)
+end
+
+export function decode<T>(binding: core.Binding<T>, bytes: string): T
+    return defaultCodec:decode(binding, bytes)
+end
+
+export function encodeDocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
+    return defaultCodec:encodeDocument(adapter, value)
+end
+
+export function decodeDocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
+    return defaultCodec:decodeDocument(adapter, bytes)
+end

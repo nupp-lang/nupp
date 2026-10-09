@@ -1,0 +1,31 @@
+local json = require("nupp.serde.json")
+local declarations = require("nupp.serde.declaration")
+local documents = require("nupp.serde.document")
+local model = require("example.richmodel")
+local text = require("nupp.text")
+local record Config
+    name: string
+    enabled: boolean = true
+end
+local binding = declarations.binding(Config)
+local value = json.decode(binding, '{"name":"local"}')
+assert(value.enabled)
+assert(json.encode(binding, value) == '{"name":"local","enabled":true}')
+local buffer = text.newBuffer()
+json.write(binding, value, buffer)
+assert(buffer:tostring() == json.encode(binding, value))
+local codec = json.codec()
+assert(codec:decode(binding, codec:encode(binding, value)).name == "local")
+local document = documents.object({
+    new documents.Entry(name = "value", value = documents.numberToken("9007199254740993"))
+})
+assert(json.encode(documents.documentAdapter():contents(), document) == '{"value":9007199254740993}')
+local external = model.binding(model.newModel())
+assert(not pcall(json.decode, external, "malformed"))
+assert(json.decode(external, '{"identifier":"selected","created":0}', model.policy(true)).id == "selected")
+print("ordinary bindings and documents select default JSON without replacing external models")
+
+local restoredDocument = json.decodeDocument(documents.documentAdapter(), '{"exact":18446744073709551615}')
+assert(assert(restoredDocument:get("exact")):numberToken() == "18446744073709551615")
+assert(restoredDocument:context() ~= nil and assert(restoredDocument:context()).codec == json.identity)
+assert(json.encodeDocument(documents.documentAdapter(), restoredDocument) == '{"exact":18446744073709551615}')

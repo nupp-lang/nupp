@@ -47,13 +47,16 @@ local function completeAt(dir, cursor, words)
     for index, word in ipairs(words) do
         quoted[index] = "'" .. word .. "'"
     end
-    local pipe = assert(io.popen(("cd '%s' && '%s' __complete bash %d %s"):format(dir, NUPP, cursor, table.concat(quoted, " "))))
+    local pipe = assert(
+        io.popen(("cd '%s' && '%s' __complete bash %d %s"):format(dir, NUPP, cursor, table.concat(quoted, " ")))
+    )
     local out = pipe:read("*a")
     pipe:close()
     local lines = {}
     for line in out:gmatch("[^\n]+") do
         lines[#lines + 1] = line
     end
+
     return lines
 end
 
@@ -76,13 +79,16 @@ function M.bashCompletesAProgramPathFromTheFilesystem()
     assert(io.open(dir .. "/src/main.nupp", "wb")):close()
     assert(io.open(dir .. "/src/other.nupp", "wb")):close()
     local bin = NUPP:match("^(.*)/nupp$")
-    local script = table.concat({
-        'eval "$(nupp completions bash)"',
-        "COMP_WORDS=(nupp run src/ma)",
-        "COMP_CWORD=2",
-        "_nupp",
-        'printf "%s\\n" "${COMPREPLY[@]}"',
-    }, "; ")
+    local script = table.concat(
+        {
+            'eval "$(nupp completions bash)"',
+            "COMP_WORDS=(nupp run src/ma)",
+            "COMP_CWORD=2",
+            "_nupp",
+            'printf "%s\\n" "${COMPREPLY[@]}"',
+        },
+        "; "
+    )
     local pipe = assert(io.popen(("cd '%s' && PATH='%s':\"$PATH\" bash -c '%s' 2>&1"):format(dir, bin, script)))
     local out = pipe:read("*a")
     pipe:close()
@@ -451,6 +457,49 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.serializationMigrationChecksBeforeReplacingTheSource()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local path = dir .. "/legacy.nupp"
+
+    local function write(source)
+        local file = assert(io.open(path, "wb"))
+        file:write(source)
+        file:close()
+    end
+
+    local function read()
+        local file = assert(io.open(path, "rb"))
+        local source = file:read("*a")
+        file:close()
+        return source
+    end
+
+    local source = [[
+local serde = require("nupp.serde")
+@derive(nupp.derive.Serde)
+local record Value
+    count: integer
+end
+return serde.of(Value)
+]]
+    write('local invalid: integer = "wrong"\n' .. source)
+    local original = read()
+    local report = json.decode(captureJsonAt(dir, "migrate --json legacy.nupp"))
+    assert(not report.ok and not report.migrations[1].written)
+    assert(read() == original, "a failed check replaced the input")
+    write(source)
+    local preview = json.decode(captureJsonAt(dir, "migrate --dry-run --json legacy.nupp"))
+    assert(preview.ok and preview.migrations[1].dialect == "serde")
+    assert(read() == source, "preview changed the input")
+    local output, migrated = captureAt(dir, "migrate legacy.nupp")
+    assert(migrated, output)
+    local result = read()
+    assert(result:find(".binding(Value)", 1, true) and not result:find("derive.Serde", 1, true), result)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.migrateDoesNotClaimFilesItNeverTouched()
     local dir = os.tmpname()
     os.remove(dir)
@@ -525,13 +574,15 @@ local function exportProject(source)
     local handle = assert(io.open(dir .. "/src/game.nupp", "wb"))
     handle:write(source)
     handle:close()
+
     return dir
 end
 
 function M.exportCRefusesAStructItCannotLayOut()
     -- The layout model gives every field its own storage, so a bitfield would be
     -- published, and statically asserted, at an offset C does not give it.
-    local dir = exportProject([[
+    local dir = exportProject(
+        [[
 local game = {}
 struct game.Packed
    ready: boolean : 1
@@ -542,11 +593,16 @@ struct game.Grid
    cells: float[3][2]
 end
 return game
-]])
+]]
+    )
     local output, code = captureStatusAt(dir, "export-c -o game.h src/game.nupp game.Packed")
     assert(code ~= 0, "a bitfield struct is refused: " .. output)
-    assert(output:find("game.nupp:3:", 1, true) and output:find("NUPP2203", 1, true)
-        and output:find('field "ready" is a bitfield', 1, true), output)
+    assert(
+        output:find("game.nupp:3:", 1, true)
+        and output:find("NUPP2203", 1, true)
+        and output:find('field "ready" is a bitfield', 1, true),
+        output
+    )
     assert(not io.open(dir .. "/game.h", "rb"), "no header is written")
     local nested, nestedCode = captureStatusAt(dir, "export-c -o game.h src/game.nupp game.Grid")
     assert(nestedCode ~= 0 and nested:find('field "cells" is a nested array', 1, true), nested)
@@ -566,8 +622,10 @@ return game
     assert(code == 0, output)
     local header = assert(io.open(dir .. "/3d-game.h", "rb")):read("*a")
     assert(header:find("#ifndef NUPP_3D_GAME_H\n", 1, true), header:sub(1, 200))
-    assert(os.execute(("cd '%s' && cc -std=c11 -fsyntax-only 3d-game.h"):format(dir)) == 0,
-        "the guard is a C identifier")
+    assert(
+        os.execute(("cd '%s' && cc -std=c11 -fsyntax-only 3d-game.h"):format(dir)) == 0,
+        "the guard is a C identifier"
+    )
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -807,9 +865,11 @@ function M.runGivesTheProgramItsOwnArgTable()
     local files = {
         ["nupp.lua"] = 'return {include = {"."}}\n',
         ["s.lua"] = 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
-        ["v.nupp"] = 'local args = rawget(_G, "arg") as {[integer]: string}\n'
-            .. 'local later = require("later")\n'
-            .. 'print(args[0], args[1], args[2], #args, later)\n',
+        [
+            "v.nupp"
+        ] = 'local args = rawget(_G, "arg") as {[integer]: string}\n'
+        .. 'local later = require("later")\n'
+        .. 'print(args[0], args[1], args[2], #args, later)\n',
         ["later.nupp"] = "local answer = comptime do\n    return 6 * 7\nend\n\nreturn answer\n",
     }
     for name, text in pairs(files) do
@@ -1300,76 +1360,87 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+
     local function write(name, text)
         local file = assert(io.open(dir .. "/" .. name, "wb"))
         file:write(text)
         file:close()
     end
+
     write("nupp.lua", 'return {include = {"src"}}\n')
     write(
         "src/jobs.nupp",
-        table.concat({
-            "module jobs",
-            "",
-            "export function compress(name: string, path: string): integer",
-            "    return #name + #path",
-            "end",
-            "",
-            "export function probe(mirror: string): string?",
-            "    return mirror ~= '' and mirror or nil",
-            "end",
-            "",
-        }, "\n")
+        table.concat(
+            {
+                "module jobs",
+                "",
+                "export function compress(name: string, path: string): integer",
+                "    return #name + #path",
+                "end",
+                "",
+                "export function probe(mirror: string): string?",
+                "    return mirror ~= '' and mirror or nil",
+                "end",
+                "",
+            },
+            "\n"
+        )
     )
     write(
         "src/scopes.nupp",
-        table.concat({
-            "module scopes",
-            "",
-            "local jobs = require(\"jobs\")",
-            "",
-            "export function total(paths: {[string]: string}): integer",
-            "    local sum: integer = 0",
-            "    with scope = nupp.tasks.open(limit = 4) do",
-            "        for name, path in pairs(paths) do",
-            "            scope:spawn(function(): nil",
-            "                const size = scope:fork(name, path, jobs.compress):await()",
-            "                sum = sum + size",
-            "            end)",
-            "        end",
-            "    end",
-            "    return sum",
-            "end",
-            "",
-            "export function first(mirrors: {string}): string?",
-            "    local winner: string? = nil",
-            "    with scope = nupp.tasks.open(limit = 4) do",
-            "        for _, mirror in ipairs(mirrors) do",
-            "            if winner ~= nil then break end",
-            "            scope:spawn(function(): nil",
-            "                const answer = scope:fork(mirror, jobs.probe):await()",
-            "                if answer ~= nil and winner == nil then",
-            "                    winner = answer",
-            "                    scope:cancel(\"a mirror answered\")",
-            "                end",
-            "            end)",
-            "        end",
-            "    end",
-            "    return winner",
-            "end",
-            "",
-        }, "\n")
+        table.concat(
+            {
+                "module scopes",
+                "",
+                "local jobs = require(\"jobs\")",
+                "",
+                "export function total(paths: {[string]: string}): integer",
+                "    local sum: integer = 0",
+                "    with scope = nupp.tasks.open(limit = 4) do",
+                "        for name, path in pairs(paths) do",
+                "            scope:spawn(function(): nil",
+                "                const size = scope:fork(name, path, jobs.compress):await()",
+                "                sum = sum + size",
+                "            end)",
+                "        end",
+                "    end",
+                "    return sum",
+                "end",
+                "",
+                "export function first(mirrors: {string}): string?",
+                "    local winner: string? = nil",
+                "    with scope = nupp.tasks.open(limit = 4) do",
+                "        for _, mirror in ipairs(mirrors) do",
+                "            if winner ~= nil then break end",
+                "            scope:spawn(function(): nil",
+                "                const answer = scope:fork(mirror, jobs.probe):await()",
+                "                if answer ~= nil and winner == nil then",
+                "                    winner = answer",
+                "                    scope:cancel(\"a mirror answered\")",
+                "                end",
+                "            end)",
+                "        end",
+                "    end",
+                "    return winner",
+                "end",
+                "",
+            },
+            "\n"
+        )
     )
     write(
         "src/main.nupp",
-        table.concat({
-            "local scopes = require(\"scopes\")",
-            "print(scopes.total({a = \"b\"}), scopes.first({\"m\"}))",
-            "with scope = nupp.tasks.open() do",
-            "    scope:spawn(function(): nil scope:cancel(\"done\") end)",
-            "end",
-            "",
-        }, "\n")
+        table.concat(
+            {
+                "local scopes = require(\"scopes\")",
+                "print(scopes.total({a = \"b\"}), scopes.first({\"m\"}))",
+                "with scope = nupp.tasks.open() do",
+                "    scope:spawn(function(): nil scope:cancel(\"done\") end)",
+                "end",
+                "",
+            },
+            "\n"
+        )
     )
     local output, code = captureStatusAt(dir, "check")
     os.execute("rm -rf '" .. dir .. "'")

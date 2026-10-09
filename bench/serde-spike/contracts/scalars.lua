@@ -1,5 +1,5 @@
-local core = require("contract.value")
-local json = require("contract.jsoncodec")
+local core = require("nupp.serde.value")
+local json = require("nupp.serde.json")
 
 local function bind(adapter)
     return setmetatable({adapter = adapter}, core.Bound)

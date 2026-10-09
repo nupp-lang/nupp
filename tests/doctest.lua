@@ -984,7 +984,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         verified = true,
         verifiedString = true,
         newWriter = true,
-        newCodec = true,
         NULL = true,
         EMPTY_ARRAY = true,
         EMPTY_OBJECT = true,
@@ -1003,7 +1002,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         verified = true,
         verifiedString = true,
         newWriter = true,
-        newCodec = true,
     }
     local writer
     for _, item in ipairs(module.items) do

@@ -946,6 +946,11 @@ local function copyable(t: Type, seen: {[Type]: boolean}): boolean
     return true
 end
 
+--- Whether a value carries no ownership obligation or scoped borrow.
+function relations.isCopyable(t: Type): boolean
+    return copyable(t, {})
+end
+
 --- Decides `isA` for a pair, without consulting the cache.
 ---
 --- The order of the rules is the doctrine: ownership first, then unions, then the

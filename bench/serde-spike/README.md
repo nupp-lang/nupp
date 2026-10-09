@@ -1,41 +1,27 @@
-# Serde architecture spike
+# Serialization benchmarks
 
-This benchmark tests whether a format-neutral, schema-driven serde layer can
-replace `derive.JSON` without sacrificing its hot paths. It retains both the
-original mechanism spike and the production prepared-codec implementation.
-
-The Nupp module compares the current derived implementation with:
-
-- handwritten JSON writer calls;
-- generated, format-neutral serializer callbacks;
-- generic schema walking over record fields and indexed dynamic slots; and
-- a benchmark-only native codec that consumes the same immutable schema in one
-  crossing, with pre-encoded keys for writing and raw-byte member lookup for
-  reading.
-
-The native decoder speculates that fields arrive in schema order, then falls
-back to FNV-1a buckets, length, and byte comparison. It writes either logical
-record fields or positional dynamic slots without materializing JSON key
-strings. Unknown values are consumed without constructing Lua values.
-
-The two record sizes separate call overhead from field traversal. Decode also
-measures schema-order, reverse-order, and unknown nested fields.
-
-Run fifteen samples:
-
-```sh
-./run.sh
-```
-
-Retain raw samples as JSON:
+This benchmark compares explicit binding execution with direct writer calls,
+callback traversal, schema walking, indexed storage, and a native control.
 
 ```sh
 ./run.sh --json 15
 ```
 
+The production variants now call `nupp.serde.json` with selected bindings.
+Names containing `prepared` are retained benchmark identifiers for warm schema
+extensions; they do not imply a public preparation API. The `current` encode
+variants measure the caller-owned syntax-writer path. For comparisons against
+the removed implementation, run the baseline revision in a separate checkout.
+
 Every implementation is warmed independently and measured through unique
 monomorphic loop bytecode. Each case calibrates to at least 75 ms, samples run
 in alternating order, and returned values are consumed inside the timed loop.
+The native control remains a bounded mechanism experiment with fewer model
+contracts than the production codec.
+
+The tables below are historical results from before open bindings. Their
+implementation names and API descriptions identify those recorded runs; they
+are not measurements or API documentation for the current implementation.
 
 ## Prototype result
 

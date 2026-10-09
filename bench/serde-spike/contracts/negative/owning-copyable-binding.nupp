@@ -1,0 +1,15 @@
+local core = require("nupp.serde.value")
+local record Resource is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+
+local function invalid(adapter: core.Adapter<Resource, Member>): core.Binding<Resource>
+    return new core.Bound<Resource, Member>(adapter = adapter)
+end
+
+return invalid

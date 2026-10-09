@@ -1,8 +1,5 @@
 return {
     include = {"src"},
-    dependencies = {
-        lunajson = {kind = "luarocks", version = "1.2.3-1", bundle = {"lunajson.lua", "lunajson/**.lua"},},
-    },
     build = {
         targets = {
             app = {
@@ -12,7 +9,6 @@ return {
                 output = "dist/app.lua",
                 outDir = "build/app",
                 host = "browser",
-                dependencies = {"lunajson"},
 
             },
         },

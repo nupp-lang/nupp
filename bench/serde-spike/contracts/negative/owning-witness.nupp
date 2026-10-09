@@ -1,0 +1,6 @@
+local record Resource is nupp.Closeable
+    function close(takes self): nil
+    end
+end
+local erased: Type<unknown> = Resource
+return erased

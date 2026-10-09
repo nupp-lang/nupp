@@ -7,13 +7,13 @@ module nupp.runtime.browser.playground
 
 local json = require("nupp.runtime.provider.lunajson")
 local utf8 = require("nupp.text.utf8")
--- The derive runtime and the two libraries a derived binding reaches, for the
--- same reason: a program that derives `Serde` lowers to
--- `require("nupp.derive")`, and a module the bundle does not carry is a program
--- that checks, lowers, and then cannot run.
+-- Carry the public serialization entry points in the application VM.
 local derive = require("nupp.derive")
 local serde = require("nupp.serde")
-local dataJson = require("nupp.codec.json")
+local dataJson = require("nupp.serde.json")
+local document = require("nupp.serde.document")
+local nativeValues = require("nupp.serde.native")
+local context = require("nupp.serde.context")
 -- And the PEG runtime, which a materialized matcher requires by name. Its
 -- general backend is LPeg, which the application host links in.
 local pegRuntime = require("nupp.compiler.runtime.peg")
@@ -85,7 +85,7 @@ _G.print = function(...: any): nil
 end
 
 _G.__nuppPlaygroundRun = function(source: string): string
-    if derive == nil or serde == nil or dataJson == nil then
+    if derive == nil or serde == nil or dataJson == nil or document == nil or nativeValues == nil or context == nil then
         error("nupp: derive runtime did not load", 0)
     end
     if pegRuntime == nil then

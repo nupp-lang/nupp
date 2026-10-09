@@ -3,46 +3,25 @@ order: 680
 title: Declaration derives
 ---
 
-`nupp.derive` holds the three bundled derive providers and the recipe API a
-package uses to publish its own. `@derive` names a provider on a record or
-struct declaration. The provider decides which targets it admits and adds the
-closed set of checked members or data that it returns.
-
-The bundled recipes render by appending into a `string.buffer`, so a `lua51`
-target needs a `text.buffer` provider selected. Without one, a `@derive` naming a
-provider reports `NUPP3012` on the annotation that named it. The browser backend
-selects one, so a page needs nothing further.
+`nupp.derive.Debug` adds a checked `debug` method to a record or struct.
+Packages publish additional providers through the same recipe API.
 
 ```nupp:playground
-@derive(nupp.derive.Debug, nupp.derive.JSON)
+@derive(nupp.derive.Debug)
 local record User
-    @json(name = "user_id")
     id: integer
-
     name: string = "anonymous"
-
     tags: {string} = {}
 end
-
 local user = new User(id = 1)
-local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-user:writeJSON(writer)
-writer:close()
-print(user:debug(), out:tostring())
+print(user:debug())
 ```
 
 Applying a provider is a declaration-augmentation phase, not a text macro: it
 cannot add imports, top-level declarations, modules, records, interfaces, or
-independently nameable types. The bundled providers are:
-
-- [`nupp.derive.Debug`](#debug): `debug(self): string` and `nupp.Debug`
-  conformance.
-- [`nupp.derive.JSON`](#json): `writeJSON(writer)`, a static `fromJSON`,
-  `fieldCodec`, and
-  `nupp.codec.json.JSONEncodable` conformance.
-- [`nupp.derive.Serde`](#serde): one format-neutral schema and physical binding
-  for a record or struct, with no generated format methods.
+independently nameable types. `nupp.derive.Debug` adds `debug(self): string`
+and `nupp.Debug` conformance. Serialization uses explicit
+[bindings](../learn/runtime/data/serde.md) and needs no derive.
 
 [`nupp.events.Event`](#event) is applied the same way and marks a record or a
 fixed-layout struct as an event a [](nupp.events) source constructs and
@@ -58,8 +37,8 @@ sits among the built-in annotations.
 
 `debug(self): string` renders a record or fixed-layout struct the way the
 declaration reads, so what comes back names the declaration and its fields in
-declaration order. The derive records a format-neutral schema and physical
-binding; the generic formatter prepares and caches its traversal on first use.
+declaration order. The method forwards the declaration witness to the value
+visitor, which caches its Debug policy on first use.
 
 ```nupp
 @derive(nupp.derive.Debug)
@@ -131,67 +110,22 @@ print(c:debug())
 Credentials { user = "ada", password = <redacted> }
 ```
 
-`Debug` and `Serde` on the same declaration share one schema recipe. `Debug`
-alone keeps that binding internal and does not make the declaration
-`nupp.serde.Serializable`. Code that already retains a public binding can
-prepare the same formatter explicitly and append without constructing the final
-string:
+Debug owns its selection policy. Skipped and redacted fields are never read,
+and a field that Debug can render need not have a JSON representation. A caller
+can also render an explicit binding or append to an existing Buffer:
 
 ```nupp
-@derive(nupp.derive.Debug, nupp.derive.Serde)
+local serde = require("nupp.serde")
+local debug = require("nupp.serde.debug")
 local struct Vec2
     x: float
     y: float
 end
-
-local prepared = nupp.serde.prepareDebug(nupp.serde.of(Vec2))
+local binding = serde.binding(Vec2)
 local output = nupp.text.newBuffer()
-prepared:write(new Vec2(1.25, 2.5), output)
+debug.write(binding, new Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
-
-## Serde
-
-`Serde` derives one logical `nupp.serde.Schema` and one
-`nupp.serde.Binding<T>`. It applies to records and fixed-layout structs,
-and generates no `writeJSON`, `fromJSON`, XML, or CBOR methods. A codec prepares
-the binding separately and caches its format-specific data.
-
-```nupp
-@derive(nupp.derive.Serde)
-local record User
-    id: uint32
-    name: string?
-end
-
-local binding = nupp.serde.of(User)
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(new User(id = 7, name = "ada"))
-local restored, problem = prepared:decode(text)
-
-assert(problem == nil)
-assert(restored and restored.id == 7)
-```
-
-The same type witness works for a struct:
-
-```nupp
-@derive(nupp.derive.Serde)
-local struct Vec3
-    x: float
-    y: float
-    z: float
-end
-
-local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(Vec3)
-```
-
-Derived fields currently admit booleans, strings, finite numbers, integers
-through 32 bits, optionals, arrays, string-keyed maps, and other declarations
-that also derive `Serde`. Pointer-bearing struct fields are rejected because a
-pointer does not describe its extent or ownership. See [Schema-driven
-serde](../learn/runtime/data/serde.md) for dynamic schemas, profiles, extensions, and the
-prepared JSON path.
 
 ## Event
 
@@ -229,139 +163,6 @@ an affine field, and a generic owner, because none of those can run against
 storage that is reused: the next lease would find the reference, the moved
 obligation, or the shared identity already there.
 
-## JSON
-
-`JSON` generates `writeJSON(writer)`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.codec.json.JSONEncodable` conformance. Encoding writes through the checked
-buffer-backed writer; it does not allocate a complete result string. Record and
-shape fields follow declaration order and string map keys sort by byte order, so
-the same value always produces the same bytes. Encoded field names and literal
-values are cached lazily on the derived schema.
-If encoding fails, bytes appended before the failure remain in the buffer;
-reset or discard it when the surrounding operation needs atomic output.
-
-```nupp
-@derive(nupp.derive.JSON, nupp.derive.Debug)
-local record User
-    @json(name = "user_id")
-    id: integer
-    name: string
-end
-
-local user = new User(id = 7, name = "ada")
-local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-user:writeJSON(writer)
-writer:close()
-print(out:tostring())
-
-local decoded = User.fromJSON('{"user_id": 7, "name": "ada"}')
-print(decoded and decoded:debug())
-```
-
-```text
-{"user_id":7,"name":"ada"}
-User { id = 7, name = "ada" }
-```
-
-### Decoding errors
-
-`fromJSON` returns `T?, string?`, and the error names the path that failed
-rather than saying the document was bad:
-
-```nupp
-@derive(nupp.derive.JSON)
-local record User
-    @json(name = "user_id")
-    id: integer
-    name: string
-end
-
-print(select(2, User.fromJSON('{"user_id": 7, "name": "ada", "nmae": 1}')))
-print(select(2, User.fromJSON('{"user_id": "seven", "name": "ada"}')))
-print(select(2, User.fromJSON('{"user_id": 1e300, "name": "ada"}')))
-print(select(2, User.fromJSON('{"name": "ada"}')))
-```
-
-```text
-$: unknown field "nmae"
-$.user_id: expected finite number
-$.user_id: expected integer in range
-$.user_id: required field is absent
-```
-
-### Options
-
-A record decides what happens to keys it does not know.
-
-| Option | Effect |
-| --- | --- |
-| `@json(unknown = "reject")` | rejects unknown keys, and is the default |
-| `@json(unknown = "ignore")` | ignores unknown keys |
-
-A field decides how it appears on the wire.
-
-| Option | Effect |
-| --- | --- |
-| `name = "wire_name"` | renames the key |
-| `omit = true` | removes the field both ways, and requires a default |
-| `omitEmpty = true` | omits nil, false, empty strings and empty tables, encoding only |
-
-`omitEmpty` is encoding only, which is the part worth knowing: a field left out
-of the output is still required coming back in.
-
-```nupp
-@derive(nupp.derive.JSON)
-local record User
-    id: integer
-    @json(omitEmpty = true)
-    tags: {string}
-end
-
-local user = new User(id = 7, tags = {})
-local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-user:writeJSON(writer)
-writer:close()
-local text = out:tostring()
-print(text)
-print(select(2, User.fromJSON(text)))
-```
-
-```text
-{"id":7}
-$.tags: required field is absent
-```
-
-Use `omit` with an explicit field default when a field should disappear from
-both directions:
-
-```nupp:fragment
-@json(omit = true)
-secret: string = "redacted"
-```
-
-### Schemas
-
-Booleans, strings, finite numbers, `integer`, `int32`, `uint32`, optionals,
-arrays, tuples, string-keyed maps, finite shapes, and records deriving JSON are
-all supported. `int64` and `uint64` are rejected because a JSON number cannot
-round-trip their full range. The erased `integer` type is checked against the
-exact interval from -9,007,199,254,740,991 through 9,007,199,254,740,991 at run
-time.
-
-Strings must be valid UTF-8, and a cycle or excessive nesting fails with the
-JSON path that reached it. Decoding uses Nupp's strict SIMD-accelerated codec and
-preserves null with `nupp.codec.json.NULL` while it validates the raw value.
-
-The JSON field codec is allocated lazily as a runtime reflection extension.
-When a type-witness API fits better than generated members, derive
-`nupp.derive.Serde` as well and use
-`nupp.codec.json.newCodec():prepare(nupp.serde.of(User))`, which encodes to a
-string, writes to a buffer or a writer, and decodes. See
-[reflection.md](../learn/language/reflection.md#runtime-reflection) for the witness
-and allocation model, and [](nupp.codec.json) for the rest of the codec.
-
 ## Package providers
 
 A package may export a derive provider as a `@comptime function`. Its exact
@@ -398,12 +199,10 @@ closed comptime-built signature. Generic, variadic, overloaded, and effectful
 provider declarations are not part of the first recipe version.
 
 ::: deepdive
-`Debug` and `JSON` are ordinary exported `@comptime function` declarations
-implemented in `src/nupp/derive.nupp`, and the compiler has no provider-name or
-operation switch for them. Both travel through the same sealed comptime worker,
-immutable `Info`, versioned result envelope, cache and recipe lowering a package
-provider uses, and their schema configuration (`@debug` and `@json`) is part of
-the semantic annotations visible through `Info` rather than a second planner.
+`Debug` is an exported `@comptime function` in `src/nupp/derive.nupp`.
+It uses the same comptime worker, immutable `Info`, result envelope, cache, and
+recipe lowering as package providers. Its `@debug` configuration is part of
+the semantic annotations visible through `Info`.
 
 That is also the boundary against source generation.
 [Comptime](../learn/language/comptime.md) evaluates closed value-producing programs
@@ -558,7 +357,7 @@ provider contract, so a recipe cannot depend on it happening.
 :::
 
 ::: seealso
-- [annotations.md](annotations.md#built-in-annotations) for `@derive`, `@json`,
+- [annotations.md](annotations.md#built-in-annotations) for `@derive`,
   and `@debug` beside the rest of the built-ins
 - [comptime.md](../learn/language/comptime.md) for the evaluation model a provider
   runs in

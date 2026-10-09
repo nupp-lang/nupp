@@ -1,259 +1,259 @@
 ---
 order: 135
-title: Schema-driven serde
+title: Serialization bindings
 ---
 
-# Schema-driven serde
+# Serialization bindings
 
-Serde separates a value's logical shape, its physical representation, and its
-wire format. A binding joins a schema to a value type, and a codec prepares
-that combination for one wire policy:
+A binding defines how a value is read and constructed, and a codec chooses its
+wire representation. Select the binding at the call site:
 
 ```nupp:playground
-@derive(nupp.derive.Serde)
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
 local record User
     id: uint32
     name: string?
 end
-
-local binding = nupp.serde.of(User)
-local prepared = nupp.codec.json.newCodec():prepare(binding)
-local text = prepared:encode(new User(id = 41, name = "Ada"))
-local restored, problem = prepared:decode(text)
-
-assert(text == [[{"id":41,"name":"Ada"}]])
-assert(problem == nil)
-assert(restored and restored.name == "Ada")
+local users = serde.binding(User)
+local bytes = json.encode(users, new User(id = 41, name = "Ada"))
+local restored = json.decode(users, bytes)
+assert(restored.id == 41 and restored.name == "Ada")
 ```
 
-## Schema parts
+## Declaration bindings
 
-The three parts divide logical data, in-memory access, and wire policy:
+`serde.binding(T)` uses the declaration's field access and construction rules.
+It supports records, structs, defaults, and recursive types without a derive.
+Missing required fields and unsupported construction fail explicitly; a custom
+binding supplies different construction rules when needed.
 
-- `Schema` describes members, scalar kinds, requiredness, and defaults.
-- `Binding<T>` joins that schema to a record, struct, or dense dynamic value.
-- a codec profile decides format policy such as JSON field names and unknown
-  member handling.
+Nullable values and homogeneous literal unions use their declared carriers.
+Record unions need an explicit adapter that chooses their discriminator and
+wire representation; the declaration binding does not infer a protocol.
 
-The separation lets a generated record and a run-time client use the same codec
-without making the standard library understand a service model such as Smithy.
-Format-specific work is prepared and cached rather than generated once per
-type, protocol, and format.
+Structs are read field by field. Pointer fields need an explicit adapter that
+establishes their ownership and extent.
 
-## Derived bindings
+A declaration can have several bindings. The binding selected for a saved game
+can differ from the one selected by a service model, even when both use the
+same Nupp record.
 
-`@derive(nupp.derive.Serde)` records format-neutral materialization data. It
-does not add serialization methods to an instance. The declaration name is the
-`Type<T>` witness accepted by `serde.of`.
+## JSON mappings
 
-This is also true for a fixed-layout struct:
+Mapping options belong to a binding. A field mapping is a whitelist:
 
 ```nupp
-@derive(nupp.derive.Serde)
-local struct Vec3
-    x: float
-    y: float
-    z: float
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+local record User
+    name: string
+    token: string?
 end
-
-local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(Vec3)
+local publicUser = serde.binding(User, new serde.Options(
+    fields = {name = new serde.FieldOptions(name = "displayName")},
+    unknownMembers = "ignore"
+))
+assert(json.encode(publicUser, new User(name = "Ada")) == '{"displayName":"Ada"}')
+assert(json.decode(publicUser, '{"displayName":"Ada"}').token == nil)
 ```
 
-Struct derivation reads fields individually. It does not serialize padding,
-endianness, or the memory image. Pointer fields are rejected because the field
-type alone establishes neither their extent nor their ownership.
+Omitted fields must have a default or compatible construction mapping before
+decoding is selected. An encode-only mapping can omit required fields.
+`serde.iso8601Seconds` maps an integer epoch-seconds field to a timestamp;
+other conversions use an explicit adapter.
 
-## Dynamic schemas
+`json.write(binding, value, buffer)` appends to a caller-owned Buffer and
+restores its previous contents if serialization fails. `json.codec(policy)`
+retains lazy schema extensions for repeated calls with a model-owned policy.
 
-A dynamic client builds and freezes the same logical schema, then binds names
-once into dense indexed storage:
+## Model-owned bindings
+
+A model library owns its member identities, schemas, traits, and registry.
+Its adapter implements the shared Reader/Writer contract, while its codec
+policy interprets protocol traits such as names, timestamp representations,
+XML namespaces, and numbered binary fields.
+
+The erased `Binding<T>` keeps the value type invariant and hides the model's
+member type. Generic consumers can use it without importing that model or
+turning its schema into a standard-library schema first. Neutral declaration
+access and indexed storage are optional helpers.
+
+A model can reuse scalar operations while retaining its own member type:
 
 ```nupp
-const serde = nupp.serde
-local builder = new serde.SchemaBuilder()
-builder:structure("example.User")
-builder:required("id", serde.uint32)
-builder:defaulted("active", serde.boolean, true)
-builder:optional("name", serde.string)
-
-local schema = builder:freeze()
-local binding = serde.dynamic(schema)
-local value = binding:bind{id = 41, name = "Ada"}
-local text = nupp.codec.json.newCodec():prepare(binding):encode(value)
-```
-
-`bind` rejects unknown members, missing required members, wrong scalar kinds,
-and out-of-range fixed-width integers. Code constructing many values can retain
-a `Member` and avoid name resolution:
-
-```nupp:fragment
-local id = schema:expectMember("id")
-local value = binding:newValue()
-value:set(id, 41)
-assert(value:get(id) == 41)
-```
-
-A schema may have several bindings at once. A nominal record and a dynamic
-value can therefore share logical member identity while retaining different
-physical access plans.
-
-## Typed metadata
-
-`MetadataKey<T>` is a typed identity for data supplied with a schema. A dynamic
-client can attach root or member metadata while constructing its model:
-
-```nupp
-const serde = nupp.serde
-local serviceName: nupp.serde.MetadataKey<string> = serde.metadataKey()
-local builder = new serde.SchemaBuilder()
-builder:structure("example.Credentials")
-builder:required("user", serde.string)
-builder:required("password", serde.string)
-builder:metadata(serviceName, "example")
-builder:memberMetadata("password", serde.debugRedact, true)
-
-local schema = builder:freeze()
-assert(schema:metadata(serviceName) == "example")
-assert(schema:expectMember("password"):metadata(serde.debugRedact) == true)
-```
-
-Every key receives a dense process-local index. The index is never serialized
-or treated as stable across runs; it makes both derived and dynamic metadata a
-direct indexed lookup after the schema is frozen.
-
-## Debug preparation
-
-`Debug` is a schema consumer rather than a separate generated traversal. Its
-prepared plan combines member metadata such as `debugRedact` and `debugSkip`
-with the binding's record, struct, or dynamic-slot access once, then caches the
-result on the binding:
-
-```nupp:fragment
-local prepared = serde.prepareDebug(binding)
-local text = prepared:format(value)
-
-local output = require("nupp.text").newBuffer()
-prepared:write(value, output)
-```
-
-`format` returns the conventional Debug string. `write` appends directly to a
-caller-owned FIFO byte buffer, which avoids allocating that complete result
-and is the appropriate path for logging and larger composed diagnostics. A
-derived `value:debug()` lazily retains the prepared operation on its type entry;
-it does not resolve schema extensions for each field or each call.
-
-## JSON preparation
-
-`nupp.codec.json.newCodec(profile)` creates a codec with an immutable wire
-profile, a `nupp.serde.JsonProfile` table. `prepare(binding)` memoizes the
-combined schema and physical plan on that codec:
-
-```nupp:fragment
-local codec = nupp.codec.json.newCodec{
-    unknownMembers = "ignore",
-    fieldNames = function(member: nupp.serde.Member): string
-        return member.name == "id" and "userId" or member.name
-    end,
-}
-local prepared = codec:prepare(binding)
-```
-
-The field-name function runs during preparation, not once per value. For flat
-scalar structures, the native plan retains pre-encoded output keys, compares
-input key bytes directly, tracks required members, and traverses the complete
-root in one native call. Known input keys are not materialized as Lua strings;
-ignored values are validated and skipped without constructing a document.
-`write(value, buffer)` appends the complete root to caller-owned storage in one
-buffer operation; encoder scratch is pooled per worker thread.
-
-Nested records, lists, maps, optionals, and documents use the same schema and
-binding semantics and are traversed by the recursive prepared implementation.
-Preparation remains the API boundary for adding more format-specific
-optimizations without changing callers.
-
-JSON arrays materialize as dense Lua lists. A null list element cannot become
-`nil` without turning the list into a hole, so `serde.list` rejects optional
-and null element schemas. Use a `document` element schema when the list must
-retain explicit JSON null through the codec's `NULL` sentinel.
-
-`nupp.codec.json.newCodec` is the one typed JSON entry point. The format module
-owns its codec; the schema, the binding and the prepared traversal it drives are
-this module's.
-
-## Typed extensions
-
-Schemas, bindings, and runtime reflection descriptors are extension hosts.
-`nupp.reflect.extensionKey` creates a typed provider identity, and a host computes its
-value once:
-
-```nupp:fragment
-local calls = 0
-local displayName = nupp.reflect.extensionKey(function(schema: any): string
-    calls = calls + 1
-    return schema.name or "anonymous"
-end)
-
-local first = schema:extension(displayName)
-local second = schema:extension(displayName)
-assert(first == second and calls == 1)
-```
-
-Metadata is supplied by a model builder or derive. Extensions differ by
-computing a derived value lazily from their host. Successful extension values
-and failures are cached, and recursive initialization reports an error. An
-extension key is an anonymous [`nupp.util.Key`](standard-library.md), and hosts
-cache extension state by its id rather than by key-object identity. Ids are
-acceleration values: their numbers may change with module initialization order
-and are never persistent metadata identifiers. JSON uses schema extensions for
-profile layouts and binding extensions for physical access, so format facts do
-not leak into the logical schema.
-
-## Persisting a store
-
-A [`nupp.util.Store`](standard-library.md) holds live values under typed keys,
-and its keys persist by name. `serde.key` declares a named key whose value
-type comes from the binding that will carry it, so no annotation is needed,
-and `saveStore` and `loadStore` move the store through plain values:
-
-```nupp
-const serde = nupp.serde
-
-@derive(nupp.derive.Serde)
-local record Settings
-    volume: number
-    fullscreen: boolean
+local serde = require("nupp.serde")
+local scalar = require("nupp.serde.scalar")
+local record Member is serde.Member
+    @readonly name: string
+    @readonly shapeId: string
 end
-
-local settings = serde.key("game.settings", serde.of(Settings)) -- Key<Settings>
-
-local store = nupp.util.newStore()
-store:set(settings, new Settings(volume = 0.5, fullscreen = false))
-local saved = serde.saveStore(store)
-assert(saved["game.settings"].volume == 0.5)
-local text = nupp.codec.json.encode(saved)
-
-local restored = nupp.util.newStore()
-serde.loadStore(restored, assert(nupp.codec.json.decode(text)) as {[string]: any})
-local back = restored:get(settings)
-assert(back ~= nil and back.volume == 0.5)
+local function textBinding(member: Member): serde.Binding<string>
+    return new serde.Bound<string, Member>(adapter = scalar.text(member))
+end
+local binding = textBinding(new Member(name = "title", shapeId = "example#Title"))
 ```
 
-`saveStore` walks the occupied keys and encodes each value through its
-binding, under the key's name, into the document a JSON codec with default
-field names would write. An occupied key that is anonymous or was declared
-with `nupp.util.newKey` rather than `serde.key` raises, naming the key: a save
-that silently drops state is worse than one that fails. `loadStore` looks each
-name up in this runtime state's registry, raises for one that is not
-registered or has no binding, decodes the value through that key's binding,
-and writes the store. Keys the saved table does not mention are left as they
-are. A value is therefore checked against the schema this program gave the
-name, and a save written under another meaning of a name fails in decode
-rather than loading as something else.
+The model's JSON policy interprets those handles. Callers pass that policy to
+`json.codec(policy)`; the default JSON policy only selects standard declaration
+and document conventions.
 
-## Relationship to the JSON derive
+Operation routing remains with the model library. A Smithy request can select
+separate header, query, and body writers, with streaming members handled by
+the transport.
 
-`nupp.derive.JSON` remains available and retains its existing record methods
-and `@json` policy. It is not silently redirected through Serde. Serde is the
-language-wide abstraction for new codecs and dynamic clients; compatibility
-derives can migrate only after their complete format behavior and diagnostics
-have matching prepared implementations.
+## Documents
+
+Documents retain semantic values, schema context, and their source codec and
+profile. They distinguish a document boundary from its contents, so a protocol
+can interpret a document-valued member separately from the value inside it.
+
+```nupp
+local documents = require("nupp.serde.document")
+local json = require("nupp.serde.json")
+local adapter = documents.documentAdapter()
+local value = documents.object({
+    new documents.Entry(name = "count", value = documents.numberToken("18446744073709551615")),
+    new documents.Entry(name = "payload", value = documents.null())
+})
+assert(json.encodeDocument(adapter, value) == '{"count":18446744073709551615,"payload":null}')
+```
+
+The value vocabulary includes exact integers, numeric tokens, decimals,
+width-preserving floats, bytes, timestamps, lists, tuples, maps, structures,
+unions, and model-defined atoms. A codec rejects values it cannot represent.
+Absent members, explicit null, and present values remain distinct.
+`json.decodeDocument(adapter, bytes)` reads contents and attaches source context.
+
+Context uses typed keys. Child documents retain inherited model and member
+context after the input reader closes; borrowed reader handles expire when
+the callback returns. Unknown content can be retained as an owned value with
+its original identity and profile, and an incompatible target protocol can
+refuse replay.
+
+## Typed views
+
+A typed view retains its value and explicit binding without building a document
+tree. Serialization reads the current value through that binding:
+
+```nupp
+local serde = require("nupp.serde")
+local views = require("nupp.serde.view")
+local json = require("nupp.serde.json")
+local record Counter
+    count: integer
+end
+local binding = serde.binding(Counter)
+local owner = new Counter(count = 1)
+local view = views.of(binding, owner)
+local snapshot = view:snapshot()
+owner.count = 2
+local adapter = views.adapter(binding)
+assert(json.encodeDocument(adapter, view) == '{"count":2}')
+assert(json.encodeDocument(adapter, snapshot) == '{"count":1}')
+```
+
+Views require Copyable values and retain their binding and optional context.
+`view:document()` materializes logical contents for exploration. `snapshot()`
+reconstructs a detached value through the same binding, retaining its model and
+context; it requires that binding to support reconstruction. Model libraries
+can provide their own document adapters for other snapshot semantics.
+
+Use `codec:decode(adapter:contents(), bytes)` when reading a typed view through
+its model's wire policy. `decodeDocument` reads logical document contents; a
+model-specific document adapter owns any additional interpretation of those
+contents.
+
+## Schema extensions
+
+Bindings and codecs cache names, field dispatch, construction operations, and
+conversions lazily. An extension can contain ordinary functions or an optional
+runtime-generated implementation; callers use the same encode and decode API.
+
+Codec scopes keep different policies and read/write directions separate.
+Bounded caches support explicit clearing, cache failed selection, and retain
+no serialized values or borrowed reader handles. Shared extension values must
+be Copyable; resource extensions use an owning scope. Document reconstruction
+also caches operations by binding identity; `documentcodec.clear()` releases
+that bounded cache without invalidating decoders already held by callers.
+
+## Owned results
+
+A successful decode transfers an owning result to its caller. An owning
+binding provides a typed consuming disposal function so a codec can close a
+result rejected after an adapter returns, such as when the adapter leaves its
+reader unconsumed.
+
+`Bound<T, Member>` requires Copyable values. `OwnedBound<T, Member>` also takes
+that disposal function, and document adapters carry the same contract.
+Construction failures close partial resources; cleanup failures preserve the
+original error and its suppressed causes.
+
+## Native persistence
+
+`nupp.serde.native` reads and writes a versioned LuaJIT-local frame through the
+same bindings. It preserves rich scalar values and document boundaries, and
+refuses unsupported hosts before selecting a binding.
+
+```nupp
+local serde = require("nupp.serde")
+local native = require("nupp.serde.native")
+local record Save
+    level: integer
+    inventory: {string}
+end
+local saves = serde.binding(Save)
+local bytes = native.encode(saves, new Save(level = 12, inventory = {"key"}))
+assert(native.decode(saves, bytes).inventory[1] == "key")
+```
+
+Native persistence stores finite value trees. It does not preserve shared
+object identity, execute code from the input, or save process handles. Store
+snapshots use an explicit registry of binding names, versions, and migration
+functions.
+
+The frame is not compatible with the previous JSON store snapshot format.
+Read old snapshots with the previous codec and write them through an explicit
+binding and registry before changing the reader. Native frames reject unknown
+versions rather than guessing a layout.
+
+## Runtime support
+
+JSON uses a portable provider on native and browser LuaJIT hosts. Native AOT
+can select checked decoding operations for supported carriers; custom adapters
+retain the visitor path. Native persistence requires a native LuaJIT host.
+
+The stock Lua 5.1 source profile rejects these standard-library dependencies.
+That profile checks source compatibility and does not supply another lowering
+backend. See [Portable Lua libraries](../../projects/portability/libraries.md)
+for the supported runtime and source boundaries.
+
+## Migration
+
+Use `serde.binding(T)` in place of `serde.of(T)` and pass the binding to a
+codec. Type-level JSON methods and serialization derives are replaced by
+explicit mappings; declaration defaults and custom construction remain part
+of the selected binding.
+
+Run `nupp migrate path/to/model.nupp` to migrate local declarations and
+their JSON calls. The command checks the replacement before changing the file.
+It removes JSON annotations, creates explicit field mappings, and preserves
+`fromJSON`'s old value/error convention with a local `pcall` helper.
+
+Generic declarations, imported callers, record unions, and nested declarations
+with distinct JSON policies need explicit binding selection. Migration refuses ambiguous
+rewrites instead of dropping their policies. Handwritten methods named
+`writeJSON` or `fromJSON` remain ordinary methods.
+
+| Previous API | Explicit binding API |
+| --- | --- |
+| `serde.of(User)` | `serde.binding(User)` |
+| `codec:prepare(binding):encode(value)` | `codec:encode(binding, value)` |
+| `User.fromJSON(bytes)` | `json.decode(binding, bytes)` |
+| `value:writeJSON(writer)` | `json.writeValue(binding, value, writer)` |
+| `@json(name = "id")` | `new serde.FieldOptions(name = "id")` |
+| `@json(omit = true)` | Leave the field out of the mapping whitelist |
+
+Serialization errors are raised with their logical path and original cause.
+Use `pcall` when the surrounding API returns errors as values. There is no
+public preparation step or serialization derive to add to the declaration.

@@ -2,7 +2,7 @@ const core = require("contract.dispatch")
 const render = require("contract.render")
 const model = require("example.model")
 const other = require("example.other")
-const extensions = require("contract.extensions")
+const extensions = require("nupp.serde.extensions")
 
 local record Stored
     binding: core.Binding<string>

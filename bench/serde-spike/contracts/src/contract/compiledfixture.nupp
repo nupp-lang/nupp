@@ -1,0 +1,131 @@
+module contract.compiledfixture
+
+const {type EncodedValue} = require("nupp.codec.json")
+
+local core = require("nupp.serde.value")
+local declarations = require("nupp.serde.declaration")
+local plans = require("nupp.serde.jsonplan")
+local scalar = require("nupp.serde.scalar")
+local indexed = require("nupp.serde.indexed")
+local syntax = require("nupp.serde.jsonsyntax")
+local readers = require("nupp.serde.jsonreader")
+local errors = require("nupp.serde.errors")
+
+export record Child
+    value: string
+end
+export record Record
+    name: string
+    enabled: boolean = true
+    child: Child
+end
+export record Nullable
+    value: string?
+end
+export record Fixed
+    value: uint32
+end
+export const recordBinding = declarations.binding(Record)
+export const nullableBinding = declarations.binding(Nullable)
+export const fixedBinding = declarations.binding(Fixed)
+
+local record Inspect<T> is core.Consumer<T, nil, any>
+    @readonly factory: plans.PolicyFactory
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): any
+        local policy = self.factory:policy<M>(adapter:describe("read").member)
+        local plan = plans.resolve(adapter:describe("read"), policy, "read")
+        return {adapter = adapter, plan = plan}
+    end
+end
+export function inspect<T>(binding: core.Binding<T>, factory: plans.PolicyFactory?): any
+    return binding:accept(new Inspect<T>(factory = factory or declarations.policy()), nil)
+end
+
+local record Visitor is core.Consumer<Record, string, Record>
+    function apply<M is core.Member>(self, adapter: core.Adapter<Record, M>, borrows bytes: string): Record
+        local policy = declarations.policy():policy<M>(adapter:describe("read").member)
+        local plan = plans.resolve(adapter:describe("read"), policy, "read")
+        local cursor = syntax.reader(bytes:sub(1))
+        local reader = readers.input(cursor, policy, plan, nil)
+        local ok, result = pcall(adapter.read, adapter, reader)
+        reader:expire()
+        if not ok then
+            error(errors.wrap(result, cursor:path(), cursor:offset()), 0)
+        end
+        cursor:finish()
+
+        return result as Record
+    end
+end
+local visitorReader = new Visitor()
+export function visitor(bytes: string): Record
+    return recordBinding:accept(visitorReader, bytes)
+end
+
+local record Member is core.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+local root = new Member(name = "indexed")
+local name = new Member(name = "name")
+local layout = indexed.layout(root)
+export const slot = layout:add(name, scalar.text(name), true)
+export const indexedBinding = layout:binding()
+local record Policy<M is core.Member> is plans.Policy<M>
+    function name(self, member: M): string
+        return member.name
+    end
+
+    function select(self, member: M, direction: core.Direction): plans.Selection
+        return "traverse"
+    end
+
+    function timestamp(self, member: M, borrows value: core.Timestamp): EncodedValue
+        error("unsupported")
+    end
+
+    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+        error("unsupported")
+    end
+end
+local record Factory is plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        return new Policy<M>()
+    end
+end
+export const indexedPolicy: plans.PolicyFactory = new Factory()
+
+export const constructorFailure: table = {}
+local calls: integer = 0
+export record Validated
+    text: string
+    constructor(self, text: string)
+        calls += 1
+        if text == "object-error" then
+            error(constructorFailure, 0)
+        end
+        assert(text ~= "bad", "validation failed")
+        self.text = text
+    end
+end
+export const validatedBinding = declarations.binding(Validated)
+export function constructorCalls(): integer
+    return calls
+end
+
+export record OuterValidated
+    child: Validated
+end
+export const nestedValidatedBinding = declarations.binding(OuterValidated)
+
+export record Collections
+    rows: {Fixed}
+    labels: {[string]: string}
+    pair: {integer, string}
+end
+export const collectionsBinding = declarations.binding(Collections)
+
+export record Numbers
+    items: {integer}
+end
+export const numbersBinding = declarations.binding(Numbers)

@@ -1,6 +1,6 @@
 local testAssert = require("nupp.test")
 -- Compiler-owned declaration derives: semantic members, factory projection, and
--- the closed runtime recipes for Debug and JSON.
+-- closed runtime recipes independently of serialization bindings.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
@@ -29,12 +29,15 @@ local function compile(source)
 end
 
 local function firstDeclaration(parsed)
-    local stat = parsed.root.blocks[1].stats[1]
-    while stat and stat.kind == "pragmaStmt" do
-        stat = stat.stat
+    for _, stat in ipairs(parsed.root.blocks[1].stats) do
+        while stat and stat.kind == "pragmaStmt" do
+            stat = stat.stat
+        end
+        if stat and stat.kind == "recordDecl" then
+            return stat
+        end
     end
-
-    return assert(stat, "fixture has no declaration")
+    error("fixture has no declaration")
 end
 
 local function errorsOf(source)
@@ -67,91 +70,6 @@ end
 
 local M = {}
 
-function M.derivesTheTwoBuiltinsAndInfersFactoryResults()
-    local result, code = run(
-        [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
-local record User
-    @json(name = "user_name")
-    name: string = "anonymous"
-    scores: {integer} = {}
-    active: boolean = false
-end
-
-local user: User = new User()
-local printable: nupp.Debug = user
-local encodable: nupp.codec.json.JSONEncodable = user
-local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-encodable:writeJSON(writer)
-writer:close()
-local text = out:tostring()
-local decoded, err = User.fromJSON(text)
-assert(decoded and not err)
-local restored = decoded as User
-return {
-    debug = printable:debug(),
-    text = text,
-    name = restored.name,
-    scores = #restored.scores,
-    active = restored.active,
-}
-]]
-    )
-    testAssert.equal(result.debug, 'User { name = "anonymous", scores = {}, active = false }')
-    testAssert.equal(result.text, '{"user_name":"anonymous","scores":[],"active":false}')
-    testAssert.equal(result.name, "anonymous")
-    testAssert.equal(result.scores, 0)
-    testAssert.equal(result.active, false)
-    assert(code:find("__derive.register", 1, true), code)
-end
-
-function M.avoidsCallerConstantsInGeneratedJSONParameters()
-    local result = run(
-        [[
-const text = require("nupp.text")
-const out = "caller output"
-@derive(nupp.derive.JSON)
-local record Message
-    value: string
-end
-local decoded, problem = Message.fromJSON('{"value":"forwarded"}')
-assert(decoded ~= nil and problem == nil)
-local buffer = text.newBuffer()
-local writer = nupp.codec.json.newWriter(buffer)
-local restored = decoded as Message
-restored:writeJSON(writer)
-writer:close()
-return {encoded = buffer:tostring(), outer = out}
-]]
-    )
-    testAssert.equal(result.encoded, '{"value":"forwarded"}')
-    testAssert.equal(result.outer, "caller output")
-end
-
-function M.composesDerivedAndPreencodedValuesInOneWriter()
-    local result = run(
-        [[
-@derive(nupp.derive.JSON)
-local record User
-    id: integer
-end
-
-local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-local userKey = nupp.codec.json.encodedString("user")
-local cached = nupp.codec.json.verified('{"ok":true,"items":[1,2]}')
-writer:startObject():key(userKey)
-local user = new User(id = 7)
-user:writeJSON(writer)
-writer:key("cached"):write(cached):endObject()
-writer:close()
-return out:tostring()
-]]
-    )
-    testAssert.equal(result, '{"user":{"id":7},"cached":{"ok":true,"items":[1,2]}}')
-end
-
 function M.constructsFreshMutableDefaults()
     local result = run(
         [[
@@ -178,152 +96,6 @@ return {
     testAssert.equal(result.changed, nil)
     testAssert.equal(result.x, 0)
     testAssert.equal(result.distinct, true)
-end
-
-function M.appliesJSONPolicies()
-    local result = run(
-        [[
-@derive(nupp.derive.JSON)
-@json(unknown = "ignore")
-local record Payload
-    name: string = "missing"
-    @json(omit = true)
-    secret: string = "hidden"
-    @json(omitEmpty = true)
-    labels: {string}
-    @json(omitEmpty = true)
-    active: boolean = false
-end
-
-local decoded, err = Payload.fromJSON('{"labels":[],"extra":{"nested":true}}')
-local codec = Payload.fieldCodec()
-local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
-local payload = new Payload(name = "x", secret = "hidden", labels = {})
-local keyed = codec:encode(payload)
-local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-payload:writeJSON(writer)
-writer:close()
-return {
-    name = decoded and decoded.name,
-    secret = decoded and decoded.secret,
-    labels = decoded and #decoded.labels,
-    active = decoded and decoded.active,
-    arrayMt = decoded and getmetatable(decoded.labels),
-    error = err,
-    checked = checked and checked.name,
-    checkedError = checkedErr,
-    fingerprint = codec.fingerprint,
-    keyedName = keyed.name,
-    keyedSecret = keyed.secret,
-    keyedLabels = keyed.labels,
-    text = out:tostring(),
-}
-]]
-    )
-    testAssert.equal(result.name, "missing")
-    testAssert.equal(result.secret, "hidden")
-    testAssert.equal(result.labels, 0)
-    testAssert.equal(result.active, false)
-    testAssert.equal(result.arrayMt, nil)
-    testAssert.equal(result.error, nil)
-    testAssert.equal(result.checked, "ok")
-    testAssert.equal(result.checkedError, nil)
-    assert(result.fingerprint:find("decode=nupp-simd", 1, true), result.fingerprint)
-    testAssert.equal(result.keyedName, "x")
-    testAssert.equal(result.keyedSecret, nil)
-    testAssert.equal(result.keyedLabels, nil)
-    testAssert.equal(result.text, '{"name":"x"}')
-end
-
-function M.enforcesDerivedJSONIntegerBounds()
-    local result = run(
-        [[
-@derive(nupp.derive.JSON)
-local record Bounded
-    signed: int32
-    count: uint32
-    exact: integer
-end
-
-local valid, validError = Bounded.fromJSON('{"signed":-2147483648,"count":4294967295,"exact":9007199254740991}')
-local signed, signedError = Bounded.fromJSON('{"signed":2147483648,"count":0,"exact":0}')
-local count, countError = Bounded.fromJSON('{"signed":0,"count":4294967296,"exact":0}')
-local exact, exactError = Bounded.fromJSON('{"signed":0,"count":0,"exact":9007199254740992}')
-
-local codec = Bounded.fieldCodec()
-local projected, projectedError = codec:decode({signed = -2147483649, count = 0, exact = 0})
-
-local invalid = new Bounded(signed = 0, count = 0, exact = 0)
-local dynamic = invalid as any
-dynamic.signed = 2147483648
-local encoded, encodeError = pcall(function(): nil
-    local out = require("nupp.text").newBuffer()
-    local writer = nupp.codec.json.newWriter(out)
-    invalid:writeJSON(writer)
-    writer:close()
-end)
-
-return {
-    valid = valid ~= nil and validError == nil,
-    signed = signed,
-    signedError = signedError,
-    count = count,
-    countError = countError,
-    exact = exact,
-    exactError = exactError,
-    projected = projected,
-    projectedError = projectedError,
-    encoded = encoded,
-    encodeError = tostring(encodeError),
-}
-]]
-    )
-    testAssert.equal(result.valid, true)
-    testAssert.equal(result.signed, nil)
-    assert(result.signedError:find("integer", 1, true), result.signedError)
-    testAssert.equal(result.count, nil)
-    assert(result.countError:find("integer", 1, true), result.countError)
-    testAssert.equal(result.exact, nil)
-    assert(result.exactError:find("integer", 1, true), result.exactError)
-    testAssert.equal(result.projected, nil)
-    assert(result.projectedError:find("$.signed: expected integer in range", 1, true), result.projectedError)
-    testAssert.equal(result.encoded, false)
-    assert(result.encodeError:find("$.signed: integer is out of range", 1, true), result.encodeError)
-end
-
-function M.handlesRecursiveDebugAndJSONGraphs()
-    local result = run(
-        [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
-local record Node
-    value: integer
-    next: Node?
-end
-local root = new Node(value = 1, next = nil)
-root.next = root
-local debugged = root:debug()
-local out = require("nupp.text").newBuffer()
-local encoded, cycle = pcall(function(): nil
-    local writer = nupp.codec.json.newWriter(out)
-    root:writeJSON(writer)
-    writer:close()
-end)
-local decoded, err = Node.fromJSON('{"value":1,"next":{"value":2,"next":null}}')
-return {
-    debugged = debugged,
-    encoded = encoded,
-    cycle = tostring(cycle),
-    nested = decoded and decoded.next and decoded.next.value,
-    error = err,
-}
-]]
-    )
-    assert(result.debugged:find("<cycle>", 1, true), result.debugged)
-    testAssert.equal(result.encoded, false)
-    assert(result.cycle:find("cyclic JSON value", 1, true), result.cycle)
-    testAssert.equal(result.nested, 2)
-    testAssert.equal(result.error, nil)
 end
 
 function M.supportsNestedAndBoundedGenericDebugRecords()
@@ -355,43 +127,6 @@ return {box = boxed:debug(), inner = inner:debug()}
     testAssert.equal(result.inner, "Inner { count = 0 }")
 end
 
-function M.roundTripsDiscriminatedJSONRecordUnions()
-    local result = run(
-        [[
-@derive(nupp.derive.JSON)
-local record Cat
-    kind: "cat"
-    lives: integer
-end
-@derive(nupp.derive.JSON)
-local record Dog
-    kind: "dog"
-    barks: boolean
-end
-@derive(nupp.derive.JSON)
-local record Envelope
-    pet: Cat | Dog
-end
-
-local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
-local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-envelope:writeJSON(writer)
-writer:close()
-local text = out:tostring()
-local decoded, err = Envelope.fromJSON('{"pet":{"kind":"dog","barks":true}}')
-assert(decoded and not err)
-local pet = (decoded as Envelope).pet
-local bark = false
-if pet.kind == "dog" then bark = pet.barks end
-return {text = text, bark = bark, dog = getmetatable(pet) == Dog}
-]]
-    )
-    testAssert.equal(result.text, '{"pet":{"kind":"cat","lives":9}}')
-    testAssert.equal(result.bark, true)
-    testAssert.equal(result.dog, true)
-end
-
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
     local cases = {
         {"NUPP2801", [[
@@ -404,10 +139,10 @@ local record Bad
     debug: function(self): string
 end
 ]]},
-        {"NUPP2806", [[
-@derive(nupp.derive.JSON)
+        {"NUPP2803", [[
+@derive(nupp.derive.Debug)
 local record Bad
-    value: uint64
+    value: function(): nil
 end
 ]]},
     }
@@ -477,7 +212,8 @@ end
 
 function M.recheckingADerivedDeclarationIsIdempotent()
     local source = [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
+local editor = require("tests.fixtures.deriveeditor")
+@derive(nupp.derive.Debug, editor.derive)
 local record Stable
     value: integer = 0
 end
@@ -495,57 +231,44 @@ return new Stable()
     end
 end
 
-function M.fingerprintsJSONSchemaAndAnnotationChanges()
-    local first = run(
-        [[
-@derive(nupp.derive.JSON)
-local record Fingerprinted
-    @json(name = "first")
-    value: integer
-end
-return Fingerprinted.fieldCodec().fingerprint
-]]
-    )
-    local second = run(
-        [[
-@derive(nupp.derive.JSON)
-local record Fingerprinted
-    @json(name = "second")
-    value: integer
-end
-return Fingerprinted.fieldCodec().fingerprint
-]]
-    )
-    assert(first ~= second, "a JSON annotation edit kept the codec fingerprint")
+function M.fingerprintsDebugAnnotationChanges()
+    local function fingerprint(redacted)
+        local source = "@derive(nupp.derive.Debug)\nlocal record Fingerprinted\n" .. (
+            redacted and "@debug(redact = true)\n" or ""
+        ) .. "value: string\nend"
+        local _, diagnostics, parsed = compile(source)
+        testAssert.equal(#diagnostics, 0)
+
+        return firstDeclaration(parsed).deriveRecipe.fingerprint
+    end
+
+    assert(fingerprint(false) ~= fingerprint(true), "a rendering policy edit kept its recipe fingerprint")
 end
 
 function M.givesEveryGeneratedMemberADistinctSemanticIdentity()
     local _, diagnostics, parsed = compile(
         [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
-local record Identified
-    value: integer
-end
+local editor = require("tests.fixtures.deriveeditor")
+@derive(editor.derive)
+local record Identified value: integer end
 ]]
     )
     testAssert.equal(#diagnostics, 0, "derive identity diagnostics")
     local nominal = assert(firstDeclaration(parsed).hoistedType)
     local defs = {
-        nominal.derivedDefinitions.debug,
-        nominal.derivedDefinitions.writeJSON,
-        nominal.derivedStaticDefinitions.fromJSON,
-        nominal.derivedStaticDefinitions.fieldCodec,
+        nominal.derivedDefinitions.inspect,
+        nominal.derivedStaticDefinitions.kind,
+        nominal.derivedStaticDefinitions.fields
     }
     local identities = {}
     for _, definition in ipairs(defs) do
-        assert(definition, "missing generated definition")
-        assert(definition.generatedRecipeFingerprint, "definition has no recipe provenance")
-        assert(not identities[definition.generatedIdentity], "generated members share a semantic identity")
+        assert(definition and definition.generatedRecipeFingerprint, "missing generated provenance")
+        assert(not identities[definition.generatedIdentity], "generated members share an identity")
         identities[definition.generatedIdentity] = true
     end
     assert(
-        defs[2].token == defs[3].token and defs[3].token == defs[4].token,
-        "the three JSON members keep one written navigation origin"
+        defs[1].token == defs[2].token and defs[2].token == defs[3].token,
+        "one provider's members share a written navigation origin"
     )
 end
 
@@ -627,7 +350,8 @@ end
 
 function M.cancelsWithoutPublishingAPartialRecipeAndRecovers()
     local source = [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
+local editor = require("tests.fixtures.deriveeditor")
+@derive(nupp.derive.Debug, editor.derive)
 local record Recoverable
     names: {{{string}}}
     values: {[string]: {integer}}
@@ -671,7 +395,8 @@ end
 
 function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
     local source = [[
-@derive(nupp.derive.Debug, nupp.derive.JSON)
+local editor = require("tests.fixtures.deriveeditor")
+@derive(nupp.derive.Debug, editor.derive)
 local record ObservedClosure
     value: integer
 end
@@ -682,7 +407,7 @@ end
     testAssert.equal(#warmDiagnostics, 0, "warm observation diagnostics")
     testAssert.equal(#cold.deriveObservations, 2, "one observation per provider")
     testAssert.equal(#warm.deriveObservations, 2, "warm observation count")
-    local expected = {["nupp.derive.Debug"] = 1, ["nupp.derive.JSON"] = 3,}
+    local expected = {["nupp.derive.Debug"] = 1, ["editor.derive"] = 3,}
     for index, observation in ipairs(cold.deriveObservations) do
         local warmed = warm.deriveObservations[index]
         testAssert.equal(
@@ -699,11 +424,7 @@ end
     end
 
     local hugeName = string.rep("x", 300)
-    local hugeSource = "@derive(nupp.derive.JSON)\nlocal record Huge\n"
-        .. "    @json(name = \""
-        .. hugeName
-        .. "\")\n"
-        .. "    value: string\nend\n"
+    local hugeSource = "@derive(nupp.derive.Debug)\nlocal record " .. hugeName .. "\nvalue: string\nend\n"
     local code, diagnostics, parsed = compileAt(hugeSource, "huge.g.nupp", {deriveLimits = {canonicalBytes = 256},})
     local limited = false
     for _, diagnostic in ipairs(diagnostics) do
@@ -728,13 +449,6 @@ local record Pure value: integer end
     local pureEffects = firstDeclaration(debug).compilerFeatureEffects
     testAssert.equal(table.concat(pureEffects, ","), "stdlib.derives", "pure derive feature manifest")
 
-    local _, jsonDiagnostics, json = compile([[
-@derive(nupp.derive.JSON)
-local record Encoded value: integer end
-]])
-    testAssert.equal(#jsonDiagnostics, 0, "JSON derive feature diagnostics")
-    local jsonEffects = firstDeclaration(json).compilerFeatureEffects
-    testAssert.equal(table.concat(jsonEffects, ","), "stdlib.derives,native.json", "JSON derive feature manifest")
 end
 
 function M.delimitsTheRuntimeFromAnEmittedFirstLine()

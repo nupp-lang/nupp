@@ -395,7 +395,7 @@ local BUILTINS = {
         targets = {"record", "struct"},
         builtin = true,
         qualifiedNames = true,
-        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Serde`, that adds checked members or data without exposing source or AST macros.",
+        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Debug`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "docs/reference/annotations.md#derive",
     },
     {
@@ -405,14 +405,6 @@ local BUILTINS = {
         builtin = true,
         doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
         docsPath = "docs/learn/projects/command-line-applications.md#derive-typed-arguments",
-    },
-    {
-        name = "json",
-        arguments = "typed",
-        targets = {"record", "field"},
-        builtin = true,
-        doc = "Configures how the JSON derive encodes and decodes a record or field.",
-        docsPath = "docs/reference/derives.md#json",
     },
     {
         name = "debug",
@@ -570,37 +562,6 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     }
     cli.singleValue = "name"
 
-    local json = registry:get("json")
-    local jsonDocs = "docs/reference/derives.md#json"
-    json.members = {
-        unknown = member(
-            "unknown",
-            typesApi.union({
-                typesApi.literal("reject"),
-                typesApi.literal("ignore")
-            }),
-            true,
-            "How an unknown field is handled while decoding: `\"reject\"` or `\"ignore\"`.",
-            jsonDocs
-        ),
-        name = member(
-            "name",
-            optional(typesApi.string),
-            true,
-            "The field's name in JSON, if different from its Nupp name.",
-            jsonDocs
-        ),
-        omit = member("omit", optional(typesApi.boolean), true, "Omits this field from encoded JSON.", jsonDocs),
-        omitEmpty = member(
-            "omitEmpty",
-            optional(typesApi.boolean),
-            true,
-            "Omits this field from encoded JSON when its value is empty.",
-            jsonDocs
-        ),
-    }
-    json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
-
     local aot = registry:get("aot")
     aot.members = {
         target = member(
@@ -731,7 +692,6 @@ function annotations.bindBuiltinDeclarations(
     local schemas: {
         [string]: string
     } = {
-        json = "nupp.derive.JSONOptions",
         debug = "nupp.derive.DebugOptions",
         event = "nupp.derive.EventOptions",
         deprecated = "nupp.__DeprecatedAnnotation",

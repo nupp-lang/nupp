@@ -2070,10 +2070,10 @@ emitted C, ownership refinements, and supported limits.
 ### `migrate`
 
 ```text [nupp migrate --help]
-Migrate typed foreign source into gradual Nupp.
+Migrates annotated Lua or retired serialization APIs.
 
-Without --dry-run, each destination is checked and written atomically before
-its source is removed. Existing destinations are never replaced.
+Annotated Lua moves to a checked `.g.nupp` destination. Serialization
+migrations update `.nupp` files only after the replacement type-checks.
 
 Examples:
 
@@ -2089,7 +2089,7 @@ Arguments:
 
 Options:
   --dry-run          Print the migration plan without changing files.
-  --dialect DIALECT  Resolve ambiguous comment annotations for this migration.
+  --dialect DIALECT  Select the source migration dialect.
   --format FORMAT, --json, --text
                      Select the report representation.
   --schema           Print the JSON Schema of JSON output and exit.
@@ -2446,7 +2446,7 @@ Commands:
   fixpoint         Verify a byte-identical self-hosting rebuild.
   run              Compile and run a Nupp or Lua program.
   import-c         Generate typed Nupp bindings from a C header.
-  migrate          Migrate typed foreign source into gradual Nupp.
+  migrate          Migrates annotated Lua or retired serialization APIs.
   export-c         Export canonical C declarations for Nupp structs.
   rock             Package and check typed LuaRocks libraries.
   lsp              Language-server and semantic source operations.

@@ -1,7 +1,7 @@
 module example.model
 
 const core = require("contract.dispatch")
-const extensions = require("contract.extensions")
+const extensions = require("nupp.serde.extensions")
 
 export record Schema
     @readonly name: string
