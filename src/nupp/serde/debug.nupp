@@ -45,7 +45,9 @@ local function customDebug(info: nupp.reflect.Info, index: integer, seen: {[inte
     end
     seen[index] = true
     local node: any = info.types[index]
-    if node.kind == "record" and node.deriveKey ~= nil then
+    -- A declaration that derives Debug renders structurally; its `debug` is this
+    -- renderer, and reading it as a custom method would call itself forever.
+    if (node.kind == "record" or node.kind == "struct") and node.deriveKey ~= nil then
         return false
     end
     for _, field in ipairs(node.fields or {}) do

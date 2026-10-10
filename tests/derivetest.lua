@@ -127,6 +127,31 @@ return {box = boxed:debug(), inner = inner:debug()}
     testAssert.equal(result.inner, "Inner { count = 0 }")
 end
 
+function M.debugsDerivedStructsAndRecordsHoldingThem()
+    -- A struct's derived debug is the renderer itself; reading it as a custom
+    -- method made the renderer call itself until the stack ran out.
+    local result = run(
+        [[
+@derive(nupp.derive.Debug)
+local struct Point
+    x: number
+    y: float
+end
+
+@derive(nupp.derive.Debug)
+local record Shape
+    origin: Point
+end
+
+local point = new Point(1, 2)
+local shape = new Shape(origin = point)
+return {point = point:debug(), shape = shape:debug()}
+]]
+    )
+    testAssert.equal(result.point, "Point { x = 1, y = 2 }")
+    testAssert.equal(result.shape, "Shape { origin = Point { x = 1, y = 2 } }")
+end
+
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
     local cases = {
         {"NUPP2801", [[
