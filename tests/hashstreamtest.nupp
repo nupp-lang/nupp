@@ -185,7 +185,7 @@ function M.hmacRfc4231AndBinaryInput(): nil
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
-    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32-ieee,crc32c,crc64-ecma")
+    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma")
     local listed = checksum.algorithms()
     listed[1] = "changed"
     assert(checksum.algorithms()[1] == "adler32")
@@ -197,11 +197,11 @@ function M.checksumVectorsAndNonConsumingReads(): nil
         "unknown checksum algorithm unknown"
     )
     assert(checksum.value("adler32", "") == 1ULL)
-    assert(checksum.value("crc32-ieee", "") == 0ULL)
+    assert(checksum.value("crc32", "") == 0ULL)
     assert(checksum.value("crc32c", "") == 0ULL)
     assert(checksum.value("crc64-ecma", "") == 0ULL)
     assert(checksum.value("adler32", "123456789") == 0x091e01deULL)
-    assert(checksum.value("crc32-ieee", "123456789") == 0xcbf43926ULL)
+    assert(checksum.value("crc32", "123456789") == 0xcbf43926ULL)
     assert(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
     assert(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
     assert(checksum.algorithm("crc64-ecma").width == 64)

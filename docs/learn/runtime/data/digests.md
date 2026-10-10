@@ -78,8 +78,11 @@ assert(sum:value() == 0xe3069283ULL)
 A checksum is an `io.Writer` too. `value()` is a non-consuming numeric
 snapshot, returned as `uint64`.
 `width()`, and the descriptor's `width` field, specify meaningful bits.
-Built-ins are `adler32`, `crc32-ieee`, `crc32c` and `crc64-ecma`.
+Built-ins are `adler32`, `crc32`, `crc32c` and `crc64-ecma`.
+`crc32` is the reflected IEEE variant. The digest names and `crc32`/`crc32c`
+match Smithy's `httpChecksum` algorithm names in lowercase.
 CRC64 uses ECMA-182 with no reflection, zero initialization and zero final xor.
+It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
@@ -87,6 +90,10 @@ own scalar serialization rules. Checksums provide no authentication.
 same writer and consuming finalization as a digest. Its descriptor has
 `digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)`
 and `mac.hexDigest(name, key, bytes)`.
+
+`hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`
+trait defines no MAC algorithms. AWS KMS uses `HMAC_SHA_256` for this
+construction; SigV4's `AWS4-HMAC-SHA256` names the complete signing scheme.
 
 ## Providers
 

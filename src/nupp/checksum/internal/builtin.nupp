@@ -3,7 +3,7 @@ module nupp.checksum.internal.builtin
 
 --[[Built-in Adler-32 and CRC algorithm descriptors and incremental states.
 
-The catalog exposes `adler32`, `crc32-ieee`, `crc32c`, and `crc64-ecma` with
+The catalog exposes `adler32`, `crc32`, `crc32c`, and `crc64-ecma` with
 canonical widths. Lookup tables for reflected CRC-32 variants are initialized
 once. Each descriptor creates independently owned state; updates borrow byte
 spans without retaining them. `value` returns a non-consuming `uint64` snapshot
@@ -93,7 +93,7 @@ local record Algorithm is provider.Algorithm
         if self.name == "adler32" then
             initial = 1
         end
-        if self.name == "crc32-ieee" or self.name == "crc32c" then
+        if self.name == "crc32" or self.name == "crc32c" then
             initial = -1
         end
 
@@ -105,7 +105,7 @@ const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
     adler32 = new Algorithm(name = "adler32", width = 32),
-    ["crc32-ieee"] = new Algorithm(name = "crc32-ieee", width = 32),
+    ["crc32"] = new Algorithm(name = "crc32", width = 32),
     crc32c = new Algorithm(name = "crc32c", width = 32),
     ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64),
 }
@@ -115,5 +115,5 @@ export function lookup(name: string): provider.Algorithm?
 end
 
 export function names(): {string}
-    return {"adler32", "crc32-ieee", "crc32c", "crc64-ecma"}
+    return {"adler32", "crc32", "crc32c", "crc64-ecma"}
 end

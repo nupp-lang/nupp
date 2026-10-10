@@ -10,7 +10,7 @@ const checksum = nupp.checksum
 
 print(checksum.value("crc32c", "hello"))
 
-with running = checksum.newChecksum("crc32-ieee") do
+with running = checksum.newChecksum("crc32") do
     running:write("hel")
     running:write("lo")
     print(running:value())
@@ -27,9 +27,13 @@ that reach for [](nupp.mac).
 | Name | Width | Parameters |
 | --- | ---: | --- |
 | `adler32` | 32 | Adler-32 |
-| `crc32-ieee` | 32 | Reflected IEEE CRC-32 |
+| `crc32` | 32 | Reflected IEEE CRC-32 |
 | `crc32c` | 32 | Reflected Castagnoli CRC-32C |
 | `crc64-ecma` | 64 | ECMA-182, non-reflected, zero initialization and xor |
+
+`crc32` and `crc32c` use the lowercase names from Smithy's
+[`httpChecksum` trait](https://smithy.io/2.0/aws/aws-core.html#aws-protocols-httpchecksum-trait).
+`crc64-ecma` is ECMA-182, a different algorithm from Smithy's `CRC64NVME`.
 
 A snapshot is a number, so whatever writes one to the wire picks its byte order.
 

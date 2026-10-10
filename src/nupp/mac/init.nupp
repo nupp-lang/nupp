@@ -28,6 +28,12 @@ authenticate another message.
 | --- | ---: | --- |
 | `hmac-sha256` | 32 bytes | HMAC over SHA-256 |
 
+`hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`
+trait does not define MAC algorithms. AWS KMS uses
+[`HMAC_SHA_256`](https://docs.aws.amazon.com/kms/latest/APIReference/API_GenerateMac.html)
+for this construction, while `AWS4-HMAC-SHA256` identifies the complete SigV4
+signing scheme.
+
 A host may supply its own catalog through [](nupp.mac.spi),
 chosen by priority when this module initializes. It is read once, at load.
 ]]

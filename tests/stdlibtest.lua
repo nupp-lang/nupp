@@ -2179,7 +2179,7 @@ function M.compilerProvidedPureLibraries()
       local digest = require("nupp.digest")
       local util = require("nupp.util")
       assert(util.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(checksum.value("crc32-ieee", "123456789") == 3421780262ULL)
+      assert(checksum.value("crc32", "123456789") == 3421780262ULL)
       assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
       local uuid4 = util.uuid4()
