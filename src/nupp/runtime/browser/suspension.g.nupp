@@ -74,7 +74,28 @@ local function contextsource(
     waiter: (function(integer): integer)?,
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
-    local source = suspension.source(name, order, poller, waiter, active)
+    -- A park that has resumed is done with what it registered, but those stay
+    -- registered until it runs. A pass before then must not reach them: asking a
+    -- ready source again resumes the park twice.
+    local state: any = (self as any)._state
+
+    local function guardedPoll(): integer
+        if state ~= nil and state.ready then
+            return 0
+        end
+        return poller()
+    end
+
+    local guardedWait: (function(integer): integer)? = nil
+    if waiter ~= nil then
+        guardedWait = function(waitMs: integer): integer
+            if state ~= nil and state.ready then
+                return 0
+            end
+            return waiter(waitMs)
+        end
+    end
+    local source = suspension.source(name, order, guardedPoll, guardedWait, active)
     local associated = assert((self as any)._associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]
@@ -526,6 +547,7 @@ function suspension.suspend<T>(
     const scoped = context as any
     scoped._handler = current
     scoped._associated = {}
+    scoped._state = state
     local subscribed, cancel = pcall(subscribe, resume, context)
     if not subscribed then
         releaseOwned(context)

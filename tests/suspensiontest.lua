@@ -179,6 +179,36 @@ function M.contextSourcesSupportSeparatePollAndWaitOperations()
    assert(waited, "the blocking half ran")
 end
 
+function M.aResumedParkStopsPollingTheSourcesItOwns()
+   -- A host may poll again before the task it resumed gets to run, as an embedder
+   -- polling every frame does. What the park registered has done its job, and
+   -- asking it again would resume the park twice.
+   local polls = 0
+   local handler = {
+      park = function(_, waiting)
+         while not waiting:ready() do
+            suspension.poll()
+         end
+         suspension.poll()
+      end,
+      canPark = function()
+         return true
+      end,
+   }
+   local answer = handled(handler, function()
+      return suspension.suspend("polled again", function(resume, context)
+         context:source("eager", 5, function()
+            polls = polls + 1
+            resume("ready")
+            return 1
+         end)
+         return function() end
+      end)
+   end)
+   testAssert.equal(answer, "ready", "the park resumed once")
+   testAssert.equal(polls, 1, "the source was not polled after it resumed the park")
+end
+
 function M.requiresACancellationForARealPark()
    -- A park nobody can abandon is a park a handler cannot give up on.
    local ok, err = pcall(suspension.suspend, "waiting", function()
