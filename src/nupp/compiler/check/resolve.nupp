@@ -466,6 +466,12 @@ function resolve.install(c: state.Checker): nil
         then
             return T.any
         end
+        -- What a claim reads is the interface's own ownership, which its arguments do
+        -- not change. Applying them would check their bounds against declarations
+        -- whose claims this pass has not settled yet.
+        if c.preclaiming and t and t.tag == "nominal" and node.typeArgs then
+            return t
+        end
 
         -- A refinement is what `is` compiles to, and every path that resolves a
         -- declared name arrives here, so this is the one place it has to be attached
@@ -474,7 +480,13 @@ function resolve.install(c: state.Checker): nil
             node.wherePredicate = t.predicate
         end
         if t and t.tag == "genericAlias" then
+            -- The same loan rule as a declaration's arguments below: an alias written
+            -- in a borrowed parameter names the types it is applied to whole, so an
+            -- alias for `UnknownConsumer<S>` means what the interface itself does.
+            local priorSuppression = c.suppressInherentOwner
+            c.suppressInherentOwner = false
             local map = aliasArgumentMap(t, node)
+            c.suppressInherentOwner = priorSuppression
             local rebound = generics.materialize(t.body, map)
             local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo, c.reductionControl)
             if reductionError then

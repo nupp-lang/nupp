@@ -2977,6 +2977,12 @@ function checkMod.check(
     -- something names it.
     local function hoistDeclarations(block)
         local hoistedNominals: {any} = {}
+        -- The locals each declaration's `is` clause will see once its statement is
+        -- reached, by name: a `local alias = require("m")` as the module it loads, any
+        -- other local as a name that is not one. Without them `alias.T` was read as a
+        -- module named `alias`, which a project file of that name answered, and the
+        -- standard library's `structure.Construction` loaded a user's `structure.nupp`.
+        local bound: {[string]: string | false} = {}
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
             local deriveApplications: {Node} = {}
@@ -3056,8 +3062,16 @@ function checkMod.check(
                     n.typeParams, n.packParams, n.constParams = typeParams, packParams, constParams
                     n.paramKinds = paramKinds
                 end
-                hoistedNominals[#hoistedNominals + 1] = {decl = decl, owners = {}}
+                local visible: {[string]: string | false} = {}
+                for name, module in pairs(bound) do
+                    visible[name] = module
+                end
+                local first = #hoistedNominals + 1
+                hoistedNominals[first] = {decl = decl, owners = {}, bound = visible}
                 hoistNestedNominals(n, decl.entries, hoistedNominals, {})
+                for index = first + 1, #hoistedNominals do
+                    hoistedNominals[index].bound = visible
+                end
                 c.bindType(key, n, nil)
                 n.awaitingBody = true
             elseif k == "typeAlias" and decl.name and decl.value then
@@ -3071,6 +3085,21 @@ function checkMod.check(
                 local definition = c.definition(decl.name, "type")
                 definition.comptimeOnly = decl.comptimeOnly or nil
                 c.scope.typeDefs[key] = definition
+            end
+            if decl and decl.kind == "localStmt" and decl.pattern then
+                local module = requiredLiteral(decl.patternSource)
+                for _, entry in ipairs(decl.pattern) do
+                    local nameTok = entry.alias or entry.sourceName
+                    if nameTok and not entry.typeOnly then
+                        bound[nameTok.text] = module or false
+                    end
+                end
+            elseif decl and decl.kind == "localStmt" then
+                for index, nameTok in ipairs(decl.names or {}) do
+                    bound[nameTok.text] = requiredLiteral(decl.exprs and decl.exprs[index]) or false
+                end
+            elseif decl and decl.kind == "localFuncStmt" and decl.name then
+                bound[decl.name.text] = false
             end
         end
         local wasHoisting = c.hoisting
@@ -3086,6 +3115,13 @@ function checkMod.check(
             for _, hoisted in ipairs(hoistedNominals) do
                 local decl = hoisted.decl
                 if decl.supertypes then
+                    local aliased = next(hoisted.bound) ~= nil
+                    if aliased then
+                        c.pushScope()
+                        for name, module in pairs(hoisted.bound) do
+                            c.scope.vars[name] = {t = T.any, requiredModule = module or nil}
+                        end
+                    end
                     local nested = #hoisted.owners > 0
                     if nested then
                         c.pushScope()
@@ -3099,6 +3135,9 @@ function checkMod.check(
                         changed = true
                     end
                     if nested then
+                        c.popScope()
+                    end
+                    if aliased then
                         c.popScope()
                     end
                 end

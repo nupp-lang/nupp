@@ -8817,4 +8817,27 @@ function M.ownershipIntrinsicsCannotBeStoredAsValues()
     end
 end
 
+
+-- An alias for a generic interface names the same type the interface does, in a
+-- borrowed parameter as anywhere else. The alias's arguments used to be resolved
+-- under that parameter's loan, so a Closeable binder lost its cleanup through the
+-- alias, and a method written against the alias no longer fit the contract the
+-- interface itself spelled.
+function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
+    assertClean(table.concat({
+        "local interface Sink<S>",
+        "    apply: function(self, exclusive state: S): nil",
+        "end",
+        "local type Alias<S> = Sink<S>",
+        "local interface Uses",
+        "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
+        "end",
+        "local record Impl is Uses",
+        "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
+        "    end",
+        "end",
+        "print(new Impl())",
+    }, "\n"))
+end
+
 return M

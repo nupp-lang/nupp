@@ -1237,6 +1237,47 @@ function M.aMethodSignatureNamesWhatItsLocalsRequire()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The ownership a record claims through `is` is read in the first pass too, and
+-- `is alias.Named` there was looked up the same way: as `pkg.alias` beside the file
+-- rather than the module the local requires. Loading that module only because it
+-- shared a local's name re-entered the check that was asking, and a cycle back
+-- through it left the requiring module's exports half built -- the standard
+-- library's `structure.Construction` loaded a project's own `structure.nupp`.
+function M.aRecordClaimNamesWhatItsLocalsRequire()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "/pkg'")
+
+    local function write(name, lines)
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(table.concat(lines, "\n"))
+        file:close()
+    end
+
+    write("pkg/dep.nupp", {"module pkg.dep", "export interface Named", "    name: function(self): string", "end"})
+    write("pkg/b.nupp", {
+        "module pkg.b",
+        "local alias = require('pkg.dep')",
+        "export record Options",
+        "    n: integer = 0",
+        "end",
+        "export record Tag is alias.Named",
+        "    @readonly text: string",
+        "    function name(self): string",
+        "        return self.text",
+        "    end",
+        "end",
+    })
+    write("pkg/alias.nupp", {"module pkg.alias", "local b = require('pkg.b')", "export const options: b.Options? = nil"})
+    write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = new b.Options()", "print(o.n)"})
+
+    local inc = incremental.new(dir, {cache = false})
+    local diags = inc.checkFile(dir .. "/main.nupp").diags
+    testAssert.equal(#diags, 0, "pkg.b's exports are whole: " .. tostring(diags[1] and diags[1].msg))
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.validationTerminatesOnADependencyCycle()
     local q = query.new()
     q:setInput("text", "a", 1)
