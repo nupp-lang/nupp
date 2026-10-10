@@ -219,12 +219,16 @@ local function await(operation: string, ready: function(): boolean, abandon: (fu
     end
     const chosen = provider
     suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        -- The source stays registered until the resumed task runs, and a host may
+        -- poll again before then; asking `ready` once more would resume it twice.
+        local resumed = false
         const source = context:source(
             "nupp.io.net",
             50,
             function(): integer
                 chosen:run(0)
-                if ready() then
+                if not resumed and ready() then
+                    resumed = true
                     resume(true)
 
                     return 1

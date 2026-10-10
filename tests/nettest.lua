@@ -389,6 +389,31 @@ function M.connectWaitsForTheHandshake()
     stream:close()
 end
 
+function M.aConnectPolledAgainBeforeItRunsResumesOnce()
+    -- A host that polls every frame can reach the connect's source again after it
+    -- resumed the connect and before the connect runs. That once resumed it twice.
+    local backend, state = fakeBackend({connectAfter = 2})
+    install(backend)
+    local suspension = require("nupp.suspension")
+    local suspensionHost = require("nupp.suspension.host")
+    local installation = suspensionHost.install({
+        park = function(_, waiting)
+            while not waiting:ready() do
+                suspension.poll()
+            end
+            suspension.poll()
+        end,
+        canPark = function()
+            return true
+        end,
+    })
+    local connected, stream = pcall(net.connect, {host = "example", port = 80})
+    installation:close()
+    assert(connected, "the connect completed: " .. tostring(stream))
+    testAssert.equal(state.connectPolls, 2, "the finished request was not polled again")
+    stream:close()
+end
+
 function M.abandoningAConnectReleasesItsRequest()
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)

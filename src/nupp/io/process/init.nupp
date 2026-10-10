@@ -1143,10 +1143,18 @@ awaitTick = function(self: any, operation: string, scoped interest: function(): 
     const wanted = interest()
     suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
         local passes = 0
+        -- Registered until the resumed task runs; a poll before then must not
+        -- resume it twice.
+        local resumed = false
         local source = context:source(
             "nupp.io.process.tick",
             50,
             function(): integer
+                if resumed then
+                    pumpOnce(self)
+
+                    return 0
+                end
                 passes = passes + 1
                 -- A quiet first pass leaves the driver its chance to sleep. The second
                 -- resumes unconditionally: one pass has happened, which is all this
@@ -1154,6 +1162,7 @@ awaitTick = function(self: any, operation: string, scoped interest: function(): 
                 if pumpOnce(self) == 0 and passes == 1 then
                     return 0
                 end
+                resumed = true
                 resume(true)
 
                 return 1
@@ -1210,18 +1219,26 @@ await = function(
 
     -- Built once rather than per pass: this is already the slow path.
     local function subscribe(resume: function(boolean), context: any): function()?
+        local resumed = false
         local source = context:source(
             "nupp.io.process.wait",
             50,
             function(): integer
                 local moved = pumpOnce(self)
+                -- Registered until the resumed task runs; a poll before then must
+                -- not resume it twice.
+                if resumed then
+                    return 0
+                end
                 if ready() then
                     satisfied = true
+                    resumed = true
                     resume(true)
 
                     return 1
                 end
                 if stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
+                    resumed = true
                     resume(true)
 
                     return 1
