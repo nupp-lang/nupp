@@ -116,8 +116,8 @@ kernel uses these modules to connect its data to those instructions:
 - [`nupp.simd`](nupp.simd) provides vector operations. A *species* describes
   their element type and lane count, such as four `float` lanes on NEON.
 
-With AOT off, `simd.species` supplies one lane and the loop runs under ordinary
-Lua. Each example followed by output runs with `nupp run` without an AOT
+With AOT off, the preferred species is one lane wide and the loop runs under
+ordinary Lua. Each example followed by output runs with `nupp run` without an AOT
 build; shorter snippets illustrate parts of a kernel. The opening
 kernel becomes a runnable program when supplied with arrays:
 
@@ -320,12 +320,13 @@ With four lanes, `ones` contains `1, 1, 1, 1`, and `ramp` contains
 `simd.species(array.float)` is the *preferred species*, sized for the vector
 width selected by the build. `simd.species(array.float, 4)` is a *fixed
 species* with four logical lanes on every AOT tier, which the compiler
-implements in however many registers that takes. Under ordinary Lua execution,
-even a fixed species has one lane. `species.lanes` reads the count either way.
+implements in however many registers that takes. Under ordinary Lua a fixed
+species keeps its four lanes as well: a vector of it is a table of four lanes,
+and `species.lanes` reads 4 where the preferred species reads 1.
 
 Prefer the preferred species unless an algorithm needs a known lane count,
-such as a four-by-four matrix transpose. An algorithm that depends on that
-count needs a separate scalar implementation when running as ordinary Lua.
+such as a four-by-four matrix transpose. An algorithm written against a fixed
+count runs unchanged as ordinary Lua, lane by lane in library code.
 
 Species exist for every storage element: `uint8` through `uint64`, their
 signed forms, `float`, and `number`. The element is named by the witness
@@ -829,10 +830,11 @@ A kernel using the preferred species names no lane count or instruction set.
 The build selects a *feature tier*, a set of processor capabilities the
 compiled function may use: NEON on ARM, an x86 baseline, AVX2, AVX-512, or
 SIMD128 for Wasm. The preferred species has one lane on a scalar tier, while
-a fixed species retains its requested logical lane count in AOT code.
+a fixed species retains its requested logical lane count on every tier.
 
-Under ordinary Lua, both species forms have one lane. The vector operations
-use library helpers, so a plain scalar loop can cost less. Use
+Under ordinary Lua the preferred species has one lane and a fixed species its
+requested count. The vector operations use library helpers, so a plain scalar
+loop can cost less. Use
 `simd.vectors(array.float)` when the kernel has its own scalar implementation:
 it returns a species where vector registers are available and `nil` where
 they are not. AOT resolves this choice at compile time for each tier:

@@ -594,7 +594,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 and (((physicalOwner as any).origin or physicalOwner) as any).nativeOnly == true
             then
                 -- A native-only aggregate is a value, as the vectors it holds are:
-                -- a change is a new aggregate, so the one-lane Lua form and the
+                -- a change is a new aggregate, so the Lua form and the
                 -- native register form cannot disagree about who sees a write.
                 c.diag(
                     "NUPP2911",

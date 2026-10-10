@@ -1790,7 +1790,7 @@ ENTRIES[
     summary = "A field of a native-only aggregate is assigned",
     rule = "A struct holding a `simd.Vector` or a `simd.Mask` is a native-only aggregate: a "
     .. "value the register file holds, as the vectors in it are. It has no field "
-    .. "stores, in native code or in the one-lane Lua form, so the two never disagree "
+    .. "stores, in native code or as ordinary Lua, so the two never disagree "
     .. "about who sees a write. Construct a new aggregate with the field changed.",
     wrong = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
     .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"

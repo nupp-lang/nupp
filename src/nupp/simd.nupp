@@ -26,11 +26,13 @@ end
 
 Loads are span-checked, inactive tail lanes read as zero, and `bits()` maps the
 first logical lane to bit zero. A vector and a mask have no boxed Lua
-representation: in compiled code they are registers, and in a body running
-as ordinary Lua, where the species is one lane wide, a vector is a number
-and a mask a boolean. `simd.vectors` is the species where there are vector
-registers and nil where there are none, for a kernel that keeps a
-hand-written scalar loop of its own.
+representation in compiled code, where they are registers. In a body running
+as ordinary Lua a preferred species is one lane wide, so a vector is a number
+and a mask a boolean, and a fixed species `simd.species(array.float, 4)` is
+its four lanes, so a vector is a table of four numbers and a mask of four
+booleans. `simd.vectors` is the species where there are vector registers and
+nil where there are none, for a kernel that keeps a hand-written scalar loop
+of its own.
 
 Use explicit vectors when SIMD execution is part of the algorithm: shuffles,
 transposes, prefix scans, fixed-tree reductions, gathers, compress, expand, or
@@ -52,6 +54,97 @@ const storageWitnesses = require("nupp.mem.array")
 const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
 local simd = {}
+
+----------------------------------------------------------------------------
+-- Vectors as ordinary Lua
+----------------------------------------------------------------------------
+
+--[[
+Where a kernel runs as ordinary Lua there are no vector registers, so a
+preferred species is one lane wide: its vector is a plain number already
+wrapped to its element and its mask a plain boolean. A fixed species names
+the lane count the algorithm needs, and it is that wide here as it is on
+every native tier: its vector is a table of N lanes under the marker
+metatable below, each lane a value wrapped to the element, carrying its lane
+count as `n` and its element's name as `element`; its mask is a table of N
+booleans under the other marker, carrying the same two. The lane runtime
+further down dispatches on the marker, so the operator and method calls the
+generator emits serve both forms, and the preferred form costs what it did.
+]]
+
+--- The marker metatables of the N-lane forms. Neither has a metamethod: the
+--- checker types every operator on a vector or a mask, and the generator
+--- routes it through `simd.lane`, so nothing reaches Lua's own arithmetic.
+local LANES_VECTOR: {[string]: any} = {}
+
+local LANES_MASK: {[string]: any} = {}
+
+--- The lane count of a value in an N-lane form, or nil for a scalar, a
+--- preferred-species vector or a preferred-species mask.
+local function lanesOf(value: any): integer?
+    if type(value) ~= "table" then
+        return nil
+    end
+    local mt = getmetatable(value)
+    if mt == LANES_VECTOR or mt == LANES_MASK then
+        return (value as {[string]: any}).n as integer
+    end
+
+    return nil
+end
+
+--- Lane `i` of a value: the lane of an N-lane form, or the value itself,
+--- which is every lane of a scalar and the one lane of a preferred species.
+local function laneAt(value: any, i: integer): any
+    if lanesOf(value) ~= nil then
+        return (value as {[integer]: any})[i]
+    end
+
+    return value
+end
+
+--- Whether lane `i` is selected by a mask argument; nil selects every lane.
+local function activeAt(active: any, i: integer): boolean
+    if active == nil then
+        return true
+    end
+
+    return laneAt(active, i) == true
+end
+
+--- The element an N-lane form carries.
+local function elementOf(value: any): string
+    return (value as {[string]: any}).element as string
+end
+
+--- An N-lane vector of `element` over `lanes`, which it takes over.
+local function vectorOf(element: string, n: integer, lanes: {[integer]: any}): any
+    local value = lanes as {[any]: any}
+    value.n = n
+    value.element = element
+
+    return setmetatable(value as any, LANES_VECTOR as any)
+end
+
+--- An N-lane mask over `lanes`, carrying the element of the species it
+--- belongs to so that a select on it can wrap a scalar operand.
+local function maskOf(element: string, n: integer, lanes: {[integer]: any}): any
+    local value = lanes as {[any]: any}
+    value.n = n
+    value.element = element
+
+    return setmetatable(value as any, LANES_MASK as any)
+end
+
+--- The lanes of an N-lane form copied into a fresh table.
+local function copyLanes(value: any, n: integer): {[integer]: any}
+    local lanes: {[integer]: any} = {}
+    for i = 1, n do
+        lanes[i] = laneAt(value, i)
+    end
+
+    return lanes
+end
 
 --- What every reducer shares: contributions go in through `add`, and `value`
 --- answers the finished reduction as a `T`.
@@ -215,9 +308,17 @@ record simd.OrderedSum<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -243,9 +344,17 @@ record simd.PairwiseSum<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -302,9 +411,17 @@ record simd.AlgebraicSum<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -346,9 +463,17 @@ record simd.CompensatedSum<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -380,9 +505,17 @@ record simd.OrderedProduct<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -408,9 +541,17 @@ record simd.PairwiseProduct<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -464,9 +605,17 @@ record simd.AlgebraicProduct<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -492,9 +641,17 @@ record simd.OrderedDot<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(left) or lanesOf(right)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(left, i) as any, laneAt(right, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -520,9 +677,17 @@ record simd.PairwiseDot<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(left) or lanesOf(right)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(left, i) as any, laneAt(right, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -549,9 +714,17 @@ record simd.AlgebraicDot<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, left: T | simd.Vector<T, S>, right: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(left) or lanesOf(right)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(left, i) as any, laneAt(right, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -695,9 +868,17 @@ record simd.WrappingSum<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -717,9 +898,17 @@ record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64> is simd.Reduce
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -739,9 +928,17 @@ record simd.AndBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -761,9 +958,17 @@ record simd.OrBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -783,9 +988,17 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -950,9 +1163,17 @@ record simd.Any is simd.Reducer<boolean>
 
     --- `active` selects the lanes of a mask that contribute, each lane's truth
     --- in lane order, as one masked contribution per iteration of the `do`
-    --- block around it. As ordinary Lua the species is one lane wide: both
-    --- masks are booleans, and a `false` `active` contributes nothing.
+    --- block around it. As ordinary Lua a preferred species is one lane wide,
+    --- so both masks are booleans; a fixed species contributes its lanes in
+    --- order, each under its own lane of `active`.
     function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -977,9 +1198,17 @@ record simd.All is simd.Reducer<boolean>
 
     --- `active` selects the lanes of a mask that contribute, each lane's truth
     --- in lane order, as one masked contribution per iteration of the `do`
-    --- block around it. As ordinary Lua the species is one lane wide: both
-    --- masks are booleans, and a `false` `active` contributes nothing.
+    --- block around it. As ordinary Lua a preferred species is one lane wide,
+    --- so both masks are booleans; a fixed species contributes its lanes in
+    --- order, each under its own lane of `active`.
     function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1004,9 +1233,17 @@ record simd.Count is simd.Reducer<uint64>
 
     --- `active` selects the lanes of a mask that contribute, each lane's truth
     --- in lane order, as one masked contribution per iteration of the `do`
-    --- block around it. As ordinary Lua the species is one lane wide: both
-    --- masks are booleans, and a `false` `active` contributes nothing.
+    --- block around it. As ordinary Lua a preferred species is one lane wide,
+    --- so both masks are booleans; a fixed species contributes its lanes in
+    --- order, each under its own lane of `active`.
     function add<T, S>(self, value: boolean | simd.Mask<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1035,9 +1272,17 @@ record simd.IntegerMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1074,10 +1319,17 @@ record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1108,9 +1360,17 @@ record simd.IntegerMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1147,10 +1407,17 @@ record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1201,9 +1468,17 @@ record simd.PropagatingMin<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1245,10 +1520,17 @@ record simd.PropagatingArgMin<T is float | number> is simd.Reducer<integer>
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1286,9 +1568,17 @@ record simd.PropagatingMax<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1330,10 +1620,17 @@ record simd.PropagatingArgMax<T is float | number> is simd.Reducer<integer>
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1371,9 +1668,17 @@ record simd.NumberMin<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1415,10 +1720,17 @@ record simd.NumberArgMin<T is float | number> is simd.Reducer<integer>
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1456,9 +1768,17 @@ record simd.NumberMax<T is float | number> is simd.Reducer<T>
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
-    --- As ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` contributes nothing.
+    --- As ordinary Lua a preferred species is one lane wide, so the vector is
+    --- that lane's value and the mask a boolean; a fixed species contributes
+    --- its lanes in order, each under its own lane of the mask.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         if (active as any) == false then
             return
         end
@@ -1500,10 +1820,17 @@ record simd.NumberArgMax<T is float | number> is simd.Reducer<integer>
     --- around it. Lane `i` of the vector has logical position `base + i`, where
     --- `base` advances by the species' lane count for every vector contribution
     --- and by one for every scalar one, whether or not a lane was active. As
-    --- ordinary Lua the species is one lane wide: the vector is that lane's
-    --- value, the mask is a boolean, and `false` takes a position without
-    --- being a candidate.
+    --- ordinary Lua a preferred species is one lane wide, so the vector is that
+    --- lane's value and the mask a boolean; a fixed species contributes its
+    --- lanes in order, each taking a position.
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+        local n = lanesOf(value)
+        if n ~= nil then
+            for i = 1, n as integer do
+                self:add(laneAt(value, i) as any, activeAt(active, i) as any)
+            end
+            return
+        end
         self.count = self.count + 1
         if (active as any) == false then
             return
@@ -1998,21 +2325,24 @@ sealed interface simd.Species<T, S>
 end
 
 ----------------------------------------------------------------------------
--- The one-lane species
+-- The species as ordinary Lua
 ----------------------------------------------------------------------------
 
 --[[
 Where a kernel runs as ordinary Lua -- under `aot = "off"`, in the retained
 body beside an emitted artifact, in a function that is not `@aot` -- the
-species `simd.species` answers is this one: one lane wide, and the same
-loop runs a lane at a time. A vector of it is a plain Lua number already
-wrapped to its element, a mask is a plain boolean, and the species is the
-table below. The code generator routes every operator and method whose
-operand the checker typed as a vector or a mask through `simd.lane`, which
-is how `v == needle` on a number and `m:any()` on a boolean mean what they
-mean in lanes. The native lowering never sees any of this: a tier with
-vector registers takes them, and one without lowers the species as one
-lane too.
+species `simd.species` answers is the one below, and the code generator
+routes every operator and method whose operand the checker typed as a vector
+or a mask through `simd.lane`. A preferred species is one lane wide, since
+there are no vector registers to be as wide as: its vector is a plain Lua
+number already wrapped to its element, its mask a plain boolean, and the same
+loop runs a lane at a time, which is how `v == needle` on a number and
+`m:any()` on a boolean mean what they mean in lanes. A fixed species is the N
+lanes it names, as it is on every native tier: its vector and its mask are
+the N-lane tables described at the top of this module, and `species:over`
+visits a span N lanes at a time under a real tail mask. The native lowering
+never sees any of this: a tier with vector registers takes them, and one
+without lowers a preferred species as one lane too.
 ]]
 
 --- The element name each standard witness denotes.
@@ -2178,13 +2508,15 @@ end
 
 --- The lane operations, as the code generator calls them for a value the
 --- checker typed as a vector or a mask: a binary operator, a unary one, and
---- a method. `element` is the element name, or "mask" for a mask.
+--- a method. `element` is the element name, or "mask" for a mask. Each
+--- answers an N-lane form lane by lane through the one-lane operation
+--- beneath it.
 --- @export
 local lane = {}
 
+--- A binary operator on one lane, or on a preferred-species vector or mask.
 --- @raises string when the operator is not one the lanes have
---- @export
-function lane.binary(op: string, element: string, a: any, b: any): any
+local function binaryLane(op: string, element: string, a: any, b: any): any
     if element == "mask" then
         if op == "&" then
             return a and b
@@ -2246,8 +2578,8 @@ function lane.binary(op: string, element: string, a: any, b: any): any
     return bitwise(element, op, a, b)
 end
 
---- @export
-function lane.unary(op: string, element: string, a: any): any
+--- A unary operator on one lane.
+local function unaryLane(op: string, element: string, a: any): any
     if element == "mask" then
         return not a
     end
@@ -2261,6 +2593,60 @@ function lane.unary(op: string, element: string, a: any): any
     end
 
     return wrap(element, 2 ^ (BITS[element] as number) - 1 - pattern(element, a))
+end
+
+--- The operators whose answer is a mask whatever their operands are.
+const COMPARISONS: {
+    [string]: boolean
+} = {["=="] = true, ["~="] = true, ["<"] = true, ["<="] = true, [">"] = true, [">="] = true,}
+
+--- The element the value an operator answers carries: the N-lane operand's,
+--- which for a mask operator is the element of the species the masks belong
+--- to, and the operator's own element otherwise.
+local function carriedElement(element: string, a: any, b: any): string
+    if lanesOf(a) ~= nil then
+        return elementOf(a)
+    elseif lanesOf(b) ~= nil then
+        return elementOf(b)
+    end
+
+    return element
+end
+
+--- @raises string when the operator is not one the lanes have
+--- @export
+function lane.binary(op: string, element: string, a: any, b: any): any
+    local n = lanesOf(a) or lanesOf(b)
+    if n == nil then
+        return binaryLane(op, element, a, b)
+    end
+    local lanes: {[integer]: any} = {}
+    for i = 1, n as integer do
+        lanes[i] = binaryLane(op, element, laneAt(a, i), laneAt(b, i))
+    end
+    local carried = carriedElement(element, a, b)
+    if element == "mask" or COMPARISONS[op] then
+        return maskOf(carried, n as integer, lanes)
+    end
+
+    return vectorOf(carried, n as integer, lanes)
+end
+
+--- @export
+function lane.unary(op: string, element: string, a: any): any
+    local n = lanesOf(a)
+    if n == nil then
+        return unaryLane(op, element, a)
+    end
+    local lanes: {[integer]: any} = {}
+    for i = 1, n as integer do
+        lanes[i] = unaryLane(op, element, laneAt(a, i))
+    end
+    if element == "mask" then
+        return maskOf(elementOf(a), n as integer, lanes)
+    end
+
+    return vectorOf(elementOf(a), n as integer, lanes)
 end
 
 local function saturate(element: string, value: number): number
@@ -2282,6 +2668,9 @@ local function popcount(element: string, value: any): any
     return nupp.math.u32.popcount(pattern(element, value))
 end
 
+--- The methods on one lane, or on a preferred-species vector or mask. On an
+--- N-lane form `lane.method` applies the lane-by-lane ones here to each
+--- lane and takes the rest from `WIDE` below.
 local METHODS: {[string]: function(string, any, ...: any): any} = {
     propagatingMin = function(_element: string, a: any, b: any): any
         return extremum(a, b, true, true)
@@ -2437,6 +2826,228 @@ local METHODS: {[string]: function(string, any, ...: any): any} = {
     end,
 }
 
+--- A lane index argument as an integer within `1 .. n`.
+--- @raises string when the index is outside the lanes
+local function laneIndex(index: any, n: integer, what: string): integer
+    local i = tonumber(index)
+    if i == nil or i < 1 or i > n or i % 1 ~= 0 then
+        error("SIMD lane " .. what .. " index exceeds the logical species lanes", 4)
+    end
+
+    return i as integer
+end
+
+--- The methods whose answer is not lane by lane: on an N-lane form they
+--- rearrange, pack, scan or summarize its lanes. `n` is the lane count and
+--- `element` the receiver's element; a mask method receives the mask.
+local WIDE: {[string]: function(string, integer, any, ...: any): any} = {
+    extract = function(_element: string, n: integer, a: any, index: any): any
+        return laneAt(a, laneIndex(index, n, "extraction"))
+    end,
+    insert = function(element: string, n: integer, a: any, index: any, value: any): any
+        local lanes = copyLanes(a, n)
+        lanes[laneIndex(index, n, "insertion")] = wrap(element, value)
+
+        return vectorOf(element, n, lanes)
+    end,
+    reverse = function(element: string, n: integer, a: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            lanes[i] = laneAt(a, n + 1 - i)
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    interleave = function(element: string, n: integer, a: any, b: any): (any, any)
+        local run: {[integer]: any} = {}
+        for i = 1, n do
+            run[2 * i - 1] = laneAt(a, i)
+            run[2 * i] = laneAt(b, i)
+        end
+        local first: {[integer]: any} = {}
+        local second: {[integer]: any} = {}
+        for i = 1, n do
+            first[i] = run[i]
+            second[i] = run[n + i]
+        end
+
+        return vectorOf(element, n, first), vectorOf(element, n, second)
+    end,
+    deinterleave = function(element: string, n: integer, a: any, b: any): (any, any)
+        local odd: {[integer]: any} = {}
+        local even: {[integer]: any} = {}
+        for run = 1, 2 * n do
+            local value = run <= n and laneAt(a, run) or laneAt(b, run - n)
+            if run % 2 == 1 then
+                odd[((run + 1) / 2) as integer] = value
+            else
+                even[(run / 2) as integer] = value
+            end
+        end
+
+        return vectorOf(element, n, odd), vectorOf(element, n, even)
+    end,
+    rotateLeft = function(element: string, n: integer, a: any, count: any): any
+        local by = (tonumber(count) as number) % n
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            lanes[i] = laneAt(a, ((i - 1 + by) % n + 1) as integer)
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    rotateRight = function(element: string, n: integer, a: any, count: any): any
+        local by = (tonumber(count) as number) % n
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            lanes[i] = laneAt(a, ((i - 1 - by) % n + 1) as integer)
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    align = function(element: string, n: integer, a: any, previous: any, offset: any): any
+        local by = tonumber(offset)
+        if by == nil or by < 0 or by > n or by % 1 ~= 0 then
+            error("SIMD align offset exceeds the logical species lanes", 3)
+        end
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            if i <= by then
+                lanes[i] = laneAt(previous, (n - by + i) as integer)
+            else
+                lanes[i] = laneAt(a, (i - by) as integer)
+            end
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    swizzle = function(element: string, n: integer, a: any, indices: any, other: any, third: any, fourth: any): any
+        local run = copyLanes(a, n)
+        for _, more in ipairs({other, third, fourth}) do
+            for i = 1, n do
+                run[#run + 1] = laneAt(more, i)
+            end
+        end
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            local index = tonumber(laneAt(indices, i))
+            if index ~= nil and index >= 1 and index <= #run and index % 1 == 0 then
+                lanes[i] = run[index as integer]
+            else
+                lanes[i] = wrap(element, 0)
+            end
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    compress = function(element: string, n: integer, a: any, selected: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            if laneAt(selected, i) == true then
+                lanes[#lanes + 1] = laneAt(a, i)
+            end
+        end
+        for i = #lanes + 1, n do
+            lanes[i] = wrap(element, 0)
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    expand = function(element: string, n: integer, a: any, selected: any): any
+        local lanes: {[integer]: any} = {}
+        local packed: integer = 0
+        for i = 1, n do
+            if laneAt(selected, i) == true then
+                packed = packed + 1
+                lanes[i] = laneAt(a, packed)
+            else
+                lanes[i] = wrap(element, 0)
+            end
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    orderedPrefixSum = function(element: string, n: integer, a: any): any
+        local lanes: {[integer]: any} = {}
+        lanes[1] = laneAt(a, 1)
+        for i = 2, n do
+            lanes[i] = binaryLane("+", element, lanes[i - 1], laneAt(a, i))
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    prefixXor = function(element: string, n: integer, a: any): any
+        local lanes: {[integer]: any} = {}
+        lanes[1] = laneAt(a, 1)
+        for i = 2, n do
+            lanes[i] = binaryLane("~", element, lanes[i - 1], laneAt(a, i))
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    -- Masks: the receiver is the mask, which carries its species' element.
+    select = function(_element: string, n: integer, mask: any, yes: any, no: any): any
+        local element = carriedElement(elementOf(mask), yes, no)
+        local lanes: {[integer]: any} = {}
+        for i = 1, n do
+            if laneAt(mask, i) == true then
+                lanes[i] = wrap(element, laneAt(yes, i))
+            else
+                lanes[i] = wrap(element, laneAt(no, i))
+            end
+        end
+
+        return vectorOf(element, n, lanes)
+    end,
+    any = function(_element: string, n: integer, mask: any): any
+        for i = 1, n do
+            if laneAt(mask, i) == true then
+                return true
+            end
+        end
+
+        return false
+    end,
+    all = function(_element: string, n: integer, mask: any): any
+        for i = 1, n do
+            if laneAt(mask, i) ~= true then
+                return false
+            end
+        end
+
+        return true
+    end,
+    count = function(_element: string, n: integer, mask: any): any
+        local total = 0
+        for i = 1, n do
+            if laneAt(mask, i) == true then
+                total = total + 1
+            end
+        end
+
+        return total
+    end,
+    first = function(_element: string, n: integer, mask: any): any
+        for i = 1, n do
+            if laneAt(mask, i) == true then
+                return i
+            end
+        end
+
+        return 0
+    end,
+    bits = function(_element: string, n: integer, mask: any): any
+        local total = 0ULL
+        for i = 1, n do
+            if laneAt(mask, i) == true then
+                total = total + (2 ^ (i - 1)) as uint64
+            end
+        end
+
+        return total
+    end,
+}
+
 --- @raises string when the method is not one the lanes have
 --- @export
 function lane.method(name: string, element: string, receiver: any, ...: any): any
@@ -2444,11 +3055,36 @@ function lane.method(name: string, element: string, receiver: any, ...: any): an
     if method == nil then
         error("method :" .. name .. " is not a SIMD lane operation", 2)
     end
+    local n = lanesOf(receiver)
+    if n == nil then
+        return method(element, receiver, ...)
+    end
+    local wide = WIDE[name]
+    if wide ~= nil then
+        return wide(element, n as integer, receiver, ...)
+    end
+    -- Lane by lane, a scalar argument standing for every lane.
+    local count = select("#", ...)
+    local arguments = {...}
+    local lanes: {[integer]: any} = {}
+    for i = 1, n as integer do
+        local own: {any} = {}
+        for k = 1, count do
+            own[k] = laneAt(arguments[k], i)
+        end
+        lanes[i] = method(element, laneAt(receiver, i), unpack<any>(own, 1, count))
+    end
 
-    return method(element, receiver, ...)
+    return vectorOf(elementOf(receiver), n as integer, lanes)
 end
 
 const simd.lane = lane
+
+--- The element count of a span. `#` on the span's static type is its
+--- `count`, which an untyped runtime value has to read by name.
+local function spanCount(source: any): number
+    return (source as any).count as number
+end
 
 --- Reads an element, or one named field of it, from a span or view.
 local function readAt(source: any, offset: any, field: string?): any
@@ -2462,10 +3098,67 @@ end
 
 local scalarSpecies: function(any, any): any
 
---- The one-lane species object.
-local record ScalarSpecies
+--- One lane converted to `element` under the FFI's numeric conversion rules.
+local function convertLane(element: string, value: any): any
+    if isFloat(element) then
+        return wrap(element, tonumber(value))
+    end
+    local number = tonumber(value) as number
+    if number ~= number then
+        number = 0
+    end
+
+    return wrap(element, truncate(number))
+end
+
+--- One lane's bits read as `element`.
+--- @raises string for a 64-bit element, whose bits a Lua number cannot carry
+local function reinterpretLane(element: string, value: any): any
+    if element == "float" then
+        return nupp.math.f32.fromBits(pattern("uint32", value))
+    elseif BITS[element] == 32 and type(value) == "number" and value % 1 ~= 0 then
+        -- A fractional value can only have been a float lane.
+        return wrap(element, nupp.math.f32.toBits(nupp.math.f32.narrow(value as number)))
+    elseif element == "number" or BITS[element] == 64 then
+        error("a 64-bit reinterpretation is not available as ordinary Lua", 3)
+    end
+
+    return wrap(element, value)
+end
+
+--- The species object as ordinary Lua: one lane wide for a preferred
+--- species, N wide for a fixed one. Every method visits `lanes` lanes and
+--- answers through `make`, so the two forms share one body.
+local record LuaSpecies
     @readonly lanes: integer
     @readonly element: string
+
+    --- A vector of this species from its lanes: the one lane itself for a
+    --- preferred species, the N-lane form for a fixed one.
+    function make(self, lanes: {[integer]: any}): any
+        if self.lanes == 1 then
+            return lanes[1]
+        end
+
+        return vectorOf(self.element, self.lanes, lanes)
+    end
+
+    function makeMask(self, lanes: {[integer]: any}): any
+        if self.lanes == 1 then
+            return lanes[1]
+        end
+
+        return maskOf(self.element, self.lanes, lanes)
+    end
+
+    --- Element `index` of a span, or zero outside it.
+    function readOrZero(self, source: any, index: number): any
+        if index < 1 or index > spanCount(source) then
+            return wrap(self.element, 0)
+        end
+
+        return wrap(self.element, (source as any):get(index))
+    end
 
     function load(self, source: any, offset: any, third: any, fourth: any): any
         local field: string? = nil
@@ -2474,45 +3167,61 @@ local record ScalarSpecies
             field = third as string
             active = fourth
         end
-        if active == false then
-            return wrap(self.element, 0)
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            if activeAt(active, i) then
+                lanes[i] = wrap(self.element, readAt(source, (offset as number) + i - 1, field))
+            else
+                lanes[i] = wrap(self.element, 0)
+            end
         end
 
-        return wrap(self.element, readAt(source, offset, field))
+        return self:make(lanes)
     end
 
     function store(self, destination: any, offset: any, third: any, fourth: any, fifth: any): nil
-        if type(third) == "string" then
-            if fifth == false then
-                return
-            end
-            local target = destination as any
-            local row = target:get(offset) as {[string]: any}
-            row[third as string] = fourth
-            target:set(offset, row)
-            return
-        end
-        if fourth == false then
-            return
-        end
         local target = destination as any
-        target:set(offset, third)
+        if type(third) == "string" then
+            local field = third as string
+            for i = 1, self.lanes do
+                if activeAt(fifth, i) then
+                    local at = (offset as number) + i - 1
+                    local row = target:get(at) as {[string]: any}
+                    row[field] = laneAt(fourth, i)
+                    target:set(at, row)
+                end
+            end
+            return
+        end
+        for i = 1, self.lanes do
+            if activeAt(fourth, i) then
+                target:set((offset as number) + i - 1, laneAt(third, i))
+            end
+        end
     end
 
     function gather(self, source: any, index: any, active: any): any
-        if active == false or (index as number) < 1 or (index as number) > #(source as {any}) then
-            return wrap(self.element, 0)
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            if activeAt(active, i) then
+                lanes[i] = self:readOrZero(source, tonumber(laneAt(index, i)) as number)
+            else
+                lanes[i] = wrap(self.element, 0)
+            end
         end
 
-        return wrap(self.element, (source as any):get(index))
+        return self:make(lanes)
     end
 
     function scatter(self, destination: any, index: any, value: any, active: any): nil
-        if active == false or (index as number) < 1 or (index as number) > #(destination as {any}) then
-            return
-        end
         local target = destination as any
-        target:set(index, value)
+        local limit = spanCount(destination)
+        for i = 1, self.lanes do
+            local at = tonumber(laneAt(index, i)) as number
+            if activeAt(active, i) and at >= 1 and at <= limit then
+                target:set(at, laneAt(value, i))
+            end
+        end
     end
 
     function scatterUnchecked(self, destination: any, index: any, value: any, active: any): nil
@@ -2520,116 +3229,167 @@ local record ScalarSpecies
     end
 
     function convert(self, value: any): any
-        if isFloat(self.element) then
-            return wrap(self.element, tonumber(value))
-        end
-        local number = tonumber(value) as number
-        if number ~= number then
-            number = 0
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = convertLane(self.element, laneAt(value, i))
         end
 
-        return wrap(self.element, truncate(number))
+        return self:make(lanes)
     end
 
     function reinterpret(self, value: any): any
-        local element = self.element
-        if element == "float" then
-            return nupp.math.f32.fromBits(pattern("uint32", value))
-        elseif BITS[element] == 32 and type(value) == "number" and value % 1 ~= 0 then
-            -- A fractional value can only have been a float lane.
-            return wrap(element, nupp.math.f32.toBits(nupp.math.f32.narrow(value as number)))
-        elseif element == "number" or BITS[element] == 64 then
-            error("a 64-bit reinterpretation is not available in the one-lane species", 2)
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = reinterpretLane(self.element, laneAt(value, i))
         end
 
-        return wrap(element, value)
+        return self:make(lanes)
     end
 
-    --- Another element's species with this one's lane count, which as Lua
-    --- is one either way.
+    --- Another element's species with this one's lane count.
     function widen(self, witness: any): any
-        return scalarSpecies(witness, nil)
+        return scalarSpecies(witness, self.lanes > 1 and self.lanes or nil)
     end
 
     function narrow(self, witness: any): any
-        return scalarSpecies(witness, nil)
+        return scalarSpecies(witness, self.lanes > 1 and self.lanes or nil)
     end
 
     function splat(self, value: any): any
-        return wrap(self.element, value)
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = wrap(self.element, value)
+        end
+
+        return self:make(lanes)
     end
 
-    function iota(self, first: any, _step: any): any
-        return wrap(self.element, first)
+    function iota(self, first: any, step: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = wrap(self.element, (first as any) + (i - 1) * (step as any))
+        end
+
+        return self:make(lanes)
     end
 
-    function tail(self, active: any): boolean
-        return (active as number) >= 1
+    function tail(self, active: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = i <= (active as number)
+        end
+
+        return self:makeMask(lanes)
     end
 
-    function mask(self, value: any): boolean
-        return value == true
+    function mask(self, value: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            lanes[i] = laneAt(value, i) == true
+        end
+
+        return self:makeMask(lanes)
     end
 
     function map(self, operation: any, ...: any): any
-        return wrap(self.element, (operation as function(...: any): any)(...))
+        local count = select("#", ...)
+        local arguments = {...}
+        local apply = operation as function(...: any): any
+        local lanes: {[integer]: any} = {}
+        for i = 1, self.lanes do
+            local own: {any} = {}
+            for k = 1, count do
+                own[k] = laneAt(arguments[k], i)
+            end
+            lanes[i] = wrap(self.element, apply(unpack<any>(own, 1, count)))
+        end
+
+        return self:make(lanes)
     end
 
     function over(self, count: any): function(): (any, any)
-        local at = 0
+        local n = self.lanes
         local limit = count as number
+        local at = 1 - n
+        local full = self:tail(n)
 
         return function(): (any, any)
-            at = at + 1
-            if at <= limit then
-                return at, true
+            at = at + n
+            if at > limit then
+                return nil, nil
+            end
+            local room = limit - at + 1
+            if room >= n then
+                return at, full
             end
 
-            return nil, nil
+            return at, self:tail(room)
+        end
+    end
+
+    --- `k` vectors dealt from the `k * lanes` elements at `offset`, lane `i`
+    --- of the `j`th reading element `k * (i - 1) + j` of the run, and zero
+    --- past the span.
+    function loadRun(self, source: any, offset: any, k: integer): {[integer]: any}
+        local vectors: {[integer]: any} = {}
+        for j = 1, k do
+            local lanes: {[integer]: any} = {}
+            for i = 1, self.lanes do
+                lanes[i] = self:readOrZero(source, (offset as number) + k * (i - 1) + (j - 1))
+            end
+            vectors[j] = self:make(lanes)
+        end
+
+        return vectors
+    end
+
+    --- The inverse of `loadRun`; elements past the span are not written.
+    function storeRun(self, destination: any, offset: any, vectors: {[integer]: any}): nil
+        local target = destination as any
+        local limit = spanCount(destination)
+        local k = #vectors
+        for j = 1, k do
+            for i = 1, self.lanes do
+                local at = (offset as number) + k * (i - 1) + (j - 1)
+                if at >= 1 and at <= limit then
+                    target:set(at, laneAt(vectors[j], i))
+                end
+            end
         end
     end
 
     function loadPairs(self, source: any, offset: any): (any, any)
-        return self:gather(source, offset), self:gather(source, (offset as number) + 1)
+        local run = self:loadRun(source, offset, 2)
+
+        return run[1], run[2]
     end
 
     function loadTriples(self, source: any, offset: any): (any, any, any)
-        return self:gather(
-            source,
-            offset
-        ), self:gather(source, (offset as number) + 1), self:gather(source, (offset as number) + 2)
+        local run = self:loadRun(source, offset, 3)
+
+        return run[1], run[2], run[3]
     end
 
     function loadQuads(self, source: any, offset: any): (any, any, any, any)
-        return self:gather(
-            source,
-            offset
-        ), self:gather(
-            source,
-            (offset as number) + 1
-        ), self:gather(source, (offset as number) + 2), self:gather(source, (offset as number) + 3)
+        local run = self:loadRun(source, offset, 4)
+
+        return run[1], run[2], run[3], run[4]
     end
 
     function storePairs(self, destination: any, offset: any, first: any, second: any): nil
-        self:scatter(destination, offset, first)
-        self:scatter(destination, (offset as number) + 1, second)
+        self:storeRun(destination, offset, {first, second})
     end
 
     function storeTriples(self, destination: any, offset: any, first: any, second: any, third: any): nil
-        self:scatter(destination, offset, first)
-        self:scatter(destination, (offset as number) + 1, second)
-        self:scatter(destination, (offset as number) + 2, third)
+        self:storeRun(destination, offset, {first, second, third})
     end
 
     function storeQuads(self, destination: any, offset: any, first: any, second: any, third: any, fourth: any): nil
-        self:scatter(destination, offset, first)
-        self:scatter(destination, (offset as number) + 1, second)
-        self:scatter(destination, (offset as number) + 2, third)
-        self:scatter(destination, (offset as number) + 3, fourth)
+        self:storeRun(destination, offset, {first, second, third, fourth})
     end
 end
 
-local speciesCache: {[string]: ScalarSpecies} = {}
+local speciesCache: {[string]: LuaSpecies} = {}
 
 scalarSpecies = function(element: any, lanes: any): any
     local name = ELEMENT_OF[element]
@@ -2639,10 +3399,15 @@ scalarSpecies = function(element: any, lanes: any): any
     if lanes ~= nil and (type(lanes) ~= "number" or lanes < 2 or lanes > 64 or lanes % 1 ~= 0) then
         error("simd.species takes a witness and, for a fixed shape, one literal lane count", 3)
     end
-    local found = speciesCache[name as string]
+    local width: integer = 1
+    if lanes ~= nil then
+        width = lanes as integer
+    end
+    local key = (name as string) .. "/" .. tostring(width)
+    local found = speciesCache[key]
     if found == nil then
-        found = new ScalarSpecies(lanes = 1, element = name as string)
-        speciesCache[name as string] = found
+        found = new LuaSpecies(lanes = width, element = name as string)
+        speciesCache[key] = found
     end
 
     return found
@@ -2657,9 +3422,10 @@ end
 --- between 2 and 64.
 ---
 --- There is always a species. Where the running code has vector registers
---- it is as wide as they are; where it has none -- the scalar Wasm tier, or
---- a body running as ordinary Lua under `aot = "off"` -- it is one lane
---- wide, and the same loop runs a lane at a time. A species of another
+--- a preferred species is as wide as they are; where it has none -- the
+--- scalar Wasm tier, or a body running as ordinary Lua under `aot = "off"`
+--- -- it is one lane wide, and the same loop runs a lane at a time. A fixed
+--- species is its N lanes wherever it runs. A species of another
 --- element with the same lane count, whichever that is on the tier, is
 --- `widen` or `narrow` of this one. So a kernel is written once:
 ---
@@ -2670,8 +3436,8 @@ end
 --- end
 --- ```
 ---
---- A kernel that wants a hand-written scalar loop instead, because the
---- one-lane species is slower than plain Lua when AOT is off, asks
+--- A kernel that wants a hand-written scalar loop instead, because a
+--- species run as ordinary Lua is slower than plain Lua, asks
 --- `simd.vectors` for the species, which is nil where there are none.
 ---
 --- The lane count is decided when the enclosing `@aot` function is lowered,
@@ -2741,9 +3507,29 @@ end
 local transpose: function<Rows...>(
     ...: Rows...
 ): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): any
-    -- As ordinary Lua every row is one lane, so the tile is its own
-    -- transpose.
-    return ...
+    -- As ordinary Lua a preferred-species row is one lane, so the tile is
+    -- its own transpose; fixed-species rows are transposed lane by lane.
+    local first = ...
+    local n = lanesOf(first)
+    if n == nil then
+        return ...
+    end
+    local count = select("#", ...)
+    if count ~= n then
+        error("transpose needs as many rows as the species has lanes", 2)
+    end
+    local rows = {...}
+    local element = elementOf(first)
+    local columns: {any} = {}
+    for j = 1, n as integer do
+        local lanes: {[integer]: any} = {}
+        for i = 1, count do
+            lanes[i] = laneAt(rows[i], j)
+        end
+        columns[j] = vectorOf(element, n as integer, lanes)
+    end
+
+    return unpack<any>(columns, 1, n as integer)
 end
 
 const simd.transpose = transpose
@@ -2760,57 +3546,203 @@ const simd.transpose = transpose
 --- @export
 local horizontal = {}
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- The rounding an element's lanes fold under: binary32 for `float`, none
+--- for `number`.
+local function roundingOf(element: string): function(number): number
+    if element == "float" then
+        return nupp.math.f32.narrow
+    end
+
+    return keep
+end
+
+--- A named reduction over the lanes of an N-lane vector, in the order and
+--- under the contract the name selects.
+--- @raises string when the name is not a lane reduction
+local function foldLanes(value: any, name: string): any
+    local n = lanesOf(value) as integer
+    local element = elementOf(value)
+    local lanes = value as {[integer]: any}
+    if name == "pairwiseSum" then
+        local sum = new simd.PairwiseSum<number>(partials = {}, count = 0, round = roundingOf(element))
+        for i = 1, n do
+            sum:add(lanes[i] as number)
+        end
+
+        return sum:value()
+    elseif name == "pairwiseProduct" then
+        local product = new simd.PairwiseProduct<number>(partials = {}, count = 0, round = roundingOf(element))
+        for i = 1, n do
+            product:add(lanes[i] as number)
+        end
+
+        return product:value()
+    end
+    local total = lanes[1]
+    for i = 2, n do
+        local lane = lanes[i]
+        if name == "orderedSum" or name == "algebraicSum" or name == "wrappingSum" then
+            total = binaryLane("+", element, total, lane)
+        elseif name == "orderedProduct" or name == "algebraicProduct" or name == "wrappingProduct" then
+            total = binaryLane("*", element, total, lane)
+        elseif name == "andBits" then
+            total = binaryLane("&", element, total, lane)
+        elseif name == "orBits" then
+            total = binaryLane("|", element, total, lane)
+        elseif name == "xorBits" then
+            total = binaryLane("~", element, total, lane)
+        elseif name == "propagatingMin" then
+            total = extremum(total, lane, true, true)
+        elseif name == "propagatingMax" then
+            total = extremum(total, lane, false, true)
+        elseif name == "numberMin" then
+            total = extremum(total, lane, true, false)
+        elseif name == "numberMax" then
+            total = extremum(total, lane, false, false)
+        elseif name == "integerMin" then
+            total = integerLess(lane, total) and lane or total
+        elseif name == "integerMax" then
+            total = integerLess(total, lane) and lane or total
+        else
+            error("horizontal." .. name .. " is not a lane reduction", 3)
+        end
+    end
+
+    return total
+end
+
+--- A named dot product over the lanes of two N-lane vectors.
+local function foldDot(left: any, right: any, name: string): any
+    local n = lanesOf(left) as integer
+    local round = roundingOf(elementOf(left))
+    if name == "pairwiseDot" then
+        local sum = new simd.PairwiseSum<number>(partials = {}, count = 0, round = round)
+        local dot = new simd.PairwiseDot<number>(sum = sum, round = round)
+        for i = 1, n do
+            dot:add(laneAt(left, i) as number, laneAt(right, i) as number)
+        end
+
+        return dot:value()
+    end
+    -- Ordered and algebraic alike: each product rounds, then joins the sum
+    -- in lane order.
+    local total = 0
+    for i = 1, n do
+        total = round(total + round((laneAt(left, i) as number) * (laneAt(right, i) as number)))
+    end
+
+    return total
+end
+
+--- The lowest lane holding the extremum the name selects, on the terms of
+--- the reducer of that name.
+local function argLane(value: any, name: string): integer
+    local n = lanesOf(value) as integer
+    local maximum = name == "propagatingArgMax" or name == "numberArgMax"
+    local propagate = name == "propagatingArgMin" or name == "propagatingArgMax"
+    local best = laneAt(value, 1) as number
+    local position: integer = 1
+    for i = 2, n do
+        local candidate = laneAt(value, i) as number
+        if extremumWins(candidate, best, maximum, propagate) then
+            best = candidate
+            position = i
+        end
+    end
+
+    return position
+end
+
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.orderedSum<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "orderedSum") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.pairwiseSum<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "pairwiseSum") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.algebraicSum<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "algebraicSum") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.orderedProduct<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "orderedProduct") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.pairwiseProduct<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "pairwiseProduct") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.algebraicProduct<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "algebraicProduct") as T
+    end
+
     return value as T
 end
 
 --- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.orderedDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    if lanesOf(left) ~= nil then
+        return foldDot(left, right, "orderedDot") as T
+    end
     return ((left as any) * (right as any)) as T
 end
 
 --- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.pairwiseDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    if lanesOf(left) ~= nil then
+        return foldDot(left, right, "pairwiseDot") as T
+    end
     return ((left as any) * (right as any)) as T
 end
 
 --- As ordinary Lua the vectors are one lane each, which is the product.
 --- @export
 function horizontal.algebraicDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    if lanesOf(left) ~= nil then
+        return foldDot(left, right, "algebraicDot") as T
+    end
     return ((left as any) * (right as any)) as T
 end
 
@@ -2827,27 +3759,47 @@ end
 --- answer does not depend on how many lanes the target chose. `numberMin`
 --- answers the smallest lane that is not NaN, and the canonical NaN only when
 --- every lane is. `-0` is the smaller zero under both.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.propagatingMin<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "propagatingMin") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.propagatingMax<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "propagatingMax") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.numberMin<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "numberMin") as T
+    end
+
     return value as T
 end
 
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.numberMax<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "numberMax") as T
+    end
+
     return value as T
 end
 
@@ -2863,78 +3815,133 @@ end
 ---
 --- A lane index rather than a lane and its value, because an AOT expression
 --- answers a value and `extract` already spells the pair.
---- As ordinary Lua the vector is one lane, which is the position.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- position; a fixed-species vector is searched.
 --- @export
-function horizontal.propagatingArgMin<T, S>(_value: simd.Vector<T, S>): integer
+function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer
+    if lanesOf(value) ~= nil then
+        return argLane(value, "propagatingArgMin")
+    end
+
     return 1
 end
 
---- As ordinary Lua the vector is one lane, which is the position.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- position; a fixed-species vector is searched.
 --- @export
-function horizontal.propagatingArgMax<T, S>(_value: simd.Vector<T, S>): integer
+function horizontal.propagatingArgMax<T, S>(value: simd.Vector<T, S>): integer
+    if lanesOf(value) ~= nil then
+        return argLane(value, "propagatingArgMax")
+    end
+
     return 1
 end
 
---- As ordinary Lua the vector is one lane, which is the position.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- position; a fixed-species vector is searched.
 --- @export
-function horizontal.numberArgMin<T, S>(_value: simd.Vector<T, S>): integer
+function horizontal.numberArgMin<T, S>(value: simd.Vector<T, S>): integer
+    if lanesOf(value) ~= nil then
+        return argLane(value, "numberArgMin")
+    end
+
     return 1
 end
 
---- As ordinary Lua the vector is one lane, which is the position.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- position; a fixed-species vector is searched.
 --- @export
-function horizontal.numberArgMax<T, S>(_value: simd.Vector<T, S>): integer
+function horizontal.numberArgMax<T, S>(value: simd.Vector<T, S>): integer
+    if lanesOf(value) ~= nil then
+        return argLane(value, "numberArgMax")
+    end
+
     return 1
 end
 
 --- The lanes of an integer vector summed, wrapping in the lane's own width: a
 --- byte vector's sum wraps at a byte, as `simd.reducer.wrappingSum` wraps at
 --- its element. Every association answers the same, so there is one name.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.wrappingSum<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "wrappingSum") as T
+    end
+
     return value as T
 end
 
 --- The lanes of an integer vector multiplied, wrapping in the lane's width.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.wrappingProduct<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "wrappingProduct") as T
+    end
+
     return value as T
 end
 
 --- The bitwise and of every lane of an integer vector.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.andBits<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "andBits") as T
+    end
+
     return value as T
 end
 
 --- The bitwise or of every lane of an integer vector.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.orBits<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "orBits") as T
+    end
+
     return value as T
 end
 
 --- The bitwise exclusive or of every lane of an integer vector.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.xorBits<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "xorBits") as T
+    end
+
     return value as T
 end
 
 --- The smallest lane of an integer vector, by the element's signedness.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.integerMin<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "integerMin") as T
+    end
+
     return value as T
 end
 
 --- The largest lane of an integer vector, by the element's signedness.
---- As ordinary Lua the vector is one lane, which is the reduction.
+--- As ordinary Lua a preferred-species vector is one lane, which is the
+--- reduction; a fixed-species vector is folded.
 --- @export
 function horizontal.integerMax<T, S>(value: simd.Vector<T, S>): T
+    if lanesOf(value) ~= nil then
+        return foldLanes(value, "integerMax") as T
+    end
+
     return value as T
 end
 

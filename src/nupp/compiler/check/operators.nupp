@@ -489,7 +489,8 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             local mm = c.metamethodOf(t, "__unm")
             if mm then
-                if simdFamily(t) == "Vector" then
+                local family = simdFamily(t)
+                if family == "Vector" or family == "Mask" then
                     (node as any).simdIntrinsic = op
                 end
                 return c.applyContract(mm, {t}, {operand}, node, "__unm")

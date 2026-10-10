@@ -21,7 +21,7 @@ local function scale(exclusive output: span.WriteSpan<float>, borrows input: spa
 end
 ```
 
-`simd.species(array.float)` is the species for the element, and there always is one: as wide as the target's vector registers where it has them, and one lane wide where it has none. `species:over(#input)` visits the span a chunk at a time, binding `at` to the chunk's one-based offset and `active` to its mask. Every chunk but the last is full, and a load or store under its mask is the unmasked access the loop's own bound proves, so the main loop pays no per-lane check; the last chunk's mask is the tail. Written this way the kernel is the whole algorithm. There is no second loop for the remainder and no scalar continuation, and the same source runs on a tier without vectors, and as ordinary Lua with AOT off, one lane at a time.
+`simd.species(array.float)` is the species for the element, and there always is one: as wide as the target's vector registers where it has them, and one lane wide where it has none. `species:over(#input)` visits the span a chunk at a time, binding `at` to the chunk's one-based offset and `active` to its mask. Every chunk but the last is full, and a load or store under its mask is the unmasked access the loop's own bound proves, so the main loop pays no per-lane check; the last chunk's mask is the tail. Written this way the kernel is the whole algorithm. There is no second loop for the remainder and no scalar continuation, and the same source runs on a tier without vectors, and as ordinary Lua with AOT off, one lane at a time. A fixed species, `simd.species(array.float, 4)`, is four lanes wherever it runs, as ordinary Lua included: a vector of it is then a table of four lanes and a mask a table of four booleans, and the same loop visits four elements a step.
 
 ## Loops
 
@@ -41,7 +41,7 @@ if cursor < #input then
 end
 ```
 
-A kernel that wants a hand-written scalar loop where there are no vectors, because the one-lane species runs slower than plain Lua when AOT is off, asks `simd.vectors` instead. It answers the species where the running code has vector registers and nil where it does not, and the test against nil is decided per tier at compile time, so the vector branch is pruned where it cannot run:
+A kernel that wants a hand-written scalar loop where there are no vectors, because a species run as ordinary Lua is slower than plain Lua, asks `simd.vectors` instead. It answers the species where the running code has vector registers and nil where it does not, and the test against nil is decided per tier at compile time, so the vector branch is pruned where it cannot run:
 
 ```nupp:fragment
 if species = simd.vectors(array.float) then
@@ -289,7 +289,7 @@ end
 return {twice = twice, positive = positive, apply = apply}
 ```
 
-`nupp aot` reports `twice` and `positive` as `explicit simd, native-only`. The build gives neither a Lua wrapper: the declaration lowers to a stub that refuses a call, the function is not listed in `__nuppAotCompiled`, and `--emit binding` shows the stub where the foreign declaration would be. The module's export table still names the function, and another module imports it as it imports anything, because the native call resolves through the export without reading a Lua value. Under `aot = "off"` the function is ordinary Nupp, one lane wide, and callable.
+`nupp aot` reports `twice` and `positive` as `explicit simd, native-only`. The build gives neither a Lua wrapper: the declaration lowers to a stub that refuses a call, the function is not listed in `__nuppAotCompiled`, and `--emit binding` shows the stub where the foreign declaration would be. The module's export table still names the function, and another module imports it as it imports anything, because the native call resolves through the export without reading a Lua value. Under `aot = "off"` the function is ordinary Nupp and callable, one lane wide for a preferred species and N lanes for a fixed one.
 
 Every use the checker can see that Lua would execute is refused where it is written, for a target whose policy compiles: a call outside an `@aot` function, an argument, a return, a store into a table. The export member and the import binding are the two references admitted. A check of a target whose `aot` policy compiles refuses the call inside `fromLua` below; under `aot = "off"` it is an ordinary call.
 
@@ -346,7 +346,7 @@ return {square = square, squares = squares, Pair = Pair}
 
 The code generator lays the aggregate out as a literal struct of its fields' register types, `{ <4 x float>, <4 x float> }` here, and an entry that takes or answers one is native-only like an entry that takes a vector. A field may be a vector, a mask, a `number`, `float`, `boolean`, or 32- or 64-bit integer, or another native-only aggregate; the narrow storage integers are refused, because the aggregate is never storage. `Preferred` species are admitted, since the layout belongs to the tier the function is compiled for.
 
-A native-only aggregate is kept out of memory and out of Lua. A span or array of one is refused where the span is declared, naming the field that makes the struct native-only. A Lua construction is refused under a target whose policy compiles, as a Lua call of a native-only entry is. A field assignment is refused everywhere, so the one-lane Lua form and the native form never disagree about who sees a write:
+A native-only aggregate is kept out of memory and out of Lua. A span or array of one is refused where the span is declared, naming the field that makes the struct native-only. A Lua construction is refused under a target whose policy compiles, as a Lua call of a native-only entry is. A field assignment is refused everywhere, so the Lua form and the native form never disagree about who sees a write:
 
 ```nupp:refused
 local simd = require("nupp.simd")
@@ -365,14 +365,14 @@ end
 return {conjugate = conjugate, Pair = Pair}
 ```
 
-Under `aot = "off"` the struct lowers to a C struct of one lane per vector field, a `float` for a `Vector<float, S>` and a `bool` for a mask, and every operation on it is the ordinary one.
+Under `aot = "off"` the struct is a Lua table built by position, each vector or mask field holding the form its species has there, a number or a boolean for a preferred species and an N-lane table for a fixed one, and every operation on it is the ordinary one.
 
 ### Storage layout
 
-A struct that a span or array holds has a memory layout, which must not change with the CPU tier, so only a `Fixed<N>` vector could ever be a storage field, and none is admitted yet. The contract such a field would be laid out by is stated in the compiler's target layout model, per target: a vector's alignment is its payload rounded up to a power of two, capped at what the target's allocator guarantees, 16 bytes on every 64-bit target and on Wasm and 8 on i686; a payload that is not a power of two pads to that alignment, so `Fixed<3>` of `float` occupies 16 bytes with 4 of padding; a payload past the cap aligns to the cap and pads to a multiple of it. Admitting storage fields waits on a full-width `Fixed<N>` form for ordinary Lua, where a vector is one lane today and a field of N lanes has no representation to read into or write from.
+A struct that a span or array holds has a memory layout, which must not change with the CPU tier, so only a `Fixed<N>` vector could ever be a storage field, and none is admitted yet. The contract such a field would be laid out by is stated in the compiler's target layout model, per target: a vector's alignment is its payload rounded up to a power of two, capped at what the target's allocator guarantees, 16 bytes on every 64-bit target and on Wasm and 8 on i686; a payload that is not a power of two pads to that alignment, so `Fixed<3>` of `float` occupies 16 bytes with 4 of padding; a payload past the cap aligns to the cap and pads to a multiple of it. A `Fixed<N>` vector is its N lanes as ordinary Lua as well, so a stored field has a form to read into and write from; admitting storage fields is the step that remains.
 
 ## Targets and portability
 
 Preferred species resolve per artifact tier. Fixed species keep their logical lane count while native legalization chooses the representation. Wasm SIMD128 and native CPU tiers use the same source-level vector and mask operations; GPU invocations are a separate execution model.
 
-`aotFeatures` chooses the tiers an artifact ships and can raise its minimum when its source requires SIMD. On a tier without vector registers `simd.species` is one lane wide and `simd.vectors` is nil, where an assert of it is rejected at compile time. Windows x86-64 limits physical vector width to its frame-safe 16 bytes even when a wider tier is selected.
+`aotFeatures` chooses the tiers an artifact ships and can raise its minimum when its source requires SIMD. On a tier without vector registers a preferred species is one lane wide and `simd.vectors` is nil, where an assert of it is rejected at compile time. Windows x86-64 limits physical vector width to its frame-safe 16 bytes even when a wider tier is selected.

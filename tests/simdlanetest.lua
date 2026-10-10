@@ -247,4 +247,42 @@ end
     testAssert.equal(fused, 5, "fma on a float lane")
 end
 
+function M.maskNegationAndIndexedMemoryRunInOneLane()
+    local run = compile(
+        PRELUDE
+        .. [[
+@aot
+local function probe(exclusive out: span.WriteSpan<uint8>, borrows bytes: span.Span<uint8>): (number, number, number, number)
+    local s = simd.species(array.uint8)
+    local i = simd.species(array.int32)
+    local v = s:load(bytes, 1)
+    local inverted = -(v < 100)
+    local hit = s:gather(bytes, i:splat(3))
+    local outside = s:gather(bytes, i:splat(4))
+    s:scatter(out, i:splat(2), s:splat(9))
+    s:scatter(out, i:splat(5), s:splat(9))
+    return inverted:count(), hit:extract(1), outside:extract(1), out[2]
+end
+return function(): (number, number, number, number)
+    const bytes = array.bytes(3)
+    const w = bytes:write()
+    w[1] = 10
+    w[2] = 250
+    w[3] = 7
+    nupp.drop(w)
+    const target = array.bytes(3)
+    const wt = target:write()
+    local inverted, hit, outside, written = probe(wt, bytes:read())
+    nupp.drop(wt)
+    return inverted, hit, outside, written
+end
+]]
+    )
+    local inverted, hit, outside, written = run()
+    testAssert.equal(inverted, 0, "negating a true lane answers false")
+    testAssert.equal(hit, 7, "gather reads the element at its one-based index")
+    testAssert.equal(outside, 0, "an index past the span reads zero")
+    testAssert.equal(written, 9, "scatter writes within the span and ignores an index past it")
+end
+
 return M
