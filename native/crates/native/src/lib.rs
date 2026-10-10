@@ -31,6 +31,27 @@ mod uri;
 /// What `nuppNativeLastError` answers if reading the last error panics.
 static PANICKED: &std::ffi::CStr = c"native provider panicked";
 
+/// # Safety
+/// The state and input ranges follow the checksum adapter's ABI contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nuppCrcUpdate(
+    algorithm: u32,
+    reset: i32,
+    words: *mut u64,
+    data: *const u8,
+    length: usize,
+) -> i32 {
+    boundary(|| {
+        // SAFETY: forwards the caller-owned ranges without retaining them.
+        unsafe { nupp_crc::nuppCrcUpdate(algorithm, reset, words, data, length) }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nuppCrcLastError() -> *const c_char {
+    guard(PANICKED.as_ptr(), || nupp_crc::nuppCrcLastError())
+}
+
 const FEATURE_BASE: u64 = 1 << 0;
 const FEATURE_UUID: u64 = 1 << 1;
 const FEATURE_GPU: u64 = 1 << 2;

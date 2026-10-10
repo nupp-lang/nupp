@@ -385,6 +385,22 @@ int main(void) {
         fprintf(stderr, "uuid4 accepted a short output\n");
         return 1;
     }
+    const uint64_t crc_vectors[] = {
+        UINT64_C(0xcbf43926), UINT64_C(0xe3069283),
+        UINT64_C(0x6c40df5f0b497347), UINT64_C(0xae8b14860a799888)
+    };
+    for (uint32_t id = 1; id <= 4; ++id) {
+        uint64_t words[2] = {0, 0};
+        status = nuppCrcUpdate(id, 1, words, NULL, 0);
+        if (status != 0) return failed("CRC initialize", status);
+        if (words[1] != 0) return 1;
+        status = nuppCrcUpdate(id, 0, words, (const uint8_t *)"1234", 4);
+        if (status != 0) return failed("CRC first chunk", status);
+        status = nuppCrcUpdate(id, 0, words, (const uint8_t *)"56789", 5);
+        if (status != 0) return failed("CRC second chunk", status);
+        if (words[1] != crc_vectors[id - 1]) return 1;
+    }
+
     status = nuppNativeXxh64Digest(NULL, 0, digest, sizeof digest);
     if (status != NUPP_NATIVE_OK) return failed("xxh64", status);
     status = nuppNativeSleepMs(-1.0);

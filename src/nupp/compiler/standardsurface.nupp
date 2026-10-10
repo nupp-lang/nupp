@@ -35,9 +35,10 @@ local MODULES: {[string]: {
     ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.words"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.constants"] = {kind = "common"},
-    ["nupp.checksum"] = facility("runtime", "runtime.bitops"),
+    ["nupp.checksum"] = {kind = "common"},
     ["nupp.checksum.spi"] = {kind = "common"},
-    ["nupp.checksum.internal.builtin"] = facility("runtime", "runtime.bitops"),
+    ["nupp.checksum.internal.builtin"] = {kind = "common"},
+    ["nupp.runtime.provider.nativecrc"] = facility("runtime", "native.crc"),
     ["nupp.mac"] = facility("runtime", "runtime.bitops"),
     ["nupp.compression"] = facility("runtime", "runtime.compression"),
     ["nupp.compression.spi"] = {kind = "common"},
@@ -157,6 +158,7 @@ local MODULES: {[string]: {
 }
 
 local BROWSER_IMPLEMENTATIONS = {
+    ["nupp.runtime.browser.crc"] = true,
     ["nupp.runtime.browser.system"] = true,
     ["nupp.runtime.browser.host"] = true,
     ["nupp.runtime.browser.webgpu.internal"] = true,

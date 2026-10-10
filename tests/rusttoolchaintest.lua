@@ -286,10 +286,7 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     -- The exports themselves: Linux exports dynamically, and macOS takes the
     -- committed host/include/nupp.exports list through the host crate's build
     -- script, so its command line only strips local symbols.
-    assert(
-        arguments:find("-Wl,-E", 1, true) or arguments:find("-Wl,-x", 1, true) or windows,
-        arguments
-    )
+    assert(arguments:find("-Wl,-E", 1, true) or arguments:find("-Wl,-x", 1, true) or windows, arguments)
     assert(output:find(host, 1, true), output)
 end
 
@@ -495,11 +492,8 @@ function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
     assert(resources:find('cygpath -w "$benchmark"', 1, true), "the Windows sampler does not receive a native path")
     assert(windowsResources:find("Start-Process @parameters", 1, true), "PowerShell does not own the benchmark child")
     assert(
-        windowsResources:find(
-            "RedirectStandardOutput = $Output",
-            1,
-            true
-        ) and windowsResources:find("RedirectStandardError = $ErrorOutput", 1, true),
+        windowsResources:find("RedirectStandardOutput = $Output", 1, true)
+        and windowsResources:find("RedirectStandardError = $ErrorOutput", 1, true),
         "the Windows benchmark output is not retained for readiness and diagnostics"
     )
     assert(windowsResources:find("$Process.WorkingSet64", 1, true), "Windows RSS is not sampled")
@@ -529,19 +523,10 @@ function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
     )
     assert(not windowsResources:find("Get-Process", 1, true), "the Windows sampler still rediscovers its child by PID")
     assert(
-        windowsResources:find(
-            "finally",
-            1,
-            true
-        ) and windowsResources:find(
-            "Stop-Benchmark -Process $process",
-            1,
-            true
-        ) and windowsResources:find(
-            "$Process.Kill()",
-            1,
-            true
-        ) and windowsResources:find("$Process.WaitForExit()", 1, true),
+        windowsResources:find("finally", 1, true)
+        and windowsResources:find("Stop-Benchmark -Process $process", 1, true)
+        and windowsResources:find("$Process.Kill()", 1, true)
+        and windowsResources:find("$Process.WaitForExit()", 1, true),
         "the Windows benchmark child is not cleaned up on failure"
     )
     assert(windowsResources:find("$sampleCount -eq 0", 1, true), "a Windows load run can succeed without an RSS sample")
@@ -835,7 +820,11 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     )
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
-        gate:find("lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers", 1, true),
+        gate:find(
+            "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers",
+            1,
+            true
+        ),
         "the gate does not select the production host feature set"
     )
     for _, package in ipairs({

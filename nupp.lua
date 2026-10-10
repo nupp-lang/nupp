@@ -356,6 +356,11 @@ local RESOURCES = {
     {source = "src/nupp/checksum/init.nupp", output = "nupp/compiler/nupp/checksum/init.nupp"},
     {source = "src/nupp/checksum/spi.nupp", output = "nupp/compiler/nupp/checksum/spi.nupp"},
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
+    {
+        source = "src/nupp/runtime/provider/nativecrc.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativecrc.nupp"
+    },
+    {source = "src/nupp/runtime/browser/crc.nupp", output = "nupp/compiler/nupp/runtime/browser/crc.nupp"},
     {source = "src/nupp/mac/init.nupp", output = "nupp/compiler/nupp/mac/init.nupp"},
     {source = "src/nupp/compression/init.nupp", output = "nupp/compiler/nupp/compression/init.nupp"},
     {source = "src/nupp/compression/spi.nupp", output = "nupp/compiler/nupp/compression/spi.nupp"},

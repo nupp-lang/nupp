@@ -23,6 +23,8 @@ return json.encode({
     sha1 = digest.hexDigest("sha1", "abc"),
     sha256 = digest.hexDigest("sha256", "abc"),
     sha512 = digest.hexDigest("sha512", "abc"),
+    crc32 = checksum.value("crc32", "123456789") == 0xcbf43926ULL,
+    crc64nvme = checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL,
     crc32c = checksum.value("crc32c", "123456789") == 0xe3069283ULL,
     crc64 = checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
     hmac = mac.hexDigest("hmac-sha256", "key", "abc"),

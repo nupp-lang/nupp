@@ -219,6 +219,8 @@ nuppNativeWait
 nuppNativeAvailableParallelism
 nuppNativeRandomBytes
 nuppNativeXxh64Digest
+nuppCrcUpdate
+nuppCrcLastError
 
 [native-compression]
 nuppNativeCompressionEncoderCreate

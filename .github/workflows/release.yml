@@ -47,7 +47,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: .nupp-cache/toolchain
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'native/crates/**', 'scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
       - name: Install browser engines
         # apt behind this has hung on an unreachable mirror for the whole job
         # timeout; a stalled install fails in minutes instead.
@@ -131,7 +131,7 @@ jobs:
           mkdir -p release
           kit="nupp-kit-${{ matrix.platform }}.tar.gz"
           ./scripts/toolchain kit-archive \
-            lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers \
+            lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers \
             "release/$kit"
           ./bin/nupp run scripts/release.nupp kit-record \
             "${{ matrix.platform }}" "$GITHUB_SHA" "release/$kit" \
@@ -302,7 +302,7 @@ jobs:
           # One universal compiler-owned host per platform. It is a raw immutable
           # catalog artifact; end-user archives carry the stamped compiler below.
           catalog_host=$(./scripts/toolchain host \
-            lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
+            lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
           stub="nupp-host-${{ matrix.platform }}"
           cp "$catalog_host" "release/$stub"
           chmod +x "release/$stub"
@@ -501,7 +501,7 @@ jobs:
         run: |
           set -euo pipefail
           host=$(./scripts/toolchain host \
-            lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
+            lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
           mkdir -p build/release-host/release
           cp "$host" build/release-host/release/nupp-host.exe
 

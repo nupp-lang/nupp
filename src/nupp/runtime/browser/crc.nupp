@@ -1,0 +1,11 @@
+@!internal
+module nupp.runtime.browser.crc
+
+local ffi = require("ffi")
+ffi.cdef[[
+int32_t nuppGuestCrcUpdate(uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
+const char *nuppGuestCrcLastError(void);
+]]
+const C = ffi.load("/nupp/libnupp-crc.so")
+
+export = {nuppCrcUpdate = C.nuppGuestCrcUpdate, nuppCrcLastError = C.nuppGuestCrcLastError}

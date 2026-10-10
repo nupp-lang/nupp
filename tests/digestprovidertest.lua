@@ -195,7 +195,7 @@ end
 
 function M.builtinChecksumProviderRetainsCanonicalDescriptors()
     local expected = checksumBuiltin.names()
-    assert(table.concat(expected, ",") == "adler32,crc32,crc32c,crc64-ecma")
+    assert(table.concat(expected, ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
     expected[1] = "changed"
     assert(checksumBuiltin.names()[1] == "adler32", "name lists must be independent")
 

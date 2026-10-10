@@ -1,0 +1,6 @@
+@!internal
+module nupp.runtime.provider.nativecrc
+
+local native = require("nupp.runtime.native")
+
+export = native.C

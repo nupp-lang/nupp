@@ -28,6 +28,7 @@ codegen = ["base", "dep:nupp-native-codegen", "nupp-native-codegen/llvm"]
 
 [dependencies]
 nupp-native-abi = { path = "../abi" }
+nupp-native-checksum = { path = "../checksum" }
 nupp-native-gpu = { path = "../gpu", optional = true }
 nupp-native-http = { path = "../http", optional = true }
 nupp-native-net = { path = "../net", optional = true }

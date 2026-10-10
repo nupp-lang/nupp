@@ -900,7 +900,7 @@ select_host_features() {
                     host_cargo_features="$host_cargo_features,native-codegen"
                 fi
                 ;;
-            base) ;;
+            base|native-checksum) ;;
             *) die "unknown host feature $feature" ;;
         esac
     done

@@ -38,6 +38,9 @@ def build(root, cache, sources):
         raise RuntimeError('building the guest requires Linux x86_64 with gcc-multilib; use the browser-guest CI artifact on other hosts')
     from browser_toolchain import lock
     recipe = [root / 'scripts/browser-guest.py', root / 'scripts/browser-toolchain.py', root / 'scripts/toolchain.pins', root / 'scripts/toolchain', root / 'scripts/browser-snapshot.mjs']
+    recipe += [root / name for name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml')]
+    # Cargo resolves the entire workspace even when only checksum is built.
+    recipe += sorted(path for path in (root / 'native/crates').rglob('*') if path.is_file())
     recipe += sorted(path for path in (root / 'runtime/luajit').rglob('*') if path.is_file())
     recipe += sorted(path for path in (root / 'src/nupp/runtime/vendor/lunajson').rglob('*') if path.is_file())
     recipe += sorted(path for path in (root / 'host/notices').rglob('*') if path.is_file())
@@ -45,6 +48,10 @@ def build(root, cache, sources):
     identity['inputs'] = {name: record['sha256'] for name, record in sources.items()}
     identity['gcc'] = subprocess.check_output(['gcc', '--version'], text=True)
     identity['binutils'] = subprocess.check_output(['ld', '--version'], text=True)
+    cargo = os.environ.get('NUPP_CARGO', 'cargo')
+    rustc = os.environ.get('NUPP_RUSTC', 'rustc')
+    identity['rustc'] = subprocess.check_output([rustc, '-vV'], text=True, cwd=root)
+    identity['cargo'] = subprocess.check_output([cargo, '--version'], text=True, cwd=root)
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     output = cache / 'browser-guest' / key
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -125,6 +132,31 @@ def build(root, cache, sources):
             shutil.copyfile(trees['luajit'] / 'src/luajit', guest / 'nupp/luajit')
             run(cc, '-O2', '-Wall', '-Wextra', '-Werror', root / 'runtime/luajit/guest-init.c', '-o', guest / 'init', env=environment)
             run(cc, '-O2', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', root / 'runtime/luajit/guest-clock.c', '-o', guest / 'nupp/libnupp-browser.so', env=environment)
+            # The guest uses the same CRC adapter as the native provider. Build
+            # it against the guest musl and link the unwinder into the library.
+            crc_target = 'i686-unknown-linux-musl'
+            crc_output = work / 'crc-target'
+            rust_linker = work / 'guest-rust-cc'
+            # Rust requests GCC's shared unwinder explicitly. Replace that
+            # glibc library with the guest's already verified LLVM unwinder.
+            rust_linker.write_text('#!/usr/bin/env python3\nimport os, sys\nos.execv(' + repr(str(cc)) + ', [' + repr(str(cc)) + '] + [' + repr(str(work / 'libunwind.a')) + ' if arg == "-lgcc_s" else arg for arg in sys.argv[1:]])\n')
+            rust_linker.chmod(0o755)
+            crc_env = {**environment, 'RUSTC': rustc,
+                       'CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER': str(rust_linker),
+                       'CC_i686_unknown_linux_musl': str(cc),
+                       'RUSTFLAGS': '-C target-feature=-crt-static -C link-arg=-static-libgcc'}
+            crc_command = [cargo, 'build', '--manifest-path', root / 'Cargo.toml',
+                           '--package', 'nupp-native-checksum', '--features', 'ffi',
+                           '--release', '--locked', '--target', crc_target,
+                           '--target-dir', crc_output]
+            if os.environ.get('NUPP_HOST_OFFLINE', '').lower() in ('1', 'true', 'yes', 'on'):
+                vendor = os.environ.get('NUPP_RUST_VENDOR_DIR')
+                if not vendor:
+                    raise RuntimeError('offline Rust builds require NUPP_RUST_VENDOR_DIR')
+                crc_command += ['--offline', '--config', "source.crates-io.replace-with='nupp-vendored-sources'",
+                                '--config', "source.nupp-vendored-sources.directory=" + json.dumps(str(Path(vendor).resolve()))]
+            run(*crc_command, cwd=root, env=crc_env)
+            shutil.copyfile(crc_output / crc_target / 'release/libnupp_crc.so', guest / 'nupp/libnupp-crc.so')
             lpeg = Path(sources['lpeg']['sourcePath'])
             run(cc, '-O2', '-shared', '-fPIC', '-I' + str(trees['luajit'] / 'src'),
                 *[lpeg / (unit + '.c') for unit in ('lpvm', 'lpcap', 'lptree', 'lpcode', 'lpprint', 'lpcset')],
@@ -133,7 +165,7 @@ def build(root, cache, sources):
                 shutil.copyfile(root / 'runtime/luajit' / name, guest / 'nupp' / name)
             for unit in ('encoder', 'decoder'):
                 shutil.copyfile(root / 'src/nupp/runtime/vendor/lunajson' / (unit + '.lua'), guest / 'nupp' / ('json-' + unit + '.lua'))
-            for binary in (guest / 'init', guest / 'nupp/luajit', guest / 'nupp/lpeg.so', guest / 'nupp/libnupp-browser.so'):
+            for binary in (guest / 'init', guest / 'nupp/luajit', guest / 'nupp/lpeg.so', guest / 'nupp/libnupp-browser.so', guest / 'nupp/libnupp-crc.so'):
                 run('strip', '--strip-unneeded', binary)
                 needed = subprocess.check_output(['readelf', '-d', binary], text=True)
                 for line in needed.splitlines():

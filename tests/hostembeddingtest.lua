@@ -9,7 +9,7 @@ if not HERE:match("^/") then
     pipe:close()
 end
 local ROOT = HERE .. "/.."
-local FEATURES = "lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"
+local FEATURES = "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"
 
 local M = {}
 
@@ -88,6 +88,7 @@ local function platformLibraries(library)
     for _, flag in ipairs(flags) do
         arguments[#arguments + 1] = quote(flag)
     end
+
     return table.concat(arguments, " ")
 end
 
@@ -338,7 +339,9 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
         executable = executable .. ".exe"
     end
     local status, output = run(
-        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s %s %s %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(source),
@@ -348,9 +351,7 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
         )
     )
     assert(status == 0, output)
-    status, output = run(
-        ("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project))
-    )
+    status, output = run(("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project)))
     assert(status == 0, output)
     assert(output:find("before = 41", 1, true), output)
     assert(output:find("verdict = 1 generation = 2", 1, true), output)
@@ -361,7 +362,9 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
     -- polls, so it is compiled rather than run: what would rot in it is the API it
     -- spells, and that is what compiling catches.
     status, output = run(
-        ("%s -std=c11 -I%s -c %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s -c %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(ROOT .. "/host/examples/reload.c"),
@@ -451,7 +454,9 @@ function M.anAttachedShutdownClosesTheSessionItLeftOpen()
         executable = executable .. ".exe"
     end
     local status, output = run(
-        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s %s %s %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(source),
@@ -461,9 +466,7 @@ function M.anAttachedShutdownClosesTheSessionItLeftOpen()
         )
     )
     assert(status == 0, output)
-    status, output = run(
-        ("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project))
-    )
+    status, output = run(("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project)))
     assert(status == 0 and output:find("reopened", 1, true), output)
 end
 
@@ -682,9 +685,7 @@ function M.hotReloadAttachesToALoadedComponent()
     assert(os.execute("mkdir -p " .. quote(project .. "/src")) == 0)
     write(project .. "/nupp.lua", RELOAD_COMPONENT_MANIFEST)
     write(project .. "/src/game.nupp", RELOAD_COMPONENT_SOURCE)
-    local status, output = run(
-        ("cd %s && %s build"):format(quote(project), quote(ROOT .. "/bin/nupp"))
-    )
+    local status, output = run(("cd %s && %s build"):format(quote(project), quote(ROOT .. "/bin/nupp")))
     assert(status == 0, output)
     local component = project .. "/build/component.nuppc"
     assert(io.open(component, "rb"), "the reload target writes a component: " .. output)
@@ -696,7 +697,9 @@ function M.hotReloadAttachesToALoadedComponent()
         executable = executable .. ".exe"
     end
     status, output = run(
-        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s %s %s %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(source),
@@ -707,7 +710,9 @@ function M.hotReloadAttachesToALoadedComponent()
     )
     assert(status == 0, output)
     status, output = run(
-        ("%s %s %s %s %s"):format(
+        (
+            "%s %s %s %s %s"
+        ):format(
             quote(executable),
             quote(compilerModules),
             quote(project),
@@ -837,7 +842,9 @@ function M.aNativePanicUnderACallAnswersAStatus()
         executable = executable .. ".exe"
     end
     local status, output = run(
-        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s %s %s %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(source),
@@ -848,11 +855,9 @@ function M.aNativePanicUnderACallAnswersAStatus()
     )
     assert(status == 0, output)
     status, output = run(
-        ("%s %s %s"):format(
-            quote(executable),
-            quote(component),
-            quote(ROOT .. "/native/crates/native/testdata/naga-panic.spv")
-        )
+        (
+            "%s %s %s"
+        ):format(quote(executable), quote(component), quote(ROOT .. "/native/crates/native/testdata/naga-panic.spv"))
     )
     assert(status == 0, output)
     if output:find("kernel = unavailable", 1, true) then
@@ -886,6 +891,7 @@ local function committedExports()
         end
     end
     file:close()
+
     return names
 end
 
@@ -1021,14 +1027,9 @@ function M.anAotComponentLoadsThroughTheDynamicSdk()
     write(source, AOT_DRIVER)
     local executable = directory .. "/aot"
     status, output = run(
-        ("%s -std=c11 -I%s %s -L%s -lnupp -Wl,-rpath,%s -o %s"):format(
-            quote(compiler()),
-            quote(library),
-            quote(source),
-            quote(library),
-            quote(library),
-            quote(executable)
-        )
+        (
+            "%s -std=c11 -I%s %s -L%s -lnupp -Wl,-rpath,%s -o %s"
+        ):format(quote(compiler()), quote(library), quote(source), quote(library), quote(library), quote(executable))
     )
     assert(status == 0, output)
     -- The compiled library travels with the component, and the component looks
@@ -1161,7 +1162,9 @@ function M.aRuntimePollAdvancesATimerSource()
         executable = executable .. ".exe"
     end
     status, output = run(
-        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+        (
+            "%s -std=c11 -I%s %s %s %s -o %s"
+        ):format(
             quote(compiler()),
             quote(library),
             quote(source),

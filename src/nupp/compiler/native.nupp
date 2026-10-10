@@ -521,6 +521,20 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.suspension"},
         portableRuntime = true,
     },
+    [
+        "native.crc"
+    ] = {
+        name = "crc",
+        module = "nupp.runtime.provider.nativecrc",
+        runtimeModule = "nupp.runtime.provider.nativecrc",
+        provider = "nupp_native",
+        providerDriver = "native-rust",
+        providerFeature = "base",
+        host = "native-checksum",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.native"},
+    },
     ["runtime.native"] = {name = "native_runtime", runtimeModule = "nupp.runtime.native",},
     [
         "native.time"

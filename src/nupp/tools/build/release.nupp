@@ -20,6 +20,7 @@ local HOST_FEATURES: {
     string
 } = {
     "lpeg",
+    "native-checksum",
     "native-compression",
     "native-files",
     "native-gpu",

@@ -1,84 +1,65 @@
 @!internal
 module nupp.checksum.internal.builtin
 
---[[Built-in Adler-32 and CRC algorithm descriptors and incremental states.
+--[[Built-in Adler-32 and crc-fast algorithm descriptors.
 
-The catalog exposes `adler32`, `crc32`, `crc32c`, and `crc64-ecma` with
-canonical widths. Lookup tables for reflected CRC-32 variants are initialized
-once. Each descriptor creates independently owned state; updates borrow byte
-spans without retaining them. `value` returns a non-consuming `uint64` snapshot
-so callers can continue updating. Closing owns no external resources. CRC64
-uses ECMA-182 with no reflection, zero initialization, and zero final xor.
-Operations use retained bit methods and perform no SPI lookups.
+Each descriptor creates independent state. CRC updates borrow byte spans through
+crc-fast without retaining them; value reads the saved non-consuming snapshot.
 ]]
 
 const provider = require("nupp.checksum.spi")
 const span = require("nupp.mem.span")
-const bit = require("nupp.runtime.bitops")
+const target = require("nupp.runtime.target")
+const ffi = require("ffi")
 
-local function unsigned(word: integer): integer
-    return word < 0 and word + 4294967296 or word
-end
+ffi.cdef[[
+int32_t nuppCrcUpdate(uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
+const char *nuppCrcLastError(void);
+]]
 
-local function crcTable(polynomial: integer): {integer}
-    local values: {integer} = {}
-    for byte = 0, 255 do
-        local current = byte
-        for _ = 1, 8 do
-            current = bit.bxor(bit.rshift(current, 1), bit.band(current, 1) ~= 0 and polynomial or 0)
-        end
-        values[byte + 1] = current
+local C: any = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativecrc")
     end
-
-    return values
+    yield _G.require("nupp.runtime.browser.crc")
 end
 
-const IEEE = crcTable(0xedb88320)
-const CASTAGNOLI = crcTable(0x82f63b78)
+local function crcUpdate(id: integer, reset: integer, words: any, borrows bytes: const uint8[?], count: integer): nil
+    local update = C.nuppCrcUpdate as function(integer, integer, any, borrows input: const uint8[?], integer): integer
+    if update(id, reset, words, bytes, count) ~= 0 then
+        error("nupp: " .. ffi.string(C.nuppCrcLastError()), 2)
+    end
+end
 
-local record State is provider.State
-    @private name: string
+local record AdlerState is provider.State
     @private high: integer
     @private low: integer
 
     function update(exclusive self, borrows bytes: span.ByteSpan): nil
-        if self.name == "adler32" then
-            for index = 1, #bytes do
-                self.low = (self.low + bytes[index]) % 65521
-                self.high = (self.high + self.low) % 65521
-            end
-        elseif self.name == "crc64-ecma" then
-            for index = 1, #bytes do
-                self.high = bit.bxor(self.high, bit.lshift(bytes[index], 24))
-                for _ = 1, 8 do
-                    local carry = bit.band(self.high, 0x80000000) ~= 0
-                    self.high = bit.bor(bit.lshift(self.high, 1), bit.rshift(self.low, 31))
-                    self.low = bit.lshift(self.low, 1)
-                    if carry then
-                        self.high = bit.bxor(self.high, 0x42f0e1eb)
-                        self.low = bit.bxor(self.low, 0xa9ea3693)
-                    end
-                end
-            end
-        else
-            local values = self.name == "crc32c" and CASTAGNOLI or IEEE
-            for index = 1, #bytes do
-                self.low = bit.bxor(
-                    bit.rshift(self.low, 8),
-                    values[bit.band(bit.bxor(self.low, bytes[index]), 255) + 1]
-                )
-            end
+        for index = 1, #bytes do
+            self.low = (self.low + bytes[index]) % 65521
+            self.high = (self.high + self.low) % 65521
         end
     end
 
     function value(self): uint64
-        if self.name == "adler32" then
-            return 0ULL + self.high * 65536 + self.low
-        elseif self.name == "crc64-ecma" then
-            return 4294967296ULL * unsigned(self.high) + unsigned(self.low)
-        end
+        return 0ULL + self.high * 65536 + self.low
+    end
 
-        return 0ULL + unsigned(bit.bnot(self.low))
+    function close(takes self): nil
+    end
+end
+
+local record CrcState is provider.State
+    @private id: integer
+    @private words: any
+
+    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+        crcUpdate(self.id, 0, self.words, bytes:ref(), #bytes)
+    end
+
+    function value(self): uint64
+        return self.words[1] as uint64
     end
 
     function close(takes self): nil
@@ -88,26 +69,29 @@ end
 local record Algorithm is provider.Algorithm
     @readonly name: string
     @readonly width: integer
-    function create(self): provider.State
-        local initial: integer = 0
-        if self.name == "adler32" then
-            initial = 1
-        end
-        if self.name == "crc32" or self.name == "crc32c" then
-            initial = -1
-        end
+    @private id: integer
 
-        return new State(name = self.name, high = 0, low = initial)
+    function create(self): provider.State
+        if self.id == 0 then
+            return new AdlerState(high = 0, low = 1)
+        end
+        local words = ffi.new("uint64_t[2]")
+        const empty = ""
+        local bytes = span.fromString(empty)
+        crcUpdate(self.id, 1, words, bytes:ref(), 0)
+
+        return new CrcState(id = self.id, words = words)
     end
 end
 
 const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
-    adler32 = new Algorithm(name = "adler32", width = 32),
-    ["crc32"] = new Algorithm(name = "crc32", width = 32),
-    crc32c = new Algorithm(name = "crc32c", width = 32),
-    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64),
+    adler32 = new Algorithm(name = "adler32", width = 32, id = 0),
+    crc32 = new Algorithm(name = "crc32", width = 32, id = 1),
+    crc32c = new Algorithm(name = "crc32c", width = 32, id = 2),
+    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64, id = 3),
+    crc64nvme = new Algorithm(name = "crc64nvme", width = 64, id = 4),
 }
 
 export function lookup(name: string): provider.Algorithm?
@@ -115,5 +99,5 @@ export function lookup(name: string): provider.Algorithm?
 end
 
 export function names(): {string}
-    return {"adler32", "crc32", "crc32c", "crc64-ecma"}
+    return {"adler32", "crc32", "crc32c", "crc64-ecma", "crc64nvme"}
 end

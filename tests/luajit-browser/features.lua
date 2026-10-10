@@ -23,6 +23,16 @@ assert(ffi.C.abs(-42) == 42)
 local text = ffi.new("char[64]")
 assert(ffi.C.snprintf(text, 64, "%s:%.1f", "ffi", 2.5) == 7)
 assert(ffi.string(text) == "ffi:2.5")
+ffi.cdef[[
+int32_t nuppGuestCrcUpdate(uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
+]]
+local crc = ffi.load("/nupp/libnupp-crc.so")
+for id, expected in ipairs({0xcbf43926ULL, 0xe3069283ULL, 0x6c40df5f0b497347ULL, 0xae8b14860a799888ULL}) do
+    local words = ffi.new("uint64_t[2]")
+    assert(crc.nuppGuestCrcUpdate(id, 1, words, nil, 0) == 0 and words[1] == 0ULL)
+    assert(crc.nuppGuestCrcUpdate(id, 0, words, "1234", 4) == 0)
+    assert(crc.nuppGuestCrcUpdate(id, 0, words, "56789", 5) == 0 and words[1] == expected)
+end
 local libc = ffi.load("/lib/libc.so")
 assert(libc.abs(-17) == 17)
 local values = ffi.new("int[4]", {4, 1, 3, 2})

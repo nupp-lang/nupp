@@ -18,6 +18,13 @@ on:
       - 'scripts/browser-*.py'
       - 'scripts/browser-*.mjs'
       - 'scripts/toolchain*'
+      - '.cargo/config.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'native/crates/abi/**'
+      - 'native/crates/checksum/**'
+      - 'src/nupp/checksum/**'
       - 'host/notices/**'
       - 'src/nupp/compiler/**'
       - 'src/nupp/tools/**'
@@ -85,11 +92,15 @@ jobs:
             .nupp-cache/toolchain
             !.nupp-cache/toolchain/llvm
             !.nupp-cache/toolchain/sources/llvm-project-*
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'native/crates/**', 'scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
       # The code generator the packaged applications' AOT is compiled with.
       - name: Fetch the pinned LLVM
         uses: ./.github/actions/pinned-llvm
+      - name: Install the pinned Rust guest target
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal --target i686-unknown-linux-musl
       - name: Build the pinned guest and matching sources
         run: |
           guest=$(./scripts/toolchain browser-guest)

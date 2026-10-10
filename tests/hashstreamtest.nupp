@@ -185,7 +185,7 @@ function M.hmacRfc4231AndBinaryInput(): nil
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
-    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma")
+    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
     local listed = checksum.algorithms()
     listed[1] = "changed"
     assert(checksum.algorithms()[1] == "adler32")
@@ -200,11 +200,14 @@ function M.checksumVectorsAndNonConsumingReads(): nil
     assert(checksum.value("crc32", "") == 0ULL)
     assert(checksum.value("crc32c", "") == 0ULL)
     assert(checksum.value("crc64-ecma", "") == 0ULL)
+    assert(checksum.value("crc64nvme", "") == 0ULL)
     assert(checksum.value("adler32", "123456789") == 0x091e01deULL)
     assert(checksum.value("crc32", "123456789") == 0xcbf43926ULL)
     assert(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
     assert(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
     assert(checksum.algorithm("crc64-ecma").width == 64)
+    assert(checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL)
+    assert(checksum.algorithm("crc64nvme").width == 64)
     for _, name in ipairs(checksum.algorithms()) do
         assert(checksum.lookup(name) == checksum.algorithm(name))
         local rolling = checksum.newChecksum(name)
@@ -243,6 +246,25 @@ function M.hexCodecIsStrictAndRoundTripsBytes(): nil
     assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
     decoded, reason = hex.decode("00 1")
     assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
+end
+
+function M.crcViewsRespectOffsetsAndContextsAreIndependent(): nil
+    local storage = "prefix" .. string.rep("a\0b\255c", 4097) .. "suffix"
+    local bytes = span.fromString(storage)
+    local view = bytes:slice(7, #storage - 6)
+    local payload = storage:sub(7, -7)
+    for _, name in ipairs({"crc32", "crc32c", "crc64-ecma", "crc64nvme"}) do
+        local first = checksum.newChecksum(name)
+        local second = checksum.newChecksum(name)
+        first:writeSpan(view)
+        second:write("1234")
+        assert(first:value() == checksum.value(name, payload))
+        local before = first:value()
+        second:write("56789")
+        first:write("")
+        assert(first:value() == before)
+        assert(second:value() == checksum.value(name, "123456789"))
+    end
 end
 
 -- A digest and a checksum are writers, so a reader can fill either, and the

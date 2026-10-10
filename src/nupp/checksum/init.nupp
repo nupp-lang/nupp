@@ -30,10 +30,13 @@ that reach for [](nupp.mac).
 | `crc32` | 32 | Reflected IEEE CRC-32 |
 | `crc32c` | 32 | Reflected Castagnoli CRC-32C |
 | `crc64-ecma` | 64 | ECMA-182, non-reflected, zero initialization and xor |
+| `crc64nvme` | 64 | Reflected CRC-64/NVME |
 
-`crc32` and `crc32c` use the lowercase names from Smithy's
+`crc32`, `crc32c`, and `crc64nvme` use the lowercase names from Smithy's
 [`httpChecksum` trait](https://smithy.io/2.0/aws/aws-core.html#aws-protocols-httpchecksum-trait).
-`crc64-ecma` is ECMA-182, a different algorithm from Smithy's `CRC64NVME`.
+`crc64-ecma` is ECMA-182, a different algorithm from `crc64nvme`.
+The CRC implementations use [crc-fast](https://github.com/awesomized/crc-fast-rust),
+which selects hardware acceleration when the CPU supports it.
 
 A snapshot is a number, so whatever writes one to the wire picks its byte order.
 
