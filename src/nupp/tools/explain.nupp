@@ -1712,7 +1712,7 @@ ENTRIES[
     right = SIMD_LANE:gsub("LANE", "1"),
     aot = true,
     related = {"NUPP2905"},
-    docs = "docs/learn/performance/ahead-of-time/simd.md#species-masks-and-tails",
+    docs = "docs/learn/performance/ahead-of-time/simd-programming.md#prefix-scans",
 }
 
 ENTRIES[
@@ -1780,7 +1780,7 @@ ENTRIES[
     .. "return {twice = twice, apply = apply}\n",
     aot = true,
     related = {"NUPP2905"},
-    docs = "docs/learn/performance/ahead-of-time/simd.md#native-only-entries",
+    docs = "docs/learn/performance/ahead-of-time/simd-programming.md#native-only-entries",
 }
 
 ENTRIES[
@@ -1801,7 +1801,7 @@ ENTRIES[
     .. "local function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",
     related = {"NUPP2910"},
-    docs = "docs/learn/performance/ahead-of-time/simd.md#native-only-aggregates",
+    docs = "docs/learn/performance/ahead-of-time/simd-programming.md#native-only-aggregates",
 }
 
 ENTRIES[

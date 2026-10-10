@@ -40,8 +40,9 @@ any loop that should run in vector lanes. `simd.reducer` accepts scalar contribu
 or explicit vector-plus-mask contributions, and `simd.horizontal` reduces a
 vector to one value.
 
-See [simd.md](docs/learn/performance/ahead-of-time/simd.md) for the complete
-SIMD contract.
+See
+[simd-programming.md](docs/learn/performance/ahead-of-time/simd-programming.md)
+for the complete SIMD contract.
 ]]
 
 const {type Span, type WriteSpan} = require("nupp.mem.span")

@@ -16,7 +16,9 @@ those reach the native symbol without ever reading a Lua value.
 The refusal is reported only for a target whose policy compiles `@aot`
 functions. Under `aot = "off"` the function is ordinary Nupp and a Lua call to
 it is ordinary too; the first target that compiles it is the one that refuses.
-See `docs/learn/performance/ahead-of-time/simd.md`.
+See
+[simd-programming.md](docs/learn/performance/ahead-of-time/simd-programming.md#native-only-entries)
+for native entry boundaries.
 ]]
 
 local T = require("nupp.compiler.types")

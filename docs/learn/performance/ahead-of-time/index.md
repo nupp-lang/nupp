@@ -92,22 +92,20 @@ a contract that degrades quietly is a comment.
 
 ## Next pages
 
-Each page owns one part of the AOT pipeline.
+See these pages for each part of the AOT pipeline.
 
-- [CPU kernels](cpu-kernels.md) covers inspection, generated code, calls, and
+- [CPU kernels](cpu-kernels.md) for inspection, generated code, calls, and
   representative measurement.
-- [Lua values](lua-values.md) covers table and string construction through the
+- [Lua values](lua-values.md) for table and string construction through the
   VM-rooted builder ABI.
-- [SIMD programming](simd-programming.md) teaches what SIMD is and how a
-  loop uses lanes, from the first kernel to reducers, with runnable examples.
-- [SIMD](simd.md) covers `nupp.simd` species, masks, reducers, and
-  target feature tiers.
-- [Numeric semantics](numeric-semantics.md) covers arithmetic guarantees and
+- [SIMD programming](simd-programming.md) for lanes, masks, reducers, native
+  helpers, and feature tiers, with runnable examples.
+- [Numeric semantics](numeric-semantics.md) for arithmetic guarantees and
   verification.
-- [Builds and artifacts](build-and-artifacts.md) covers policies, cross builds,
+- [Builds and artifacts](build-and-artifacts.md) for policies, cross builds,
   caches, and shipping.
-- [Wasm applications](wasm.md) covers the browser guest and Wasm side modules.
-- [GPU compute](gpu.md) covers native resident buffers, workgroup kernels, and
+- [Wasm applications](wasm.md) for the browser guest and Wasm side modules.
+- [GPU compute](gpu.md) for native resident buffers, workgroup kernels, and
   browser WebGPU.
 
 ## FAQ
@@ -124,8 +122,7 @@ annotation that changes the answer, and it says so per function.
 
 By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
 and a tail. A loop without those operations is scalar. See
-[simd-programming.md](simd-programming.md) for the model and
-[simd.md](simd.md) for the reference.
+[simd-programming.md](simd-programming.md) for the model and vector operations.
 
 ### Does a project need a C compiler?
 

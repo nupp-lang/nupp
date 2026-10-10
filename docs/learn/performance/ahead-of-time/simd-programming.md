@@ -106,19 +106,19 @@ function lowers to native code through LLVM during a build. LLVM is the
 compiler backend that selects and optimizes processor instructions. The
 kernel uses these modules to connect its data to those instructions:
 
-- [`nupp.mem.array`](nupp.mem.array) allocates owned, contiguous storage of
+- [](nupp.mem.array) allocates owned, contiguous storage of
   one element type. Contiguous means the elements sit next to each other in
   memory. A *type witness*, such as `array.float`, names the element type
   when passed to an allocation or species constructor.
-- [`nupp.mem.span`](nupp.mem.span) provides a *span*, a bounds-checked view of
+- [](nupp.mem.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a Lua table.
-- [`nupp.simd`](nupp.simd) provides vector operations. A *species* describes
+- [](nupp.simd) provides vector operations. A *species* describes
   their element type and lane count, such as four `float` lanes on NEON.
 
 With AOT off, the preferred species is one lane wide and the loop runs under
-ordinary Lua. Each example followed by output runs with `nupp run` without an AOT
-build; shorter snippets illustrate parts of a kernel. The opening
+ordinary Lua. Each example followed by output runs with `nupp run` without
+an AOT build; shorter snippets illustrate parts of a kernel. The opening
 kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
@@ -167,6 +167,12 @@ of values.
 
 ### Span parameters
 
+The opening kernel relates its input and output before it loads a vector:
+
+```nupp:fragment
+assert(#output == #input, "length mismatch")
+```
+
 `output` is a writable span the function has exclusive access to, and `input`
 is a span it borrows for reading. The ownership words tell the compiler the
 two cannot overlap, which lets it read and write whole
@@ -176,6 +182,13 @@ valid in `input` is valid in `output`.
 
 ### Lane counts
 
+A species supplies the lane count for each compiled tier:
+
+```nupp:fragment
+local species = simd.species(array.float)
+local lanes = species.lanes
+```
+
 `simd.species(array.float)` is the species for `float` on the selected target:
 four lanes on NEON, one lane on a target with no vector registers or when the
 function runs as plain Lua. The source
@@ -183,6 +196,15 @@ never writes a lane count, so this element-by-element multiplication works
 at every width.
 
 ### Chunks and masks
+
+The loop receives an offset and a mask for each group:
+
+```nupp:fragment
+for at, active in species:over(#input) do
+    local value = species:load(input, at, active)
+    species:store(output, at, value * factor, active)
+end
+```
 
 `species:over(#input)` walks the span one vector at a time, a traversal called
 *strip-mining*. On each pass it binds `at` to the one-based offset of the next
@@ -193,6 +215,13 @@ to eight, and nine to ten with the last two lanes off.
 
 ### Masked loads and stores
 
+The same mask controls both accesses in the scale kernel:
+
+```nupp:fragment
+local value = species:load(input, at, active)
+species:store(output, at, value * factor, active)
+```
+
 `species:load(input, at, active)` reads the active lanes into a vector: up to
 four floats on NEON. Multiplying a vector by a scalar multiplies every lane.
 `species:store` writes the lanes back under the same mask. The mask is what
@@ -200,6 +229,30 @@ lets one loop handle both the full chunks and a final partial chunk, the
 *tail*. Inactive lanes do not read or write past the span. An alternative is
 to process full chunks in one loop and the remaining elements in a scalar
 loop.
+
+Full chunks need no per-lane bounds checks: the loop's bound proves the
+accesses safe. Only the last partial chunk keeps its mask. The offset `at`
+is a `uint32`, so arithmetic on it stays at that width.
+
+### Explicit tails
+
+A kernel can write the full-vector loop and its tail separately:
+
+```nupp:fragment
+local cursor: uint32 = 0
+while cursor + species.lanes <= #input do
+    species:store(output, cursor + 1, species:load(input, cursor + 1) * factor)
+    cursor = cursor + species.lanes
+end
+if cursor < #input then
+    local active = species:tail(#input - cursor)
+    species:store(output, cursor + 1, species:load(input, cursor + 1, active) * factor, active)
+end
+```
+
+The full-width guard proves the unmasked accesses safe. The earlier length
+assertion extends that proof to `output`. `species:tail` marks the remaining
+elements, and both the partial load and its store receive that mask.
 
 ## Compiling a kernel
 
@@ -322,7 +375,8 @@ width selected by the build. `simd.species(array.float, 4)` is a *fixed
 species* with four logical lanes on every AOT tier, which the compiler
 implements in however many registers that takes. Under ordinary Lua a fixed
 species keeps its four lanes as well: a vector of it is a table of four lanes,
-and `species.lanes` reads 4 where the preferred species reads 1.
+and its mask is a table of four booleans. `species.lanes` reads 4 where the
+preferred species reads 1.
 
 Prefer the preferred species unless an algorithm needs a known lane count,
 such as a four-by-four matrix transpose. An algorithm written against a fixed
@@ -345,10 +399,79 @@ local mixed = pairs:splat(1.0) + quads:splat(1.0) -- NUPP2006
 Construct both operands from the same species when they represent matching
 lanes.
 
-A vector stays in locals inside the `@aot` function. Store its elements into
-memory, extract a scalar lane, or reduce it to a scalar to pass results back
-to the caller. A vector cannot cross the function's native entry boundary or
-be stored in a Lua table.
+Vectors can pass between native CPU `@aot` functions. To return results to a
+Lua caller, store the elements into memory, extract a scalar lane, or reduce
+the vector to a scalar. See [native-only entries](#native-only-entries) for
+vector parameters and results.
+
+## Lane arithmetic
+
+Arithmetic operators act on each lane, and a scalar on the right supplies the
+same operand to every lane.
+
+### Division and remainder
+
+Floor division rounds toward negative infinity, and the remainder takes the
+divisor's sign:
+
+```nupp:fragment
+local species = simd.species(array.int32)
+local value = species:splat(-7)
+local quotient = value // 3
+local remainder = value % 3
+```
+
+Each lane of `quotient` holds -3 and each lane of `remainder` holds 2.
+Floating lanes follow `floor(a / b)` and `a - floor(a / b) * b`; integer
+lanes compute those results exactly. Integer `/`, `//`, and `%` return zero
+for a zero divisor instead of trapping.
+
+### Floating-point operations
+
+`math.sqrt`, `math.abs`, `math.floor`, and `math.ceil` accept a local floating
+vector directly:
+
+```nupp:fragment
+local species = simd.species(array.float)
+local value = species:splat(4.0)
+local root = math.sqrt(value)
+local mapped = species:map(math.sqrt, value)
+local adjusted = root:fma(0.5, 1.0)
+```
+
+Both `root` and `mapped` hold 2 in every lane. `fma` multiplies and adds with
+one rounding, giving 2 in `adjusted`. It follows `nupp.math.f32.fma` for
+`float` lanes and the binary64 fused operation for `number` lanes.
+
+Use `species:map` for the other supported math functions or a helper of your
+own. See [](nupp.simd) for the supported operations.
+
+### Integer operations
+
+Saturating arithmetic clamps to the element's range instead of wrapping:
+
+```nupp:fragment
+local bytes = simd.species(array.uint8)
+local value = bytes:splat(200)
+local brighter = value:saturatingAdd(100)
+local darker = value:saturatingSub(250)
+```
+
+`brighter` holds 255 in every lane, and `darker` holds zero. Ordinary byte
+addition would wrap 300 to 44.
+
+Bit counting and multiplication also operate at the element's width:
+
+```nupp:fragment
+local bits = value:popcount()
+local low = value * 3
+local high = value:mulHigh(3)
+```
+
+200 has three set bits, so `bits` holds 3. The full product is 600: `low`
+holds its low byte, 88, and `high` its high byte, 2. `mulHigh` follows the
+element's signedness; together with `*` it supplies the full-width product.
+It also supports fixed-point multiplication by a scaled reciprocal.
 
 ## Masks
 
@@ -526,6 +649,16 @@ contributions through `add` and returns its result through `value`. Its
 constructor names the *numerical contract*, the rules for grouping and
 rounding those contributions:
 
+```nupp:fragment
+local sum = simd.reducer.pairwiseSum(array.float, 0.0)
+sum:add(1.0)
+sum:add(2.0)
+local result = sum:value()
+```
+
+This reducer accumulates in binary32 and returns 3. The sum contracts differ
+in how they combine contributions:
+
 - `orderedSum` adds in contribution order, including lane order within each
   vector. Its additions remain dependent on the preceding total.
 - `pairwiseSum` adds adjacent pairs, then pairs of those, in a tree. The tree
@@ -662,18 +795,100 @@ Here the products are `4`, `10`, and `18`, which sum to `32`.
 `pairwiseDot(array.float, 0.0)` rounds each product to binary32, then rounds
 each addition in its pairwise tree. It need not match a left-to-right sum.
 
-### Other reductions
+### Integer and predicate reducers
 
-Reducers also support products, minimums, maximums, the positions of extrema,
-and integer and boolean operations. Minimums and maximums offer contracts for
-handling *NaN* (not a number), the floating-point value produced by operations
-such as zero divided by zero. Wrapping integer sums have their own contract:
-the result wraps at the named element width, and regrouping preserves it.
-See [simd.md#reductions](simd.md#reductions) for the reducer families.
+An integer reducer takes an array witness for `int32`, `uint32`, `int64`, or
+`uint64` to name its arithmetic width:
 
-A *horizontal reduction* combines the lanes of one vector into a scalar.
-Use `simd.horizontal` when a loop already maintains a vector of partial
-results and needs to combine them at the end.
+```nupp:fragment
+local sum = simd.reducer.wrappingSum(array.uint32, 4294967290)
+sum:add(10)
+local result = sum:value()
+```
+
+`result` is 4 because the sum wraps at 32 bits. Regrouping preserves this
+answer. `wrappingProduct`, `andBits`, `orBits`, and `xorBits` also use the
+named integer width. `integerMin`, `integerMax`, `integerArgMin`, and
+`integerArgMax` select extrema or their logical positions.
+
+Predicate reducers `any`, `all`, and `count` accept masks as contributions.
+A count receives the selected lanes and the active mask for each chunk:
+
+```nupp:fragment
+local species = simd.species(array.float)
+local count = simd.reducer.count()
+for at, active in species:over(#input) do
+    local value = species:load(input, at, active)
+    local selected = (value > threshold) & active
+    count:add(selected, active)
+end
+return count:value()
+```
+
+### Extrema and scalar tails
+
+Minimums and maximums name how they handle *NaN* (not a number), the
+floating-point value produced by operations such as zero divided by zero.
+A propagating minimum preserves NaN; a number minimum ignores it when a
+numeric operand is available. See
+[numeric-semantics.md](numeric-semantics.md#reducer-contributions) for logical
+positions and rounding, and [](nupp.simd) for NaNs, signed zeros,
+and ties.
+
+Vector and scalar contributions can share a reducer. This kernel finds the
+minimum and its position, using a scalar loop for the remaining elements:
+
+```nupp:fragment
+local species = simd.species(array.float)
+local low = simd.reducer.propagatingMin(array.float, math.huge)
+local where = simd.reducer.propagatingArgMin(array.float)
+local cursor: uint32 = 0
+do
+    while cursor + species.lanes <= #values do
+        local value = species:load(values, cursor + 1)
+        low:add(value, species:mask(true))
+        where:add(value, species:mask(true))
+        cursor = cursor + species.lanes
+    end
+end
+while cursor < #values do
+    low:add(values[cursor + 1])
+    where:add(values[cursor + 1])
+    cursor = cursor + 1
+end
+return low:value(), where:value()
+```
+
+The `do` encloses the vector contributions' region. An `over` loop supplies
+that region itself. Scalar contributions can appear before, inside, or after
+the region; each occupies its position in program order. Finalize each
+reducer once after its region. Arg extrema count every offered lane at its
+logical position, even an inactive lane that cannot become a candidate.
+Scalar contributions advance the position by one.
+
+Every reducer uses `add` and `value`; dot products pass two values to `add`.
+`simd.Reducer<T>` names the shared interface for code that only finishes a
+reduction. Floating products and dot products also offer ordered, pairwise,
+and algebraic contracts. See
+[numeric-semantics.md](numeric-semantics.md#reducer-contributions) for their
+operation order and rounding rules.
+
+### Horizontal reductions
+
+A *horizontal reduction* combines the lanes of one vector into a scalar:
+
+```nupp:fragment
+local species = simd.species(array.uint32, 4)
+local partial = species:iota(1, 1)
+local total = simd.horizontal.wrappingSum(partial)
+```
+
+`partial` holds `1, 2, 3, 4`, so `total` is 10. Use `simd.horizontal` when a
+loop already maintains a vector of partial results and combines them at the
+end. Its operations include ordered, pairwise, and algebraic floating sums,
+products, and dots; NaN-policy extrema; and integer wrapping, bitwise,
+minimum, and maximum reductions. Integer operations wrap in the lane's own
+width; minimums and maximums select a lane without arithmetic.
 
 ## Searches
 
@@ -771,6 +986,11 @@ print()
 built by hand for a count the kernel computed. `written` is declared `uint32`
 so its arithmetic stays at that width inside the kernel.
 
+On NEON, a species that fills one register compresses through a table lookup:
+the mask bits select a shuffle for `tbl`. It needs one `tbl1`, or two for
+sixteen byte lanes, without a branch or stack buffer. Other targets pack
+lanes through a buffer one lane longer than the vector.
+
 ## Bytes and records
 
 Byte and record processing also needs operations that change lane widths,
@@ -778,9 +998,8 @@ rearrange fields, or select values from a small table.
 
 ### Widening
 
-A `uint8` lane can hold values from zero through 255. An intermediate result
-such as `200 * 3` exceeds that range and wraps if calculated in a byte lane.
-*Widening* moves values into a larger element type before the arithmetic:
+A `uint8` lane holds zero through 255, so `200 * 3` wraps in a byte lane.
+*Widening* gives the arithmetic room without changing the lane count:
 
 ```nupp:fragment
 local bytes = simd.species(array.uint8)
@@ -789,40 +1008,313 @@ local value = bytes:splat(200)
 local product = words:convert(value) * 3
 ```
 
-Every lane of `product` holds 600. The wider species keeps the byte species'
-lane count: on NEON, sixteen 16-bit lanes occupy two 128-bit registers.
-*Narrowing* moves to a smaller element type with the same lane count. Choose
-how to handle values outside its range before converting back. See the
-[`grey` kernel](simd.md#wider-lanes-and-the-last-lane) for weighted color
-arithmetic.
+Every lane of `product` holds 600. On NEON, sixteen 16-bit lanes occupy two
+128-bit registers. `words:narrow(array.uint8)` returns the original species;
+narrowing a preferred species gives half the lanes of the narrower element's
+preferred species.
+
+`widen` and `narrow` move one step along `uint8`, `uint16`, `uint32`, `uint64`,
+along the matching signed types, or between `float` and `number`. A step must
+keep signedness. The compiler rejects any other step when it lowers the
+function; there is no element beyond 64 bits or below 8 bits.
+
+### Conversion and reinterpretation
+
+`convert` changes the element type while preserving the lane count.
+`reinterpret` reads the same bits as another element type, which also needs
+the same element width:
+
+```nupp:fragment
+local floats = simd.species(array.float)
+local doubles = floats:widen(array.number)
+local value = floats:splat(1.5)
+local precise = doubles:convert(value)
+local words = simd.species(array.uint32):reinterpret(value)
+local rounded = floats:convert(precise)
+```
+
+`precise` contains binary64 values, `rounded` converts them back to binary32,
+and `words` holds their original binary32 bits as unsigned integers.
+
+The checker retains the species identity through widening: `words` in the
+widening example has type `simd.Species<uint16, simd.Preferred>`. Its lane
+count during lowering differs from `simd.species(array.uint16)`, which uses
+the wider element's own register width. A conversion must still have equal
+lane counts; matching checked type names alone do not establish that.
 
 ### Interleaved records
 
-RGB pixels can arrive as `R G B R G B`, with the fields of each pixel next
-to each other. These are *interleaved records*. `species:loadTriples` reads
-them into three vectors, one per channel, and `storeTriples` writes them
-back. Pairs and quads have the same forms. On NEON, a full group of native
-width uses `ld3` or `st3`; a partial group needs different handling. See
-[interleaved records](simd.md#interleaved-records) for the RGB to RGBA
-example.
+RGB pixels store their fields as `R G B R G B`. `loadTriples` separates those
+*interleaved records* into channel vectors, and `storeQuads` adds an alpha
+channel when writing RGBA:
+
+```nupp:fragment
+local species = simd.species(array.uint8)
+local at: uint32 = 0
+local out: uint32 = 0
+while at + 3 * species.lanes <= #rgb and out + 4 * species.lanes <= #rgba do
+    local r, g, b = species:loadTriples(rgb, at + 1)
+    species:storeQuads(rgba, out + 1, r, g, b, species:splat(255))
+    at = at + 3 * species.lanes
+    out = out + 4 * species.lanes
+end
+```
+
+Pairs, triples, and quads read `2`, `3`, or `4` times the lane count. Result
+`j` holds elements `j`, `j + ways`, and so on; the results must initialize
+locals. `storePairs`, `storeTriples`, and `storeQuads` reverse the layout.
+
+A bound covering the whole run permits a single interleaved access. NEON
+uses `ld2`, `ld3`, or `ld4` and the matching stores, avoiding separate
+`deinterleave` or strided `swizzle` operations. A partial run reads zero past
+the span and writes nothing there, checking lanes individually.
+
+### Weighted colors
+
+Widening lets a grayscale kernel sum weighted color channels in sixteen bits
+before narrowing the result to a byte:
+
+```nupp:fragment
+local bytes = simd.species(array.uint8)
+local wide = bytes:widen(array.uint16)
+local r, g, b = bytes:loadTriples(rgb, at + 1)
+local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+bytes:store(output, written + 1, bytes:convert(sum >> 8))
+```
+
+The weights sum to 256, so shifting right by eight keeps the result within a
+byte. Use the full-run guard from the interleaved example for each group of
+RGB pixels and a bound on `written + bytes.lanes` for the output. After that
+loop, a partial group uses the same calculation and a masked store:
+
+```nupp:fragment
+if written < #output then
+    local r, g, b = bytes:loadTriples(rgb, at + 1)
+    local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
+    bytes:store(output, written + 1, bytes:convert(sum >> 8), bytes:tail(#output - written))
+end
+```
+
+The caller supplies three input bytes per output pixel. The explicit loop
+bound proves that a full load covers `3 * bytes.lanes` input elements; an
+iterator over the output count does not express that bound. On NEON, this
+calculation uses `ld3`, widening multiplies and multiply-accumulates, a shift,
+and a narrowing store.
+
+### Prefix scans
+
+A prefix sum needs the last lane of each chunk to carry into the next one.
+The index can depend on the species' lane count:
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
+    assert(#out == #input, "one sum per input")
+    local s = simd.species(array.uint32)
+    local carry = s:splat(0)
+    for at, active in s:over(#input) do
+        local sums = s:load(input, at, active):orderedPrefixSum() + carry
+        s:store(out, at, sums, active)
+        carry = s:splat(sums:extract(s.lanes))
+    end
+    return #input
+end
+```
+
+
+`extract(s.lanes)` reads the last lane at any tier's width. Lane indices may
+be literals, `species.lanes`, or arithmetic the compiler can fold from them.
+An index beyond the species' lanes, or a parameter it cannot fold, is
+rejected. `insert` and the offset to `align` use the same rule.
 
 ### Table lookups
 
-A *table lookup* uses an index to select an entry from a collection.
-`value:swizzle(indices)` treats a vector as that collection and selects an
-entry for each result lane. A sixteen-lane byte vector holds sixteen entries;
-Base64's 64-character alphabet occupies four such vectors. A NEON byte lookup
-can read from those four vectors with one table instruction. See
-[table lookups](simd.md#table-lookups) for the alphabet example.
+`value:swizzle(indices)` selects a lane of `value` for each result lane.
+Up to three more vectors extend the table. A 64-byte Base64 alphabet fits
+in four sixteen-lane byte vectors:
+
+```nupp:fragment
+local species = simd.species(array.uint8, 16)
+local t0 = species:load(alphabet, 1)
+local t1 = species:load(alphabet, species.lanes + 1)
+local t2 = species:load(alphabet, 2 * species.lanes + 1)
+local t3 = species:load(alphabet, 3 * species.lanes + 1)
+local symbols = t0:swizzle(sextets + 1, t1, t2, t3)
+```
+
+Each lane of `sextets` holds a value from zero through 63; adding one makes
+the indices one-based. Indices `1..lanes` read the first vector,
+`lanes+1..2*lanes` read the second, and so on. An index outside the combined
+table returns zero. Byte indices cannot reach beyond 255.
+
+NEON uses one table instruction for one to four byte vectors. A wider
+species holds the alphabet in fewer vectors; loads beyond its end read zero.
 
 ### Column storage
 
-Loading one field from each struct can leave gaps between the values read.
-*Column storage* from `nupp.mem.soa` keeps the values of each field
-contiguous. `species:load(rows, at, "x", active)` reads one vector-sized
-chunk of the `x` column. See
-[column spans](../../runtime/data/structure-of-arrays.md#column-spans) for the
-views a kernel takes.
+Loading one field from each struct reads strided memory.
+[*Column storage*](../../runtime/data/structure-of-arrays.md) keeps each
+field's values contiguous. A field name selects the column in a row view:
+
+```nupp:fragment
+local x = species:load(rows, at, "x", active)
+local velocity = species:load(rows, at, "velocity", active)
+species:store(rows, at, "x", x + velocity * dt, active)
+```
+
+A writable row view supplies exclusive ownership. Sibling column pointers
+retain their disjointness as `noalias` in generated code, and the row count
+bounds every column, including a slice. Whole-row vectors, dynamic field
+selection, and constructing a row view inside a native kernel are
+unsupported. See
+[column spans](../../runtime/data/structure-of-arrays.md#column-spans) for
+the views a kernel takes.
+
+## Native-only entries
+
+A native CPU `@aot` function can take and return vectors or masks:
+
+```nupp
+local simd = require("nupp.simd")
+
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+@aot
+local function positive(value: simd.Vector<float, simd.Preferred>): simd.Mask<float, simd.Preferred>
+    return value > 0.0
+end
+
+return {twice = twice, positive = positive}
+```
+
+These entries are *native-only*: another `@aot` function calls their native
+symbols directly. They compile once as their own functions, including when
+imported from another module. The scale kernel can use them in its loop:
+
+```nupp:fragment
+local value = species:load(input, at, active)
+local result = positive(value):select(twice(value), species:splat(0.0))
+species:store(output, at, result, active)
+```
+
+The call preserves value semantics. Caller and callee use the same feature
+tier, so `Preferred` has the same lane count in both. A `Fixed<N>` value may
+occupy several registers. Species and reducers cannot be entry parameters
+or results: a species is a compile-time fact, and a reducer belongs to a
+region. Vector and mask entry parameters and results require native CPU AOT.
+
+### Lua callers
+
+When the target's AOT policy compiles these entries, the checker rejects
+calls from Lua code:
+
+```nupp:fragment
+local function fromLua(): simd.Vector<float, simd.Preferred>
+    return twice(simd.species(array.float):splat(1.0)) -- NUPP2910
+end
+```
+
+It also rejects passing a native-only function as an argument, returning it,
+or storing it in a Lua table. Module exports and import bindings are allowed
+so other native functions can reach the entry.
+
+`nupp aot` reports these functions as `explicit simd, native-only`. The
+build writes a refusing Lua stub instead of a wrapper, omits the function
+from `__nuppAotCompiled`, and shows the stub under `--emit binding`. Native
+calls resolve through module exports without reading a Lua function value.
+
+Under `aot = "off"`, the functions are ordinary Nupp and callable from Lua.
+Preferred vectors use one lane; fixed vectors use their requested count.
+
+## Native-only aggregates
+
+A [struct](../../language/types/records-and-structs.md#structs) containing
+vectors or masks is a *native-only aggregate*, an immutable value passed
+between native entries:
+
+```nupp
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function square(z: Pair): Pair
+    return new Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
+end
+
+return {square = square, Pair = Pair}
+```
+
+`Pair` groups the real and imaginary channels of complex values. Construct
+it with `new`, read its fields, and return a new aggregate for each change.
+A kernel loading separate channels can call `square`:
+
+```nupp:fragment
+local z = new Pair(species:load(re, at, active), species:load(im, at, active))
+local result = square(z)
+species:store(output, at, result.re + result.im, active)
+```
+
+The code generator lays `Pair` out as a literal struct of register types,
+`{ <4 x float>, <4 x float> }` on a four-lane tier. Fields may be vectors,
+masks, `number`, `float`, `boolean`, 32- or 64-bit integers, or nested
+native-only aggregates. Narrow storage integers are rejected. `Preferred`
+is allowed because the layout belongs to the compiled tier.
+
+### Immutable fields
+
+Field assignments are rejected even when AOT is off:
+
+```nupp:fragment
+@aot
+local function conjugate(z: Pair): Pair
+    z.im = -z.im -- NUPP2911
+    return z
+end
+```
+
+Return `new Pair(z.re, -z.im)` instead. Under `aot = "off"`, the aggregate
+is a Lua table built by position. Its preferred vector and mask fields hold
+numbers and booleans; fixed species use lane tables. Immutability keeps both
+forms consistent when a value is shared.
+
+### Storage layout
+
+Native-only aggregates cannot be span or array elements. The checker rejects
+the storage declaration and identifies the field that makes it native-only:
+
+```nupp:fragment
+@aot
+local function first(borrows values: span.Span<Pair>): Pair -- NUPP2905
+    return values[1]
+end
+```
+
+Constructing such an aggregate from Lua is also rejected when the target's
+AOT policy compiles it. Store scalar elements in memory and build the
+aggregate inside the kernel.
+
+::: deepdive
+A stored struct needs a layout independent of the CPU tier. Only a fixed
+species could meet that requirement, and vector storage fields are not
+admitted. The compiler's target layout model already defines their alignment:
+the payload rounded up to a power of two, capped at the allocator's guarantee
+of 16 bytes on 64-bit targets and Wasm, or 8 bytes on i686.
+
+The payload pads to that alignment. Three `float` lanes would occupy 16 bytes,
+including 4 bytes of padding; a payload beyond the cap pads to a multiple of
+the cap. This layout model does not make vectors available as storage fields.
+:::
 
 ## Feature tiers
 
@@ -854,10 +1346,24 @@ library loads. The source is shared across tiers. See
 [library dispatch](build-and-artifacts.md#library-dispatch) for native
 wrappers and [AOT targets](index.md) for target selection.
 
+`aotFeatures` selects the shipped tiers and can raise the minimum when the
+source requires SIMD. An assertion of `simd.vectors` is rejected at compile
+time on a tier without vector registers. Windows x86-64 limits physical
+vector width to 16 bytes for frame safety, even on wider tiers. Wasm SIMD128
+uses the same source-level vector and mask operations; see
+[gpu.md](gpu.md) for GPU invocations, which use a separate execution model.
+
 ## Measurement
 
-`nupp aot FILE` says whether each function uses explicit SIMD in Nupp IR, and
-`nupp aot --emit asm --function NAME FILE` shows the instructions LLVM chose.
+`nupp aot` reports explicit SIMD in Nupp IR, while the LLVM IR and assembly
+show how the backend implements it:
+
+```bash
+nupp aot scale.nupp
+nupp aot --emit llvm scale.nupp
+nupp aot --emit asm --function scale scale.nupp
+```
+
 If the plain loop already shows `fmul.4s`, the auto-vectorizer did the work
 of vectorizing its multiplication. That instruction alone does not establish
 equal performance: the versions can differ in loads, loop control, tails,
@@ -913,7 +1419,7 @@ These terms connect the processor model to the Nupp operations.
   element type with the same lane count.
 
 ::: seealso
-- [simd.md](simd.md) for the complete vector API
+- [](nupp.simd) for the complete vector API
 - [cpu-kernels.md](cpu-kernels.md) for bounds proofs, ownership, and
   inspecting generated code
 :::

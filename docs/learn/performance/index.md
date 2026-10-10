@@ -896,7 +896,7 @@ Supported views come from `span.fromString`, shared and writable C arrays,
 `heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices and SoA
 column projections are supported too. Arbitrary indices keep bounds checks.
 
-See [AOT SIMD](ahead-of-time/simd.md) for vector lanes in AOT code.
+See [SIMD programming](ahead-of-time/simd-programming.md) for vector lanes in AOT code.
 
 ::: deepdive Removing view allocations
 The pass can remove temporary view objects: `left` and `right` in the earlier

@@ -145,7 +145,7 @@ end
 
 See [ahead-of-time compilation](learn/performance/ahead-of-time/index.md),
 [SIMD programming](learn/performance/ahead-of-time/simd-programming.md),
-[SIMD](learn/performance/ahead-of-time/simd.md), and
+and
 [GPU compute](learn/performance/ahead-of-time/gpu.md).
 
 ## Portable targets and packaging

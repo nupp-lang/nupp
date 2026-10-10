@@ -533,7 +533,7 @@ branch condition or a call no intrinsic admits, reports `NUPP2905` through
 which never lowers, reports none of them.
 
 Code that runs in vector lanes uses `nupp.simd`. See
-[simd.md](../learn/performance/ahead-of-time/simd.md) for the
+[simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for the
 vector loop and scalar continuation patterns, and
 [build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
 for a full kernel, the build policy, and what the backend does not do yet.

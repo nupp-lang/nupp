@@ -533,7 +533,7 @@ architecture is refused rather than reported with empty counts.
 
 The exit status is the one a build would give. An invalid explicit vector
 operation fails at its authored access. See
-[simd.md](../learn/performance/ahead-of-time/simd.md) for
+[simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for
 species and target tiers.
 
 ### `bc`
