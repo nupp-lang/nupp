@@ -151,7 +151,7 @@ bus:observe(7, Damage, |event| -> print(event.kind))
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
 
-`@event(name = "...")` sets the name `events.name(Damage)` answers; the
+`@event(name = "...")` sets the name `events.name(Damage)` returns; the
 declaration's own name is the default. The name is what something outside the
 program pins, such as a debug protocol, which is why it is written rather than
 derived from a path that a refactor would move.
@@ -244,10 +244,10 @@ A provider may ask for the owner's initializer with `initializer = true` beside
 `methods`, `statics`, and `data`. The compiler then mints the declaration's
 constructor body, or its field list when it declares none, as a hidden member
 taking the instance first: `initializer(storage, ...)` fills storage the caller
-already holds and answers it, and `new` allocates and calls the same body. The
+already holds and returns it, and `new` allocates and calls the same body. The
 runtime reaches it through `nupp.derive.initializer(Type)`. A field-list
-initializer applies a field default where its argument is nil, which is the
-one place that can, since a positional call never passes through the checker's
+initializer applies a field default where its argument is nil, which is the one
+place that can, since a positional call never passes through the checker's
 default filling.
 
 The compiler refuses the request on a declaration whose body could notice the

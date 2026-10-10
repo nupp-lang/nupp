@@ -255,8 +255,8 @@ end
 
 --- The typed handle for a started function, which `nupp.tasks` names `Task<F>`.
 ---
---- Its `await` result pack is the function's, which is why this is derived from the
---- function type rather than declared once over `any`. `status` answers a
+--- Its `await` result pack is the function's, which is why this is derived from
+--- the function type rather than declared once over `any`. `status` returns a
 --- [](nupp.workers.spi.Status).
 export type Task<F> = TaskType(F)
 
@@ -280,8 +280,8 @@ export record Scope
 
     _cancelAll: function(Scope, string?): nil
 
-    --- Waits for the oldest child not yet settled, without observing it, and answers
-    --- whether there was one.
+    --- Waits for the oldest child not yet settled, without observing it, and
+    --- returns whether there was one.
     _settleOldest: function(Scope): boolean
 end
 

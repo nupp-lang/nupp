@@ -42,7 +42,7 @@ type listing.Mapping = {
 ---
 --- `source` is handed the line number as well as the text because a highlighter
 --- classifies the whole file at once -- Nupp needs the context -- and then
---- answers per line. It is handed the column it has to fit in as well, and
+--- results per line. It is handed the column it has to fit in as well, and
 --- returns text occupying no more than that: a painted line is shorter than it
 --- looks, so only whatever painted it can cut one without cutting an escape in
 --- half.
@@ -257,12 +257,12 @@ end
 
 --- Renders an analysed chunk, and says where every line of it came from.
 ---
---- The file runs down the left, one row per line, and what each line compiled to
---- runs down the right. That is the shape of the question `bc` is asked -- what
---- did this line cost -- and it answers it for the lines that cost nothing too:
---- a type annotation, a comment, a blank, all of them rows with an empty right
---- half. A line that compiled to several instructions keeps the first beside it
---- and the rest on the rows below, where the left half is blank.
+--- The file runs down the left, one row per line, and what each line compiled
+--- to runs down the right. That is the shape of the question `bc` is asked --
+--- what did this line cost -- and it returns it for the lines that cost nothing
+--- too: a type annotation, a comment, a blank, all of them rows with an empty
+--- right half. A line that compiled to several instructions keeps the first
+--- beside it and the rest on the rows below, where the left half is blank.
 ---
 --- Laying the file out once is also what removes the duplication the older
 --- function-by-function listing had, where a line declaring a nested function

@@ -712,10 +712,10 @@ binary32, so the chosen grouping affects the result:
 | `pairwiseSum` | 0.33 ms | 500,000,489,472 |
 | `algebraicSum` | 0.13 ms | 500,007,927,808 |
 
-The same inputs produce different answers under these contracts. For this
-sequence, the pairwise sum is the most accurate of the measured variants;
-the algebraic sum is the fastest. Those rankings are properties of this
-measurement, not guarantees of the API.
+The same inputs produce different results under these contracts. For this
+sequence, the pairwise sum is the most accurate of the measured variants; the
+algebraic sum is the fastest. Those rankings are properties of this measurement,
+not guarantees of the API.
 
 Choose the numerical contract before comparing speed. A reducer can accept
 scalar and vector contributions in the same function, so a scalar loop that
@@ -1360,7 +1360,7 @@ which the generated wrapper compares with `layoutof` when the module loads,
 so a struct the two sides lay out differently, by alignment alone included,
 is rejected there rather than read wrong.
 
-As ordinary Lua the field is the struct's C array: reading it answers the
+As ordinary Lua the field is the struct's C array: reading it returns the
 N-lane vector of its species, and assigning a vector copies the lanes in.
 :::
 

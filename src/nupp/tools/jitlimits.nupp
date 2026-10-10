@@ -15,10 +15,10 @@ Three limits did it, each measured on a cold `nupp check` of this repository:
 
 * `sizemcode`. A trace must stay within branch range of the interpreter, which
   on arm64 is 128 MB. LuaJIT asks for each new machine-code area near the last
-  one, but macOS ignores the placement hint and answers with the next free
-  address, and once the heap has grown that is out of range. So the second area
-  never comes, and each time the first fills -- 64 KB by default, a couple of
-  hundred traces -- everything is flushed. One 16 MB area is reserved while the
+  one, but macOS ignores the placement hint and returns the next free address,
+  and once the heap has grown that is out of range. So the second area never
+  comes, and each time the first fills -- 64 KB by default, a couple of hundred
+  traces -- everything is flushed. One 16 MB area is reserved while the
   process is small enough for it to land in range.
 * `maxtrace`. The default of 1000 live traces flushed the main compiler process
   ninety-one times on its own.

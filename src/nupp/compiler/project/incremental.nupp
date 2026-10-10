@@ -174,7 +174,7 @@ record incremental.Inc
     }}
 
     --- The current digest of an external input, in the terms `externalInputs`
-    --- recorded it: absent and present-but-empty are different answers.
+    --- recorded it: absent and present-but-empty are different results.
     externalInputFingerprint: function(path: string): string
 
     --- Writes back what this run worked out that the next one can reuse.
@@ -623,15 +623,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return file ~= nil and require("nupp.compiler.bundled").source(file) == text
     end
 
-    --- Where the answer for a required name comes from: the path that holds it, or nil
-    --- when the carried copy answers. A build's staged copy of a carried source is that
-    --- same text on a path so it can be linked, and staging is how far the build has
-    --- got rather than a change to what the name means -- a worker, which stages
-    --- nothing, answers with the carried copy throughout. Answering with the staged
-    --- file instead re-checked it into fresh copies of its types the moment it was
-    --- staged, and every module requiring it was checked again to meet them. A staged
-    --- file a project root or a type root shadows is not the carried copy, and answers
-    --- for itself.
+    --- Where the answer for a required name comes from: the path that holds it,
+    --- or nil when the carried copy answers. A build's staged copy of a carried
+    --- source is that same text on a path so it can be linked, and staging is
+    --- how far the build has got rather than a change to what the name means --
+    --- a worker, which stages nothing, returns the carried copy throughout.
+    --- Answering with the staged file instead re-checked it into fresh copies
+    --- of its types the moment it was staged, and every module requiring it was
+    --- checked again to meet them. A staged file a project root or a type root
+    --- shadows is not the carried copy, and answers for itself.
     local function answeringPath(self: any, name: string): string?
         local path = modulePath(self, name)
         if path ~= nil and stagedCarriedText(name, path, self:get("fileText", path)) then

@@ -47,7 +47,7 @@ local function recordAddress(metatable: any): string?
     return type(address) == "string" and address or nil
 end
 
---- Answers why one value cannot be reproduced in another Lua state, or nil.
+--- Returns why one value cannot be reproduced in another Lua state, or nil.
 ---
 --- The walk is `next` rather than `pairs`, matching the native codec: transfer
 --- copies stored data rather than invoking a record's own iteration behaviour.

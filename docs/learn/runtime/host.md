@@ -24,7 +24,7 @@ way through:
 ```nupp:fragment
 local host = nupp.host
 
---- Answers the host's id for the decoded image, and its width and height.
+--- Returns the host's id for the decoded image, and its width and height.
 local type DecodeImage = function(url: string): (integer, integer, integer)
 local decodeImage = host.bind<DecodeImage>("app.image.decode")
 

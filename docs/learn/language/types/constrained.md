@@ -84,7 +84,7 @@ type without either a proof or a written admission.
 
 ## Testing without raising
 
-`value is Type` asks the same question and answers a boolean, which is the route
+`value is Type` asks the same question and returns a boolean, which is the route
 from a value that may not qualify.
 
 ```nupp:playground

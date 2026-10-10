@@ -3,7 +3,7 @@
  * stage-zero compiler also loads it and requires this version exactly, so the
  * ABI grows only by addition: see "Provider ABI evolution" in
  * docs/reference/native-runtime.md. A call that returns an int32_t status
- * answers NUPP_NATIVE_INTERNAL for a panic inside it rather than aborting. */
+ * returns NUPP_NATIVE_INTERNAL for a panic inside it rather than aborting. */
 
 #ifndef NUPP_NATIVE_H
 #define NUPP_NATIVE_H
@@ -33,7 +33,7 @@
 #define NUPP_NATIVE_CLOSED 4
 #define NUPP_NATIVE_INTERNAL 5
 /* An output buffer is too small, and the call's length output holds the byte
- * count it needs. nuppNativeBytesCopy still answers CAPACITY here, because the
+ * count it needs. nuppNativeBytesCopy still returns CAPACITY here, because the
  * pinned stage-zero compiler reads that code as its size-probe answer. */
 #define NUPP_NATIVE_BUFFER_TOO_SMALL 6
 /* A value does not fit the range its ABI type, or Nupp's exact integers, can
@@ -43,7 +43,7 @@
 #define NUPP_NATIVE_UNAVAILABLE 8
 
 /* A call that copies bytes into caller-owned storage writes the byte count to
- * its length output first, then answers BUFFER_TOO_SMALL when the capacity is
+ * its length output first, then returns BUFFER_TOO_SMALL when the capacity is
  * short. A zero-capacity call therefore asks the size of a nonempty value, and
  * no copied output carries a trailing NUL. The UUID and digest calls, whose
  * outputs have a fixed size and no length output, are the exceptions, and a
@@ -748,7 +748,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
  * - Validation failures inside the device and device faults are reported by
  *   the next synchronize, not by the call that caused them.
  * - Synchronize blocks until the submitted work finishes. A caller that must
- *   not block asks nuppNativeGpuSynchronizeReady first and, while it answers
+ *   not block asks nuppNativeGpuSynchronizeReady first and, while it returns
  *   0, waits on the process readiness generation, which advances once the
  *   work is done; Synchronize then only maps the finished downloads.
  * - No usable adapter fails context creation with UNAVAILABLE. */

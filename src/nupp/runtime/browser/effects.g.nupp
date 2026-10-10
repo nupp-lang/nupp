@@ -216,7 +216,7 @@ local preparers: {function(): boolean} = {}
 --- Runs `prepare` at the start of every park, before the frame is packed.
 ---
 --- For a provider that keeps one request it adds to until the frame ships and
---- writes its final form, leases included, only then. `prepare` answers whether
+--- writes its final form, leases included, only then. `prepare` returns whether
 --- it made something runnable, in which case the frame must not wait.
 function effects.beforePark(prepare: function(): boolean): nil
     preparers[#preparers + 1] = prepare

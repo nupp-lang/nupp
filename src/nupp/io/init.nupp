@@ -71,7 +71,7 @@ so appending through a writer costs amortized constant time per byte and
 `capacity()` reports bytes that are actually held. `ensureCapacity` reserves at
 least the minimum asked for.
 
-`close()` releases the buffer's storage and answers nothing, and an operation on
+`close()` releases the buffer's storage and returns nothing, and an operation on
 a released buffer raises rather than answering a reason.
 
 `readSpan()` borrows the buffer's initialized bytes without separating its
@@ -130,9 +130,9 @@ the reader exclusively. Two readers over one cursor, such as a stream and a
 borrowed view of it, cannot both be reading at once; the checker refuses the
 second while the first is live.
 
-`readAll(reader, maxBytes)` takes a reader and answers everything left in it as
+`readAll(reader, maxBytes)` takes a reader and returns everything left in it as
 one string, closing the reader on the way out. A limit is checked as the bytes
-arrive, so a source larger than it answers a reason rather than a string:
+arrive, so a source larger than it returns a reason rather than a string:
 
 ```nupp
 assert(nupp.io.readAll(nupp.io.newStringReader("whole")) == "whole")
@@ -161,13 +161,13 @@ end
 assert(destination:getString() == "prefix:body")
 ```
 
-`write` answers a boolean and `writeSpan` answers the byte count. Both answer a
+`write` returns a boolean and `writeSpan` returns the byte count. Both return a
 reason when the writer is closed or the destination was released. The span is
 the common zero-copy input contract for buffers, views, files, processes, and
 HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
 does nothing for memory. It is part of the contract because a file or socket
 buffers, and `flush` is where one reports a write that failed to land: `close`
-answers nothing, so a caller that has to know flushes first.
+returns nothing, so a caller that has to know flushes first.
 
 ## Lines
 
@@ -204,10 +204,10 @@ assert(reader:readFloat64() == 1.5)
 assert(reader:atEnd())
 ```
 
-Every write answers the writer, so calls chain. A short read raises rather than
-answering a reason, which is the one place this pair departs from the reader
-and writer contracts above: a scalar either landed whole or the source was not
-what the format said, and there is no partial value to hand back.
+Every write returns the writer, so calls chain. A short read raises rather than
+answering a reason, which is the one place this pair departs from the reader and
+writer contracts above: a scalar either landed whole or the source was not what
+the format said, and there is no partial value to hand back.
 
 ::: deepdive Host byte order
 Both directions read and write host-endian, the only order LuaJIT ships, so
@@ -229,10 +229,10 @@ assert(reader:remaining() == 4)
 ```
 
 A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
-read a field at a time. It cannot say how much is left, so `remaining()`
-answers nil and `atEnd()` is the question to ask instead. The scalar adapter
-takes that reader: closing the adapter, by hand or at the end of its scope,
-closes the reader exactly once.
+read a field at a time. It cannot say how much is left, so `remaining()` returns
+nil and `atEnd()` is the question to ask instead. The scalar adapter takes that
+reader: closing the adapter, by hand or at the end of its scope, closes the
+reader exactly once.
 
 ### Scalar destinations
 
@@ -249,19 +249,18 @@ end
 assert(destination:getString() == "header:!")
 ```
 
-A writer pointed at somebody else's `Writer` answers nil from `buffer()`, since
+A writer pointed at somebody else's `Writer` returns nil from `buffer()`, since
 the bytes are already gone. That writer is taken, so closing the scalar adapter
-closes it exactly once. A buffer supplied by the caller
-is only borrowed. The buffer created by the no-argument form belongs to the
-scalar writer; `buffer()` borrows it for as long as the scalar writer remains
-live.
+closes it exactly once. A buffer supplied by the caller is only borrowed. The
+buffer created by the no-argument form belongs to the scalar writer; `buffer()`
+borrows it for as long as the scalar writer remains live.
 
 ## Failures
 
-The files, process, network, TLS and HTTP modules answer a failure from the
+The files, process, network, TLS and HTTP modules return a failure from the
 environment as `nil, err`, where `err` is a [](nupp.io.Error): a `kind` a
-program can branch on and a `message` a person can read. The kind is the same
-on every platform and provider, so a missing file is `"notFound"` whether the
+program can branch on and a `message` a person can read. The kind is the same on
+every platform and provider, so a missing file is `"notFound"` whether the
 operating system or the browser said so; the message is whatever the platform
 said and is not.
 
@@ -274,9 +273,9 @@ end
 
 An error prints as its message, and joins text the same way, so
 `assert(files.read(path))` and `print("cannot read: " .. err)` read as they
-would with a string. The reads and writes of the `Reader` and `Writer`
-contracts are the exception: their reason stays a string, the same message,
-because a buffer or a string reader answers through the same contract.
+would with a string. The reads and writes of the `Reader` and `Writer` contracts
+are the exception: their reason stays a string, the same message, because a
+buffer or a string reader returns through the same contract.
 
 ## Byte queues
 
@@ -297,7 +296,7 @@ assert(reader:readUint8() == 33)
 ```
 
 Reading drains the queue, and `remaining()` reports what it still holds.
-`newQueueReader` is the same bridge one layer down: it answers an ordinary
+`newQueueReader` is the same bridge one layer down: it returns an ordinary
 `Reader` over the queue, for `transferTo`, `readInto`, and everything else that
 contract already covers.
 
@@ -469,7 +468,7 @@ local KIND_PATTERNS: {
     {"invalid", "typemismatcherror"},
 }
 
---- Answers the kind a failure message describes, or `other`.
+--- Returns the kind a failure message describes, or `other`.
 ---
 --- For providers, which mostly have only a platform's text to go on.
 --- @param message the platform's or the provider's words
@@ -580,8 +579,8 @@ export const newQueueReader = bytes.newQueueReader
 --- Opens a cursor for sized integer and float reads.
 ---
 --- A string, snapshot or buffer is read from a copy of its bytes taken here,
---- and reports its `remaining` count. A reader or a queue is consumed in
---- place: the reader answers no count, the queue answers what it still holds.
+--- and reports its `remaining` count. A reader or a queue is consumed in place:
+--- the reader returns no count, the queue returns what it still holds.
 ---
 --- What the source is decides what happens to it. A snapshot or a buffer is
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor
@@ -625,10 +624,10 @@ export const newScalarReader = scalars.newScalarReader
 --- @export
 export const newScalarWriter = scalars.newScalarWriter
 
---- Reads a reader to its end and answers everything it held as a string.
+--- Reads a reader to its end and returns everything it held as a string.
 ---
 --- The reader is taken, and closed on every way out. A limit is checked as the
---- bytes arrive, so a source larger than it answers a reason rather than being
+--- bytes arrive, so a source larger than it returns a reason rather than being
 --- held whole.
 --- @param reader the reader to drain
 --- @param maxBytes the most bytes to accept, or no limit

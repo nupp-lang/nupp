@@ -7,10 +7,10 @@ Cold whole-project checking across worker processes.
 
 The coordinator hashes every source once, has the workers parse them into module
 objects, links those into strongly connected components, and hands each worker a
-component whose dependencies are already checked. A worker answers with check
-records and the component's interface image, encoded once and carried back as
-opaque bytes; the coordinator forwards those bytes to whichever worker next needs
-them and never decodes one itself.
+component whose dependencies are already checked. A worker returns check records
+and the component's interface image, encoded once and carried back as opaque
+bytes; the coordinator forwards those bytes to whichever worker next needs them
+and never decodes one itself.
 
 The records are only a cache candidate. The ordinary build driver validates and
 reuses them as it would records from an earlier run, so anything this checker gets
@@ -66,13 +66,13 @@ end
 --- Checks, or builds, a cold project in dependency-ready components.
 ---
 --- `input` carries `queue` (the build's `{name, path}` work list), `inc` (the
---- coordinator's session), `root`, `outDir`, `config`, `target`, `strict`, `state`
---- (the new build state) and `reporter`. A build also sets `build`, the
+--- coordinator's session), `root`, `outDir`, `config`, `target`, `strict`,
+--- `state` (the new build state) and `reporter`. A build also sets `build`, the
 --- `constSelection` its modules generate against, and the `linked` dependency
---- modules it compiles from source. Answers `{records, codes}` -- the records by
---- module name and, for a build, the Lua each generated -- or nil and why this
---- process should do the work instead. Either way the reporter is told how the run
---- used its workers.
+--- modules it compiles from source. Returns `{records, codes}` -- the records
+--- by module name and, for a build, the Lua each generated -- or nil and why
+--- this process should do the work instead. Either way the reporter is told how
+--- the run used its workers.
 function parallelcheck.run(input: any): (any?, string?)
     local report = input.reporter
     local inc = input.inc

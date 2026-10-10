@@ -8,7 +8,7 @@ value is one of these. Two very different readers need it: the checker, which
 validates it against the declaration's own fields, and the generator, which
 compiles `x is T` into it. Handing the generator an expression tree, or worse a
 piece of source text to resolve again, can resolve one expression twice and
-produce different answers.
+produce different results.
 
 So the clause is read once, into a small tree of plain data whose only free
 variable is the subject. Nothing in it needs a scope: a path is a list of field
@@ -188,9 +188,9 @@ end
 
 --- The path whose byte length `node` takes, when it is `#` applied to one.
 ---
---- `#` is the one accessor the subset admits. It reads a value and answers an integer
---- without allocating, calling, or reaching outside the subject, which is the bar
---- everything else here is held to.
+--- `#` is the one accessor the subset admits. It reads a value and returns an
+--- integer without allocating, calling, or reaching outside the subject, which
+--- is the bar everything else here is held to.
 local function lengthPath(node: cst.Node?): {string}?
     node = unwrap(node)
     if not node or node.kind ~= "unop" then
@@ -418,8 +418,8 @@ function predicate.paths(node: predicate.Node?, out: {{string}}?): {{string}}
     return out
 end
 
---- What `type()` answers for a value of each primitive, where that is one answer.
---- A `types.Prim` carries its name as its tag, so this is keyed by tag.
+--- What `type()` returns for a value of each primitive, where that is one
+--- answer. A `types.Prim` carries its name as its tag, so this is keyed by tag.
 local PRIMITIVE_LUA_TYPE: {
     [string]: string
 } = {
@@ -434,10 +434,10 @@ local PRIMITIVE_LUA_TYPE: {
     userdata = "userdata",
 }
 
---- What `type()` answers for a value of `t`, when that is decided by the type.
+--- What `type()` returns for a value of `t`, when that is decided by the type.
 ---
---- Only the tags whose runtime answer is fixed. A union, a type parameter, and `any`
---- are all several answers, so they are no answer at all.
+--- Only the tags whose runtime answer is fixed. A union, a type parameter, and
+--- `any` are all several results, so they are no answer at all.
 local function luaTypeOf(t: any): string?
     if type(t) ~= "table" then
         return nil
@@ -531,8 +531,9 @@ end
 --- value the compiler holds is either proved to fit the constraint, proved not to, or
 --- -- for a refinement reading fields the caller did not supply -- neither.
 ---
---- Reaching a field of a non-table answers nil rather than raising, because this runs
---- over values that are not of the type yet. That is the whole point of asking.
+--- Reaching a field of a non-table returns nil rather than raising, because
+--- this runs over values that are not of the type yet. That is the whole point
+--- of asking.
 function predicate.satisfiedByValue(node: predicate.Node?, value: any): boolean?
     if not node then
         return nil
@@ -685,7 +686,8 @@ function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {s
     return nil
 end
 
---- What the refinement always answers, when it answers the same thing every time.
+--- What the refinement always returns, when it returns the same thing every
+--- time.
 ---
 --- A refinement that reads nothing decides nothing: always-true makes `is` say yes to
 --- every value, always-false makes the type uninhabited. Both are worth saying rather
@@ -952,10 +954,11 @@ end
 
 --- Whether every value `a` admits `b` admits too, as far as this can tell.
 ---
---- Interval containment and leftover containment, and nothing else: no rewriting of
---- one comparison into another, no arithmetic on the base's own domain, and no attempt
---- at general implication. Undecided answers false, because the caller's fallback is to
---- keep a check, and keeping one it did not need costs less than removing one it did.
+--- Interval containment and leftover containment, and nothing else: no
+--- rewriting of one comparison into another, no arithmetic on the base's own
+--- domain, and no attempt at general implication. Undecided returns false,
+--- because the caller's fallback is to keep a check, and keeping one it did not
+--- need costs less than removing one it did.
 function predicate.implies(a: predicate.Node?, b: predicate.Node?): boolean
     if predicate.key(a) == predicate.key(b) then
         return true

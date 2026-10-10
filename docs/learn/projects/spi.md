@@ -94,11 +94,11 @@ export const encode = impl.encode
 ```
 
 `nupp.spi.select` reads each candidate's `priority`, counting a missing one as
-0, and answers the one with the highest. A higher priority supersedes a tie
+0, and returns the one with the highest. A higher priority supersedes a tie
 below it; a tie for the highest raises, naming the interface and the two
-modules, rather than letting discovery order decide. It answers nil when
-nothing is advertised, so the fallback after `??` is loaded only when it is
-used. Every standard library facade selects its provider this way.
+modules, rather than letting discovery order decide. It returns nil when nothing
+is advertised, so the fallback after `??` is loaded only when it is used. Every
+standard library facade selects its provider this way.
 
 `priority` is a convention between an interface and `select`, and `load` knows
 nothing about it. Another consumer can iterate `load` itself to compare

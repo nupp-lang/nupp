@@ -19,12 +19,13 @@ knowing one is there.
 
 A path argument is a string, a [](nupp.io.path.Path), or an application path
 returned by `configurationPath`, `dataPath`, or `cachePath`; a path result is a
-[](nupp.io.path.Path). An operation that fails because of the environment answers nil or false
-with a reason, and a malformed argument raises at the call site.
+[](nupp.io.path.Path). An operation that fails because of the environment
+returns nil or false with a reason, and a malformed argument raises at the call
+site.
 
 ## Querying a name
 
-`info` answers one record of attributes:
+`info` returns one record of attributes:
 
 ```nupp:fragment
 local info, reason = files.info("nupp.lua")
@@ -35,10 +36,10 @@ print(info.size, info.modified, info.readOnly)
 
 `info` follows symbolic links, so it describes what a name refers to rather than
 the name itself. `size` is a byte count, `modified` is milliseconds since the
-Unix epoch, the unit [](nupp.time.wallTime) answers in, with whatever fraction
-the platform records, and `readOnly` is the
-platform's write refusal rather than a permission model. A size beyond Nupp's
-exact integer range answers a reason instead of a rounded count.
+Unix epoch, the unit [](nupp.time.wallTime) returns in, with whatever fraction
+the platform records, and `readOnly` is the platform's write refusal rather than
+a permission model. A size beyond Nupp's exact integer range returns a reason
+instead of a rounded count.
 
 `exists`, `isFile` and `isDirectory` answer the same question without the record
 and without a reason. Any failure is `false` rather than an error, a refused
@@ -52,7 +53,7 @@ end
 ```
 
 `isSymlink` is the one query that does not follow, because following is what
-would hide the answer. It answers a boolean like the other three, false on any
+would hide the answer. It returns a boolean like the other three, false on any
 failure:
 
 ```nupp:fragment
@@ -67,7 +68,7 @@ Only Windows distinguishes the two; elsewhere it is ignored.
 
 ## Listing a directory
 
-`list` answers every entry in a directory, in one call:
+`list` returns every entry in a directory, in one call:
 
 ```nupp:fragment
 local entries, reason = files.list("src/nupp")
@@ -86,7 +87,7 @@ listing a large directory costs one call.
 `glob` expands a pattern string into sorted paths. `*` and `?` stay within one
 path component, `[abc]` and `[!abc]` select characters, and `**` crosses
 directory boundaries. No matches is an empty list; an invalid pattern or a
-filesystem error answers a reason.
+filesystem error returns a reason.
 
 ```nupp:fragment
 for _, path in ipairs(assert(files.glob("src/**/*.nupp"))) do
@@ -96,7 +97,8 @@ end
 
 ## Creating, moving and removing
 
-These three operations move names rather than bytes, so each answers now:
+These three operations move names rather than bytes, so each returns
+immediately:
 
 ```nupp:fragment
 assert(files.createDirectory("out/lib/native"))
@@ -108,7 +110,7 @@ assert(files.remove("out/stale", true))
 succeeds, which is what a caller building a tree wants rather than a race with
 its own earlier call. `rename` replaces an existing destination. `remove` takes
 a file, a symbolic link, or an empty directory; the second argument removes a
-directory's contents with it, and without it a populated directory answers a
+directory's contents with it, and without it a populated directory returns a
 reason.
 
 `setReadOnly` sets or clears the write refusal that `info` reports.
@@ -116,7 +118,7 @@ reason.
 ## Temporary names
 
 `createTemporaryFile` and `createTemporaryDirectory` both take options and
-answer a path:
+return a path:
 
 ```nupp:fragment
 local scratch, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = "build-"))
@@ -180,7 +182,7 @@ end
 ```
 
 A line comes back without its terminator, `\n` or `\r\n`, so a file written on
-either platform reads the same. A read that fails partway through answers nil
+either platform reads the same. A read that fails partway through returns nil
 and the reason rather than ending the lines early, which is what tells a broken
 file apart from a finished one.
 
@@ -213,15 +215,15 @@ end
 
 `mode` is `r`, `w`, `a`, or the update modes `r+`, `w+` and `a+`, matching C and
 Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
-`current` or `end`; `position` and `size` answer where it is and how long the
+`current` or `end`; `position` and `size` return where it is and how long the
 file is. A seek before the start or beyond the exact integer range fails without
-moving the cursor. `close` answers nothing, so a write that failed to land is
+moving the cursor. `close` returns nothing, so a write that failed to land is
 reported by `flush`, which is the call to make first when it matters.
 
 ## Platform directories
 
-Two queries answer where the platform keeps a user's folders and where the
-running program lives; [](nupp.io.path.currentDirectory) answers where the
+Two queries return where the platform keeps a user's folders and where the
+running program lives; [](nupp.io.path.currentDirectory) returns where the
 process is:
 
 ```nupp:fragment
@@ -233,7 +235,7 @@ print(assert(files.executableDirectory()))
 `music` or `videos`. It resolves from the environment: the `XDG_*` variables
 where they are set, and the platform's conventional names under the home
 directory otherwise. A desktop that records its folders somewhere else is not
-consulted, and a folder that does not exist answers a reason rather than a path
+consulted, and a folder that does not exist returns a reason rather than a path
 that is not there.
 
 ## Waiting
@@ -252,14 +254,15 @@ One call site covers all three. A library that reads a file works inside a game
 frame and inside a command-line program without knowing which it is in, and a
 transfer that settled before it was observed never reaches any of this.
 
-::: deepdive Names answer now, bytes go to a worker lane
-Anything that moves names rather than bytes answers now, because the platform
-answers it now. Anything that moves a whole file's bytes is submitted to the
-native library's worker lane and waited for, so a program inside a scheduler
-yields instead of blocking its host. Making both suspend would tax every `stat`
-for a wait that never happens; making neither suspend would block a host on a
-transfer it cannot see. See [suspension.md](docs/learn/runtime/concurrency/suspension.md)
-for how one call takes either path.
+::: deepdive Names return immediately, bytes go to a worker lane
+Anything that moves names rather than bytes returns immediately, because the
+platform completes it immediately. Anything that moves a whole file's bytes is
+submitted to the native library's worker lane and waited for, so a program
+inside a scheduler yields instead of blocking its host. Making both suspend
+would tax every `stat` for a wait that never happens; making neither suspend
+would block a host on a transfer it cannot see. See
+[suspension.md](docs/learn/runtime/concurrency/suspension.md) for how one call
+takes either path.
 :::
 
 The immediate operations cannot suspend, so a region that forbids waiting still
@@ -286,9 +289,9 @@ the suspension runtime, because that is what answers the wait above.
 
 The lane those workers run is bounded three ways: how many transfers may be
 live, how many bytes they may hold between them, and how large one may be. Past
-any of the three a submission answers a reason rather than queueing, because a
+any of the three a submission returns a reason rather than queueing, because a
 queue that grows with its callers eventually takes the process with it.
-`pendingTransfers` answers what the lane is holding.
+`pendingTransfers` returns what the lane is holding.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
@@ -757,7 +760,7 @@ export record File is io.Reader, io.Writer
         return wrote, nil
     end
 
-    --- Answers the file's byte length without moving the cursor.
+    --- Returns the file's byte length without moving the cursor.
     --- @param self this file
     --- @return the byte length, or nil on failure
     --- @return a failure reason, when unsuccessful
@@ -775,7 +778,7 @@ export record File is io.Reader, io.Writer
         return tonumber(output[0]) as integer, nil
     end
 
-    --- Moves the cursor and answers where it landed.
+    --- Moves the cursor and returns where it landed.
     --- @param self this file
     --- @param offset the distance to move
     --- @param origin what the offset is measured from, defaulting to the start
@@ -799,7 +802,7 @@ export record File is io.Reader, io.Writer
         return tonumber(output[0]) as integer, nil
     end
 
-    --- Answers the cursor's current position.
+    --- Returns the cursor's current position.
     --- @param self this file
     --- @return the position, or nil on failure
     --- @return a failure reason, when unsuccessful
@@ -1531,9 +1534,9 @@ end
 
 --- How many whole-file transfers this program is still holding.
 ---
---- Whole-file reads, writes and copies settle on worker threads, and the lane that
---- runs them is bounded. This answers what it holds, which is what a program that
---- submitted more than it consumed needs to see.
+--- Whole-file reads, writes and copies settle on worker threads, and the lane
+--- that runs them is bounded. This returns what it holds, which is what a
+--- program that submitted more than it consumed needs to see.
 --- @return the number of live transfers
 --- @export
 export function pendingTransfers(): integer
@@ -1632,7 +1635,7 @@ export function createTemporaryDirectory(options: TemporaryOptions?): (affine(Te
     return new TemporaryPath(_text = text as string, _directory = true, _closed = false), nil
 end
 
---- Answers a well-known user folder.
+--- Returns a well-known user folder.
 --- @param which the folder to locate
 --- @return the folder, or nil when the platform has no such folder
 --- @return a failure reason, when unsuccessful

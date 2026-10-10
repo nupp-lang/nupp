@@ -671,7 +671,7 @@ end
 
 ## Read a struct's layout
 
-`layoutof(T)` answers how a reified `struct` sits in memory:
+`layoutof(T)` returns the memory layout of a reified `struct`:
 
 ```nupp
 local struct Vertex
@@ -721,7 +721,7 @@ carries none of this.
 ::: deepdive
 Reifying puts a value where anything that walks a table cannot reach it.
 `string.buffer.encode` refuses cdata outright, `pairs` needs a `__pairs`, and
-`type` answers `"cdata"`. Publishing the layout is what makes such a value
+`type` returns `"cdata"`. Publishing the layout is what makes such a value
 reachable again without the language choosing a serialization format for
 everyone: a codec, a snapshot writer, or a GPU vertex-attribute descriptor is
 written against the layout, and the format stays yours.

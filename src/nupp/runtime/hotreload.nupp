@@ -23,9 +23,9 @@ local debugAny: any = debug
 
 --- A function body a slot can hold.
 ---
---- Generated code writes these and generated code calls them, so no two slots need
---- agree about what a call takes or answers. What this module does with one is join
---- its upvalues and store it, neither of which reads a parameter.
+--- Generated code writes these and generated code calls them, so no two slots
+--- need agree about what a call takes or returns. What this module does with
+--- one is join its upvalues and store it, neither of which reads a parameter.
 type hotreload.Implementation = function(...: any): any
 
 --- The implementation array a generated watch module dispatches through.
@@ -203,7 +203,7 @@ local function moduleForSlots(slots: hotreload.Slots): any
     return module
 end
 
---- Answers the direct implementation array for a loaded watch module.
+--- Returns the direct implementation array for a loaded watch module.
 ---
 --- Outside staging, naming a module that has not executed registers it, because
 --- that is a module about to run its own initial chunk. Inside staging it is a
@@ -448,12 +448,12 @@ function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
     return state.generation
 end
 
---- Answers the currently published implementation generation.
+--- Returns the currently published implementation generation.
 function hotreload.generation(): integer
     return state.generation
 end
 
---- Answers whether a module has completed its initial watch execution.
+--- Returns whether a module has completed its initial watch execution.
 function hotreload.loaded(name: string): boolean
     local module = state.modules[name]
     return module ~= nil and module.loaded == true

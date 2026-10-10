@@ -65,7 +65,7 @@ An entry may return several numeric or boolean results through its private aggre
 
 When vector execution matters, use `nupp.simd` inside a block kernel. See
 [simd-programming.md](simd-programming.md) for species, masks, and vector
-operations. `simd.species` always answers a species, the preferred one one lane
+operations. `simd.species` always returns a species, the preferred one one lane
 wide where the tier has no vectors, and `species:over` strip-mines a span so the
 loop is written once; the lanes, the tail mask and any hand-written continuation
 are visible in the source, and the same LLVM IR and assembly inspection commands

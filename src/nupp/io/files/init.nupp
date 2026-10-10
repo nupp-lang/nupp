@@ -105,7 +105,7 @@ export function setApplicationIdentity(newOrganization: string, newApplication: 
     application = newApplication
 end
 
---- Answers the selected application identity, or nil values before one is set.
+--- Returns the selected application identity, or nil values before one is set.
 --- @return the organization component
 --- @return the application component
 export function applicationIdentity(): (string?, string?)
@@ -346,7 +346,7 @@ end
 --- Opens a file as a line reader, which takes the file and closes it with itself.
 ---
 --- A line is read without its terminator, `\n` or `\r\n`. A read that fails
---- partway through answers nil and the reason from `Lines:read`, which is what
+--- partway through returns nil and the reason from `Lines:read`, which is what
 --- tells it apart from the end of the file, where the reason is nil.
 ---
 --- ```nupp

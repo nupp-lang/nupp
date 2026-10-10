@@ -49,15 +49,14 @@ meaningful. Positional construction in declaration order is also accepted for
 Lua compatibility, but the `positional-record-construction` lint recommends
 naming the fields.
 
-The declaration's runtime table is the type's identity, which is what lets
-`p is Point` lower to a `getmetatable` comparison. An instance is a value that
-came from the declaration, not only one the declaration stamped itself: a
-constructor may link back rather than stamping, giving instances their own
-metatable whose `__index` is the record, which is how a prototype-style
-registrar builds them. The test reaches the record through `__index` so both
-arrive at the same answer, which works because a record is its own prototype.
-A value with no metatable, another record's instance, and the declaration's own
-table all answer `false`.
+The declaration's runtime table is the type's identity, which is what lets `p is
+Point` lower to a `getmetatable` comparison. An instance is a value that came
+from the declaration, not only one the declaration stamped itself: a constructor
+may link back rather than stamping, giving instances their own metatable whose
+`__index` is the record, which is how a prototype-style registrar builds them.
+The test reaches the record through `__index` so both arrive at the same answer,
+which works because a record is its own prototype. A value with no metatable,
+another record's instance, and the declaration's own table all return `false`.
 
 ### Names hold their table
 

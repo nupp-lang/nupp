@@ -85,11 +85,11 @@ scope cancels its unfinished children, waits for them, and raises the failure
 where the block is left. [Failure and termination](#failure-and-termination)
 says more.
 
-`Task:isDone()` answers whether a reply has arrived without waiting for one. It
+`Task:isDone()` returns whether a reply has arrived without waiting for one. It
 is a progress question, not a scheduling one: a task is settled or it is not,
 and the way to have its values is still `await`.
 
-`Task:status()` answers `queued`, `running`, `done`, `failed`, or `cancelled`.
+`Task:status()` returns `queued`, `running`, `done`, `failed`, or `cancelled`.
 `Task:cancel(reason)` idempotently requests cancellation and reports whether
 this call made the first request. A queued cancellation settles immediately and
 the lane discards its work frame without loading or invoking the function. A
@@ -202,7 +202,7 @@ same lanes and pay ten thousand copies to do it.
 
 The first fork creates one scheduler for the process. Its lane count is the
 host's online processor count, capped at 64, and
-`nupp.system.availableParallelism()` answers that count without opening
+`nupp.system.availableParallelism()` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
 
@@ -568,13 +568,13 @@ headers are involved.
 
 The page's pool is bounded by both the package's lane limit and
 `navigator.hardwareConcurrency`, and `nupp.system.availableParallelism()`
-answers that bound there. Lanes boot as work arrives rather than when the first
+returns that bound there. Lanes boot as work arrives rather than when the first
 fork is made.
 
 Three things a program can observe differ, because a browser gives two Workers no
 synchronous channel:
 
-- a reply reaches the calling state when it next waits, so `Task:isDone` answers
+- a reply reaches the calling state when it next waits, so `Task:isDone` returns
   as of that point rather than the moment a lane produced the value;
 - `Task:cancel` still reports whether it made the first request, but a queued
   task settles at the next wait rather than inside the call;

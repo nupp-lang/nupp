@@ -206,15 +206,16 @@ local type ScopeState = {
     frame: any
 }
 
---- Represents the handle one `spawn` or `fork` answers.
+--- Represents the handle one `spawn` or `fork` returns.
 ---
 --- Its `await` result pack is the body's, which is why this is derived from the
---- function type rather than declared once over `any`. The worker contract declares
---- it, so a coroutine child and a worker child answer one type.
+--- function type rather than declared once over `any`. The worker contract
+--- declares it, so a coroutine child and a worker child return the same type.
 type tasks.Task<F> = Task2<F>
 
---- Where a task is, as its `status` answers: `queued`, `running`, `done`, `failed`, or
---- `cancelled`. A closed union, so a `switch` over it needs no `else`.
+--- Where a task is, as its `status` returns: `queued`, `running`, `done`,
+--- `failed`, or `cancelled`. A closed union, so a `switch` over it needs no
+--- `else`.
 type tasks.Status = Status2
 
 --- The arguments a child's function takes, once none of them is an owner or a borrow.
@@ -250,9 +251,9 @@ end
 
 --- Represents a scope opened by `open`.
 ---
---- A `nupp.Closeable`: `open` answers it as an owner a `with` block holds, and leaving
---- the block closes it. The block can add children to the scope and reach the worker
---- scope it owns.
+--- A `nupp.Closeable`: `open` returns it as an owner a `with` block holds, and
+--- leaving the block closes it. The block can add children to the scope and
+--- reach the worker scope it owns.
 record tasks.Scope is nupp.Closeable
     --- Private state. Named rather than hidden because the checked surface below is
     --- what callers use, and a record needs somewhere to keep this.
@@ -526,8 +527,8 @@ end
 --- Records the first failure the scope owns.
 ---
 --- Fail-fast is about ownership rather than timing: the failure belongs to the
---- scope from here, whether or not anybody has awaited the child that produced it,
---- and every later task operation in this scope answers with it.
+--- scope from here, whether or not anybody has awaited the child that produced
+--- it, and every later task operation in this scope raises it.
 local function ownFailure(owner: ScopeState, problem: any): nil
     if not owner.failed then
         owner.failed = true
@@ -700,7 +701,7 @@ local function parkScope(owner: ScopeState): function(function(any), suspension.
     end
 end
 
---- Drives this scope until `settled` answers true.
+--- Drives this scope until `settled` returns true.
 ---
 --- The one loop behind `await` and behind leaving a `run` body. It runs what it may,
 --- defers when the turn is spent, and otherwise parks on whoever is handling
@@ -865,9 +866,10 @@ end
 
 --- Raises whatever the scope owns, if it owns anything.
 ---
---- Called before a task operation answers about its own task. A scope that owns a
---- failure has already asked its children to stop, so answering a particular child's
---- result here would be answering about work the caller has already lost.
+--- Called before a task operation returns its own task's result. A scope that
+--- owns a failure has already asked its children to stop, so returning a
+--- particular child's result here would report work the caller has already
+--- lost.
 ---
 --- @raises any the failure the scope owns
 --- @raises tasks.Cancellation the cancellation it is unwinding under
@@ -989,16 +991,17 @@ end
 
 --- Waits until the scope has room for one more child, where it has a limit.
 ---
---- Room is what makes the bound a bound: the loop that spawns is the source, and a
---- settlement is what lets it continue, so nothing runs ahead of the limit. A worker
---- task holds a slot until its lane answers, which the scope learns through its
---- observer; when only lanes are outstanding there is no coroutine to drive, so the
---- oldest unsettled one is waited on directly.
+--- Room is what makes the bound a bound: the loop that spawns is the source,
+--- and a settlement is what lets it continue, so nothing runs ahead of the
+--- limit. A worker task holds a slot until its lane returns, which the scope
+--- learns through its observer; when only lanes are outstanding there is no
+--- coroutine to drive, so the oldest unsettled one is waited on directly.
 ---
---- A child of this scope starting one beside itself does not wait here. It holds a
---- slot, and every other slot may be held by a sibling doing the same, so a slot only
---- a sibling could free would never come. It answers true instead, and the caller
---- lends the new child its own slot once the child is registered (`lendSlot`).
+--- A child of this scope starting one beside itself does not wait here. It
+--- holds a slot, and every other slot may be held by a sibling doing the same,
+--- so a slot only a sibling could free would never come. It returns true
+--- instead, and the caller lends the new child its own slot once the child is
+--- registered (`lendSlot`).
 ---
 --- @raises any the scope's failure
 --- @raises tasks.Cancellation the scope's cancellation
@@ -1340,12 +1343,13 @@ end
 
 --- Starts a child on a worker lane.
 ---
---- Written `scope:fork(arguments..., f)`, the same shape as `spawn`, and answering the
---- same kind of handle. `f` must be sendable -- a module function, or a literal whose
---- effectively-final captures can be copied into another Lua state -- and its
---- arguments and results must be values a copy can reproduce; the selected worker
---- provider says which. A worker task holds one of the scope's slots until its lane
---- answers. Its failure is the scope's, worded `nupp: worker task failed: ...`.
+--- Written `scope:fork(arguments..., f)`, the same shape as `spawn`, and
+--- answering the same kind of handle. `f` must be sendable -- a module
+--- function, or a literal whose effectively-final captures can be copied into
+--- another Lua state -- and its arguments and results must be values a copy can
+--- reproduce; the selected worker provider says which. A worker task holds one
+--- of the scope's slots until its lane returns. Its failure is the scope's,
+--- worded `nupp: worker task failed: ...`.
 ---
 --- ```nupp:fragment
 --- const thumbnail = scope:fork(bytes, jobs.thumbnail)
@@ -1430,7 +1434,7 @@ end
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
 ---
---- @return an absolute monotonic reading, as `nupp.time.now` answers
+--- @return an absolute monotonic reading, as `nupp.time.now` returns
 function tasks.deadline(): number?
     const owner = currentScope()
     if owner == nil then
@@ -1528,7 +1532,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
     return owner
 end
 
---- Cancels and drains, then answers what the scope owns.
+--- Cancels and drains, then returns what the scope owns.
 local function settle(owner: ScopeState): nil
     if owner.failed then
         requestCancellation(owner, "the task scope", "the scope is unwinding")
@@ -1672,17 +1676,17 @@ end
 --- its siblings, and is raised where the block is left, whether or not anything
 --- awaited that child.
 ---
---- With a `limit`, `spawn` and `fork` park while that many children are live, so a
---- loop that fans out over a source is bounded by the loop itself: nothing is pulled
---- from the source until there is room to run it. A child that starts one beside
---- itself on a full scope lends it the slot it holds and parks until it has one
---- again, so children forking inside children cannot deadlock the bound. With a
---- `timeoutMs`, the scope's
---- deadline is that many milliseconds from now on the monotonic clock, and expiry
---- requests ordinary cancellation. A scope opened inside another takes the earlier
---- of the two deadlines: a child may bound itself more tightly than its parent did,
---- and may not extend what its parent already promised. [](nupp.tasks.deadline)
---- answers the absolute deadline that results.
+--- With a `limit`, `spawn` and `fork` park while that many children are live,
+--- so a loop that fans out over a source is bounded by the loop itself: nothing
+--- is pulled from the source until there is room to run it. A child that starts
+--- one beside itself on a full scope lends it the slot it holds and parks until
+--- it has one again, so children forking inside children cannot deadlock the
+--- bound. With a `timeoutMs`, the scope's deadline is that many milliseconds
+--- from now on the monotonic clock, and expiry requests ordinary cancellation.
+--- A scope opened inside another takes the earlier of the two deadlines: a
+--- child may bound itself more tightly than its parent did, and may not extend
+--- what its parent already promised. [](nupp.tasks.deadline) returns the
+--- absolute deadline that results.
 ---
 --- Both are named arguments: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
 --- or `open(limit = 8, timeoutMs = 500)`.
@@ -1856,7 +1860,7 @@ local function enterBranches(owner: ScopeState, bodies: {any}, count: integer, b
     end
 end
 
---- Settles a family scope and answers what each branch did.
+--- Settles a family scope and returns what each branch did.
 ---
 --- The deadline and any failure the scope itself owns are raised here, so a family
 --- bounded by an enclosing scope reports that rather than reporting branch outcomes
@@ -1891,15 +1895,17 @@ local function settleFamily(owner: ScopeState, branches: {Child}): {any}, {any}
     return values, errors
 end
 
---- Runs every body concurrently and answers what each of them did, failures included.
+--- Runs every body concurrently and returns what each of them did, failures
+--- included.
 ---
---- The fail-soft family. Both arrays are indexed as `bodies` was. `errors[i]` holds an
---- entry exactly where branch `i` failed; every other branch returned, and
---- `values[i]` is what it returned, which may itself be `nil`. So `errors` alone says
---- which branches failed, and a caller who has to see every outcome sees them beside
---- each other. A branch answers one value: one that returns several fails, saying how
---- many, rather than having the rest dropped. A scope is the fail-fast answer to the
---- same question: use one where the first failure should end the rest.
+--- The fail-soft family. Both arrays are indexed as `bodies` was. `errors[i]`
+--- holds an entry exactly where branch `i` failed; every other branch returned,
+--- and `values[i]` is what it returned, which may itself be `nil`. So `errors`
+--- alone says which branches failed, and a caller who has to see every outcome
+--- sees them beside each other. A branch returns one value: one that returns
+--- several fails, saying how many, rather than having the rest dropped. A scope
+--- is the fail-fast answer to the same question: use one where the first
+--- failure should end the rest.
 ---
 --- ```nupp:fragment
 --- const values, errors = nupp.tasks.gather({
@@ -1950,12 +1956,13 @@ local gather: function<T>(scoped bodies: {function(): T}): ({T?}, {any})
 end
 tasks.gather = gather
 
---- Runs every body concurrently and answers the first one to settle.
+--- Runs every body concurrently and returns the first one to settle.
 ---
---- The losers are abandoned rather than forgotten: each is resumed once so its park
---- cancels and its branch unwinds. A loser that had not started never starts, and an
---- affine body that never ran is dropped rather than leaked. A branch answers one
---- value, as in `gather`, so a winner that returned several raises saying how many.
+--- The losers are abandoned rather than forgotten: each is resumed once so its
+--- park cancels and its branch unwinds. A loser that had not started never
+--- starts, and an affine body that never ran is dropped rather than leaked. A
+--- branch returns one value, as in `gather`, so a winner that returned several
+--- raises saying how many.
 ---
 --- ```nupp:fragment
 --- const answer, which = nupp.tasks.race({

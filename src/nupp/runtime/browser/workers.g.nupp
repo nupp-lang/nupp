@@ -167,7 +167,7 @@ local nextTaskId: integer = 1
 -- risking a lane that waits on itself.
 local laneActive: boolean = false
 
---- Issues a pool request and answers with the value the host returned.
+--- Issues a pool request and returns the value the host returned.
 --- @raises string where the pool refused the request or answered nothing
 local function answered(item: any): any
     if item == nil then
@@ -682,7 +682,7 @@ local function workerFailure(problem: any): any
     return debug.traceback(tostring(problem), 2)
 end
 
---- Runs a task frame and answers the reply the pool should carry back.
+--- Runs a task frame and returns the reply the pool should carry back.
 local function runFrame(frame: any): any
     checkpointCancelled = false
     checkpointDeadline = false

@@ -5,7 +5,7 @@ How many columns a string occupies.
 
 The formatter breaks lines at a width, and a width in bytes is the wrong
 question: a combining mark adds nothing, and a CJK ideograph or an emoji takes
-two. This answers in display columns, from the Unicode tables it needs and
+two. This returns in display columns, from the Unicode tables it needs and
 nothing else.
 ]]
 

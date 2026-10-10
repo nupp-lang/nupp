@@ -14,7 +14,7 @@ queries for a working directory and a real path cross the filesystem boundary.
 
 A path is read as a sequence of components: an optional prefix, an optional
 root, and the names between separators, with `.` dropped and `..` kept. The
-scans retain byte offsets rather than component records: several answers are
+scans retain byte offsets rather than component records: several results are
 slices of what the caller wrote rather than a rebuild. The parent of
 `alpha/./beta/../file` is `alpha/./beta/..`, written that way, and normalizing
 is a separate request with its own answer.
@@ -174,8 +174,8 @@ end
 
 --- An answer on its way out.
 ---
---- Windows writes a separator either way and answers with one, so what it wrote
---- is rewritten here. POSIX does not, and must not: a backslash there is an
+--- Windows writes a separator either way and returns one, so what it wrote is
+--- rewritten here. POSIX does not, and must not: a backslash there is an
 --- ordinary byte in an ordinary name. A verbatim path is Windows's own
 --- exception: the system reads `\\?\` and its backslashes literally, so the
 --- answer keeps every byte as it was written.
@@ -585,10 +585,10 @@ end
 
 --- Expresses `target` against `base` using their component views.
 ---
---- A target that is its base answers `.`: the path is where the base already
---- is, and `.` represents that location, where `""` names nothing a
---- filesystem call accepts. A verbatim path is refused, because expressing
---- one is exactly the reasoning about its components this module does not do.
+--- A target that is its base returns `.`: the path is where the base already
+--- is, and `.` represents that location, where `""` names nothing a filesystem
+--- call accepts. A verbatim path is refused, because expressing one is exactly
+--- the reasoning about its components this module does not do.
 --- @param target the path to express
 --- @param base the path to express it against
 --- @param windows whether Windows rules apply

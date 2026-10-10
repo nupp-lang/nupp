@@ -236,7 +236,7 @@ sealed interface soa.Span<T> is soa.ReadView
     metamethod __len: function(self: Span<T>): integer
     metamethod __index: function(borrows self: Span<T>, index: integer): T
 
-    --- Answers a subrange of rows, inclusive at both ends.
+    --- Returns a subrange of rows, inclusive at both ends.
     ---
     --- The result borrows this view, and omitting `last` runs through to the end.
     slice: function(borrows self: Span<T>, first: integer, last: integer?): soa.Span<T> borrows (self)
@@ -324,7 +324,7 @@ sealed interface soa.WriteSpan<T>
         count: integer
     ): nil
 
-    --- Answers an affine writable subrange of rows, inclusive at both ends.
+    --- Returns an affine writable subrange of rows, inclusive at both ends.
     ---
     --- The child borrows this view, so the parent is unusable until the child is
     --- dropped. Row indexes start at one in the child, as they do in the parent.
@@ -586,7 +586,8 @@ function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>
     error("nupp: soa.allocate requires compiler lowering", 2)
 end
 
---- Answers immutable SoA reflection for a reified struct type without allocating.
+--- Returns immutable SoA reflection for a reified struct type without
+--- allocating.
 ---
 --- Only top-level fields are split, so a nested struct or fixed array is a field
 --- here whatever it holds.

@@ -10,12 +10,11 @@ turning text the build produced back into the functions it produced them from.
 LuaJIT loads a dump wherever it loads source, so the build leaves one beside
 each module and this puts a searcher in front of the file searcher to find it.
 
-Never load-bearing, and written so that it cannot become so. Every failure --
-no index, one written by another checkout or another LuaJIT, a truncated dump,
-a digest nothing wrote -- answers nothing and lets the ordinary searcher
-answer instead. That costs the parse this was avoiding and changes no result.
-Deleting the directory is supported; `nupp clean` does it with the rest of the
-build.
+Never load-bearing, and written so that it cannot become so. Every failure -- no
+index, one written by another checkout or another LuaJIT, a truncated dump, a
+digest nothing wrote -- returns nothing and lets the ordinary searcher answer
+instead. That costs the parse this was avoiding and changes no result. Deleting
+the directory is supported; `nupp clean` does it with the rest of the build.
 
 Content-addressed, so the pairing cannot come apart. An entry is named by a
 digest of the module name and the source digest the build recorded. The name is
@@ -154,11 +153,11 @@ end
 --- The index, when it is one this tree and this interpreter can use.
 ---
 --- The recorded root is compared because a dump carries the chunk name it was
---- given, and the names in this cache are absolute paths into the tree that wrote
---- it. A copied or moved build directory still has entries that load; what they
---- would answer `debug.getinfo` with is where they used to be, and the compiler
---- finds its declarations and its native library by asking exactly that. So a
---- moved tree is a miss until the next build rewrites it.
+--- given, and the names in this cache are absolute paths into the tree that
+--- wrote it. A copied or moved build directory still has entries that load;
+--- what they would return from `debug.getinfo` is where they used to be, and
+--- the compiler finds its declarations and its native library by asking exactly
+--- that. So a moved tree is a miss until the next build rewrites it.
 local function readIndex(root: string): {[string]: Entry}?
     local file = io.open(root .. "/.bytecode/" .. vmDirectory() .. "/" .. INDEX, "rb")
     if not file then

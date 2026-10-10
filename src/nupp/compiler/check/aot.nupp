@@ -45,7 +45,7 @@ local aot = {}
 --- A node of the tree being checked.
 local type Node = cst.Node
 
---- What `install` answers with.
+--- What `install` returns.
 type aot.Ops = {@readonly body: function(any)}
 
 --- The constructs with no AOT IR representation, and what to call each one where a

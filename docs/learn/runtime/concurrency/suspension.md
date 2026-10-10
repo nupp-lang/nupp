@@ -260,7 +260,7 @@ Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
 made with `coroutine.create` inherits no handler. Natively a wait there drives
 the readiness sources on the current thread; in a browser application, whose
 only wait is a return to the page from its root coroutine, it raises "cannot
-suspend here" and `suspension.canSuspend()` answers false.
+suspend here" and `suspension.canSuspend()` returns false.
 
 A nested handler installation temporarily replaces the current handler and
 restores the outer one when its region ends, so different coroutines may use

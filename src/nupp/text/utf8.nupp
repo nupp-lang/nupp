@@ -25,10 +25,10 @@ than positions in text.
 
 ## Decoding a scalar
 
-`decodeAt` decodes forward from an offset and answers the scalar with the
-offset after it. `decodeBefore` decodes the scalar ending before an offset and
-answers it with the offset it starts at, so the two walk in opposite
-directions over the same positions:
+`decodeAt` decodes forward from an offset and returns the scalar with the offset
+after it. `decodeBefore` decodes the scalar ending before an offset and returns
+it with the offset it starts at, so the two walk in opposite directions over the
+same positions:
 
 ```nupp
 const utf8 = nupp.text.utf8
@@ -40,7 +40,7 @@ codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
 assert(codepoint == 0x20ac and nextByte == 2)
 ```
 
-A malformed byte answers `0xFFFD` and advances exactly one byte, so a walk over
+A malformed byte returns `0xFFFD` and advances exactly one byte, so a walk over
 damaged text makes progress rather than stalling. Nil is the end of the value,
 and that is what stops the walk:
 
@@ -73,7 +73,7 @@ Overlong forms, surrogate halves and codepoints above the maximum are
 malformed even though their lead bytes are well formed, so they are rejected
 on the value rather than on the shape.
 
-`validPrefixLength(value, maxBytes)` answers the length of the largest valid
+`validPrefixLength(value, maxBytes)` returns the length of the largest valid
 prefix no longer than a byte budget, which is what keeps a fixed-width field
 from splitting a scalar in half. `truncate` applies that to a string and copies
 the prefix:
@@ -85,7 +85,7 @@ assert(utf8.validPrefixLength("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
 ```
 
-`truncate` takes a string, since it answers one. Operations that read bytes
+`truncate` takes a string, since it returns one. Operations that read bytes
 accept a string or a byte view.
 
 ::: seealso
@@ -252,7 +252,7 @@ end
 --- Reads the codepoint starting at a byte offset, and where the next one starts.
 ---
 --- Walking a buffer is this call and nothing else, because a malformed byte
---- answers `0xFFFD` and still advances:
+--- returns `0xFFFD` and still advances:
 ---
 --- ```nupp:fragment
 --- const utf8 = nupp.text.utf8

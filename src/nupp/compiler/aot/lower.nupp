@@ -75,7 +75,7 @@ end
 ---
 --- `integer` lowers to binary64 rather than to a 32-bit type: it is Nupp's
 --- ordinary number with a range refinement, and giving it an integer
---- representation here would change what arithmetic on it answers.
+--- representation here would change what arithmetic on it returns.
 function lower.sourceValueType(spelling: string): scalarIR.Type?
     if spelling == "boolean" then
         return "bool"
@@ -562,12 +562,12 @@ record lower.Layouts
     byName: {[string]: scalarIR.Layout}
 end
 
---- Reifies a native-only aggregate: a struct holding vectors, masks, scalars
---- or other such structs, as the value type the code generator lays out in
+--- Reifies a native-only aggregate: a struct holding vectors, masks, scalars or
+--- other such structs, as the value type the code generator lays out in
 --- registers. Nothing about it is a claim about memory, so nothing here has a
 --- storage width; each field is typed as the value it is, and a nested
 --- aggregate is reified first so its layout is known when this one is used.
---- Answers the layout, which `layouts` then carries in first-reached order.
+--- Returns the layout, which `layouts` then carries in first-reached order.
 function lower.aggregate(
     resolved: any?,
     at: cst.Child?,
@@ -5843,11 +5843,11 @@ end
 ---
 --- The checker stamps a reference to an `@aot` entry with the entry's origin,
 --- the file and name it was declared under, whether the reference is the
---- module's own local, an alias, or a member of a required module. The
---- call's checked signature types the parameters as the callee's own entry
---- does, so a `float` is binary32, and the result as an entry answers it. The
---- symbol is the callee's as its module links it, so the caller's own
---- qualification is not applied to it again.
+--- module's own local, an alias, or a member of a required module. The call's
+--- checked signature types the parameters as the callee's own entry does, so a
+--- `float` is binary32, and the result as an entry returns it. The symbol is
+--- the callee's as its module links it, so the caller's own qualification is
+--- not applied to it again.
 function lower.foreignEntry(name: string, at: cst.Node?, kernel: lower.Kernel): scalarIR.Helper?
     local context = kernel.context
     local call = at as any
@@ -9781,7 +9781,7 @@ record lower.Contract
 
     --- Whether a multiply and an add may be fused into one rounding. Per
     --- function and carried in the IR, because it decides what the function
-    --- answers rather than only how fast it gets there.
+    --- returns rather than only how fast it gets there.
     fpContract: boolean
 
     --- Whether fixed-width transcendentals may select a native implementation.

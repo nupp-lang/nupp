@@ -22,7 +22,7 @@ local types = require("nupp.gpu.api")
 export interface Provider
     @readonly priority: integer?
 
-    --- Reports whether `open` can answer a device now, without raising.
+    --- Reports whether `open` can return a device now, without raising.
     @readonly available: function(): boolean
 
     --- Opens an owned, closeable device context.

@@ -780,8 +780,8 @@ end
 
 --- Classifies a relative change against a declared equivalence margin.
 ---
---- `margin` is a fraction, so 0.02 is two percent. The four answers are distinct
---- claims and the distinction is the point:
+--- `margin` is a fraction, so 0.02 is two percent. The four results are
+--- distinct claims and the distinction is the point:
 ---
 --- - `regressed` and `improved` say the whole interval sits beyond the margin on one
 ---   side, and the adjusted p-value survives the family.

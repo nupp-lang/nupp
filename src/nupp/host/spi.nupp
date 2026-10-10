@@ -46,8 +46,9 @@ export interface Provider
     @readonly send: function(kind: string, policy: Policy, limit: integer, ...: any): nil
 
     --- Delivers the kind's inbound messages to `deliver` at each turn boundary,
-    --- keeping at most `limit` per turn as `policy` says. Answers the function
-    --- that stops the route and the count of messages it has dropped so far.
+    --- keeping at most `limit` per turn as `policy` says. Returns two
+    --- functions: one stops the route when called; the other returns how many
+    --- messages it has dropped.
     @readonly route: function(
         kind: string,
         policy: Policy,

@@ -110,7 +110,7 @@ repository or a C toolchain, depend on the host, or are abridged.
 
 ## Exit codes
 
-Every command answers with one of three statuses:
+Every command returns one of three statuses:
 
 - `0`: success
 - `1`: the work was attempted and failed
@@ -619,7 +619,7 @@ is, as everywhere else, unless [`--color`](#universal-options) says otherwise.
 Building a function is the usual thing `--check` finds. LuaJIT has no recording
 for it, so the loop holding one aborts recording, is blacklisted after enough
 attempts, and then runs interpreted however hot it gets. Nothing else reports
-that, because the program's answers do not change.
+that, because the program's results do not change.
 
 It reads further than the two source lints, which see what was written rather
 than what was generated:
@@ -2257,7 +2257,7 @@ Options:
 }
 ```
 
-`definition` answers with the site a name was bound at:
+`definition` returns the site a name was bound at:
 
 ```json [nupp lsp definition --json src/main.nupp 3 7]
 {
@@ -2271,8 +2271,8 @@ Options:
 }
 ```
 
-`references` answers semantically rather than by name, and adds the declaration
-with `--include-declaration`:
+`references` returns semantic references rather than matching by name, and adds
+the declaration with `--include-declaration`:
 
 ```json [nupp lsp references --json --include-declaration src/greet.nupp 2 16]
 {
@@ -2326,7 +2326,7 @@ nupp lsp trace-check --json src/greet.nupp 2 16
 
 `nupp help lsp` shows a merged option list; each of `--include-declaration`,
 `--file`, `--only` and `--write` belongs to exactly one operation. Every
-operation answers `--schema` with its own.
+operation prints its own schema for `--schema`.
 
 ::: seealso
 - [lsp.md](../learn/tooling/language-server.md) for what the resident server supports

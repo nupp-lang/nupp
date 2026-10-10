@@ -112,7 +112,7 @@ local function packProtocols(protocols: {string}?, level: integer): string
     return table.concat(packed, "\0") .. "\0"
 end
 
---- Suspends until `ready` answers true, driving the connection's reactor.
+--- Suspends until `ready` returns true, driving the connection's reactor.
 ---
 --- The session has no reactor of its own: what it is waiting for is always the
 --- socket underneath it, so this drives that one rather than registering a
@@ -196,10 +196,10 @@ record tls.Session is Reader, Writer
     --- The application protocol both sides agreed on, or nil when none was
     --- negotiated.
     ---
-    --- Nil is not a failure: it is what neither side offering a list looks like.
-    --- A server that offered a list sharing nothing with the client's refuses
-    --- the handshake instead, so a session that exists and answers nil was never
-    --- asked to pick one.
+    --- Nil is not a failure: it is what neither side offering a list looks
+    --- like. A server that offered a list sharing nothing with the client's
+    --- refuses the handshake instead, so a session that exists and returns nil
+    --- was never asked to pick one.
     function protocol(self): string?
         if self._closed or not self._ready then
             return nil
@@ -223,7 +223,7 @@ record tls.Session is Reader, Writer
     --- Whether this connection skipped the full asymmetric handshake by
     --- resuming a cached session.
     ---
-    --- Servers answer false. The server-side store is deliberately opaque: a
+    --- Servers return false. The server-side store is deliberately opaque: a
     --- client can use this answer to observe its cache, while accepting a
     --- session does not change what a server application may do with it.
     function isResumed(self): boolean

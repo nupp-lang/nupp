@@ -3,9 +3,9 @@ module nupp.compiler.aot.llvm.types
 --[[
 How scalar IR types are represented in LLVM IR.
 
-LLVM integers have no sign; the IR type decides which instruction a
-conversion, division, shift or comparison needs, so both are kept: `value`
-answers the LLVM type and `signed`/`unsigned` answer how to treat it.
+LLVM integers have no sign; the IR type decides which instruction a conversion,
+division, shift or comparison needs, so both are kept: `value` returns the LLVM
+type and `signed`/`unsigned` return how to treat it.
 ]]
 
 local types = {}

@@ -169,7 +169,7 @@ export type EncodedString = contracts.EncodedString
 --- @export
 export type JSONEncodable = contracts.JSONEncodable
 
---- A checked incremental JSON writer, which `newWriter` answers.
+--- A checked incremental JSON writer, which `newWriter` returns.
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
@@ -287,7 +287,7 @@ end
 --- Materializes only the fields selected by an On-Demand pull shape.
 ---
 --- The whole document is still validated. Text that is not one JSON document,
---- or a value the shape cannot select from, answers nil and a reason, as
+--- or a value the shape cannot select from, returns nil and a reason, as
 --- `decode` does.
 ---
 --- ```nupp
@@ -361,7 +361,7 @@ export function asObject<T is table>(takes value: T): T preserves value
     return native.asObject(value)
 end
 
---- Answers whether a value has JSON array shape.
+--- Returns whether a value has JSON array shape.
 ---
 --- Decoding retains container shape even when an array is empty. This predicate
 --- reads that shape without exposing the private marker used by the codec.

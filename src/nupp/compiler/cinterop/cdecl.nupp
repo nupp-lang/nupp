@@ -3,8 +3,8 @@ module nupp.compiler.cinterop.cdecl
 --[[
 The shared, LuaJIT-backed model of C declarations.
 
-LuaJIT already contains the C parser whose answers matter at run time. This
-module gives both `cheader` and import-c a neutral view of those answers:
+LuaJIT already contains the C parser whose results matter at run time. This
+module gives both `cheader` and import-c a neutral view of those results:
 structs, fields, functions, enum constants, and recursively decoded C types.
 Consumers either turn the model into compiler types or render it back as Nupp
 source.
@@ -628,7 +628,7 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     return result
 end
 
---- Declares a block to the FFI and answers which functions *this block* named.
+--- Declares a block to the FFI and returns which functions *this block* named.
 ---
 --- The registry LuaJIT keeps is process-wide, so it cannot say who declared what.
 --- Diffing the ctype ids across the call can: whatever appeared is what this text

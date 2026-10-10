@@ -41,7 +41,7 @@ local function floatingType(element: string?): string
     return element == "f32" and "float" or "double"
 end
 
---- The canonical quiet binary64 NaN a NaN-state reducer answers.
+--- The canonical quiet binary64 NaN a NaN-state reducer returns.
 const NAN = "0x7FF8000000000000"
 
 const ELEMENT_TYPES: {
@@ -109,7 +109,7 @@ local function attrs(module: builder.Module): string
     return builder.attributes(module, "alwaysinline nounwind")
 end
 
---- Defines `name` from `lines` once and answers `@name`.
+--- Defines `name` from `lines` once and returns `@name`.
 local function define(module: builder.Module, name: string, lines: {string}): string
     builder.once(module, "define " .. name, table.concat(lines, "\n"))
 
@@ -445,8 +445,8 @@ local function elemental(
     return init, addName, valueName, skipName
 end
 
---- The operations of a stateful contract: `init(ptr, T)`, `add(ptr, T)`
---- and `value(ptr)`, and the LLVM types `add` takes and `value` answers.
+--- The operations of a stateful contract: `init(ptr, T)`, `add(ptr, T)` and
+--- `value(ptr)`, and the LLVM types `add` takes and `value` returns.
 record states.Operations
     init: string
     add: string
@@ -459,7 +459,7 @@ record states.Operations
     --- What `add` takes.
     input: string
 
-    --- What `value` answers.
+    --- What `value` returns.
     result: string
 end
 

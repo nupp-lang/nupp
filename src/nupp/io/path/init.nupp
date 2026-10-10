@@ -1,7 +1,7 @@
 module nupp.io.path
 
 --[[
-`nupp.io.path` answers an immutable path value whose joining, normalizing and
+`nupp.io.path` returns an immutable path value whose joining, normalizing and
 splitting follow the platform's own rules. Reach for it when a program builds a
 filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
@@ -14,7 +14,7 @@ assert(source:toString() == "src" .. path.separator() .. "main.nupp")
 assert(source:fileName() == "main.nupp")
 ```
 
-Every operation answers a new path, and two paths are equal when their native
+Every operation returns a new path, and two paths are equal when their native
 text is. `tostring(path)` and `path:toString()` return that same text.
 
 ## Building a path
@@ -46,7 +46,7 @@ assert(log:extension() == "jsonl")
 ## Normalizing and resolving
 
 `normalize` removes lexical `.` and `..` components without touching the
-filesystem, so it answers even for a path that does not exist:
+filesystem, so it returns even for a path that does not exist:
 
 ```nupp
 const path = nupp.io.path
@@ -55,7 +55,7 @@ assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main
 ```
 
 The operations that consult the process or filesystem can fail, as can a
-relative path whose base uses a different coordinate system. Each answers nil
+relative path whose base uses a different coordinate system. Each returns nil
 with a reason when it does.
 
 - `absolute()` resolves the path against the process's working directory. A
@@ -64,7 +64,7 @@ with a reason when it does.
 - `canonicalize()` asks the filesystem for the real path, following every
   symbolic link, which requires the path to exist.
 - `relativeTo(base)` expresses the path against another one, when both share a
-  coordinate system. A path expressed against itself answers `.`, the path
+  coordinate system. A path expressed against itself returns `.`, the path
   that stays where the base already is.
 
 ```nupp
@@ -77,7 +77,7 @@ assert(real:isAbsolute())
 
 ## Path components
 
-`parent` answers another path or nil. `fileName`, `stem` and `extension` answer
+`parent` returns another path or nil. `fileName`, `stem` and `extension` return
 the final component, that component without its extension, and the extension
 without its dot:
 
@@ -227,8 +227,8 @@ export record Path
         return raw(pathtext.finish(text as string, WINDOWS)), nil
     end
 
-    --- Expresses this path relative to another. A path expressed against
-    --- itself answers `.`, the path that stays where the base already is.
+    --- Expresses this path relative to another. A path expressed against itself
+    --- returns `.`, the path that stays where the base already is.
     --- @param self this path
     --- @param base the path to express this one against
     --- @return the relative path, or nil when there is no relative form

@@ -9,7 +9,7 @@ result. What the IR proved about those parameters is stated on them rather than
 dropped: a span disjoint from every span that is written is `noalias`, a span
 the body only reads is `readonly`, and none of them escape.
 
-`llvmProgram.module` answers the module text, or raises; an error beginning with
+`llvmProgram.module` returns the module text, or raises; an error beginning with
 `expressions.UNSUPPORTED` means the unit uses something this backend does not
 emit yet.
 ]]
@@ -233,9 +233,9 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
     end
 end
 
---- What the compiled object says about a struct's layout: its size, and
---- each field's offset and size, as `size_t` functions the generated wrapper
---- compares against what Nupp believes. The answers are LLVM's own layout of
+--- What the compiled object says about a struct's layout: its size, and each
+--- field's offset and size, as `size_t` functions the generated wrapper
+--- compares against what Nupp believes. The results are LLVM's own layout of
 --- the struct, the one the kernel indexes with.
 local function layoutReporters(unit: llvmProgram.Unit, program: scalarIR.Program, layout: scalarIR.Layout): nil
     local module = unit.module

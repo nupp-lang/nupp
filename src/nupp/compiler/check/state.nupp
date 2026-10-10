@@ -659,8 +659,8 @@ record state.Checker
     --- Publishes a declaration to the module and the project.
     publishType: function(stat: any, t: Type?, projectEntry: any?)
 
-    --- Applies the ownership a hoisted declaration's `is` list claims, ahead of its
-    --- body, and answers whether that changed it.
+    --- Applies the ownership a hoisted declaration's `is` list claims, ahead of
+    --- its body, and returns whether that changed it.
     preclaimAffine: function(stat: any, n: any): boolean
 
     --- Checks a record, interface, struct or alias declaration.

@@ -195,9 +195,9 @@ local function wrap32(value: number): number
     return value % 4294967296
 end
 
---- The value of a lane index, folded with the lane counts `lanesOf` answers
---- for a species type; nothing when the expression is not a lane index or a
---- lane count in it is not yet known.
+--- The value of a lane index, folded with the lane counts `lanesOf` returns for
+--- a species type; nothing when the expression is not a lane index or a lane
+--- count in it is not yet known.
 function shape.laneValue(expr: scalarIR.Expr, lanesOf: function(species: string): integer?): number?
     local op = tostring(expr.op)
     local exact = scalarIR.exactInteger(expr)

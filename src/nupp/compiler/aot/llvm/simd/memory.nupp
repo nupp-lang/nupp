@@ -7,7 +7,7 @@ Every access is clamped rather than faulting. A vector at 1-based `offset`
 starts at element `first = offset - 1`, and an offset that is not a positive
 integer becomes an unreachable `first`. Then `room = min(count - first, N)`
 lanes are in the span (none when `first >= count`). A load reads the in-bounds
-lanes and answers 0 for the rest; a store writes only the in-bounds lanes; a
+lanes and returns 0 for the rest; a store writes only the in-bounds lanes; a
 mask narrows either further, and an inactive lane of a load reads as 0.
 
 The whole-vector case is one plain load or store, and only a partial vector
@@ -303,9 +303,9 @@ local function hardwareMasks(ctx: context.Context, a: memory.Access): boolean
     return ctx.maskedMemory and (a.align == 4 or a.align == 8)
 end
 
---- A loop over lanes `0 .. room - 1`, `step` emitting a lane's work.
---- With `carryType`, a value starts at `initial`, `step` answers its next
---- value, and the loop answers the last.
+--- A loop over lanes `0 .. room - 1`, `step` emitting a lane's work. With
+--- `carryType`, a value starts at `initial`, `step` returns its next value, and
+--- the loop returns the last.
 local function laneLoop(
     ctx: context.Context,
     room: string,
@@ -382,9 +382,9 @@ end
 const CASCADE_LANES = 16
 
 --- A partial access as a cascade: a `switch` on `room` lands on the block for
---- lane `room - 1`, and each block does its lane and falls to the one below,
---- so the in-bounds lanes run straight-line after one jump. `lane(k, carry)`
---- emits lane `k`'s work and answers the next carry when there is one.
+--- lane `room - 1`, and each block does its lane and falls to the one below, so
+--- the in-bounds lanes run straight-line after one jump. `lane(k, carry)` emits
+--- lane `k`'s work and returns the next carry when there is one.
 local function cascade(
     ctx: context.Context,
     count: integer,

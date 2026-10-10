@@ -119,9 +119,8 @@ overlap.
 ## Shared range for several spans
 
 `indexed.range(first, last, ...)` checks one inclusive range against every
-trusted Span or [SoA
-view](docs/learn/runtime/data/structure-of-arrays.md) and answers a record whose
-`first` and `last` are ordinary integers:
+trusted Span or [SoA view](docs/learn/runtime/data/structure-of-arrays.md) and
+returns a record whose `first` and `last` are ordinary integers:
 
 ```nupp
 local span = nupp.mem.span
@@ -215,7 +214,7 @@ sealed interface span.Span<T>
     metamethod __len: function(self: Span<T>): integer
     metamethod __index: function(self: Span<T>, index: integer): T
 
-    --- Answers a subspan, inclusive at both ends and borrowed from this one.
+    --- Returns a subspan, inclusive at both ends and borrowed from this one.
     ---
     --- Indexes are one-based. Omitting `last` runs through to the end, and
     --- `first, first - 1` is how an empty subspan is written.
@@ -227,7 +226,8 @@ sealed interface span.Span<T>
     --- ```
     slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
 
-    --- Answers the checked range as a const pointer and count, for a native call.
+    --- Returns the checked range as a const pointer and count, for a native
+    --- call.
     ---
     --- The pointer borrows this span, so it cannot outlive the view that proved
     --- its bounds. This is the one supported way out to C.
@@ -354,7 +354,8 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- Ends this write range, releasing the barrier on its source.
     drop: @nosuspend function(takes self: WriteSpan<T>): nil
 
-    --- Answers the checked range as a mutable pointer and count, for a native call.
+    --- Returns the checked range as a mutable pointer and count, for a native
+    --- call.
     ---
     --- The pointer borrows this range, so the barrier on the source outlives the
     --- call that was handed it.
@@ -366,7 +367,7 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- view ends.
     shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
 
-    --- Answers an affine writable subrange, inclusive at both ends.
+    --- Returns an affine writable subrange, inclusive at both ends.
     ---
     --- The child borrows this range, so the parent is unusable until the child is
     --- dropped. Two disjoint children at once is what `splitAt` is for.
@@ -630,7 +631,7 @@ function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpan
     end
 end
 
---- The byte-specialized shared view, which is what `fromString` answers.
+--- The byte-specialized shared view, which is what `fromString` returns.
 --- @export
 type span.ByteSpan = span.Span<uint8>
 

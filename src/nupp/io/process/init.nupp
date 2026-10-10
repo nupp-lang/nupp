@@ -12,7 +12,7 @@ print(result.output)
 child:close()
 ```
 
-`spawn` answers nil and a reason when the child cannot be started, the way every
+`spawn` returns nil and a reason when the child cannot be started, the way every
 other acquisition of an operating-system resource does, and raises only for
 options that could never describe a child.
 
@@ -133,14 +133,15 @@ record process.Reader is Reader2
     @private closed: boolean
     @private eof: boolean
 
-    --- Takes what a stream has without waiting, as `poll` answers it: the bytes, or
-    --- nil and whether the stream has ended. Shared by every read, so end of stream has
-    --- one place that decides it.
+    --- Takes what a stream has without waiting, as `poll` returns it: the
+    --- bytes, or nil and whether the stream has ended. Shared by every read, so
+    --- end of stream has one place that decides it.
     --- @raises string when the provider returns an invalid result
     @private takeNow: function(self: process.Reader, wanted: integer): (string?, boolean)
 
-    --- Whether the far end has finished and every byte it sent has been taken, or
-    --- this end has been closed. A read answers empty exactly when this is true.
+    --- Whether the far end has finished and every byte it sent has been taken,
+    --- or this end has been closed. A read returns empty exactly when this is
+    --- true.
     function isEnded(self): boolean
         return self.closed or self.eof
     end
@@ -207,8 +208,8 @@ record process.Reader is Reader2
         return chunk, ended
     end
 
-    --- Reads up to `count` bytes, suspending until some arrive. Answers empty at the
-    --- end of the stream and nil with a reason once this end is closed.
+    --- Reads up to `count` bytes, suspending until some arrive. Returns empty
+    --- at the end of the stream and nil with a reason once this end is closed.
     --- @raises string when count is not a positive integer
     function read(exclusive self, count: integer): (string?, string?)
         if self.closed then
@@ -344,8 +345,8 @@ record process.Writer is Writer2
         return self.closed
     end
 
-    --- Writes what the pipe will take without waiting. Answers how many bytes went,
-    --- which may be none and may be fewer than offered.
+    --- Writes what the pipe will take without waiting. Returns how many bytes
+    --- went, which may be none and may be fewer than offered.
     --- @raises string when the provider returns an invalid result
     function offer(self, data: string): integer
         if self.closed or self.gone or #data == 0 then
@@ -368,9 +369,9 @@ record process.Writer is Writer2
         return sent
     end
 
-    --- Writes every byte, suspending as often as the pipe makes it. Answers how many
-    --- went, which is all of them unless the far end went away or a bound ran out
-    --- first.
+    --- Writes every byte, suspending as often as the pipe makes it. Returns how
+    --- many went, which is all of them unless the far end went away or a bound
+    --- ran out first.
     ---
     --- `deadline` is a time in the [](nupp.time.now) domain after which no more is
     --- sent, however the child is keeping up. `stallTimeoutMs` bounds a period with no
@@ -633,7 +634,7 @@ record process.Process is nupp.Closeable
         return self.state.exit == nil
     end
 
-    --- Waits for it to end and answers how.
+    --- Waits for it to end and returns how.
     ---
     --- Suspends while it runs.
     function wait(self): process.Exit
@@ -659,7 +660,8 @@ record process.Process is nupp.Closeable
     end
 
     --- Asks the direct child to end; `force` insists. Descendants keep their
-    --- ordinary operating-system lifetime. Answers whether the request was made.
+    --- ordinary operating-system lifetime. Returns whether the request was
+    --- made.
     function kill(self, force: boolean?): (boolean, io.Error?)
         if self.state.exit ~= nil then
             return true
@@ -674,8 +676,9 @@ record process.Process is nupp.Closeable
         return true
     end
 
-    --- Writes input, closes stdin, drains stdout and stderr, and waits for the exit.
-    --- Answers the complete exchange or a reason it could not be completed.
+    --- Writes input, closes stdin, drains stdout and stderr, and waits for the
+    --- exit. Returns the complete exchange or a reason it could not be
+    --- completed.
     ---
     --- One combined step per pass: offer some input, take whatever each output has,
     --- suspend only when none of the three moved.
@@ -1372,9 +1375,9 @@ end
 --- Starts a child process.
 ---
 --- The child is an owner: closing it ends the process, waits for the exit, and
---- releases every stream, and the same runs when its scope ends. A child that cannot
---- be started, such as a program that is not there, answers nil and why rather than
---- raising, as `files.open` and `net.connect` do.
+--- releases every stream, and the same runs when its scope ends. A child that
+--- cannot be started, such as a program that is not there, returns nil and why
+--- rather than raising, as `files.open` and `net.connect` do.
 ---
 --- ```nupp:fragment
 --- local child = assert(process.spawn({

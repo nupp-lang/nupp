@@ -179,8 +179,8 @@ end
 
 --- XXH64 of `input` under `seed`, as two `uint32` halves, high then low.
 ---
---- The published algorithm, so `tests/projecttest.lua` can hold its published answers
---- rather than whatever this happens to compute.
+--- The published algorithm, so `tests/projecttest.lua` can hold its published
+--- results rather than whatever this happens to compute.
 local function xxh64(input: string, seedHi: number, seedLo: number): (number, number)
     local size = #input
     local at = 0

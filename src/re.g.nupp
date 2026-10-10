@@ -1,7 +1,7 @@
 module re
 
 --[[
-LPeg 1.1's official `re` frontend, bundled so `require("re")` answers it.
+LPeg 1.1's official `re` frontend, bundled so `require("re")` returns it.
 
 This is upstream's Lua source, carried rather than reimplemented: it compiles
 `re` pattern text into LPeg patterns at runtime, and its `compile`, `match`,
@@ -13,7 +13,7 @@ describes. It is here for Lua that already requires it, and because
 Write [](nupp.peg) instead. It accepts the same syntax at either phase: a
 `comptime` grammar is parsed and validated by the compiler and carries typed
 captures, and a genuinely dynamic one compiles through `nupp.peg.compile` and
-answers `Peg<...any>`. Both spellings select the same native LPeg feature, so
+returns `Peg<...any>`. Both spellings select the same native LPeg feature, so
 requiring this module directly buys no portability -- only untyped results.
 ]]
 
@@ -247,8 +247,9 @@ end
 
 --- Searches `s` for the first position at or after `i` where the pattern matches.
 ---
---- The pattern's own captures are discarded: what a search answers is where the
---- match is, and a caller wanting the captures matches at the position it reports.
+--- The pattern's own captures are discarded: what a search returns is where the
+--- match is, and a caller wanting the captures matches at the position it
+--- reports.
 ---
 --- @param s the subject bytes
 --- @param p the pattern text, or an LPeg pattern

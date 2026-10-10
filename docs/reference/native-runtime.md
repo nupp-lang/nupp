@@ -84,15 +84,15 @@ as the provider. So the version stays at 2, and the ABI grows by addition:
   `native/include/nupp_native.h`, and that the header's version is the one the
   bundle requires.
 - Status codes and their meanings are part of the ABI. `nuppNativeBytesCopy`
-  still answers `CAPACITY` for a short output, where every other call answers
+  still returns `CAPACITY` for a short output, where every other call returns
   `BUFFER_TOO_SMALL`, because the pinned bundle reads that code as the answer
   to its size probe.
 - A major bump takes two releases. The first ships a loader that accepts both
   versions, the stage-zero pin moves to it, and only then does the provider
   bump.
 
-Every export catches a Rust panic, so a panic never ends the process that
-called it. A call that returns a status answers `NUPP_NATIVE_INTERNAL`, with the
+Every export catches a Rust panic, so a panic never ends the process that called
+it. A call that returns a status reports `NUPP_NATIVE_INTERNAL`, with the
 panic's text as the last error.
 
 ### Readiness
@@ -110,7 +110,7 @@ So every native wait in a Lua state sleeps on the same thing, and a program
 waiting on a socket, a child and a GPU dispatch at once wakes for whichever
 moves first. `nupp.runtime.native` keeps one snapshot for all of them, and each
 family's readiness source sleeps from it. GPU `synchronize` parks on it too:
-`nuppNativeGpuSynchronizeReady` answers whether the submitted work is done
+`nuppNativeGpuSynchronizeReady` returns whether the submitted work is done
 without blocking, and a helper thread advances the generation when it is, so a
 task deadline reaches the wait and other tasks run meanwhile.
 

@@ -36,7 +36,7 @@ export interface Digest is Writer
     --- @return how many bytes it absorbed, which is all of them
     writeSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): (integer?, string?)
 
-    --- Nothing is buffered behind a digest, so this only answers true.
+    --- Nothing is buffered behind a digest, so this only returns true.
     flush: function(self: Digest): (boolean, string?)
 
     --- Consumes this context and returns raw bytes, or writes the fixed-size

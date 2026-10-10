@@ -99,9 +99,9 @@ function narrowing.subtract(t: Type, rem: Type): Type
     return T.union(out)
 end
 
---- What `type()` answers for every value a type admits, when one answer covers them
---- all. Nil where the type spans more than one answer, or where nothing here can say:
---- a caller reads that as "could be anything" and stays quiet.
+--- What `type()` returns for every value a type admits, when one answer covers
+--- them all. Nil where the type spans more than one answer, or where nothing
+--- here can say: a caller reads that as "could be anything" and stays quiet.
 ---
 --- Narrower than the primitive test the generator emits, on purpose. This is asked to
 --- rule a test out, so a tag it does not recognize has to mean "no answer" rather than

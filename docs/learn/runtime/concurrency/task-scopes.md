@@ -31,9 +31,9 @@ The standard library is reached by nesting; nothing here is required.
 
 ## Children
 
-`spawn` starts a child on the scope's coroutine driver and `fork` starts one on a
-worker lane. Both have one shape: arguments first, callable last, and both answer
-a `Task<F>`.
+`spawn` starts a child on the scope's coroutine driver and `fork` starts one on
+a worker lane. Both have one shape: arguments first, callable last, and both
+return a `Task<F>`.
 
 ```nupp:fragment
 const page = scope:spawn(function(): string return fetchPage() end)
@@ -53,10 +53,10 @@ provider says which values may cross: the native provider moves an engine-backed
 
 `await` returns the body's complete result pack, including nil positions, and
 may be called again after settlement. `isDone` checks settlement without
-waiting, and `status` answers `queued`, `running`, `done`, `failed`, or
+waiting, and `status` returns `queued`, `running`, `done`, `failed`, or
 `cancelled`: a `nupp.tasks.Status`, a closed union a `switch` covers without an
-`else`. Handles borrow the scope that created them: one cannot be returned
-from the block or stored past it, so a task never becomes detached work.
+`else`. Handles borrow the scope that created them: one cannot be returned from
+the block or stored past it, so a task never becomes detached work.
 
 
 ## Bounded fan-out
@@ -203,12 +203,12 @@ const total = nupp.tasks.run(limit = 8, body = function(borrows scope: nupp.task
 end)
 ```
 
-When the body returns, its children run to completion and `run` answers the
+When the body returns, its children run to completion and `run` returns the
 body's results, `nil` positions included. A child's failure is raised instead,
 as leaving a block raises it. When the body fails, its unfinished children are
 cancelled, the scope drains them through their cleanup, and the body's failure
-is raised. A child that fails while it unwinds does not replace that failure:
-it is attached beside it, the way a cleanup failure is.
+is raised. A child that fails while it unwinds does not replace that failure: it
+is attached beside it, the way a cleanup failure is.
 
 Use `run` where the scope is the whole operation, so a failure is not held up
 behind children it has made pointless. Keep `open` where the block should wait
@@ -220,7 +220,7 @@ and the body may also come alone, as `run(body)`.
 
 A family that is complete at the call does not need a block to hold it.
 `nupp.tasks.gather` and `nupp.tasks.race` take the bodies, run each in a
-coroutine of its own, and settle every one before returning, so neither answers
+coroutine of its own, and settle every one before returning, so neither returns
 a scope a caller has to discharge.
 
 `gather` returns parallel value and error arrays, indexed as the bodies were,
@@ -233,13 +233,13 @@ const values, errors = nupp.tasks.gather({
 })
 ```
 
-Its branches are fail-soft, which is the one thing a scope will not do: a
-branch that raises reports its error beside its siblings' values rather than
-cancelling them. `errors[i]` holds an entry exactly where branch `i` failed, so
-it alone says which ones did; every other branch returned, and `values[i]` is
-what it returned, which may itself be `nil`. A branch answers one value, and one
-that returns several fails, saying how many, rather than having the rest
-dropped. `race` holds its branches to the same rule.
+Its branches are fail-soft, which is the one thing a scope will not do: a branch
+that raises reports its error beside its siblings' values rather than cancelling
+them. `errors[i]` holds an entry exactly where branch `i` failed, so it alone
+says which ones did; every other branch returned, and `values[i]` is what it
+returned, which may itself be `nil`. A branch returns one value, and one that
+returns several fails, saying how many, rather than having the rest dropped.
+`race` holds its branches to the same rule.
 
 `race` returns the first settled value and its one-based index, then cancels
 and unwinds the rest:
@@ -267,7 +267,7 @@ raises its cancellation rather than its branch outcomes where it passes.
 scope opened inside another takes the earlier of its own deadline and the
 enclosing scope's, so a child may bound itself more tightly than its parent did
 and may not extend what its parent already promised. `nupp.tasks.deadline()`
-answers the current absolute deadline, or nil outside a bounded scope.
+returns the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp:fragment
 with scope = nupp.tasks.open(timeoutMs = 5000) do
@@ -298,7 +298,7 @@ parked on, still gives the frame back and forgets the scope.
 
 A scope holds its live children, not the ones it has run. A settled child leaves
 the scope's bookkeeping as it settles, and its outcome stays with its handle, so
-awaiting the handle again answers the same way however long ago the child
+awaiting the handle again produces the same outcome however long ago the child
 finished. A server that keeps one bounded scope open for its whole life uses
 memory for the requests in flight, not for every request it has served. A worker
 scope does the same, keeping a settled task only while closing would still owe

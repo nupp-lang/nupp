@@ -187,7 +187,7 @@ function zone.path(): string
     return pathText
 end
 
---- Pushes a zone and answers a token for `leave`, or 0 when inactive.
+--- Pushes a zone and returns a token for `leave`, or 0 when inactive.
 ---
 --- The paired form, for a `leave` that may run after its session ended, usually a
 --- coroutine resumed after a profile stopped. The token carries the generation, so a

@@ -56,8 +56,8 @@ checker reports when such a chain leaves a member unhandled.
 
 ### Type tests
 
-`is` answers whether a value is one of a type's values, so a test whose subject
-and target share none of them can only answer false. That is `NUPP2147`,
+`is` returns whether a value is one of a type's values, so a test whose subject
+and target share none of them can only return false. That is `NUPP2147`,
 reported where the test is written rather than compiled into a branch nothing
 reaches:
 
@@ -146,14 +146,14 @@ early return, and the other branch goes on knowing nothing. `"function"` names
 no type honestly and is left alone; write `u as function(): nil`, or the
 signature you mean.
 
-The *result* narrows even though the argument does not, because `type` answers
+The *result* narrows even though the argument does not, because `type` returns
 from a closed set: `"nil" | "boolean" | "number" | "string" | "table" |
 "function" | "thread" | "userdata" | "cdata"`. A comparison against a name
 LuaJIT never returns is caught where it is written, and a returning dispatch
 over the set reports the
-[`exhaustiveness`](../../../reference/lints.md#exhaustiveness) lint for the names it
-leaves out. A guard chain whose remaining cases are handled by the code after
-it says so with `@allow("exhaustiveness")`.
+[`exhaustiveness`](../../../reference/lints.md#exhaustiveness) lint for the
+names it leaves out. A guard chain whose remaining cases are handled by the code
+after it says so with `@allow("exhaustiveness")`.
 
 ### Computed expressions
 

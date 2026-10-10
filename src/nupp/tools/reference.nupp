@@ -462,8 +462,8 @@ returning `typepack` constructs a complete pack through `nupp.types.pack`, and
 `nupp.types.error(message)` rejects a computed contract.
 
 A pack binder is an argument wherever a type is: `F(C...)` passes the sequence
-itself, which a comptime function reads with `nupp.types.elements` and answers
-with another pack. A computed tail is a parameter list as soon as its type
+itself, which a comptime function reads with `nupp.types.elements` and returns
+another pack. A computed tail is a parameter list as soon as its type
 reduces, so `...: unpackof F(C...)` on a callback names the parameters an
 argument written without types takes, and a callback written with the wrong
 ones, or with more of them, is refused where it is passed.
@@ -837,7 +837,7 @@ An interface carrying associated requirements is nominal at that part: a
 structural value has nowhere to put an answer, so it is not one of these however
 many fields it has. An opaque projection fits its effective bound and exposes
 that bound's members, read as the projection, so a `self`-returning member
-answers `T.Item`. The bound does not fit the projection. Through an intersection
+returns `T.Item`. The bound does not fit the projection. Through an intersection
 the requirements coalesce and their bounds intersect; through a union every
 alternative has to state the name, the bounds unite, and the answers distribute.
 
@@ -905,7 +905,7 @@ untyped library returned, answer `is` at all.
 The test runs wherever `is` is written, so it reads the declaration's own fields
 through `self` and nothing else: comparisons against literals, `type()` tests,
 and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
-always answers the same way, or one on a record or struct is `NUPP2122`, as is
+always returns the same boolean, or one on a record or struct is `NUPP2122`, as is
 a declaration whose own fields provably fail an interface it declares.
 ]=],
         example = [=[
@@ -958,7 +958,7 @@ changes the layout and nothing else.
 A struct may point at itself, which is how a linked structure is written. By
 value it cannot: that would have no size.
 
-`layoutof(T)` answers how one is laid out: the fields in declaration order with
+`layoutof(T)` returns its memory layout: the fields in declaration order with
 their C types, offsets, sizes and padding, the struct's size, and a fingerprint
 over all of it. Reifying puts a value where nothing that walks a table reaches
 it, and this reaches it again without the language choosing a serialization
@@ -1129,7 +1129,7 @@ first may be ownership-bearing, since the successful path discards every one of
 them.
 
 A safe call is admitted: the alternative it adds is the single nil an absent
-receiver answers with, so that arm takes the exit and the rest is the pack the
+receiver returns, so that arm takes the exit and the rest is the pack the
 policy reads. `obj?.read() or return` cannot tell an absent receiver from a
 failed read, which is the conflation an explicit `if` over a safe call has too.
 
@@ -1239,7 +1239,7 @@ remaining union. An open type such as `string`, `integer`, or `any` needs
 lint.
 
 A union that lists `nupp.types.nonExhaustive()` among its alternatives always
-needs `else`, and never reports one as unnecessary. That call answers a member
+needs `else`, and never reports one as unnecessary. That call returns a member
 no value inhabits and no name resolves to, so no case covers it, and the union
 does not fit the closed union of the alternatives written beside it.
 
@@ -1453,7 +1453,7 @@ than compiled into a branch nothing reaches. `is` sits at the comparison level,
 below unary `not`, so `not v is T` is `(not v) is T` and is one of the ways to
 write one; `not (v is T)` is the test that was meant.
 
-A function may return a predicate, `p is T`, meaning it answers whether that
+A function may return a predicate, `p is T`, meaning it returns whether that
 parameter holds the type. The value returned is a boolean, and the caller
 narrows on it.
 
@@ -1993,7 +1993,7 @@ An algorithm that runs in vector lanes imports `nupp.simd` inside a block
 kernel and writes the species loop, masks, and tail explicitly; a loop without
 those operations is scalar. Its vector and mask
 values cannot escape the kernel and have no boxed Lua representation.
-`simd.species` answers `nil` with `aot = "off"`, so the source can supply an
+`simd.species` returns `nil` with `aot = "off"`, so the source can supply an
 ordinary scalar continuation. `nupp aot --emit llvm` and `--emit asm` expose the
 chosen implementation for inspection.
 
@@ -2004,8 +2004,8 @@ a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
-The kernel `compile` answers borrows its context and the binding `bind`
-answers borrows its kernel; both are closeable.
+The kernel returned by `compile` borrows its context, and the binding returned
+by `bind` borrows its kernel; both are closeable.
 The generated `compile(...)` call carries the target provider's artifact and
 entrypoint: SPIR-V for native WGPU, or WGSL for browser WebGPU.
 The Wasm policies refuse GPU IR, and `aot = "off"` retains the ordinary
@@ -2196,7 +2196,7 @@ behavior.
 A `.d.nupp` file describes a module implemented elsewhere and cannot declare
 `module`. It declares the module's members and returns a value of the module's
 type, such as `local greet: function(name: string): string` followed by
-`return {greet = greet}`; `require` answers that type. A declaration file that
+`return {greet = greet}`; `require` returns that type. A declaration file that
 returns nothing declares only globals.
 ]=],
         context = {
@@ -2314,7 +2314,7 @@ return m
         body = [=[
 A suspension-aware call is an ordinary call. There is no `async function`, no
 `await`, no future in a return type, and no asynchronous half of the standard
-library: `client:send(request)` answers a response, and whether it blocked the
+library: `client:send(request)` returns a response, and whether it blocked the
 thread or parked a coroutine is the host's business rather than the signature's.
 
 Whether a function may suspend is inferred from `coroutine.yield` and
@@ -2338,8 +2338,8 @@ one body parking is what lets the next one run. A scope opened with
 and settles them where its `with` ends. Two whole-family calls take a complete
 family instead:
 
-- `gather` answers values and errors side by side, for a caller handling each.
-- `race` answers the first settled value and its index, then cancels the rest.
+- `gather` returns values and errors side by side, for a caller handling each.
+- `race` returns the first settled value and its index, then cancels the rest.
 
 These share one LuaJIT state and run one at a time between suspensions, so they
 are concurrency and not CPU parallelism. Cores are `fork`, which runs a child on
@@ -2685,7 +2685,7 @@ what Nupp adds to it or holds it to.
 
 A matcher has one result pack, inferred from the grammar's captures. Adjacent
 captures are adjacent native Lua results, so `{ [a-z]+ } ':' {}` is
-`Peg<(string, integer)>` and answers two values with nothing allocated between
+`Peg<(string, integer)>` and returns two values with nothing allocated between
 them; wrap repeated or open-ended captures in `{| ... |}` or `p -> {}` so the
 table comes from the grammar rather than the matcher. Every arm of an ordered
 choice must produce the same capture shape, which is what keeps the inferred

@@ -12,7 +12,7 @@ test.matches(greeting, "^hello")
 test.raises(function(): nil error("nope") end, "nope")
 ```
 
-Every failure names the values that differed. An assertion answers the input it
+Every failure names the values that differed. An assertion returns the input it
 was given where that is useful, so one can narrow or validate a value in place
 rather than spelling it twice:
 
@@ -368,7 +368,7 @@ export function skip(reason: string): never
     error({skip = skipped, reason = reason}, 0)
 end
 
---- Answers whether a caught error is a skip raised by this module.
+--- Returns whether a caught error is a skip raised by this module.
 export function isSkip(value: any): boolean
     return type(value) == "table" and value.skip == skipped
 end
@@ -553,7 +553,7 @@ export function fixture(key: string, produce: function(string): any): (string, a
     return path, value, reused
 end
 
---- Answers whether a caught error marks a case as not executed.
+--- Returns whether a caught error marks a case as not executed.
 export function isNotExecuted(value: any): boolean
     return type(value) == "table" and value.notExecuted == notExecutedTag
 end

@@ -28,7 +28,7 @@ malformed opcode rather than a check somebody has to remember to write.
 A species carries the element and the lane count together, and every operation
 is checked against the species its arguments name rather than against a list of
 every width the backend knows. That is what keeps a binary64 value out of a
-32-bit vector that would change its answers.
+32-bit vector that would change its results.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")

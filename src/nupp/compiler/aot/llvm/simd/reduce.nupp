@@ -3,13 +3,13 @@ module nupp.compiler.aot.llvm.simd.reduce
 --[[
 Folding a vector's lanes: mask queries, prefix scans and horizontal reductions.
 
-A horizontal reduction names its association, and the answer depends on it,
-so each order is the exact tree its contract states over the lanes in logical
+A horizontal reduction names its association, and the answer depends on it, so
+each order is the exact tree its contract states over the lanes in logical
 order: `ordered` left to right from the identity, `pairwise` the balanced tree
 carrying an odd lane up unchanged, `algebraic` even and odd lanes apart then
-joined, its dot fused. None of them is `reassoc`, which would let LLVM pick
-the tree. Extremes answer the same whatever the order; their `arg` forms keep
-the lowest lane among equals under the zero-sign and NaN rules.
+joined, its dot fused. None of them is `reassoc`, which would let LLVM pick the
+tree. Extremes return the same whatever the order; their `arg` forms keep the
+lowest lane among equals under the zero-sign and NaN rules.
 ]]
 
 local context = require("nupp.compiler.aot.llvm.context")

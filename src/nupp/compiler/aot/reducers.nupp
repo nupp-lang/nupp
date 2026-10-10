@@ -247,7 +247,7 @@ const constructors: {
 reducers.CONSTRUCTORS = constructors
 
 --- The floating-point contracts by constructor, each with the record it
---- answers. Their binary64 form keeps the older unsuffixed IR identity
+--- results. Their binary64 form keeps the older unsuffixed IR identity
 --- (`simd_reducer_ordered_sum`); their binary32 form, chosen by the `float`
 --- array witness, carries the element as the exact contracts do
 --- (`simd_reducer_ordered_sum_f32`).

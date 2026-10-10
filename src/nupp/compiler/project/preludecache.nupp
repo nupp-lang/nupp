@@ -39,7 +39,7 @@ the same thing twice and see which answer changes.
 ## Identity
 
 A type cannot be copied as an ordinary value. The checker compares types with
-`==`, and `types.literal("#")` answers out of an arena `nupp.compiler.types`
+`==`, and `types.literal("#")` returns out of an arena `nupp.compiler.types`
 keeps, so a restored type that is in no arena is equal to nothing: with the
 prelude copied and nothing else done, the compiler reports eighteen errors
 checking itself, every one of them a literal or an overload failing to match
@@ -65,7 +65,7 @@ its counter, so an image means what it says only in an arena that numbered
 everything before the prelude the way the writer's did. Read over any other, a
 restored type and a live one share an id, and a key built from that id finds
 whichever the arena met first -- or the image's keys find the live types and the
-image's nominals are not the ones they point at, so `nupp.peg.compile` answers a
+image's nominals are not the ones they point at, so `nupp.peg.compile` returns a
 `Peg<...any>` that is not the `Peg<...any>` it is annotated with.
 
 "The first environment in a process" was meant to be that condition, and is not

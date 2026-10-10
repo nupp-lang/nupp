@@ -127,7 +127,7 @@ const function untilNext(now: number): number?
     return remaining
 end
 
---- Fires everything due and answers how many that was.
+--- Fires everything due and returns how many that was.
 const function fireDue(): integer
     local now = time.now()
     local fired = 0

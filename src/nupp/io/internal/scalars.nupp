@@ -312,8 +312,8 @@ export interface ScalarWriter is nupp.Closeable
 
     --- Flushes the destination, when there is one to flush.
     ---
-    --- This is where a destination that failed to take its bytes says so: `close`
-    --- answers nothing, so a caller that needs to know flushes first.
+    --- This is where a destination that failed to take its bytes says so:
+    --- `close` returns nothing, so a caller that needs to know flushes first.
     --- @param self this writer
     --- @return whether it flushed
     --- @return why it did not, when it did not
@@ -607,9 +607,9 @@ end
 
 --- Opens a cursor for sized integer and float reads.
 ---
---- A string, snapshot or buffer is read from a copy of its bytes taken here, and
---- reports its `remaining` count. A reader or a queue is consumed in place: the reader
---- answers no count, the queue answers what it still holds.
+--- A string, snapshot or buffer is read from a copy of its bytes taken here,
+--- and reports its `remaining` count. A reader or a queue is consumed in place:
+--- the reader returns no count, the queue returns what it still holds.
 ---
 --- What the source is decides what happens to it. A snapshot or a buffer is
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor

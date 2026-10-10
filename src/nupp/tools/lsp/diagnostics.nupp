@@ -37,7 +37,8 @@ type diagnostics.Session = {
     --- folders are served, so it is read at the point of use and never captured.
     inc: any,
 
-    --- Points `inc` at the folder that owns a path, and answers which folder that is.
+    --- Points `inc` at the folder that owns a path, and returns which folder
+    --- that is.
     useRoot: function(path: string?): string,
 
     --- How the session speaks to the client unprompted.

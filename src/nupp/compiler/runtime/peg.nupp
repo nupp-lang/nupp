@@ -108,7 +108,7 @@ local function findFrom(
     return nil
 end
 
---- @raises string when the callback answers anything but a string
+--- @raises string when the callback returns anything but a string
 local function replaced(replacement: any, first: integer, nextPosition: integer, ...: any): string
     local out = replacement(first, nextPosition, ...)
     if type(out) ~= "string" then
@@ -148,8 +148,8 @@ end
 --- would read the same values back out of the instance on every call, and matching is
 --- what a grammar is for.
 ---
---- @param run answers the position after a match at a position, or nil
---- @param take answers the captures the last run produced
+--- @param run returns the position after a match at a position, or nil
+--- @param take returns the captures the last run produced
 --- @param captureful whether the grammar produces captures at all
 --- @param search the compiler's prefilter, when it found one
 --- @param generatedFind a specialized whole-scan, when one was emitted
@@ -492,9 +492,10 @@ end
 
 --- Wraps a native LPeg pattern in the matcher shell.
 ---
---- The pattern is run with a trailing position capture, so one match answers both the
---- captures and where it stopped. The captures are held until `take` is called rather
---- than returned, because the shell decides whether the caller wanted them.
+--- The pattern is run with a trailing position capture, so one match returns
+--- both the captures and where it stopped. The captures are held until `take`
+--- is called rather than returned, because the shell decides whether the caller
+--- wanted them.
 ---
 --- @param pattern the LPeg pattern to run
 --- @return the matcher

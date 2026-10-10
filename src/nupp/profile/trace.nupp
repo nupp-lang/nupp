@@ -205,7 +205,7 @@ function trace.profile(): trace.Profile
     }
 end
 
---- Answers the record filed under a stable identity.
+--- Returns the record filed under a stable identity.
 ---
 --- @param id the identity, as a report or a diagnostic carries it
 --- @return the record, or nil when nothing is filed under it
@@ -213,7 +213,7 @@ function trace.reason(id: string): trace.Reason?
     return byId[id]
 end
 
---- Answers the record for a bytecode LuaJIT has no recorder for.
+--- Returns the record for a bytecode LuaJIT has no recorder for.
 ---
 --- @param opcode the bytecode's name, as `opcodeName` renders it
 --- @return the record, or nil when that bytecode records
@@ -221,7 +221,7 @@ function trace.forOpcode(opcode: string): trace.Reason?
     return byOpcode[opcode]
 end
 
---- Answers the record a static finding maps to.
+--- Returns the record a static finding maps to.
 ---
 --- This is what keeps a checker finding and an observed abort from explaining the
 --- same thing two different ways.
@@ -243,9 +243,10 @@ end
 
 --- Interprets a raw abort the VM reported.
 ---
---- An abort naming an unrecordable bytecode is routed by that opcode rather than
---- by its text, so it lands on the same record a static check would have found.
---- Anything unrecognized answers `jit/runtime-unknown` rather than nothing.
+--- An abort naming an unrecordable bytecode is routed by that opcode rather
+--- than by its text, so it lands on the same record a static check would have
+--- found. Anything unrecognized returns `jit/runtime-unknown` rather than
+--- nothing.
 ---
 --- @param errorCode the VM's trace error number, or nil
 --- @param errorArg whatever the VM passed beside it
@@ -272,7 +273,7 @@ function trace.runtime(errorCode: integer?, errorArg: number | string | nil): tr
     return record, ok and detail as string or format
 end
 
---- Answers every record, in registry order.
+--- Returns every record, in registry order.
 ---
 --- The list is a copy, so a caller sorting or filtering it cannot disturb the
 --- registry the checker reads.

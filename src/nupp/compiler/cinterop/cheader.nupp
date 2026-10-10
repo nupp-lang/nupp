@@ -567,7 +567,7 @@ cheader.provenance = provenance
 local declaredBlocks = {}
 local declaredNames: {[string]: {[string]: boolean}} = {}
 
---- Declares a block once per process and answers what it named.
+--- Declares a block once per process and returns what it named.
 ---
 --- The names are cached with the verdict because a repeated block introduces
 --- nothing the second time: LuaJIT already holds it, so the id diff underneath

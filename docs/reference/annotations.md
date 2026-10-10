@@ -539,14 +539,14 @@ vector loop and scalar continuation patterns, and
 for a full kernel, the build policy, and what the backend does not do yet.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
-whole-span loop iteration to one GPU invocation. With the native `aot = "require"` policy, the compiler
-emits canonical SPIR-V for the Rust WGPU provider and replaces the declaration
-with a typed kernel specification. Its
+whole-span loop iteration to one GPU invocation. With the native `aot =
+"require"` policy, the compiler emits canonical SPIR-V for the Rust WGPU
+provider and replaces the declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
-`dispatch(...)` accepts the scalar parameters and packs their uniform block.
-The kernel `compile` answers borrows its context and the binding `bind`
-answers borrows its kernel; both are closeable.
+`dispatch(...)` accepts the scalar parameters and packs their uniform block. The
+kernel returned by `compile` borrows its context, and the binding returned by
+`bind` borrows its kernel; both are closeable.
 
 With `aot = "require-wasm"`, the same declaration emits WGSL for a browser
 WebGPU application. Browser GPU storage uses `nupp.mem.span.Span` and
@@ -736,7 +736,7 @@ Each name is one property, and giving it up permits a specific class of rewrite.
 
 | Guarantee | What holding it promises | What giving it up permits |
 | --- | --- | --- |
-| `function-identity` | two closures built at one site are distinct values, so `a == b` answers no | caching a closure and handing the same one back |
+| `function-identity` | two closures built at one site are distinct values, so `a == b` returns false | caching a closure and handing the same one back |
 | `load-order` | modules initialize in the order the requires run | hoisting an import, or binding a callee statically |
 | `error-site` | an error reports the position that raised it | hoisting a check or a chain out of a loop |
 | `frames` | a traceback shows the frames the source describes | inlining a call away |
@@ -745,7 +745,7 @@ Each name is one property, and giving it up permits a specific class of rewrite.
 
 `@relax` accepts two further numeric names which are not in that table because
 they are not observable in the same sense. `fp-contract` permits a multiply and
-an add to fuse into one rounding, so the function answers something different
+an add to fuse into one rounding, so the function returns something different
 rather than reaching the same answer differently:
 
 ```nupp

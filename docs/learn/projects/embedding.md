@@ -301,8 +301,8 @@ Loading, starting, and releasing are separate operations.
 3. `nupp_component_start` runs the entry exactly once and installs its `arg`
    table from the supplied arguments.
 4. `nupp_component_release` releases the C name, not the modules installed in
-   the runtime. Like the other releases it takes the runtime and answers a
-   status, refusing a component already released or loaded by another runtime.
+the runtime. Like the other releases it takes the runtime and returns a status,
+refusing a component already released or loaded by another runtime.
 
 ```c
 nupp_component_load(runtime, bytes, length, "game.nuppc", &component, &error);
@@ -635,7 +635,7 @@ tree that has moved on since the component was built is a rebuild, not a patch.
 
 A handle taken before a commit keeps working after it. A watch build dispatches
 every named function through a slot, so `nupp_export_find`, or
-`nupp_reload_find` for a member of an entry opened from source, answers a value
+`nupp_reload_find` for a member of an entry opened from source, returns a value
 that stays valid for the life of the session, and so does every other value the
 program has already handed out.
 
@@ -675,9 +675,10 @@ reads `NUPP_RELOAD_NO_CHANGE`, the generation reads 0, and
 host to act on. The error carries the reason.
 
 `nupp_reload_poll` is both at one point, for a host with nothing to gain by
-separating them. A second prepare replaces what the first staged, since the newer
-edit is the one the program is about to be asked for, and an apply with nothing
-staged answers `NUPP_RELOAD_NO_CHANGE` rather than committing something twice.
+separating them. A second prepare replaces what the first staged, since the
+newer edit is the one the program is about to be asked for, and an apply with
+nothing staged returns `NUPP_RELOAD_NO_CHANGE` rather than committing something
+twice.
 
 Nothing changes in the running process anywhere but inside `nupp_reload_apply`,
 and what it publishes is complete: staging proves the whole patch compatible

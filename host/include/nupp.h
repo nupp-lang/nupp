@@ -337,9 +337,9 @@ NUPP_API nupp_status nupp_reload_prepare(
 
 /* Publishes what `nupp_reload_prepare` staged: the commit boundary, called
  * where the host knows no work is half applied. It is the only call in a
- * session that changes a live implementation. With nothing staged it answers
+ * session that changes a live implementation. With nothing staged it returns
  * `NUPP_RELOAD_NO_CHANGE`, and a patch the running generation has moved past
- * answers `NUPP_RELOAD_REJECTED`. */
+ * returns `NUPP_RELOAD_REJECTED`. */
 NUPP_API nupp_status nupp_reload_apply(
     nupp_runtime *runtime,
     nupp_reload *reload,

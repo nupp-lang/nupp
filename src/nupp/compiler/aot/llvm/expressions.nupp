@@ -3,7 +3,7 @@ module nupp.compiler.aot.llvm.expressions
 --[[
 Scalar IR expressions as LLVM instructions.
 
-`expressions.value` emits one expression into the current block and answers the
+`expressions.value` emits one expression into the current block and returns the
 LLVM value and the IR type it has. Numeric meaning is the IR's, which this
 states outright:
 
@@ -133,12 +133,12 @@ local function u64Bits(ctx: context.Context, value: string, from: string): strin
     return expressions.convert(ctx, value, from, "u64")
 end
 
---- A binary64 as the integer LuaJIT's FFI makes of it, which is C's
---- conversion and not `wrap`: truncate toward zero through `int64`, then keep
---- the low bits a narrower integer holds. `uint64` takes the union of both
---- 64-bit ranges, so a negative value keeps its two's-complement pattern where
---- a plain unsigned conversion would clamp it to zero. Out of those ranges the
---- conversions saturate, which is defined and is what LuaJIT answers on ARM64.
+--- A binary64 as the integer LuaJIT's FFI makes of it, which is C's conversion
+--- and not `wrap`: truncate toward zero through `int64`, then keep the low bits
+--- a narrower integer holds. `uint64` takes the union of both 64-bit ranges, so
+--- a negative value keeps its two's-complement pattern where a plain unsigned
+--- conversion would clamp it to zero. Out of those ranges the conversions
+--- saturate, which is defined and is what LuaJIT returns on ARM64.
 function expressions.luaInteger(ctx: context.Context, value: string, from: string, to: string): string
     if from == "f32" then
         value = context.value(ctx, ("fpext float %s to double"):format(value))
@@ -734,8 +734,8 @@ function expressions.helperResult(ctx: context.Context, resultTypes: {scalarIR.T
     return "{ " .. table.concat(fields, ", ") .. " }"
 end
 
---- A call of a helper, evaluated once; a helper with several results
---- answers the struct `helperResult` names, which `multi_let` takes apart.
+--- A call of a helper, evaluated once; a helper with several results returns
+--- the struct `helperResult` names, which `multi_let` takes apart.
 --- @raises string when the helper was not declared or takes SIMD values
 function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall): string
     local callee = ctx.helpers[call.helper]
@@ -851,8 +851,8 @@ end
 --- operation. Installed by `llvmProgram`.
 expressions.handlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
 
---- Emits `node` and answers its LLVM value alone, for an operand whose IR
---- type the caller already knows.
+--- Emits `node` and returns its LLVM value alone, for an operand whose IR type
+--- the caller already knows.
 --- @raises string when the operation is not one this backend emits yet
 function expressions.operand(ctx: context.Context, node: scalarIR.Expr): string
     local value = expressions.value(ctx, node)
@@ -860,7 +860,7 @@ function expressions.operand(ctx: context.Context, node: scalarIR.Expr): string
     return value
 end
 
---- Emits `node` and answers its LLVM value and IR type.
+--- Emits `node` and returns its LLVM value and IR type.
 --- @raises string when the operation is not one this backend emits yet
 function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local operation = node.op

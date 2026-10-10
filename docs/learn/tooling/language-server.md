@@ -187,7 +187,7 @@ Beyond the protocol, the server answers five requests of its own. Each is named
 than under the `$/` prefix LSP reserves for messages a peer may drop, and each
 has a command-line twin that runs the same handler:
 
-| Request | Command-line form | What it answers |
+| Request | Command-line form | What it returns |
 | --- | --- | --- |
 | `nupp/inspect` | `nupp lsp inspect` | The symbol at a position, and which project answered |
 | `nupp/traceCheck` | `nupp lsp trace-check` | The trace blockers and risks in the function at a position |
@@ -196,18 +196,18 @@ has a command-line twin that runs the same handler:
 | `nupp/migrate` | `nupp migrate --dry-run` | The plan for migrating an annotated Lua buffer to Nupp |
 
 `nupp/traceCheck` takes a document and a position. It selects the smallest
-checked function containing the position and answers with its `name`, `range`,
-the `findings` a `@jit` contract would report there -- each a stable `reason`,
-its `class`, a `message`, a `help` and the `callPath` a blocker was reached
-through -- the `traceProfile` and `reasonCatalog` they were judged against, and
+checked function containing the position and returns its `name`, `range`, the
+`findings` a `@jit` contract would report there -- each a stable `reason`, its
+`class`, a `message`, a `help` and the `callPath` a blocker was reached through
+-- the `traceProfile` and `reasonCatalog` they were judged against, and
 `contract`, which is `@jit` when the function already carries one and
-`inspection` otherwise. For a declaration without the contract, `addContract`
-is the edit that adds it. A position in no checked function answers `null`. It
+`inspection` otherwise. For a declaration without the contract, `addContract` is
+the edit that adds it. A position in no checked function returns `null`. It
 reads the checked overlay and runs nothing.
 
 `nupp/migrate` takes a document, its current `text`, and an optional `dialect`
 (`auto`, `luacats`, `emmy` or `luadoc`). The text travels with the request, so a
-Lua language server can keep owning the document's synchronization. It answers
+Lua language server can keep owning the document's synchronization. It returns
 `ok: true` with the `sourceUri`, the `destinationUri`, the migrated `text`, the
 `edits`, the importer's `warnings` and the `dialect` it resolved, or `ok: false`
 and an `error`. It plans and writes nothing; the client applies the plan.
@@ -234,12 +234,12 @@ an older extension from showing a button over every function that nothing it has
 can run. The command on each lens is the one the client gave, so the server never
 needs to know what any particular editor calls it.
 
-`nupp/artifacts` takes a document and an optional position and answers with
-the kinds available and the innermost function the position is in.
-`nupp/artifact` takes a document, a `kind` and an optional `optLevel`, and
-answers with the artifact or with why there is not one. The kinds the server can
-produce are advertised under `capabilities.experimental.nuppArtifacts`, so a
-client can tell what it may ask for without asking for it.
+`nupp/artifacts` takes a document and an optional position and returns the kinds
+available and the innermost function the position is in. `nupp/artifact` takes a
+document, a `kind` and an optional `optLevel`, and returns the artifact or with
+why there is not one. The kinds the server can produce are advertised under
+`capabilities.experimental.nuppArtifacts`, so a client can tell what it may ask
+for without asking for it.
 
 | Kind | Language | Mapping |
 | --- | --- | --- |
@@ -285,7 +285,7 @@ declares it. A terminal has no second pane to lay anything against.
 Lines with no entry stand for nothing anyone wrote. A client synchronizing a
 cursor reveals nothing for those rather than guessing.
 
-An artifact that could not be produced answers `available: false` with an
+An artifact that could not be produced returns `available: false` with an
 `unavailable` reason and detail, rather than with an empty document. A file that
 checks can still fail to lower, and which of those happened is the whole answer.
 

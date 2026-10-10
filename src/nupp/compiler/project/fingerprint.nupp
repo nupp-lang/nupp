@@ -526,11 +526,12 @@ local subsystemMemo: {[string]: string} = {}
 --- The digest of a part of the compiler: the named modules, and everything they
 --- require, and nothing else.
 ---
---- What a stamp is for is saying that an answer kept from last time was computed by
---- code that has not changed. `toolFingerprint` answers that for the whole compiler,
---- which is true and far too strong: a header is the parser's answer, so editing the
---- code generator threw away every header in the project and made the next command
---- reparse all of it. This says which code an answer actually came from.
+--- What a stamp is for is saying that an answer kept from last time was
+--- computed by code that has not changed. `toolFingerprint` returns that for
+--- the whole compiler, which is true and far too strong: a header is the
+--- parser's answer, so editing the code generator threw away every header in
+--- the project and made the next command reparse all of it. This says which
+--- code an answer actually came from.
 ---
 --- Falls back to the whole compiler whenever the graph cannot be read, whenever a named
 --- module is not in it, and for a bundled compiler, which is one file. Every fallback

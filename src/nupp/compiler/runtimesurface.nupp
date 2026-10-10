@@ -212,7 +212,7 @@ LUA51_MEMBERS.debug.debug = true
 LUA51_MEMBERS.debug.getfenv = true
 LUA51_MEMBERS.debug.setfenv = true
 
---- Answers the exact bundled Lua-prelude root a token resolves to.
+--- Returns the exact bundled Lua-prelude root a token resolves to.
 function surface.resolvedRoot(checker: any, token: any): string?
     if not token or not checker.env or not checker.env.globals then
         return nil

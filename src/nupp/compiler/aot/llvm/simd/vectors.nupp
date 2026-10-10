@@ -4,12 +4,12 @@ module nupp.compiler.aot.llvm.simd.vectors
 Lane-wise vector operations: construction, arithmetic, comparison, selection,
 conversion, and applying a scalar function to every lane.
 
-Each operation means what the explicit SIMD contract says per lane, whatever
-the target: integer lanes wrap, a shift count is taken modulo the lane width,
-`shr` is always logical and `sar` always arithmetic, integer division by zero
-answers 0 and the most negative value divided by -1 answers itself, and the
-min/max contracts canonicalize NaN and order -0 before +0. Nothing is
-contracted unless the program relaxed it.
+Each operation means what the explicit SIMD contract says per lane, whatever the
+target: integer lanes wrap, a shift count is taken modulo the lane width, `shr`
+is always logical and `sar` always arithmetic, integer division by zero returns
+0 and the most negative value divided by -1 returns itself, and the min/max
+contracts canonicalize NaN and order -0 before +0. Nothing is contracted unless
+the program relaxed it.
 ]]
 
 local context = require("nupp.compiler.aot.llvm.context")
@@ -122,12 +122,11 @@ local function divide(ctx: context.Context, found: species.Species, a: string, b
     return context.value(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, quotient))
 end
 
---- Lua's `%` and `//` on integer lanes: the remainder takes the divisor's
---- sign and the quotient rounds toward negative infinity, which C's
---- truncating `srem` and `sdiv` reach by one correction wherever the
---- remainder is nonzero and the signs differ. The divisor is made safe the
---- way `divide` makes it: a zero divisor answers 0, and `MIN // -1` answers
---- MIN with remainder 0.
+--- Lua's `%` and `//` on integer lanes: the remainder takes the divisor's sign
+--- and the quotient rounds toward negative infinity, which C's truncating
+--- `srem` and `sdiv` reach by one correction wherever the remainder is nonzero
+--- and the signs differ. The divisor is made safe the way `divide` makes it: a
+--- zero divisor returns 0, and `MIN // -1` returns MIN with remainder 0.
 local function floorDivide(
     ctx: context.Context,
     found: species.Species,
@@ -168,10 +167,10 @@ local function floorDivide(
     return context.value(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, result))
 end
 
---- Lua's `%` and `//` on floating lanes, operation for operation as the
---- scalar `nupp.mod` computes them: `a - floor(a / b) * b` and `floor(a /
---- b)`, never contracted, so a zero result keeps the sign that formula gives
---- it and an infinite divisor answers what LuaJIT answers.
+--- Lua's `%` and `//` on floating lanes, operation for operation as the scalar
+--- `nupp.mod` computes them: `a - floor(a / b) * b` and `floor(a / b)`, never
+--- contracted, so a zero result keeps the sign that formula gives it and an
+--- infinite divisor returns what LuaJIT returns.
 local function floatFloorDivide(
     ctx: context.Context,
     found: species.Species,
@@ -192,8 +191,8 @@ local function floatFloorDivide(
     return context.value(ctx, ("fsub %s %s, %s"):format(v, a, product))
 end
 
---- `a * b + c` fused: one rounding per lane, and the canonical NaN for a
---- NaN lane, as `nupp.math.f32.fma` answers.
+--- `a * b + c` fused: one rounding per lane, and the canonical NaN for a NaN
+--- lane, as `nupp.math.f32.fma` returns.
 local function fusedMultiplyAdd(ctx: context.Context, found: species.Species, a: string, b: string, c: string): string
     local v = found.vector
     local shape = lanes.vectorShape(found)

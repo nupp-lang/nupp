@@ -83,11 +83,11 @@ end
 --- Every type appears once in `types`; edges are integer indices, so recursive
 --- declarations survive JSON transport without exposing checker objects or identities.
 ---
---- `hooks` is for a reader that needs more than the public descriptor, and is never
---- given by `describe`. `hooks.reference(t, intern)` may answer a node to stand for
---- `t` instead of describing it; `hooks.extend(t, node, intern)` may add to the node
---- `t` was described as. Both receive the walk's `intern`, so whatever they add is
---- an edge in the same graph.
+--- `hooks` is for a reader that needs more than the public descriptor, and is
+--- never given by `describe`. `hooks.reference(t, intern)` may return a node to
+--- stand for `t` instead of describing it; `hooks.extend(t, node, intern)` may
+--- add to the node `t` was described as. Both receive the walk's `intern`, so
+--- whatever they add is an edge in the same graph.
 ---
 --- @return the root's index, the nodes, and the type each node was made from
 function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})

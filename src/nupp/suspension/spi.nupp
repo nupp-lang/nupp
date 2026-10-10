@@ -21,9 +21,9 @@ Nested installation restores the captured handler, and a driver installation
 preserves delegation to the outer scheduler. `create` propagates the suspension
 context into a new coroutine.
 
-Sources report readiness in `order`, lowest first. Context.uses identifies sources
-needed by a wait. Whether a park is permitted here is `canSuspend`, which answers
-for the handler in force. Cancellation values must come from
+Sources report readiness in `order`, lowest first. Context.uses identifies
+sources needed by a wait. Whether a park is permitted here is `canSuspend`,
+which returns for the handler in force. Cancellation values must come from
 [](nupp.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
@@ -75,9 +75,10 @@ export record Waiting
 
     --- Registers a wake callback for the waiting scheduler.
     ---
-    --- Settle-safe: where the wait has already settled, `wake` is called before this
-    --- returns rather than stored. A handler may therefore arm once and then yield
-    --- until `ready` answers true, without a recheck loop around the arming.
+    --- Settle-safe: where the wait has already settled, `wake` is called before
+    --- this returns rather than stored. A handler may therefore arm once and
+    --- then yield until `ready` returns true, without a recheck loop around the
+    --- arming.
     onResume: function(self: Waiting, wake: function(): nil): nil
 
     --- Diagnostic operation name supplied to suspend.
@@ -155,10 +156,11 @@ export interface Provider
 
     --- Captures the barrier in force here, for a driver about to displace it.
     ---
-    --- A driver's handler changes where a branch yields and must not quietly grant
-    --- permission the handler it displaced refused, so a driver takes this before it
-    --- installs and answers `canPark` with it. Resolved when called rather than where
-    --- captured, because a host enters and leaves barriers while a driver is live.
+    --- A driver's handler changes where a branch yields and must not quietly
+    --- grant permission the handler it displaced refused, so a driver takes
+    --- this before it installs and delegates `canPark` to it. Resolved when
+    --- called rather than where captured, because a host enters and leaves
+    --- barriers while a driver is live.
     @readonly delegatedCanPark: function(): function(): boolean
 
     --- Captures how a wait is parked here, for a driver about to displace it.
@@ -168,7 +170,8 @@ export interface Provider
     --- none. Captured like `delegatedCanPark`, and resolved when called.
     @readonly delegatedPark: function(): function(Waiting, function(): nil): nil
 
-    --- Builds a Waiting that settles when `base` does or when `ready` answers true.
+    --- Builds a Waiting that settles when `base` does or when `ready` returns
+    --- true.
     ---
     --- A driver parks outward on the result, so the park it hands to its host is
     --- woken both by the wait it was given and by its own work becoming runnable.

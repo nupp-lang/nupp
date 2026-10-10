@@ -89,11 +89,11 @@ end
 --- stopping position is its own first byte. This is an AOT lowering boundary,
 --- not a portable parser API.
 ---
---- The ordinary body below is the executable semantics of that boundary, not
---- an API anything outside a codec should reach for. It exists because an
---- `@aot` function must answer the same values when its artifact is absent,
---- and without it the one decoder that calls this could not run under
---- `aot = "off"` at all -- which is also how it is differentially tested.
+--- The ordinary body below is the executable semantics of that boundary, not an
+--- API anything outside a codec should reach for. It exists because an `@aot`
+--- function must return the same values when its artifact is absent, and
+--- without it the one decoder that calls this could not run under `aot = "off"`
+--- at all -- which is also how it is differentially tested.
 --- @param builder a direct value stream
 --- @param source the rooted source bytes
 --- @param start the number's zero-based first byte
@@ -172,7 +172,7 @@ function stream.scratchEscapeWord(scratch: any, index: uint32): uint32
     error("scratchEscapeWord exists only inside an @aot function", 2)
 end
 
---- Answers how many escape positions the structural scan retained.
+--- Returns how many escape positions the structural scan retained.
 --- @raises string outside an AOT-compiled function
 function stream.scratchEscapeLength(scratch: any): uint32
     error("scratchEscapeLength exists only inside an @aot function", 2)

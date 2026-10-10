@@ -48,17 +48,17 @@ vector could not finish. Either way the first scan error in the input is
 reported at the one-based position of the byte that raised it.
 
 Every operation here is the general algebra's. The loads read a `Span<uint8>`
-over the entry's own rooted bytes, which `valuebuilder.bytes` answers: a
+over the entry's own rooted bytes, which `valuebuilder.bytes` returns: a
 value-building entry's parameters cross the Lua stack, where a pointer and a
-count are not values, so the span is made from the parameter rather than
-handed in. A whole vector is loaded unchecked under the same
-`cursor + species.lanes <= length` guard the loop already runs on.
+count are not values, so the span is made from the parameter rather than handed
+in. A whole vector is loaded unchecked under the same `cursor + species.lanes <=
+length` guard the loop already runs on.
 
 A vector therefore cannot cross an iteration of the scan loop, because the
-species only exists inside the branch that found one. The previous vector,
-which the lookup needs for the three bytes before each byte it judges, is read
-again instead of carried; before the first vector that load is out of range
-and answers zeros, which is what a scan that has seen nothing needs.
+species only exists inside the branch that found one. The previous vector, which
+the lookup needs for the three bytes before each byte it judges, is read again
+instead of carried; before the first vector that load is out of range and
+returns zeros, which is what a scan that has seen nothing needs.
 ]]
 
 local _valueBuilder = require("nupp.codec.valuebuilder")

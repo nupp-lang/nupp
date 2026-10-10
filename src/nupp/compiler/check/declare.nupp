@@ -657,11 +657,11 @@ function declare.install(
 
     --- Holds a declaration to the refinements of the interfaces it declares.
     ---
-    --- `record C is Shape` is a claim the checker proves, and Shape's refinement is
-    --- what `is Shape` runs. If C's own fields make that test fail, the two disagree
-    --- about the same value: the checker says C is a Shape and `is` answers no. Nothing
-    --- about the disagreement is visible at either site, which is why it is worth
-    --- proving here.
+    --- `record C is Shape` is a claim the checker proves, and Shape's
+    --- refinement is what `is Shape` runs. If C's own fields make that test
+    --- fail, the two disagree about the same value: the checker says C is a
+    --- Shape and `is` returns false. Nothing about the disagreement is visible
+    --- at either site, which is why it is worth proving here.
     ---
     --- Only a provable failure is reported. A refinement whose answer depends on
     --- something no declaration settles is not evidence of a mistake.
@@ -1766,13 +1766,14 @@ function declare.install(
         end
     end
 
-    --- Applies the ownership a hoisted declaration's `is` list claims before any body
-    --- in its block is filled, and answers whether that changed what it had. A
-    --- one-argument `affine(T)` reads T's cleanup as it resolves, so a declaration
-    --- above T's that names it would otherwise see no terminal and settle on a
-    --- transfer-only owner. Runs while hoisting, which keeps it quiet: a claim that
-    --- cannot resolve yet is left to the declaration's own statement, as is a
-    --- function cleanup, which resolves only in the declaration's scope.
+    --- Applies the ownership a hoisted declaration's `is` list claims before
+    --- any body in its block is filled, and returns whether that changed what
+    --- it had. A one-argument `affine(T)` reads T's cleanup as it resolves, so
+    --- a declaration above T's that names it would otherwise see no terminal
+    --- and settle on a transfer-only owner. Runs while hoisting, which keeps it
+    --- quiet: a claim that cannot resolve yet is left to the declaration's own
+    --- statement, as is a function cleanup, which resolves only in the
+    --- declaration's scope.
     c.preclaimAffine = function(stat, n): boolean
         local claimed, cleanup, method = nil, nil, nil
         for _, superNode in ipairs(stat.supertypes or {}) do

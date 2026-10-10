@@ -1109,8 +1109,9 @@ function queries.body(body: any, byDefinition: any): any
     --- interpreted however hot it gets. Lifting one measured 3.2x on
     --- `bench/closure-lifting.lua`.
     ---
-    --- The declaring occurrence is not a mention. Recursion is, and a recursive call is
-    --- a call like any other, so a self-recursive local function still answers true.
+    --- The declaring occurrence is not a mention. Recursion is, and a recursive
+    --- call is a call like any other, so a self-recursive local function still
+    --- returns true.
     ---
     --- @param definition the binding the function was bound to
     --- @return true when every mention is a callee, with the mention count
@@ -1174,9 +1175,9 @@ function queries.body(body: any, byDefinition: any): any
     --- summaries cannot see through disqualifies the region outright, which is the
     --- one-sided lattice showing up as a refusal rather than as a guess.
     ---
-    --- `instead` lets a caller redirect the walk at a node -- a loop asking about its
-    --- own operand has to skip its header, or the `ipairs` call in it answers the
-    --- question against itself.
+    --- `instead` lets a caller redirect the walk at a node -- a loop asking
+    --- about its own operand has to skip its header, or the `ipairs` call in it
+    --- returns the question against itself.
     ---
     --- @param region the node to inspect, usually the whole containing body
     --- @param class the alias class the value belongs to

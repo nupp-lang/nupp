@@ -687,7 +687,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     -- Calls
     ---------------------------------------------------------------------
 
-    --- `nupp.admit(value)` once the ordinary machinery has decided what it answers.
+    --- `nupp.admit(value)` once the ordinary machinery has decided what it
+    --- returns.
     ---
     --- The destination supplies the constrained type, so this runs after inference
     --- rather than before it: there is nothing to resolve here, only to hold the call

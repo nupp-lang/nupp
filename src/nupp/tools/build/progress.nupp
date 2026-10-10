@@ -377,7 +377,7 @@ record progress.Reporter
         self.parallelFacts = facts
     end
 
-    --- Charges checking to `name` until told otherwise, and answers what it was
+    --- Charges checking to `name` until told otherwise, and returns what it was
     --- charged to before, for the caller to put back.
     function charging(self, name: string): string
         local previous = self.checking

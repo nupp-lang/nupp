@@ -36,7 +36,7 @@ function stage.sourceEffects(source: string, filename: string, env: {[string]: a
     return parsed.effects or {}
 end
 
---- Runs the toolchain driver and answers the path it printed.
+--- Runs the toolchain driver and returns the path it printed.
 ---
 --- The driver decides where a build lands and how it is cached, keyed by the
 --- compiler this machine has, so nothing here names a directory. Its progress

@@ -84,8 +84,8 @@ end
 
 --- The hero, the features, and the prose a home page holds besides them.
 ---
---- A page with neither region answers its own markdown unchanged, which is every page
---- but the one.
+--- A page with neither region returns its own markdown unchanged, which is
+--- every page but the one.
 function home.parse(markdown: string): home.Sections
     local sections: home.Sections = {markdown = markdown}
     local hero: string?

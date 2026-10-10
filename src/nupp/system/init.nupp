@@ -46,15 +46,15 @@ end
 
 --- The operating system, lowercase.
 ---
---- `macos`, `linux`, `windows`, `bsd`, or `browser`. An unrecognized host answers
---- its own name lowercased rather than a placeholder, so a new platform reads as
---- itself.
+--- `macos`, `linux`, `windows`, `bsd`, or `browser`. An unrecognized host
+--- returns its own name lowercased rather than a placeholder, so a new platform
+--- reads as itself.
 export const platform = provider.platform
 
 --- The instruction set, by its canonical name.
 ---
 --- Names include `aarch64`, `x86_64`, `x86`, and `wasm32`. This is what is
---- executing, so an x86_64 binary under Rosetta answers `x86_64`.
+--- executing, so an x86_64 binary under Rosetta returns `x86_64`.
 export const architecture = provider.architecture
 
 --- Byte order: `little` everywhere Nupp runs today, or `big`.

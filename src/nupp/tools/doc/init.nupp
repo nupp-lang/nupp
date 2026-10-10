@@ -153,11 +153,12 @@ type doc.Settings = {
     title: string?
 }
 
---- A page the compiler generated: the route it asked for, its title, and its markdown.
---- Both the diagnostic index and the standard library index answer with one of these,
---- because a page assembled from what the compiler knows is configured by nothing but
---- where it should live. `source` names the handwritten file a generated page opens
---- with, so a link written against that path still resolves.
+--- A page the compiler generated: the route it asked for, its title, and its
+--- markdown. Both the diagnostic index and the standard library index return
+--- one of these, because a page assembled from what the compiler knows is
+--- configured by nothing but where it should live. `source` names the
+--- handwritten file a generated page opens with, so a link written against that
+--- path still resolves.
 type doc.Generated = {
     markdown: string,
     path: string,

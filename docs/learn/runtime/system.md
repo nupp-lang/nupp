@@ -24,11 +24,11 @@ Browser builds report the guest instruction set, while the browser ABI remains
 
 `availableParallelism()` returns an integer of at least one. Native hosts use
 the operating-system estimate exposed by Rust's available_parallelism. A browser
-application with a worker pool answers the pool's lane count, which is what a
+application with a worker pool returns the pool's lane count, which is what a
 caller sizing work can actually use; otherwise browsers use their
-hardwareConcurrency estimate, falling back to one. This is a sizing
-hint, not a count of physical cores or a guarantee of future CPU availability.
-It works without initializing the worker scheduler.
+hardwareConcurrency estimate, falling back to one. This is a sizing hint, not a
+count of physical cores or a guarantee of future CPU availability. It works
+without initializing the worker scheduler.
 
 Browser hosts implement the `host.system` seam. These calls do not expose the
 physical host's OS, CPU model, hostname, memory usage or core topology.

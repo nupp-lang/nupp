@@ -5,7 +5,7 @@ order: 130
 # Reflection
 
 Reflection asks what a declared type means without making an instance carry the
-answer. `Record.reflect()` answers at runtime, and `nupp.reflect(T)` answers
+answer. `Record.reflect()` returns at runtime, and `nupp.reflect(T)` returns
 while the program is compiled.
 
 ```nupp:playground
@@ -219,7 +219,7 @@ behind; runtime descriptors are cached per record and carry the extension cache.
 ### Can reflection report a struct's memory layout?
 
 No. Reflection reads declared meaning, so a field's offset is not one of its
-answers. Use `nupp.sizeof`, `nupp.alignof`, `nupp.offsetof`, and `soa.layoutof`,
+results. Use `nupp.sizeof`, `nupp.alignof`, `nupp.offsetof`, and `soa.layoutof`,
 which report against the build's `layoutTarget`.
 
 ::: seealso

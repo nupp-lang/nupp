@@ -355,8 +355,9 @@ end
 --- A response's bytes, as a `nupp.io.Reader`.
 ---
 --- Progressive: the bytes arrive as the provider produces them, and a read
---- suspends until there are some. Only one reader may be on a body at a time, and
---- reading it again after it is closed answers a reason rather than raising.
+--- suspends until there are some. Only one reader may be on a body at a time,
+--- and reading it again after it is closed returns a reason rather than
+--- raising.
 ---
 --- ```nupp:fragment
 --- local total = assert(response.body:transferTo(destination))
@@ -1231,7 +1232,7 @@ end
 
 --- How many requests this client is still carrying.
 ---
---- A closed client answers zero.
+--- A closed client returns zero.
 --- @return the number of transfers in flight
 function http.Client:pending(): integer
     return self._closed and 0 or self._native:pending()

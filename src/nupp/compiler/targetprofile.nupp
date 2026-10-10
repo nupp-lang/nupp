@@ -3,7 +3,7 @@ module nupp.compiler.targetprofile
 --[[
 What a target can be asked to do, as distinct from what it can hold.
 
-`nupp.compiler.targetlayout` answers how wide a pointer is. This answers whether
+`nupp.compiler.targetlayout` returns how wide a pointer is. This returns whether
 the destination has a dynamic loader, a tracing JIT, working FFI callbacks, and
 a way to resolve a default-namespace symbol out of a statically linked archive.
 Those are not layout questions and they are not preferences: a build that gets

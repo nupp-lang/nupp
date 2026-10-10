@@ -329,7 +329,7 @@ local function giveMap(observers: any, map: any): nil
 end
 
 --- Removes every tombstone from a list by swapping the last registration into
---- its slot, and answers how many registrations remain.
+--- its slot, and returns how many registrations remain.
 local function compact(list: any): integer
     local n: integer = list.n
     local index: integer = 1

@@ -3,10 +3,10 @@ module nupp.simd
 --[[
 Explicit SIMD support.
 
-`simd.species` answers a species for an element: as wide as the running
-code's vector registers, and one lane wide where there are none, so a kernel
-is written once and `species:over` runs it a chunk at a time, the last chunk
-under its tail mask:
+`simd.species` returns a species for an element: as wide as the running code's
+vector registers, and one lane wide where there are none, so a kernel is written
+once and `species:over` runs it a chunk at a time, the last chunk under its tail
+mask:
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -148,7 +148,7 @@ local function copyLanes(value: any, n: integer): {[integer]: any}
 end
 
 --- What every reducer shares: contributions go in through `add`, and `value`
---- answers the finished reduction as a `T`.
+--- returns the finished reduction as a `T`.
 ---
 --- What `add` takes depends on the family -- one value, two for a dot
 --- product, and an optional mask beside a vector -- so this names the member
@@ -159,7 +159,7 @@ interface simd.Reducer<T>
     --- Contributes to the reduction; the concrete reducer states its parameters.
     @readonly add: function(self: simd.Reducer<T>, value: never, ...: never): nil
 
-    --- Answers the finished reduction.
+    --- Returns the finished reduction.
     @readonly value: function(self: simd.Reducer<T>): T
 end
 
@@ -438,10 +438,10 @@ end
 --- A floating-point sum carrying the rounding error each addition discards.
 ---
 --- Ordered, pairwise and algebraic sums differ in how they associate, and each
---- discards the low bits of every addition it makes. This one keeps them:
---- the part that did not fit rides alongside the running total and is added
---- back at the end, which recovers the totals an ordered sum loses entirely --
---- `1 + 1e100 + 1 - 1e100` answers two here and zero there.
+--- discards the low bits of every addition it makes. This one keeps them: the
+--- part that did not fit rides alongside the running total and is added back at
+--- the end, which recovers the totals an ordered sum loses entirely -- `1 +
+--- 1e100 + 1 - 1e100` returns two here and zero there.
 ---
 --- Compensating is not the same as exact. The answer is enormously closer to
 --- the correctly rounded total than the other three, and like them it still
@@ -1903,8 +1903,8 @@ sealed interface simd.Vector<T, S>
     --- `%` and `//` are Lua's: the remainder takes the divisor's sign and the
     --- quotient rounds toward negative infinity, lane by lane, as `a - floor(a
     --- / b) * b` and `floor(a / b)` on a floating species and exactly on an
-    --- integer one. An integer lane divided by zero answers zero, as `/`
-    --- does, rather than trapping.
+    --- integer one. An integer lane divided by zero returns zero, as `/` does,
+    --- rather than trapping.
     metamethod __mod: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     metamethod __unm: function(value: simd.Vector<T, S>): simd.Vector<T, S>
@@ -1917,17 +1917,17 @@ sealed interface simd.Vector<T, S>
     --- pair containing a NaN, and which one a program wanted is not
     --- recoverable from the call.
     ---
-    --- `propagatingMin` answers the canonical NaN whenever either operand is
+    --- `propagatingMin` returns the canonical NaN whenever either operand is
     --- NaN, which is `nupp.math.f32.min`'s contract and what makes a reduction
     --- built on it independent of which lane the NaN landed in and of how many
     --- lanes the target chose. `-0` is the smaller zero and `+0` the larger, so
-    --- an equal pair of zeros answers by sign rather than by position. `-inf`
-    --- and `+inf` are ordinary values at the ends of the order.
+    --- an equal pair of zeros is ordered by sign rather than by position.
+    --- `-inf` and `+inf` are ordinary values at the ends of the order.
     propagatingMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     propagatingMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    --- `numberMin` answers the operand that is not NaN, and the canonical NaN
+    --- `numberMin` returns the operand that is not NaN, and the canonical NaN
     --- only when both are, which is IEEE-754's `minNum`. It is the contract for
     --- a scan looking for the smallest real measurement in data that carries
     --- NaN for a missing one. Zeros and infinities behave as they do above.
@@ -1936,42 +1936,42 @@ sealed interface simd.Vector<T, S>
     --- price of ignoring them and the reason it is not the default.
     ---
     --- An integer element has no NaN, so the two contracts coincide there and
-    --- either spelling answers the same value.
+    --- either spelling returns the same value.
     numberMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     numberMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    --- `self * multiplier + addend` with one rounding per lane: the product
-    --- is exact and only the sum rounds, so the two-step form's second
-    --- rounding, and its overflow in a product the sum would have brought
-    --- back, do not happen. On a `float` species this is `nupp.math.f32.fma`'s
-    --- contract, the binary64 fused operation on a `number` one, and a NaN
-    --- lane answers the canonical NaN either way. A floating species only; an
-    --- integer product has nothing to round.
+    --- `self * multiplier + addend` with one rounding per lane: the product is
+    --- exact and only the sum rounds, so the two-step form's second rounding,
+    --- and its overflow in a product the sum would have brought back, do not
+    --- happen. On a `float` species this is `nupp.math.f32.fma`'s contract, the
+    --- binary64 fused operation on a `number` one, and a NaN lane returns the
+    --- canonical NaN either way. A floating species only; an integer product
+    --- has nothing to round.
     fma: function(
         borrows self: simd.Vector<T, S>,
         multiplier: simd.Vector<T, S> | T,
         addend: simd.Vector<T, S> | T
     ): simd.Vector<T, S>
 
-    --- `self + other` and `self - other` clamped to the element's range
-    --- rather than wrapped: a byte that would reach 300 answers 255, and an
-    --- unsigned lane taken below zero answers zero. An integer species only.
+    --- `self + other` and `self - other` clamped to the element's range rather
+    --- than wrapped: a byte that would reach 300 returns 255, and an unsigned
+    --- lane taken below zero returns zero. An integer species only.
     saturatingAdd: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     saturatingSub: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    --- The number of one bits in each lane's two's complement representation
-    --- at the element's width, so `-1` on a signed byte answers 8. An integer
+    --- The number of one bits in each lane's two's complement representation at
+    --- the element's width, so `-1` on a signed byte returns 8. An integer
     --- species only.
     popcount: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 
     --- The high half of each lane's full-width product: the bits above the
-    --- element's width of `self * other` taken at twice that width, signed
-    --- or unsigned as the element is. `*` answers the low half, so the two
-    --- together are the whole product; alone, this is the fixed-point
-    --- multiply, `(a * b) >> bits`, that a scaled reciprocal turns a division
-    --- into. An integer species only.
+    --- element's width of `self * other` taken at twice that width, signed or
+    --- unsigned as the element is. `*` returns the low half, so the two
+    --- together are the whole product; alone, this is the fixed-point multiply,
+    --- `(a * b) >> bits`, that a scaled reciprocal turns a division into. An
+    --- integer species only.
     mulHigh: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- Lane indices are one-based and decided when the function is lowered:
@@ -2008,15 +2008,15 @@ sealed interface simd.Vector<T, S>
     --- Selects a species-width window from `previous .. self`. Offset zero
     --- returns `self`; positive offsets bring trailing lanes of `previous` into
     --- the beginning. The offset is decided when the function is lowered, on
-    --- the terms `extract`'s lane is, and one past the lanes answers
-    --- `previous` whole.
+    --- the terms `extract`'s lane is, and one past the lanes returns `previous`
+    --- whole.
     align: function(borrows self: simd.Vector<T, S>, previous: simd.Vector<T, S>, offset: integer): simd.Vector<T, S>
 
     --- Every lane read from another lane this vector names at run time.
     ---
-    --- Lane `i` answers `self:extract(indices:extract(i))`, and zero where that
+    --- Lane `i` returns `self:extract(indices:extract(i))`, and zero where that
     --- index is outside `1..lanes`. Zero rather than a refusal because the
-    --- native instructions answer zero for an out-of-range byte and a check per
+    --- native instructions return zero for an out-of-range byte and a check per
     --- lane would cost more than the lookup.
     ---
     --- This is the table lookup: a table is a vector, so there is no table type
@@ -2330,20 +2330,20 @@ end
 ----------------------------------------------------------------------------
 
 --[[
-Where a kernel runs as ordinary Lua -- under `aot = "off"`, in the retained
-body beside an emitted artifact, in a function that is not `@aot` -- the
-species `simd.species` answers is the one below, and the code generator
-routes every operator and method whose operand the checker typed as a vector
-or a mask through `simd.lane`. A preferred species is one lane wide, since
-there are no vector registers to be as wide as: its vector is a plain Lua
-number already wrapped to its element, its mask a plain boolean, and the same
-loop runs a lane at a time, which is how `v == needle` on a number and
-`m:any()` on a boolean mean what they mean in lanes. A fixed species is the N
-lanes it names, as it is on every native tier: its vector and its mask are
-the N-lane tables described at the top of this module, and `species:over`
-visits a span N lanes at a time under a real tail mask. The native lowering
-never sees any of this: a tier with vector registers takes them, and one
-without lowers a preferred species as one lane too.
+Where a kernel runs as ordinary Lua -- under `aot = "off"`, in the retained body
+beside an emitted artifact, in a function that is not `@aot` -- the species
+`simd.species` returns is the one below, and the code generator routes every
+operator and method whose operand the checker typed as a vector or a mask
+through `simd.lane`. A preferred species is one lane wide, since there are no
+vector registers to be as wide as: its vector is a plain Lua number already
+wrapped to its element, its mask a plain boolean, and the same loop runs a lane
+at a time, which is how `v == needle` on a number and `m:any()` on a boolean
+mean what they mean in lanes. A fixed species is the N lanes it names, as it is
+on every native tier: its vector and its mask are the N-lane tables described at
+the top of this module, and `species:over` visits a span N lanes at a time under
+a real tail mask. The native lowering never sees any of this: a tier with vector
+registers takes them, and one without lowers a preferred species as one lane
+too.
 ]]
 
 --- The element name each standard witness denotes.
@@ -2508,10 +2508,9 @@ local function extremum(a: any, b: any, minimum: boolean, propagating: boolean):
 end
 
 --- The lane operations, as the code generator calls them for a value the
---- checker typed as a vector or a mask: a binary operator, a unary one, and
---- a method. `element` is the element name, or "mask" for a mask. Each
---- answers an N-lane form lane by lane through the one-lane operation
---- beneath it.
+--- checker typed as a vector or a mask: a binary operator, a unary one, and a
+--- method. `element` is the element name, or "mask" for a mask. Each returns an
+--- N-lane form lane by lane through the one-lane operation beneath it.
 --- @export
 local lane = {}
 
@@ -2601,9 +2600,9 @@ const COMPARISONS: {
     [string]: boolean
 } = {["=="] = true, ["~="] = true, ["<"] = true, ["<="] = true, [">"] = true, [">="] = true,}
 
---- The element the value an operator answers carries: the N-lane operand's,
---- which for a mask operator is the element of the species the masks belong
---- to, and the operator's own element otherwise.
+--- The element the value an operator returns carries: the N-lane operand's,
+--- which for a mask operator is the element of the species the masks belong to,
+--- and the operator's own element otherwise.
 local function carriedElement(element: string, a: any, b: any): string
     if lanesOf(a) ~= nil then
         return elementOf(a)
@@ -3141,9 +3140,9 @@ local function reinterpretLane(element: string, value: any): any
     return wrap(element, value)
 end
 
---- The species object as ordinary Lua: one lane wide for a preferred
---- species, N wide for a fixed one. Every method visits `lanes` lanes and
---- answers through `make`, so the two forms share one body.
+--- The species object as ordinary Lua: one lane wide for a preferred species, N
+--- wide for a fixed one. Every method visits `lanes` lanes and returns through
+--- `make`, so the two forms share one body.
 local record LuaSpecies
     @readonly lanes: integer
     @readonly element: string
@@ -3554,10 +3553,9 @@ const simd.transpose = transpose
 --- Ordered operations follow logical lane order. Pairwise operations use the
 --- adjacent-pair tree. Algebraic operations permit reassociation; only
 --- `algebraicDot` additionally permits multiply-add contraction. Those three
---- orders are floating-point contracts, because addition rounds; the
---- wrapping, bitwise and integer extremum operations below are the integer
---- contracts, which answer the same under every association and so take one
---- name each.
+--- orders are floating-point contracts, because addition rounds; the wrapping,
+--- bitwise and integer extremum operations below are the integer contracts,
+--- which return the same under every association and so take one name each.
 --- @export
 local horizontal = {}
 
@@ -3764,18 +3762,18 @@ end
 --- The smallest lane, and the largest, under the contract the name selects.
 ---
 --- These take no order where the sums and products above take three: min and
---- max round nothing, so every association of them answers the same value and
+--- max round nothing, so every association of them returns the same value and
 --- three names would have named one answer. What they do take is the NaN
 --- contract, for the same reason `Vector.propagatingMin` and `Vector.numberMin`
 --- are separate names -- and each is the elementwise operation of that name,
 --- folded over the lanes.
 ---
---- `propagatingMin` answers the canonical NaN when any lane is NaN, so its
+--- `propagatingMin` returns the canonical NaN when any lane is NaN, so its
 --- answer does not depend on how many lanes the target chose. `numberMin`
---- answers the smallest lane that is not NaN, and the canonical NaN only when
---- every lane is. `-0` is the smaller zero under both.
---- As ordinary Lua a preferred-species vector is one lane, which is the
---- reduction; a fixed-species vector is folded.
+--- returns the smallest lane that is not NaN, and the canonical NaN only when
+--- every lane is. `-0` is the smaller zero under both. As ordinary Lua a
+--- preferred-species vector is one lane, which is the reduction; a
+--- fixed-species vector is folded.
 --- @export
 function horizontal.propagatingMin<T, S>(value: simd.Vector<T, S>): T
     if lanesOf(value) ~= nil then
@@ -3821,17 +3819,17 @@ end
 --- The one-based lane holding the matching reduction's answer.
 ---
 --- The lowest such lane when several tie, which is the logical-index tie rule
---- every lane-selecting operation here uses. `propagatingArgMin` answers the
+--- every lane-selecting operation here uses. `propagatingArgMin` returns the
 --- lowest NaN lane when any lane is NaN, because that is the lane whose element
---- is what `propagatingMin` answers; `numberArgMin` skips NaN lanes and answers
+--- is what `propagatingMin` returns; `numberArgMin` skips NaN lanes and returns
 --- the lowest only when every lane is NaN. Either way the identity
 --- `value:extract(horizontal.<name>ArgMin(value))` holds against the reduction
 --- of the same name.
 ---
 --- A lane index rather than a lane and its value, because an AOT expression
---- answers a value and `extract` already spells the pair.
---- As ordinary Lua a preferred-species vector is one lane, which is the
---- position; a fixed-species vector is searched.
+--- returns a value and `extract` already spells the pair. As ordinary Lua a
+--- preferred-species vector is one lane, which is the position; a fixed-species
+--- vector is searched.
 --- @export
 function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer
     if lanesOf(value) ~= nil then
@@ -3876,9 +3874,9 @@ end
 
 --- The lanes of an integer vector summed, wrapping in the lane's own width: a
 --- byte vector's sum wraps at a byte, as `simd.reducer.wrappingSum` wraps at
---- its element. Every association answers the same, so there is one name.
---- As ordinary Lua a preferred-species vector is one lane, which is the
---- reduction; a fixed-species vector is folded.
+--- its element. Every association returns the same, so there is one name. As
+--- ordinary Lua a preferred-species vector is one lane, which is the reduction;
+--- a fixed-species vector is folded.
 --- @export
 function horizontal.wrappingSum<T, S>(value: simd.Vector<T, S>): T
     if lanesOf(value) ~= nil then

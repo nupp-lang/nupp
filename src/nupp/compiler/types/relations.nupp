@@ -3,10 +3,10 @@ module nupp.compiler.types.relations
 --[[
 The subtyping relation over interned types.
 
-`isA(a, b)` answers whether a value of type `a` may be used where `b` is
+`isA(a, b)` returns whether a value of type `a` may be used where `b` is
 expected, as either true, or false plus a reason a person can read. Because
-structural types are interned, identity settles reflexivity, and results cache on
-identity pairs.
+structural types are interned, identity settles reflexivity, and results cache
+on identity pairs.
 
 The doctrine is structural for shape and nominal for provenance. It is gradual:
 `any` is compatible in both directions.
@@ -212,8 +212,8 @@ end
 
 relations.disjoint = disjoint
 
---- Answers already computed, keyed on the identity of both types. Weak keys, so an
---- interned type that goes away takes its answers with it.
+--- Results already computed, keyed on the identity of both types. Weak keys, so
+--- an interned type that goes away takes its results with it.
 local cache: {[Type]: {[Type]: boolean | string}} = setmetatable({}, {__mode = "k"})
 
 ----------------------------------------------------------------------------

@@ -40,7 +40,7 @@ function extensions.host(value: any): any
     return value
 end
 
---- Computes a typed extension once or answers the cached result.
+--- Computes a typed extension once or returns the cached result.
 ---
 --- Failures are cached too. Re-entering the same key while it is initializing is an
 --- error rather than unbounded recursion.

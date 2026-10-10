@@ -16,9 +16,9 @@ local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dir
 
 local urls = {}
 
---- A name to the page it is declared on, for every name a code block might mention.
---- Reading a name the index does not hold answers nil, which is how a highlighted token
---- decides whether it becomes a link.
+--- A name to the page it is declared on, for every name a code block might
+--- mention. Reading a name the index does not hold returns nil, which is how a
+--- highlighted token decides whether it becomes a link.
 type urls.Links = {[string]: string}
 
 --- What a link rewrite needs to know about a configured page: the file its markdown was
@@ -68,9 +68,9 @@ local function rewriteOutsideBackticks(markdown: string, rewrite: function(strin
     return table.concat(out)
 end
 
---- Where documentation lives, for a module and optionally a declaration on it. The
---- site answers with a page and a fragment; the single markdown document answers with a
---- fragment alone, because everything it documents is on the one page.
+--- Where documentation lives, for a module and optionally a declaration on it.
+--- The site returns a page and a fragment; the single markdown document returns
+--- a fragment alone, because everything it documents is on the one page.
 type urls.Target = function(string, string?): string
 
 local function defaultTarget(module: string, path: string?): string
@@ -113,11 +113,11 @@ local function symbolLinkIndex(modules: {Module}, target: urls.Target?, extra: u
     return links
 end
 
---- A markdown link whose target names something the documentation knows, a module, a
---- declaration or a member, is written as that name rather than as a path, and is
---- resolved here against whatever `resolve` answers. A target that reads as a URL or as
---- a path is left alone, and so is a name nothing answers to, so an ordinary link is
---- never captured by accident.
+--- A markdown link whose target names something the documentation knows, a
+--- module, a declaration or a member, is written as that name rather than as a
+--- path, and is resolved here against whatever `resolve` returns. A target that
+--- reads as a URL or as a path is left alone, and so is a name nothing answers
+--- to, so an ordinary link is never captured by accident.
 ---
 --- A fragment rides along: `[](nupp.mem.span#writable-spans)` resolves the name and
 --- keeps the anchor, which is how a page names a section of a module page written in

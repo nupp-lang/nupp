@@ -307,10 +307,10 @@ end
 
 --- The vector width, in bytes, an explicit SIMD program takes on this target.
 ---
---- This is the width of a native register the tier's flags cover: NEON is
---- 16 bytes even though two of its registers pair without an ABI question, so a
+--- This is the width of a native register the tier's flags cover: NEON is 16
+--- bytes even though two of its registers pair without an ABI question, so a
 --- `preferred` species there is one register wide. A 64-byte value only exists
---- under AVX-512F, so only that tier answers 64 and no wider block is ever
+--- under AVX-512F, so only that tier returns 64 and no wider block is ever
 --- instantiated for the others -- and no target whose frame cannot carry one
 --- answers wider than its ceiling, whatever its registers are.
 function target.simdWidth(selected: target.Target): integer

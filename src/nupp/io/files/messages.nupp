@@ -16,7 +16,8 @@ export record Info
     size: integer
 
     --- Its modification time in milliseconds since the Unix epoch, the unit
-    --- `nupp.time.wallTime` answers in, with whatever fraction the platform records.
+    --- `nupp.time.wallTime` returns in, with whatever fraction the platform
+    --- records.
     modified: number
 
     --- Whether the native platform refuses writes.

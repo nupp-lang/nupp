@@ -79,7 +79,7 @@ local TYPES = "The types the declarations above name in their signatures. They a
     .. "module of their own to be documented from."
 
 local REFLECTION = "What the compiler hands a program about a reified `struct`'s "
-    .. "memory. `layoutof` answers with a [](Layout); semantic descriptors instead "
+    .. "memory. `layoutof` returns a [](Layout); semantic descriptors instead "
     .. "live with the callable `nupp.reflect` namespace. Layout types sit apart from "
     .. "the types above because reading them is metaprogramming rather than calling "
     .. "a library."

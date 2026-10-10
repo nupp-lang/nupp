@@ -33,7 +33,7 @@ runs at a time.
 Neither is free. A sample session pays a timer interrupt, a stack walk and a
 table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. A session is a `nupp.Closeable`, so a `with` ends it where
-its block does: `stop` answers the report, and a session nothing stopped is
+its block does: `stop` returns the report, and a session nothing stopped is
 closed without one.
 
 See [profiling.md](docs/learn/performance/profiling.md) for reading a report, and
@@ -100,7 +100,7 @@ type profile.TraceOptions = {
 --- and does nothing after `stop`. The two are separate so a helper bounded by this
 --- one can still name `S.Report`.
 interface profile.Session
-    --- What `stop` answers, chosen by the session declaration rather than here.
+    --- What `stop` returns, chosen by the session declaration rather than here.
     associated type Report
 
     --- Stops recording without ending the session. Idempotent.
@@ -109,7 +109,8 @@ interface profile.Session
     --- Resumes recording. Idempotent.
     resume: function(self)
 
-    --- Ends the session and answers what it saw, optionally writing it to a file.
+    --- Ends the session and returns what it saw, optionally writing it to a
+    --- file.
     stop: function(self, filename: string?): self.Report
 end
 

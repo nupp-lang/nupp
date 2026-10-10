@@ -4,10 +4,10 @@ Declarations for LuaJIT's jit.util module, loaded for `require("jit.util")`.
 Call `require("jit.util")`; LuaJIT registers the module only under
 `package.loaded`, not as a field on `jit`.
 
-Everything here reads VM internals, meaning bytecode, IR, snapshots and machine code,
-whose shape tracks the LuaJIT build rather than any stable contract, and an index
-that does not exist answers nil rather than raising. Treat the results as
-diagnostic output to print, not as data to compute with.
+Everything here reads VM internals, meaning bytecode, IR, snapshots and machine
+code, whose shape tracks the LuaJIT build rather than any stable contract, and
+an index that does not exist returns nil rather than raising. Treat the results
+as diagnostic output to print, not as data to compute with.
 ]]
 
 local record JitUtil

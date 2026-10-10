@@ -104,7 +104,7 @@ reported.
 String comparisons use single- or double-quoted literals. Long strings and
 numeric literals with C or imaginary suffixes are outside the runtime subset.
 
-A refinement that always answers the same way is reported as well. Always
+A refinement that always returns the same boolean is reported as well. Always
 true identifies every value and always false leaves the type uninhabited, and
 neither is a test.
 
@@ -116,7 +116,7 @@ of the type yet, so `satisfies |self| -> self.a.b == "x"` compiles to
 
 Ordered comparisons verify that the field has the literal's runtime type, and
 length tests verify that their field is a string. A table whose field has the
-wrong runtime type makes `is` answer false instead of raising an error.
+wrong runtime type makes `is` return false instead of raising an error.
 
 ::: deepdive
 The grammar of a test is small because the checker reads it as well as running

@@ -502,6 +502,11 @@ The vocabulary is fixed so a reader meets one word per idea:
   written as `nupp check`, in code style, without the leading `./bin/`.
 - **The checker _reports_** a diagnostic. It does not throw, complain, warn
   about, or yell. Code _reports_ a diagnostic; a program does not "get" it.
+- **A function _returns_ a value.** Never use "answers" or "answer" as the
+  verb for returning a value, in API doc comments, module blurbs, reference
+  pages, or examples. Name the returned value and what the caller can do with
+  it: "Returns a function that when called cancels the scheduled callback."
+  Keep "answers" only for answering a question or responding to a request.
 - **Typed source _lowers to_** Lua or cdata. It does not compile to, generate,
   or emit anything; lowers to is the one verb, used consistently.
 - **Types are _erased_** when they leave no runtime trace. `@effects` is
@@ -592,6 +597,8 @@ Before a page lands:
   something the prose does not.
 - Tables are Markdown pipe tables; two-column key → value is a list.
 - No "we", no filler, no marketing adjective, no hedge that hides a condition.
+- Return values use "returns", never "answers", and their descriptions say
+  what the caller receives.
 - Prose wraps at 80 columns and untouched paragraphs are unreflowed.
 
 ## Known deviations

@@ -218,7 +218,7 @@ function runtime.lua(ctx: context.Context): context.Lua
 end
 
 --- Calls Lua API function `name` with `args` (each a typed operand), and
---- answers its result, or nil for none.
+--- returns its result, or nil for none.
 --- @raises string for a function not listed
 function runtime.api(ctx: context.Context, name: string, args: {string}): string?
     local signature = API[name]

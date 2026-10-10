@@ -54,7 +54,7 @@ end
 
 --- Classifies one argument, raising when it cannot cross.
 ---
---- Answers `"nil"`, `"boolean"`, `"number"` or `"string"` with the value
+--- Returns `"nil"`, `"boolean"`, `"number"` or `"string"` with the value
 --- itself, or `"bytes"` with the rooted pointer and its length.
 function values.classify(kind: string, position: integer, value: any): (string, any, integer?)
     local kindOf = type(value)

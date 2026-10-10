@@ -15,7 +15,7 @@ local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
--- Optional(string) runs while this line is checked and answers string?,
+-- Optional(string) runs while this line is checked and returns string?,
 -- so the annotation means exactly what `local value: string?` would mean.
 local value: Optional(string) = nil
 value = "ready"
@@ -82,11 +82,11 @@ The builder reads its descriptor array without changing it. Descriptor members i
 the API are therefore read-only, and an annotated descriptor shape may omit an
 optional member such as `write` instead of writing `write: type?` at every use.
 
-`nupp.types.nonExhaustive()` takes no arguments and answers the one type no
-name resolves to: the member that keeps a union open. It is written in a type
+`nupp.types.nonExhaustive()` takes no arguments and returns the one type no name
+resolves to: the member that keeps a union open. It is written in a type
 directly as well as inside a generator, since a union is where it means
-anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what
-it does to a switch over that union.
+anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what it
+does to a switch over that union.
 
 ```nupp
 @comptime
@@ -110,7 +110,7 @@ message at the application with a bounded comptime call trace.
 `nupp.types.sameNominal(A, B)` asks whether two types are applications of the
 same nominal declaration without exposing that declaration's identity. Generic
 arguments do not have to match, aliases and ownership wrappers are transparent,
-and two structural types or different declarations answer false:
+and two structural types or different declarations return false:
 
 ```nupp
 local record Cell<T>
@@ -363,8 +363,8 @@ appears, with the reason the capture reader found.
 
 ## Calendar fields from `os.date`
 
-`os.date` answers a string for every format but `"*t"`, which answers a table
-of calendar fields instead. A literal format decides which, so the call has a
+`os.date` returns a string for every format but `"*t"`, which returns a table of
+calendar fields instead. A literal format decides which, so the call has a
 result type rather than `any`:
 
 ```nupp
@@ -374,8 +374,8 @@ print(fields.year, fields.isdst)
 ```
 
 A leading `!` selects UTC and does not change the result, so `"!*t"` is
-`DateFields` too. Omitting the format formats with `"%c"` and answers a string.
-A format the compiler cannot read answers `DateFields | string`, which narrows
+`DateFields` too. Omitting the format formats with `"%c"` and returns a string.
+A format the compiler cannot read returns `DateFields | string`, which narrows
 like any other union.
 
 Two literal formats are rejected rather than typed, both with `NUPP2006`. One

@@ -31,10 +31,10 @@ const provider: contracts.Provider = require("nupp.runtime.timeprovider").provid
     yield _G.require("nupp.runtime.browser.time") as contracts.Provider
 end
 
---- Answers monotonic milliseconds, the domain durations and deadlines use.
+--- Returns monotonic milliseconds, the domain durations and deadlines use.
 export const now: function(): number = provider.now
 
---- Answers milliseconds since the Unix epoch.
+--- Returns milliseconds since the Unix epoch.
 export const wallTime: function(): number = provider.wallTime
 
 --- Waits for a finite, non-negative interval through the suspension context.
@@ -51,7 +51,8 @@ export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
 
 --- Schedules a callback for a non-negative deadline in the [](now) domain.
 ---
---- Answers the function that cancels it. Registration itself does not suspend.
+--- Returns a function that when called cancels the scheduled callback.
+--- Registration itself does not suspend.
 ---
 --- @raises string when the deadline is invalid or cannot be scheduled
 export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeAt

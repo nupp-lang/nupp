@@ -67,7 +67,7 @@ end
 --- Hands out an instance stamped with the pool's declaration and carrying no
 --- fields.
 ---
---- The free list is consulted first, so within capacity a warmed pool answers
+--- The free list is consulted first, so within capacity a warmed pool returns
 --- without allocating. Past it, a fresh table is stamped.
 ---
 --- @param self the pool

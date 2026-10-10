@@ -322,9 +322,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return missing("name")
     end
 
-    --- Closes a generic list, taking half of a `>>` when two of them close at once.
-    --- The other half becomes a zero-width `>` the cursor answers next, marked
-    --- missing so that it prints as nothing wherever the tree is reprinted.
+    --- Closes a generic list, taking half of a `>>` when two of them close at
+    --- once. The other half becomes a zero-width `>` the cursor returns next,
+    --- marked missing so that it prints as nothing wherever the tree is
+    --- reprinted.
     local function expectGenericClose(what: string?): Token
         if cur().kind == ">>" then
             local tok = advance()

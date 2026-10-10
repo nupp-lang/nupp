@@ -49,10 +49,10 @@ type hostreload.Session = {
     --- `prepare` and `apply` at a point, for a host with nothing to gain by
     --- separating them.
     ---
-    --- Each answers three values rather than a record, because the caller reads
-    --- them across the C boundary, where a returned table is another rooted value
-    --- to take apart and release. The message is already formatted: a host has no
-    --- way to render the compiler's own diagnostic records.
+    --- Each returns three values rather than a record, because the caller reads
+    --- them across the C boundary, where a returned table is another rooted
+    --- value to take apart and release. The message is already formatted: a
+    --- host has no way to render the compiler's own diagnostic records.
     poll: function(): (hostreload.Verdict, integer, string?),
 
     --- Retires the loader and the compiler session. `ok` says whether the program

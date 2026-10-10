@@ -86,7 +86,7 @@ if (verdict == NUPP_RELOAD_PREPARED) {
 }
 ```
 
-Everything below holds there too: a callable the host retained answers the new
+Everything below holds there too: a callable the host retained returns the new
 body after a commit, application state stays where it is, and the same edits
 report a restart. See [embedding.md](embedding.md#hot-reload) for the whole
 surface and [build.md](build.md#reload-components) for the component it attaches

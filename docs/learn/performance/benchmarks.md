@@ -373,7 +373,7 @@ labeled `observational`; interleaved executable comparisons remain
 
 ### Comparison verdicts
 
-`--margin` is required and has no default, because three of the four answers are
+`--margin` is required and has no default, because three of the four results are
 undefined without one.
 
 | Verdict | Means |

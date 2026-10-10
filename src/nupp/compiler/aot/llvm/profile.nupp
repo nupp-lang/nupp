@@ -141,7 +141,7 @@ local PROFILES: {[string]: profile.Profile} = {
 --- processor with AVX2 has both. Without it `llvm.fma` on an eight-lane float
 --- became eight calls to `fmaf` with the vector spilled around each one, in the
 --- tier whose point is doing that in one instruction. AVX-512F implies FMA in
---- LLVM already. The detector asks for FMA before it answers either tier.
+--- LLVM already. The detector asks for FMA before it returns either tier.
 const TIER_FEATURES: {
     [string]: string
 } = {

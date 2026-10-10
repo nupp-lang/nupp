@@ -53,7 +53,7 @@ type loopclosure.Ops = {
     --- Sets whether a `return`'s values are being checked, answering what it was.
     setReturning: function(value: boolean): boolean,
 
-    --- Starts judging a function body written inside a loop, or answers nil.
+    --- Starts judging a function body written inside a loop, or returns nil.
     begin: function(enclosing: integer): any,
 
     --- Ends that judgment, reporting when nothing the body read came from the
@@ -140,9 +140,9 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
         return was
     end
 
-    --- Starts judging a function body written inside a loop. Answers nil when there is
-    --- no such loop, or when the function is built once whatever the loop does, which
-    --- is the common case and costs one comparison.
+    --- Starts judging a function body written inside a loop. Returns nil when
+    --- there is no such loop, or when the function is built once whatever the
+    --- loop does, which is the common case and costs one comparison.
     ---
     --- Call once the body's scope is pushed and its parameters are bound, so that a
     --- reference to a parameter resolves inside the watch rather than through it.

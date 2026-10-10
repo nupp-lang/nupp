@@ -93,7 +93,7 @@ slower. The module shows as `?`, and the arguments are evaluated:
 `level` reads the threshold and `setLevel` moves it:
 
 ```nupp
-nupp.log.setLevel("debug") -- answers the previous one
+nupp.log.setLevel("debug") -- returns the previous one
 nupp.log.level() -- "debug"
 ```
 
@@ -115,7 +115,7 @@ end
 A level that is not one of the five is a compile error where it is a literal and
 an ordinary raise where it is not.
 
-`nupp.log.enabled(level)` answers whether a level would emit. Use it to guard
+`nupp.log.enabled(level)` returns whether a level would emit. Use it to guard
 preparation spanning more than one call, which no single lowered site can elide:
 
 ```nupp:fragment
@@ -170,7 +170,7 @@ where it goes:
 nupp.log.setSink(assert(io.open("game.log", "a")))
 ```
 
-`io.open` answers `LuaFile?`, and `setSink` takes a target rather than a maybe,
+`io.open` returns `LuaFile?`, and `setSink` takes a target rather than a maybe,
 so the `assert` is what turns one into the other. The target is taken: the log
 owns it from then on, and `sink()` reads which one is in force.
 
@@ -183,18 +183,18 @@ nupp.log.setFormatter(function(level: integer, module: string, line: integer, me
 end)
 ```
 
-Both setters answer the value they replaced, so a host can restore what it
+Both setters return the value they replaced, so a host can restore what it
 found, and `setFormatter(nil)` returns to the built-in rendering.
 
 ## Timestamps
 
-`nupp.log.timestamp()` answers the current time formatted, recomputed at most
+`nupp.log.timestamp()` returns the current time formatted, recomputed at most
 once per wall-clock second and shared by every logger. It is a pull rather than
 something pushed to sinks, so a host that stamps its own lines never pays for
 one.
 
 ```nupp
-nupp.log.setTimestampFormat("%H:%M:%S ") -- answers the previous format
+nupp.log.setTimestampFormat("%H:%M:%S ") -- returns the previous format
 nupp.log.setTimestampFormat("") -- off
 nupp.log.timestampFormat() -- ""
 ```
@@ -204,12 +204,12 @@ nupp.log.timestampFormat() -- ""
 read through the FFI instead. `os.time` is still called once at startup to
 validate the symbol, because some Windows CRTs inline `time` to `_time64` or
 give it a 32-bit `time_t`, and a symbol that resolves but is the wrong width
-answers nonsense rather than failing to resolve.
+returns nonsense rather than failing to resolve.
 :::
 
 ## Named loggers
 
-`named` answers a logger carrying a fixed name, with a method per severity:
+`named` returns a logger carrying a fixed name, with a method per severity:
 
 ```nupp:fragment
 local physics = nupp.log.named("physics")
@@ -217,8 +217,8 @@ physics:warn("step %d took %.2fms", step, elapsed)
 ```
 
 Use one for a subsystem that does not correspond to a module, and for a call
-site the intrinsic cannot reach. Repeating a name answers the same logger.
-Their methods are replaced when the level or target changes, so a filtered call
+site the intrinsic cannot reach. Repeating a name returns the same logger. Their
+methods are replaced when the level or target changes, so a filtered call
 reaches an empty function rather than a test, but the arguments are still
 evaluated, which is the cost of a name chosen at run time.
 
@@ -565,7 +565,7 @@ local function restamp(): nil
     end
 end
 
---- A logger with a fixed name. Repeating a name answers the same logger.
+--- A logger with a fixed name. Repeating a name returns the same logger.
 ---
 --- Reach for one where the intrinsic cannot rewrite the call: a format built at run
 --- time, a call in expression position, a subsystem that wants its own name on every

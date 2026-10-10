@@ -90,7 +90,8 @@ record query.Q
     --- How many times each query actually computed, for tests and tooling.
     stats: {[string]: integer}
 
-    --- Memo answers and equal-result early cutoffs, kept separately from executions.
+    --- Memo results and equal-result early cutoffs, kept separately from
+    --- executions.
     hits: {[string]: integer}
 
     cutoffs: {[string]: integer}
@@ -156,10 +157,10 @@ end
 
 --- The value of a query, computing it only if it has to.
 ---
---- Three cheaper answers come first: an input is returned outright, a memo verified at
---- the current revision is current by definition, and a memo whose dependencies have
---- all held still is revalidated without running anything. Only then does the
---- definition run.
+--- Three cheaper results come first: an input is returned outright, a memo
+--- verified at the current revision is current by definition, and a memo whose
+--- dependencies have all held still is revalidated without running anything.
+--- Only then does the definition run.
 ---
 --- @param name which query
 --- @param key what to compute it for

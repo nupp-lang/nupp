@@ -1004,11 +1004,11 @@ export function newQueueReader(source: ByteQueue): Reader
     return new QueueReader(_source = source, _closed = false)
 end
 
---- Reads a reader to its end and answers everything it held as a string.
+--- Reads a reader to its end and returns everything it held as a string.
 ---
 --- The reader is taken, and closed on every way out. A limit is checked as the
---- bytes arrive, so a source larger than it answers a reason having read at most
---- one window past the limit rather than holding the whole of it.
+--- bytes arrive, so a source larger than it returns a reason having read at
+--- most one window past the limit rather than holding the whole of it.
 --- @param reader the reader to drain
 --- @param maxBytes the most bytes to accept, or no limit
 --- @return the bytes, or nil when the reader failed or held more than the limit

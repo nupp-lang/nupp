@@ -10,7 +10,7 @@ is worth knowing about a particular compiler -- which interpreter it runs on --
 is under `--json`, where a reader is a program that asked for a shape.
 
 The number itself is `nupp.tools.version`, which is a string and nothing else,
-so this answers without loading the compiler it is the version of.
+so this returns without loading the compiler it is the version of.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("version")

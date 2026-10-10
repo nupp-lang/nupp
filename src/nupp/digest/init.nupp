@@ -24,8 +24,8 @@ body without holding it.
 
 Finalizing consumes the context, so a digest is taken once and the binding is
 spent afterward. Create another context to digest another message. `digest()`
-answers raw bytes, `digest(destination)` writes them into a writable byte span
-you already have, and `hexDigest()` answers lowercase hexadecimal. Dropping a
+returns raw bytes, `digest(destination)` writes them into a writable byte span
+you already have, and `hexDigest()` returns lowercase hexadecimal. Dropping a
 context that was never finalized closes its provider state.
 
 MD5 and SHA-1 are here for talking to things that already use them, and for

@@ -47,7 +47,7 @@ type tasks.Task = {
     [string]: any
 }
 
---- What `describe` answers with.
+--- What `describe` returns.
 ---
 --- Asking by name gets that one task; asking for none gets every task under `tasks`,
 --- with `default` naming which would run. Both arrive through one return, and the

@@ -8,8 +8,8 @@ semantic tokens, formatting, and code actions. Everything flows through the
 incremental query engine: an open document is a text overlay on the file, and a
 dependent module rechecks only when an interface really changed.
 
-This module is the session, the handlers, and the loop. What each handler answers
-with is next door.
+This module is the session, the handlers, and the loop. What each handler
+returns with is next door.
 ]]
 
 local incremental = require("nupp.compiler.project.incremental")
@@ -464,9 +464,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         return entry
     end
 
-    --- Points the session at the graph that owns a path, and answers whose it is. Every
-    --- handler below reads `s.inc`, so this is the whole of routing a request to a
-    --- folder.
+    --- Points the session at the graph that owns a path, and returns whose it
+    --- is. Every handler below reads `s.inc`, so this is the whole of routing a
+    --- request to a folder.
     function s.useRoot(path: string?): string
         local entry = path and rootFor(path) or s.roots[1]
         s.inc = graphFor(entry)

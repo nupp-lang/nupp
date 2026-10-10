@@ -5,12 +5,12 @@ module nupp.io.uri.whatwg
 The WHATWG URL Standard's basic URL parser, for hosts without a URL parser of
 their own.
 
-Every provider behind [](nupp.io.uri) answers what the URL Standard answers,
-because that is what both transports send: the native HTTP client is built on
-the `url` crate and the browser on Fetch. This module is the reading used where
-neither a native library nor a host `URL` is available, and the one the public
-`resolve` uses on every host to find the text a reference names before the
-provider normalizes it.
+Every provider behind [](nupp.io.uri) returns the result the URL Standard
+defines, because that is what both transports send: the native HTTP client is
+built on the `url` crate and the browser on Fetch. This module is the reading
+used where neither a native library nor a host `URL` is available, and the one
+the public `resolve` uses on every host to find the text a reference names
+before the provider normalizes it.
 
 It follows the standard's state machine byte by byte. Bytes above 127 are only
 ever percent-encoded, which is UTF-8 percent-encoding for the valid UTF-8 the

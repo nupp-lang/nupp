@@ -2871,8 +2871,8 @@ local OWNERSHIP_INTRINSICS: {
     drop = true,
 }
 
---- The ownership intrinsic a callee is written as, before anything asks what the names
---- in it resolve to. Answers nil for a callee of any other shape.
+--- The ownership intrinsic a callee is written as, before anything asks what
+--- the names in it resolve to. Returns nil for a callee of any other shape.
 ---
 --- Whether a name is the intrinsic is the caller's question, and the two callers ask
 --- it differently. The checker holds scopes and can see a local shadowing the name;

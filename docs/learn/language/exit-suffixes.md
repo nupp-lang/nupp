@@ -13,7 +13,7 @@ local text = files.read(path) or return
 ```
 
 They shorten the convention most of this language already follows: a call
-answers a value first and an optional reason after it, and a caller that cannot
+returns a value first and an optional reason after it, and a caller that cannot
 handle the failure passes it on. The line above means exactly this:
 
 ```nupp:fragment
@@ -46,7 +46,7 @@ No slot after the first may carry an owner, because the successful path
 discards every one of them.
 
 A safe call is admitted. The alternative safe navigation adds is the single nil
-an absent receiver answers with, so that arm takes the exit like any other falsy
+an absent receiver returns, so that arm takes the exit like any other falsy
 first result — which means `obj?.read() or return` cannot tell an absent
 receiver from a failed read. An explicit `if` over a safe call conflates them
 the same way.
@@ -75,7 +75,7 @@ function loadCount(store: Store): (integer?, Store.Problem?)
 end
 ```
 
-`store:fetch` answers `(Entry?, Store.Problem?)`, so the forwarded pack is
+`store:fetch` returns `(Entry?, Store.Problem?)`, so the forwarded pack is
 `(nil, Store.Problem?)`, which fits the declared results even though the
 successful types differ. The policy never reads the reason's type: a string, a
 record, a union, an integer code and `unknown` all behave the same here.
@@ -89,7 +89,7 @@ reporting `NUPP2002` when it does not fit.
 
 `pcall` and `xpcall` have the layout backwards: the boolean comes first and the
 protected function's results follow it. A direct call to either is refused as an
-operand, naming the pair that answers the conventional order instead:
+operand, naming the pair that returns the conventional order instead:
 
 ```nupp:fragment
 const util = require("nupp.util")

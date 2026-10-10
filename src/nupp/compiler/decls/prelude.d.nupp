@@ -114,13 +114,14 @@ local nupp: {
     ---
     --- ## Scalar operations
     ---
-    --- `lerp(from, to, t)` interpolates linearly without clamping `t`, so factors
-    --- outside `[0, 1]` extrapolate. It answers `from` exactly at zero and `to` exactly
-    --- at one, because the endpoints are answered rather than computed.
+    --- `lerp(from, to, t)` interpolates linearly without clamping `t`, so
+    --- factors outside `[0, 1]` extrapolate. It returns `from` exactly at zero
+    --- and `to` exactly at one, because the endpoints are answered rather than
+    --- computed.
     ---
-    --- `wrapAngle(radians)` answers the equivalent angle in `[-π, π)`, and
-    --- `deltaAngle(from, to)` answers the shortest signed rotation from one angle to
-    --- another.
+    --- `wrapAngle(radians)` returns the equivalent angle in `[-π, π)`, and
+    --- `deltaAngle(from, to)` returns the shortest signed rotation from one
+    --- angle to another.
     ---
     --- ## Fixed-width arithmetic
     ---
@@ -218,10 +219,11 @@ local nupp: {
     --- | `angleBetween`, `signedAngleBetween` | (ax, ay, bx, by) -> radians |
     --- | `project`, `reflect` | (x, y, axisX, axisY) -> x, y |
     ---
-    --- A zero vector has no direction, so the operations that would need one answer
-    --- something defined rather than a NaN: `normalize(0, 0)` and projection onto the
-    --- zero vector answer `(0, 0)`, an angle involving a zero vector is zero, and
-    --- reflection across a zero normal answers the original vector.
+    --- A zero vector has no direction, so the operations that would need one
+    --- answer something defined rather than a NaN: `normalize(0, 0)` and
+    --- projection onto the zero vector answer `(0, 0)`, an angle involving a
+    --- zero vector is zero, and reflection across a zero normal returns the
+    --- original vector.
     ---
     --- `moveTowards` snaps exactly to the destination when the remaining distance is
     --- within the requested step, and a nonpositive step leaves the start unchanged.
@@ -456,7 +458,8 @@ local nupp: {
         --- An indexer whose write side mirrors its read side unless stated otherwise.
         ---
         --- Equivalent to `indexer(readKey, readValue, writeKey or readKey,
-        --- writeValue or readValue)`, and it answers a handle of kind `"indexer"`.
+        --- writeValue or readValue)`, and it returns a handle of kind
+        --- `"indexer"`.
         --- @param readKey the key type reads accept
         --- @param readValue the value type reads answer
         --- @param writeKey the key type writes accept, defaulting to `readKey`
@@ -528,11 +531,11 @@ local nupp: {
 
         --- What a handle is, as a string, which is the usual way to branch on one.
         ---
-        --- The answer is the handle's own kind, not the builder that made it: `map`
-        --- answers `"indexer"`, `optional` answers `"union"`, `pointer` answers
-        --- `"ptr"`, and `constof` answers `"const"`. A nominal declaration answers
-        --- `"reference"`, and `describe(T).declarationKind` says which category it
-        --- declares.
+        --- The answer is the handle's own kind, not the builder that made it:
+        --- `map` returns `"indexer"`, `optional` returns `"union"`, `pointer`
+        --- returns `"ptr"`, and `constof` returns `"const"`. A nominal
+        --- declaration returns `"reference"`, and `describe(T).declarationKind`
+        --- says which category it declares.
         --- @param value the type or type pack to inspect
         --- @return the kind, such as `"literal"`, `"array"`, `"shape"`, or `"pack"`
         @readonly kind: @comptime function(value: type | typepack): string,
@@ -657,9 +660,10 @@ local nupp: {
 
         --- Rejects this type application deliberately, with an authored message.
         ---
-        --- Distinct from an evaluator crash or a timeout: the message is reported at
-        --- the application, with a bounded comptime call trace. It answers `never`, so
-        --- a generator may call it in a branch that has no type to return.
+        --- Distinct from an evaluator crash or a timeout: the message is
+        --- reported at the application, with a bounded comptime call trace. It
+        --- returns `never`, so a generator may call it in a branch that has no
+        --- type to return.
         --- @param message what to report at the application
         --- @return nothing; the call does not come back
         @readonly error: @comptime function(message: string): never
@@ -1324,11 +1328,11 @@ end
 --- and does not carry the textual grammar parser unless some runtime call also
 --- needs it.
 ---
---- A normal call with literal grammar text gets the same inferred `Peg<R...>`. It
---- still compiles at run time, though parsed plans are cached by grammar source and
---- backend, so compiling the same grammar again avoids parsing, lowering and
---- code generation. A genuinely dynamic `string` answers `Peg<...any>`, because its
---- capture shape is not yet known:
+--- A normal call with literal grammar text gets the same inferred `Peg<R...>`.
+--- It still compiles at run time, though parsed plans are cached by grammar
+--- source and backend, so compiling the same grammar again avoids parsing,
+--- lowering and code generation. A genuinely dynamic `string` returns
+--- `Peg<...any>`, because its capture shape is not yet known:
 ---
 --- ```nupp
 --- local function loadMatcher(configuration: string): nupp.peg.Peg<...any>
@@ -1376,8 +1380,8 @@ end
 --- assert(Word("one two", 5) == "two")
 --- ```
 ---
---- A recognizer, meaning a grammar with no captures, answers the byte position
---- immediately after its match rather than a boolean. Failure answers nil:
+--- A recognizer, meaning a grammar with no captures, returns the byte position
+--- immediately after its match rather than a boolean. Failure returns nil:
 ---
 --- ```nupp
 --- local Prefix = nupp.peg.compile("'get'")
@@ -1387,9 +1391,9 @@ end
 ---
 --- ### Searching with `find`
 ---
---- Use `find` when the grammar may begin after the starting position. It answers
---- the first byte, the exclusive next byte, and every grammar result, without
---- constructing a match record:
+--- Use `find` when the grammar may begin after the starting position. It
+--- returns the first byte, the exclusive next byte, and every grammar result,
+--- without constructing a match record:
 ---
 --- ```nupp
 --- local Word = nupp.peg.compile("{ [a-z]+ }")
@@ -1406,7 +1410,7 @@ end
 --- ### Testing with `isMatch`
 ---
 --- Use `isMatch` when only existence matters. It performs the same search and
---- answers only a boolean:
+--- returns only a boolean:
 ---
 --- ```nupp
 --- local Digits = nupp.peg.compile("[0-9]+")
@@ -1421,9 +1425,9 @@ end
 ---
 --- ## Repeated matching
 ---
---- `forEachMatch` visits non-overlapping matches without constructing match records
---- or an iterator closure. Its callback receives `first, nextPosition, R...`, the
---- same values as `find`, and the call answers the number of visits:
+--- `forEachMatch` visits non-overlapping matches without constructing match
+--- records or an iterator closure. Its callback receives `first, nextPosition,
+--- R...`, the same values as `find`, and the call returns the number of visits:
 ---
 --- ```nupp
 --- local Word = nupp.peg.compile("{ [a-z]+ }")
@@ -1482,9 +1486,9 @@ end
 --- The notation is LPeg 1.1 `re`, operator for operator: the same forms parse the
 --- same way and capture the same things, and the test suite runs the official `re`
 --- module as a differential oracle. Read its reference for the syntax itself:
---- <https://www.inf.puc-rio.br/~roberto/lpeg/re.html>. `require("lpeg")` answers
---- native LPeg 1.1 and `require("re")` answers the bundled official frontend over
---- it, so a grammar written for either works here unchanged.
+--- <https://www.inf.puc-rio.br/~roberto/lpeg/re.html>. `require("lpeg")` returns
+--- native LPeg 1.1 and `require("re")` returns the bundled official frontend
+--- over it, so a grammar written for either works here unchanged.
 ---
 --- What follows is only what Nupp adds to that notation or holds it to.
 ---
@@ -1594,12 +1598,15 @@ end
 --- re-enter LPeg for every match; a typed replacement callback keeps the general
 --- search loop.
 ---
---- The expression syntax is LPeg 1.1 `re` syntax: the same operators have the same
---- parsing and capture meanings, and the test suite runs the official `re` module
---- as a differential oracle. Direct `require("lpeg")` answers the native LPeg 1.1
---- module, and `require("re")` answers the bundled official Lua frontend over it.
---- Nupp's declaration and operator checking track capture packs through ordinary
---- LPeg composition, but the runtime object stays LPeg's pattern userdata.
+--- The expression syntax is LPeg 1.1 `re` syntax: the same operators have the
+--- same parsing and capture meanings, and the test suite runs the official `re`
+--- module as a differential oracle. Direct `require("lpeg")` returns the native
+--- LPeg
+--- 1.1
+--- module, and `require("re")` returns the bundled official Lua frontend over
+--- it. Nupp's declaration and operator checking track capture packs through
+--- ordinary LPeg composition, but the runtime object stays LPeg's pattern
+--- userdata.
 ---
 --- ::: deepdive Nupp owns the static representation
 --- LPeg pattern userdata exposes no public traversable AST, so a compiler holding
@@ -2164,9 +2171,9 @@ record nupp.reflect
 
     --- Creates an identity for a lazily derived metadata value.
     ---
-    --- A descriptor, schema, or binding builds a key's value once, then answers the
-    --- same value from its private cache. Key identities and their slot numbers are
-    --- process-local and must not be persisted.
+    --- A descriptor, schema, or binding builds a key's value once, then returns
+    --- the same value from its private cache. Key identities and their slot
+    --- numbers are process-local and must not be persisted.
     extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T>
 
     --- Reads the semantic description carried by a first-class type witness.

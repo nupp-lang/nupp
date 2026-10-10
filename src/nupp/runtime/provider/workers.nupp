@@ -1729,10 +1729,10 @@ end
 
 --- Settles a task for a task scope's `fork`, answering rather than raising.
 ---
---- The task scope owns the failure rule -- level, prefix, and what cancels what -- so
---- this answers the settled state and lets the caller raise in its own terms. The
---- values come back packed with their exact count, because a result pack with `nil`
---- in it is a pack and not a shorter one.
+--- The task scope owns the failure rule -- level, prefix, and what cancels what
+--- -- so this returns the settled state and lets the caller raise in its own
+--- terms. The values come back packed with their exact count, because a result
+--- pack with `nil` in it is a pack and not a shorter one.
 ---
 --- @return the status, the packed values, their count, and the problem or cancellation
 local function settleForScope(task: any): (string, {any}?, integer, any)

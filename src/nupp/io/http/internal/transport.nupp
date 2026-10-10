@@ -245,7 +245,7 @@ local function dispatchOne(self: any, field: string): integer
     return 1
 end
 
---- Adds a waiter and answers the function that takes it back off.
+--- Adds a waiter and returns a function that when called removes the waiter.
 ---
 --- The forget is idempotent, because a waiter that has already been woken will still
 --- have its scope leave and call this.
@@ -289,7 +289,7 @@ local record Transfer is NativeTransfer
     _bodyWaiters: {function()}?
     _uploadWaiters: {function()}?
 
-    --- Wakes whatever this event moved, and answers how many waiters that was.
+    --- Wakes whatever this event moved, and returns how many waiters that was.
     --- @raises any whatever a woken waiter raised first, after every ready channel
     ---     is drained
     function _ready(self: Transfer, tokens: integer): integer

@@ -26,8 +26,8 @@ type's name rather than by a module of its own. [](Bitset) is a set of bit
 positions, [](Store) is a bag of values indexed by typed [](Key)s, and [](Pool)
 leases cleared record instances from a free list. [](uuid4) and [](uuid7)
 generate identifiers, and [](fnv1a64) hashes bytes. [](try) and [](tryWith) run
-a function protected and answer `(result, reason)`, which is the layout the
-`or return` suffix reads and `pcall`'s own is not.
+a function protected and return `(result, reason), which is the layout the `or
+return` suffix reads and `pcall`'s own is not.
 
 Unlike [](nupp.mem), which keeps every member a module of its own, these are
 re-exported here. Checked source still selects members independently, so using a

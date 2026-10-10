@@ -78,7 +78,7 @@ function nativeonly.fieldMakesNativeOnly(t: any?): boolean
     return vectorOrMask(t) and not nativeonly.storageVector(t)
 end
 
---- Whether a checked function signature takes or answers a vector or a mask.
+--- Whether a checked function signature takes or returns a vector or a mask.
 function nativeonly.signatureIsNativeOnly(signature: any?): boolean
     if signature == nil or signature.tag ~= "func" then
         return false

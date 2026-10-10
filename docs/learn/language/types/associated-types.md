@@ -192,7 +192,7 @@ arguments.
 
 A projection whose head is a contract stays opaque, and that is a normal form
 rather than a failure. It fits its effective bound, and reads that bound's
-members specialized to the projection, so a `self`-returning member answers
+members specialized to the projection, so a `self`-returning member returns
 `T.Item`:
 
 ```nupp

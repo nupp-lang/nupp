@@ -1,7 +1,7 @@
 module nupp.io.uri
 
 --[[
-`nupp.io.uri` parses one absolute URI into an immutable value and answers its
+`nupp.io.uri` parses one absolute URI into an immutable value and returns its
 components from the parse rather than from a substring. Reach for it when a
 program routes, rewrites or inspects a resource identifier.
 
@@ -21,7 +21,7 @@ another case does not make one URI unequal to an otherwise identical one. Nothin
 ## One specification
 
 Every provider parses as the [WHATWG URL Standard](https://url.spec.whatwg.org/)
-does, which is what browsers and both HTTP transports do. What `path()` answers
+does, which is what browsers and both HTTP transports do. What `path()` returns
 is therefore the path the request sends: `%2e%2e` is a dot segment and is
 resolved, a special scheme's host is lowercased and an IPv4 address written as
 `0x7f.1` is `127.0.0.1`, an empty password is dropped, and spaces, controls and
@@ -37,7 +37,7 @@ assert(assert(uri.newURI("http://0x7f.1/")):host() == "127.0.0.1")
 
 A special-scheme host that is not plain ASCII needs the standard's IDNA mapping.
 The native provider and a browser page's own `URL` carry it. A target with
-neither, such as a hostless portable one, parses without it and answers nil and
+neither, such as a hostless portable one, parses without it and returns nil and
 "internationalized host needs a host URL parser" for such a host, including one
 already written with an `xn--` label, rather than guessing.
 
@@ -48,10 +48,9 @@ bounded.
 
 ## Reading components
 
-`scheme` and `path` answer a string, and `path` is empty rather than nil when
-the URI names none. `username` is empty when there is no user information.
-Every other component is optional and answers nil when the URI does not write
-it:
+`scheme` and `path` return a string, and `path` is empty rather than nil when
+the URI names none. `username` is empty when there is no user information. Every
+other component is optional and returns nil when the URI does not write it:
 
 ```nupp
 const uri = nupp.io.uri
@@ -63,13 +62,13 @@ assert(plain:path() == "someone@example.com")
 ```
 
 The remaining accessors are `authority`, `password`, `userInfo`, `query` and
-`fragment`. `toString` answers the normalized complete URI, and `tostring(uri)`
+`fragment`. `toString` returns the normalized complete URI, and `tostring(uri)`
 is the same call.
 
 ## Validating untrusted text
 
-`uri.newURI` answers nil and a reason for malformed input, because bad text is an
-ordinary answer. `uri.validate` asks the same question without retaining an
+`uri.newURI` returns nil and a reason for malformed input, because bad text is
+an ordinary answer. `uri.validate` asks the same question without retaining an
 object, and `uri.isURI` separates a URI from a string or a record:
 
 ```nupp
@@ -80,20 +79,20 @@ assert(not ok and why)
 assert(not uri.isURI("https://example.com"))
 ```
 
-::: deepdive Parsing answers a reason, modification raises
+::: deepdive Parsing returns a reason, modification raises
 A parse takes text from somewhere else, so failure is data and the caller is
 handed it. A `with` operation starts from a URI that already parsed, so a
 failure means the caller asked for something the grammar cannot express, which
 is a mistake at the call site rather than a bad input. Text that came from
 outside the program therefore goes through `uri.newURI`, `uri.validate` or
-`resolve`, all of which answer a reason.
+`resolve`, all of which return a reason.
 :::
 
 ## Deriving a new URI
 
-Every `with` operation answers a new URI and leaves the original unchanged.
-Supplying a component equal to its current normalized value answers the
-receiver itself rather than reparsing:
+Every `with` operation returns a new URI and leaves the original unchanged.
+Supplying a component equal to its current normalized value returns the receiver
+itself rather than reparsing:
 
 ```nupp
 const uri = nupp.io.uri
@@ -130,7 +129,7 @@ through a configured service address.
 `resolve` parses a reference against the URI the way a browser resolves a link
 against the page it is on, by the same standard. A reference that repeats a
 special scheme without an authority, such as `https:other.html`, is relative,
-and `\` separates segments where `/` does in a special scheme. It answers nil
+and `\` separates segments where `/` does in a special scheme. It returns nil
 and a reason when the reference cannot be resolved:
 
 ```nupp

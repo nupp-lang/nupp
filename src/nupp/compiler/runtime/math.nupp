@@ -781,9 +781,9 @@ end
 
 --- Two-dimensional vectors, carried as a pair of numbers rather than a table.
 ---
---- Every operation takes and answers loose components, so a vector never has to be
---- allocated to be worked with and a caller that keeps its own representation can use
---- these against it directly.
+--- Every operation takes and returns loose components, so a vector never has to
+--- be allocated to be worked with and a caller that keeps its own
+--- representation can use these against it directly.
 local vec2 = {}
 
 function vec2.add(ax: number, ay: number, bx: number, by: number): number, number
@@ -940,11 +940,12 @@ end
 --- Rotations in three dimensions, carried as four loose numbers in `(x, y, z, w)`
 --- order rather than a table.
 ---
---- Like `vec2`, every operation takes and answers components, so a rotation never has
---- to be allocated to be worked with and a caller keeping its own storage -- a pose
---- array, an SoA column, a struct of four `float` fields -- can use these against it
---- directly. That also means the storage width is the caller's to choose: these
---- compute in binary64 whatever the rotation was loaded from.
+--- Like `vec2`, every operation takes and returns components, so a rotation
+--- never has to be allocated to be worked with and a caller keeping its own
+--- storage -- a pose array, an SoA column, a struct of four `float` fields --
+--- can use these against it directly. That also means the storage width is the
+--- caller's to choose: these compute in binary64 whatever the rotation was
+--- loaded from.
 ---
 --- `multiply` composes in the same direction as column-major matrices, so
 --- `multiply(a, b)` applies `b` first. `basis` and `toMatrix` produce column-major
@@ -1087,8 +1088,8 @@ end
 
 --- Builds a rotation of an angle in radians about an axis.
 ---
---- The axis is normalized here, so it need not arrive as a unit vector; a zero axis
---- answers the identity rather than a division by zero.
+--- The axis is normalized here, so it need not arrive as a unit vector; a zero
+--- axis returns the identity rather than a division by zero.
 function quat.fromAxisAngle(x: number, y: number, z: number, radians: number): number, number, number, number
     local length = math.sqrt(x * x + y * y + z * z)
     if length == 0 then
@@ -1118,9 +1119,9 @@ end
 
 --- The shortest rotation carrying a direction onto another.
 ---
---- Neither direction has to be a unit vector. Opposed directions have no shortest
---- rotation -- every half turn about an axis across them does it -- so one such axis
---- is chosen, and a zero direction answers the identity.
+--- Neither direction has to be a unit vector. Opposed directions have no
+--- shortest rotation -- every half turn about an axis across them does it -- so
+--- one such axis is chosen, and a zero direction returns the identity.
 function quat.fromTo(
     ax: number,
     ay: number,

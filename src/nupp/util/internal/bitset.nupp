@@ -103,7 +103,7 @@ local function wordsFor(bits: integer): integer
 end
 
 --- Whether `index` names a position a set can hold: an integer from 0 through
---- `MAX_INDEX`. Written so NaN, which fails every comparison, answers false.
+--- `MAX_INDEX`. Written so NaN, which fails every comparison, returns false.
 local function isPosition(index: integer): boolean
     return index % 1 == 0 and index >= 0 and index <= MAX_INDEX
 end

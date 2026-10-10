@@ -51,7 +51,7 @@ type semantic.Api = {
     --- token before it.
     encodeSemanticEntries: function(entries: {semantic.Entry}): {integer},
 
-    --- Records what was sent for a URI and answers with the id naming it.
+    --- Records what was sent for a URI and returns the id naming it.
     rememberTokens: function(uri: string, data: {integer}): string,
 
     --- The one edit turning `before` into `after`, aligned to token boundaries.

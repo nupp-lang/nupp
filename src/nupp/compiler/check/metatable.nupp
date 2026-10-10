@@ -73,9 +73,9 @@ function metatable.install(c: state.Checker): metatable.Ops
         return nil
     end
 
-    --- What inference made of a named field, or nil when the literal was not shaped
-    --- enough to say -- a computed key answers `table` for the whole of it, and there
-    --- is nothing here to check against.
+    --- What inference made of a named field, or nil when the literal was not
+    --- shaped enough to say -- a computed key returns `table` for the whole of
+    --- it, and there is nothing here to check against.
     local function fieldOf(literalType: Type?, name: string): Type?
         local bare = literalType and rawType(literalType) or nil
         if bare and bare.tag == "shape" then

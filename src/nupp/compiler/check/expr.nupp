@@ -631,8 +631,9 @@ function expr.install(c: state.Checker): nil
 
     --- Which protected built-in a call names directly, when it names one.
     ---
-    --- Only consulted to word the pack-union refusal, so a project's own `pcall` never
-    --- reaches it: that one answers an ordinary pack and is never refused.
+    --- Only consulted to word the pack-union refusal, so a project's own
+    --- `pcall` never reaches it: that one returns an ordinary pack and is never
+    --- refused.
     local function protectedBuiltin(operand: Node): string?
         local callee = operand.kind == "call" and (operand as cst.Call).obj or nil
         local token = callee and callee.kind == "name" and (callee as cst.NameExpr).token or nil

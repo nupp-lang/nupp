@@ -39,7 +39,7 @@ local nosuspend = {}
 --- to read the call graph, which the compiler is supposed to have done for them.
 local MAX_CHAIN = 8
 
---- What `install` answers with.
+--- What `install` returns.
 type nosuspend.Ops = {
     @readonly region: function(any),
     @readonly call: function(any),

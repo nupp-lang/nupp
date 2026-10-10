@@ -1786,10 +1786,10 @@ type comptime.Failure = {
 
 --- Evaluates a `comptime do ... end` block.
 ---
---- Answers the quoted source of what it produced, or nil and a failure describing what
---- stopped it. Nothing here raises past its own boundary: a failure the walker did not
---- expect is reported as an evaluation failure at the block rather than crashing the
---- compiler around it.
+--- Returns the quoted source of what it produced, or nil and a failure
+--- describing what stopped it. Nothing here raises past its own boundary: a
+--- failure the walker did not expect is reported as an evaluation failure at
+--- the block rather than crashing the compiler around it.
 ---
 --- @param node the `comptime` expression, which is where a failure is reported
 --- @param block its body

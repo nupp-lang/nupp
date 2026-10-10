@@ -77,9 +77,9 @@ export const workgroups: function(
 
 --- Reports whether the selected provider can open a compute device now.
 ---
---- `open` raises when none can, and `with` needs the context it answers, so
---- ask this first where a program has another way to run. Answering it opens
---- and closes a device.
+--- `open` raises when none can, and `with` needs the context it returns, so ask
+--- this first where a program has another way to run. Answering it opens and
+--- closes a device.
 export const available: function(): boolean = provider.available
 
 --- Opens a compute device through the selected provider.

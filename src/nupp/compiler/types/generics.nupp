@@ -393,12 +393,13 @@ end
 
 --- A projection, reduced as far as it goes.
 ---
---- Three answers rather than one. A gradual head makes the projection `any`, and says
---- so, because that `any` is the feature declining to say anything rather than somebody
---- writing `any`. A head that is still a binder, or a declaration that answers nothing
---- of this name, leaves the projection standing -- that is what "opaque" means, and it
---- is a normal form, not a failure. Only an answer reduces, and reducing it recurses,
---- which is what makes this a fixed point rather than one hop.
+--- Three results rather than one. A gradual head makes the projection `any`,
+--- and says so, because that `any` is the feature declining to say anything
+--- rather than somebody writing `any`. A head that is still a binder, or a
+--- declaration that answers nothing of this name, leaves the projection
+--- standing -- that is what "opaque" means, and it is a normal form, not a
+--- failure. Only an answer reduces, and reducing it recurses, which is what
+--- makes this a fixed point rather than one hop.
 reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budget: ReductionBudget): Type, string?
     if head == T.any then
         budget.gradual[#budget.gradual + 1] = name
@@ -1396,11 +1397,11 @@ local function expandedParameterNames(t: T.Func, paramPack: T.Pack): {string}?
     return paramNames
 end
 
---- Resolves a computed tail after its dependencies have been substituted. Tuples add
---- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
---- gradual so a signature can retain its dynamic fallback.
---- Whether a pack, or any arm of one that answers several, still carries a
---- computed tail to expand.
+--- Resolves a computed tail after its dependencies have been substituted.
+--- Tuples add fixed slots, arrays become a homogeneous tail, and an undecidable
+--- type stays gradual so a signature can retain its dynamic fallback. Whether a
+--- pack, or any arm of one that returns several, still carries a computed tail
+--- to expand.
 local function packHasComputed(pack: T.Pack): boolean
     if pack.tail and pack.tail.kind == "computed" then
         return true

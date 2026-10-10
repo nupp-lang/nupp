@@ -17,9 +17,9 @@ local frontmatter = {}
 
 --- The fields a document opened with, and the body below them.
 ---
---- A document with no frontmatter block answers an empty table and its whole text,
---- because such a document still reads correctly and only loses what the fields would
---- have configured.
+--- A document with no frontmatter block returns an empty table and its whole
+--- text, because such a document still reads correctly and only loses what the
+--- fields would have configured.
 function frontmatter.parse(source: string): {[string]: string}, string
     -- A Windows checkout hands markdown over with CRLF endings, and the block is
     -- recognized by exact `---\n` lines, so normalize before looking for either

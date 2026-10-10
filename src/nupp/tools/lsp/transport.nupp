@@ -36,8 +36,8 @@ type transport.Malformed = {
 
 --- A direction of the framing, and what it has learned from what it read.
 type transport.Transport = {
-    --- Takes bytes as they arrive. Answers why the stream cannot go on when a frame
-    --- declares a body larger than `MAX_FRAME`; nil otherwise.
+    --- Takes bytes as they arrive. Returns why the stream cannot go on when a
+    --- frame declares a body larger than `MAX_FRAME`; nil otherwise.
     feed: function(string): string?,
 
     --- The next message read and not yet taken, a `Malformed` in its place, or nil

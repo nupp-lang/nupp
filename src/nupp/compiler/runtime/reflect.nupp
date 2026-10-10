@@ -110,7 +110,7 @@ function reflectruntime.install(namespace: any): nil
 
     local Info: any = {}
 
-    --- Builds an extension over a descriptor, or answers the one already built.
+    --- Builds an extension over a descriptor, or returns the one already built.
     ---
     --- An extension is memoized under the extension itself rather than a name, so two
     --- extensions that happen to describe the same thing stay separate. The

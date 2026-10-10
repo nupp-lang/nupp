@@ -13,7 +13,7 @@ Between releases the string carries a `-dev` suffix. A checkout is not the
 release it came after and is not yet the one it is heading for, and saying so is
 worth more than a number that looks official in a bug report.
 
-Nothing here loads anything, so `nupp --version` answers without the compiler
+Nothing here loads anything, so `nupp --version` returns without the compiler
 behind it -- which is also what makes it usable to check that an install works.
 ]]
 

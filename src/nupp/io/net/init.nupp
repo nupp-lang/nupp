@@ -14,7 +14,7 @@ listener:close()
 
 A connection reads and writes through the `Reader` and `Writer` contracts on
 [](nupp.io), so a parser written against byte I/O reads a socket without knowing
-it has one. A read answers bytes, suspends while none have arrived, or answers
+it has one. A read returns bytes, suspends while none have arrived, or returns
 empty because the peer closed its sending half; empty is only ever the end.
 
 A listener and a connection are owners. See
@@ -69,8 +69,8 @@ type net.ListenOptions = {
     --- filesystem name, and naming both says two different things at once.
     host: string?,
 
-    --- The port to bind, or zero to let the platform choose one. `Listener.port`
-    --- answers which was chosen.
+    --- The port to bind, or zero to let the platform choose one.
+    --- `Listener.port` returns which was chosen.
     port: integer?,
 
     --- A filesystem name to bind instead, for a Unix domain socket, as anything
@@ -207,7 +207,7 @@ local function checkedPort(value: integer, what: string, level: integer): intege
     return value
 end
 
---- Suspends until `ready` answers true, driving this lane's reactor while it
+--- Suspends until `ready` returns true, driving this lane's reactor while it
 --- waits.
 ---
 --- The source carries both a poll and a wait, so a host with its own loop drives
@@ -527,7 +527,7 @@ record net.Stream is Reader, Writer
 
     --- Whether the peer closed its sending half and nothing is left buffered.
     ---
-    --- A read answers empty exactly when this is true, which is what keeps a
+    --- A read returns empty exactly when this is true, which is what keeps a
     --- quiet connection and a finished one apart.
     function isEnded(self): boolean
         if self._closed then
@@ -552,7 +552,7 @@ record net.Stream is Reader, Writer
     --- Who is at the other end, or nil for a connection that has no peer
     --- address.
     ---
-    --- A Unix socket has a filesystem name and no peer address, and answers nil
+    --- A Unix socket has a filesystem name and no peer address, and returns nil
     --- rather than something that looks like one.
     function peerAddress(self): net.Address?
         if self._closed then
@@ -1028,9 +1028,9 @@ record net.Datagram is nupp.Closeable
 
     --- Sends a datagram.
     ---
-    --- Answers whether the platform took it, which is not a delivery receipt and
-    --- never could be: a datagram that goes is a datagram that may still not
-    --- arrive, and a protocol that needs to know says so in the protocol.
+    --- Returns whether the platform took it, which is not a delivery receipt
+    --- and never could be: a datagram that goes is a datagram that may still
+    --- not arrive, and a protocol that needs to know says so in the protocol.
     --- @param self this socket
     --- @param address where to send it
     --- @param bytes what to send
@@ -1271,7 +1271,7 @@ end
 ---
 --- The source is terminal after this call, but its handle is deliberately not
 --- released: the new Rust-native owner consumes and eventually releases it.
---- Ordinary code has no use for the opaque value this answers.
+--- Ordinary code has no use for the opaque value this returns.
 --- @param source the connection to transfer
 --- @return its Rust-native stream handle
 --- @raises string when the connection was already closed or transferred

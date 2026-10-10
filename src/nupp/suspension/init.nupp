@@ -27,9 +27,9 @@ end
 `suspend` parks on something that will be ready later, `source` registers the
 pump that makes it ready, and `poll` drives every registered pump once.
 `handled` says whether a handler is listening; without one a park drives those
-pumps on this thread and blocks after all. `canSuspend` answers whether a park
-would be permitted here at all, and `create` makes a coroutine that inherits
-the handler.
+pumps on this thread and blocks after all. `canSuspend` returns whether a park
+would be permitted here at all, and `create` makes a coroutine that inherits the
+handler.
 
 Installing a handler, and driving the parks it accepts, is the other side of
 this: [](nupp.suspension.host). A library needs none of it.
@@ -63,7 +63,7 @@ suspension.Context = contract.Context
 --- Registers a readiness pump outside any subscription.
 suspension.source = provider.source
 
---- Drives every registered pump once, and answers how many things settled.
+--- Drives every registered pump once, and returns how many things settled.
 ---
 --- Beside `source` because they are the two halves of one registry: a scheduler
 --- drains what libraries registered, and so does an embedding host driving a

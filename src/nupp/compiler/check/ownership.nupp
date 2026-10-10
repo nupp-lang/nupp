@@ -60,9 +60,9 @@ type ownership.Ops = {
     --- Resolves free cleanup names once, where their contract is declared.
     resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
 
-    --- The stable key a named cleanup is registered and compared under, with the
-    --- declaration it named. Marks that declaration for runtime registration. A name
-    --- that reaches no declaration answers nil.
+    --- The stable key a named cleanup is registered and compared under, with
+    --- the declaration it named. Marks that declaration for runtime
+    --- registration. A name that reaches no declaration returns nil.
     cleanupKeyFor: function(name: string): (string?, any),
 
     --- The resource an owner carries, behind its qualifier and behind an optional.

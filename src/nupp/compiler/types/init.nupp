@@ -1477,9 +1477,9 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     )
 end
 
---- What `type()` answers for a primitive, or nothing for a type Lua's `type` cannot
---- decide. The sized numerics all answer `number`, which is why this is the base
---- membership test and not the whole answer for one of them.
+--- What `type()` returns for a primitive, or nothing for a type Lua's `type`
+--- cannot decide. The sized numerics all answer `number`, which is why this is
+--- the base membership test and not the whole answer for one of them.
 ---
 --- An alias is transparent, so the caller asks the resolved type rather than the
 --- spelling: `local type Count = integer` resolves to the interned `integer` and is
@@ -3771,10 +3771,10 @@ local declaredNominals: {[string]: types.Nominal} = {}
 --- of the same shape. That is what makes it nominal.
 ---
 --- In a worker, that is one per declaration key as well. A worker both reads
---- declarations other workers checked and checks files every worker checks for itself,
---- such as dependency declaration files, and meeting one declaration both ways must
---- give the one nominal, whichever way came first. So a key already allocated answers
---- with the nominal it was allocated for.
+--- declarations other workers checked and checks files every worker checks for
+--- itself, such as dependency declaration files, and meeting one declaration
+--- both ways must give the one nominal, whichever way came first. So a key
+--- already allocated returns with the nominal it was allocated for.
 ---
 --- @param name what the declaration called it
 --- @param declKind "record", "interface" or "struct"
@@ -4158,10 +4158,10 @@ local C_NAME: {
 
 --- How a type is spelled in C, or nil when it has no spelling.
 ---
---- A nested struct answers `"$"`. Nupp emits anonymous struct ctypes, so
---- `ffi.sizeof("Inner")` cannot resolve one by name -- the ctype itself has to be
---- handed over, the way `ffi.typeof("struct { $ inner; }", Inner)` already does. The
---- caller collects those in order and passes them alongside.
+--- A nested struct returns `"$"`. Nupp emits anonymous struct ctypes, so
+--- `ffi.sizeof("Inner")` cannot resolve one by name -- the ctype itself has to
+--- be handed over, the way `ffi.typeof("struct { $ inner; }", Inner)` already
+--- does. The caller collects those in order and passes them alongside.
 ---
 --- @param t the type to spell
 --- @return the C spelling, or nil

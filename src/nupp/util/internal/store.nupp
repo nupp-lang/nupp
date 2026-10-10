@@ -109,7 +109,7 @@ export interface Store
     --- promises what the loop delivers rather than what the last call returns.
     type Step = function(Store, integer): (integer, string?, string)
 
-    --- Answers the value held under a key.
+    --- Returns the value held under a key.
     get: function<T>(self: Store, key: Key<T>): T?
 
     --- Stores a non-nil value under a key.

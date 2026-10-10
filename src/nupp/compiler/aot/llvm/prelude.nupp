@@ -133,8 +133,8 @@ DEFINITIONS["nupp.u64.pow"] = function(_: builder.Module, attrs: string): string
     )
 end
 
---- LuaJIT's `lj_carith_powi64`: a negative exponent answers 0 except for a
---- base of 1 or -1, and `INT64_MAX` for a base of 0.
+--- LuaJIT's `lj_carith_powi64`: a negative exponent returns 0 except for a base
+--- of 1 or -1, and `INT64_MAX` for a base of 0.
 DEFINITIONS["nupp.i64.pow"] = function(module: builder.Module, attrs: string): string
     local unsigned = prelude.use(module, "nupp.u64.pow")
     return table.concat(
@@ -269,7 +269,7 @@ DEFINITIONS["nupp.sin"] = function(module: builder.Module, attrs: string): strin
     )
 end
 
---- The canonical quiet binary32 NaN `nupp.math.f32` answers.
+--- The canonical quiet binary32 NaN `nupp.math.f32` returns.
 local F32_NAN = "0x7FF8000000000000"
 
 DEFINITIONS["nupp.f32.min"] = function(_: builder.Module, attrs: string): string

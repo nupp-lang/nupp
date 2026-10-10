@@ -75,10 +75,10 @@ cannot record, and a hot loop that aborts a trace runs interpreted however hot
 it gets.
 
 The body's numeric meaning is pinned. Ordinary binary64 Nupp arithmetic is
-neither contracted nor reassociated, so an AOT function's answers are a
-property of what was written rather than of the target that compiled it.
-Explicit wrapping integer operations may be reassociated because their modular
-answer does not depend on grouping. Ask for a relaxation per function with
+neither contracted nor reassociated, so an AOT function's results are a property
+of what was written rather than of the target that compiled it. Explicit
+wrapping integer operations may be reassociated because their modular answer
+does not depend on grouping. Ask for a relaxation per function with
 [`@relax`](../../../reference/annotations.md#relaxing-observable-guarantees).
 
 ::: deepdive Required compilation
@@ -110,7 +110,9 @@ See these pages for each part of the AOT pipeline.
 
 ## FAQ
 
-### Does `@aot` change what a function answers?
+<a id="does-aot-change-what-a-function-answers"></a>
+
+### Does `@aot` change what a function returns?
 
 Only through `@relax`. Removing `@aot`, or building the same source under
 `aot = "off"`, changes performance and artifacts and never the result, which is

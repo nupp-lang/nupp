@@ -4,8 +4,8 @@ module nupp.compiler.aot.llvm.simd.rearrange
 Moving lanes: extracting and inserting one, and the permutations.
 
 Every lane number the source writes is 1-based. A permutation fixed at compile
-time is one `shufflevector`; a swizzle's indices are values, so each result
-lane selects among the tables' lanes, and an index outside every table answers
+time is one `shufflevector`; a swizzle's indices are values, so each result lane
+selects among the tables' lanes, and an index outside every table returns
 0. Compress and expand depend on the mask, so they are unrolled over the
 lanes with a running position.
 ]]
@@ -212,11 +212,11 @@ local function sixteenLanes(): string
     return "<16 x i32> <" .. table.concat(picks, ", ") .. ">"
 end
 
---- The `tbl` shuffle that packs the lanes a mask selects, for every mask of
---- a register of `count` lanes of `bytesPerLane` bytes: entry `m` names the
---- selected lanes' bytes in order from the front, and a byte past the
---- register, which the lookup answers 0 for, everywhere after them. The
---- table is `16 * 2^count` bytes, shared by content across the module.
+--- The `tbl` shuffle that packs the lanes a mask selects, for every mask of a
+--- register of `count` lanes of `bytesPerLane` bytes: entry `m` names the
+--- selected lanes' bytes in order from the front, and a byte past the register,
+--- which the lookup returns 0 for, everywhere after them. The table is `16 *
+--- 2^count` bytes, shared by content across the module.
 --- @return the table's global name and its size in bytes
 local function packingTable(ctx: context.Context, bytesPerLane: integer, count: integer): (string, integer)
     local entries: {string} = {}

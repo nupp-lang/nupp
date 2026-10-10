@@ -149,12 +149,12 @@ type manifest.SelfHost = {
     --- A separately composed target used only to compose the stage-zero bundle.
     bootstrapTarget: string?,
 
-    --- The command that answers with the path of the stage-zero compiler, run from
+    --- The command that returns the path of the stage-zero compiler, run from
     --- the project root and split on whitespace. A self-hosted compiler cannot
-    --- compile its own sources until some other compiler has, and where that one
-    --- comes from -- fetched, installed, packaged -- is the project's business
-    --- rather than the build system's. Wrap it in a script if it needs an argument
-    --- with a space in it; nothing here invents a quoting rule.
+    --- compile its own sources until some other compiler has, and where that
+    --- one comes from -- fetched, installed, packaged -- is the project's
+    --- business rather than the build system's. Wrap it in a script if it needs
+    --- an argument with a space in it; nothing here invents a quoting rule.
     bootstrap: string?,
 
     --- The `binary` target `nupp fixpoint --binary` stamps twice.

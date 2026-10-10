@@ -5,7 +5,7 @@ Where an element of a tensor actually is.
 
 A layout is a shape, a stride per dimension, and an offset. [](nupp.gpu) uses
 these to say what a view of a buffer covers without copying it, and the algebra
-here -- slicing, transposing, reshaping -- answers a new layout over the same
+here -- slicing, transposing, reshaping -- returns a new layout over the same
 storage.
 
 ```nupp

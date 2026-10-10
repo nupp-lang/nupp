@@ -24,8 +24,8 @@ end
 | `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
 | `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
-| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `nupp.math.i32.add` and its siblings answer, see below |
-| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `nupp.math.u32.add` and its siblings answer |
+| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `nupp.math.i32.add` and its siblings return, see below |
+| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `nupp.math.u32.add` and its siblings return |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
 | 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
@@ -48,18 +48,18 @@ cache key. Native counted-loop artifacts check that mode before binding and
 refuse to load into an incompatible LuaJIT; this does not silently fall back.
 
 Ordinary `math.min` and `math.max` follow LuaJIT, which chooses the second
-operand on ties or unordered comparisons. Variadic calls apply that rule from left to right.
-The corrected `nupp.math.f32` operations have their own target-independent
-contract below. `math.log(value, base)` honors its optional base. Under LuaJIT,
-ordinary code and AOT both compute `log2(value) * (1 / log2(base))`, keeping
-the two roundings apart as LuaJIT does; a quotient of natural logarithms
-differs in the last bits and loses exact answers such as
+operand on ties or unordered comparisons. Variadic calls apply that rule from
+left to right. The corrected `nupp.math.f32` operations have their own
+target-independent contract below. `math.log(value, base)` honors its optional
+base. Under LuaJIT, ordinary code and AOT both compute `log2(value) * (1 /
+log2(base))`, keeping the two roundings apart as LuaJIT does; a quotient of
+natural logarithms differs in the last bits and loses exact results such as
 `math.log(1e17, 0.1) == -17`.
 
 `a % b` is Lua's floored modulo, `a - floor(a / b) * b`, computed operation for
 operation and never contracted. It is not `fmod` moved into the divisor's sign:
 the two differ on the sign of a zero result (`-5 % 5` is `+0`), on an infinite
-divisor (Lua answers NaN), and wherever `a / b` rounds (`1 % 0.1`).
+divisor (Lua returns NaN), and wherever `a / b` rounds (`1 % 0.1`).
 
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
@@ -75,15 +75,15 @@ overflowing `int32` or `int64` result is defined rather than undefined.
 wrapping operation of that width, in an `@aot` body and in the ordinary code
 around it alike: an `int32` accumulator plus an `int32` field read is the
 `nupp.math.i32.add` of the two, a `uint32` cursor times a literal is the
-`nupp.math.u32.mul`, and the checker annotates the operator so the retained
-Lua body and the native lowering compute the same bits. One operand has to be
-typed at the width and both established at it, so an erased `as int32` or a
-plain `integer` beside one still answers `integer`, which an assignment to the
-width then refuses. A `uint8` or `uint16` element read is typed `uint32` but is
+`nupp.math.u32.mul`, and the checker annotates the operator so the retained Lua
+body and the native lowering compute the same bits. One operand has to be typed
+at the width and both established at it, so an erased `as int32` or a plain
+`integer` beside one still returns `integer`, which an assignment to the width
+then refuses. A `uint8` or `uint16` element read is typed `uint32` but is
 established at `int32` as well, since it holds one; inside an `@aot` body an
 `int32` beside it takes the signed reading, so `carry = carry + bytes[i]` on an
 `int32` carry wraps as the signed add and needs no `wrap`. Division, `%`, `^`
-and unary `-` keep today's rules and answer a number.
+and unary `-` keep today's rules and return a number.
 
 A comparison between a signed and an unsigned 32-bit integer answers by
 mathematical value, as the two Lua numbers they are do: generated code widens
@@ -256,28 +256,27 @@ ends, so a scalar written inside such a region associates with the accumulated
 lanes rather than between them -- an association the contract already admits.
 
 An arg extremum (`propagatingArgMin`, `numberArgMax`, `integerArgMin` and the
-rest) answers the first one-based logical position of its extreme, and
-positions count every lane offered to it. Lane `i` of a masked vector
-contribution has position `base + i`, where `base` advances by the species' lane
-count for every vector contribution and by one for every scalar one, whether or
-not a lane was active: an inactive lane is not a candidate, but it is a
-position. Ties keep the earliest position. The predicate reducers `any`, `all`
-and `count` take a mask of the lanes they test beside the mask of the lanes
-that are active.
+rest) returns the first one-based logical position of its extreme, and positions
+count every lane offered to it. Lane `i` of a masked vector contribution has
+position `base + i`, where `base` advances by the species' lane count for every
+vector contribution and by one for every scalar one, whether or not a lane was
+active: an inactive lane is not a candidate, but it is a position. Ties keep the
+earliest position. The predicate reducers `any`, `all` and `count` take a mask
+of the lanes they test beside the mask of the lanes that are active.
 
 A floating-point reducer accumulates in the element its constructor names.
 `orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
-binary32 under every contract, rounding after every operation as
-`nupp.math.f32` does: an ordered binary32 sum rounds after every lane, a
-pairwise one at every node of the tree, a compensated one keeps its total and
-its compensation in binary32, a dot rounds each product before adding it (or
-fuses the two under the algebraic contract), and the extrema round nothing. The
-initial value is rounded to the element. `value()` answers that element, so a
-`float` kernel finishes in `float` without a conversion it did not write.
-The integer horizontals, `simd.horizontal.wrappingSum`, `wrappingProduct`,
-`andBits`, `orBits`, `xorBits`, `integerMin` and `integerMax`, fold a vector's
-lanes in the lane's own width: a byte vector's sum wraps at a byte and leaves
-the vector as a byte lane does, sign- or zero-extended to its 32-bit carrier.
+binary32 under every contract, rounding after every operation as `nupp.math.f32`
+does: an ordered binary32 sum rounds after every lane, a pairwise one at every
+node of the tree, a compensated one keeps its total and its compensation in
+binary32, a dot rounds each product before adding it (or fuses the two under the
+algebraic contract), and the extrema round nothing. The initial value is rounded
+to the element. `value()` returns that element, so a `float` kernel finishes in
+`float` without a conversion it did not write. The integer horizontals,
+`simd.horizontal.wrappingSum`, `wrappingProduct`, `andBits`, `orBits`,
+`xorBits`, `integerMin` and `integerMax`, fold a vector's lanes in the lane's
+own width: a byte vector's sum wraps at a byte and leaves the vector as a byte
+lane does, sign- or zero-extended to its 32-bit carrier.
 
 ## Verification
 
@@ -360,7 +359,7 @@ The SIMD conformance matrix runs the authored vector corpus on native targets
 and Wasm `simd128`, with each native tier selected explicitly.
 
 The build's own end of it is exercised the same way, by doing the thing rather
-than asserting it: a project is built under `require` and its answers compared
+than asserting it: a project is built under `require` and its results compared
 against the same project built with `aot = "off"`, an output tree is copied
 elsewhere and run from a third directory, a cross build's object is inspected to
 confirm it is the other machine's, and a stamped binary is run from `/` to

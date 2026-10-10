@@ -28,7 +28,7 @@ export function frame(dt: number): pump.State
 end
 ```
 
-An operation answers whether the application should keep running: `false`
+An operation returns whether the application should keep running: `false`
 reports `"stopped"`, anything else `"continue"`. A failure is raised from the
 `start` or `poll` that observes it. `cancel` unwinds a parked operation, raising
 a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its

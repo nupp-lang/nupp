@@ -4,13 +4,12 @@ module nupp.compiler.aot.llvm.lua.entry
 A Lua-builder entry as the VM calls it, and the registrar that hands the VM
 every entry of a module.
 
-An entry is a `lua_CFunction`: it reserves the stack its body can reach,
-decodes its arguments by position, reserves one stack slot per Lua-owned
-local, and runs the body, whose `return` pushes its values and answers how
-many. The registrar is the module's one exported symbol per tier. Before it
-registers anything it fetches the runtime's table through
-`nupp.runtime.native` and refuses one of another version, or whose blocks
-are not the sizes this module sets aside.
+An entry is a `lua_CFunction`: it reserves the stack its body can reach, decodes
+its arguments by position, reserves one stack slot per Lua-owned local, and runs
+the body, whose `return` pushes its values and returns how many. The registrar
+is the module's one exported symbol per tier. Before it registers anything it
+fetches the runtime's table through `nupp.runtime.native` and refuses one of
+another version, or whose blocks are not the sizes this module sets aside.
 
 Both unwind: a Lua error raised in the VM, the runtime or a check here
 unwinds through them to the VM's protected call, so neither is `nounwind`

@@ -14,7 +14,7 @@ it; callers then get named arguments and a checked call:
 ```nupp:fragment
 local host = nupp.host
 
---- Answers the host's id for the decoded image, and its width and height.
+--- Returns the host's id for the decoded image, and its width and height.
 local type DecodeImage = function(url: string, format: string?): (integer, integer, integer)
 local type ReleaseImage = function(id: integer): nil
 

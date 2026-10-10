@@ -32,7 +32,7 @@ native.ffi = ffi
 const ABI_VERSION = 2
 const LIBRARY_KEY = "__nuppNativeLibrary"
 
---- The status a copy answers when its output is short, a size query included.
+--- The status a copy returns when its output is short, a size query included.
 --- @export
 native.BUFFER_TOO_SMALL = 6
 
@@ -207,7 +207,7 @@ end
 --- context:source("nupp-files", native.READINESS_PRIORITY, native.pump(harvest))
 --- ```
 --- @export
---- @param check answers how many waits it settled, without blocking
+--- @param check returns how many waits it settled, without blocking
 --- @return the source's poll
 --- @return the source's wait
 function native.pump(check: function(): integer): (function(): integer, function(integer): integer)

@@ -238,8 +238,8 @@ test, and jumping rather than wrapping the arms in a loop is what keeps an arm's
 own `break` bound to the loop around the switch.
 
 Guards cost the map plans. A dense integer, sparse integer, or string switch
-answers from the key alone and has nowhere to put a predicate, so a switch with
-any guarded arm is always lowered to ordered branches. See
+looks up a value by key alone and has nowhere to put a predicate, so a switch
+with any guarded arm is always lowered to ordered branches. See
 [performance.md](../performance/index.md#switch-dispatch) for the plans a switch
 chooses between. Native `@aot` switches refuse a guard outright rather than
 commit to an arm whose predicate they cannot evaluate.

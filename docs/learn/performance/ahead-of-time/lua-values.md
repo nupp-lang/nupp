@@ -80,10 +80,10 @@ Lua-owned strings rather than shared-memory views.
 
 `string.byte` and `string.sub` read their indexes as Lua does: a fraction
 truncates toward zero and a negative index counts from the end, so
-`string.byte(s, -1)` is the last byte and `string.sub(s, 1.5, 3.5)` is the
-first three. Where ordinary Lua answers `string.byte` with no value at all --
-an index before the first byte or past the last -- the compiled entry has no
-value to return in its typed result and raises instead.
+`string.byte(s, -1)` is the last byte and `string.sub(s, 1.5, 3.5)` is the first
+three. In ordinary Lua, `string.byte` returns no values for an index before the
+first byte or past the last. The compiled entry has no value to return in its
+typed result and raises instead.
 
 ## Streaming construction
 

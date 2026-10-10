@@ -46,7 +46,7 @@ type workerchannel.Options = {
     --- Serves the caller's host between waits.
     pump: (function(): nil)?,
 
-    --- Abandons the wait when it answers true.
+    --- Abandons the wait when it returns true.
     cancelled: (function(): boolean)?
 }
 
@@ -96,7 +96,7 @@ function workerchannel.drain(channel: any): nil
     end
 end
 
---- Sends a payload. Answers false when the worker stopped taking it before the
+--- Sends a payload. Returns false when the worker stopped taking it before the
 --- deadline.
 function workerchannel.send(channel: any, payload: string, deadline: number): boolean
     local frame = workerchannel.frame(payload)
@@ -222,7 +222,7 @@ function workerchannel.close(channel: any?, force: boolean?): nil
     end)
 end
 
---- Answers frames read from standard input until it ends.
+--- Returns frames read from standard input until it ends.
 ---
 --- `handle` receives a request body and returns the response body. A body longer
 --- than `maxFrame` is read and discarded, and answered by `oversize()`. A header

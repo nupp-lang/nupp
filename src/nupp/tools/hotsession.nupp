@@ -61,7 +61,7 @@ record hotSession.Unchanged
     generation: integer
 end
 
---- What `prepare` answers with, discriminated by `kind`.
+--- What `prepare` returns, discriminated by `kind`.
 type hotSession.Result = hotSession.Prepared | hotSession.Rejected | hotSession.Restart | hotSession.Unchanged
 
 --- The entry watch artifact and the manifest describing what it registered.
@@ -114,7 +114,7 @@ record hotSession.Session
     --- code, where 3 means the file was deleted.
     diskChanged: function(self: hotSession.Session, path: string, changeType: integer)
 
-    --- Builds the entry watch artifact, or answers why it could not be built.
+    --- Builds the entry watch artifact, or returns why it could not be built.
     initial: function(self: hotSession.Session, entries: {string}): hotSession.InitialBuild
         | hotSession.Rejected
         | hotSession.Restart

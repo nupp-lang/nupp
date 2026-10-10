@@ -323,10 +323,10 @@ end
 
 --- Returns the rooted string's byte length without making a substring.
 ---
---- This, [](nupp.codec.valuebuilder.byte), and [](nupp.codec.valuebuilder.word) are the
---- three readers that let an AOT parser read its input where it already lies.
---- `#bytes` answers the same in ordinary Lua; going through here is what keeps
---- the read admissible inside `@aot`.
+--- This, [](nupp.codec.valuebuilder.byte), and [](nupp.codec.valuebuilder.word)
+--- are the three readers that let an AOT parser read its input where it already
+--- lies. `#bytes` returns the same in ordinary Lua; going through here is what
+--- keeps the read admissible inside `@aot`.
 --- @param bytes the rooted string to measure
 --- @return its length in bytes
 function valuebuilder.length(borrows bytes: any): uint32
@@ -337,7 +337,7 @@ end
 ---
 --- The general `nupp.simd` algebra loads from a `Span<uint8>`, and a
 --- value-building AOT entry has no way to be handed one: its parameters cross
---- the Lua stack, where a pointer and a count are not values. This answers the
+--- the Lua stack, where a pointer and a count are not values. This returns the
 --- span over the bytes the entry already roots, so `species:load` reads the
 --- input where it lies rather than through a byte-specialized counterpart.
 ---
@@ -349,7 +349,7 @@ end
 --- parameter's.
 ---
 --- In ordinary Lua the span is the same checked view `nupp.mem.span.fromString`
---- answers, and the bytes have to be a string: a view roots nothing itself, so
+--- returns, and the bytes have to be a string: a view roots nothing itself, so
 --- there is no rooted string for a buffer's unread bytes to be viewed through.
 --- Every vector path is inside a `simd.species` guard, which is nil there, so
 --- an interpreted body never reaches this.
@@ -497,7 +497,7 @@ function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
     return nupp.math.u32.wrap(value as integer)
 end
 
---- Answers the initialized word count of a local work buffer.
+--- Returns the initialized word count of a local work buffer.
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newWordScratch)
 --- @return the number of initialized words
 function valuebuilder.scratchLength(scratch: any): uint32
@@ -769,8 +769,8 @@ end
 --- Returns the number of complete values in the current container.
 ---
 --- Complete means a value has arrived, so an object with a key pending and no
---- value yet still answers with the count before it. A null dropped because
---- the stream has no null replacement is a value that arrived.
+--- value yet still returns the count before it. A null dropped because the
+--- stream has no null replacement is a value that arrived.
 --- @param builder the stream
 --- @return how many values the innermost open container holds
 --- @raises string when the stream has no current container

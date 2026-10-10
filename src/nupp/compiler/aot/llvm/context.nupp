@@ -218,8 +218,8 @@ function context.new(
     )
 end
 
---- Emits an instruction producing a value into the function being emitted,
---- and answers the temporary holding it.
+--- Emits an instruction producing a value into the function being emitted, and
+--- returns the temporary holding it.
 function context.value(ctx: context.Context, instruction: string): string
     return builder.value(ctx.f, instruction)
 end
@@ -299,9 +299,9 @@ function context.valueTypeIn(
     error("no LLVM type for " .. typeName, 0)
 end
 
---- The LLVM type a value of IR type `typeName` is carried in: a scalar's,
---- a vector or mask's, an aggregate's, or a reducer's state. A species has no
---- runtime value; it answers `i32`, the type its lane count is spelled in.
+--- The LLVM type a value of IR type `typeName` is carried in: a scalar's, a
+--- vector or mask's, an aggregate's, or a reducer's state. A species has no
+--- runtime value; it returns `i32`, the type its lane count is spelled in.
 --- @raises string when nothing carries the type
 function context.llvmType(ctx: context.Context, typeName: string): string
     local scalar = types.value(typeName)

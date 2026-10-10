@@ -272,7 +272,7 @@ local function sourcesActive(): boolean
     return false
 end
 
---- Waits on the page until `ready` answers true, polling what each answer woke.
+--- Waits on the page until `ready` returns true, polling what each answer woke.
 ---
 --- A wait nothing can complete is refused rather than left polling the page: with no
 --- request outstanding and no source answering that it has something pending, no
@@ -450,7 +450,7 @@ function suspension.delegatedPark(): function(suspension.Waiting, function(): ni
     end
 end
 
---- Builds a Waiting that settles when `base` does or when `ready` answers true.
+--- Builds a Waiting that settles when `base` does or when `ready` returns true.
 ---
 --- A driver parks outward on the result, so the park it hands to its host is woken
 --- both by the wait it was given and by its own work becoming runnable. There is no

@@ -109,7 +109,7 @@ end
 --- Declaring what the compiled object says a struct's layout is.
 ---
 --- The object exports a function per measurement rather than a table of
---- numbers, so the answers come from the code generator that actually laid the
+--- numbers, so the results come from the code generator that actually laid the
 --- struct out.
 function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string?): {string}
     local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
@@ -620,7 +620,7 @@ end
 --- against: a borrow the native body reads for the duration of the call and
 --- does not retain.
 ---
---- The results stay `any`, because that is what the loaded symbol answers and
+--- The results stay `any`, because that is what the loaded symbol returns and
 --- `established` is what turns each one into the wrapper's declared type.
 local function builderType(program: scalarIR.Program): string
     local params: {string} = {}

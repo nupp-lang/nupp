@@ -5,8 +5,8 @@ What an editor asks of a parse.
 
 Where a name was declared, what encloses a position, which occurrences of a
 member belong to a module: questions about a file's syntax that the language
-server asks and the checker has no reason to. They read a parse and nothing else,
-so they answer without a session.
+server asks and the checker has no reason to. They read a parse and nothing
+else, so they return results without a session.
 ]]
 
 local cst = require("nupp.compiler.syntax.cst")

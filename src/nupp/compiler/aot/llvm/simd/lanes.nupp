@@ -170,10 +170,10 @@ function lanes.constant(shape: lanes.Shape, scalar: string, value: string): stri
     return value
 end
 
---- Two float operands of `shape` under the Nupp extreme contract: a NaN
---- operand answers the canonical NaN (`propagating`) or the other operand
---- (`number`, the canonical NaN only when both are), -0 is less than +0, and
---- otherwise the plain comparison.
+--- Two float operands of `shape` under the Nupp extreme contract: a NaN operand
+--- returns the canonical NaN (`propagating`) or the other operand (`number`,
+--- the canonical NaN only when both are), -0 is less than +0, and otherwise the
+--- plain comparison.
 function lanes.floatExtreme(
     ctx: context.Context,
     shape: lanes.Shape,
