@@ -24,6 +24,9 @@ docs/learn/performance/index.md.
 ]]
 
 local cst = require("nupp.compiler.syntax.cst")
+local callfacts = require("nupp.compiler.callfacts")
+local inlinefacts = require("nupp.compiler.inlinefacts")
+local viewfacts = require("nupp.compiler.viewfacts")
 const {type Cleanup} = require("nupp.compiler.types")
 
 local analysis = {}
@@ -50,7 +53,7 @@ local FLAGS = {"allocates", "yields", "raises", "external"}
 -- inferred and never declared, so a contract neither states nor is held to it.
 -- Wide arithmetic allocates a box in ordinary execution but has no allocation
 -- after native scalar lowering. Other allocation sites must remain refusals.
-local INFERRED_FLAGS = {"rawYields", "allocatesBeyondWideArithmetic"}
+local INFERRED_FLAGS = {"rawYields", "allocatesBeyondWideArithmetic", "raisesBeyondBounds"}
 
 local function setOf(values)
     local out = {}
@@ -74,6 +77,7 @@ local function summary(): analysis.Summary
         allocatesBeyondWideArithmetic = false,
         yields = false,
         raises = false,
+        raisesBeyondBounds = false,
         external = false,
         rawYields = false,
         top = false,
@@ -100,6 +104,7 @@ local function fromContract(contract: {[string]: any}): analysis.Summary
 
     -- An external contract names allocation without proving its origin.
     out.allocatesBeyondWideArithmetic = out.allocates
+    out.raisesBeyondBounds = out.raises
 
     return out
 end
@@ -263,6 +268,9 @@ end
 -- through the record name's definition. Keep that distinction behind the same lookup
 -- used for ordinary calls so every effect consumer sees the chosen body.
 local function knownCall(call, byDefinition)
+    if call and call.unstableCall then
+        return nil
+    end
     local selected = call and (call.constructorEntry or call.methodEntry) or nil
     local declaration = selected and selected.declaration or nil
     if declaration and declaration.effectInfo then
@@ -271,7 +279,7 @@ local function knownCall(call, byDefinition)
     local callee = call and call.obj
     local token = callee and (callee.token or callee.name)
 
-    return token and byDefinition[token.definition] or nil
+    return token and byDefinition[token.definition] or call and call.importedEffects or nil
 end
 
 local function definitionOfFunction(stat)
@@ -597,7 +605,9 @@ local function inferFunction(info, byDefinition)
                 end
             end
             for _, flag in ipairs(FLAGS) do
-                if effects[flag] then
+                if effects[flag]
+                    and not (flag == "raises" and call.callBoundsProven and effects.raisesBeyondBounds == false)
+                then
                     out[flag] = true
                 end
             end
@@ -624,6 +634,7 @@ local function inferFunction(info, byDefinition)
             end
         elseif name == "error" or name == "assert" then
             out.raises = true
+            out.raisesBeyondBounds = true
         else
             out.top = true
         end
@@ -699,6 +710,7 @@ local function inferFunction(info, byDefinition)
             -- Indexing `any` may reach an `__index` that raises, or a value that
             -- cannot be indexed.
             out.raises = true
+            out.raisesBeyondBounds = true
         elseif node.indexedAccess and not node.rangeProvenNoRaise then
             out.raises = true
         elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
@@ -824,6 +836,7 @@ local function inferFunction(info, byDefinition)
                     end
                     if known.summary.raises then
                         out.raises = true
+                        out.raisesBeyondBounds = true
                     end
                     if known.summary.yields then
                         out.yields = true
@@ -1301,7 +1314,11 @@ function analysis.queries(facts: analysis.Facts?): analysis.Queries?
     --- @param token the name a call is made through
     --- @return the callee's record, carrying `summary`, `paramNames` and `body`
     function bound.known(token: any): any
-        return token and token.definition and facts.byDefinition[token.definition] or nil
+        return token
+            and token.definition
+            and not token.definition.callFactsUnstable
+            and facts.byDefinition[token.definition]
+            or nil
     end
 
     --- What a checked call resolves to, including a selected constructor overload.
@@ -1324,27 +1341,32 @@ function analysis.queries(facts: analysis.Facts?): analysis.Queries?
 end
 
 function analysis.run(result: analysis.Target, checker: analysis.Reporter?): analysis.Facts
+    callfacts.reset(result.root)
     local functions, byDefinition = collectFunctions(result.root)
     for _, info in ipairs(functions) do
         if info.contract then
             info.summary = fromContract(info.contract)
         end
     end
-    for _ = 1, #functions + 1 do
-        local changed = false
-        for _, info in ipairs(functions) do
-            if info.body then
-                local inferred = inferFunction(info, byDefinition)
-                local nextSummary = info.contract and fromContract(info.contract) or inferred
-                if not same(info.summary, nextSummary) then
-                    info.summary, changed = nextSummary, true
+    for phase = 1, 2 do
+        callfacts.run(result.root, functions, byDefinition)
+        for _ = 1, #functions + 1 do
+            local changed = false
+            for _, info in ipairs(functions) do
+                if info.body then
+                    local inferred = inferFunction(info, byDefinition)
+                    local nextSummary = info.contract and fromContract(info.contract) or inferred
+                    if not same(info.summary, nextSummary) then
+                        info.summary, changed = nextSummary, true
+                    end
+                    info.inferred = inferred
+                    info.body.effectSummary = nextSummary
+                    info.body.callableEffects = {summary = nextSummary, paramNames = info.paramNames}
                 end
-                info.inferred = inferred
-                info.body.effectSummary = nextSummary
             end
-        end
-        if not changed then
-            break
+            if not changed then
+                break
+            end
         end
     end
     if checker then
@@ -1368,6 +1390,43 @@ function analysis.run(result: analysis.Target, checker: analysis.Reporter?): ana
         local contents = bodyContents(info.body)
         if contents then
             bodies[#bodies + 1] = contents
+        end
+    end
+    for _, info in ipairs(functions) do
+        if info.body then
+            local viewBody = viewfacts.infer(info.body)
+            info.body.viewBody = viewBody.nodes and viewBody or nil
+            local parameters = {}
+            for position, binding in ipairs(viewBody.params or {}) do
+                local descriptor = viewBody.definitions[binding]
+                if descriptor.view then
+                    parameters[
+                        #parameters + 1
+                    ] = {
+                        position = position,
+                        mode = "borrowed",
+                        escapes = false,
+                        stableCount = true,
+                        element = descriptor.view.element,
+                        alias = "unknown"
+                    }
+                end
+            end
+            info.body.representation = {
+                version = 1,
+                parameters = parameters,
+                reason = viewBody.reason,
+                relationships = "callableRelations",
+                nodes = viewBody.nodes and #viewBody.nodes
+            }
+            local artifact = inlinefacts.infer(info.body)
+            info.body.inlineBody = artifact.expression and artifact or nil
+            info.body.inlineEligibility = {
+                version = artifact.version,
+                size = artifact.size,
+                parameters = #(artifact.params or {}),
+                reason = artifact.reason
+            }
         end
     end
     result.analysis = {functions = functions, byDefinition = byDefinition, bodies = bodies}

@@ -82,6 +82,15 @@ type progress.ParallelFacts = {
     reason: string?
 }
 
+type progress.OptimizerFacts = {
+    produced: number,
+    consumed: number,
+    unique: number,
+    families: {[string]: number},
+    selectorMs: number,
+    selectionChangedModules: number
+}
+
 --- Where a build's time went, for a caller reporting it rather than printing it.
 type progress.Timing = {
     --- Wall-clock milliseconds for the whole run.
@@ -90,6 +99,7 @@ type progress.Timing = {
     compiledModules: number,
     reusedModules: number,
     specializedBodies: number,
+    optimizerFacts: progress.OptimizerFacts?,
 
     --- Every activity that took measurable time, longest first.
     phases: {progress.Span},
@@ -250,6 +260,7 @@ record progress.Reporter
     aotFacts: progress.AotFacts?
 
     parallelFacts: progress.ParallelFacts?
+    optimizerFacts: progress.OptimizerFacts?
 
     --- Which bucket checking is charged to at the moment. Checking is charged
     --- wherever it happens rather than where it was asked for, so a build that
@@ -408,6 +419,7 @@ record progress.Reporter
             compiledModules = self.compiled,
             reusedModules = self.reused,
             specializedBodies = self.specialized,
+            optimizerFacts = self.optimizerFacts,
             phases = phases,
             slowest = slowest,
             aot = self.aotFacts,

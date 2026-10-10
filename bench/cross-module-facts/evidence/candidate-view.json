@@ -1,0 +1,203 @@
+[
+  {
+    "bytes": 1526,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "indexed-range: discharges inferred access bounds (1 <= index <= #values)",
+        "status": "fired",
+        "line": 5,
+        "offset": 187,
+        "length": 6,
+        "sourceEndLine": 5,
+        "col": 47
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "indexed-range: lowers 1 span access",
+        "status": "fired",
+        "line": 5,
+        "offset": 145,
+        "length": 3,
+        "sourceEndLine": 5,
+        "col": 5
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: virtualizes one root (anchor=rooted-access)",
+        "status": "fired",
+        "line": 3,
+        "offset": 99,
+        "length": 4,
+        "sourceEndLine": 3,
+        "col": 20
+      },
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: declines imported nupp.mem.span.fromString (missing-body-fact)",
+        "status": "declined",
+        "line": 3,
+        "offset": 99,
+        "length": 4,
+        "sourceEndLine": 3,
+        "col": 20
+      }
+    ],
+    "runtimeMs": [
+      13.31099999999985,
+      13.285999999999909,
+      13.294000000000139,
+      13.30600000000004,
+      13.285999999999909,
+      13.31099999999985,
+      13.281000000000098
+    ],
+    "variant": "direct"
+  },
+  {
+    "bytes": 1627,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "indexed-range: discharges inferred access bounds (1 <= index <= #values)",
+        "status": "fired",
+        "line": 4,
+        "offset": 166,
+        "length": 6,
+        "sourceEndLine": 4,
+        "col": 47
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: virtualizes one root (anchor=rooted-access)",
+        "status": "fired",
+        "line": 7,
+        "offset": 261,
+        "length": 4,
+        "sourceEndLine": 7,
+        "col": 57
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: transports view through static call",
+        "status": "fired",
+        "line": 7,
+        "offset": 290,
+        "length": 3,
+        "sourceEndLine": 7,
+        "col": 86
+      },
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: declines imported nupp.mem.span.fromString (missing-body-fact)",
+        "status": "declined",
+        "line": 7,
+        "offset": 261,
+        "length": 4,
+        "sourceEndLine": 7,
+        "col": 57
+      }
+    ],
+    "runtimeMs": [
+      13.294000000000139,
+      13.31199999999999,
+      13.314999999999522,
+      13.293,
+      13.344999999999274,
+      13.317999999999941,
+      13.31400000000027
+    ],
+    "variant": "local"
+  },
+  {
+    "bytes": 1679,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: imports borrowed helper xmviews.sum",
+        "status": "fired",
+        "line": 3,
+        "offset": 153,
+        "length": 13,
+        "sourceEndLine": 3,
+        "col": 86
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: virtualizes one root (anchor=rooted-access)",
+        "status": "fired",
+        "line": 3,
+        "offset": 124,
+        "length": 4,
+        "sourceEndLine": 3,
+        "col": 57
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "indexed-range: discharges inferred access bounds (1 <= index <= #values)",
+        "status": "fired",
+        "line": 3,
+        "offset": 153,
+        "length": 1,
+        "sourceEndLine": 3,
+        "col": 86
+      },
+      {
+        "code": "OPT-6",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "view-scalar-replacement: transports view through static call",
+        "status": "fired",
+        "line": 3,
+        "offset": 153,
+        "length": 13,
+        "sourceEndLine": 3,
+        "col": 86
+      },
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: declines imported nupp.mem.span.fromString (missing-body-fact)",
+        "status": "declined",
+        "line": 3,
+        "offset": 124,
+        "length": 4,
+        "sourceEndLine": 3,
+        "col": 57
+      }
+    ],
+    "runtimeMs": [
+      13.348999999999833,
+      13.353000000000392,
+      13.346000000000302,
+      13.342999999999883,
+      13.360000000000483,
+      13.349000000000721,
+      13.323999999999891
+    ],
+    "variant": "imported"
+  }
+]

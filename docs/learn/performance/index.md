@@ -905,8 +905,12 @@ downgrades, and SoA column projections combine their offsets without creating
 wrapper objects. The source owner stays alive for the accesses.
 
 Direct, nonrecursive local calls may pass or return views as flattened state.
-Recursive, exported, dynamic, foreign, cross-module, and `any` boundaries keep
-view objects, as do other returns, captures, and stores.
+An exact imported helper over borrowed, read-only scalar spans can use a private
+body with the same flattened arguments. The exported function keeps its checked
+entry point. Private copies are limited to four per caller module and 256 syntax
+nodes per body; unsupported operations, captures, stores, recursive calls,
+foreign calls, and `any` boundaries keep view objects. Optimization remarks
+identify the imported helper and the reason a boundary remains.
 :::
 
 ### `OPT-7`, single-return helpers
@@ -935,7 +939,12 @@ end
 ```
 :::
 
-The declaration remains for other callers.
+The declaration remains for other callers. Exact imported helpers with a closed
+scalar return expression can inline too. Their eligibility and body have separate
+cache keys: checking does not depend on an optimization body, and a caller which
+uses one records its exact digest. Imported expressions have a 48-node budget
+and use the same call-site growth limits as local helpers. Captures and
+arguments with effects keep their ordinary calls.
 
 Inlining also lets constants and branches simplify:
 

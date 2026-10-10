@@ -975,4 +975,143 @@ return Probe
     end
 end
 
+function M.importedBorrowedHelpersUseTheExistingScalarViewAbi()
+    local code, remarks, raw = compile(
+        [[
+local span = require("nupp.mem.span")
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(text: string): number
+    const values = span.fromString(text)
+    return D.sum(values)
+end
+return work
+]]
+    )
+    assert(not code:find("values=span.fromString(", 1, true), "the imported boundary does not materialize: " .. code)
+    assert(code:find("localfunction__nupp_view_", 1, true), "the borrowed helper has a private body: " .. code)
+    local found = false
+    for _, entry in ipairs(remarks) do
+        found = found or entry.msg:find("imports borrowed helper tests.fixtures.crossmodulefacts.sum", 1, true) ~= nil
+    end
+    assert(found, "the body dependency is attributed to the import")
+    local lines = {}
+    for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
+        lines[#lines + 1] = line
+    end
+    assert(lines[2]:find("local D", 1, true), "private insertion preserves original source lines: " .. raw)
+end
+
+function M.importedAccessBoundsStayCheckedWithoutCallerEvidence()
+    local code = compile(
+        [[
+local span = require("nupp.mem.span")
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(text: string, index: integer): integer
+    const values = span.fromString(text)
+    return D.get(values, index)
+end
+return work
+]]
+    )
+    assert(
+        code:find("_index", 1, true) or code:find("_check", 1, true),
+        "the private checked body keeps its bound test: " .. code
+    )
+end
+
+function M.privateViewGraphsRejectCyclesAndInvalidSlots()
+    local viewfacts = require("nupp.compiler.viewfacts")
+    local graph = {version = 1, root = 1, nodes = {{kind = "funcbody", children = {1}}}, definitions = {}, params = {}}
+    assert(viewfacts.instantiate(graph, {}, "bad", {line = 1, col = 1, offset = 1}) == nil)
+    graph.nodes[1].children = {2}
+    assert(viewfacts.instantiate(graph, {}, "bad", {line = 1, col = 1, offset = 1}) == nil)
+    graph.nodes[1].children = {}
+    graph.params = {1}
+    assert(viewfacts.instantiate(graph, {}, "bad", {line = 1, col = 1, offset = 1}) == nil)
+end
+
+function M.privateViewBodiesRejectEscapingTablesAndViewReassignment()
+    local viewfacts = require("nupp.compiler.viewfacts")
+    for _, operation in ipairs({
+        "return {values}",
+        "values = other return 0",
+        "return (values as any)",
+        "return values == other"
+    }) do
+        local result = checked(
+            [[local span = require("nupp.mem.span")
+local function work(borrows values: span.Span<uint8>, borrows other: span.Span<uint8>): any
+]]
+            .. operation
+            .. "\nend\nreturn work"
+        )
+        local info = result.analysis.functions[1]
+        local artifact = viewfacts.infer(info.body)
+        assert(not artifact.nodes, "unsupported runtime operations must not be erased as type syntax")
+    end
+end
+
+function M.importedPrivateViewsPreserveCheckedFailures()
+    local file = assert(io.open(HERE .. "/fixtures/crossmodulefacts.nupp", "r"))
+    local provider = checked(file:read("*a"));
+    file:close()
+    local providerCode = gen.generate(provider, "provider")
+    local old = package.loaded["tests.fixtures.crossmodulefacts"]
+    local ok, problem = pcall(function()
+        package.loaded["tests.fixtures.crossmodulefacts"] = assert(loadstring(providerCode))()
+        local source = [[
+local span = require("nupp.mem.span")
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(text: string, index: integer): integer
+    const values = span.fromString(text)
+    return D.get(values, index)
+end
+return work
+]]
+        local _, _, plainCode = compile(source, {level = 0})
+        local _, _, fastCode = compile(source, {level = 1})
+        local plain, fast = assert(loadstring(plainCode))(), assert(loadstring(fastCode))()
+        for _, text in ipairs({"", "a", "abc"}) do
+            for _, index in ipairs({0, 1, 2, 3, 4}) do
+                local a, av = pcall(plain, text, index)
+                local b, bv = pcall(fast, text, index)
+                testAssert.equal(a, b, "the checked path fails on the same inputs")
+                if a then
+                    testAssert.equal(av, bv)
+                else
+                    assert(tostring(av):find("span index out of bounds", 1, true), av)
+                    assert(tostring(bv):find("span index out of bounds", 1, true), bv)
+                end
+            end
+        end
+    end)
+    package.loaded["tests.fixtures.crossmodulefacts"] = old
+    assert(ok, problem)
+end
+
+function M.privateArtifactsRejectWideAndMultilineLiterals()
+    local viewfacts = require("nupp.compiler.viewfacts")
+    local inlinefacts = require("nupp.compiler.inlinefacts")
+    for _, case in ipairs({
+        {result = "uint64", expression = "5"},
+        {result = "string", expression = "[=[first\nsecond]=]"},
+    }) do
+        for _, view in ipairs({false, true}) do
+            local parameter = view and "borrows values: span.Span<uint8>" or "value: number"
+            local result = checked(
+                'local span = require("nupp.mem.span")\nlocal function work('
+                .. parameter
+                .. "): "
+                .. case.result
+                .. " return "
+                .. case.expression
+                .. " end\nreturn work"
+            )
+            local body = result.analysis.functions[1].body
+            local artifact = view and viewfacts.infer(body) or inlinefacts.infer(body)
+            assert(artifact.reason, "wide and multiline literals keep their original checked body")
+        end
+    end
+end
+
 return M

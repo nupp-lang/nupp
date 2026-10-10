@@ -55,9 +55,9 @@ function M.damagedBuildStateIsAnEmptyCacheRatherThanAnException()
     local dir = tempProject({})
     local path = dir .. "/state.json"
     for _, text in ipairs({
-        [[{"version":5,"modules":"bad","dependencies":{},"outputs":{},"targets":{}}]],
-        [[{"version":5,"modules":{"m":"bad"},"dependencies":{},"outputs":{},"targets":{}}]],
-        [[{"version":5,"modules":{},"dependencies":{},"outputs":{},"targets":{"app":[null,"x"]}}]],
+        [[{"version":6,"modules":"bad","dependencies":{},"outputs":{},"targets":{}}]],
+        [[{"version":6,"modules":{"m":"bad"},"dependencies":{},"outputs":{},"targets":{}}]],
+        [[{"version":6,"modules":{},"dependencies":{},"outputs":{},"targets":{"app":[null,"x"]}}]],
     }) do
         local file = assert(io.open(path, "wb"))
         file:write(text)
@@ -163,9 +163,10 @@ end
 -- for that tree alone, and an edit on either side has to move it.
 function M.theToolStampCoversTheToolsTreeAsWellAsTheCompilers()
     local dir = tempProject({
-        ["nupp/compiler/project/fingerprint.lua"] = assert(
-            io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb")
-        ):read("*a"),
+        [
+            "nupp/compiler/project/fingerprint.lua"
+        ] = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
+            :read("*a"),
         ["nupp/compiler/one.lua"] = "return 1\n",
         ["nupp/tools/two.lua"] = "return 2\n",
     })
@@ -209,10 +210,9 @@ function M.aKeptGraphIsNotReusedAcrossAnEditBesideTheCompiler()
     local function stamp()
         local prior = package.loaded["nupp.compiler.project.fingerprint"]
         local ok, result = pcall(function()
-            return dofile(dir .. "/nupp/compiler/project/fingerprint.lua").subsystemFingerprint(
-                {"nupp.compiler.entry"},
-                cacheDir
-            )
+            return dofile(
+                dir .. "/nupp/compiler/project/fingerprint.lua"
+            ).subsystemFingerprint({"nupp.compiler.entry"}, cacheDir)
         end)
         package.loaded["nupp.compiler.project.fingerprint"] = prior
         assert(ok, result)

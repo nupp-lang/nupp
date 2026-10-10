@@ -1342,4 +1342,105 @@ function M.stagingACarriedModuleChecksNothingAgain()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.importedInliningObservesBodiesOnlyDuringOptimization()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'"))
+    local dep, main = dir .. "/dep.nupp", dir .. "/main.nupp"
+
+    local function write(path, source)
+        local out = assert(io.open(path, "w"));
+        out:write(source);
+        out:close()
+    end
+
+    local provider = "local M = {}\nfunction M.scale(value: number): number return value * 2 end\nreturn M"
+    write(dep, provider)
+    write(
+        main,
+        "local D = require('dep')\n@jit\nlocal function work(value: number): number return D.scale(value) end\nreturn work"
+    )
+    local ok, err = pcall(function()
+        local inc = incremental.new(dir, {cache = false})
+        local checked = inc.checkFile(main)
+
+        local function bodyDependency()
+            for _, edge in ipairs(inc.projectDependencies(main)) do
+                if edge.name == "moduleCallableFact" and edge.key == "dep\0scale\0inlineBody" then
+                    return edge.fingerprint
+                end
+            end
+        end
+
+        assert(not bodyDependency(), "checking does not consume an optimization body")
+        local optimize = require("nupp.compiler.lua.optimize")
+        local gen = require("nupp.compiler.lua.gen")
+        optimize.run(checked.result, {level = 1})
+        local before = assert(bodyDependency(), "inlining records its exact body dependency")
+        local first = gen.generate(checked.result, main)
+        assert(first:find("value * 2", 1, true), first)
+        local count = inc.q.stats.checkModule
+        inc.changeDocument(dep, provider:gsub("value %* 2", "value * 3"))
+        local nextCheck = inc.checkFile(main)
+        testAssert.equal(inc.q.stats.checkModule, count + 1, "a private body change does not recheck the importer")
+        optimize.run(nextCheck.result, {level = 1})
+        assert(bodyDependency() ~= before, "the emission dependency changed")
+        local second = gen.generate(nextCheck.result, main)
+        assert(second:find("value * 3", 1, true), "re-emission uses the new body: " .. second)
+    end)
+    os.execute("rm -rf '" .. dir .. "'")
+    if not ok then
+        error(err, 0)
+    end
+end
+
+function M.importedConstantFoldingRefreshesAfterPrivateBodyChanges()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'"))
+    local dep, main = dir .. "/dep.nupp", dir .. "/main.nupp"
+
+    local function write(path, source)
+        local out = assert(io.open(path, "w"));
+        out:write(source);
+        out:close()
+    end
+
+    local provider = "local M = {}\nfunction M.scale(value: number): number return value * 2 end\nreturn M"
+    write(dep, provider)
+    write(main, "local D = require('dep')\nreturn D.scale(2) + 1")
+    local ok, err = pcall(function()
+        local inc = incremental.new(dir, {cache = false})
+        local checked = inc.checkFile(main)
+
+        local function bodyDependency()
+            for _, edge in ipairs(inc.projectDependencies(main)) do
+                if edge.name == "moduleCallableFact" and edge.key == "dep\0scale\0inlineBody" then
+                    return edge.fingerprint
+                end
+            end
+        end
+
+        assert(not bodyDependency(), "checking does not consume an optimization body")
+        local optimize = require("nupp.compiler.lua.optimize")
+        local gen = require("nupp.compiler.lua.gen")
+        optimize.run(checked.result, {level = 1})
+        local before = assert(bodyDependency(), "inlining records its exact body dependency")
+        local first = gen.generate(checked.result, main)
+        assert(first:find("return 5", 1, true), first)
+        local count = inc.q.stats.checkModule
+        inc.changeDocument(dep, provider:gsub("value %* 2", "value * 3"))
+        local nextCheck = inc.checkFile(main)
+        testAssert.equal(inc.q.stats.checkModule, count + 1, "a private body change does not recheck the importer")
+        optimize.run(nextCheck.result, {level = 1})
+        assert(bodyDependency() ~= before, "the emission dependency changed")
+        local second = gen.generate(nextCheck.result, main)
+        assert(second:find("return 7", 1, true), "re-emission uses the new body: " .. second)
+    end)
+    os.execute("rm -rf '" .. dir .. "'")
+    if not ok then
+        error(err, 0)
+    end
+end
+
 return M

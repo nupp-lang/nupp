@@ -1030,4 +1030,41 @@ function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
     testAssert.equal(settings.sampledHeat.unattributedSamples, 125, "C-only samples remain visible")
 end
 
+function M.privateImportedBodiesInvalidateEmissionAcrossDiskBuilds()
+    local provider = "local M = {} function M.scale(value: number): number return value * 2 end return M"
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}',
+        ["dep.nupp"] = provider,
+        [
+            "main.nupp"
+        ] = 'local D = require("dep") local function work(value: number): number return D.scale(value) end return work',
+        ["unrelated.nupp"] = 'return 17',
+    })
+    local command = ("cd '%s' && NUPP_CHECK_JOBS=1 '%s' build -O1 --json"):format(dir, NUPP)
+
+    local function build()
+        local report = json.decode(captureJson(command))
+        assert(report.ok, json.encode(report))
+        return report
+    end
+
+    local first = build()
+    assert(first.timing.optimizerFacts.consumed > 0, "fact dependencies are observable")
+    assert(first.timing.optimizerFacts.families.inlineBody > 0, "private body is observed")
+    local code = read(dir .. "/build/main.lua")
+    assert(code:find("value * 2", 1, true), code)
+    local warm = build()
+    assert(warm.timing.compiledModules == 0, "a disk-warm build does no checking")
+    local file = assert(io.open(dir .. "/dep.nupp", "w"))
+    file:write((provider:gsub("value %* 2", "value * 3")));
+    file:close()
+    build()
+    local changed = read(dir .. "/build/main.lua")
+    assert(changed:find("value * 3", 1, true), "body observation invalidates emission: " .. changed)
+    os.execute("rm -rf '" .. dir .. "/build/cache'")
+    build()
+    testAssert.equal(read(dir .. "/build/main.lua"), changed, "cache deletion preserves generated code")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M

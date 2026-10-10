@@ -704,6 +704,41 @@ function M.sessionRejectsSemanticSignatureChangesWithTheSameSpelling()
     assert(result.diagnostics[1].msg:find("required by main", 1, true), result.diagnostics[1].msg)
 end
 
+function M.sessionRechecksCallableFactsWithoutTreatingThemAsAbi()
+    for _, guarded in ipairs({false, true}) do
+        local body = "return dependency.identity(value)"
+        if guarded then
+            body = "@noalloc do " .. body .. " end"
+        end
+        local dir = temporaryProject({
+            [
+                "dependency.nupp"
+            ] = "local M = {}\nfunction M.identity(value: integer): integer return value end\nreturn M",
+            [
+                "main.nupp"
+            ] = "local dependency = require('dependency')\nlocal function work(value: integer): integer "
+            .. body
+            .. " end\nreturn work",
+        })
+        local path = dir .. "/dependency.nupp"
+        local session = loadedCompilerSession(dir, dir .. "/main.nupp")
+        write(
+            path,
+            "local M = {}\nfunction M.identity(value: integer): integer local allocated = {value}; return value end\nreturn M"
+        )
+        session:diskChanged(path, 2)
+        local result = session:prepare({path})
+        testAssert.equal(result.kind, guarded and "diagnostics" or "no-change")
+        if guarded then
+            local found = false
+            for _, diagnostic in ipairs(result.diagnostics) do
+                found = found or diagnostic.code == "NUPP2710"
+            end
+            assert(found, "changed inferred effects revalidate loaded caller guards")
+        end
+    end
+end
+
 function M.sessionNamesTheImportedModuleWhoseInterfaceChanged()
     local dir = temporaryProject({
         [
@@ -803,7 +838,13 @@ function M.sessionKeysCDeclarationsIndependentOfOrder()
 
     write(path, after)
     session:diskChanged(path, 2)
-    testAssert.equal(session:prepare({path}).kind, "no-change", "declaration order is not part of keyed C ABI semantics")
+    testAssert.equal(
+        session:prepare({
+            path
+        }).kind,
+        "no-change",
+        "declaration order is not part of keyed C ABI semantics"
+    )
 end
 
 function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
@@ -823,7 +864,13 @@ function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
 
     write(path, equivalent)
     session:diskChanged(path, 2)
-    testAssert.equal(session:prepare({path}).kind, "no-change", "equivalent library literal spelling changes C identity")
+    testAssert.equal(
+        session:prepare({
+            path
+        }).kind,
+        "no-change",
+        "equivalent library literal spelling changes C identity"
+    )
 
     write(path, changed)
     session:diskChanged(path, 3)
@@ -1055,7 +1102,13 @@ function M.sessionObservesHeaderSemanticsAndIgnoresComments()
 
     write(headerPath, "/* spelling only */\nint hot_header_value(void);\n")
     session:diskChanged(absoluteHeader, 2)
-    testAssert.equal(session:prepare({absoluteHeader}).kind, "no-change", "comment-only header edit has the same declarations")
+    testAssert.equal(
+        session:prepare({
+            absoluteHeader
+        }).kind,
+        "no-change",
+        "comment-only header edit has the same declarations"
+    )
 
     write(headerPath, "long hot_header_value(void);\n")
     session:diskChanged(absoluteHeader, 2)
@@ -1285,6 +1338,7 @@ function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     local apiPath = fs.canonical(dir .. "/api.h")
     local nestedPath = fs.canonical(dir .. "/nested.h")
     local session = loadedCompilerSession(dir, sourcePath)
+
     local function isWatched(path)
         for _, input in ipairs(session:watchedInputs()) do
             if input.path == path then
@@ -1321,9 +1375,7 @@ local function hostProject(source)
 end
 
 function M.hostSessionCommitsAnEditThroughARetainedMember()
-    local session, _, path = hostProject(
-        "local function update(): integer return 41 end\nreturn {update = update}\n"
-    )
+    local session, _, path = hostProject("local function update(): integer return 41 end\nreturn {update = update}\n")
     local update = session.member("update")
     testAssert.equal(update(), 41, "the member answers before the edit")
     write(path, "local function update(): integer return 42 end\nreturn {update = update}\n")
@@ -1344,9 +1396,7 @@ function M.hostSessionReportsNoChangeWhenNothingMoved()
 end
 
 function M.hostSessionRejectionKeepsTheRunningGeneration()
-    local session, _, path = hostProject(
-        "local function update(): integer return 1 end\nreturn {update = update}\n"
-    )
+    local session, _, path = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
     local update = session.member("update")
     write(path, "local function update(): integer return \"two\" end\nreturn {update = update}\n")
     local verdict, generation, message = session.poll()
@@ -1358,10 +1408,11 @@ function M.hostSessionRejectionKeepsTheRunningGeneration()
 end
 
 function M.hostSessionReportsStructuralChangesAsRestartRequired()
-    local session, _, path = hostProject(
-        "local function update(): integer return 1 end\nreturn {update = update}\n"
+    local session, _, path = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
+    write(
+        path,
+        "local added: integer = 2\nlocal function update(): integer return added end\nreturn {update = update}\n"
     )
-    write(path, "local added: integer = 2\nlocal function update(): integer return added end\nreturn {update = update}\n")
     local verdict, generation, message = session.poll()
     session.close(true)
     testAssert.equal(verdict, "restart-required")
@@ -1371,7 +1422,9 @@ end
 
 function M.hostSessionRefusesAnEntryThatDoesNotCheck()
     hot.resetForTesting()
-    local dir = temporaryProject({["main.nupp"] = "local function update(): integer return \"one\" end\nreturn update\n"})
+    local dir = temporaryProject({
+        ["main.nupp"] = "local function update(): integer return \"one\" end\nreturn update\n"
+    })
     local session, failure = hostreloadModule.open("main.nupp", dir)
     testAssert.equal(session, nil, "an entry that does not check opens nothing")
     assert(failure and failure:find("NUPP", 1, true), "the failure names its diagnostic: " .. tostring(failure))
@@ -1395,7 +1448,10 @@ function M.hostSessionNamesAnEntryItCannotRead()
     local dir = temporaryProject({})
     local session, failure = hostreloadModule.open("absent.nupp", dir)
     testAssert.equal(session, nil)
-    assert(failure and failure:find("NUPP0001", 1, true), "an unreadable entry reports a diagnostic: " .. tostring(failure))
+    assert(
+        failure and failure:find("NUPP0001", 1, true),
+        "an unreadable entry reports a diagnostic: " .. tostring(failure)
+    )
 end
 
 function M.aPatchDoesNotDisturbTheLoadedModuleTable()

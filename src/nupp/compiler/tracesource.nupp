@@ -92,18 +92,29 @@ local function callsIn(info, queries, checker): {any}, {any}
         end
         if node.kind == "call" or node.kind == "methodCall" then
             local callee = queries.callee(node)
-            if callee then
+            if callee and callee ~= node.importedEffects then
                 edges[#edges + 1] = {at = node, callee = callee}
             else
                 local obj = node.obj
                 local exact = obj and obj.exactCallExport
                     or obj and obj.token and obj.token.definition and obj.token.definition.exactCallExport
                     or nil
-                local imported = exact
-                    and checker.env
-                    and checker.env.resolveCallGuarantees
-                    and checker.env.resolveCallGuarantees(checker.env, exact.module, exact.member)
-                    or nil
+                if node.unstableCall then
+                    exact = nil
+                end
+                local imported
+                if exact and checker.env and checker.env.resolveCallableFact then
+                    local resolve = checker.env.resolveCallableFact
+                    local profile = resolve(checker.env, exact.module, exact.member, "traceProfileId")
+                    if profile then
+                        imported = {
+                            identity = resolve(checker.env, exact.module, exact.member, "identity") or exact.identity,
+                            traceFindings = resolve(checker.env, exact.module, exact.member, "traceFindings")
+                        }
+                    end
+                elseif exact and checker.env and checker.env.resolveCallGuarantees then
+                    imported = checker.env.resolveCallGuarantees(checker.env, exact.module, exact.member)
+                end
                 if imported then
                     edges[#edges + 1] = {at = node, imported = imported}
                 else

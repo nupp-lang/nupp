@@ -337,4 +337,353 @@ function M.unobservingDependantsIgnoreBodyOnlyGuaranteeChanges()
     end)
 end
 
+function M.importedEffectsComposeThroughWrappers()
+    withProject(
+        "local D = require('dep')\nlocal function wrapper(): nil D.quiet() end\n@noraise do wrapper() end",
+        function(inc, _, path)
+            local checked = inc.checkFile(path)
+            for _, diag in ipairs(checked.diags) do
+                assert(diag.code ~= "NUPP2711", diag.msg)
+            end
+            local observed = false
+            for _, dep in ipairs(inc.projectDependencies(path)) do
+                if dep.name == "moduleCallableFact" and dep.key == "dep\0quiet\0callableEffects" then
+                    observed = true
+                end
+            end
+            assert(observed, "the wrapper observes the exported effects family")
+        end
+    )
+end
+
+function M.effectFactsCutOffUnchangedAndUnrelatedBodies()
+    withProject(
+        "local D = require('dep')\nlocal function wrapper(): nil D.quiet() end\n@noraise do wrapper() end",
+        function(inc, depPath, path)
+            inc.checkFile(path)
+            local before = inc.q.stats.checkModule
+            inc.changeDocument(depPath, PROVIDER:gsub("local n = 1", "local n = 2"))
+            inc.checkFile(path)
+            testAssert.equal(inc.q.stats.checkModule, before + 1, "same effects do not invalidate their observer")
+            before = inc.q.stats.checkModule
+            inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 2"))
+            inc.checkFile(path)
+            testAssert.equal(inc.q.stats.checkModule, before + 1, "another export does not invalidate this observer")
+            inc.changeDocument(depPath, PROVIDER:gsub("local n = 1", "error('changed')"))
+            local changed = inc.checkFile(path)
+            local refused = false
+            for _, diag in ipairs(changed.diags) do
+                refused = refused or diag.code == "NUPP2711"
+            end
+            assert(refused, "a newly raising dependency invalidates the wrapper")
+        end
+    )
+end
+
+function M.importedRegionAndReturnPathsUseArgumentPositions()
+    withProject(
+        "local D = require('dep')\nlocal M = {}\nfunction M.forward(target: {n: number}): {n: number} return D.change(target) end\nreturn M",
+        function(inc, depPath, path)
+            inc.changeDocument(
+                depPath,
+                "local M = {}\nfunction M.change(value: {n: number}): {n: number} value.n = 1 return value end\nreturn M"
+            )
+            local checked = inc.checkFile(path)
+            local fact = checked.exports.callGuarantees.forward.callableEffects
+            assert(fact and fact.summary and not fact.summary.top, "imported effects remain visible")
+            assert(fact.summary.writes["target[*]"], "writes substitute the actual parameter")
+            assert(fact.summary.returns["1=target"], "return aliases substitute the actual parameter")
+        end
+    )
+end
+
+local RELATIONAL_PROVIDER = [[
+local span = require("nupp.mem.span")
+local M = {}
+function M.get(borrows values: span.Span<uint8>, index: integer): integer
+    return values[index]
+end
+function M.loud(borrows values: span.Span<uint8>, index: integer): integer
+    local value = values[index]
+    error("still raises")
+    return value
+end
+function M.find(borrows values: span.Span<uint8>, wanted: integer): integer?
+    for index = 1, #values do
+        if values[index] == wanted then return index end
+    end
+    return nil
+end
+return M
+]]
+local RELATIONAL_CALLER = [[
+local span = require("nupp.mem.span")
+local D = require("dep")
+const values = span.fromString("abc")
+]]
+
+local function relationRefusals(body, transform)
+    local found = {}
+    withProject(RELATIONAL_CALLER .. body, function(inc, depPath, path)
+        inc.changeDocument(depPath, transform and transform(RELATIONAL_PROVIDER) or RELATIONAL_PROVIDER)
+        local checked = inc.checkFile(path)
+        for _, diag in ipairs(checked.diags) do
+            if diag.code == "NUPP2711" then
+                found[#found + 1] = diag
+            end
+        end
+    end)
+
+    return found
+end
+
+function M.importedBoundsDischargeOnlyTheBoundFailure()
+    local found = relationRefusals(
+        [[
+for i = 1, #values do
+    @noraise do local value = D.get(values, i) end
+    @noraise do local value = D.loud(values, i) end
+end
+local checked = D.get(values, 99)
+@noraise do local unproved = D.get(values, 99) end
+]]
+    )
+    testAssert.equal(#found, 2, "other raises and unproved calls remain checked")
+end
+
+function M.returnedBoundsNeedTheNonNilAlternative()
+    local found = relationRefusals(
+        [[
+const index = D.find(values, 98)
+if index ~= nil then
+    @noraise do local value = values[index] end
+end
+@noraise do local value = values[index as integer] end
+]]
+    )
+    testAssert.equal(#found, 1, "a return fact holds only on its matching alternative")
+end
+
+function M.unknownCallsAndReassignmentDiscardReturnBounds()
+    local found = relationRefusals(
+        [[
+local index = D.find(values, 98)
+if index ~= nil then
+    index = 100
+    @noraise do local value = values[index] end
+end
+const again = D.find(values, 98)
+if again ~= nil then
+    unknown()
+    @noraise do local value = values[again] end
+end
+]]
+    )
+    testAssert.equal(#found, 2, "stale evidence cannot discharge an access")
+end
+
+function M.oneUnboundedReturnRemovesTheGuarantee()
+    local found = relationRefusals(
+        [[
+const index = D.find(values, 98)
+if index ~= nil then
+    @noraise do local value = values[index] end
+end
+]],
+        function(source)
+            return source:gsub("return nil", "return 999")
+        end
+    )
+    testAssert.equal(#found, 1, "all normal returns must establish the relationship")
+end
+
+function M.replacedImportedCalleesCannotKeepBoundsProofs()
+    local found = relationRefusals(
+        [[
+D.get = function(borrows input: span.Span<uint8>, at: integer): integer
+    error("replacement")
+    return 0
+end
+for index = 1, #values do
+    @noraise do local value = D.get(values, index) end
+end
+]]
+    )
+    testAssert.equal(#found, 1, "a replacement cannot inherit the original helper's proof")
+end
+
+function M.providerReplacementDoesNotPublishOneBodyAsTheCallable()
+    local found = relationRefusals(
+        "for index = 1, #values do @noraise do local value = D.get(values, index) end end",
+        function(source)
+            source = source:gsub("return values%[index%]", 'error("original") return values[index]', 1)
+            return source:gsub(
+                "return M",
+                [[
+function M.replace(): nil
+    M.get = function(borrows values: span.Span<uint8>, index: integer): integer
+        return values[index]
+    end
+end
+return M]]
+            )
+        end
+    )
+    testAssert.equal(#found, 1, "an optional provider mutation does not replace the initial callable's effects")
+end
+
+function M.explicitCallerAssertionsEstablishBounds()
+    local found = relationRefusals(
+        [[
+local function work(index: integer): integer
+    assert(index >= 1 and index <= #values)
+    @noraise do return D.get(values, index) end
+end
+return work
+]]
+    )
+    testAssert.equal(#found, 0, "the ordinary executable assertion establishes a later fact")
+end
+
+function M.conditionalWorkCannotLeakBoundsToItsContinuation()
+    local found = relationRefusals(
+        [[
+local function work(index: integer, enabled: boolean): integer
+    while enabled do
+        assert(index >= 1 and index <= #values)
+        break
+    end
+    @noraise do return D.get(values, index) end
+end
+return work
+]]
+    )
+    testAssert.equal(#found, 1, "a zero-iteration loop establishes no fact after itself")
+end
+
+function M.aNestedBoundFailureIsNotDischargedByAnUnrelatedAccess()
+    local found = relationRefusals(
+        [[
+for index = 1, #values do
+    @noraise do local value = D.combined(values, index, 99) end
+end
+]],
+        function(source)
+            return source:gsub(
+                "return M",
+                [[
+function M.combined(borrows values: span.Span<uint8>, index: integer, other: integer): integer
+    return values[index] + M.get(values, other)
+end
+return M]]
+            )
+        end
+    )
+    testAssert.equal(#found, 1, "the nested access still needs its own proof")
+end
+
+function M.returnFactsInvalidateWhenLostOrGainedAndIgnoreUnrelatedBodies()
+    withProject(
+        RELATIONAL_CALLER
+        .. [[
+const index = D.find(values, 98)
+if index ~= nil then @noraise do local value = values[index] end end
+]],
+        function(inc, dep, main)
+            local function count()
+                local total = 0
+                for _, diag in ipairs(inc.checkFile(main).diags) do
+                    if diag.code == "NUPP2711" then
+                        total = total + 1
+                    end
+                end
+
+                return total
+            end
+
+            inc.changeDocument(dep, RELATIONAL_PROVIDER)
+            testAssert.equal(count(), 0)
+            require("nupp.compiler.lua.optimize").run(inc.checkFile(main).result, {level = 1})
+            local checks = inc.q.stats.checkModule
+            inc.changeDocument(dep, RELATIONAL_PROVIDER .. "\n-- unchanged facts\n")
+            testAssert.equal(count(), 0)
+            testAssert.equal(inc.q.stats.checkModule, checks + 1)
+            inc.changeDocument(dep, RELATIONAL_PROVIDER:gsub("return nil", "return 999"))
+            testAssert.equal(count(), 1, "a lost result fact invalidates its consumer")
+            inc.changeDocument(dep, RELATIONAL_PROVIDER)
+            testAssert.equal(count(), 0, "an unknown result becoming known also invalidates")
+        end
+    )
+end
+
+function M.escapedNamespaceAliasesLoseTheirCallableFacts()
+    local found = relationRefusals(
+        [[
+local alias = D
+unknown({alias})
+for index = 1, #values do
+    @noraise do local value = D.get(values, index) end
+end
+]]
+    )
+    testAssert.equal(#found, 1, "a namespace inside an escaped container can be mutated")
+end
+
+function M.forgedArgumentMappingsDoNotEstablishBounds()
+    local source = [[
+local span = require("nupp.mem.span")
+local D = require("tests.fixtures.crossmodulefacts")
+const values = span.fromString("abc")
+for index = 1, #values do
+    @noraise do local value = D.get(values, 99) end
+end
+]]
+    local env = envMod.new(HERE .. "/..")
+    env.resolveCallableFact = function(self, module, member, family)
+        if module == "tests.fixtures.crossmodulefacts" and family == "callableRelations" then
+            return {version = 1, complete = true, accesses = {{view = 1, index = 999}}}
+        end
+        return envMod.resolveCallableFact(self, module, member, family)
+    end
+    local parsed = parser.parse(source, "forged.g.nupp")
+    local found = 0
+    for _, diag in ipairs(check.check(parsed, "forged.g.nupp", env)) do
+        if diag.code == "NUPP2711" then
+            found = found + 1
+        end
+    end
+    testAssert.equal(found, 1, "invalid mappings remain conservative")
+end
+
+function M.importedSemanticEffectsDoNotHideTraceFindings()
+    withProject(
+        [[
+local D = require("dep")
+@jit
+local function hot(items: {integer}): nil D.helper(items) end
+return hot
+]],
+        function(inc, dep, main)
+            inc.changeDocument(
+                dep,
+                [[
+local M = {}
+function M.helper(items: {integer}): nil
+    for _, item in ipairs(items) do
+        register(function(): integer return item end)
+    end
+end
+return M
+]]
+            )
+            local found = false
+            for _, diag in ipairs(inc.checkFile(main).diags) do
+                found = found
+                or diag.code == "NUPP2707" and diag.msg:find("jit/loop-function-construction", 1, true) ~= nil
+            end
+            assert(found, "an imported effect summary does not replace its trace summary")
+        end
+    )
+end
+
 return M

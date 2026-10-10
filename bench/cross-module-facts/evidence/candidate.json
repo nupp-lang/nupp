@@ -1,0 +1,322 @@
+[
+  {
+    "bytes": 1235,
+    "name": "numeric",
+    "checkMs": 3.255999999999981,
+    "variant": "direct",
+    "remarks": {},
+    "result": 150001,
+    "runtimeMs": [
+      0.024999999999997247,
+      0.024000000000024002,
+      0.02399999999996849,
+      0.024999999999997247,
+      0.022999999999995246,
+      0.02399999999996849,
+      0.024000000000024002
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1297,
+    "name": "numeric",
+    "checkMs": 4.3679999999999275,
+    "variant": "local",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines step",
+        "status": "fired",
+        "line": 2,
+        "offset": 166,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 96
+      }
+    ],
+    "result": 150001,
+    "runtimeMs": [
+      0.026999999999999247,
+      0.022999999999995246,
+      0.022999999999995246,
+      0.022999999999995246,
+      0.024000000000024002,
+      0.024000000000024002,
+      0.024000000000024002
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1269,
+    "name": "numeric",
+    "checkMs": 6.314000000000042,
+    "variant": "imported",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines xmdep.step",
+        "status": "fired",
+        "line": 2,
+        "offset": 125,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 98
+      }
+    ],
+    "result": 150001,
+    "runtimeMs": [
+      0.022999999999995246,
+      0.024000000000024002,
+      0.024999999999941735,
+      0.022999999999995246,
+      0.025000000000052758,
+      0.024999999999941735,
+      0.024000000000024002
+    ],
+    "rechecks": 1
+  },
+  {
+    "bytes": 1256,
+    "name": "hash",
+    "checkMs": 4.286000000000012,
+    "variant": "direct",
+    "remarks": {},
+    "result": 33104,
+    "runtimeMs": [
+      0.1420000000000865,
+      0.14100000000016877,
+      0.13999999999980695,
+      0.14099999999994672,
+      0.14099999999994672,
+      0.14100000000016877,
+      0.14199999999986446
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1343,
+    "name": "hash",
+    "checkMs": 6.861000000000006,
+    "variant": "local",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines step",
+        "status": "fired",
+        "line": 2,
+        "offset": 192,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 96
+      }
+    ],
+    "result": 33104,
+    "runtimeMs": [
+      0.144000000000144,
+      0.140000000000029,
+      0.140000000000029,
+      0.140000000000029,
+      0.13999999999980695,
+      0.1420000000000865,
+      0.140000000000029
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1294,
+    "name": "hash",
+    "checkMs": 6.99800000000006,
+    "variant": "imported",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines xmdep.step",
+        "status": "fired",
+        "line": 2,
+        "offset": 125,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 98
+      }
+    ],
+    "result": 33104,
+    "runtimeMs": [
+      0.14399999999992197,
+      0.14100000000016877,
+      0.14100000000016877,
+      0.14199999999986446,
+      0.14099999999994672,
+      0.14300000000000423,
+      0.14099999999994672
+    ],
+    "rechecks": 1
+  },
+  {
+    "bytes": 1231,
+    "name": "serializeByte",
+    "checkMs": 3.5160000000002967,
+    "variant": "direct",
+    "remarks": {},
+    "result": 160,
+    "runtimeMs": [
+      0.02700000000022129,
+      0.024999999999941735,
+      0.02299999999966218,
+      0.025000000000385825,
+      0.023999999999801958,
+      0.023999999999801958,
+      0.024000000000246047
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1289,
+    "name": "serializeByte",
+    "checkMs": 4.658999999999747,
+    "variant": "local",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines step",
+        "status": "fired",
+        "line": 2,
+        "offset": 162,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 96
+      }
+    ],
+    "result": 160,
+    "runtimeMs": [
+      0.026000000000081513,
+      0.02300000000010627,
+      0.024000000000246047,
+      0.023999999999801958,
+      0.02700000000022129,
+      0.036000000000147026,
+      0.02300000000010627
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1265,
+    "name": "serializeByte",
+    "checkMs": 5.6449999999999,
+    "variant": "imported",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines xmdep.step",
+        "status": "fired",
+        "line": 2,
+        "offset": 125,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 98
+      }
+    ],
+    "result": 160,
+    "runtimeMs": [
+      0.024999999999941735,
+      0.024999999999941735,
+      0.02300000000010627,
+      0.024999999999941735,
+      0.024000000000246047,
+      0.02300000000010627,
+      0.024000000000246047
+    ],
+    "rechecks": 1
+  },
+  {
+    "bytes": 1241,
+    "name": "componentStep",
+    "checkMs": 3.649999999999931,
+    "variant": "direct",
+    "remarks": {},
+    "result": 625006250,
+    "runtimeMs": [
+      0.058000000000113516,
+      0.05699999999997374,
+      0.05799999999966943,
+      0.05699999999997374,
+      0.058000000000113516,
+      0.058000000000113516,
+      0.05499999999969418
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1331,
+    "name": "componentStep",
+    "checkMs": 5.457999999999963,
+    "variant": "local",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines step",
+        "status": "fired",
+        "line": 2,
+        "offset": 208,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 96
+      }
+    ],
+    "result": 625006250,
+    "runtimeMs": [
+      0.053000000000302805,
+      0.05699999999997374,
+      0.05599999999983396,
+      0.059000000000253294,
+      0.05699999999997374,
+      0.058999999999809205,
+      0.05699999999997374
+    ],
+    "rechecks": 0
+  },
+  {
+    "bytes": 1275,
+    "name": "componentStep",
+    "checkMs": 7.457999999999743,
+    "variant": "imported",
+    "remarks": [
+      {
+        "code": "OPT-7",
+        "hotness": "unknown",
+        "severity": "note",
+        "msg": "inline-return-helper: inlines xmdep.step",
+        "status": "fired",
+        "line": 2,
+        "offset": 125,
+        "length": 1,
+        "sourceEndLine": 2,
+        "col": 98
+      }
+    ],
+    "result": 625006250,
+    "runtimeMs": [
+      0.059000000000253294,
+      0.058000000000113516,
+      0.05699999999997374,
+      0.05500000000013827,
+      0.05699999999997374,
+      0.05699999999997374,
+      0.058000000000113516
+    ],
+    "rechecks": 1
+  }
+]

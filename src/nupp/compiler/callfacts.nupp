@@ -1,0 +1,681 @@
+module nupp.compiler.callfacts
+
+-- Bounded facts over resolved bindings and sealed indexed views. A summary describes
+-- ordinary checked behavior; it never adds an obligation to a public signature.
+local cst = require("nupp.compiler.syntax.cst")
+local callfacts = {}
+local NESTED = {
+    localFuncStmt = true,
+    funcStmt = true,
+    inlineMethod = true,
+    constructorDecl = true,
+    funcExpr = true,
+    shortfn = true
+}
+local LIMIT = 32
+
+local function definition(node)
+    return node and node.kind == "name" and node.token and node.token.definition or nil
+end
+
+local function copy(source)
+    local out = {}
+    for key, value in pairs(source or {}) do
+        out[key] = value
+    end
+
+    return out
+end
+
+local function known(call, definitions)
+    if call and call.unstableCall then
+        return nil
+    end
+    local callee = call and call.obj
+
+    return definitions[definition(callee)]
+end
+
+local function validRelation(summary, arity)
+    if type(summary) ~= "table"
+        or summary.version ~= 1
+        or type(summary.accesses) ~= "table"
+        or #summary.accesses > LIMIT
+        or type(summary.complete) ~= "boolean"
+    then
+        return false
+    end
+
+    local function position(value)
+        return type(value) == "number" and value % 1 == 0 and value >= 1 and value <= arity
+    end
+
+    for _, access in ipairs(summary.accesses) do
+        if type(access) ~= "table" or not position(access.view) or not position(access.index) then
+            return false
+        end
+    end
+    local result = summary.result
+
+    return result == nil or type(result) == "table" and position(result.view) and result.alternative == "non-nil"
+end
+
+local function relation(call, definitions)
+    if call and call.unstableCall then
+        return nil
+    end
+    local info = known(call, definitions)
+
+    local summary = info and info.relations or call and call.importedRelations
+    local args = call and call.args and call.args.exprs or {}
+
+    return validRelation(summary, #args) and summary or nil
+end
+
+local function writes(root)
+    local out = {}
+
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "assignStmt" or node.kind == "compoundAssign" then
+            for _, target in ipairs(node.targets or {node.target}) do
+                local def = definition(target)
+                if def then
+                    out[def] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(root)
+
+    return out
+end
+
+local function one(node)
+    local token = node and cst.firstToken(node)
+    return node and node.kind == "number" and token and tonumber(token.text) == 1
+        or node and node.kind == "numberExpr" and token and tonumber(token.text) == 1
+end
+
+-- Each map entry is immutable once installed, so branching copies the outer map.
+local function walkBody(body, params, definitions, changed, annotate)
+    local accesses, seenAccess, complete = {}, {}, true
+    local returnedView, sawIndex, badReturn = nil, false, false
+    local visit
+
+    local function stable(def)
+        return def and not changed[def]
+    end
+
+    local function addPair(view, index)
+        local v, i = params[view], params[index]
+        if not v or not i or not stable(view) or not stable(index) then
+            complete = false
+            return
+        end
+        local key = tostring(v) .. ":" .. tostring(i)
+        if not seenAccess[key] then
+            seenAccess[key] = true
+            accesses[#accesses + 1] = {view = v, index = i}
+            if #accesses > LIMIT then
+                complete = false
+            end
+        end
+    end
+
+    local function addAccess(node)
+        local access = node.indexedAccess
+        if access and not node.rangeProvenNoRaise then
+            addPair(access.receiverDefinition, access.indexDefinition)
+        end
+    end
+
+    local function narrow(condition, facts, pending, positive)
+        if not condition then
+            return
+        end
+        local def = definition(condition)
+        if condition.kind == "binop" then
+            local op = condition.op and condition.op.kind
+            if op == "and" and positive or op == "or" and not positive then
+                narrow(condition.lhs, facts, pending, positive)
+                narrow(condition.rhs, facts, pending, positive)
+                return
+            end
+            if not positive then
+                op = ({["<"] = ">=", ["<="] = ">", [">"] = "<=", [">="] = "<", ["=="] = "~=", ["~="] = "=="})[op]
+            end
+            def = definition(condition.lhs)
+            if condition.rhs and condition.rhs.kind == "nilExpr" and op == "~=" then
+                if def and pending[def] then
+                    facts[def] = pending[def]
+                end
+                return
+            end
+            local t = condition.lhs and (condition.lhs.resolvedType or condition.lhs.inferredType)
+            if stable(def) and t and (t.tag == "integer" or t.tag == "int32" or t.tag == "uint32") then
+                local nextFacts = copy(facts[def])
+                local literal = condition.rhs and condition.rhs.kind == "number" and tonumber(condition.rhs.token.text)
+                if op == ">=" and literal == 1 or op == ">" and literal == 0 then
+                    nextFacts.__lower = true
+                end
+                local length = condition.rhs and condition.rhs.indexedLength
+                local view = length and length.receiverDefinition
+                local upper = copy(nextFacts.__upper)
+                if op == "<=" and stable(view) then
+                    upper[view] = true
+                end
+                nextFacts.__upper = upper
+                if nextFacts.__lower then
+                    for bounded in pairs(upper) do
+                        nextFacts[bounded] = true
+                    end
+                end
+                facts[def] = nextFacts
+            end
+            return
+        end
+        if positive and def and pending[def] then
+            facts[def] = pending[def]
+        end
+    end
+
+    local function callResult(call)
+        local summary = call and call.kind == "call" and relation(call, definitions)
+        local result = summary and summary.result
+        local args = call and call.args and call.args.exprs or {}
+        local view = result and definition(args[result.view])
+        if stable(view) then
+            return {[view] = true}
+        end
+
+        return nil
+    end
+
+    visit = function(node, facts, pending)
+        if not node or cst.isToken(node) or NESTED[node.kind] then
+            return false
+        end
+        local kind = node.kind
+        if kind == "block" then
+            for _, stat in ipairs(node.stats or {}) do
+                if visit(stat, facts, pending) then
+                    return true
+                end
+            end
+            return false
+        elseif kind == "fornumStmt" then
+            visit(node.start, facts, pending)
+            visit(node.stop, facts, pending)
+            local inner = copy(facts)
+            local var = node.var and node.var.definition
+            local length = node.stop and node.stop.indexedLength
+            local view = length and length.receiverDefinition
+            if not node.step and one(node.start) and stable(view) and stable(var) then
+                inner[var] = {[view] = true}
+            elseif not node.step
+                and node.start
+                and node.stop
+                and node.start.kind == "dotIndex"
+                and node.stop.kind == "dotIndex"
+                and node.start.name.text == "first"
+                and node.stop.name.text == "last"
+            then
+                local range = definition(node.start.obj)
+                local witness = range and range == definition(node.stop.obj) and range.indexedRangeWitness
+                if witness and stable(var) then
+                    inner[var] = copy(witness.views)
+                end
+            end
+            visit(node.body, inner, copy(pending))
+            -- A loop's calls can invalidate evidence established before the loop.
+            for key in pairs(facts) do
+                facts[key] = nil
+            end
+            for key in pairs(pending) do
+                pending[key] = nil
+            end
+            return false
+        elseif kind == "ifStmt" then
+            local remaining, remainingPending = copy(facts), copy(pending)
+            local exits, live, livePending = true, {}, {}
+            for _, clause in ipairs(node.clauses or {}) do
+                visit(clause.cond, remaining, remainingPending)
+                local branch = copy(remaining)
+                narrow(clause.cond, branch, remainingPending, true)
+                local branchPending = copy(remainingPending)
+                local done = visit(clause.body, branch, branchPending)
+                if not done then
+                    live[#live + 1] = branch;
+                    livePending[#livePending + 1] = branchPending
+                    exits = false
+                end
+                narrow(clause.cond, remaining, remainingPending, false)
+            end
+            if node.elseClause then
+                local done = visit(node.elseClause.body, remaining, remainingPending)
+                if not done then
+                    live[#live + 1] = remaining;
+                    livePending[#livePending + 1] = remainingPending
+                    exits = false
+                end
+            else
+                live[#live + 1] = remaining;
+                livePending[#livePending + 1] = remainingPending
+                exits = false
+            end
+            for key in pairs(facts) do
+                facts[key] = nil
+            end
+            for key, views in pairs(live[1] or {}) do
+                local common = copy(views)
+                for i = 2, #live do
+                    for view in pairs(common) do
+                        if not live[i][key] or not live[i][key][view] then
+                            common[view] = nil
+                        end
+                    end
+                end
+                common.__lower, common.__upper = nil, nil
+                if next(common) then
+                    facts[key] = common
+                end
+            end
+            -- Pending alternatives survive only a branch which has not called out.
+            for key in pairs(pending) do
+                for _, branchPending in ipairs(livePending) do
+                    if not branchPending[key] then
+                        pending[key] = nil;
+                        break
+                    end
+                end
+            end
+            return exits
+        elseif kind == "localStmt" then
+            for _, expr in ipairs(node.exprs or {}) do
+                visit(expr, facts, pending)
+            end
+            if #(node.names or {}) == 1 and #(node.exprs or {}) == 1 then
+                local def, value = node.names[1].definition, node.exprs[1]
+                if stable(def) then
+                    local source = definition(value)
+                    facts[def] = source and facts[source] or nil
+                    pending[def] = callResult(value) or source and pending[source] or nil
+                end
+            end
+            return false
+        elseif kind == "returnStmt" then
+            for _, expr in ipairs(node.exprs or {}) do
+                visit(expr, facts, pending)
+            end
+            local value = #(node.exprs or {}) == 1 and node.exprs[1]
+            if value and value.kind ~= "nilExpr" then
+                local views = facts[definition(value)] or pending[definition(value)] or callResult(value)
+                local selected
+                for view in pairs(views or {}) do
+                    if params[view] and (not selected or params[view] < selected) then
+                        selected = params[view]
+                    end
+                end
+                if not selected or returnedView and returnedView ~= selected then
+                    badReturn = true
+                end
+                returnedView, sawIndex = selected or returnedView, true
+            elseif #(node.exprs or {}) > 1 then
+                badReturn = true
+            end
+            return true
+        elseif kind == "call" or kind == "methodCall" or kind == "safeCall" then
+            for _, child in ipairs(node) do
+                visit(child, facts, pending)
+            end
+            local summary = relation(node, definitions)
+            local args = node.args and node.args.exprs or {}
+            local proved = summary and summary.complete and #(summary.accesses or {}) > 0
+            for _, access in ipairs(summary and summary.accesses or {}) do
+                local view, index = definition(args[access.view]), definition(args[access.index])
+                proved = proved and view and index and facts[index] and facts[index][view] and true or false
+            end
+            if annotate then
+                node.callBoundsProven = proved or nil
+            end
+            local info = known(node, definitions) or node.importedEffects
+            local effects = info and info.summary
+            -- A proof for this function includes every unresolved nested access.
+            -- Bounds-only raises are not interchangeable with one another.
+            if not proved and not node.scalarIntrinsic and not node.requiredModule then
+                if summary and summary.complete then
+                    for _, access in ipairs(summary.accesses) do
+                        addPair(definition(args[access.view]), definition(args[access.index]))
+                    end
+                elseif not effects or effects.top or effects.raises then
+                    complete = false
+                end
+            end
+            if not node.scalarIntrinsic
+                and (
+                    not effects
+                    or effects.top
+                    or effects.external
+                    or next(effects.writes or {})
+                    or next(effects.shapes or {})
+                    or next(effects.escapes or {})
+                    or next(effects.calls or {})
+                    or effects.yields
+                )
+            then
+                for key in pairs(facts) do
+                    facts[key] = nil
+                end
+                for key in pairs(pending) do
+                    pending[key] = nil
+                end
+            end
+            if node.resolvedGlobal == "assert" and #args == 1 then
+                narrow(args[1], facts, pending, true)
+            end
+            return false
+        end
+        if node.indexedAccess then
+            local access = node.indexedAccess
+            local views = facts[access.indexDefinition]
+            if annotate and views and views[access.receiverDefinition] then
+                node.rangeProvenNoRaise = true
+                node.relationalAccess = {
+                    receiverDefinition = access.receiverDefinition,
+                    indexDefinition = access.indexDefinition
+                }
+            end
+            addAccess(node)
+        end
+        if kind == "whileStmt"
+            or kind == "repeatStmt"
+            or kind == "forinStmt"
+            or kind == "gotoStmt"
+            or kind == "switchExpr"
+            or kind == "doExpr"
+            or kind == "ternary"
+            or kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??")
+        then
+            if kind ~= "binop" then
+                complete, badReturn = false, true
+            end
+            for _, child in ipairs(node) do
+                visit(child, copy(facts), copy(pending))
+            end
+            for key in pairs(facts) do
+                facts[key] = nil
+            end
+            for key in pairs(pending) do
+                pending[key] = nil
+            end
+            return false
+        end
+        for _, child in ipairs(node) do
+            visit(child, facts, pending)
+        end
+
+        return false
+    end
+    visit(body, {}, {})
+    table.sort(accesses, function(a, b)
+        return a.view < b.view or a.view == b.view and a.index < b.index
+    end)
+
+    return {
+        version = 1,
+        reason = not complete and "unmapped-access-or-call" or nil,
+        accesses = complete and accesses or {},
+        complete = complete,
+        result = sawIndex and not badReturn and returnedView and {view = returnedView, alternative = "non-nil"} or nil
+    }
+end
+
+local function markUnstable(root)
+    local changed, aliases, modules, owners, declared = {}, {}, {}, {}, {}
+
+    local function base(node)
+        while node and (node.kind == "dotIndex" or node.kind == "bracketIndex") do
+            node = node.obj
+        end
+        return node and node.requiredModule and "module:" .. node.requiredModule or definition(node)
+    end
+
+    local function collect(node, depth)
+        if not node or cst.isToken(node) then
+            return
+        end
+        depth = depth or 0
+        if node.kind == "funcStmt" and node.name and #node.name > 1 then
+            local owner = node.name.base and node.name.base.definition
+            local member
+            for _, token in ipairs(node.name) do
+                if cst.isToken(token) and token.kind == "name" then
+                    member = token.text
+                end
+            end
+            if owner then
+                owners[owner] = true
+                local members = declared[owner] or {}
+                if depth > 0 or members[member] then
+                    changed[owner] = true
+                end
+                members[member] = true
+                declared[owner] = members
+            end
+        end
+        if node.kind == "localStmt" then
+            for i, name in ipairs(node.names or {}) do
+                local value = node.exprs and node.exprs[i]
+                local from = definition(value)
+                if from and name.definition then
+                    aliases[#aliases + 1] = {from, name.definition}
+                end
+                if value and value.requiredModule and name.definition then
+                    modules[name.definition] = value.requiredModule
+                end
+            end
+        elseif node.kind == "assignStmt" or node.kind == "compoundAssign" then
+            for _, target in ipairs(node.targets or {node.target}) do
+                local def = base(target)
+                if def then
+                    changed[def] = true
+                end
+                if target.qualifiedModule then
+                    changed["module:" .. target.qualifiedModule] = true
+                end
+            end
+        elseif node.kind == "call" or node.kind == "methodCall" then
+            -- Passing a namespace table gives a callee a way to replace its members.
+            for _, argument in ipairs(node.args and node.args.exprs or {}) do
+                local def = definition(argument)
+                if def and modules[def] then
+                    changed[def] = true
+                end
+            end
+        end
+        local nested = NESTED[node.kind]
+            or node.kind == "ifStmt"
+            or node.kind == "fornumStmt"
+            or node.kind == "forinStmt"
+            or node.kind == "whileStmt"
+            or node.kind == "repeatStmt"
+        for _, child in ipairs(node) do
+            collect(child, depth + (nested and 1 or 0))
+        end
+    end
+
+    collect(root, 0)
+    for _ = 1, #aliases + 1 do
+        local again = false
+        for _, pair in ipairs(aliases) do
+            if changed[pair[1]] and not changed[pair[2]] then
+                changed[pair[2]], again = true, true
+            end
+            if changed[pair[2]] and not changed[pair[1]] then
+                changed[pair[1]], again = true, true
+            end
+            if owners[pair[1]] and not owners[pair[2]] then
+                owners[pair[2]], again = true, true
+            end
+            if owners[pair[2]] and not owners[pair[1]] then
+                owners[pair[1]], again = true, true
+            end
+            if modules[pair[1]] and modules[pair[2]] ~= modules[pair[1]] then
+                modules[pair[2]], again = modules[pair[1]], true
+            end
+        end
+        if not again then
+            break
+        end
+    end
+
+    -- Namespace values may escape through containers, returns, and later aliases.
+    -- Only using one as a field receiver or another local namespace is closed.
+    local function escapes(node, parent, depth)
+        if not node or cst.isToken(node) then
+            return
+        end
+        depth = depth or 0
+        local def = definition(node)
+        local moduleName = modules[def] or node.requiredModule
+        if moduleName or owners[def] then
+            local receiver = parent
+                and (parent.kind == "dotIndex" or parent.kind == "bracketIndex")
+                and parent.obj == node
+            local binding = parent and parent.kind == "localStmt"
+            local exportedOwner = not moduleName
+                and depth == 0
+                and parent
+                and (parent.kind == "returnStmt" or parent.kind == "exportStmt")
+            if not receiver and not binding and not exportedOwner then
+                if moduleName then
+                    changed["module:" .. moduleName] = true
+                end
+                if def then
+                    changed[def] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            escapes(child, node, depth + (NESTED[node.kind] and 1 or 0))
+        end
+    end
+
+    escapes(root, nil)
+    for _ = 1, #aliases + 1 do
+        local again = false
+        for _, pair in ipairs(aliases) do
+            if changed[pair[1]] and not changed[pair[2]] then
+                changed[pair[2]], again = true, true
+            end
+            if changed[pair[2]] and not changed[pair[1]] then
+                changed[pair[1]], again = true, true
+            end
+        end
+        if not again then
+            break
+        end
+    end
+    for def, moduleName in pairs(modules) do
+        if changed[def] then
+            changed["module:" .. moduleName] = true
+        end
+    end
+
+    local function annotate(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "funcStmt"
+            and node.name
+            and node.body
+            and changed[node.name.base and node.name.base.definition]
+        then
+            node.body.unstableFact = true
+        elseif node.kind == "assignStmt" then
+            for i, target in ipairs(node.targets or {}) do
+                local value = node.exprs and node.exprs[i]
+                if value and target.kind ~= "name" and changed[base(target)] then
+                    value.unstableFact = true
+                end
+            end
+        end
+        local callee = node.kind == "call" and node.obj or node
+        local exact = callee
+            and (
+                callee.exactCallExport
+                or callee.token and callee.token.definition and callee.token.definition.exactCallExport
+            )
+        if changed[base(callee)] or exact and changed["module:" .. exact.module] then
+            node.unstableFact = true
+            if node.kind == "call" then
+                node.unstableCall = true
+                node.importedEffects, node.importedRelations = nil, nil
+            end
+        end
+        for _, child in ipairs(node) do
+            annotate(child)
+        end
+    end
+
+    annotate(root)
+    for def in pairs(changed) do
+        if type(def) == "table" then
+            def.callFactsUnstable = true
+        end
+    end
+end
+
+-- A cached parse may be checked again after an imported fact changes.
+function callfacts.reset(root: any): nil
+    local function visit(node)
+        if not node then
+            return
+        end
+        if cst.isToken(node) then
+            if node.definition then
+                node.definition.callFactsUnstable = nil
+            end
+            return
+        end
+        if node.relationalAccess then
+            node.rangeProvenNoRaise = node.indexedRangeAccess and true or nil
+            node.relationalAccess = nil
+        end
+        node.callBoundsProven, node.unstableCall, node.unstableFact = nil, nil, nil
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+end
+
+function callfacts.run(root: any, functions: {any}, definitions: {[any]: any}): nil
+    local changed = writes(root)
+    markUnstable(root)
+    -- No recursive hypothesis is seeded. Unsupported recursion remains unknown.
+    for _, info in ipairs(functions) do
+        if info.body and info.body.body then
+            info.relations = walkBody(info.body.body, info.params, definitions, changed, false)
+            info.body.callableRelations = info.relations
+        end
+    end
+    for _, info in ipairs(functions) do
+        if info.body and info.body.body then
+            walkBody(info.body.body, info.params, definitions, changed, true)
+        end
+    end
+    for _, block in ipairs(root.blocks or {}) do
+        walkBody(block, {}, definitions, changed, true)
+    end
+end
+
+export = callfacts

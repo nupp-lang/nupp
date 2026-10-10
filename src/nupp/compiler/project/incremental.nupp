@@ -742,6 +742,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     local observed = self:get("moduleCallGuarantee", key)
                     return observed and observed:sub(-8) == "\0present" or false
                 end,
+                resolveCallableFact = function(_, module, member, fact)
+                    return self:get("moduleCallableFact", table.concat({module, member, fact}, "\0"))
+                end,
                 resolveCallGuarantees = function(_, module, member)
                     return self:get("moduleCallGuarantees", module .. "\0" .. member)
                 end,
@@ -977,6 +980,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
 
             return exports and exports.callGuarantees and exports.callGuarantees[member] or nil
+        end,
+        sameStable
+    )
+
+    q:define(
+        "moduleCallableFact",
+        function(self, key)
+            local module, member, fact = key:match("^([^%z]+)%z([^%z]+)%z([^%z]+)$")
+            local entry = module and self:get("moduleCallGuarantees", module .. "\0" .. member) or nil
+            return entry and entry[fact] or nil
         end,
         sameStable
     )
@@ -1319,6 +1332,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         projectAnnotations = true,
         moduleCallGuarantees = true,
         moduleCallGuarantee = true,
+        moduleCallableFact = true,
     }
 
     ---------------------------------------------------------------------
@@ -1368,7 +1382,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
 
-        if name == "moduleCallGuarantees" or name == "moduleCallGuarantee" then
+        if name == "moduleCallGuarantees" or name == "moduleCallGuarantee" or name == "moduleCallableFact" then
             local module = key:match("^([^%z]+)")
             add(module and modulePath(q, module) or nil)
         elseif name == "projectModulePath" then
@@ -1393,7 +1407,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     local function apiProjectDependencies(path: string): {any}
-        q:get("checkModule", path)
+        local checked = q:get("checkModule", path)
         local byPath = q.memo.checkModule
         local memo = byPath and byPath[path]
         local dependencies, seen = {}, {}
@@ -1406,6 +1420,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                         #dependencies + 1
                     ] = {name = dep.name, key = dep.key, fingerprint = projectFingerprint(dep.name, dep.key),}
                 end
+            end
+        end
+        local root = checked and checked.result and checked.result.root
+        for key in pairs(root and root.optimizationDependencies or {}) do
+            local name = "moduleCallableFact"
+            local identity = name .. "\0" .. key
+            if not seen[identity] then
+                seen[identity] = true
+                dependencies[#dependencies + 1] = {name = name, key = key, fingerprint = projectFingerprint(name, key)}
             end
         end
         table.sort(dependencies, function(a, b)

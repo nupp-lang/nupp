@@ -1,0 +1,586 @@
+module nupp.compiler.viewfacts
+
+-- A private syntax graph for closed borrowed-view helpers. Only audited operations
+-- enter it. Definitions use artifact-local slots; no compiler object crosses a cache.
+local cst = require("nupp.compiler.syntax.cst")
+local T = require("nupp.compiler.types")
+local indexed = require("nupp.compiler.types.indexedviews")
+local viewfacts = {}
+local MAX_NODES = 256
+local KINDS = {
+    funcbody = true,
+    block = true,
+    param = true,
+    localStmt = true,
+    assignStmt = true,
+    compoundAssign = true,
+    fornumStmt = true,
+    ifStmt = true,
+    ifClause = true,
+    elseifClause = true,
+    elseClause = true,
+    returnStmt = true,
+    doStmt = true,
+    name = true,
+    number = true,
+    string = true,
+    nilExpr = true,
+    trueExpr = true,
+    falseExpr = true,
+    paren = true,
+    binop = true,
+    unop = true,
+    bracketIndex = true,
+    castExpr = true
+}
+local TYPE_KINDS = {
+    tconst = true,
+    tkeyof = true,
+    twriteof = true,
+    tliteral = true,
+    tname = true,
+    ttypecall = true,
+    tparen = true,
+    tmap = true,
+    tshape = true,
+    tshapeField = true,
+    ttuple = true,
+    tpack = true,
+    tpackUnion = true,
+    tarray = true,
+    tfunc = true,
+    tfuncParam = true,
+    topt = true,
+    tptr = true,
+    tcarray = true,
+    tmember = true,
+    tmapped = true,
+    tunion = true,
+    tintersection = true,
+    tpredicate = true,
+    tborrows = true,
+    tpreserves = true
+}
+local CHILDREN = {
+    "body",
+    "name",
+    "token",
+    "var",
+    "start",
+    "stop",
+    "step",
+    "cond",
+    "elseClause",
+    "lhs",
+    "rhs",
+    "operand",
+    "op",
+    "obj",
+    "expr",
+    "target",
+    "value",
+    "modeTok"
+}
+local LISTS = {"params", "names", "exprs", "targets", "stats", "clauses"}
+local PRIMITIVES = {
+    number = true,
+    integer = true,
+    int32 = true,
+    uint32 = true,
+    float = true,
+    uint8 = true,
+    int8 = true,
+    uint16 = true,
+    int16 = true,
+    boolean = true,
+    string = true
+}
+
+function viewfacts.infer(body: any): any
+    if not body or not body.body or body.generics or body.varargParam or body.aotRequired then
+        return {reason = "body-shape"}
+    end
+    local bindings, definitions, params, hasView = {}, {}, {}, false
+
+    local function bind(token, parameter)
+        if not token or not token.definition then
+            return false
+        end
+        local def = token.definition
+        if not bindings[def] then
+            local t = token.inferredType or def.type
+            local view = t and indexed.describe(t)
+            if view and (view.adapter ~= "span" or view.writable or not PRIMITIVES[view.element.tag]) then
+                return false
+            end
+            if not view and (not t or not PRIMITIVES[t.tag]) then
+                return false
+            end
+            local id = #definitions + 1
+            bindings[def] = id
+            definitions[
+                id
+            ] = {
+                name = token.text,
+                type = not view and t.tag or nil,
+                view = view and {element = view.element.tag, parameter = parameter} or nil,
+                constant = def.constant == true
+            }
+            if view then
+                if not parameter then
+                    return false
+                end
+                hasView = true
+            end
+        end
+
+        return true
+    end
+
+    for i, param in ipairs(body.params or {}) do
+        if param.vararg or param.constTok or not bind(param.name, i) then
+            return {reason = "parameter-representation"}
+        end
+        params[i] = bindings[param.name.definition]
+        if definitions[params[i]].view and (not param.modeTok or param.modeTok.text ~= "borrows") then
+            return {reason = "borrow-contract"}
+        end
+    end
+    if not hasView then
+        return {reason = "no-view-parameter"}
+    end
+    local valid = true
+
+    local function locals(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "localStmt" then
+            for _, name in ipairs(node.names or {}) do
+                valid = bind(name) and valid
+            end
+        elseif node.kind == "fornumStmt" then
+            valid = bind(node.var) and valid
+        end
+        for _, child in ipairs(node) do
+            locals(child)
+        end
+    end
+
+    locals(body.body)
+    if not valid then
+        return {reason = "local-representation"}
+    end
+    local nodes, ids = {}, {}
+
+    local function encode(node, typeSyntax, parent)
+        if ids[node] then
+            return ids[node]
+        end
+        if #nodes >= MAX_NODES then
+            valid = false;
+            return nil
+        end
+        local id = #nodes + 1
+        ids[node] = id
+        local item = {kind = node.kind}
+        nodes[id] = item
+        if cst.isToken(node) then
+            if node.text:find("[\r\n]") then
+                valid = false
+            end
+            item.isToken, item.text = true, node.text
+            item.typeColon, item.typeSeparator = node.typeColon, node.typeSeparator
+            item.typeBracket, item.generic = node.typeBracket, node.generic
+            item.binding = node.definition and bindings[node.definition]
+            return id
+        end
+        local kind = node.kind
+        local isType = typeSyntax or TYPE_KINDS[kind] == true
+        if not isType
+            and (
+                not KINDS[kind]
+                or node.effectUnknownOperation
+                or node.wideArithmetic
+                or node.wideIntegerLiteralText
+                or node.scalarIntrinsic
+                or node.binding
+                or node.automaticOwners and #node.automaticOwners > 0
+            )
+        then
+            valid = false
+        end
+        if kind == "name" and not isType and not (node.token and bindings[node.token.definition]) then
+            valid = false
+        end
+        if kind == "name" and not isType then
+            local slot = node.token and bindings[node.token.definition]
+            if slot and definitions[slot].view then
+                local indexedReceiver = parent and parent.kind == "bracketIndex" and parent.obj == node
+                local countedReceiver = parent and parent.indexedLength and parent.operand == node
+                if not indexedReceiver and not countedReceiver then
+                    valid = false
+                end
+            end
+        end
+        if kind == "returnStmt" then
+            for _, expr in ipairs(node.exprs or {}) do
+                local def = expr.kind == "name" and expr.token and bindings[expr.token.definition]
+                if def and definitions[def].view then
+                    valid = false
+                end
+            end
+        elseif kind == "assignStmt" or kind == "compoundAssign" then
+            for _, target in ipairs(node.targets or {node.target}) do
+                local slot = target and target.token and bindings[target.token.definition]
+                if not target or target.kind ~= "name" or slot and definitions[slot].view then
+                    valid = false
+                end
+            end
+        elseif kind == "bracketIndex" then
+            if not node.indexedAccess or node.indexedAccess.writing then
+                valid = false
+            end
+            local access = node.indexedAccess
+            item.access = access
+                and {view = bindings[access.receiverDefinition], index = bindings[access.indexDefinition]}
+            if not item.access or not item.access.view then
+                valid = false
+            end
+        end
+        if node.indexedLength then
+            item.length = bindings[node.indexedLength.receiverDefinition]
+            if not item.length then
+                valid = false
+            end
+        end
+        item.isConst, item.fixedArithmetic = node.isConst, node.fixedArithmetic
+        item.rangeProvenNoRaise = node.rangeProvenNoRaise
+        item.usesIndexContract = node.usesIndexContract
+        local t = node.resolvedType or node.inferredType
+        item.type = t and PRIMITIVES[t.tag] and t.tag or nil
+        item.children = {}
+        for i, child in ipairs(node) do
+            item.children[i] = encode(child, isType, node)
+        end
+        for _, key in ipairs(CHILDREN) do
+            local child = node[key]
+            if type(child) == "table" and child.kind then
+                item[key] = encode(child, isType, node)
+            end
+        end
+        for _, key in ipairs(LISTS) do
+            if node[key] then
+                local list = {}
+                for i, child in ipairs(node[key]) do
+                    list[i] = encode(child, isType, node)
+                end
+                item[key] = list
+            end
+        end
+
+        return id
+    end
+
+    local root = encode(body, false)
+    if not valid then
+        return {reason = #nodes >= MAX_NODES and "body-budget" or "unsupported-view-operation"}
+    end
+
+    return {version = 1, root = root, nodes = nodes, definitions = definitions, params = params}
+end
+
+-- Reject malformed graph data before constructing syntax or following its edges.
+local function validArtifact(artifact)
+    if type(artifact) ~= "table"
+        or artifact.version ~= 1
+        or type(artifact.nodes) ~= "table"
+        or #artifact.nodes == 0
+        or #artifact.nodes > MAX_NODES
+        or type(artifact.definitions) ~= "table"
+        or #artifact.definitions > MAX_NODES
+        or type(artifact.params) ~= "table"
+        or #artifact.params > 16
+    then
+        return false
+    end
+
+    local function slot(value, values)
+        return type(value) == "number" and value % 1 == 0 and value >= 1 and value <= #values
+    end
+
+    for _, id in ipairs(artifact.params) do
+        if not slot(id, artifact.definitions) then
+            return false
+        end
+    end
+    for id, item in ipairs(artifact.definitions) do
+        if type(item) ~= "table" or type(item.name) ~= "string" then
+            return false
+        end
+        if item.view then
+            if type(item.view) ~= "table"
+                or not PRIMITIVES[item.view.element]
+                or not slot(item.view.parameter, artifact.params)
+                or artifact.params[item.view.parameter] ~= id
+            then
+                return false
+            end
+        elseif not PRIMITIVES[item.type] then
+            return false
+        end
+    end
+    local states = {}
+    local visit
+    visit = function(id)
+        if not slot(id, artifact.nodes) or states[id] == 1 then
+            return false
+        end
+        if states[id] == 2 then
+            return true
+        end
+        states[id] = 1
+        local item = artifact.nodes[id]
+        if type(item) ~= "table" or type(item.kind) ~= "string" then
+            return false
+        end
+        if item.binding and not slot(item.binding, artifact.definitions) then
+            return false
+        end
+        if item.isToken then
+            if type(item.text) ~= "string" then
+                return false
+            end
+        else
+            if not KINDS[item.kind] and not TYPE_KINDS[item.kind] then
+                return false
+            end
+            if item.type and not PRIMITIVES[item.type] then
+                return false
+            end
+            if type(item.children) ~= "table" then
+                return false
+            end
+            for _, child in ipairs(item.children) do
+                if not visit(child) then
+                    return false
+                end
+            end
+            for _, key in ipairs(CHILDREN) do
+                if item[key] and not visit(item[key]) then
+                    return false
+                end
+            end
+            for _, key in ipairs(LISTS) do
+                if item[key] then
+                    if type(item[key]) ~= "table" then
+                        return false
+                    end
+                    for _, child in ipairs(item[key]) do
+                        if not visit(child) then
+                            return false
+                        end
+                    end
+                end
+            end
+            if item.length
+                and (not slot(item.length, artifact.definitions) or not artifact.definitions[item.length].view)
+            then
+                return false
+            end
+            if item.access then
+                if type(item.access) ~= "table"
+                    or not slot(item.access.view, artifact.definitions)
+                    or not artifact.definitions[item.access.view].view
+                    or item.access.index and not slot(item.access.index, artifact.definitions)
+                then
+                    return false
+                end
+            end
+        end
+        states[id] = 2
+
+        return true
+    end
+    if not visit(artifact.root) or artifact.nodes[artifact.root].kind ~= "funcbody" then
+        return false
+    end
+    local parameters = artifact.nodes[artifact.root].params or {}
+    if #parameters ~= #artifact.params then
+        return false
+    end
+    local used = {}
+    for i, id in ipairs(parameters) do
+        local parameter = artifact.nodes[id]
+        local name = parameter and artifact.nodes[parameter.name]
+        if not parameter
+            or parameter.kind ~= "param"
+            or not name
+            or not name.isToken
+            or name.binding ~= artifact.params[i]
+            or used[name.binding]
+        then
+            return false
+        end
+        used[name.binding] = true
+    end
+    for id in ipairs(artifact.nodes) do
+        if not visit(id) then
+            return false
+        end
+    end
+
+    return true
+end
+
+function viewfacts.instantiate(
+    artifact: any,
+    args: {any},
+    name: string,
+    at: any,
+    boundsProven: boolean?,
+    placement: any?
+): any
+    if not validArtifact(artifact) or #(artifact.params or {}) ~= #args then
+        return nil
+    end
+    local location = placement or at
+    local definitions, nodes = {}, {}
+    for i, item in ipairs(artifact.definitions or {}) do
+        local t = item.type and (T as any)[item.type]
+        if item.view then
+            local arg = args[item.view.parameter]
+            t = arg
+                and (
+                    arg.resolvedType
+                    or arg.token and (arg.token.inferredType or arg.token.definition and arg.token.definition.type)
+                )
+            local view = t and indexed.describe(t)
+            if not view or view.adapter ~= "span" or view.writable or view.element.tag ~= item.view.element then
+                return nil
+            end
+        end
+        if not t then
+            return nil
+        end
+        definitions[i] = {name = item.name, type = t, inferredType = t, constant = item.constant}
+    end
+    for i, item in ipairs(artifact.nodes or {}) do
+        if item.isToken then
+            nodes[
+                i
+            ] = {
+                kind = item.kind,
+                text = item.text,
+                trivia = {},
+                line = location.line,
+                col = location.col,
+                offset = location.offset,
+                definition = item.binding and definitions[item.binding],
+                typeColon = item.typeColon,
+                typeSeparator = item.typeSeparator,
+                typeBracket = item.typeBracket,
+                generic = item.generic
+            }
+        else
+            nodes[
+                i
+            ] = {
+                kind = item.kind,
+                isConst = item.isConst,
+                fixedArithmetic = item.fixedArithmetic,
+                resolvedType = item.type and (T as any)[item.type],
+                usesIndexContract = item.usesIndexContract,
+                importedCallAt = at
+            }
+        end
+    end
+    for i, item in ipairs(artifact.nodes or {}) do
+        local node = nodes[i]
+        if not item.isToken then
+            for j, child in ipairs(item.children or {}) do
+                if not nodes[child] then
+                    return nil
+                end
+                node[j] = nodes[child]
+            end
+            for _, key in ipairs(CHILDREN) do
+                if item[key] then
+                    node[key] = nodes[item[key]]
+                end
+            end
+            for _, key in ipairs(LISTS) do
+                if item[key] then
+                    local list = {}
+                    for j, child in ipairs(item[key]) do
+                        list[j] = nodes[child]
+                    end
+                    node[key] = list
+                end
+            end
+            if item.length then
+                local def = definitions[item.length]
+                local descriptor = def and indexed.describe(def.type)
+                if not descriptor then
+                    return nil
+                end
+                node.indexedLength = {receiverDefinition = def, descriptor = descriptor, adapter = descriptor.adapter}
+            end
+            if item.access then
+                local view, index = definitions[item.access.view], definitions[item.access.index]
+                local descriptor = view and indexed.describe(view.type)
+                if not descriptor then
+                    return nil
+                end
+                node.indexedAccess = {
+                    receiverDefinition = view,
+                    indexDefinition = index,
+                    descriptor = descriptor,
+                    adapter = descriptor.adapter,
+                    element = descriptor.element,
+                    writable = false,
+                    writing = false
+                }
+                node.containerTag = "span"
+                node.rangeProvenNoRaise = item.rangeProvenNoRaise or boundsProven and index ~= nil
+                if node.rangeProvenNoRaise then
+                    node.relationalAccess = {receiverDefinition = view, indexDefinition = index}
+                end
+            end
+        elseif node.definition then
+            node.inferredType = node.definition.type
+            node.definition.token = node.definition.token or node
+        end
+    end
+    local body = nodes[artifact.root]
+    if not body or body.kind ~= "funcbody" then
+        return nil
+    end
+
+    local function token(kind, text)
+        return {
+            kind = kind,
+            text = text,
+            trivia = {},
+            line = location.line,
+            col = location.col,
+            offset = location.offset
+        }
+    end
+
+    local nameToken = token("name", name)
+    nameToken.definition = {name = name, token = nameToken, constant = true}
+
+    return {
+        token("local", "local"),
+        token("function", "function"),
+        nameToken,
+        body,
+        kind = "localFuncStmt",
+        name = nameToken,
+        body = body,
+        importedViewBody = true
+    }
+end
+
+export = viewfacts

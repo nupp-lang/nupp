@@ -1,0 +1,29 @@
+module tests.fixtures.crossmodulefacts
+
+local span = require("nupp.mem.span")
+
+export function scale(value: number): number
+    return value * 2
+end
+
+export function mix(value: number, byte: number): number
+    return (value * 33 + byte) % 65536
+end
+
+export function blocked(value: number): number
+    local result = value * 2
+    return result
+end
+
+export function sum(borrows values: span.Span<uint8>): number
+    local total = 0
+    for index = 1, #values do
+        total = total + values[index]
+    end
+
+    return total
+end
+
+export function get(borrows values: span.Span<uint8>, index: integer): integer
+    return values[index]
+end

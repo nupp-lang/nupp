@@ -1,0 +1,107 @@
+[
+  {
+    "variant": "direct",
+    "bytes": 1526,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "length": 3,
+        "status": "fired",
+        "sourceEndLine": 5,
+        "msg": "indexed-range: lowers 1 span access",
+        "hotness": "unknown",
+        "offset": 145,
+        "severity": "note",
+        "line": 5,
+        "col": 5
+      },
+      {
+        "code": "OPT-6",
+        "length": 4,
+        "status": "fired",
+        "sourceEndLine": 3,
+        "msg": "view-scalar-replacement: virtualizes one root (anchor=rooted-access)",
+        "hotness": "unknown",
+        "offset": 99,
+        "severity": "note",
+        "line": 3,
+        "col": 20
+      }
+    ],
+    "runtimeMs": [
+      14.07399999999992,
+      13.752999999999904,
+      13.732000000000077,
+      13.92400000000027,
+      14.225000000000154,
+      13.710999999999807,
+      14.143999999999934
+    ]
+  },
+  {
+    "variant": "local",
+    "bytes": 1695,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "length": 4,
+        "status": "fired",
+        "sourceEndLine": 7,
+        "msg": "view-scalar-replacement: virtualizes one root (anchor=rooted-access)",
+        "hotness": "unknown",
+        "offset": 261,
+        "severity": "note",
+        "line": 7,
+        "col": 57
+      },
+      {
+        "code": "OPT-6",
+        "length": 3,
+        "status": "fired",
+        "sourceEndLine": 7,
+        "msg": "view-scalar-replacement: transports view through static call",
+        "hotness": "unknown",
+        "offset": 290,
+        "severity": "note",
+        "line": 7,
+        "col": 86
+      }
+    ],
+    "runtimeMs": [
+      13.976999999999684,
+      14.301999999999815,
+      14.006000000000185,
+      13.997999999999955,
+      14.120000000000132,
+      14.39199999999996,
+      14.0880000000001
+    ]
+  },
+  {
+    "variant": "imported",
+    "bytes": 1293,
+    "remarks": [
+      {
+        "code": "OPT-6",
+        "length": 4,
+        "status": "declined",
+        "sourceEndLine": 3,
+        "msg": "view-scalar-replacement: declines root (unsupported-view-operation: args)",
+        "hotness": "unknown",
+        "offset": 124,
+        "severity": "note",
+        "line": 3,
+        "col": 57
+      }
+    ],
+    "runtimeMs": [
+      15.960999999999892,
+      16.827000000000147,
+      18.44100000000015,
+      18.982000000000276,
+      18.39700000000022,
+      18.049999999999677,
+      17.077000000000453
+    ]
+  }
+]

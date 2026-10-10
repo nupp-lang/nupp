@@ -138,6 +138,9 @@ function effectregions.install(c: state.Checker): effectregions.Ops
     end
 
     local function callIsFree(call, effect, queries)
+        if call.unstableCall then
+            return false, "has a replaced or escaped callable identity", nil
+        end
         if call.scalarIntrinsic then
             return true
         end
@@ -162,7 +165,9 @@ function effectregions.install(c: state.Checker): effectregions.Ops
             if info.summary.top then
                 return false, "reaches code with unknown effects", info
             end
-            if info.summary[effect] then
+            if info.summary[effect]
+                and not (effect == "raises" and call.callBoundsProven and info.summary.raisesBeyondBounds == false)
+            then
                 return false, effect == "allocates" and "may allocate" or "may raise", info
             end
             -- A bodyless foreign declaration reaches this branch only when its trusted

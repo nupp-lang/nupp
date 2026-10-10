@@ -20,7 +20,10 @@ passes here rewrite where they stand, so attribution is unchanged.
 See `docs/learn/performance/index.md`.
 ]]
 
+local inlinefacts = require("nupp.compiler.inlinefacts")
+local viewfacts = require("nupp.compiler.viewfacts")
 local cst = require("nupp.compiler.syntax.cst")
+local checkpoint = require("nupp.compiler.syntax.checkpoint")
 local constspecialize = require("nupp.compiler.lua.constspecialize")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 
@@ -69,7 +72,7 @@ optimize.passes = {
     ] = {
         name = "inline-return-helper",
         level = 1,
-        summary = "inline a module's own single-return local helpers where they are called",
+        summary = "inline eligible local and imported single-return helpers",
     },
     [
         "OPT-8"
@@ -338,8 +341,8 @@ local function isEmptyTable(node)
 end
 
 local function remark(remarks, node, code, message, related, status)
-    local token = firstToken(node)
-    local last = cst.lastToken(node)
+    local token = node and node.importedCallAt or firstToken(node)
+    local last = node and node.importedCallAt or cst.lastToken(node)
     remarks[
         #remarks + 1
     ] = {
@@ -1876,6 +1879,130 @@ end
 -- Checking has already attached one representation-independent proof to each
 -- admitted access. Optimization merely selects the direct adapter; it does not
 -- rediscover length, receiver or induction relationships from source spelling.
+local function importedViewHelpers(result, remarks)
+    local root: any = result.root
+    local resolveFact = root.resolveCallableFact
+    local block = root.blocks and root.blocks[1]
+    if not resolveFact or not block or not result.analysis then
+        return
+    end
+    local names, additions = {}, {}
+    collectNames(root, names)
+    local serial = 0
+
+    local function visit(node)
+        if not node or isToken(node) then
+            return
+        end
+        if node.kind == "call" and not node.unstableCall then
+            local callee = node.obj
+            local exact = callee
+                and (
+                    callee.exactCallExport
+                    or callee.kind == "name"
+                    and callee.token
+                    and callee.token.definition
+                    and callee.token.definition.exactCallExport
+                )
+            local args = node.args and node.args.exprs
+            local eligible, hasView = args ~= nil, false
+            for _, argument in ipairs(args or {}) do
+                if argument.kind ~= "name" then
+                    eligible = false
+                end
+                local t = argument.resolvedType or argument.token and argument.token.inferredType
+                if t and indexedViews.describe(t) then
+                    hasView = true
+                end
+            end
+            if exact and eligible and hasView then
+                local representation = resolveFact(exact, "representation")
+                local reason = representation and representation.reason
+                    or not representation and "missing-representation-fact"
+                if not reason and #additions >= 4 then
+                    reason = "body-budget"
+                end
+                if reason then
+                    remark(
+                        remarks,
+                        node,
+                        "OPT-6",
+                        "view-scalar-replacement: declines imported " .. exact.identity .. " (" .. reason .. ")",
+                        nil,
+                        "declined"
+                    )
+                else
+                    repeat
+                        serial = serial + 1
+                    until not names["__nupp_view_" .. serial]
+                    local name = "__nupp_view_" .. serial
+                    local at = firstToken(node)
+                    local artifact = resolveFact(exact, "viewBody")
+                    local declaration = at
+                        and viewfacts.instantiate(
+                            artifact,
+                            args,
+                            name,
+                            at,
+                            node.callBoundsProven,
+                            firstToken(block) or at
+                        )
+                    if declaration and at then
+                        local token = {
+                            kind = "name",
+                            text = name,
+                            trivia = {},
+                            line = at.line,
+                            col = at.col,
+                            offset = at.offset,
+                            definition = declaration.name.definition
+                        }
+                        local replacement = {token, kind = "name", token = token}
+                        for i, child in ipairs(node) do
+                            if child == callee then
+                                node[i] = replacement
+                            end
+                        end
+                        node.obj, node.staticCallee = replacement, nil
+                        additions[#additions + 1] = declaration
+                        remark(
+                            remarks,
+                            node,
+                            "OPT-6",
+                            "view-scalar-replacement: imports borrowed helper " .. exact.identity
+                        )
+                    else
+                        remark(
+                            remarks,
+                            node,
+                            "OPT-6",
+                            "view-scalar-replacement: declines imported "
+                            .. exact.identity
+                            .. " (incompatible-view-abi)",
+                            nil,
+                            "declined"
+                        )
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+    root.importedViewDeclarations = additions
+    for i = #additions, 1, -1 do
+        local declaration = additions[i]
+        table.insert(block, 1, declaration)
+        if block.stats ~= block then
+            table.insert(block.stats, 1, declaration)
+        end
+        result.analysis.bodies[#result.analysis.bodies + 1] = declaration.body.body
+    end
+end
+
 local function indexedRangeWalk(result, remarks)
     for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
         local loops = {}
@@ -1889,6 +2016,18 @@ local function indexedRangeWalk(result, remarks)
         local function collect(node, parent)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
+            end
+            if node.relationalAccess and node.rangeProvenNoRaise and node.indexedAccess then
+                node.indexedDirectAccess = true
+                local obligation = node.relationalAccess
+                local view = obligation.receiverDefinition and obligation.receiverDefinition.name or "view"
+                local index = obligation.indexDefinition and obligation.indexDefinition.name or "index"
+                remark(
+                    remarks,
+                    node,
+                    "OPT-6",
+                    "indexed-range: discharges inferred access bounds (1 <= " .. index .. " <= #" .. view .. ")"
+                )
             end
             local isLoop = node.kind == "whileStmt"
                 or node.kind == "fornumStmt"
@@ -3297,14 +3436,8 @@ end
 local function inlineReturnHelperWalk(result, remarks)
     local root = result.root
     local candidates = inlinableHelpers(root)
-    if not next(candidates) then
-        return false
-    end
     dropReassigned(root, candidates)
     dropRebound(root, candidates)
-    if not next(candidates) then
-        return false
-    end
     local byDefinition = {}
     for name, helper in pairs(candidates) do
         helper.name = name
@@ -3345,7 +3478,47 @@ local function inlineReturnHelperWalk(result, remarks)
         local token = not isToken(callee) and callee.kind == "name" and callee.token or nil
         local helper = token and token.definition and byDefinition[token.definition] or nil
         if not helper then
-            return nil
+            local exact = callee.exactCallExport or token and token.definition and token.definition.exactCallExport
+            local resolveFact = (root as any).resolveCallableFact
+            local args = node.args.exprs
+            if not exact or not resolveFact or not args or node.unstableCall then
+                return nil
+            end
+            for _, argument in ipairs(args) do
+                if not substitutableArgument(argument) then
+                    remark(
+                        remarks,
+                        node,
+                        "OPT-7",
+                        "inline-return-helper: declines imported "
+                        .. exact.identity
+                        .. " (argument-effects-or-representation)",
+                        nil,
+                        "declined"
+                    )
+                    return nil
+                end
+            end
+            local eligibility = resolveFact(exact, "inlineEligibility")
+            if not eligibility or eligibility.reason or eligibility.parameters ~= #args then
+                remark(
+                    remarks,
+                    node,
+                    "OPT-7",
+                    "inline-return-helper: declines imported " .. exact.identity .. " (" .. tostring(
+                        eligibility and eligibility.reason or "missing-body-fact"
+                    ) .. ")",
+                    nil,
+                    "declined"
+                )
+                return nil
+            end
+            local at = firstToken(node)
+            helper = at and inlinefacts.instantiate(resolveFact(exact, "inlineBody"), at)
+            if not helper then
+                return nil
+            end
+            helper.name = exact.identity
         end
         local at = firstToken(node)
         local offset = at and at.offset
@@ -3591,8 +3764,17 @@ type optimize.Options = {
 function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}, integer)
     opts = opts or {} as optimize.Options
     local level = opts.level or 0
+    if level > 0 then
+        checkpoint.prepare(result as any)
+    else
+        checkpoint.restore(result as any)
+    end
     local disabled = opts.disabled or {}
     local remarks: {any} = {}
+    local factRoot: any = result.root
+    for key in pairs(factRoot.optimizationDependencies or {}) do
+        factRoot.optimizationDependencies[key] = nil
+    end
     if level >= optimize.passes["OPT-1"].level and not disabled["OPT-1"] then
         walk(result.root, remarks)
     end
@@ -3609,6 +3791,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
         concatBufferWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then
+        importedViewHelpers(result, remarks)
         indexedViewReturnTransportWalk(result, remarks)
         local parameterTransports = indexedViewParameterTransportPlan(result, remarks)
         indexedRangeWalk(result, remarks)

@@ -725,15 +725,22 @@ function Session:semanticSnapshot(path, checked, module)
             end
         end
         for _, dependency in ipairs(self.inc.projectDependencies(currentPath)) do
-            local identity = dependency.name .. "\0" .. tostring(dependency.key)
-            snapshot.declarations[
-                identity
-            ] = {
-                fingerprint = dependency.fingerprint,
-                label = tostring(dependency.key),
-                query = dependency.name,
-                paths = self.inc.projectDependencyPaths(dependency.name, dependency.key),
-            }
+            -- Inferred callable facts trigger checking, but are not runtime ABI.
+            -- A changed body remains patchable when the rechecked callers accept it.
+            local implementation = dependency.name == "moduleCallGuarantees"
+                or dependency.name == "moduleCallGuarantee"
+                or dependency.name == "moduleCallableFact"
+            if not implementation then
+                local identity = dependency.name .. "\0" .. tostring(dependency.key)
+                snapshot.declarations[
+                    identity
+                ] = {
+                    fingerprint = dependency.fingerprint,
+                    label = tostring(dependency.key),
+                    query = dependency.name,
+                    paths = self.inc.projectDependencyPaths(dependency.name, dependency.key),
+                }
+            end
         end
         for _, dependency in ipairs(self.inc.moduleDependencies(currentPath)) do
             local dependencyPath = self.inc.modulePath(dependency)

@@ -55,6 +55,7 @@ local pragma = require("nupp.compiler.check.pragma")
 local derive = require("nupp.compiler.check.derive")
 local metatable = require("nupp.compiler.check.metatable")
 local cst = require("nupp.compiler.syntax.cst")
+local checkpoint = require("nupp.compiler.syntax.checkpoint")
 local annotationMod = require("nupp.compiler.annotations")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")
@@ -722,8 +723,7 @@ end
 -- Finalizing a run
 ----------------------------------------------------------------------------
 
--- The boundary transports only exact definition identity and two positive facts.
--- Complete summaries stay on bodies in this file and never enter a function type.
+-- Definition-keyed sidecars keep inferred facts out of structural function types.
 local function finalizeCallGuarantees(c: state.Checker, queries: any)
     local published = {}
 
@@ -732,12 +732,18 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
             return nil
         end
         if value.kind == "funcbody" then
-            return value.effectSummary
+            return value.effectSummary, value.callableEffects, value.callableRelations
         elseif value.kind == "funcExpr" or value.kind == "shortfn" then
-            return value.body and value.body.effectSummary
+            return value.body
+                and value.body.effectSummary, value.body
+                and value.body.callableEffects, value.body
+                and value.body.callableRelations
         elseif value.kind == "name" and value.token and queries then
             local known = queries.known(value.token)
-            return known and known.summary or nil
+            return known and known.summary
+                or nil, known and {summary = known.summary, paramNames = known.paramNames}
+                or nil, known and known.relations
+                or nil
         end
 
         return nil
@@ -792,8 +798,21 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         return c.env.resolveCallGuarantees(c.env, exact.module, exact.member)
     end
 
+    local function localFact(value, family)
+        if not value then
+            return nil
+        end
+        local known = value.kind == "name" and queries and queries.known(value.token)
+        local body = known and known.body or value.kind == "funcbody" and value or value.body
+
+        return body and body[family]
+    end
+
     local function publish(member, value)
-        local summary = localSummary(value)
+        if value and value.unstableFact then
+            return
+        end
+        local summary, callableEffects, callableRelations = localSummary(value)
         local source = not summary and imported(value) or nil
         local traceFindings = localTrace(value) or source and source.traceFindings
         if summary or source or traceFindings then
@@ -811,6 +830,12 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 or ((c.result.moduleName or c.filename or "<module>") .. "." .. member),
                 noAllocate = noAllocate,
                 noRaise = noRaise,
+                callableEffects = source and source.callableEffects or callableEffects,
+                callableRelations = source and source.callableRelations or callableRelations,
+                representation = source and source.representation or localFact(value, "representation"),
+                viewBody = source and source.viewBody or localFact(value, "viewBody"),
+                inlineBody = source and source.inlineBody or localFact(value, "inlineBody"),
+                inlineEligibility = source and source.inlineEligibility or localFact(value, "inlineEligibility"),
                 traceFindings = traceFindings,
                 traceProfileId = source and source.traceProfileId or traceSource.profile().id,
                 reasonCatalogId = source and source.reasonCatalogId or traceSource.CATALOG_ID,
@@ -1037,6 +1062,9 @@ function checkMod.check(
     env: state.Env?,
     opts: state.Options?
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
+    local checkedState: any = result
+    checkpoint.restore(checkedState)
+    checkedState.optimizationSyntax = nil
     opts = opts or {} as state.Options
     local selectedCompat, compatError = require("nupp.compiler.compat").resolve(opts.compat, env and env.compat)
     if compatError then
@@ -3543,6 +3571,51 @@ function checkMod.check(
             env.globalTypeDefs[name] = def
         end
     end
+
+    local optimizationDependencies = {}
+    local optimizationRoot: any = result.root
+    optimizationRoot.optimizationDependencies = optimizationDependencies
+    optimizationRoot.resolveCallableFact = function(exact, family)
+        local key = table.concat({exact.module, exact.member, family}, "\0")
+        optimizationDependencies[key] = true
+        return c.env
+            and c.env.resolveCallableFact
+            and c.env.resolveCallableFact(c.env, exact.module, exact.member, family)
+            or nil
+    end
+
+    -- Resolve only actual call edges. Each family is independently backdated by the
+    -- query graph, including an absent answer which may become available later.
+    local function importEffects(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" then
+            local callee = node.obj
+            local exact = callee
+                and (
+                    callee.exactCallExport
+                    or callee.kind == "name"
+                    and callee.token
+                    and callee.token.definition
+                    and callee.token.definition.exactCallExport
+                )
+            if exact and c.env and c.env.resolveCallableFact then
+                node.importedEffects = c.env.resolveCallableFact(c.env, exact.module, exact.member, "callableEffects")
+                node.importedRelations = c.env.resolveCallableFact(
+                    c.env,
+                    exact.module,
+                    exact.member,
+                    "callableRelations"
+                )
+            end
+        end
+        for _, child in ipairs(node) do
+            importEffects(child)
+        end
+    end
+
+    importEffects(result.root)
 
     local analysisFacts = analysis.run(result as Target, c)
     -- The narrow direct case needs no protected call: the acquisition is the

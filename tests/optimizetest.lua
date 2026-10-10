@@ -2431,4 +2431,48 @@ return run()
     testAssert.equal(chunk(), 0, "the region body reads the folded value")
 end
 
+function M.inlinesAClosedImportedScalarBody()
+    local source = [[
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(value: number): number return D.scale(value) end
+return work
+]]
+    local code, remarks = compile(source)
+    assert(not code:find("D . scale (", 1, true), "the closed imported call is expanded: " .. code)
+    local found = false
+    for _, remark in ipairs(remarks) do
+        found = found or remark.msg == "inline-return-helper: inlines tests.fixtures.crossmodulefacts.scale"
+    end
+    assert(found, "the imported body has an attributed optimization finding")
+end
+
+function M.keepsImportedCallsWithEffectfulArguments()
+    local code = compile(
+        [[
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(nextValue: function(): number): number return D.scale(nextValue()) end
+return work
+]]
+    )
+    assert(code:find("D . scale (", 1, true), "an argument with effects keeps its call: " .. code)
+end
+
+function M.importedExpressionsPreserveParentheses()
+    local code = compile(
+        [[
+local D = require("tests.fixtures.crossmodulefacts")
+local function work(value: number, byte: number): number return D.mix(value, byte) end
+return work
+]]
+    )
+    local old = package.loaded["tests.fixtures.crossmodulefacts"]
+    package.loaded["tests.fixtures.crossmodulefacts"] = {}
+    local ok, problem = pcall(function()
+        local fn = assert(loadstring(code))()
+        testAssert.equal(fn(100000, 255), (100000 * 33 + 255) % 65536)
+    end)
+    package.loaded["tests.fixtures.crossmodulefacts"] = old
+    assert(ok, problem)
+end
+
 return M

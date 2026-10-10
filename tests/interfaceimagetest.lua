@@ -298,7 +298,29 @@ function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
     sample.exports.nominalEffectFingerprint = "effects"
     sample.exports.deriveInterfaceFingerprint = "derives"
     sample.exports.comptimeFunctionFingerprint = "comptime"
-    sample.exports.callGuarantees = {value = {noYield = true, effects = {"io.read"}},}
+    sample.exports.callGuarantees = {
+        value = {
+            noYield = true,
+            effects = {"io.read"},
+            callableEffects = {summary = {raises = true, raisesBeyondBounds = false}, paramNames = {"view", "index"}},
+            callableRelations = {
+                version = 1,
+                complete = true,
+                accesses = {{view = 1, index = 2}},
+                result = {view = 1, alternative = "non-nil"}
+            },
+            inlineBody = {
+                version = 1,
+                params = {{name = "value", type = "number"}},
+                expression = {kind = "parameter", position = 1},
+                size = 1
+            },
+            representation = {
+                version = 1,
+                parameters = {{position = 1, mode = "borrowed", stableCount = true, alias = "unknown"}}
+            }
+        }
+    }
     sample.exports.comptimeFunctions.Make = {
         sealedTypeFunction = true,
         identity = "sample.Make",
@@ -323,6 +345,10 @@ function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
     testAssert.equal(exports.deriveInterfaceFingerprint, "derives", "derive interface fingerprint")
     testAssert.equal(exports.comptimeFunctionFingerprint, "comptime", "comptime fingerprint")
     testAssert.equal(exports.callGuarantees.value.effects[1], "io.read", "call effects")
+    testAssert.equal(exports.callGuarantees.value.callableEffects.summary.raisesBeyondBounds, false)
+    testAssert.equal(exports.callGuarantees.value.callableRelations.accesses[1].index, 2)
+    testAssert.equal(exports.callGuarantees.value.inlineBody.expression.position, 1)
+    testAssert.equal(exports.callGuarantees.value.representation.parameters[1].mode, "borrowed")
     testAssert.equal(exports.typeDefs.Value.deprecated.replacement, "Other", "type definition metadata")
     testAssert.equal(exports.typeDefs.Value.exactCallExport.identity, "sample.Value", "exact call export")
     testAssert.equal(exports.valueDefs.value.comptimeOnly, true, "value definition metadata")

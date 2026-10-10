@@ -295,9 +295,8 @@ A region that can reach a modeled allocation is reported, and so is one that
 can reach a catchable error path.
 
 Visible functions are inferred to a pessimistic fixed point, including their
-automatic cleanup. An exact direct export transports only the positive
-`noAllocate` and `noRaise` facts a dependent module observes, while complete
-path, escape, and return summaries stay file-local. An unknown callback, method,
+automatic cleanup. An exact direct export transports allocation, raising, path,
+escape, and return summaries under separate incremental fact keys. An unknown callback, method,
 gradual call, or uncontracted C function proves neither fact. Indexing a gradual
 value may raise, since nothing says whether it can be indexed or what its
 `__index` does, and `int64` or `uint64` arithmetic allocates, since LuaJIT boxes
@@ -365,11 +364,11 @@ Parameter-rooted paths are substituted at a call site. If a callee writes
 `writes = {"values[*]"}`. Effects on local scratch values stay local, and an
 effect that cannot be mapped safely widens toward captured or unknown state.
 
-This propagation is file-local. A call through an imported module, a computed
-function value, an unresolved method, or any other definition without a summary
-is unknown, because effect summaries are not yet serialized into the
-cross-module incremental interface. See [modules.md](modules.md) for what that
-interface does carry.
+An exact imported callable uses the same summaries and parameter substitution.
+The summaries belong to its definition, separately from its structural function
+type. Replaced or escaped callable identities, computed function values,
+unresolved methods, and missing summaries remain unknown. See
+[modules.md](modules.md) for module interfaces.
 
 The `calls` list is carried by a declared summary and propagated into callers;
 inference does not enumerate every directly observed call into it. A direct
@@ -432,11 +431,49 @@ An unknown call instead reports that the contract calls code with unknown
 effects. The annotation points at the function declaration, while an optimizer
 remark points at the call or mutation that stopped a proof.
 
+## Inferred bounds
+
+A helper's indexed accesses can be proved safe from its caller's flow facts.
+The proof works during checking, including at `-O0`, without inlining:
+
+```nupp
+local span = require("nupp.mem.span")
+
+local function get(borrows values: span.Span<uint8>, index: integer): integer
+    return values[index]
+end
+
+local function total(text: string): number
+    const values = span.fromString(text)
+    local result = 0
+    for index = 1, #values do
+        @noraise do
+            result = result + get(values, index)
+        end
+    end
+    return result
+end
+
+return total
+```
+
+Exact imported helpers carry these relationships too. Ordinary calls without a
+proof retain their bounds checks; only a context such as `@noraise` requires the
+proof. Discharging a bounds failure does not discharge other errors the helper
+can raise.
+
+A supported search returning nil or an input index carries the bounds on its
+non-nil alternative. The caller must exclude nil before using them. An ordinary
+`assert(index >= 1 and index <= #values)` also establishes bounds for later
+code; the assertion still executes. The analysis uses resolved integer values
+and sealed view identities. Reassignment, unknown effects, unsupported control
+flow, and exhausted analysis budgets lose evidence conservatively.
+
 ## Inference without an annotation
 
 A visible function does not need `@effects` for the compiler to analyze it. The
-checker infers a summary whether or not an annotation is present, and same-file
-optimizations use that inferred summary.
+checker infers a summary whether or not an annotation is present. Exact imported
+calls carry that summary to checking and optimization in their callers.
 
 ```nupp
 local function append(values: {integer}, value: integer)
@@ -504,8 +541,9 @@ current limits are part of the contract with users:
 - alias classes are flow-insensitive and cover direct local assignments and
   declared return aliases, not arbitrary heap paths;
 - there is no CFG or SSA-sensitive effect query yet;
-- imported effect summaries are not part of incremental interface hashes,
-  although the checked suspension guarantee is, including nominal methods;
+- imported effects and relationships use separate fact digests; a consumer
+  invalidates when a fact it observed changes, including a missing fact becoming
+  available;
 - a trusted C or `.d.nupp` declaration is only as correct as its author.
 
 These choices lose optimization opportunities. They are safe defaults: when the

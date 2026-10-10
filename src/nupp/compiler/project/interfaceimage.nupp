@@ -22,7 +22,7 @@ local T = require("nupp.compiler.types")
 
 local interfaceimage = {}
 
-interfaceimage.SCHEMA = 4
+interfaceimage.SCHEMA = 5
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 type interfaceimage.EncodeOptions = {

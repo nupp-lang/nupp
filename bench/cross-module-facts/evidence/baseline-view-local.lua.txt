@@ -1,0 +1,8 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);const __nuppModule = require("nupp.mem.indexed"); local span = require ( 'nupp.mem.span' )
+local function sum ( __nuppT1,__nuppT2,__nuppT3 ) 
+local total = 0
+for index = 1 , __nuppT3 do total = (__nuppBitTobit(( total )+( __nuppFfi.cast("const uint8_t *", __nuppT1 )[ __nuppT2 + __nuppModule._checkedIndex( __nuppT3 , index ,"span index out of bounds") -1] ))%4294967296) end
+return total
+end
+local function run ( text )  const __nuppT6= text ; const values = #__nuppT6 return sum ( __nuppT6 , 0 , values ) end
+return run
