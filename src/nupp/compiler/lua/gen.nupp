@@ -573,6 +573,36 @@ local function simdFamilyOf(t: any): (string?, string?)
     return name, elementName
 end
 
+--- The element and lane count of a `Fixed<N>` vector field read out of a
+--- storage struct, or nil for any other member access. As Lua such a field is
+--- the struct's C array, which the lane runtime reads into the N-lane form; a
+--- write needs nothing, since the FFI copies an N-lane table into the array.
+local function storageVectorField(x: any): (string?, integer?)
+    if x.kind ~= "dotIndex" or x.name == nil or x.obj == nil or x.assignmentTarget == true then
+        return nil, nil
+    end
+    local objectType = x.obj.inferredType
+    while objectType ~= nil
+        and (
+            objectType.tag == "ptr"
+            or objectType.tag == "const"
+            or objectType.tag == "borrowed"
+            or objectType.tag == "affine"
+            or objectType.tag == "pinned"
+        ) do
+        objectType = objectType.tag == "ptr" and objectType.elem or objectType.inner
+    end
+    if objectType == nil or objectType.tag ~= "nominal" or objectType.declKind ~= "struct" then
+        return nil, nil
+    end
+    local origin = objectType.origin or objectType
+    if origin.nativeOnly == true then
+        return nil, nil
+    end
+
+    return require("nupp.compiler.targetlayout").storageVector(x.inferredType)
+end
+
 --- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
 ---
 --- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
@@ -887,6 +917,9 @@ function gen.generate(
         captureFrameStack = {},
         constructorReturnName = nil as string?,
         spill = nil as any,
+        -- The stored vector field reads being wrapped, so the inner emission of
+        -- the same node is the plain member access.
+        storageVectorReading = {} as {[any]: boolean},
     }
     local coverageOn = coverage == true or type(coverage) == "table"
     local coveragePath = coverageOn
@@ -4494,6 +4527,7 @@ function gen.generate(
     -- Hung on the shared table rather than captured: `emit` is at the
     -- upvalue limit.
     emitDepth.simdFamilyOf = simdFamilyOf
+    emitDepth.storageVectorField = storageVectorField
     emitDepth.nativeOnlyStruct = nativeOnlyStruct
 
     local function captureUsage(block, captures)
@@ -5952,6 +5986,22 @@ function gen.generate(
             emitDepth.view.count(x.operand)
             return
         end
+        if kind == "dotIndex" and not emitDepth.storageVectorReading[x] then
+            -- A `Fixed<N>` vector field of a storage struct: the C array the
+            -- struct holds, read into the N-lane form the lane runtime works on.
+            local element, lanes = emitDepth.storageVectorField(x)
+            if element ~= nil then
+                emitDepth.storageVectorReading[x] = true
+                e(
+                    ("%s.lane.fromStorage(%q,%d,"):format(compilerModuleName("nupp.simd"), element, lanes as integer),
+                    sourceLine(x)
+                )
+                emit(x)
+                e(")")
+                emitDepth.storageVectorReading[x] = nil
+                return
+            end
+        end
         if kind == "dotIndex"
             and x.indexedField
             and x.indexedField.adapter == "span"
@@ -6523,7 +6573,27 @@ function gen.generate(
                     if t.kind == "topt" then
                         t = t.inner
                     end
-                    if t.kind == "tname" and C_PRIM[t.base.text] then
+                    local vectorElement, vectorLanes = require(
+                        "nupp.compiler.targetlayout"
+                    ).storageVector((entry as any).fieldType)
+                    if vectorElement ~= nil then
+                        -- A stored `Fixed<N>` vector is its element's C array,
+                        -- aligned as the target layout model lays it out, which
+                        -- is what the native emitter assumes and the load-time
+                        -- layout check compares.
+                        local targetLayout = require("nupp.compiler.targetlayout")
+                        local bytes = targetLayout.VECTOR_ELEMENT_BYTES[vectorElement as string] as integer
+                        cdecl[
+                            #cdecl + 1
+                        ] = (
+                            "%s %s[%d] __attribute__((aligned(%d)));"
+                        ):format(
+                            C_PRIM[vectorElement as string],
+                            fname,
+                            vectorLanes as integer,
+                            targetLayout.luaVectorAlignment(bytes, vectorLanes as integer)
+                        )
+                    elseif t.kind == "tname" and C_PRIM[t.base.text] then
                         cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. width .. ";"
                     elseif t.kind == "tname" and structTag[cst.lastName(t) or ""] then
                         cdecl[#cdecl + 1] = "struct " .. structTag[cst.lastName(t) as string] .. " " .. fname .. ";"

@@ -15,6 +15,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")
+local targetLayout = require("nupp.compiler.targetlayout")
 local carriedFacts = require("nupp.compiler.aot.carried")
 local reducers = require("nupp.compiler.aot.reducers")
 local simdindices = require("nupp.compiler.aot.simdindices")
@@ -715,6 +716,13 @@ function lower.layout(
         for _, fieldName in ipairs(fields) do
             local fieldType = origin.byname and origin.byname[fieldName] or nil
             local storage = semanticStorageType(fieldType)
+            -- A `Fixed<N>` vector of a storage element is a stored field: its
+            -- lanes lie in the struct as an array laid out by the target
+            -- layout model, and the field is typed as the vector it holds.
+            local storedVector = targetLayout.storageVector(fieldType) ~= nil
+            if storedVector then
+                storage = genericSimdType(fieldType)
+            end
             if storage == nil then
                 context.reject(
                     lower.site(origin.fieldDefs and origin.fieldDefs[fieldName] or declaration),
@@ -728,7 +736,7 @@ function lower.layout(
             ] = new scalarIR.Field(
                 name = fieldName,
                 type = storage as string,
-                sourceType = sourceSpelling(fieldType),
+                sourceType = not storedVector and sourceSpelling(fieldType) or nil,
                 source = lower.site(origin.fieldDefs and origin.fieldDefs[fieldName] or declaration)
             )
         end
@@ -3747,6 +3755,18 @@ local function fieldAccess(
     end
     if field == nil then
         context.reject(source, "struct " .. tostring(layoutName) .. " has no field " .. fieldName)
+    end
+    if tostring((field as scalarIR.Field).type):match("^simd_") ~= nil then
+        -- A vector field is one row's lanes, not one lane of several rows:
+        -- the species' field access gathers a scalar field across rows, and
+        -- the whole-field access is the row's own member.
+        context.reject(
+            source,
+            "field "
+            .. fieldName
+            .. " is a stored vector: read or write it whole through its row, rows[i]."
+            .. fieldName
+        )
     end
     local column: scalarIR.Param? = nil
     if span ~= nil and span.soa ~= nil then
@@ -8605,6 +8625,14 @@ function lower.parameters(
                 end
             end
             for ordinal, field in ipairs(layout.fields) do
+                if tostring(field.type):match("^simd_") ~= nil then
+                    -- A column of vectors is a later step: a stored vector field
+                    -- is a span element's, read whole through its row.
+                    context.reject(
+                        lower.site(raw),
+                        "native SoA columns cannot hold a vector field (" .. field.name .. "); use a span of the struct"
+                    )
+                end
                 local columnName = name as string
                 if ordinal > 1 then
                     columnName = "__nuppSoa_" .. tostring(position) .. "_" .. tostring(ordinal)

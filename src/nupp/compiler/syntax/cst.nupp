@@ -504,6 +504,11 @@ interface cst.Hints
     --- Set while an assignment asks an index expression for its accepted write type.
     writeContext: boolean?
 
+    --- Set for good on an assignment's target, where `writeContext` is cleared
+    --- once inferred: the generator reads a stored vector field through the
+    --- lane runtime everywhere but here.
+    assignmentTarget: boolean?
+
     --- Read type after a write through a distinct setter, or false for write-only.
     postWriteType: any
 

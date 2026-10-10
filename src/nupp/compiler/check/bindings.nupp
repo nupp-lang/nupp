@@ -1252,6 +1252,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             elseif not wasConstModuleField then
                 target.writeContext = true
+                -- Kept past inference: the generator reads a stored vector field
+                -- through the lane runtime, and must not where it is written.
+                target.assignmentTarget = true
                 local tt = c.infer(target)
                 target.writeContext = nil
                 local contractWrite = false

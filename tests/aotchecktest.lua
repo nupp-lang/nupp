@@ -45,6 +45,48 @@ end
 
 return {first = first, Pair = Pair}
 ]],
+    -- A stored vector field is one row's lanes, not one lane of several rows,
+    -- so the species' field access does not reach it.
+    ["vectorfieldload.nupp"] = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Particle
+    mass: float
+    velocity: simd.Vector<float, simd.Fixed<4>>
+end
+
+@aot
+local function first(borrows rows: span.Span<Particle>): float
+    local s = simd.species(array.float, 4)
+    return s:load(rows, 1, "velocity"):extract(1)
+end
+
+return {first = first, Particle = Particle}
+]],
+    -- A column of vectors is not admitted: a stored vector field belongs to a
+    -- span of its struct.
+    ["vectorsoa.nupp"] = [[
+local soa = require("nupp.mem.soa")
+local simd = require("nupp.simd")
+
+local struct Particle
+    mass: float
+    velocity: simd.Vector<float, simd.Fixed<4>>
+end
+
+@aot
+local function masses(borrows rows: soa.Span<Particle>): number
+    local total = 0.0
+    for i = 1, #rows do
+        total = total + rows[i].mass
+    end
+    return total
+end
+
+return {masses = masses, Particle = Particle}
+]],
     -- A species is a compile-time fact, so an entry cannot answer one.
     ["speciesresult.nupp"] = [[
 local array = require("nupp.mem.array")
@@ -190,6 +232,29 @@ return {storePast = storePast}
 
 -- What `check` has to leave alone: an admitted `@aot` function, and a file with none.
 local ADMITTED = {
+    -- A `Fixed<N>` vector field has a storage layout, so its struct is a span
+    -- element, and the field is read and written whole through its row.
+    ["vectorfield.nupp"] = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Particle
+    mass: float
+    velocity: simd.Vector<float, simd.Fixed<4>>
+end
+
+@aot
+local function damp(exclusive rows: span.WriteSpan<Particle>, factor: float): number
+    local total = 0.0
+    for i = 1, #rows do
+        rows[i].velocity = rows[i].velocity * factor
+        total = total + rows[i].mass
+    end
+    return total
+end
+
+return {damp = damp, Particle = Particle}
+]],
     -- A vector signature makes an entry native-only, reached from the entry
     -- beside it; it is admitted, not refused.
     ["vectorentry.nupp"] = [[

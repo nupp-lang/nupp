@@ -187,7 +187,18 @@ end
 --- The types an arithmetic comparison may relate.
 const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["i64"] = true, ["u64"] = true}
 
+--- A stored vector field: `Fixed<N>` of a storage element, whose lanes have
+--- the same layout on every tier. The one vector type storage may hold, and
+--- its own source spelling, since no scalar storage type stands for it.
+local function storedVector(valueType: string): boolean
+    return valueType:match("^simd_vector_[fiu]%d+_fixed%d+$") ~= nil
+end
+
 local function storageSource(valueType: string, sourceType: string?): string
+    if storedVector(valueType) then
+        return valueType
+    end
+
     return sourceType or tostring(admit.CANONICAL_SOURCE[valueType])
 end
 
@@ -3135,12 +3146,13 @@ local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Lay
             -- storage: a vector, a mask, a scalar or another such aggregate.
             local valueField = layout.nativeOnly == true
                 and (scalarIR.nativeOnlyType(field.type) or verify.NUMERIC[field.type] == true or field.type == "bool")
+            local vectorField = layout.nativeOnly ~= true and storedVector(tostring(field.type))
             holds(
-                fields[field.name] == nil and (valueField or validStorage(field.type, field.sourceType)),
+                fields[field.name] == nil and (valueField or vectorField or validStorage(field.type, field.sourceType)),
                 "invalid native layout field"
             )
             fields[field.name] = field.type
-            sources[field.name] = valueField and tostring(field.sourceType or field.type)
+            sources[field.name] = (valueField or vectorField) and tostring(field.sourceType or field.type)
                 or storageSource(field.type, field.sourceType)
         end
         layout.fieldTypes = fields

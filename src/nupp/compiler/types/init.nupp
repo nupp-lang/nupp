@@ -4201,6 +4201,20 @@ function types.cName(t: types.Type): string?
             return types.cName(other)
         end
     end
+    if tag == "nominal" then
+        -- A stored `Fixed<N>` vector is its element's C array, aligned as the
+        -- target layout model lays it out, which is more than the array's own
+        -- alignment and what makes the spelling measure the field it names.
+        local targetLayout = require("nupp.compiler.targetlayout")
+        local element, lanes = targetLayout.storageVector(t)
+        if element ~= nil and C_NAME[element as string] ~= nil then
+            local bytes = targetLayout.VECTOR_ELEMENT_BYTES[element as string] as integer
+            local count = lanes as integer
+            local alignment = targetLayout.luaVectorAlignment(bytes, count)
+
+            return ("__attribute__((aligned(%d))) %s[%d]"):format(alignment, C_NAME[element as string], count)
+        end
+    end
 
     return nil
 end

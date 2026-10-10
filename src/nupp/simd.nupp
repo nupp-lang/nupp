@@ -2669,6 +2669,20 @@ local function popcount(element: string, value: any): any
     return nupp.math.u32.popcount(pattern(element, value))
 end
 
+--- The N-lane vector a stored `Fixed<N>` field holds: `storage` is the field's
+--- C array, lane `i` at index `i - 1`, each wrapped to the element as a load
+--- wraps it. Writing the field back is the assignment itself, since the FFI
+--- copies an N-lane table into an N-element array.
+--- @export
+function lane.fromStorage(element: string, n: integer, storage: any): any
+    local lanes: {[integer]: any} = {}
+    for i = 1, n do
+        lanes[i] = wrap(element, (storage as {[integer]: any})[i - 1])
+    end
+
+    return vectorOf(element, n, lanes)
+end
+
 --- The methods on one lane, or on a preferred-species vector or mask. On an
 --- N-lane form `lane.method` applies the lane-by-lane ones here to each
 --- lane and takes the rest from `WIDE` below.

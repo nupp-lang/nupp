@@ -29,6 +29,7 @@ local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local prelude = require("nupp.compiler.aot.llvm.prelude")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local targetLayout = require("nupp.compiler.targetlayout")
 local text = require("nupp.compiler.aot.llvm.text")
 local types = require("nupp.compiler.aot.llvm.types")
 
@@ -458,6 +459,128 @@ end
 -- Expressions
 ----------------------------------------------------------------------------
 
+--- Whether a layout field holds a stored vector, `Fixed<N>` of a storage
+--- element: in memory an array of its lanes, laid out by the target layout
+--- model rather than by LLVM's packing.
+function expressions.vectorField(field: scalarIR.Field): boolean
+    return scalarIR.storedVectorField(field)
+end
+
+--- The LLVM members a reified layout is spelled with, and where each field
+--- sits among them.
+record expressions.LayoutModel
+    --- The member types in order, padding included.
+    members: {string}
+
+    --- Each field's member index, zero-based as `getelementptr` counts.
+    index: {[string]: integer}
+
+    --- Each field's storage type: the member it occupies.
+    storage: {[string]: string}
+
+    --- Each field's alignment under the model.
+    fieldAlignment: {[string]: integer}
+
+    --- The struct's size and alignment under the model.
+    size: integer
+
+    alignment: integer
+end
+
+local function roundUp(value: integer, alignment: integer): integer
+    return math.floor((value + alignment - 1) / alignment) * alignment
+end
+
+--- The members of a reified layout. A scalar field has the alignment LLVM
+--- gives it, which is the C one, so LLVM's own packing lays those out as the
+--- target layout model does and nothing is spelled for them. A stored vector
+--- is an array whose alignment LLVM takes from its element, so the model's
+--- alignment is spelled instead: bytes before the array bring it to the
+--- model's offset, bytes after it pad the vector to its occupied size, and
+--- bytes at the end bring the struct to the model's size. A layout with no
+--- vector field is spelled exactly as it always was.
+--- @raises string when the program declares no such layout, or when a vector
+--- field's layout is not modeled for the target
+function expressions.layoutModel(ctx: context.Context, layoutName: string): expressions.LayoutModel
+    local known = ctx.layoutModels[layoutName]
+    if known ~= nil then
+        return known as expressions.LayoutModel
+    end
+    local layout = ctx.layouts[layoutName]
+    if layout == nil then
+        error("no layout " .. layoutName, 0)
+    end
+    local model = new expressions.LayoutModel(
+        members = {},
+        index = {},
+        storage = {},
+        fieldAlignment = {},
+        size = 0,
+        alignment = 1
+    )
+    local cursor: integer = 0
+    local natural: integer = 1
+    for _, field in ipairs((layout as scalarIR.Layout).fields) do
+        if expressions.vectorField(field) then
+            local found = context.species(ctx, tostring(field.type))
+            if found == nil then
+                error("no species for stored vector field " .. field.name, 0)
+            end
+            local lanes = (found as any).lanes as integer
+            local elementBytes = math.floor((found as any).bits / 8) as integer
+            local laid, why = targetLayout.vector(tostring(ctx.triple), elementBytes, lanes)
+            if laid == nil then
+                error("stored vector field " .. field.name .. ": " .. tostring(why), 0)
+            end
+            local vector = laid as targetLayout.Vector
+            local before = roundUp(cursor, vector.alignment) - cursor
+            if before > 0 then
+                model.members[#model.members + 1] = ("[%d x i8]"):format(before)
+                cursor = cursor + before
+            end
+            local storage = ("[%d x %s]"):format(lanes, (found as any).scalar)
+            model.index[field.name] = #model.members
+            model.storage[field.name] = storage
+            model.fieldAlignment[field.name] = vector.alignment
+            model.members[#model.members + 1] = storage
+            cursor = cursor + vector.payload
+            if vector.padding > 0 then
+                model.members[#model.members + 1] = ("[%d x i8]"):format(vector.padding)
+                cursor = cursor + vector.padding
+            end
+            if vector.alignment > model.alignment then
+                model.alignment = vector.alignment
+            end
+            if elementBytes > natural then
+                natural = elementBytes
+            end
+        else
+            local storage = types.storage(field.type, field.sourceType)
+            local bytes = types.storageBytes(field.type, field.sourceType)
+            cursor = roundUp(cursor, bytes)
+            model.index[field.name] = #model.members
+            model.storage[field.name] = storage
+            model.fieldAlignment[field.name] = bytes
+            model.members[#model.members + 1] = storage
+            cursor = cursor + bytes
+            if bytes > model.alignment then
+                model.alignment = bytes
+            end
+            if bytes > natural then
+                natural = bytes
+            end
+        end
+    end
+    model.size = roundUp(cursor, model.alignment)
+    local tail = model.size - roundUp(cursor, natural)
+    if tail > 0 then
+        model.members[#model.members + 1] = ("[%d x i8]"):format(tail)
+    end
+    ctx.layoutModels[layoutName] = model
+
+    return model
+end
+
 --- The LLVM struct type of a reified layout.
 --- @raises string when the program declares no such layout
 function expressions.layoutType(ctx: context.Context, layoutName: string): string
@@ -466,39 +589,45 @@ function expressions.layoutType(ctx: context.Context, layoutName: string): strin
         error("no layout " .. layoutName, 0)
     end
     local name = "%struct." .. layout.uniqueName
-    local fields: {string} = {}
-    for position, field in ipairs(layout.fields) do
-        fields[position] = types.storage(field.type, field.sourceType)
-    end
-    builder.once(ctx.module, "type " .. name, name .. " = type { " .. table.concat(fields, ", ") .. " }")
+    local model = expressions.layoutModel(ctx, layoutName)
+    builder.once(ctx.module, "type " .. name, name .. " = type { " .. table.concat(model.members, ", ") .. " }")
 
     return name
 end
 
 local function fieldIndex(ctx: context.Context, layoutName: string, field: string): (integer, scalarIR.Field)
     local layout = ctx.layouts[layoutName] as scalarIR.Layout
+    -- A native-only aggregate is a literal struct of its fields' value types
+    -- in order, with no memory layout to model.
+    local model = layout.nativeOnly ~= true and expressions.layoutModel(ctx, layoutName) or nil
     for position, candidate in ipairs(layout.fields) do
         if candidate.name == field then
-            return position - 1, candidate
+            if model == nil then
+                return position - 1, candidate
+            end
+
+            return (model as expressions.LayoutModel).index[field] as integer, candidate
         end
     end
     error("layout " .. layoutName .. " has no field " .. field, 0)
 end
 
---- The address of a field of the struct `object` points at.
+--- The address of a field of the struct `object` points at, and the
+--- alignment the layout model gives the field there.
 function expressions.fieldAddress(
     ctx: context.Context,
     object: string,
     layoutName: string,
     field: string
-): (string, scalarIR.Field)
+): (string, scalarIR.Field, integer)
     local structType = expressions.layoutType(ctx, layoutName)
     local index, found = fieldIndex(ctx, layoutName, field)
+    local alignment = expressions.layoutModel(ctx, layoutName).fieldAlignment[field] as integer
 
     return context.value(
         ctx,
         ("getelementptr %s%s, ptr %s, i32 0, i32 %d"):format(expressions.inbounds(ctx), structType, object, index)
-    ), found
+    ), found, alignment
 end
 
 local function binaryFloat(ctx: context.Context, instruction: string, t: string, a: string, b: string): string
@@ -851,7 +980,14 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
         local object = expressions.value(ctx, field.object)
-        local address, declared = expressions.fieldAddress(ctx, object, field.layout, field.field)
+        local address, declared, alignment = expressions.fieldAddress(ctx, object, field.layout, field.field)
+        if expressions.vectorField(declared) then
+            -- A stored vector is loaded whole, at the alignment the layout
+            -- model guarantees the field rather than its element's.
+            local vectorType = context.llvmType(ctx, nodeType)
+
+            return context.value(ctx, ("load %s, ptr %s, align %d"):format(vectorType, address, alignment)), nodeType
+        end
         local storage = types.storage(nodeType, declared.sourceType)
         local raw = context.value(ctx, ("load %s, ptr %s"):format(storage, address))
 

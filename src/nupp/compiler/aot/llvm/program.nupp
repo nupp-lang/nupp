@@ -206,6 +206,7 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
             )
             local inner = context.new(module, f, program, unit.facts)
             inner.helpers = ctx.helpers
+            inner.triple = ctx.triple
             for _, param in ipairs(helper.params) do
                 inner.helperParams[tostring(param.uniqueName)] = "%h_" .. tostring(param.uniqueName)
             end
@@ -242,24 +243,45 @@ local function layoutReporters(unit: llvmProgram.Unit, program: scalarIR.Program
     local attrs = builder.attributes(module, functionAttributes(unit.target, program))
     local size = unit.target.sizeType
     local ctx = context.new(module, builder.func(module, ""), program, unit.facts)
+    ctx.triple = unit.target.public
     local structType = expressions.layoutType(ctx, layout.name)
+    local model = expressions.layoutModel(ctx, layout.name)
 
     local function reporter(name: string, address: string): nil
         local f = builder.func(module, ("define %s @%s() %s {"):format(size, name, attrs))
         builder.finish(f, ("ret %s ptrtoint (ptr %s to %s)"):format(size, address, size))
     end
 
+    --- An alignment is the layout model's, not LLVM's: a stored vector is an
+    --- array whose alignment LLVM takes from its element, and the model's is
+    --- what the kernel's loads and stores assume and the explicit padding
+    --- spells, so it is what the wrapper compares against. Reported only for
+    --- a layout holding one, since a scalar field's alignment is its size and
+    --- the offsets already say it, and every reporter is a declaration in the
+    --- generated module, which holds two hundred.
+    local function constant(name: string, value: integer): nil
+        local f = builder.func(module, ("define %s @%s() %s {"):format(size, name, attrs))
+        builder.finish(f, ("ret %s %d"):format(size, value))
+    end
+
     local prefix = symbol .. "_layout_" .. layout.name
+    local aligned = scalarIR.holdsStoredVector(layout)
     reporter(prefix .. "_size", ("getelementptr (%s, ptr null, i32 1)"):format(structType))
-    for position, field in ipairs(layout.fields) do
+    if aligned then
+        constant(prefix .. "_align", model.alignment)
+    end
+    for _, field in ipairs(layout.fields) do
         reporter(
             prefix .. "_offset_" .. field.name,
-            ("getelementptr (%s, ptr null, i32 0, i32 %d)"):format(structType, position - 1)
+            ("getelementptr (%s, ptr null, i32 0, i32 %d)"):format(structType, model.index[field.name] as integer)
         )
         reporter(
             prefix .. "_size_" .. field.name,
-            ("getelementptr (%s, ptr null, i32 1)"):format(types.storage(field.type, field.sourceType))
+            ("getelementptr (%s, ptr null, i32 1)"):format(model.storage[field.name] as string)
         )
+        if aligned then
+            constant(prefix .. "_align_" .. field.name, model.fieldAlignment[field.name] as integer)
+        end
     end
 end
 
@@ -307,6 +329,7 @@ end
 
 local function prepared(unit: llvmProgram.Unit, f: builder.Function, program: scalarIR.Program): context.Context
     local ctx = context.new(unit.module, f, program, unit.facts)
+    ctx.triple = unit.target.public
     ctx.maskedMemory = unit.maskedMemory
     ctx.tier = unit.codegenTier
     local architecture = unit.target.llvmTriple:match("^([^-]+)")

@@ -1236,8 +1236,10 @@ Preferred vectors use one lane; fixed vectors use their requested count.
 ## Native-only aggregates
 
 A [struct](../../language/types/records-and-structs.md#structs) containing
-vectors or masks is a *native-only aggregate*, an immutable value passed
-between native entries:
+masks, or vectors of a tier-dependent species such as `Preferred`, is a
+*native-only aggregate*, an immutable value passed between native entries.
+A struct whose vectors are all `Fixed<N>` is instead a storage struct; see
+[Stored vector fields](#stored-vector-fields) below.
 
 ```nupp
 local simd = require("nupp.simd")
@@ -1301,19 +1303,65 @@ end
 ```
 
 Constructing such an aggregate from Lua is also rejected when the target's
-AOT policy compiles it. Store scalar elements in memory and build the
-aggregate inside the kernel.
+AOT policy compiles it. Store scalar elements in memory, or use a stored
+vector field, and build the aggregate inside the kernel.
+
+## Stored vector fields
+
+A stored struct needs a layout independent of the CPU tier, which a
+`Fixed<N>` vector of a storage element has. A struct holding such fields,
+and nothing else of the SIMD vocabulary, is a storage struct: a span or
+array holds it, and the field is read and written whole through its row, in
+a native kernel and as ordinary Lua alike:
+
+```nupp
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Particle
+    mass: float
+    velocity: simd.Vector<float, simd.Fixed<4>>
+end
+
+@aot
+local function damp(exclusive rows: span.WriteSpan<Particle>, factor: float): number
+    local total = 0.0
+    for i = 1, #rows do
+        rows[i].velocity = rows[i].velocity * factor
+        total = total + rows[i].mass
+    end
+    return total
+end
+
+return {damp = damp, Particle = Particle}
+```
+
+The field belongs to its row. `species:load(rows, at, "velocity")` gathers
+one scalar field across several rows and is rejected for a vector field, and
+a SoA row view of such a struct is rejected: a column of vectors is a later
+step. A `Preferred` vector or a mask field keeps the struct a native-only
+aggregate.
 
 ::: deepdive
-A stored struct needs a layout independent of the CPU tier. Only a fixed
-species could meet that requirement, and vector storage fields are not
-admitted. The compiler's target layout model already defines their alignment:
-the payload rounded up to a power of two, capped at the allocator's guarantee
-of 16 bytes on 64-bit targets and Wasm, or 8 bytes on i686.
+The compiler's target layout model lays the field out, per target: the
+payload rounded up to a power of two, capped at the allocator's guarantee of
+16 bytes on 64-bit targets and Wasm, or 8 bytes on i686. The payload pads to
+that alignment, so three `float` lanes occupy 16 bytes, 4 of them padding; a
+payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
+bytes a row, `velocity` at offset 16.
 
-The payload pads to that alignment. Three `float` lanes would occupy 16 bytes,
-including 4 bytes of padding; a payload beyond the cap pads to a multiple of
-the cap. This layout model does not make vectors available as storage fields.
+Three things are held to that model. The Lua struct declares the field as
+its element's C array with the model's alignment, so `layoutof(Particle)`,
+the FFI's allocation and its stride follow it. The native code spells the
+struct with explicit padding where the model places a field past LLVM's own
+packing, and loads and stores the field as one vector at the model's
+alignment. The compiled object reports every offset, size and alignment,
+which the generated wrapper compares with `layoutof` when the module loads,
+so a struct the two sides lay out differently, by alignment alone included,
+is rejected there rather than read wrong.
+
+As ordinary Lua the field is the struct's C array: reading it answers the
+N-lane vector of its species, and assigning a vector copies the lanes in.
 :::
 
 ## Feature tiers

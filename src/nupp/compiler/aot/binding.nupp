@@ -113,10 +113,17 @@ end
 --- struct out.
 function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string?): {string}
     local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
+    local aligned = scalarIR.holdsStoredVector(layout)
     local lines: {string} = {prefix .. "_size(): uint64 " .. from(library)}
+    if aligned then
+        lines[#lines + 1] = prefix .. "_align(): uint64 " .. from(library)
+    end
     for _, field in ipairs(layout.fields) do
         lines[#lines + 1] = prefix .. "_offset_" .. field.name .. "(): uint64 " .. from(library)
         lines[#lines + 1] = prefix .. "_size_" .. field.name .. "(): uint64 " .. from(library)
+        if aligned then
+            lines[#lines + 1] = prefix .. "_align_" .. field.name .. "(): uint64 " .. from(library)
+        end
     end
 
     return lines
@@ -124,9 +131,17 @@ end
 
 --- Comparing the two layouts at load.
 ---
---- Every field, both offset and size, and the struct's own size. A mismatch
---- raises before the wrapper is returned, so a module that loads is a module
---- whose struct the code generator agreed with.
+--- Every field, its offset, size and alignment, and the struct's own size and
+--- alignment. A mismatch raises before the wrapper is returned, so a module
+--- that loads is a module whose struct the code generator agreed with. The
+--- alignments are compared for a layout holding a stored vector, where
+--- offsets and sizes alone would not tell: a vector field whose C array was
+--- declared without its alignment lands at the same offset in a struct that
+--- happens to be aligned already, and only the alignment comparison says the
+--- two sides disagree about the stride a span of such structs may be
+--- allocated at. A scalar field's alignment is its size, which the offsets
+--- already state, and every declaration counts against the generated
+--- module's two hundred locals.
 function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
     -- Named after the symbol as well as the struct. Two `@aot` functions in one
     -- file that reify the same struct each check it against their own object's
@@ -142,12 +157,21 @@ function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
         return "if " .. measured .. " ~= " .. reported .. " then " .. raise .. " end"
     end
 
+    local aligned = scalarIR.holdsStoredVector(layout)
     local lines: {string} = {"const " .. name .. " = layoutof(" .. layout.name .. ")"}
     lines[#lines + 1] = agrees(name .. ".size", reporter .. "_size()", "layout size")
+    if aligned then
+        lines[#lines + 1] = agrees(name .. ".alignment", reporter .. "_align()", "layout alignment")
+    end
     for position, field in ipairs(layout.fields) do
         local at = name .. ".fields[" .. tostring(position) .. "]"
         lines[#lines + 1] = agrees(at .. ".offset", reporter .. "_offset_" .. field.name .. "()", "field offset")
         lines[#lines + 1] = agrees(at .. ".size", reporter .. "_size_" .. field.name .. "()", "field size")
+        if aligned then
+            lines[
+                #lines + 1
+            ] = agrees(at .. ".alignment", reporter .. "_align_" .. field.name .. "()", "field alignment")
+        end
     end
 
     return lines

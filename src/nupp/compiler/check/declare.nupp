@@ -2425,10 +2425,11 @@ function declare.install(
                         end
                     end
                     if stat.declKind == "struct" then
-                        -- The generator lowers a vector field to its lane's C type,
-                        -- and a struct holding one is a native-only aggregate.
+                        -- A `Fixed<N>` vector field is a C array laid out by the
+                        -- target layout model; a mask or a tier-dependent vector
+                        -- makes the struct a native-only aggregate.
                         (e as any).fieldType = ft
-                        if nativeonly.carriesNativeOnly(ft) then
+                        if nativeonly.fieldMakesNativeOnly(ft) then
                             n.nativeOnly = true
                             local def = stat.name ~= nil and (stat.name as any).definition or nil
                             if def ~= nil then

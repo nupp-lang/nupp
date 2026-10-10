@@ -493,6 +493,61 @@ end
     })
 end
 
+function M.aStoredFixedVectorFieldIsReadAndWrittenWhole()
+    local run = compile(
+        PRELUDE
+        .. [[
+local struct Particle
+    mass: float
+    pos: simd.Vector<float, simd.Fixed<4>>
+    tail: simd.Vector<float, simd.Fixed<3>>
+end
+return function(): ({number}, {number})
+    local s = simd.species(array.float, 4)
+    local t = simd.species(array.float, 3)
+    const particles = array.newArray(new Particle(), 2)
+    with w = particles:write() do
+        w[1] = new Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
+        w[2].pos = s:iota(1.0, 1.0)
+        w[2].pos = w[2].pos * 10.0
+        w[2].mass = 2.5
+    end
+    const r = particles:read()
+    local answers: {number} = {}
+    answers[#answers + 1] = r[1].pos:extract(3)
+    answers[#answers + 1] = r[1].tail:extract(3)
+    answers[#answers + 1] = r[2].pos:extract(4)
+    answers[#answers + 1] = r[2].mass
+    answers[#answers + 1] = simd.horizontal.orderedSum(r[2].pos)
+    answers[#answers + 1] = (r[1].pos + r[2].pos):extract(1)
+    local layout = layoutof(Particle)
+    local measured: {number} = {layout.size, layout.alignment}
+    for _, field in ipairs(layout.fields) do
+        measured[#measured + 1] = field.offset
+        measured[#measured + 1] = field.size
+        measured[#measured + 1] = field.alignment
+    end
+    return answers, measured
+end
+]]
+    )
+    local answers, measured = run()
+    testAssert.deepEqual(answers, {
+        2, -- a field built from a splat
+        9, -- 7 8 9 in the three-lane field
+        40, -- written twice: an iota, then that field times ten
+        2.5,
+        100,
+        12, -- two stored fields read into vectors and added
+    })
+    testAssert.deepEqual(measured, {
+        48, 16, -- the struct
+        0, 4, 4, -- mass
+        16, 16, 16, -- pos
+        32, 12, 16, -- tail: twelve payload bytes, sixteen aligned
+    })
+end
+
 ----------------------------------------------------------------------------
 -- The two forms agree
 

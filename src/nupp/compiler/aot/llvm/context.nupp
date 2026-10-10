@@ -166,6 +166,13 @@ record context.Context
 
     --- The Lua-builder state, inside a builder entry.
     lua: context.Lua?
+
+    --- The Nupp target triple the unit is compiled for, which keys the target
+    --- layout model a stored vector field is laid out by.
+    triple: string?
+
+    --- The LLVM members of each reified layout, by layout name, once spelled.
+    layoutModels: {[string]: any}
 end
 
 --- A fresh context for a function of `program`.
@@ -205,7 +212,9 @@ function context.new(
         tailCounts = {},
         spanCounters = {},
         accumulators = {},
-        lua = nil
+        lua = nil,
+        triple = nil,
+        layoutModels = {}
     )
 end
 

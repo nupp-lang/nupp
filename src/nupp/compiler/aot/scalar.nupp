@@ -1773,6 +1773,25 @@ end
 --- Whether a value of this IR type may exist only in native code: a vector
 --- or a mask. A species is a compile-time fact and a reducer is a region, so
 --- neither is a value an entry could take or answer at all.
+--- Whether a layout field holds a stored vector: `Fixed<N>` of a storage
+--- element, laid out by the target layout model with an alignment of its own,
+--- which is what the compiled object then reports beside the field's offset
+--- and size.
+function scalarIR.storedVectorField(field: scalarIR.Field): boolean
+    return tostring(field.type):match("^simd_vector_") ~= nil
+end
+
+--- Whether a layout holds a stored vector field.
+function scalarIR.holdsStoredVector(layout: scalarIR.Layout): boolean
+    for _, field in ipairs(layout.fields) do
+        if scalarIR.storedVectorField(field) then
+            return true
+        end
+    end
+
+    return false
+end
+
 function scalarIR.nativeOnlyType(typeName: scalarIR.Type?): boolean
     local name = tostring(typeName)
 

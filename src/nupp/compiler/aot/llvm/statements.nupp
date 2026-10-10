@@ -554,13 +554,27 @@ local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
             assignLocal(ctx, slot as context.Slot, value, t)
         else
             local object = expressions.value(ctx, target.object as scalarIR.Expr)
-            local address, declared = expressions.fieldAddress(
+            local address, declared, alignment = expressions.fieldAddress(
                 ctx,
                 object,
                 tostring(target.layout),
                 tostring(target.field)
             )
             local fieldType = tostring(declared.type)
+            if expressions.vectorField(declared) then
+                -- A stored vector is written whole, at the layout model's
+                -- alignment; the value is already of the field's vector type.
+                if t ~= fieldType then
+                    error("a stored vector field takes a vector of its own species", 0)
+                end
+                context.emit(
+                    ctx,
+                    (
+                        "store %s %s, ptr %s, align %d"
+                    ):format(context.llvmType(ctx, fieldType), value, address, alignment)
+                )
+                return
+            end
             local storage = types.storage(fieldType, declared.sourceType)
             local stored = expressions.narrow(ctx, expressions.convert(ctx, value, t, fieldType), fieldType, storage)
             context.emit(ctx, ("store %s %s, ptr %s"):format(storage, stored, address))

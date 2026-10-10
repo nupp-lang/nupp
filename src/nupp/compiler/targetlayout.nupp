@@ -16,6 +16,9 @@ local record targetLayout
     hostKey: function(): string?
     of: function(any, string): (any?, string?)
     vector: function(string, integer, integer): (targetLayout.Vector?, string?)
+    storageVector: function(any): (string?, integer?)
+    luaVectorAlignment: function(integer, integer): integer
+    VECTOR_ELEMENT_BYTES: {[string]: integer}
 end
 
 --- The storage a `Fixed<N>` vector field would occupy: its payload bytes, the
@@ -162,10 +165,9 @@ local function roundUp(value: integer, alignment: integer): integer
 end
 
 --- The storage a `Fixed<lanes>` vector of an element `elementBytes` wide
---- occupies under `key`, by the contract above. No field is admitted with
---- this layout yet: it is the contract a storage struct holding a vector
---- would be laid out by, stated so an emitter and a reporter can be held to
---- it before either exists.
+--- occupies under `key`, by the contract above. It is what a storage struct
+--- holding such a field is laid out by: `of` below, the generated C
+--- declaration and the native emitter all take their answer from here.
 function targetLayout.vector(key: string, elementBytes: integer, lanes: integer): (targetLayout.Vector?, string?)
     local model = MODELS[key]
     if not model then
@@ -186,6 +188,69 @@ function targetLayout.vector(key: string, elementBytes: integer, lanes: integer)
     local size = roundUp(payload, alignment)
 
     return {payload = payload, alignment = alignment, padding = size - payload, size = size}, nil
+end
+
+--- The storage width of each element a vector field may have, by the
+--- element type's tag.
+const VECTOR_ELEMENT_BYTES: {
+    [string]: integer
+} = {float = 4, number = 8, int8 = 1, uint8 = 1, int16 = 2, uint16 = 2, int32 = 4, uint32 = 4, int64 = 8, uint64 = 8,}
+
+targetLayout.VECTOR_ELEMENT_BYTES = VECTOR_ELEMENT_BYTES
+
+--- The element tag and lane count of a `simd.Vector<T, simd.Fixed<N>>` whose
+--- element is a storage width: the one vector shape with a layout that does
+--- not depend on the CPU tier, and so the one a storage struct may hold. Nil
+--- for a mask, a preferred species, a species derived from one, and anything
+--- that is not a vector.
+function targetLayout.storageVector(t: any): (string?, integer?)
+    local raw = t
+    while raw ~= nil and (raw.tag == "const" or raw.tag == "affine" or raw.tag == "borrowed" or raw.tag == "pinned") do
+        raw = raw.inner
+    end
+    while raw ~= nil and raw.tag == "genericAlias" do
+        raw = raw.body
+    end
+    if raw == nil or raw.tag ~= "nominal" then
+        return nil, nil
+    end
+    local origin = raw.origin or raw
+    if origin.moduleName ~= "nupp.simd" or origin.name ~= "Vector" then
+        return nil, nil
+    end
+    local arguments = raw.typeArgs or {}
+    local element = arguments[1]
+    while element ~= nil and element.tag == "const" do
+        element = element.inner
+    end
+    if element == nil or VECTOR_ELEMENT_BYTES[element.tag as string] == nil then
+        return nil, nil
+    end
+    local species = arguments[2]
+    local speciesOrigin = species ~= nil and (species.origin or species) or nil
+    if species == nil
+        or species.tag ~= "nominal"
+        or speciesOrigin.moduleName ~= "nupp.simd"
+        or speciesOrigin.name ~= "Fixed"
+    then
+        return nil, nil
+    end
+    local count = (species.constArgs or {})[1]
+    if count == nil or count.tag ~= "constLiteral" or count.domain ~= "integer" then
+        return nil, nil
+    end
+
+    return element.tag as string, count.value as integer
+end
+
+--- The alignment the Lua form gives a stored `Fixed<N>` field, through the
+--- `aligned` attribute on its C array. Every host LuaJIT runs on here is a
+--- 64-bit target or Wasm, whose allocators guarantee 16 bytes, so this is the
+--- LP64 answer; a 32-bit host would want its own key's cap.
+function targetLayout.luaVectorAlignment(elementBytes: integer, lanes: integer): integer
+    local laid = targetLayout.vector("x86_64-unknown-linux-gnu", elementBytes, lanes)
+
+    return (laid as targetLayout.Vector).alignment
 end
 
 local FIXED: {
@@ -243,6 +308,26 @@ function targetLayout.of(t: any, key: string): any?, string?
                 return nil, why
             end
             return scalar(element.size * (subject.count as integer), element.alignment)
+        elseif subject.tag == "nominal" and subject.declKind ~= "struct" then
+            local element, lanes = targetLayout.storageVector(subject)
+            if element ~= nil then
+                -- A stored vector field: its payload padded to its alignment, as
+                -- the contract above states, so the next field and the array
+                -- stride see the padded size.
+                local laid = targetLayout.vector(
+                    key,
+                    VECTOR_ELEMENT_BYTES[element as string] as integer,
+                    lanes as integer
+                )
+                local vector = laid as targetLayout.Vector
+                return scalar(vector.size, vector.alignment)
+            end
+            local origin = subject.origin or subject
+            if origin.moduleName == "nupp.simd" and origin.name == "Mask" then
+                return nil, "a mask has no storage layout"
+            elseif origin.moduleName == "nupp.simd" and origin.name == "Vector" then
+                return nil, "a vector of a tier-dependent species has no target-independent layout"
+            end
         elseif subject.tag == "nominal" and subject.declKind == "struct" then
             if active[subject] then
                 return nil, "a by-value struct cycle has no finite layout"

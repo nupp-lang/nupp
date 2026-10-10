@@ -24,6 +24,7 @@ for native entry boundaries.
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
+local targetLayout = require("nupp.compiler.targetlayout")
 
 local nativeonly = {}
 
@@ -59,6 +60,22 @@ end
 --- or a struct holding one.
 function nativeonly.carriesNativeOnly(t: any?): boolean
     return vectorOrMask(t)
+end
+
+--- Whether `t` is a vector with a storage layout: `Fixed<N>` of a storage
+--- element, whose lanes occupy the same bytes on every tier.
+function nativeonly.storageVector(t: any?): boolean
+    local element = targetLayout.storageVector(t)
+
+    return element ~= nil
+end
+
+--- Whether a struct field of type `t` makes its struct a native-only
+--- aggregate: a mask, a vector of a tier-dependent species, or another such
+--- struct. A `Fixed<N>` vector field has a storage layout, so the struct
+--- holding it stays a storage struct a span or array may hold.
+function nativeonly.fieldMakesNativeOnly(t: any?): boolean
+    return vectorOrMask(t) and not nativeonly.storageVector(t)
 end
 
 --- Whether a checked function signature takes or answers a vector or a mask.
