@@ -486,6 +486,82 @@ while (running) {
 }
 ```
 
+## Answering host requests
+
+A component asks its application for things through [](nupp.host): it names a
+kind, such as `game.image.decode`, and waits for the answer. The application
+registers a handler per kind and answers each request with `nupp_host_answer`
+or `nupp_host_fail`, inside the handler or later from its own loop:
+
+```c
+static void decode(nupp_runtime *runtime, uint64_t request, const char *kind,
+    const nupp_value *arguments, size_t count, void *userdata) {
+    struct game *game = userdata;
+    /* The arguments are borrowed for this call: copy what a later answer needs. */
+    queue_decode(game, request, (const char *)arguments[0].data, arguments[0].length);
+}
+
+static void abandoned(nupp_runtime *runtime, uint64_t request, void *userdata) {
+    cancel_decode(userdata, request);
+}
+
+nupp_host_register(runtime, "game.image.decode", decode, abandoned, game, &error);
+
+/* Later, in the loop, once the decode is done: */
+nupp_value results[3] = {
+    {.kind = NUPP_VALUE_NUMBER, .number = texture},
+    {.kind = NUPP_VALUE_NUMBER, .number = width},
+    {.kind = NUPP_VALUE_NUMBER, .number = height},
+};
+nupp_host_answer(runtime, request, results, 3, &error);
+```
+
+An answer, given in the handler or later, waits in the runtime until the next
+`nupp_runtime_poll` hands it to the task waiting for it. The values follow the
+channel's model: nil, booleans, finite numbers, UTF-8 strings of at most 64 KiB,
+and bytes, at most 8 MiB in an answer. Handles are refused, as are non-finite
+numbers and malformed text; the application names its own resources with
+numbers it assigns.
+
+| | Arguments | Answers and pushes |
+| --- | --- | --- |
+| Strings and bytes | Borrowed until the handler returns | Copied before the call returns |
+| Ownership of what a result names | The application's | The program's, from the answer on |
+
+A request whose caller stops waiting calls the kind's cancel callback, which is
+advisory: the application may still answer, and the answer goes to the caller's
+`late` cleanup. A handler may call back into the runtime. A post reaches its
+handler like a call, and its answer is discarded. A send on an outbound stream
+reaches its handler at once with request 0, and is never answered.
+
+`nupp_host_push` queues an inbound message on a kind the program has routed to
+an event; the next poll delivers it. A message carries scalars and strings, and
+past 4096 waiting messages the oldest is dropped.
+
+Without a suspension handler, a park blocks inside the `nupp_call` that made it,
+so the application could never answer a request it did not answer at once; such
+a request is refused rather than left to hang. Run the operation that makes it
+under [](nupp.host.pump), which parks instead, and poll the pump from the loop:
+
+```nupp:fragment
+local pump = nupp.host.pump
+
+local session = pump.newPump()
+
+export function frame(dt: number): pump.State
+    if session:parked() then
+        return session:poll()
+    end
+    return session:start(function(): boolean
+        return update(dt)
+    end)
+end
+```
+
+Only the first runtime on a Lua state answers its host requests; registering on
+a runtime attached to a state another runtime already answers for returns
+`NUPP_STATUS_INCOMPATIBLE`.
+
 ## Shutdown
 
 Release public values before shutting down so their C wrappers and registry
@@ -692,6 +768,7 @@ The current embedding release has these deliberate limits:
 - components remain installed until the runtime is destroyed;
 - the managed number kind is binary64 rather than an exact integer family;
 - `nupp_runtime_poll` drives readiness sources and does not provide a scheduler;
+  [](nupp.host.pump) is one a component runs its exports under;
 - the in-process compiler is reachable only through a reload session, and not as
   a general compile-this-source API;
 - a reload session is development-only, and needs the project's source tree and a

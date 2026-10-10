@@ -70,6 +70,8 @@ cacheable assets:
 ```text
 dist/browser/nupp-browser-app.mjs
 dist/browser/nupp-browser-app.json
+dist/browser/nupp-audio.mjs
+dist/browser/nupp-audio-worklet.mjs
 dist/browser/app-<digest>.lua
 dist/browser/guest/<build-key>/guest-manifest.json
 dist/browser/aot/<unit>.<digest>.wasm
@@ -91,7 +93,12 @@ const result = await application.run({limits: {perRun: {deadlineMs: 60000}}});
 asks a running application to stop, and `close()` terminates its Worker. A page
 that hosts the runtime itself calls `runPackagedNuppLuaJITApp()` from
 `app-runtime.mjs` instead. The application may return no value or one
-JSON-compatible value. Worker tasks use a bounded pool of guest
+JSON-compatible value.
+
+`run`'s `host` option answers the application's [](nupp.host) requests, by kind,
+on the page or in the application's Worker, and the entry's `push` sends it
+inbound messages; `nupp-audio.mjs` plays an outbound stream of samples. See
+[host.md](../../runtime/host.md#answering-in-a-browser). Worker tasks use a bounded pool of guest
 lanes and the same verified manifest.
 
 Browser facades select implementations for HTTP, files, suspension, time,

@@ -75,6 +75,10 @@ intrinsic namespaces and the declared modules:
   a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
+- [](nupp.host) asks whatever runs the program, a page or an embedding
+  application, for something by kind, and carries streams between them.
+  [](nupp.host.pump) runs an embedded component's operations for a host-owned
+  loop. See [host.md](../host.md).
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.
