@@ -18,11 +18,12 @@ function transferables(values) {
 // any release of its results, and the page's answer comes back by request id.
 function pageHandler(kind) {
   return {
-    call(args, {signal}) {
+    call(args, {signal} = {}) {
       const requestId = nextHostCall++;
       return new Promise((resolve, reject) => {
         hostCalls.set(requestId, {resolve, reject});
-        signal.addEventListener("abort", () => self.postMessage({type: "host-cancel", requestId}), {once: true});
+        // A post or a send has no caller to stop waiting, and so no signal.
+        signal?.addEventListener("abort", () => self.postMessage({type: "host-cancel", requestId}), {once: true});
         self.postMessage({type: "host-call", requestId, kind, args}, transferables(args));
       });
     },

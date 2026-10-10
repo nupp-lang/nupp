@@ -5,6 +5,13 @@ on:
     paths:
       - 'runtime/luajit/**'
       - 'runtime/wasm/app-runtime.mjs'
+      - 'runtime/wasm/host-channel.mjs'
+      - 'runtime/wasm/browser-entry.mjs'
+      - 'runtime/wasm/audio*.mjs'
+      - 'src/nupp/host/**'
+      - 'src/nupp/runtime/browser/**'
+      - 'tests/hostchannel/**'
+      - 'bench/host-channel/**'
       - 'editors/playground/test/browser-matrix.mjs'
       - 'tests/luajit-browser/**'
       - 'bench/luajit-browser/*.mjs'
@@ -130,6 +137,18 @@ jobs:
           grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
           grouped node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
           grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
+      # The host channel's contract against the real bridge, and through the
+      # packaged entry with handlers on the page and in the Worker. The local
+      # suite runs the same scenarios against an emulation of the bridge.
+      - name: Keep the host channel's contract in the guest
+        timeout-minutes: 15
+        env:
+          NUPP_BROWSER_GUEST_DIR: build/browser-guest
+        run: |
+          set -m
+          grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
+          grouped node bench/host-channel/run.mjs contract
+          grouped node bench/host-channel/run.mjs relay
       - name: Package the verified LuaJIT runtime and matching sources
         run: |
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest

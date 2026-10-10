@@ -14,7 +14,13 @@ local _time = require("nupp.time")
 local _events = require("nupp.events")
 local _hostevents = require("hostevents")
 
+-- The page names the program in an initialization chunk; a page that starts the
+-- application through the packaged entry, which carries none, is asked.
 local selection: any = rawget(_G, "__hostChannelProgram")
+if selection == nil then
+    local file, name, options = _host.call("bench.program")
+    selection = {file = file, name = name, options = json.decode(options)}
+end
 local load: any = rawget(_G, "loadstring")
 local programs: any = (load(sources[selection.file], "@" .. selection.file))()
 local ok, value = pcall(programs[selection.name], selection.options)

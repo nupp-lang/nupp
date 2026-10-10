@@ -41,7 +41,9 @@ async function prepare() {
   writeSources();
   mkdirSync(site, {recursive: true});
   await packageBrowserApp({project: path.join(here, "app"), target: "app", output: path.join(site, "app")});
-  for (const name of ["page.html", "page.mjs", "handlers.mjs"]) copyFileSync(path.join(here, name), path.join(site, name));
+  for (const name of ["page.html", "page.mjs", "handlers.mjs", "relay.html", "relay.mjs", "relay-worker.mjs"]) {
+    copyFileSync(path.join(here, name), path.join(site, name));
+  }
 }
 
 function serve() {
@@ -63,6 +65,20 @@ function serve() {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve(server));
   });
+}
+
+async function runRelay(browser, base, name) {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  try {
+    await page.goto(new URL(`relay.html?name=${encodeURIComponent(name)}`, base).href);
+    await page.waitForFunction(() => ["passed", "failed"].includes(document.querySelector("#result")?.dataset.status),
+      null, {timeout: 600000});
+    return {...JSON.parse(await page.locator("#result").textContent()), errors};
+  } finally {
+    await page.close();
+  }
 }
 
 async function runProgram(browser, base, file, name, options = {}, audio = 0) {
@@ -106,7 +122,12 @@ const mode = process.argv[2] || "contract";
 await prepare();
 const server = await serve();
 const base = `http://127.0.0.1:${server.address().port}/`;
-const browser = await chromium.launch({headless: true, args: ["--autoplay-policy=no-user-gesture-required"]});
+// CI runs the runner's Chrome, as the browser matrix does; locally, Playwright's.
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.CI ? {channel: "chrome"} : {}),
+  args: ["--autoplay-policy=no-user-gesture-required", ...(process.env.CI ? ["--no-sandbox"] : [])],
+});
 let failed = false;
 try {
   if (mode === "contract") {
@@ -130,6 +151,15 @@ try {
     }
     writeFileSync(output, JSON.stringify({browser: browser.version(), recorded: new Date().toISOString(), results}, null, 2) + "\n");
     console.log(`raw samples in ${output}`);
+  } else if (mode === "relay") {
+    // Through the packaged entry: handlers on the page and in a Worker module.
+    for (const name of ["arity", "refusals", "bytes", "lateReleases", "cancelMidFetch", "streams", "posts"]) {
+      const result = await runRelay(browser, base, name);
+      const value = result.outcome?.value;
+      const passed = result.ok && result.outcome?.ok && value !== undefined && CONTRACT[name](value);
+      failed ||= !passed;
+      console.log(`${passed ? "ok" : "FAIL"} relay ${name}` + (passed ? "" : ` ${JSON.stringify(result).slice(0, 800)}`));
+    }
   } else if (mode === "audio") {
     // W6: each buffer-ahead, without stalls and with a 50 ms and a 150 ms one.
     const output = process.argv[3] || path.join(repo, "build/host-channel/audio-bench.json");
