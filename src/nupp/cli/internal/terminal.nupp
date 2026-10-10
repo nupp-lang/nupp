@@ -18,6 +18,9 @@ export record Style
     green: function(string): string
     cyan: function(string): string
     blue: function(string): string
+    magenta: function(string): string
+    white: function(string): string
+    gray: function(string): string
 
     -- Retained for compiler renderers while they move to the generic colours.
     path: function(string): string
@@ -33,6 +36,9 @@ local CODES = {
     green = "1;32",
     cyan = "1;36",
     blue = "1;34",
+    magenta = "1;35",
+    white = "1;37",
+    gray = "1;90",
     heading = "1;35",
 }
 local RESET = "\27[0m"
@@ -63,6 +69,9 @@ local PLAIN = new Style(
     green = plain,
     cyan = plain,
     blue = plain,
+    magenta = plain,
+    white = plain,
+    gray = plain,
     path = plain,
     gutter = plain,
     severity = plainSeverity
@@ -77,6 +86,9 @@ local COLORED = new Style(
     green = styler(CODES.green),
     cyan = styler(CODES.cyan),
     blue = styler(CODES.blue),
+    magenta = styler(CODES.magenta),
+    white = styler(CODES.white),
+    gray = styler(CODES.gray),
     path = styler(CODES.strong),
     gutter = styler(CODES.blue),
     severity = {}
