@@ -822,6 +822,32 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         )
 
         return expressions.element(ctx, referenced.span, index, structType), "ptr"
+    elseif operation == "aggregate_new" then
+        -- One insertvalue per field into an undefined aggregate: a register
+        -- value, which SROA keeps apart lane by lane.
+        local aggregate = node as scalarIR.AggregateNew
+        local aggregateType = context.llvmType(ctx, nodeType)
+        local built = "undef"
+        for position, value in ipairs(aggregate.values) do
+            local inserted, t = expressions.value(ctx, value)
+            built = context.value(
+                ctx,
+                (
+                    "insertvalue %s %s, %s %s, %d"
+                ):format(aggregateType, built, context.llvmType(ctx, t), inserted, position - 1)
+            )
+        end
+
+        return built, nodeType
+    elseif operation == "aggregate_field" then
+        local field = node as scalarIR.AggregateField
+        local object, objectType = expressions.value(ctx, field.object)
+        local index = fieldIndex(ctx, field.layout, field.field)
+
+        return context.value(
+            ctx,
+            ("extractvalue %s %s, %d"):format(context.llvmType(ctx, objectType), object, index)
+        ), nodeType
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
         local object = expressions.value(ctx, field.object)

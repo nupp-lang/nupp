@@ -28,6 +28,23 @@ local TRIPLE = "aarch64-apple-darwin"
 -- What `check` has to refuse, each as `nupp aot` refuses it. One refusal a file:
 -- lowering stops at the first, in a build as here.
 local REFUSED = {
+    -- A native-only aggregate has no memory layout, so no span holds one.
+    ["aggregatespan.nupp"] = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function first(borrows pairs: span.Span<Pair>): float
+    return pairs[1].re:extract(1)
+end
+
+return {first = first, Pair = Pair}
+]],
     -- A species is a compile-time fact, so an entry cannot answer one.
     ["speciesresult.nupp"] = [[
 local array = require("nupp.mem.array")
@@ -225,6 +242,36 @@ local function halve(exclusive output: span.WriteSpan<float>, borrows input: spa
 end
 
 return {halve = halve}
+]],
+    -- A struct holding vectors is a native-only aggregate: built, read, passed
+    -- and answered inside native code.
+    ["aggregate.nupp"] = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function square(z: Pair): Pair
+    return new Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
+end
+
+@aot
+local function squares(exclusive out: span.WriteSpan<float>, borrows re: span.Span<float>, borrows im: span.Span<float>): nil
+    assert(#out == #re, "length mismatch")
+    assert(#im == #re, "length mismatch")
+    local species = simd.species(array.float)
+    for at, active in species:over(#re) do
+        local w = square(new Pair(species:load(re, at, active), species:load(im, at, active)))
+        species:store(out, at, w.re + w.im, active)
+    end
+end
+
+return {square = square, squares = squares, Pair = Pair}
 ]],
     -- A number literal passed to a `uint32` parameter, which the literal fits.
     ["literalwidth.nupp"] = [[
@@ -683,6 +730,58 @@ return {alias = alias, member = member}
     local out, aotCode = run(dir, ("aot --triple %s vec.nupp"):format(TRIPLE))
     test.equal(aotCode, 0, out)
     assert(out:find("twice, kernel, explicit simd, native-only", 1, true), "the report says native-only: " .. out)
+end
+
+-- A native-only aggregate is a value: a field store is refused by the checker
+-- under every policy, and a Lua construction of one is refused where a target
+-- compiles, as a Lua call of a native-only entry is.
+function M.aNativeOnlyAggregateIsAValueAndStaysOutOfLua()
+    local dir = project(([[
+return {
+   include = {"."},
+   build = {
+      default = "native",
+      targets = {
+         native = {kind = "modules", aot = "require", aotTarget = %q},
+         off = {kind = "modules"},
+      },
+   },
+}
+]]):format(TRIPLE), {
+        ["pair.nupp"] = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function conjugate(z: Pair): Pair
+    z.im = -z.im
+    return z
+end
+
+local function fromLua(): Pair
+    local species = simd.species(array.float)
+    return new Pair(species:splat(1.0), species:splat(2.0))
+end
+
+return {conjugate = conjugate, fromLua = fromLua, Pair = Pair}
+]],
+    })
+    local decoded, code, raw = checkJson(dir, "")
+    test.equal(code, 1, raw)
+    local found = refusalsByFile(decoded)["pair.nupp"] or {}
+    test.equal(#found, 2, raw)
+    assert(found[1]:match("^NUPP2911 11:7"), "the field store is refused: " .. found[1])
+    assert(found[2]:match("^NUPP2910 17:16"), "the Lua construction is refused: " .. found[2])
+    local off, offCode, offRaw = checkJson(dir, "--target off")
+    test.equal(offCode, 1, offRaw)
+    local offFound = refusalsByFile(off)["pair.nupp"] or {}
+    test.equal(#offFound, 1, "only the field store is refused without a compiling policy: " .. offRaw)
+    assert(offFound[1]:match("^NUPP2911 11:7"), offFound[1])
 end
 
 return M

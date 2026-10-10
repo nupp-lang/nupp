@@ -1246,11 +1246,40 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local layout = scope.layouts[node.layout]
         holds(
             layout ~= nil
+            and layout.nativeOnly ~= true
             and (layout.fieldTypes or {})[node.field] == node.type
             and (layout.fieldSourceTypes or {})[node.field] == storageSource(node.type, node.sourceType),
             "invalid struct field load"
         )
         scalarWalk(node.object, values, scope)
+    elseif op == "aggregate_new" then
+        local built = node as scalarIR.AggregateNew
+        local layout = scope.layouts[built.layout]
+        holds(
+            layout ~= nil
+            and layout.nativeOnly == true
+            and node.type == "aggregate:" .. built.layout
+            and #built.values == #layout.fields,
+            "invalid native-only aggregate construction"
+        )
+        for position, value in ipairs(built.values) do
+            holds(
+                value.type == (layout as scalarIR.Layout).fields[position].type,
+                "native-only aggregate field value type"
+            )
+            scalarWalk(value, values, scope)
+        end
+    elseif op == "aggregate_field" then
+        local field = node as scalarIR.AggregateField
+        local layout = scope.layouts[field.layout]
+        holds(
+            layout ~= nil
+            and layout.nativeOnly == true
+            and (layout.fieldTypes or {})[field.field] == node.type
+            and field.object.type == "aggregate:" .. field.layout,
+            "invalid native-only aggregate field"
+        )
+        scalarWalk(field.object, values, scope)
     elseif op == "uniform" then
         local param = scope.spans[node.name]
         holds(param ~= nil, "invalid uniform")
@@ -3102,12 +3131,17 @@ local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Lay
         local fields: {[string]: scalarIR.Type} = {}
         local sources: {[string]: string} = {}
         for _, field in ipairs(layout.fields) do
+            -- A native-only aggregate's fields are the values they are, never
+            -- storage: a vector, a mask, a scalar or another such aggregate.
+            local valueField = layout.nativeOnly == true
+                and (scalarIR.nativeOnlyType(field.type) or verify.NUMERIC[field.type] == true or field.type == "bool")
             holds(
-                fields[field.name] == nil and validStorage(field.type, field.sourceType),
+                fields[field.name] == nil and (valueField or validStorage(field.type, field.sourceType)),
                 "invalid native layout field"
             )
             fields[field.name] = field.type
-            sources[field.name] = storageSource(field.type, field.sourceType)
+            sources[field.name] = valueField and tostring(field.sourceType or field.type)
+                or storageSource(field.type, field.sourceType)
         end
         layout.fieldTypes = fields
         layout.fieldSourceTypes = sources

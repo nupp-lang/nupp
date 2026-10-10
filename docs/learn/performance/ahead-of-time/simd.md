@@ -311,6 +311,66 @@ return {twice = twice, fromLua = fromLua}
 
 The parameters and the result are values of the callee's own species: `Preferred` means the same lane count to the caller and the callee, because every unit of one artifact is compiled per tier, and a `Fixed<N>` wider than a register is the `<N x T>` the code generator legalizes. What the call promises is value semantics and one tier on both sides, not a register. A species or a reducer is neither: a species is a compile-time fact and a reducer is a region, so an entry cannot take or answer one, and a vector or mask is admitted only by native CPU AOT.
 
+## Native-only aggregates
+
+A `struct` may hold vectors and masks. Such a struct is a **native-only aggregate**: a value, as the vectors in it are, that exists inside `@aot` functions and nowhere else. It is constructed with `new`, its fields are read, and it is passed to and answered by native entries, including nested in another such struct. There is no field store: a change is a new aggregate.
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function square(z: Pair): Pair
+    return new Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
+end
+
+@aot
+local function squares(exclusive out: span.WriteSpan<float>, borrows re: span.Span<float>, borrows im: span.Span<float>): nil
+    assert(#out == #re, "length mismatch")
+    assert(#im == #re, "length mismatch")
+    local species = simd.species(array.float)
+    for at, active in species:over(#re) do
+        local w = square(new Pair(species:load(re, at, active), species:load(im, at, active)))
+        species:store(out, at, w.re + w.im, active)
+    end
+end
+
+return {square = square, squares = squares, Pair = Pair}
+```
+
+The code generator lays the aggregate out as a literal struct of its fields' register types, `{ <4 x float>, <4 x float> }` here, and an entry that takes or answers one is native-only like an entry that takes a vector. A field may be a vector, a mask, a `number`, `float`, `boolean`, or 32- or 64-bit integer, or another native-only aggregate; the narrow storage integers are refused, because the aggregate is never storage. `Preferred` species are admitted, since the layout belongs to the tier the function is compiled for.
+
+A native-only aggregate is kept out of memory and out of Lua. A span or array of one is refused where the span is declared, naming the field that makes the struct native-only. A Lua construction is refused under a target whose policy compiles, as a Lua call of a native-only entry is. A field assignment is refused everywhere, so the one-lane Lua form and the native form never disagree about who sees a write:
+
+```nupp:refused
+local simd = require("nupp.simd")
+
+local struct Pair
+    re: simd.Vector<float, simd.Preferred>
+    im: simd.Vector<float, simd.Preferred>
+end
+
+@aot
+local function conjugate(z: Pair): Pair
+    z.im = -z.im
+    return z
+end
+
+return {conjugate = conjugate, Pair = Pair}
+```
+
+Under `aot = "off"` the struct lowers to a C struct of one lane per vector field, a `float` for a `Vector<float, S>` and a `bool` for a mask, and every operation on it is the ordinary one.
+
+### Storage layout
+
+A struct that a span or array holds has a memory layout, which must not change with the CPU tier, so only a `Fixed<N>` vector could ever be a storage field, and none is admitted yet. The contract such a field would be laid out by is stated in the compiler's target layout model, per target: a vector's alignment is its payload rounded up to a power of two, capped at what the target's allocator guarantees, 16 bytes on every 64-bit target and on Wasm and 8 on i686; a payload that is not a power of two pads to that alignment, so `Fixed<3>` of `float` occupies 16 bytes with 4 of padding; a payload past the cap aligns to the cap and pads to a multiple of it. Admitting storage fields waits on a full-width `Fixed<N>` form for ordinary Lua, where a vector is one lane today and a field of N lanes has no representation to read into or write from.
+
 ## Targets and portability
 
 Preferred species resolve per artifact tier. Fixed species keep their logical lane count while native legalization chooses the representation. Wasm SIMD128 and native CPU tiers use the same source-level vector and mask operations; GPU invocations are a separate execution model.

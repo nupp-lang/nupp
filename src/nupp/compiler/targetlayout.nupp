@@ -15,7 +15,18 @@ local record targetLayout
     has: function(string?): boolean
     hostKey: function(): string?
     of: function(any, string): (any?, string?)
+    vector: function(string, integer, integer): (targetLayout.Vector?, string?)
 end
+
+--- The storage a `Fixed<N>` vector field would occupy: its payload bytes, the
+--- alignment the target gives it, the padding that makes up the difference,
+--- and the size it occupies in a struct or an array stride.
+type targetLayout.Vector = {
+    payload: integer,
+    alignment: integer,
+    padding: integer,
+    size: integer
+}
 
 targetLayout.ABI = 1
 
@@ -28,8 +39,34 @@ local type Model = {
     key: string,
     pointer: Scalar,
     int64: Scalar,
-    number: Scalar
+    number: Scalar,
+    vector: Vector
 }
+
+--- What a target gives a vector in memory: the largest alignment one may
+--- claim. A vector's natural alignment is its payload rounded up to a power of
+--- two, as every C ABI below gives a `vector_size` type, and the cap is where
+--- that stops: what the target's allocator guarantees, since a `Fixed<N>` field
+--- the allocator cannot align is a field the kernel cannot load aligned.
+---
+--- Evidence, recorded before any storage field is admitted:
+--- - AAPCS64 (Arm 64-bit Procedure Call Standard, 5.1.2): short vectors of 8
+---   and 16 bytes are aligned to their size; macOS, Linux and Windows `malloc`
+---   on arm64 return 16-byte aligned memory.
+--- - x86-64 System V ABI (3.1.2): `__m128` 16, `__m256` 32, `__m512` 64; glibc
+---   and macOS `malloc` guarantee 16. Windows x64 `HeapAlloc` guarantees 16.
+--- - i686 System V and MSVC: `malloc` guarantees 8; `__m128` wants 16, which a
+---   plain allocation does not give, so the cap is 8 and a 16-byte vector field
+---   is unaligned there.
+--- - wasm32 (Emscripten): `v128` is 16-byte aligned and dlmalloc returns
+---   16-byte aligned memory.
+---
+--- A payload that is not a power of two, `Fixed<3>` of `float` at 12 bytes,
+--- aligns to the next power of two under the cap, 16, and pads to it, so its
+--- size is 16 and an array of them strides by 16. A payload past the cap,
+--- `Fixed<8>` of `float` at 32 bytes on a 16-byte target, aligns to the cap and
+--- pads to a multiple of it. Masks have no storage representation here.
+local type Vector = {maximumAlignment: integer}
 
 local type Field = {
     name: string,
@@ -46,16 +83,24 @@ end
 -- supported ABIs are therefore pointer width and the 32-bit aggregate alignment of
 -- double/int64. Adding C long or vector types would require another model field rather
 -- than silently borrowing one of these.
-local LP64 = {pointer = scalar(8), int64 = scalar(8), number = scalar(8)}
-local ILP32_SYSV = {pointer = scalar(4), int64 = scalar(8, 4), number = scalar(8, 4)}
-local ILP32_MSVC = {pointer = scalar(4), int64 = scalar(8), number = scalar(8)}
-local WASM32 = {pointer = scalar(4), int64 = scalar(8), number = scalar(8)}
+local LP64 = {pointer = scalar(8), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 16},}
+local ILP32_SYSV = {pointer = scalar(4), int64 = scalar(8, 4), number = scalar(8, 4), vector = {maximumAlignment = 8},}
+local ILP32_MSVC = {pointer = scalar(4), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 8},}
+local WASM32 = {pointer = scalar(4), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 16},}
 
 local MODELS: {[string]: Model} = {}
 
 local function install(keys: {string}, profile: any)
     for _, key in ipairs(keys) do
-        MODELS[key] = {key = key, pointer = profile.pointer, int64 = profile.int64, number = profile.number,}
+        MODELS[
+            key
+        ] = {
+            key = key,
+            pointer = profile.pointer,
+            int64 = profile.int64,
+            number = profile.number,
+            vector = profile.vector,
+        }
     end
 end
 
@@ -114,6 +159,33 @@ end
 
 local function roundUp(value: integer, alignment: integer): integer
     return math.floor((value + alignment - 1) / alignment) * alignment
+end
+
+--- The storage a `Fixed<lanes>` vector of an element `elementBytes` wide
+--- occupies under `key`, by the contract above. No field is admitted with
+--- this layout yet: it is the contract a storage struct holding a vector
+--- would be laid out by, stated so an emitter and a reporter can be held to
+--- it before either exists.
+function targetLayout.vector(key: string, elementBytes: integer, lanes: integer): (targetLayout.Vector?, string?)
+    local model = MODELS[key]
+    if not model then
+        return nil, "unknown target layout key " .. tostring(key)
+    end
+    if elementBytes < 1 or lanes < 1 or elementBytes % 1 ~= 0 or lanes % 1 ~= 0 then
+        return nil, "a vector has a positive whole element width and lane count"
+    end
+    local payload = elementBytes * lanes
+    local natural = elementBytes
+    while natural < payload do
+        natural = natural * 2
+    end
+    local alignment = math.min(natural, model.vector.maximumAlignment) as integer
+    if alignment < elementBytes then
+        alignment = elementBytes
+    end
+    local size = roundUp(payload, alignment)
+
+    return {payload = payload, alignment = alignment, padding = size - payload, size = size}, nil
 end
 
 local FIXED: {

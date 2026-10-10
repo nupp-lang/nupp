@@ -169,6 +169,14 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     if t.tag == "nominal" and t.declKind == "struct" then
         return true
     end
+    -- A vector or a mask: the field makes its struct a native-only aggregate,
+    -- which the declaration records and every storage use refuses.
+    if t.tag == "nominal" then
+        local origin = (t as any).origin or t
+        if origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask") then
+            return true
+        end
+    end
     -- A fixed C array, `T[N]`, is laid out inline: N elements, no indirection, and a
     -- size the struct can be told at compile time. `T[?]` is not -- a struct whose own
     -- size depends on a count nobody has written cannot be laid out at all -- which is
@@ -819,13 +827,18 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         for _, field in ipairs(returned.fields or {}) do
             if field.kind == "fieldNamed" and field.name and field.value then
                 publish(field.name.text, field.value)
-                -- A member that is a declared name exports that declaration: what
-                -- an importer's member access resolves to, and the facts an `@aot`
-                -- declaration carries for a native call from another module.
+                -- A member that is a declared name publishes a definition of its
+                -- own, at the key, carrying the facts an `@aot` declaration has for
+                -- a native call from another module. The key is a name apart from
+                -- the local's: `return {hi = greet}` exports `hi`, so an importer's
+                -- member access refers to the key, not to the declaration, and a
+                -- rename of the local leaves importers alone.
                 local value = field.value
                 local definition = value.kind == "name" and value.token and value.token.definition or nil
                 if definition ~= nil and c.moduleExports.valueDefs[field.name.text] == nil then
-                    c.moduleExports.valueDefs[field.name.text] = definition
+                    local exported = c.definition(field.name, definition.kind or "function")
+                    c.nativeOnly.alias(exported, definition, nil)
+                    c.moduleExports.valueDefs[field.name.text] = exported
                 end
             end
         end

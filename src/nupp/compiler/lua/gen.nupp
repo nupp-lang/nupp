@@ -529,6 +529,18 @@ type gen.HotMetadata = {
 -- locals than a Lua function holds. See `spillsModuleScope` below.
 local spillNextModule = false
 
+--- Whether a struct declaration is a native-only aggregate: its checked
+--- nominal holds a vector or a mask, directly or through another such struct.
+local function nativeOnlyStruct(decl: any): boolean
+    local nominal = decl.resolvedType or decl.hoistedType
+    if nominal == nil or nominal.tag ~= "nominal" then
+        return false
+    end
+    local origin = nominal.origin or nominal
+
+    return origin.nativeOnly == true
+end
+
 --- The explicit SIMD family a checked type names (`Vector`, `Mask` or
 --- `Species`) and its element's name, or nil for anything else. The
 --- generator routes operators and methods on the first two through the
@@ -4482,6 +4494,7 @@ function gen.generate(
     -- Hung on the shared table rather than captured: `emit` is at the
     -- upvalue limit.
     emitDepth.simdFamilyOf = simdFamilyOf
+    emitDepth.nativeOnlyStruct = nativeOnlyStruct
 
     local function captureUsage(block, captures)
         local wanted, written, nested = {}, {}, {}
@@ -6449,7 +6462,49 @@ function gen.generate(
             return
         end
 
-        if kind == "recordDecl" and x.declKind == "struct" then
+        if kind == "recordDecl" and x.declKind == "struct" and emitDepth.nativeOnlyStruct(x) then
+            -- A struct holding a vector or a mask is a native-only aggregate: in
+            -- native code a register value, and as Lua a table built by position,
+            -- as `new S(...)` supplies its fields. Nothing about it is C memory,
+            -- so there is no ctype to lay out and no reference into a parent to
+            -- anchor; it is never stored, and a change to it is a new one.
+            local line = sourceLine(x)
+            local path = declPath(x)
+            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+            local storage = (path or spilled) and "" or x.visibility == "global" and "" or "const "
+            local mt = "__nuppMt_" .. x.name.text
+            local mtStorage = spilled and "" or "const "
+            if spilled then
+                emitDepth.spill.name(x.name.text)
+                emitDepth.spill.name(mt)
+            end
+            local names, fields = {}, {}
+            for _, entry in ipairs(x.entries) do
+                if entry.kind == "fieldDecl" then
+                    local fname = entry.name.text
+                    names[#names + 1] = "__nuppF" .. tostring(#names + 1)
+                    fields[#fields + 1] = fname .. " = " .. names[#names]
+                end
+            end
+            e(
+                mtStorage .. mt .. " = {__index = {}} " .. storage .. (
+                    path or x.name.text
+                ) .. (
+                    " = setmetatable({}, {__call = function(_, %s) return setmetatable({%s}, %s) end})"
+                ):format(table.concat(names, ", "), table.concat(fields, ", "), mt),
+                line
+            )
+            for _, entry in ipairs(x.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    entry.inlineRuntimeOwner = mt .. ".__index"
+                    emit(entry)
+                end
+            end
+            emitInheritedDefaults(x, mt .. ".__index")
+            pluck.emitDerivedMembers(x, path or x.name.text, mt .. ".__index")
+            pluck.emitWitnessTargets(x, path or x.name.text)
+            return
+        elseif kind == "recordDecl" and x.declKind == "struct" then
             -- struct S { a: float, b: OtherStruct, p: S* } lowers to const S =
             -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
             -- S_is_forward_error)

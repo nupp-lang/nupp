@@ -887,6 +887,10 @@ record types.Nominal
     --- Fields visible only while checking the canonical declaring module.
     privateFields: {[string]: boolean}?
 
+    --- A struct holding a vector, a mask, or another such struct: a value that
+    --- exists inside `@aot` functions only, never in storage or in Lua.
+    nativeOnly: boolean?
+
     --- Canonical module that may access private fields.
     moduleName: string?
 

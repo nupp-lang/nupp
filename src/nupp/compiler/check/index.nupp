@@ -263,8 +263,15 @@ function index.install(c: state.Checker): state.ExprHandlers
         while raw.tag == "const" do
             raw = rawType(raw.inner)
         end
+        if raw.tag == "nominal" and raw.declKind == "struct" then
+            -- A native-only aggregate is a value: in native code a register
+            -- group, and as Lua a table, so a nested read anchors nothing.
+            local origin = ((raw as any).origin or raw) as any
 
-        return raw.tag == "carray" or raw.tag == "nominal" and raw.declKind == "struct"
+            return origin.nativeOnly ~= true
+        end
+
+        return raw.tag == "carray"
     end
 
     --- Types a read of an inline aggregate as a borrow of the parent it lives in:
@@ -581,6 +588,21 @@ function index.install(c: state.Checker): state.ExprHandlers
             local physicalOwner = base
             while physicalOwner.tag == "ptr" do
                 physicalOwner = rawType(physicalOwner.elem)
+            end
+            if physicalOwner.tag == "nominal"
+                and physicalOwner.declKind == "struct"
+                and (((physicalOwner as any).origin or physicalOwner) as any).nativeOnly == true
+            then
+                -- A native-only aggregate is a value, as the vectors it holds are:
+                -- a change is a new aggregate, so the one-lane Lua form and the
+                -- native register form cannot disagree about who sees a write.
+                c.diag(
+                    "NUPP2911",
+                    member,
+                    (
+                        "%s is a field of a native-only aggregate, which is a value: construct a new one"
+                    ):format(memberName)
+                )
             end
             if physicalOwner.tag == "nominal"
                 and physicalOwner.declKind == "struct"

@@ -46,8 +46,17 @@ local function vectorOrMask(t: any?): boolean
         return false
     end
     local origin = raw.origin or raw
+    if origin.declKind == "struct" and origin.nativeOnly == true then
+        return true
+    end
 
     return origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask")
+end
+
+--- Whether a value of type `t` exists only in native code: a vector, a mask,
+--- or a struct holding one.
+function nativeonly.carriesNativeOnly(t: any?): boolean
+    return vectorOrMask(t)
 end
 
 --- Whether a checked function signature takes or answers a vector or a mask.
@@ -149,13 +158,11 @@ function nativeonly.install(c: state.Checker): nativeonly.Ops
     end
 
     local function report(token: any, def: any): nil
-        c.diag(
-            "NUPP2910",
-            token,
-            (
-                "%s is a native-only AOT entry: it takes or answers a vector and is called only from another @aot function"
-            ):format(tostring(def.name or token.text))
-        )
+        local message = def.aotOrigin ~= nil
+            and def.aotOrigin.aggregate == true
+            and "%s is a native-only aggregate: it holds a vector and is constructed and read only inside an @aot function"
+            or "%s is a native-only AOT entry: it takes or answers a vector and is called only from another @aot function"
+        c.diag("NUPP2910", token, message:format(tostring(def.name or token.text)))
     end
 
     --- Walks `node`, stamping each reference to an `@aot` entry with its origin

@@ -29,6 +29,9 @@ function bridge.metadata(programs: {scalar.Program}, tier: string): any
         end
         local layouts = json.asArray({})
         for _, layout in ipairs(program.layouts or {}) do
+            if layout.nativeOnly == true then
+                goto nextLayout
+            end
             local fields = json.asArray({})
             for _, field in ipairs(layout.fields) do
                 fields[#fields + 1] = field.name
@@ -40,6 +43,7 @@ function bridge.metadata(programs: {scalar.Program}, tier: string): any
                 fields = fields,
                 prefix = target.symbol(program.symbol, tier) .. "_layout_" .. layout.name
             }
+            ::nextLayout::
         end
         entries[
             #entries + 1

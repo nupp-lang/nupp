@@ -54,6 +54,8 @@ const CONTROL = facts(true, false, false, false, false, false)
 local PURE_OPS: {
     [string]: boolean
 } = {
+    aggregate_new = true,
+    aggregate_field = true,
     constant = true,
     constant_i32 = true,
     constant_i64 = true,

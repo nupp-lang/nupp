@@ -23,7 +23,6 @@ local memory = require("nupp.compiler.aot.llvm.simd.memory")
 local rearrange = require("nupp.compiler.aot.llvm.simd.rearrange")
 local reduce = require("nupp.compiler.aot.llvm.simd.reduce")
 local simdReducers = require("nupp.compiler.aot.llvm.simd.reducers")
-local species = require("nupp.compiler.aot.llvm.simd.species")
 local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 local facts = require("nupp.compiler.aot.llvm.facts")
 local luaEntry = require("nupp.compiler.aot.llvm.lua.entry")
@@ -285,13 +284,21 @@ end
 --- The LLVM type an entry's uniform or result is carried in: a scalar's C-ABI
 --- spelling, or the vector or mask register a native-only entry takes. The
 --- width is the program's, decided before any function context exists.
-local function entryValueType(program: scalarIR.Program, typeName: string, scalar: function(string): string): string
+local function entryValueType(
+    module: builder.Module,
+    program: scalarIR.Program,
+    typeName: string,
+    scalar: function(string): string
+): string
     if types.value(typeName) ~= nil then
         return scalar(typeName)
     end
-    local found = species.of(program.simdWidth or 16, typeName)
-    local carrier = found ~= nil and species.carrier(found as species.Species) or nil
-    if carrier == nil then
+    local layouts: {[string]: scalarIR.Layout} = {}
+    for _, layout in ipairs(program.layouts or {}) do
+        layouts[layout.name] = layout
+    end
+    local ok, carrier = pcall(context.valueTypeIn, module, layouts, program.simdWidth or 16, typeName)
+    if not ok then
         expressions.unsupported("entry value type " .. typeName)
     end
 
@@ -473,7 +480,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         elseif param.kind == "uniform" then
             parameters[
                 #parameters + 1
-            ] = entryValueType(program, tostring(param.type), types.parameter) .. " %p_" .. param.name
+            ] = entryValueType(module, program, tostring(param.type), types.parameter) .. " %p_" .. param.name
         else
             expressions.unsupported("scalar parameters of kind " .. param.kind)
         end
@@ -493,7 +500,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         parameters[#parameters + 1] = unit.facts.access and "ptr noalias captures(none) writeonly %ks_result"
             or "ptr %ks_result"
     end
-    local result = #results ~= 1 and "void" or entryValueType(program, tostring(results[1]), types.result)
+    local result = #results ~= 1 and "void" or entryValueType(module, program, tostring(results[1]), types.result)
     local symbol = physical(program.symbol .. (oracle and "_forced_scalar" or ""), unit.tier)
     -- A kernel frees nothing and synchronizes with nothing; what it reads and
     -- writes is settled once the unit is complete (`llvmProgram.module`). The
@@ -699,8 +706,12 @@ function llvmProgram.module(
             end
             kernel(unit, program, false)
             kernels[#module.functions] = true
+            -- A native-only aggregate has no memory layout to report: it is a
+            -- register value the wrapper never sees.
             for _, layout in ipairs(program.layouts or {}) do
-                layoutReporters(unit, program, layout)
+                if layout.nativeOnly ~= true then
+                    layoutReporters(unit, program, layout)
+                end
             end
         end
     end

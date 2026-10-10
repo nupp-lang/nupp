@@ -1055,6 +1055,10 @@ function binding.replacement(
         reporterSymbol = target.symbol(program.symbol, tiers[1])
     end
     for _, layout in ipairs(program.layouts or {}) do
+        if layout.nativeOnly == true then
+            -- A register value with no memory layout: nothing to compare.
+            goto nextLayout
+        end
         for _, line in ipairs(binding.layoutReporters(reporterSymbol, layout, library)) do
             lines[#lines + 1] = line
         end
@@ -1062,6 +1066,7 @@ function binding.replacement(
             lines[#lines + 1] = line
         end
         lines[#lines + 1] = ""
+        ::nextLayout::
     end
     local native: string? = nil
     if tiers ~= nil and #tiers > 0 then
@@ -1182,15 +1187,17 @@ function binding.module(programs: {scalarIR.Program}, library: string?): string
     local exports: {string} = {}
     for _, program in ipairs(programs) do
         for _, layout in ipairs(program.layouts or {}) do
-            if not declared[layout.name] then
-                declared[layout.name] = true
-                append(binding.struct(layout))
+            if layout.nativeOnly ~= true then
+                if not declared[layout.name] then
+                    declared[layout.name] = true
+                    append(binding.struct(layout))
+                    lines[#lines + 1] = ""
+                    exports[#exports + 1] = layout.name .. " = " .. layout.name
+                end
+                append(binding.layoutReporters(program.symbol, layout, library))
+                append(binding.layoutChecks(program.symbol, layout))
                 lines[#lines + 1] = ""
-                exports[#exports + 1] = layout.name .. " = " .. layout.name
             end
-            append(binding.layoutReporters(program.symbol, layout, library))
-            append(binding.layoutChecks(program.symbol, layout))
-            lines[#lines + 1] = ""
         end
     end
 

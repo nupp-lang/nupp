@@ -744,6 +744,27 @@ record scalarIR.Convert
 end
 
 --- A call to a visible pure helper.
+--- A native-only aggregate built from one value per field, in layout order.
+--- A value, as the vectors it holds are: there is no store into it, and a
+--- change is a new aggregate.
+record scalarIR.AggregateNew
+    op: 'aggregate_new'
+    layout: string
+    values: {scalarIR.Expr}
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One field of a native-only aggregate value.
+record scalarIR.AggregateField
+    op: 'aggregate_field'
+    object: scalarIR.Expr
+    layout: string
+    field: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
 record scalarIR.HelperCall
     op: 'helper_call'
     helper: string
@@ -1004,6 +1025,8 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Load
     | scalarIR.ElementRef
     | scalarIR.FieldLoad
+    | scalarIR.AggregateNew
+    | scalarIR.AggregateField
     | scalarIR.Binary
     | scalarIR.Unary
     | scalarIR.Math
@@ -1423,6 +1446,11 @@ record scalarIR.Layout
     fieldSourceTypes: {[string]: string}?
 
     source: scalarIR.Source?
+
+    --- A native-only aggregate rather than storage: its fields are vectors,
+    --- masks, scalars or other such aggregates, typed as the values they are,
+    --- and it is laid out by the code generator, never in memory a span holds.
+    nativeOnly: boolean?
 end
 
 --- An atom a guard relation is stated about.
@@ -1748,7 +1776,12 @@ end
 function scalarIR.nativeOnlyType(typeName: scalarIR.Type?): boolean
     local name = tostring(typeName)
 
-    return name:match("^simd_vector_") ~= nil or name:match("^simd_mask_") ~= nil
+    return name:match("^simd_vector_") ~= nil or name:match("^simd_mask_") ~= nil or name:match("^aggregate:") ~= nil
+end
+
+--- The layout an `aggregate:<name>` type names, or nil for any other type.
+function scalarIR.aggregateLayout(typeName: scalarIR.Type?): string?
+    return tostring(typeName):match("^aggregate:(.+)$")
 end
 
 function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): boolean

@@ -36,6 +36,7 @@ tables inside a function that cannot be there at all is noise.
 See `docs/learn/performance/ahead-of-time/index.md`.
 ]]
 
+local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -335,6 +336,21 @@ function aot.install(c: state.Checker): aot.Ops
                         walk((callback as cst.FuncExpr).body, true)
                     else
                         walk(callback, true)
+                    end
+                    return
+                end
+            end
+            if kind == "newExpr" then
+                -- A native-only aggregate is a value a register file holds, so
+                -- constructing one allocates nothing; any other construction
+                -- is the owner or table the body may not create.
+                local call = (current as any).call
+                local constructed = call ~= nil and call.inferredType or (current as any).inferredType
+                local raw = constructed ~= nil and T.unwrapOwnership(constructed) or nil
+                local origin = raw ~= nil and raw.tag == "nominal" and ((raw as any).origin or raw) or nil
+                if origin ~= nil and origin.declKind == "struct" and origin.nativeOnly == true then
+                    for _, child in ipairs(current as {any}) do
+                        walk(child, inWorkgroup)
                     end
                     return
                 end

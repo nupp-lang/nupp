@@ -241,14 +241,67 @@ function context.species(ctx: context.Context, typeName: string): species.Specie
     return species.of(context.width(ctx), typeName)
 end
 
+--- The LLVM type of a native-only aggregate: a named literal struct of its
+--- fields' value types, declared once per module. Written against the module
+--- and the layouts rather than a function context, because an entry's own
+--- parameter list is spelled before any function exists.
+--- @raises string when the name is not a native-only aggregate of the program
+function context.aggregateTypeIn(
+    module: builder.Module,
+    layouts: {[string]: scalarIR.Layout},
+    width: integer,
+    layoutName: string
+): string
+    local layout = layouts[layoutName]
+    if layout == nil or layout.nativeOnly ~= true then
+        error("no native-only aggregate " .. layoutName, 0)
+    end
+    local name = "%aggregate." .. layout.uniqueName
+    local fields: {string} = {}
+    for position, field in ipairs(layout.fields) do
+        fields[position] = context.valueTypeIn(module, layouts, width, tostring(field.type))
+    end
+    builder.once(module, "type " .. name, name .. " = type { " .. table.concat(fields, ", ") .. " }")
+
+    return name
+end
+
+--- `llvmType` without a function context: the same answer for a scalar, a
+--- vector, a mask or an aggregate, from the module and the program's layouts.
+--- @raises string when nothing carries the type
+function context.valueTypeIn(
+    module: builder.Module,
+    layouts: {[string]: scalarIR.Layout},
+    width: integer,
+    typeName: string
+): string
+    local scalar = types.value(typeName)
+    if scalar ~= nil then
+        return scalar as string
+    end
+    local aggregate = scalarIR.aggregateLayout(typeName)
+    if aggregate ~= nil then
+        return context.aggregateTypeIn(module, layouts, width, aggregate as string)
+    end
+    local found = species.of(width, typeName)
+    if found ~= nil then
+        return species.carrier(found as species.Species) or "i32"
+    end
+    error("no LLVM type for " .. typeName, 0)
+end
+
 --- The LLVM type a value of IR type `typeName` is carried in: a scalar's,
---- a vector or mask's, or a reducer's state. A species has no runtime value;
---- it answers `i32`, the type its lane count is spelled in.
+--- a vector or mask's, an aggregate's, or a reducer's state. A species has no
+--- runtime value; it answers `i32`, the type its lane count is spelled in.
 --- @raises string when nothing carries the type
 function context.llvmType(ctx: context.Context, typeName: string): string
     local scalar = types.value(typeName)
     if scalar ~= nil then
         return scalar as string
+    end
+    local aggregate = scalarIR.aggregateLayout(typeName)
+    if aggregate ~= nil then
+        return context.aggregateTypeIn(ctx.module, ctx.layouts, context.width(ctx), aggregate as string)
     end
     local found = context.species(ctx, typeName)
     if found ~= nil then

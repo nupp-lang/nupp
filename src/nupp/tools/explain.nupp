@@ -1786,6 +1786,27 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2911",
+    summary = "A field of a native-only aggregate is assigned",
+    rule = "A struct holding a `simd.Vector` or a `simd.Mask` is a native-only aggregate: a "
+    .. "value the register file holds, as the vectors in it are. It has no field "
+    .. "stores, in native code or in the one-lane Lua form, so the two never disagree "
+    .. "about who sees a write. Construct a new aggregate with the field changed.",
+    wrong = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
+    .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
+    .. "local function conjugate(z: Pair): Pair\n    z.im = -z.im\n    return z\nend\n\n"
+    .. "return {conjugate = conjugate, Pair = Pair}\n",
+    right = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
+    .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
+    .. "local function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\n"
+    .. "return {conjugate = conjugate, Pair = Pair}\n",
+    related = {"NUPP2910"},
+    docs = "docs/learn/performance/ahead-of-time/simd.md#native-only-aggregates",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP2909",
     summary = "A file given to AOT compilation has no `@aot` function",
     rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "

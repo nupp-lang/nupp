@@ -453,6 +453,9 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     end
 
     local _, origin = nominal(raw)
+    if origin ~= nil and origin.declKind == "struct" and origin.nativeOnly == true then
+        return "aggregate:" .. tostring(origin.name)
+    end
     if origin == nil or origin.moduleName ~= "nupp.simd" then
         return nil
     end
@@ -558,6 +561,85 @@ record lower.Layouts
     byName: {[string]: scalarIR.Layout}
 end
 
+--- Reifies a native-only aggregate: a struct holding vectors, masks, scalars
+--- or other such structs, as the value type the code generator lays out in
+--- registers. Nothing about it is a claim about memory, so nothing here has a
+--- storage width; each field is typed as the value it is, and a nested
+--- aggregate is reified first so its layout is known when this one is used.
+--- Answers the layout, which `layouts` then carries in first-reached order.
+function lower.aggregate(
+    resolved: any?,
+    at: cst.Child?,
+    layouts: lower.Layouts,
+    context: lower.Context
+): scalarIR.Layout
+    local _, origin = nominal(resolved)
+    if not context.checked or origin == nil or origin.declKind ~= "struct" or origin.nativeOnly ~= true then
+        context.reject(lower.site(at), "a native-only aggregate must resolve to a struct holding a vector or a mask")
+    end
+    local name = tostring(origin.name)
+    local known = layouts.byName[name]
+    if known ~= nil then
+        return known as scalarIR.Layout
+    end
+    if #(origin.typeParams or {}) > 0 or #(origin.supertypes or {}) > 0 then
+        context.reject(lower.site(at), "native-only aggregates must be non-generic and have no supertypes")
+    end
+    local layout = new scalarIR.Layout(
+        name = name,
+        uniqueName = "Ka" .. name,
+        fields = {},
+        nativeOnly = true,
+        source = lower.site(at)
+    )
+    -- Registered before its fields so a struct naming itself is refused by the
+    -- field admission below rather than by recursion.
+    layouts.byName[name] = layout
+    for _, fieldName in ipairs(origin.fieldOrder or {}) do
+        local fieldType = origin.byname and origin.byname[fieldName] or nil
+        local site = origin.fieldDefs and origin.fieldDefs[fieldName] ~= nil and origin.fieldDefs[fieldName].token or at
+        local valueType = semanticValueType(fieldType)
+        local nested = scalarIR.aggregateLayout(valueType)
+        if nested ~= nil then
+            if nested == name then
+                context.reject(lower.site(site), "a native-only aggregate cannot hold itself")
+            end
+            lower.aggregate(fieldType, site, layouts, context)
+        elseif valueType == nil
+            or not (
+                scalarIR.nativeOnlyType(valueType)
+                or valueType == "f32"
+                or valueType == "f64"
+                or valueType == "i32"
+                or valueType == "u32"
+                or valueType == "i64"
+                or valueType == "u64"
+                or valueType == "bool"
+            )
+        then
+            context.reject(
+                lower.site(site),
+                "native-only aggregate field " .. name .. "." .. fieldName .. " is " .. tostring(
+                    fieldType ~= nil and T.tostring(fieldType) or "unknown"
+                ) .. ", not a vector, a mask, a scalar or another native-only aggregate"
+            )
+        end
+        layout.fields[
+            #layout.fields + 1
+        ] = new scalarIR.Field(
+            name = fieldName,
+            type = valueType as scalarIR.Type,
+            sourceType = fieldType ~= nil and sourceSpelling(fieldType) or nil
+        )
+    end
+    if #layout.fields == 0 then
+        context.reject(lower.site(at), "native-only aggregates need at least one field")
+    end
+    layouts.ordered[#layouts.ordered + 1] = layout
+
+    return layout
+end
+
 --- Admits a local struct as a span element layout.
 ---
 --- Reifying a struct is a claim about memory, so the shape is deliberately
@@ -576,6 +658,25 @@ function lower.layout(
     if context.checked then
         if semantic == nil or origin == nil or origin.declKind ~= "struct" then
             context.reject(lower.site(at), "span elements with fields must resolve to a struct")
+        end
+        if origin.nativeOnly == true then
+            -- A struct holding a vector is a register value with no memory layout,
+            -- so no span or array holds one. Named with the field that decides it,
+            -- which is the one to move out or to make a storage element.
+            local culprit = "a field"
+            for _, fieldName in ipairs(origin.fieldOrder or {}) do
+                local fieldType = origin.byname and origin.byname[fieldName] or nil
+                if scalarIR.nativeOnlyType(semanticValueType(fieldType)) then
+                    culprit = fieldName .. ": " .. T.tostring(fieldType)
+                    break
+                end
+            end
+            context.reject(
+                lower.site(at),
+                "struct " .. tostring(
+                    origin.name
+                ) .. " is a native-only aggregate (" .. culprit .. ") and cannot be a span element"
+            )
         end
         name = origin.name
     end
@@ -1665,7 +1766,8 @@ end
 --- A field of a struct element.
 local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
-    local layoutName = object.type:match("^ref:(.+)$")
+    local aggregateName = scalarIR.aggregateLayout(object.type)
+    local layoutName = aggregateName or object.type:match("^ref:(.+)$")
     local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
     if layout == nil then
         context.reject(lower.site(node), "native field access needs a reified struct element")
@@ -1680,6 +1782,18 @@ local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lowe
     end
     if field == nil then
         context.reject(lower.site(node), "struct " .. tostring(layoutName) .. " has no field " .. wanted)
+    end
+    if aggregateName ~= nil then
+        -- A field of an aggregate value is the value it holds, already typed
+        -- as a value: nothing is loaded and nothing widens.
+        return new scalarIR.AggregateField(
+            op = "aggregate_field",
+            object = object,
+            layout = aggregateName as string,
+            field = (field as scalarIR.Field).name,
+            type = (field as scalarIR.Field).type,
+            source = lower.site(node)
+        )
     end
 
     return widenLoad(
@@ -5586,6 +5700,36 @@ local function expressionRaw(
         return call(node as cst.Call, environment, activeIndex, kernel)
     end
 
+    if kind == "newExpr" then
+        -- `new P(...)` of a native-only aggregate: one value per field in layout
+        -- order, each brought to the field's type. Any other construction is
+        -- the owner or table an AOT body does not create, which the checker's
+        -- structural walk has already refused.
+        local call = (node as cst.NewExpr).call as any
+        local constructed = call ~= nil and call.inferredType or (node as any).inferredType
+        local layout = lower.aggregate(constructed, node, kernel.layouts, context)
+        local bindings = call ~= nil and call.recordFields or {}
+        if #bindings ~= #layout.fields then
+            context.reject(lower.site(node), "a native-only aggregate construction supplies every field")
+        end
+        local values: {scalarIR.Expr} = {}
+        for position, binding in ipairs(bindings as {any}) do
+            local field = layout.fields[position]
+            if binding.isDefault == true or binding.node == nil then
+                context.reject(lower.site(node), "a native-only aggregate construction supplies every field")
+            end
+            local value = lower.expression(binding.node as cst.Node, environment, activeIndex, kernel)
+            values[position] = lower.convert(value, field.type, lower.site(binding.node as cst.Node), context)
+        end
+
+        return new scalarIR.AggregateNew(
+            op = "aggregate_new",
+            layout = layout.name,
+            values = values,
+            type = "aggregate:" .. layout.name,
+            source = lower.site(node)
+        )
+    end
     context.reject(lower.site(node), "expression kind " .. tostring(kind) .. " is not admitted")
 
     return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(node))
@@ -5705,6 +5849,9 @@ function lower.foreignEntry(name: string, at: cst.Node?, kernel: lower.Kernel): 
         if resultType == nil or tostring(resultType):match("^simd_reducer_") ~= nil then
             context.reject(lower.site(at), "native entry results are scalar or SIMD values")
         end
+        if scalarIR.aggregateLayout(resultType) ~= nil then
+            lower.aggregate(result, at, kernel.layouts, context)
+        end
         resultTypes[position] = resultType as scalarIR.Type
     end
     if #resultTypes ~= 1 then
@@ -5719,6 +5866,9 @@ function lower.foreignEntry(name: string, at: cst.Node?, kernel: lower.Kernel): 
             and mode ~= "plain"
             or tostring(paramType):match("^simd_reducer_") ~= nil then
             context.reject(lower.site(at), "native entry parameters are unowned scalar or SIMD values")
+        end
+        if scalarIR.aggregateLayout(paramType) ~= nil then
+            lower.aggregate(param, at, kernel.layouts, context)
         end
         params[
             #params + 1
@@ -5828,6 +5978,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         if resultType == nil then
             context.reject(lower.site(result), "native helper results are scalar or SIMD values")
         end
+        if scalarIR.aggregateLayout(resultType) ~= nil then
+            lower.aggregate(checkedSignature.rets[position], result, kernel.layouts, context)
+        end
         if tostring(resultType):match("^simd_reducer_") ~= nil then
             context.reject(lower.site(result), "reducers cannot cross a native helper result boundary")
         end
@@ -5852,6 +6005,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
             or nil
         if paramName == nil or paramType == nil or mode ~= nil and mode ~= "plain" then
             context.reject(lower.site(raw), "native helper parameters are unowned scalar or SIMD values")
+        end
+        if scalarIR.aggregateLayout(paramType) ~= nil then
+            lower.aggregate(checkedSignature.params[position], raw, kernel.layouts, context)
         end
         if tostring(paramType):match("^simd_reducer_") ~= nil then
             context.reject(lower.site(raw), "reducers cannot cross a native helper parameter boundary")
@@ -6917,6 +7073,12 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
     end
 
     local object = lower.expression(indexed.obj as cst.Node, environment, kernel.index, kernel)
+    if scalarIR.aggregateLayout(object.type) ~= nil then
+        context.reject(
+            lower.site(target),
+            "a native-only aggregate is a value: construct a new one with the field changed"
+        )
+    end
     local layoutName = object.type:match("^ref:(.+)$")
     local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
     if layout == nil or (object as scalarIR.ElementRef).mutable ~= true then
@@ -8591,14 +8753,18 @@ function lower.parameters(
                 source = lower.site(raw)
             )
         elseif scalarIR.nativeOnlyType(valueType) then
-            -- A vector or mask parameter makes the entry native-only: a value
-            -- a register holds has no Lua representation to arrive through, so
-            -- the entry is reached from other native code and gets no wrapper.
+            -- A vector, mask or aggregate parameter makes the entry native-only:
+            -- a value a register holds has no Lua representation to arrive
+            -- through, so the entry is reached from other native code and gets
+            -- no wrapper.
             if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a vector or mask parameter has no ownership mode")
             end
             if not context.nativeCpu then
                 context.reject(lower.site(at), "a vector or mask parameter is admitted only by native CPU AOT")
+            end
+            if scalarIR.aggregateLayout(valueType) ~= nil then
+                lower.aggregate(resolved, at, layouts, context)
             end
             param = new scalarIR.Param(
                 kind = "uniform",
@@ -9852,6 +10018,9 @@ function lower.program(
         if scalarIR.nativeOnlyType(resultType) then
             if not context.nativeCpu then
                 context.reject(lower.site(result), "a vector or mask result is admitted only by native CPU AOT")
+            end
+            if scalarIR.aggregateLayout(resultType) ~= nil then
+                lower.aggregate(resolved, result, layouts, context)
             end
             nativeOnly = true
         elseif tostring(resultType):match("^simd_") ~= nil then

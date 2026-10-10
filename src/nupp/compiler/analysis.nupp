@@ -546,6 +546,22 @@ local function inferFunction(info, byDefinition)
         return "$capture"
     end
 
+    --- Whether a construction's type is a native-only aggregate: a struct
+    --- holding a vector or a mask, which native lowering builds in registers.
+    local function nativeAggregate(t: any): boolean
+        local raw = t
+        while raw ~= nil
+            and (raw.tag == "const" or raw.tag == "affine" or raw.tag == "borrowed" or raw.tag == "pinned") do
+            raw = raw.inner
+        end
+        if raw == nil or raw.tag ~= "nominal" then
+            return false
+        end
+        local origin = raw.origin or raw
+
+        return origin.declKind == "struct" and origin.nativeOnly == true
+    end
+
     local function applyCall(call)
         if call.scalarIntrinsic or call.ownershipIntrinsic == "adopt" or call.ownershipIntrinsic == "release" then
             -- Released fixed-width intrinsics operate only on scalar values and their
@@ -558,9 +574,13 @@ local function inferFunction(info, byDefinition)
         if not known and call.isNew and not call.constructorEntry then
             -- A construction with no declared constructor builds the value from its
             -- arguments and runs nothing else: an allocation, and the arguments are
-            -- walked as the expressions they are.
+            -- walked as the expressions they are. A native-only aggregate is the
+            -- one construction native lowering represents without allocating, as
+            -- it does a boxed wide integer, so it counts as Lua allocation only.
             out.allocates = true
-            out.allocatesBeyondWideArithmetic = true
+            if not nativeAggregate(call.inferredType) then
+                out.allocatesBeyondWideArithmetic = true
+            end
             return
         end
         if known then
@@ -654,7 +674,9 @@ local function inferFunction(info, byDefinition)
             out.allocatesBeyondWideArithmetic = true
         elseif kind == "newExpr" then
             out.allocates = true
-            out.allocatesBeyondWideArithmetic = true
+            if not nativeAggregate(node.call and node.call.inferredType or node.inferredType) then
+                out.allocatesBeyondWideArithmetic = true
+            end
         elseif kind == "istring" then
             out.allocates = true
             out.allocatesBeyondWideArithmetic = true

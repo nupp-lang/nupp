@@ -113,6 +113,14 @@ function text.expression(node: scalarIR.Expr): string
         return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "field_load" then
         return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
+    elseif op == "aggregate_new" then
+        local parts: {string} = {}
+        for position, value in ipairs((node as scalarIR.AggregateNew).values) do
+            parts[position] = text.expression(value)
+        end
+        return "aggregate:" .. node.layout .. "(" .. table.concat(parts, ", ") .. ")"
+    elseif op == "aggregate_field" then
+        return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
     elseif op == "uniform" or op == "local" or op == "helper_param" then
         return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
     elseif op == "constant_i32" or op == "constant_i64" then
@@ -526,6 +534,9 @@ local function preamble(program: scalarIR.Program): {string}
         local fields: {string} = {}
         for position, field in ipairs(layout.fields) do
             fields[position] = field.name .. ":" .. field.type .. " source(" .. tostring(field.sourceType) .. ")"
+        end
+        if layout.nativeOnly == true then
+            fields[#fields + 1] = "native-only"
         end
         lines[#lines + 1] = "  " .. layout.name .. "{" .. table.concat(fields, ",") .. "}"
     end

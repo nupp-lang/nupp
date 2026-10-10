@@ -13,6 +13,7 @@ Struct declarations carry the extra requirement that every field be laid out in
 C memory, which is what makes them reifiable.
 ]]
 
+local nativeonly = require("nupp.compiler.check.nativeonly")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
@@ -2421,6 +2422,20 @@ function declare.install(
                                 nil,
                                 {help = "drop the width, or give the field an " .. "integer or boolean type"}
                             )
+                        end
+                    end
+                    if stat.declKind == "struct" then
+                        -- The generator lowers a vector field to its lane's C type,
+                        -- and a struct holding one is a native-only aggregate.
+                        (e as any).fieldType = ft
+                        if nativeonly.carriesNativeOnly(ft) then
+                            n.nativeOnly = true
+                            local def = stat.name ~= nil and (stat.name as any).definition or nil
+                            if def ~= nil then
+                                def.aotNativeOnly = true
+                                def.aotOrigin = def.aotOrigin
+                                    or {filename = def.filename, name = def.name, aggregate = true}
+                            end
                         end
                     end
                     if stat.declKind == "struct" and not stat.isAnnotationDefinition and not reifiableField(ft) then
