@@ -208,6 +208,12 @@ local function exactWidthConstant(value: scalarIR.Expr, wanted: scalarIR.Type): 
     )
 end
 
+--- Whether a binary64 value is exactly a binary32, so narrowing it to a
+--- native callee's `float` parameter changes nothing.
+function lower.roundTripsBinary32(value: number): boolean
+    return nupp.math.f32.narrow(value) == value
+end
+
 --- An argument brought to the type a helper parameter takes.
 ---
 --- A helper takes ordinary Nupp values, so a fixed-width argument widens into it
@@ -226,6 +232,21 @@ function lower.helperArgument(
     local exact = exactWidthConstant(value, wanted)
     if exact ~= nil then
         return exact
+    end
+    if wanted == "f32" then
+        -- A native callee's `float` parameter. A `float` read arrives widened,
+        -- and taking the load itself is exact; a literal that is its own
+        -- binary32 is exact too. Anything else would round, so it is refused.
+        if value.op == "widen_f32_f64" then
+            return (value as scalarIR.Convert).value
+        end
+        if value.op == "constant" then
+            local number = tonumber((value as scalarIR.Constant).value)
+            if number ~= nil and (number ~= number or lower.roundTripsBinary32(number as number)) then
+                return new scalarIR.Convert(op = "narrow_f64_f32", value = value, type = "f32", source = value.source)
+            end
+        end
+        context.reject(source, "native helper argument type does not match")
     end
     if wanted ~= "f64" then
         context.reject(source, "native helper argument type does not match")
@@ -3342,6 +3363,11 @@ local function call(
     end
 
     local helperName = lower.nameOf(node.obj)
+    if helperName == nil and (node.obj as any).aotOrigin ~= nil and (node.obj as any).kind == "dotIndex" then
+        -- `vec.twice(...)`: a member of a required module the checker resolved to
+        -- an `@aot` entry, which lowers to a native call into that module.
+        helperName = ((node.obj as cst.DotIndex).name as lexer.Token).text
+    end
     if helperName == nil then
         context.reject(lower.site(node), "call target " .. tostring(path) .. " is not an admitted intrinsic or helper")
     end
@@ -5648,6 +5674,83 @@ function lower.helperValueType(spelling: string): scalarIR.Type?
     return nil
 end
 
+--- A native call into another module's `@aot` entry, or nil when the call does
+--- not name one.
+---
+--- The checker stamps a reference to an `@aot` entry with the entry's origin,
+--- the file and name it was declared under, whether the reference is the
+--- module's own local, an alias, or a member of a required module. The
+--- call's checked signature types the parameters as the callee's own entry
+--- does, so a `float` is binary32, and the result as an entry answers it. The
+--- symbol is the callee's as its module links it, so the caller's own
+--- qualification is not applied to it again.
+function lower.foreignEntry(name: string, at: cst.Node?, kernel: lower.Kernel): scalarIR.Helper?
+    local context = kernel.context
+    local call = at as any
+    local callee = call ~= nil and call.kind == "call" and call.obj or nil
+    local origin = callee ~= nil and callee.aotOrigin or nil
+    if origin == nil or origin.filename == nil or origin.name == nil then
+        return nil
+    end
+    local signature = call.signatureType
+    if not context.checked or signature == nil or signature.tag ~= "func" then
+        context.reject(lower.site(at), "the checker did not publish this native call signature")
+    end
+    if signature.vararg == true or signature.generics ~= nil and #signature.generics > 0 then
+        context.reject(lower.site(at), "a native call into another module reaches a non-generic entry")
+    end
+    local resultTypes: {scalarIR.Type} = {}
+    for position, result in ipairs(signature.rets or {}) do
+        local resultType = semanticValueType(result, true)
+        if resultType == nil or tostring(resultType):match("^simd_reducer_") ~= nil then
+            context.reject(lower.site(at), "native entry results are scalar or SIMD values")
+        end
+        resultTypes[position] = resultType as scalarIR.Type
+    end
+    if #resultTypes ~= 1 then
+        context.reject(lower.site(at), "a compiled entry called from another returns one value")
+    end
+    local params: {scalarIR.Name} = {}
+    for position, param in ipairs(signature.params or {}) do
+        local mode = (signature.paramModes or {})[position]
+        local paramType = semanticValueType(param, false)
+        if paramType == nil
+            or mode ~= nil
+            and mode ~= "plain"
+            or tostring(paramType):match("^simd_reducer_") ~= nil then
+            context.reject(lower.site(at), "native entry parameters are unowned scalar or SIMD values")
+        end
+        params[
+            #params + 1
+        ] = new scalarIR.Name(
+            op = "helper_param",
+            name = "a" .. tostring(position),
+            type = paramType as scalarIR.Type,
+            uniqueName = scalarIR.identifier("a", "a" .. tostring(position)),
+            source = lower.site(at)
+        )
+    end
+    local symbol = scalarIR.qualifiedPrivateSymbol(origin.filename as string, origin.name as string)
+    local known = kernel.helpers[symbol]
+    if known ~= nil then
+        return known as scalarIR.Helper
+    end
+    local called = new scalarIR.Helper(
+        name = name,
+        uniqueName = symbol,
+        params = params,
+        values = {},
+        resultTypes = resultTypes,
+        native = true,
+        qualified = true,
+        source = lower.site(at)
+    )
+    kernel.helpers[symbol] = called
+    kernel.helperOrder[#kernel.helperOrder + 1] = called
+
+    return called
+end
+
 --- Lowers a visible pure helper, on first reach.
 ---
 --- A helper is a parameter list and a return list over those parameters, and
@@ -5670,6 +5773,13 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         native = true
     end
     if declaration == nil then
+        -- An `@aot` entry of another module, reached through an import or an
+        -- alias the checker stamped with the entry's origin: a native call to
+        -- that module's symbol, typed by the call the checker resolved.
+        local foreign = lower.foreignEntry(name, at, kernel)
+        if foreign ~= nil then
+            return foreign as scalarIR.Helper
+        end
         context.reject(lower.site(at), "call target " .. name .. " is not a visible pure helper")
     end
     kernel.helperState[name] = "lowering"
@@ -5731,8 +5841,12 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     local environment: {[string]: any} = {}
     for position, raw in ipairs(body.params or {}) do
         local paramName = raw.name ~= nil and (raw.name as lexer.Token).text or nil
-        local paramType = context.checked and semanticValueType(checkedSignature.params[position], true)
-            or lower.helperValueType(lower.compactType(raw.type))
+        -- An inlined helper takes ordinary Nupp values, so its `float` is
+        -- binary64. A native callee is another entry, whose `float` uniform is
+        -- the binary32 its own definition declares; typing the call any other
+        -- way passes a double where the callee reads a float.
+        local paramType = context.checked and semanticValueType(checkedSignature.params[position], not native)
+            or (native and lower.sourceValueType or lower.helperValueType)(lower.compactType(raw.type))
         local mode = context.checked and checkedSignature.paramModes[position]
             or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text
             or nil
@@ -8258,6 +8372,10 @@ record lower.Signature
 
     --- The readable spans.
     reads: {scalarIR.Param}
+
+    --- Whether a parameter is a vector or a mask, which makes the entry
+    --- callable from native code only.
+    nativeOnly: boolean?
 end
 
 --- Admits the kernel prototype's parameters.
@@ -8472,6 +8590,24 @@ function lower.parameters(
                 sourceType = sourceType,
                 source = lower.site(raw)
             )
+        elseif scalarIR.nativeOnlyType(valueType) then
+            -- A vector or mask parameter makes the entry native-only: a value
+            -- a register holds has no Lua representation to arrive through, so
+            -- the entry is reached from other native code and gets no wrapper.
+            if mode ~= nil and mode ~= "plain" then
+                context.reject(lower.site(raw), "a vector or mask parameter has no ownership mode")
+            end
+            if not context.nativeCpu then
+                context.reject(lower.site(at), "a vector or mask parameter is admitted only by native CPU AOT")
+            end
+            param = new scalarIR.Param(
+                kind = "uniform",
+                name = name as string,
+                type = valueType as scalarIR.Type,
+                sourceType = sourceType,
+                source = lower.site(raw)
+            )
+            signature.nativeOnly = true
         else
             context.reject(lower.site(at), "parameter type " .. sourceType .. " is not admitted")
             param = new scalarIR.Param(kind = "uniform", name = name as string, type = "f64")
@@ -9684,6 +9820,7 @@ function lower.program(
 
     local resultTypes: {scalarIR.Type} = {}
     local resultSourceTypes: {string} = {}
+    local nativeOnly = signature.nativeOnly == true
     local rets = body.rets or {}
     local resolvedResults = checkedSignature ~= nil and checkedSignature.rets or nil
     if #rets == 1
@@ -9712,11 +9849,19 @@ function lower.program(
         if resultType == nil then
             context.reject(lower.site(result), "AOT entry results are admitted scalar values or fresh tables")
         end
-        if tostring(resultType):match("^simd_") ~= nil then
-            context.reject(lower.site(result), "explicit SIMD values cannot cross an AOT entry result ABI")
+        if scalarIR.nativeOnlyType(resultType) then
+            if not context.nativeCpu then
+                context.reject(lower.site(result), "a vector or mask result is admitted only by native CPU AOT")
+            end
+            nativeOnly = true
+        elseif tostring(resultType):match("^simd_") ~= nil then
+            context.reject(lower.site(result), "a species or a reducer cannot cross an AOT entry result ABI")
         end
         resultTypes[position] = resultType as scalarIR.Type
         resultSourceTypes[position] = sourceType
+    end
+    if nativeOnly and contract.target == "gpu" then
+        context.reject(lower.site(body), "a vector or mask signature is admitted only by native CPU AOT")
     end
 
     local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
@@ -10058,7 +10203,8 @@ function lower.program(
             body = lowered,
             resultTypes = resultTypes,
             resultSourceTypes = resultSourceTypes,
-            usesSimd = kernel.usesSimd,
+            usesSimd = kernel.usesSimd or nativeOnly,
+            nativeOnly = nativeOnly or nil,
             source = lower.site(fn)
         )
 
@@ -10134,7 +10280,8 @@ function lower.program(
             constants = kernel.constantOrder,
             resultTypes = {},
             resultSourceTypes = {},
-            usesSimd = kernel.usesSimd,
+            usesSimd = kernel.usesSimd or nativeOnly,
+            nativeOnly = nativeOnly or nil,
             loop = new scalarIR.Loop(
                 index = index,
                 first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,

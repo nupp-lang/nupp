@@ -361,7 +361,12 @@ function aot.dispatch(
     local replacements: {any} = {}
     local detectorAt: integer? = nil
     for position, site in ipairs(sites) do
-        if programs[position] ~= nil and programs[position].executionTarget ~= "gpu" then
+        -- A native-only entry's stub declares no tier, so the module's feature
+        -- query cannot ride on it.
+        if programs[position] ~= nil
+            and programs[position].executionTarget ~= "gpu"
+            and programs[position].nativeOnly ~= true
+        then
             detectorAt = detectorAt == nil and site.from or math.min(detectorAt as integer, site.from)
         end
     end
@@ -386,7 +391,14 @@ function aot.dispatch(
                 assert(artifact ~= nil, "GPU program has no emitted shader")
                 replacement = gpuBinding.replacement(program, artifact, browser)
             else
-                replacement = bindingRules.replacement(program, library, tiers, site.from == detectorAt, archive)
+                replacement = bindingRules.replacement(
+                    program,
+                    library,
+                    tiers,
+                    site.from == detectorAt,
+                    archive,
+                    site.header
+                )
             end
             replacements[#replacements + 1] = {site = site, text = replacement,}
         end

@@ -952,6 +952,41 @@ function binding.numericForGuard(program: scalarIR.Program): {string}
     }
 end
 
+--- What stands in for a native-only entry: one whose signature carries a
+--- vector or a mask. Other compiled code reaches it through its symbol, and
+--- Lua has no value that could arrive through its parameters, so there is no
+--- FFI declaration and no wrapper. The declaration is restated with its own
+--- header, so every reference to the name keeps the type the source gave it,
+--- and its body refuses the call the checker already refused where it could
+--- see one. It is not recorded in `__nuppAotCompiled`.
+function binding.nativeOnlyStub(program: scalarIR.Program, header: string?): {string}
+    local lines: {string} = {}
+    lines[#lines + 1] = "--- `" .. program.name .. "` is a native-only AOT entry: its signature carries a vector or a"
+    lines[#lines + 1] = "--- mask, so other compiled code calls it directly and Lua has no entry to it."
+    lines[#lines + 1] = "--- @raises string when called, which only Lua can do"
+    if header ~= nil then
+        lines[#lines + 1] = (header as string):gsub("%s+$", "")
+    else
+        local params: {string} = {}
+        for _, param in ipairs(program.params) do
+            params[#params + 1] = logical(param)
+        end
+        local resultSourceTypes = program.resultSourceTypes or {}
+        local result = #resultSourceTypes == 0 and "nil"
+            or #resultSourceTypes == 1 and resultSourceTypes[1]
+            or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
+        lines[#lines + 1] = "local function " .. program.name .. "(" .. table.concat(params, ", ") .. "): " .. result
+    end
+    lines[
+        #lines + 1
+    ] = "    error(\""
+        .. program.name
+        .. " is a native-only AOT entry: it takes or answers a vector and cannot be called from Lua\", 2)"
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
 --- What stands in for an `@aot` declaration in the source it was written in.
 ---
 --- Everything `binding.module` emits for a program except the struct
@@ -969,8 +1004,12 @@ function binding.replacement(
     library: string?,
     tiers: {string}?,
     includeDetector: boolean?,
-    archive: binding.Archive?
+    archive: binding.Archive?,
+    header: string?
 ): string
+    if program.nativeOnly == true then
+        return table.concat(binding.nativeOnlyStub(program, header), "\n")
+    end
     local lines: {string} = binding.numericForGuard(program)
     -- Whether this replacement is the one carrying the module's feature query.
     -- It is emitted from inside the tier declarations below rather than here,
@@ -1156,6 +1195,12 @@ function binding.module(programs: {scalarIR.Program}, library: string?): string
     end
 
     for _, program in ipairs(programs) do
+        if program.nativeOnly == true then
+            append(binding.nativeOnlyStub(program))
+            lines[#lines + 1] = ""
+            exports[#exports + 1] = program.name .. " = " .. program.name
+            goto continue
+        end
         append(binding.numericForGuard(program))
         if program.entryMode == "lua-builder" then
             append(binding.builderLoader(program, library))
@@ -1176,6 +1221,7 @@ function binding.module(programs: {scalarIR.Program}, library: string?): string
             lines[#lines + 1] = ""
             exports[#exports + 1] = program.name .. " = " .. program.name
         end
+        ::continue::
     end
 
     lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"

@@ -1,0 +1,250 @@
+module nupp.compiler.check.nativeonly
+
+--[[
+Native-only `@aot` entries: those whose signature carries a vector or a mask.
+
+A register holds such a value and Lua has nothing to hand through a parameter
+or receive from a result, so the entry is reached from other native code and
+nothing else. The checker records that on the function's definition when the
+annotation is applied, carries it to the aliases and imports that name the
+same function, and once the whole module is checked, refuses every use of the
+name that executes as Lua: a call, an argument, a return, a field store. A
+reference the build resolves statically is admitted -- the member the module
+exports it under, and the binding another module imports it through -- because
+those reach the native symbol without ever reading a Lua value.
+
+The refusal is reported only for a target whose policy compiles `@aot`
+functions. Under `aot = "off"` the function is ordinary Nupp and a Lua call to
+it is ordinary too; the first target that compiles it is the one that refuses.
+See `docs/learn/performance/ahead-of-time/simd.md`.
+]]
+
+local T = require("nupp.compiler.types")
+local cst = require("nupp.compiler.syntax.cst")
+local state = require("nupp.compiler.check.state")
+
+local nativeonly = {}
+
+type nativeonly.Ops = {
+    mark: function(stat: any, body: any),
+    alias: function(target: any, source: any, export: any),
+    resolve: function(node: any): any,
+    sweep: function(root: any)
+}
+
+--- Whether `t` is a `nupp.simd` vector or mask, through ownership wrappers and
+--- aliases.
+local function vectorOrMask(t: any?): boolean
+    if t == nil then
+        return false
+    end
+    local raw = T.unwrapOwnership(t as T.Type) as any
+    while raw ~= nil and raw.tag == "genericAlias" do
+        raw = raw.body
+    end
+    if raw == nil or raw.tag ~= "nominal" then
+        return false
+    end
+    local origin = raw.origin or raw
+
+    return origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask")
+end
+
+--- Whether a checked function signature takes or answers a vector or a mask.
+function nativeonly.signatureIsNativeOnly(signature: any?): boolean
+    if signature == nil or signature.tag ~= "func" then
+        return false
+    end
+    for _, param in ipairs(signature.params or {}) do
+        if vectorOrMask(param) then
+            return true
+        end
+    end
+    for _, result in ipairs(signature.rets or {}) do
+        if vectorOrMask(result) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Installs the native-only judgment on a checking run.
+---
+--- @param c the run's state
+function nativeonly.install(c: state.Checker): nativeonly.Ops
+    local ops = {}
+
+    --- Whether the target being checked compiles `@aot` functions, which is
+    --- when a Lua use of a native-only entry is a use of something that does
+    --- not exist.
+    local function compiles(): boolean
+        local selected = c.env ~= nil and c.env.config ~= nil and c.env.config._target or nil
+        local policy = selected ~= nil and selected.aot or nil
+
+        return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
+    end
+
+    --- The definition a module exports under `member`, through the project.
+    local function exported(module: string?, member: string?): any
+        if module == nil or member == nil or c.env == nil or c.env.resolveModuleExports == nil then
+            return nil
+        end
+        local exports = c.env.resolveModuleExports(c.env, module)
+
+        return exports ~= nil and exports.valueDefs ~= nil and exports.valueDefs[member] or nil
+    end
+
+    --- The definition a name or member reference reaches: the token's own, or
+    --- the one the module it names exports, which a member of a required
+    --- module does not carry on its token.
+    function ops.resolve(node: any): any
+        if node == nil then
+            return nil
+        end
+        local def = node.kind == "name" and node.token ~= nil and node.token.definition
+            or node.kind == "dotIndex" and node.name ~= nil and node.name.definition
+            or nil
+        if def ~= nil and (def.aotOrigin ~= nil or def.exactCallExport == nil) then
+            return def
+        end
+        local export = node.exactCallExport or def ~= nil and def.exactCallExport or nil
+        if export ~= nil then
+            return exported(export.module, export.member) or def
+        end
+
+        return def
+    end
+
+    --- Carries an `@aot` definition's facts to a binding that aliases it: a
+    --- local initialized from the name, or a member imported from the module
+    --- that exports it, named by `export` when the member's own definition is
+    --- not at hand.
+    function ops.alias(target: any, source: any, export: any)
+        if target == nil then
+            return
+        end
+        local origin = source ~= nil and source.aotOrigin ~= nil and source or nil
+        if origin == nil and export ~= nil then
+            origin = exported(export.module, export.member)
+        end
+        if origin == nil or origin.aotOrigin == nil then
+            return
+        end
+        target.aotOrigin = origin.aotOrigin
+        target.aotNativeOnly = origin.aotNativeOnly
+    end
+
+    function ops.mark(stat: any, body: any)
+        local nameTok = stat ~= nil and stat.kind == "localFuncStmt" and stat.name or nil
+        local def = nameTok ~= nil and nameTok.definition or nil
+        if def == nil then
+            return
+        end
+        def.aotOrigin = {filename = def.filename, name = def.name}
+        if nativeonly.signatureIsNativeOnly(body.signatureType) then
+            def.aotNativeOnly = true
+            body.aotNativeOnly = true
+        end
+    end
+
+    local function report(token: any, def: any): nil
+        c.diag(
+            "NUPP2910",
+            token,
+            (
+                "%s is a native-only AOT entry: it takes or answers a vector and is called only from another @aot function"
+            ):format(tostring(def.name or token.text))
+        )
+    end
+
+    --- Walks `node`, stamping each reference to an `@aot` entry with its origin
+    --- and refusing each reference to a native-only one that Lua would execute.
+    --- `insideAot` is whether an `@aot` body encloses the node; `allowed` marks
+    --- a node whose direct reference is a static export or import rather than
+    --- a use.
+    -- Whether a Lua use is refused on this run: only for a target that compiles.
+    local refusing = false
+
+    local function visit(node: any, insideAot: boolean, allowed: {[any]: boolean}, topLevel: boolean): nil
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "name" and node.token ~= nil then
+            local def = ops.resolve(node)
+            if def ~= nil and def.aotOrigin ~= nil then
+                node.aotOrigin = def.aotOrigin
+            end
+            if def ~= nil and def.aotNativeOnly == true and refusing and not insideAot and not allowed[node] then
+                report(node.token, def)
+            end
+            return
+        end
+        if kind == "dotIndex" and node.name ~= nil then
+            local def = ops.resolve(node)
+            if def ~= nil and def.aotOrigin ~= nil then
+                node.aotOrigin = def.aotOrigin
+            end
+            if def ~= nil and def.aotNativeOnly == true and refusing and not insideAot and not allowed[node] then
+                report(node.name, def)
+            end
+            visit(node.obj, insideAot, allowed, false)
+            return
+        end
+        local inner = insideAot or kind == "funcbody" and node.aotRequired == true
+        if topLevel then
+            -- A module's own export surface and its imports resolve statically.
+            local exported = kind == "returnStmt" and node.exprs
+                or kind == "exportStmt" and node.value ~= nil and {node.value}
+                or nil
+            if exported ~= nil then
+                for _, expr in ipairs(exported as {any}) do
+                    if expr.kind == "tableExpr" then
+                        for _, field in ipairs(expr.fields or {}) do
+                            if field.value ~= nil then
+                                allowed[field.value] = true
+                            end
+                        end
+                    else
+                        allowed[expr] = true
+                    end
+                end
+            elseif kind == "localStmt" then
+                for _, expr in ipairs(node.exprs or {}) do
+                    allowed[expr] = true
+                end
+            elseif kind == "assignStmt" then
+                for position, target in ipairs(node.targets or {}) do
+                    local expr = (node.exprs or {})[position]
+                    if target.kind == "dotIndex" and expr ~= nil then
+                        allowed[expr] = true
+                        allowed[target] = true
+                    end
+                end
+            end
+        end
+        local statements = kind == "block" and node.stats or nil
+        for _, child in ipairs(node as {any}) do
+            visit(child, inner, allowed, statements ~= nil and topLevel)
+        end
+    end
+
+    --- Walks the checked module once: every reference to an `@aot` entry is
+    --- stamped with the entry's origin, which a native call from one of this
+    --- module's own entries lowers through, and under a target that compiles
+    --- every Lua use of a native-only one is refused.
+    function ops.sweep(root: any)
+        if root == nil then
+            return
+        end
+        refusing = compiles()
+        for _, block in ipairs(root.blocks or {}) do
+            visit(block, false, {}, true)
+        end
+    end
+
+    return ops
+end
+
+export = nativeonly

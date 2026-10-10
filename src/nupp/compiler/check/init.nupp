@@ -35,6 +35,7 @@ local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
 local privateexport = require("nupp.compiler.check.privateexport")
+local nativeonly = require("nupp.compiler.check.nativeonly")
 local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
@@ -818,6 +819,14 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         for _, field in ipairs(returned.fields or {}) do
             if field.kind == "fieldNamed" and field.name and field.value then
                 publish(field.name.text, field.value)
+                -- A member that is a declared name exports that declaration: what
+                -- an importer's member access resolves to, and the facts an `@aot`
+                -- declaration carries for a native call from another module.
+                local value = field.value
+                local definition = value.kind == "name" and value.token and value.token.definition or nil
+                if definition ~= nil and c.moduleExports.valueDefs[field.name.text] == nil then
+                    c.moduleExports.valueDefs[field.name.text] = definition
+                end
             end
         end
     elseif returned then
@@ -2483,6 +2492,7 @@ function checkMod.check(
 
     c.derives = derive.install(c)
     c.privateExport = privateexport.install(c)
+    c.nativeOnly = nativeonly.install(c)
 
     -- Checking a declaration and publishing what it declares. See
     -- nupp.compiler.check.declare.
@@ -3671,6 +3681,7 @@ function checkMod.check(
     finalizeCallGuarantees(c, effectQueries)
     finalizeBoundary(c)
     c.privateExport.sweep()
+    c.nativeOnly.sweep(result.root)
     -- These needed the whole file before they could answer, so they answer here and
     -- their diagnostics are put back in source order with everything else. A `@raises`
     -- type is among them: one may name a declaration written below the function that

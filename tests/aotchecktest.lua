@@ -28,6 +28,18 @@ local TRIPLE = "aarch64-apple-darwin"
 -- What `check` has to refuse, each as `nupp aot` refuses it. One refusal a file:
 -- lowering stops at the first, in a build as here.
 local REFUSED = {
+    -- A species is a compile-time fact, so an entry cannot answer one.
+    ["speciesresult.nupp"] = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function chosen(): simd.Species<float, simd.Preferred>
+    return simd.species(array.float)
+end
+
+return {chosen = chosen}
+]],
     ["truthy.nupp"] = [[
 @aot
 local function sign(value: number): number
@@ -161,6 +173,29 @@ return {storePast = storePast}
 
 -- What `check` has to leave alone: an admitted `@aot` function, and a file with none.
 local ADMITTED = {
+    -- A vector signature makes an entry native-only, reached from the entry
+    -- beside it; it is admitted, not refused.
+    ["vectorentry.nupp"] = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+@aot
+local function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input, "length mismatch")
+    local species = simd.species(array.float)
+    for at, active in species:over(#input) do
+        species:store(output, at, twice(species:load(input, at, active)), active)
+    end
+end
+
+return {twice = twice, apply = apply}
+]],
     -- A `float` read passed where `f32` is wanted: the load is already one.
     ["floatread.nupp"] = [[
 local span = require("nupp.mem.span")
@@ -589,6 +624,65 @@ return {include = {"src"}, build = {targets = {native = {kind = "modules", entri
     test.equal(fixed.timing.compiledModules, 1, fixedRaw)
     local _, fixedBuild = run(dir, "build")
     test.equal(fixedBuild, 0, "and the build agrees")
+end
+
+-- A Lua use of a native-only entry is the checker's refusal, not lowering's:
+-- `nupp aot` inspects without a compiling policy and says nothing, while a
+-- check of a target that compiles names each use, and a target that does not
+-- compile leaves the ordinary Lua call alone.
+function M.aLuaUseOfANativeOnlyEntryIsRefusedWhereATargetCompiles()
+    local dir = project(([[
+return {
+   include = {"."},
+   build = {
+      default = "native",
+      targets = {
+         native = {kind = "modules", aot = "require", aotTarget = %q},
+         off = {kind = "modules"},
+      },
+   },
+}
+]]):format(TRIPLE), {
+        ["vec.nupp"] = [[
+local simd = require("nupp.simd")
+
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+return {twice = twice}
+]],
+        ["uses.nupp"] = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local vec = require("vec")
+local twice = vec.twice
+
+local function alias(): simd.Vector<float, simd.Preferred>
+    return twice(simd.species(array.float):splat(1.0))
+end
+
+local function member(): simd.Vector<float, simd.Preferred>
+    return vec.twice(simd.species(array.float):splat(1.0))
+end
+
+return {alias = alias, member = member}
+]],
+    })
+    local decoded, code, raw = checkJson(dir, "")
+    test.equal(code, 1, raw)
+    local found = refusalsByFile(decoded)
+    test.equal(#(found["uses.nupp"] or {}), 2, "both Lua uses are refused: " .. raw)
+    assert(found["uses.nupp"][1]:match("^NUPP2910 7:12"), found["uses.nupp"][1])
+    assert(found["uses.nupp"][2]:match("^NUPP2910 11:16"), found["uses.nupp"][2])
+    assert(found["vec.nupp"] == nil, "the export itself is admitted: " .. raw)
+    local off, offCode, offRaw = checkJson(dir, "--target off")
+    test.equal(offCode, 0, offRaw)
+    assert(off.ok == true, "without a compiling policy the Lua call is ordinary: " .. offRaw)
+    local out, aotCode = run(dir, ("aot --triple %s vec.nupp"):format(TRIPLE))
+    test.equal(aotCode, 0, out)
+    assert(out:find("twice, kernel, explicit simd, native-only", 1, true), "the report says native-only: " .. out)
 end
 
 return M

@@ -150,7 +150,7 @@ end
 -- refusal a check can report has a worked pair, checked above under such a target.
 -- NUPP2909 is the one a check never reports: a build does not either.
 function M.everyAotRefusalACheckReportsHasAWorkedExample()
-   for _, code in ipairs({"NUPP2905", "NUPP2906", "NUPP2907", "NUPP2908"}) do
+   for _, code in ipairs({"NUPP2905", "NUPP2906", "NUPP2907", "NUPP2908", "NUPP2910"}) do
       local entry = assert(explain.lookup(code), code)
       assert(entry.aot == true, code .. " is marked as needing a target that lowers")
       assert(entry.wrong and entry.right, code .. " has both examples")

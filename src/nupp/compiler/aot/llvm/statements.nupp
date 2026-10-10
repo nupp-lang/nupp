@@ -600,7 +600,7 @@ local function returnStatement(ctx: context.Context, statement: scalarIR.Return)
     local value, t = expressions.value(ctx, statement.values[1])
     local resultType = tostring(results[1])
     local converted = expressions.convert(ctx, value, t, resultType)
-    builder.terminate(ctx.f, ("ret %s %s"):format(types.require(resultType), converted))
+    builder.terminate(ctx.f, ("ret %s %s"):format(context.llvmType(ctx, resultType), converted))
 end
 
 --- Emits a statement.

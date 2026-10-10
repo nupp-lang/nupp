@@ -214,6 +214,7 @@ local function validEntryResult(valueType: string, sourceType: string?, entryMod
     }
 
     return sourceType ~= nil and results[sourceType] == valueType
+        or scalarIR.nativeOnlyType(valueType) and sourceType ~= nil and #sourceType > 0
         or valueType == "lua_table" and entryMode == "lua-builder" and sourceType ~= nil and #sourceType > 0
 end
 
@@ -3141,7 +3142,12 @@ local function signature(
         )
         if param.kind == "uniform" then
             holds(
-                (verify.NUMERIC[param.type] == true or param.type == "bool") and param.region == nil,
+                (
+                    verify.NUMERIC[param.type] == true
+                    or param.type == "bool"
+                    or scalarIR.nativeOnlyType(param.type) and program.nativeOnly == true
+                )
+                and param.region == nil,
                 "invalid IR uniform"
             )
         elseif param.kind == "scalar" then
@@ -3766,6 +3772,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         holds(
             verify.NUMERIC[resultType] == true
             or resultType == "bool"
+            or scalarIR.nativeOnlyType(resultType) and program.nativeOnly == true
             or program.entryMode == "lua-builder"
             and (
                 resultType == "lua_table"

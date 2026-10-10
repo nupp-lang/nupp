@@ -125,7 +125,14 @@ local function copyDefinition(definition: any): any?
         scalarIntrinsic = definition.scalarIntrinsic,
         associated = definition.associated,
         cdefIdentity = definition.cdefIdentity,
+        -- An `@aot` function's identity for a native call from another module,
+        -- and whether its signature keeps it out of Lua's reach.
+        aotNativeOnly = definition.aotNativeOnly,
     }
+    local origin = definition.aotOrigin
+    if type(origin) == "table" then
+        copied.aotOrigin = {filename = origin.filename, name = origin.name}
+    end
     local exact = definition.exactCallExport
     if type(exact) == "table" then
         copied.exactCallExport = {module = exact.module, member = exact.member, identity = exact.identity,}

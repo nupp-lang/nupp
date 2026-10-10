@@ -1751,6 +1751,41 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2910",
+    summary = "A native-only `@aot` entry is used where Lua would execute it",
+    rule = "An `@aot` function whose signature carries a `simd.Vector` or a `simd.Mask` "
+    .. "is native-only: a register holds such a value and Lua has nothing to hand "
+    .. "through the parameter or receive from the result, so the build gives it no "
+    .. "Lua wrapper and it is called only from another `@aot` function. Every use "
+    .. "outside one -- a call, an argument, a return, a field store -- is refused "
+    .. "where it is written, for a target whose policy compiles. The member the "
+    .. "module exports it under and the binding another module imports it through "
+    .. "are admitted, because the native call resolves through them without reading "
+    .. "a Lua value. Move the call into an `@aot` function, or give the entry a "
+    .. "span and scalar signature.",
+    wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\n"
+    .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
+    .. "    return value + value\nend\n\n"
+    .. "local function fromLua(): simd.Vector<float, simd.Preferred>\n"
+    .. "    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\n"
+    .. "return {twice = twice, fromLua = fromLua}\n",
+    right = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
+    .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
+    .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
+    .. "    return value + value\nend\n\n@aot\n"
+    .. "local function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil\n"
+    .. "    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float)\n"
+    .. "    for at, active in species:over(#input) do\n"
+    .. "        species:store(output, at, twice(species:load(input, at, active)), active)\n    end\nend\n\n"
+    .. "return {twice = twice, apply = apply}\n",
+    aot = true,
+    related = {"NUPP2905"},
+    docs = "docs/learn/performance/ahead-of-time/simd.md#native-only-entries",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP2909",
     summary = "A file given to AOT compilation has no `@aot` function",
     rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "

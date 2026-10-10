@@ -257,6 +257,60 @@ species:store(rows, cursor + 1, "x", x + velocity * dt, active)
 
 A writable row view supplies exclusive ownership; sibling column pointers retain their disjointness proof as `noalias` in the generated code. The row view's count bounds every column, including a slice. Whole-row vector values, dynamic field selection, and construction of a row view inside a native kernel remain unsupported. See [structure of arrays](../../runtime/data/structure-of-arrays.md).
 
+## Native-only entries
+
+An `@aot` function may take and answer vectors and masks. Such a function is **native-only**: a register holds the value, Lua has nothing to hand through the parameter or receive from the result, so the function is reached from other `@aot` functions and nothing else. It is compiled once as its own native function, and a call to it from another entry, in the same module or another, is a native call to its symbol.
+
+```nupp
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+@aot
+local function positive(value: simd.Vector<float, simd.Preferred>): simd.Mask<float, simd.Preferred>
+    return value > 0.0
+end
+
+@aot
+local function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input, "length mismatch")
+    local species = simd.species(array.float)
+    for at, active in species:over(#input) do
+        local value = species:load(input, at, active)
+        species:store(output, at, positive(value):select(twice(value), species:splat(0.0)), active)
+    end
+end
+
+return {twice = twice, positive = positive, apply = apply}
+```
+
+`nupp aot` reports `twice` and `positive` as `explicit simd, native-only`. The build gives neither a Lua wrapper: the declaration lowers to a stub that refuses a call, the function is not listed in `__nuppAotCompiled`, and `--emit binding` shows the stub where the foreign declaration would be. The module's export table still names the function, and another module imports it as it imports anything, because the native call resolves through the export without reading a Lua value. Under `aot = "off"` the function is ordinary Nupp, one lane wide, and callable.
+
+Every use the checker can see that Lua would execute is refused where it is written, for a target whose policy compiles: a call outside an `@aot` function, an argument, a return, a store into a table. The export member and the import binding are the two references admitted. A check of a target whose `aot` policy compiles refuses the call inside `fromLua` below; under `aot = "off"` it is an ordinary call.
+
+```nupp
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+local function fromLua(): simd.Vector<float, simd.Preferred>
+    return twice(simd.species(array.float):splat(1.0))
+end
+
+return {twice = twice, fromLua = fromLua}
+```
+
+The parameters and the result are values of the callee's own species: `Preferred` means the same lane count to the caller and the callee, because every unit of one artifact is compiled per tier, and a `Fixed<N>` wider than a register is the `<N x T>` the code generator legalizes. What the call promises is value semantics and one tier on both sides, not a register. A species or a reducer is neither: a species is a compile-time fact and a reducer is a region, so an entry cannot take or answer one, and a vector or mask is admitted only by native CPU AOT.
+
 ## Targets and portability
 
 Preferred species resolve per artifact tier. Fixed species keep their logical lane count while native legalization chooses the representation. Wasm SIMD128 and native CPU tiers use the same source-level vector and mask operations; GPU invocations are a separate execution model.

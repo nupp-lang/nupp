@@ -157,7 +157,7 @@ that page:
 | Area | Page | Codes |
 | --- | --- | --- |
 | Affine types | [affine-types.md](../learn/runtime/ownership/affine-types.md) | `NUPP2606` |
-| Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2901`, `NUPP2902`, `NUPP2903`, `NUPP2905` through `NUPP2909` |
+| Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2901`, `NUPP2902`, `NUPP2903`, `NUPP2905` through `NUPP2910` |
 | Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |

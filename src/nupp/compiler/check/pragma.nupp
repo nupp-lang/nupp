@@ -472,6 +472,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             -- Nupp is not an AOT problem.
             if valid and targetBody and targetBody.aotRequired then
                 c.aot.body(targetBody)
+                c.nativeOnly.mark(stat.stat, targetBody)
                 local selected = c.env.config and c.env.config._target or nil
                 if targetBody.aotTarget == "gpu"
                     and targetKind == "localFuncStmt"

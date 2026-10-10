@@ -23,6 +23,7 @@ local memory = require("nupp.compiler.aot.llvm.simd.memory")
 local rearrange = require("nupp.compiler.aot.llvm.simd.rearrange")
 local reduce = require("nupp.compiler.aot.llvm.simd.reduce")
 local simdReducers = require("nupp.compiler.aot.llvm.simd.reducers")
+local species = require("nupp.compiler.aot.llvm.simd.species")
 local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 local facts = require("nupp.compiler.aot.llvm.facts")
 local luaEntry = require("nupp.compiler.aot.llvm.lua.entry")
@@ -281,6 +282,22 @@ end
 
 --- A context for a function of `program` in `unit`, with what its vector
 --- code is emitted for.
+--- The LLVM type an entry's uniform or result is carried in: a scalar's C-ABI
+--- spelling, or the vector or mask register a native-only entry takes. The
+--- width is the program's, decided before any function context exists.
+local function entryValueType(program: scalarIR.Program, typeName: string, scalar: function(string): string): string
+    if types.value(typeName) ~= nil then
+        return scalar(typeName)
+    end
+    local found = species.of(program.simdWidth or 16, typeName)
+    local carrier = found ~= nil and species.carrier(found as species.Species) or nil
+    if carrier == nil then
+        expressions.unsupported("entry value type " .. typeName)
+    end
+
+    return carrier as string
+end
+
 local function prepared(unit: llvmProgram.Unit, f: builder.Function, program: scalarIR.Program): context.Context
     local ctx = context.new(unit.module, f, program, unit.facts)
     ctx.maskedMemory = unit.maskedMemory
@@ -454,7 +471,9 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         if scalarIR.isSpan(param) then
             parameters[#parameters + 1] = spanParameter(unit, program, param)
         elseif param.kind == "uniform" then
-            parameters[#parameters + 1] = types.parameter(tostring(param.type)) .. " %p_" .. param.name
+            parameters[
+                #parameters + 1
+            ] = entryValueType(program, tostring(param.type), types.parameter) .. " %p_" .. param.name
         else
             expressions.unsupported("scalar parameters of kind " .. param.kind)
         end
@@ -474,7 +493,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         parameters[#parameters + 1] = unit.facts.access and "ptr noalias captures(none) writeonly %ks_result"
             or "ptr %ks_result"
     end
-    local result = #results ~= 1 and "void" or types.result(tostring(results[1]))
+    local result = #results ~= 1 and "void" or entryValueType(program, tostring(results[1]), types.result)
     local symbol = physical(program.symbol .. (oracle and "_forced_scalar" or ""), unit.tier)
     -- A kernel frees nothing and synchronizes with nothing; what it reads and
     -- writes is settled once the unit is complete (`llvmProgram.module`). The

@@ -155,6 +155,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         boundEntry.patternFieldDefinition = definition
                         boundEntry.jitTarget = definition
                         c.fixedWidth.setBinding(boundEntry, entry, nil)
+                        if boundEntry.definition then
+                            c.nativeOnly.alias(
+                                boundEntry.definition,
+                                definition,
+                                source.requiredModule and {module = source.requiredModule, member = fieldName} or nil
+                            )
+                        end
                         if source.requiredModule then
                             boundEntry.requiredModule = source.requiredModule
                             boundEntry.exactCallExport = {
@@ -538,6 +545,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         boundEntry.definition.exactCallExport = boundEntry.exactCallExport
                     end
                 end
+            end
+            if boundEntry and boundEntry.definition and initNode then
+                local sourceDefinition = initNode.kind == "name" and initNode.token and initNode.token.definition
+                    or initNode.kind == "dotIndex" and initNode.name and initNode.name.definition
+                    or nil
+                c.nativeOnly.alias(boundEntry.definition, sourceDefinition, initNode.exactCallExport)
             end
             if boundEntry and initNode and initNode.exactCallExport then
                 boundEntry.exactCallExport = initNode.exactCallExport

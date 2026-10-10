@@ -226,6 +226,8 @@ local function summarise(path: string, program: any, artifacts: any): string
     local what: string
     if gpu then
         what = "gpu, one iteration per GPU invocation"
+    elseif program.nativeOnly == true then
+        what = "explicit simd, native-only"
     elseif program.usesSimd == true then
         what = "explicit simd"
     elseif program.entryMode == "lua-builder" then

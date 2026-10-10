@@ -3376,23 +3376,56 @@ return {sumX = sumX}
     assert(not decoded.llvm:find("gather", 1, true), where .. ": not gathered row by row\n" .. decoded.llvm)
 end
 
-function M.explicitSimdValuesCannotCrossAnEntryAbi()
+-- A vector in an entry's signature makes it native-only: admitted, reported as
+-- such, lowered as a vector-typed function, and given a stub where its wrapper
+-- would have been. A species, which has no run-time value, still cannot be
+-- answered.
+function M.vectorSignaturesAreNativeOnlyEntries()
     local source = [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
-local function leaked(): simd.Vector<float, simd.Preferred>
+local function ones(): simd.Vector<float, simd.Preferred>
     local species = assert(simd.species(array.float))
     return species:splat(1.0)
 end
 
-return {leaked = leaked}
+@aot
+local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+    return value + value
+end
+
+return {ones = ones, twice = twice}
 ]]
-    local dir = project{["leaked.nupp"] = source}
-    local out, code = run(dir, "leaked.nupp")
-    test.equal(code, 1, out)
-    assert(out:find("cannot cross an AOT entry result ABI", 1, true), out)
+    local dir = project{["vectors.nupp"] = source}
+    local out, code = run(dir, "--triple aarch64-apple-darwin --features neon vectors.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("ones, kernel, explicit simd, native-only", 1, true), out)
+    assert(out:find("twice, kernel, explicit simd, native-only", 1, true), out)
+    local llvm = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
+    assert(llvm:find("\ndefine <4 x float> @ks_twice__neon%(<4 x float> %%p_value%)"), llvm)
+    assert(llvm:find("\ndefine <4 x float> @ks_ones__neon%(%)"), llvm)
+    local binding = run(dir, "--triple aarch64-apple-darwin --features neon --emit binding vectors.nupp")
+    assert(not binding:find("cdef function ks_twice", 1, true), "no foreign declaration: " .. binding)
+    assert(binding:find("local function twice(value: Vector<float, Preferred>): Vector<float, Preferred>", 1, true), binding)
+    assert(binding:find("twice is a native-only AOT entry", 1, true), binding)
+    assert(not binding:find("entries[twice] = true", 1, true), "not a compiled Lua entry: " .. binding)
+
+    local species = project{["species.nupp"] = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function chosen(): simd.Species<float, simd.Preferred>
+    return simd.species(array.float)
+end
+
+return {chosen = chosen}
+]]}
+    local refused, refusedCode = run(species, "species.nupp")
+    test.equal(refusedCode, 1, refused)
+    assert(refused:find("a species or a reducer cannot cross an AOT entry result ABI", 1, true), refused)
 end
 
 -- The oracle is the kernel's own body left unoptimized, so it calls the same

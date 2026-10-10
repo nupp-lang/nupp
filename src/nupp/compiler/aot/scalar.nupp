@@ -74,6 +74,19 @@ function scalarIR.privateSymbol(name: string): string
     return "ks_" .. identifierTail(name)
 end
 
+--- The prefix every emitted symbol of one source file carries once it is
+--- linked: the file's digest, so two modules' entries share one C namespace.
+function scalarIR.symbolPrefix(filename: string): string
+    return "ks_" .. require("nupp.compiler.hash").digest(filename):sub(1, 16) .. "_"
+end
+
+--- An entry's symbol as the module declaring it links it: `privateSymbol`
+--- under that module's prefix, which is how another module's native call
+--- names it.
+function scalarIR.qualifiedPrivateSymbol(filename: string, name: string): string
+    return scalarIR.symbolPrefix(filename) .. scalarIR.privateSymbol(name):sub(4)
+end
+
 --- `name` under `prefix`, spelled so it is a valid symbol: the unique name of
 --- one local, which is not its source name because two source scopes may use
 --- one name and generated code has no scope to tell them apart, and the names
@@ -1563,6 +1576,10 @@ record scalarIR.Helper
     --- the callee is compiled once and keeps its own contract.
     native: boolean?
 
+    --- A native call into another module's entry: its symbol already carries
+    --- that module's qualification, so this unit's must not be applied to it.
+    qualified: boolean?
+
     resultTypes: {scalarIR.Type}
 
     source: scalarIR.Source?
@@ -1693,6 +1710,13 @@ record scalarIR.Program
     --- Whether the source used the explicit SIMD vocabulary.
     usesSimd: boolean?
 
+    --- The entry's signature carries a vector or a mask, so it is callable
+    --- only from other native code: it gets no Lua wrapper, no entry in
+    --- `__nuppAotCompiled`, and its declaration lowers to a stub that refuses
+    --- a Lua call. The checker has already refused every such call it could
+    --- see; the stub is what a dynamic one meets.
+    nativeOnly: boolean?
+
     --- The preferred vector width selected for this target.
     simdWidth: integer?
 
@@ -1718,6 +1742,15 @@ record scalarIR.Program
 end
 
 --- Whether two column parameters originate in the same authored row view.
+--- Whether a value of this IR type may exist only in native code: a vector
+--- or a mask. A species is a compile-time fact and a reducer is a region, so
+--- neither is a value an entry could take or answer at all.
+function scalarIR.nativeOnlyType(typeName: scalarIR.Type?): boolean
+    local name = tostring(typeName)
+
+    return name:match("^simd_vector_") ~= nil or name:match("^simd_mask_") ~= nil
+end
+
 function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): boolean
     return left ~= nil
         and right ~= nil

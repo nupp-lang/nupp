@@ -60,6 +60,11 @@ record compile.Site
 
     --- Byte offset of the last character, 1-based and inclusive.
     to: integer
+
+    --- The declaration as written, from `local function` to the body: the
+    --- name, the parameters and the result in the module's own vocabulary,
+    --- which is what a stub standing in for a native-only entry restates.
+    header: string?
 end
 
 --- Everything compiling a function produces.
@@ -105,12 +110,13 @@ local REFUSED = {}
 local function qualifySymbols(programs: {scalarIR.Program}, filename: string): nil
     local identity = hash.digest(filename):sub(1, 16)
     local registrars: {[string]: string} = {}
-    local prefix = "ks_" .. identity .. "_"
+    local prefix = scalarIR.symbolPrefix(filename)
     for _, program in ipairs(programs) do
         program.symbol = prefix .. program.symbol:sub(4)
-        -- A call to another entry of this file names that entry's symbol.
+        -- A call to another entry of this file names that entry's symbol. One
+        -- into another module's entry already carries that module's prefix.
         for _, helper in ipairs(program.helpers or {}) do
-            if helper.native == true and helper.uniqueName:sub(1, #prefix) ~= prefix then
+            if helper.native == true and helper.qualified ~= true and helper.uniqueName:sub(1, #prefix) ~= prefix then
                 helper.uniqueName = prefix .. helper.uniqueName:sub(4)
             end
         end
@@ -139,6 +145,20 @@ function compile.site(application: lower.Application): compile.Site
     local to = last ~= nil and ((last as lexer.Token).offset + #(last as lexer.Token).text - 1) or from
 
     return new compile.Site(from = from, to = to)
+end
+
+--- The declaration's header as the source spells it: from the first token of
+--- the `local function` to the character before its body.
+function compile.header(source: string, declaration: cst.LocalFuncStmt?): string?
+    if declaration == nil or declaration.body == nil then
+        return nil
+    end
+    local first = cst.firstToken(declaration)
+    local bodyFirst = cst.firstToken((declaration.body as cst.Funcbody).body)
+    local headerFrom = first ~= nil and first.offset or 1
+    local headerTo = bodyFirst ~= nil and bodyFirst.offset - 1 or headerFrom
+
+    return source:sub(headerFrom, headerTo)
 end
 
 local function sitePosition(source: string, offset: integer): (integer, integer)
@@ -262,7 +282,9 @@ function compile.lower(
             local body = declaration ~= nil and declaration.body or nil
             if body == nil or (body as cst.Funcbody).generics == nil then
                 programs[#programs + 1] = lower.program(found, application, wasChecked, context)
-                sites[#sites + 1] = compile.site(application)
+                local site = compile.site(application)
+                site.header = compile.header(source, declaration)
+                sites[#sites + 1] = site
             end
         end
 
@@ -622,15 +644,11 @@ function compile.constSpecializations(
                 familyDispatchPrograms[#familyDispatchPrograms + 1] = familyPrograms[dispatch.index]
             end
             if #familyPrograms > 0 and declaration ~= nil and declaration.body ~= nil then
-                local first = cst.firstToken(declaration)
-                local bodyFirst = cst.firstToken((declaration.body as cst.Funcbody).body)
-                local headerFrom = first ~= nil and first.offset or 1
-                local headerTo = bodyFirst ~= nil and bodyFirst.offset - 1 or headerFrom
                 families[
                     #families + 1
                 ] = {
                     site = compile.site(application),
-                    header = source:sub(headerFrom, headerTo),
+                    header = compile.header(source, declaration) as string,
                     name = name,
                     binders = candidate.binders,
                     programs = familyPrograms,

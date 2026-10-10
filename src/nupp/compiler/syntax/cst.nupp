@@ -145,6 +145,10 @@ interface cst.Hints
     --- established CPU target; `gpu` is consumed by the GPU emitter.
     aotTarget: string?
 
+    --- The `@aot` body's signature carries a vector or a mask, so the entry is
+    --- callable from native code only.
+    aotNativeOnly: boolean?
+
     --- The prelude guard intrinsic this checked call resolved to. A local with
     --- the same name has no marker and cannot establish AOT guard facts.
     aotGuardBuiltin: ('assert' | 'error')?

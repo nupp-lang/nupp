@@ -206,6 +206,10 @@ record state.Checker
     --- The `@aot` source subset walk, run on a body once it has been checked.
     aot: any
 
+    --- Native-only `@aot` entries: marked at the annotation, refused where Lua
+    --- would use one.
+    nativeOnly: any
+
     --- Allocation- and raising-free region checks, judged after effect inference.
     effectRegions: any
 
