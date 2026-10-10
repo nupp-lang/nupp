@@ -65,13 +65,13 @@ function serve() {
   });
 }
 
-async function runProgram(browser, base, file, name, options = {}) {
+async function runProgram(browser, base, file, name, options = {}, audio = 0) {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
   try {
     const url = new URL(`page.html?file=${encodeURIComponent(file)}&name=${encodeURIComponent(name)}` +
-      `&options=${encodeURIComponent(JSON.stringify(options))}`, base);
+      `&options=${encodeURIComponent(JSON.stringify(options))}&audio=${audio}`, base);
     await page.goto(url.href);
     await page.waitForFunction(() => ["passed", "failed"].includes(document.querySelector("#result")?.dataset.status),
       null, {timeout: 600000});
@@ -106,7 +106,7 @@ const mode = process.argv[2] || "contract";
 await prepare();
 const server = await serve();
 const base = `http://127.0.0.1:${server.address().port}/`;
-const browser = await chromium.launch({headless: true});
+const browser = await chromium.launch({headless: true, args: ["--autoplay-policy=no-user-gesture-required"]});
 let failed = false;
 try {
   if (mode === "contract") {
@@ -127,6 +127,23 @@ try {
       if (!result.ok) failed = true;
       results.push({workload: workload.name, ...result});
       console.log(`${result.ok ? "ok" : "FAIL"} ${workload.name}`, JSON.stringify(result.outcome?.value?.summary ?? result));
+    }
+    writeFileSync(output, JSON.stringify({browser: browser.version(), recorded: new Date().toISOString(), results}, null, 2) + "\n");
+    console.log(`raw samples in ${output}`);
+  } else if (mode === "audio") {
+    // W6: each buffer-ahead, without stalls and with a 50 ms and a 150 ms one.
+    const output = process.argv[3] || path.join(repo, "build/host-channel/audio-bench.json");
+    const seconds = Number(process.argv[4] || 20);
+    const results = [];
+    for (const bufferAheadMs of [10, 20, 30, 50, 80]) {
+      for (const stalls of [[], [{at: seconds * 300, ms: 50}, {at: seconds * 600, ms: 150}]]) {
+        const result = await runProgram(browser, base, "bench.lua", "audio", {seconds, stalls}, bufferAheadMs);
+        if (!result.ok) failed = true;
+        const summary = result.outcome?.value?.summary;
+        results.push({bufferAheadMs, stalls: stalls.length, ...result});
+        console.log(`${result.ok ? "ok" : "FAIL"} buffer ${bufferAheadMs} ms, ${stalls.length ? "stalls" : "steady"}:`,
+          JSON.stringify(summary ?? result));
+      }
     }
     writeFileSync(output, JSON.stringify({browser: browser.version(), recorded: new Date().toISOString(), results}, null, 2) + "\n");
     console.log(`raw samples in ${output}`);

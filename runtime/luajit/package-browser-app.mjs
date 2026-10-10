@@ -84,6 +84,9 @@ async function packageWithService({project, target, output, guest, prebuilt = fa
     record(`${name}.mjs`);
   }
   copyFileSync(path.join(repo,'runtime/wasm/browser-entry.mjs'), path.join(output,'nupp-browser-app.mjs'));
+  // The page's audio for a `nupp.host` stream, which only the page can play.
+  copyFileSync(path.join(repo,'runtime/wasm/audio.mjs'), path.join(output,'nupp-audio.mjs'));
+  copyFileSync(path.join(repo,'runtime/wasm/audio-worklet.mjs'), path.join(output,'nupp-audio-worklet.mjs'));
   // The emitted worker facade determines whether this application needs a pool.
   const workers = (result.written || []).some(file => /(?:^|[\\/])nupp[\\/]workers\.lua$/.test(file));
   const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels, nativeLibraries,

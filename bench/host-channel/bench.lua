@@ -268,4 +268,57 @@ function workloads.codecCost(options)
     return {samples = {}, summary = {encodeMs = encodeMs, decodeMs = decodeMs, binaryMs = binaryMs}}
 end
 
+-- W6: audio as a game makes it. Each frame waits for the page's next frame,
+-- then sends the samples the elapsed time calls for, so production keeps pace
+-- with playback rather than racing ahead. A stall busy-waits the guest, as a
+-- slow frame would, and the worklet counts the quanta it could not fill.
+function workloads.audio(options)
+    local seconds = options.seconds or 20
+    local channels = 2
+    local stalls = options.stalls or {}
+    local rate = host.call("bench.audioRate")
+    local send = host.bindSend("bench.audio", "block", 64)
+    local nextFrame = host.bind("bench.tick")
+    local capacity = math.ceil(rate * 0.2)
+    local buffer = ffi.new("float[?]", capacity * channels)
+    local phase = 0
+    local started = time.now()
+    local last = started
+    local owed = 0
+    local stalled = {}
+    while time.now() - started < seconds * 1000 do
+        nextFrame(0)
+        local now = time.now()
+        for index, stall in ipairs(stalls) do
+            if not stalled[index] and now - started >= stall.at then
+                stalled[index] = true
+                local stallEnds = os.clock() + stall.ms / 1000
+                while os.clock() < stallEnds do
+                end
+                now = time.now()
+            end
+        end
+        owed = owed + (now - last) * rate / 1000
+        last = now
+        local frames = math.min(capacity, math.floor(owed))
+        if frames > 0 then
+            owed = owed - frames
+            for frame = 0, frames - 1 do
+                local sample = math.sin(phase) * 0.2
+                phase = phase + 2 * math.pi * 440 / rate
+                buffer[frame * 2] = sample
+                buffer[frame * 2 + 1] = sample
+            end
+            local text = ffi.string(buffer, frames * channels * 4)
+            send(span.fromString(text))
+        end
+    end
+    local underruns, queued, played = host.call("bench.audioStats")
+    return {
+        samples = {},
+        summary = {underruns = underruns, queuedFrames = queued, playedFrames = played, sampleRate = rate,
+            seconds = seconds, stalls = #stalls},
+    }
+end
+
 return workloads

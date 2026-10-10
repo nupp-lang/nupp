@@ -20,6 +20,21 @@ function luaLiteral(value) {
 try {
   const {runPackagedNuppLuaJITApp} = await import("./app/app-runtime.mjs");
   const {host, state} = testHost();
+  const bufferAheadMs = Number(query.get("audio") || 0);
+  if (bufferAheadMs > 0) {
+    // W6: the page plays the application's stream and paces its frames.
+    const {audioStream} = await import("./app/nupp-audio.mjs");
+    const audio = await audioStream({kind: "bench.audio", bufferAheadMs});
+    await audio.context.resume();
+    Object.assign(host.handlers, audio.handlers, {
+      "bench.audioRate": () => audio.sampleRate,
+      "bench.audioStats": async () => {
+        const stats = await audio.stats();
+        return [stats.underruns, stats.queuedFrames, stats.playedFrames];
+      },
+      "bench.tick": () => new Promise((resolve) => setTimeout(() => resolve(performance.now()), 16)),
+    });
+  }
   const initialize = new TextEncoder().encode(
     `__hostChannelProgram = {file = ${luaLiteral(file)}, name = ${luaLiteral(name)}, options = ${luaLiteral(options)}}`,
   );
