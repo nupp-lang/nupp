@@ -263,4 +263,24 @@ function M.anEmbedderAnswerIsCheckedBeforeItIsKept()
     )
 end
 
+-- `nupp run` has no embedding application, so nothing answers and a request is
+-- refused by name rather than left waiting.
+function M.aProgramRunOnItsOwnHasNoHost()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
+    local file = assert(io.open(directory .. "/main.nupp", "wb"))
+    file:write([[
+local host = nupp.host
+print("attached", host.attached())
+local ok, problem = pcall(host.call, "app.anything", 1)
+print("refused", not ok, problem)
+]])
+    file:close()
+    local status, output = run(("cd %s && %s run main.nupp"):format(shellQuote(directory), shellQuote(ROOT .. "/bin/nupp")))
+    check.equal(status, 0, output)
+    check.assert(output:find("attached\tfalse", 1, true), output)
+    check.assert(output:find("no host answers app.anything; no embedding application is attached", 1, true), output)
+end
+
 return M
