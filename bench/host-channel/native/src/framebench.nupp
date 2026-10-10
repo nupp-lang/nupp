@@ -1,0 +1,110 @@
+module framebench
+
+--[[
+One frame's boundary traffic three ways, for `bench.c` to time.
+
+N1 is how Tecs's winit host crosses today: an export per input event, the frame
+export, the packet returned from an export, and a polling export for each queue
+whether it holds anything. N2 is the host channel answered at once: the host
+pushes input that a poll routes to a bus, and one frame export sends the packet
+on a stream. N3 is the channel answered later: the frame waits on a call the
+host answers from its loop, under `nupp.host.pump`.
+]]
+
+local host = require("nupp.host")
+local events = require("nupp.events")
+local pump = require("nupp.host.pump")
+local span = require("nupp.mem.span")
+local hostevents = require("hostevents")
+
+local packetText: string = ""
+local consumed: integer = 0
+local pending: {number} = {}
+local bus: events.MessageBus<integer> = events.newMessageBus()
+local route: host.Route? = nil
+local session = pump.newPump()
+
+local type Send = function(borrows packet: span.ByteSpan): nil
+local type Tick = function(): number
+local sendPacket = host.bindSend<Send>("bench.packet", "latest")
+local nextFrame = host.bind<Tick>("bench.tick")
+
+--- Prepares a packet of `packetBytes` and, for the channel modes, its routes.
+--- Both ways deliver input to the same observer, so what differs is the crossing.
+export function setup(packetBytes: integer, channel: boolean): nil
+    packetText = string.rep("p", packetBytes)
+    bus:observe(
+        1,
+        hostevents.PointerMove,
+        function(_: hostevents.PointerMove): nil
+            consumed = consumed + 1
+        end,
+        "bench"
+    )
+    if channel and route == nil then
+        route = host.route("bench.move", hostevents.PointerMove, bus, 1, "dropOldest", 256)
+    end
+end
+
+--- N1: one input event, held for the next iterate.
+export function pushPointerMove(x: number, y: number): nil
+    pending[#pending + 1] = x
+    pending[#pending + 1] = y
+end
+
+--- N1: the frame, delivering what was pushed as the channel would.
+export function iterate(_: number): string
+    local index: integer = 1
+    while index < #pending do
+        bus:emit(1, hostevents.PointerMove, pending[index], pending[index + 1])
+        index = index + 2
+    end
+    pending = {}
+
+    return "continue"
+end
+
+--- N1: the frame's packet, which the host copies out of the answer.
+export function renderPacket(): string
+    return packetText
+end
+
+--- N1: the queues the host polls every frame, empty.
+export function nextImageCommand(): nil
+end
+
+export function nextCapture(): nil
+end
+
+export function nextModelUpload(): nil
+end
+
+export function crashed(): nil
+end
+
+--- N2: the frame, after a poll delivered its input; the packet goes out on a stream.
+export function frame(): nil
+    const text = packetText
+    sendPacket(span.fromString(text))
+end
+
+--- N3: starts the frame loop under the pump; it parks on each frame's call.
+export function startLoop(): string
+    return session:start(function(): boolean?
+        while true do
+            nextFrame()
+            const text = packetText
+            sendPacket(span.fromString(text))
+        end
+    end)
+end
+
+--- N3: one pass on the parked loop's behalf.
+export function pollLoop(): string
+    return session:poll()
+end
+
+--- How many input events the frames have consumed.
+export function received(): integer
+    return consumed
+end

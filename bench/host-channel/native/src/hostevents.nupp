@@ -1,0 +1,10 @@
+module hostevents
+
+local events = require("nupp.events")
+
+--- A pointer moved to `x`, `y`.
+@derive(events.Event)
+export record PointerMove
+    x: number
+    y: number
+end
