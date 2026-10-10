@@ -37,6 +37,7 @@ cleanup runs before the application shuts down.
 
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
+local suspensionContract = require("nupp.suspension.spi")
 local cancellation = require("nupp.suspension.cancellation")
 
 --- What a `start` or `poll` left the operation doing.
@@ -75,7 +76,7 @@ end
 
 --- Runs one parked operation at a time for a host-owned loop.
 export record Pump
-    @private handler: suspensionHost.Handler
+    @private handler: suspensionContract.Handler
     @private active: thread?
     @private result: boolean?
     @private failure: any?
@@ -145,8 +146,8 @@ end
 --- @export
 export function newPump(): Pump
     local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
-    pump.handler = new suspensionHost.Handler(
-        park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, _: function(): nil): nil
+    pump.handler = new suspensionContract.Handler(
+        park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
             local task = assert(coroutine.running())
 
             local function wake(): nil
@@ -166,10 +167,10 @@ export function newPump(): Pump
                 end
             end
         end,
-        canPark = function(_: suspensionHost.Handler): boolean
+        canPark = function(_: suspensionContract.Handler): boolean
             return true
         end,
-        shutdown = function(_: suspensionHost.Handler): nil
+        shutdown = function(_: suspensionContract.Handler): nil
         end
     )
 

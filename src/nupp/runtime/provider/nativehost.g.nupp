@@ -19,6 +19,7 @@ request is refused rather than left to hang; run it under a handler, such as a
 
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
+local suspensionContract = require("nupp.suspension.spi")
 local values = require("nupp.host.internal.values")
 local ffi = require("ffi")
 
@@ -48,7 +49,7 @@ local function report(kind: string, problem: any): nil
     io.stderr:write("nupp: host " .. kind .. ": " .. tostring(problem) .. "\n")
 end
 
-local refusingHandler = new suspensionHost.Handler(
+local refusingHandler = new suspensionContract.Handler(
     park = function(_: any, _: any, _: any): nil
         error("nupp: a host late handler cannot suspend; release with host.post", 0)
     end,
