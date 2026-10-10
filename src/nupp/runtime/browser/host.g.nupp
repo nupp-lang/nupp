@@ -290,6 +290,9 @@ local function deliverAnswer(id: integer, answer: any): nil
     if entry.cancelled then
         deliverLate(entry, answer)
     elseif entry.resume ~= nil then
+        -- Held until the caller takes it: a task cancelled after this resumed it
+        -- but before it ran never does, and the answer is then late's.
+        entry.answer = answer
         entry.resume(answer)
     end
 end
@@ -642,7 +645,7 @@ function provider.call(kind: string, late: any, ...: any): ...any
     if uploads ~= nil then
         uploadCancels, uploadLeases = queueUploads(record, uploads)
     end
-    local entry: any = {kind = kind, late = late, cancelled = false, resume = nil}
+    local entry: any = {kind = kind, late = late, cancelled = false, resume = nil, answer = nil}
     local ok, suspended = pcall(suspension.suspend, "host " .. kind, function(resume: function(any): nil): function()
         entry.resume = resume
         calls[record.id] = entry
@@ -652,6 +655,12 @@ function provider.call(kind: string, late: any, ...: any): ...any
 
         return function(): nil
             entry.resume = nil
+            if entry.answer ~= nil then
+                local answer = entry.answer
+                entry.answer = nil
+                deliverLate(entry, answer)
+                return
+            end
             if not record.shipped then
                 -- Never sent: the page will not hear of it at all.
                 for index = #pending, 1, -1 do
@@ -696,6 +705,7 @@ function provider.call(kind: string, late: any, ...: any): ...any
         error(suspended, 0)
     end
     local answer = suspended as any
+    entry.answer = nil
     if not answer.ok then
         error("nupp: host " .. kind .. " failed: " .. tostring(answer.error), 0)
     end

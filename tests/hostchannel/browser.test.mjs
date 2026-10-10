@@ -70,11 +70,15 @@ function testHost() {
       release: ([id]) => { live.delete(id); released.push(id); },
     },
     "test.slow": async ([bytes, ms]) => { await sleep(ms); return bytes.length; },
-    "test.open": async ([ms]) => {
-      await sleep(ms);
-      const id = nextResource++;
-      live.add(id);
-      return id;
+    "test.open": ([ms]) => {
+      const open = () => {
+        const id = nextResource++;
+        live.add(id);
+        return id;
+      };
+      // At zero it answers in the frame that asked, so calls made together are
+      // answered together.
+      return ms > 0 ? sleep(ms).then(open) : open();
     },
     "test.close": ([id]) => { live.delete(id); },
     "test.live": () => live.size,
@@ -178,6 +182,12 @@ test("a slow call carrying bytes does not hold a deadline beside it", async () =
 test("late releases what an abandoned call opened", async () => {
   const {value, state} = await scenario("lateReleases");
   assert.match(value.cancelled, /deadline/);
+  assert.equal(value.live, 0);
+  assert.equal(state.live.size, 0);
+});
+
+test("late releases an answer whose caller was cancelled before it ran", async () => {
+  const {value, state} = await scenario("answeredThenCancelled");
   assert.equal(value.live, 0);
   assert.equal(state.live.size, 0);
 });

@@ -53,11 +53,15 @@ export function testHost() {
       release: ([id]) => { live.delete(id); released.push(id); },
     },
     "test.slow": async ([bytes, ms]) => { await sleep(ms); return bytes.length; },
-    "test.open": async ([ms]) => {
-      await sleep(ms);
-      const id = nextResource++;
-      live.add(id);
-      return id;
+    "test.open": ([ms]) => {
+      const open = () => {
+        const id = nextResource++;
+        live.add(id);
+        return id;
+      };
+      // At zero it answers in the frame that asked, so calls made together are
+      // answered together.
+      return ms > 0 ? sleep(ms).then(open) : open();
     },
     "test.close": ([id]) => { live.delete(id); },
     "test.live": () => live.size,

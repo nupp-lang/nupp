@@ -109,6 +109,7 @@ const CONTRACT = {
   lateReleases: (value) => /deadline/.test(value.cancelled) && value.live === 0,
   lateCannotWait: (value) => value.echoed === "still answering" && value.live === 1,
   cancelBeforeShipping: (value) => value.cancelled === true && value.seen === 0,
+  answeredThenCancelled: (value) => value.live === 0,
   cancelMidFetch: (value) => value.cancelled === true && value.live === 0 && value.after === 8 * 1024 * 1024,
   concurrentLargeResults: (value) => value.sizes.every((size) => size === 8 * 1024 * 1024) &&
     /more than the 8 MiB/.test(value.tooLarge) && value.live === 0,
@@ -153,7 +154,7 @@ try {
     console.log(`raw samples in ${output}`);
   } else if (mode === "relay") {
     // Through the packaged entry: handlers on the page and in a Worker module.
-    for (const name of ["arity", "refusals", "bytes", "lateReleases", "cancelMidFetch", "streams", "posts"]) {
+    for (const name of ["arity", "refusals", "bytes", "lateReleases", "answeredThenCancelled", "cancelMidFetch", "streams", "posts"]) {
       const result = await runRelay(browser, base, name);
       const value = result.outcome?.value;
       const passed = result.ok && result.outcome?.ok && value !== undefined && CONTRACT[name](value);

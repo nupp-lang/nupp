@@ -178,7 +178,11 @@ local function deliver(): integer
                         runLate(entry.kind, entry.late, unpackValues(decoded, 1, count))
                     end
                 elseif entry.resume ~= nil then
-                    entry.resume({ok = ok, count = count, values = decoded})
+                    -- Held until the caller takes it: a task cancelled after this
+                    -- resumed it but before it ran never does, and the answer is
+                    -- then late's.
+                    entry.answer = {ok = ok, count = count, values = decoded}
+                    entry.resume(entry.answer)
                 end
             end
         end
@@ -228,7 +232,7 @@ function provider.call(kind: string, late: any, ...: any): ...any
     local request = dispatch(OPERATION_CALL, kind, ...)
     local ok, count, decoded = takeAnswer(request)
     if ok == nil then
-        local entry = {kind = kind, late = late, cancelled = false, resume = nil}
+        local entry: any = {kind = kind, late = late, cancelled = false, resume = nil, answer = nil}
         pending[request] = entry
         pendingCount = pendingCount + 1
         if not suspension.handled() then
@@ -249,13 +253,20 @@ function provider.call(kind: string, late: any, ...: any): ...any
             context:uses(readiness())
             entry.resume = resume
             return function(): nil
-                if pending[request] ~= nil then
+                local answered = entry.answer
+                if answered ~= nil then
+                    entry.answer = nil
+                    if answered.ok and entry.late ~= nil then
+                        runLate(entry.kind, entry.late, unpackValues(answered.values, 1, answered.count))
+                    end
+                elseif pending[request] ~= nil then
                     entry.cancelled = true
                     entry.resume = nil
                     channel.cancel(request)
                 end
             end
         end)
+        entry.answer = nil
         ok, count, decoded = answer.ok, answer.count, answer.values
     end
     if not ok then

@@ -223,6 +223,12 @@ function M.embeddedLateReleasesWhatItOpened()
     check.assert(host.cancels >= 1, "the host heard no cancellation")
 end
 
+function M.embeddedLateReleasesAnAnswerItsCallerNeverTook()
+    local value, host = embedded("answeredThenCancelled")
+    check.equal(value.live, 0)
+    check.equal(host.live, 0)
+end
+
 function M.embeddedLateCannotWait()
     local value, host, output = embedded("lateCannotWait")
     check.equal(value.echoed, "still answering")

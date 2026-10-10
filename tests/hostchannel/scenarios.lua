@@ -147,6 +147,33 @@ function scenarios.lateReleases()
     return {cancelled = not ok and tostring(problem) or "not cancelled", live = live}
 end
 
+-- Two opens answered in the same pass resume both callers; the first to run
+-- cancels the other before it runs. The answer that resumed the cancelled
+-- caller was never taken, so it is `late`'s to release like any other.
+function scenarios.answeredThenCancelled()
+    local open = host.bind("test.open", function(id)
+        openedRelease(id)
+    end)
+    local lateRuns = 0
+    local counted = host.bind("test.open", function(id)
+        lateRuns = lateRuns + 1
+        openedRelease(id)
+    end)
+    local ok = scoped(nil, function(scope)
+        local function openThenCancel(bound)
+            return function()
+                local id = bound(0)
+                openedRelease(id)
+                scope:cancel("the first answer to run cancels the other")
+            end
+        end
+        scope:spawn(openThenCancel(open))
+        scope:spawn(openThenCancel(counted))
+    end)
+    time.sleep(100)
+    return {cancelled = not ok, live = host.call("test.live")}
+end
+
 -- A late handler that would wait is refused, and other deliveries carry on. A
 -- call the host answers at once never waits, so this one is answered later.
 function scenarios.lateCannotWait()
@@ -183,7 +210,17 @@ function scenarios.cancelMidFetch()
     end)
     time.sleep(100)
     local after = host.call("test.make", 8 * 1024 * 1024, 2)
-    return {cancelled = not ok, live = host.call("test.live"), after = lengthOf(after)}
+    -- The host releases what was abandoned on its own schedule, a hop later
+    -- when a Worker relays to the page, so wait for it rather than race it.
+    local live = host.call("test.live")
+    for _ = 1, 40 do
+        if live == 0 then
+            break
+        end
+        time.sleep(50)
+        live = host.call("test.live")
+    end
+    return {cancelled = not ok, live = live, after = lengthOf(after)}
 end
 
 -- Four results that each fill the guest's reassembly budget are admitted one at
