@@ -65,9 +65,9 @@ export function testHost() {
     "test.note": ([index, bytes]) => { notes.push(`${index}:${bytes.length}`); },
     "test.notes": () => notes.join(","),
     "test.pushInput": ([count]) => {
-      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
       push("test.key", "a", true);
       push("test.key", "b", false);
+      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
     },
     "test.packet": ([bytes]) => { outbound.push(`packet:${bytes.length}`); },
     "test.log": ([text]) => { outbound.push(`log:${text}`); },

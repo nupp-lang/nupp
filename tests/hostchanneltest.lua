@@ -243,6 +243,7 @@ function M.embeddedStreamsRouteAndSend()
     local value = embedded("streams")
     check.equal(value.moves, "3,30 4,40 5,50")
     check.equal(value.keys, "b-")
+    check.equal(value.order, "b- 3,30 4,40 5,50")
     check.equal(value.dropped, 2)
     -- A native send reaches its handler at once, so no policy ever applies.
     check.equal(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")

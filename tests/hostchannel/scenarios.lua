@@ -235,17 +235,20 @@ end
 
 -- Inbound messages become routed events under each route's policy, and
 -- outbound ones ship under theirs. The host's pushes all happen inside one
--- handler, so one turn delivers them together.
+-- handler, so one turn delivers them together, in the order they were pushed
+-- whatever their kinds.
 function scenarios.streams()
     local hostevents = require("hostevents")
     local events = require("nupp.events")
     local bus = events.newMessageBus()
-    local moves, keys = {}, {}
+    local moves, keys, order = {}, {}, {}
     bus:observe(1, hostevents.PointerMove, function(event)
         moves[#moves + 1] = event.x .. "," .. event.y
+        order[#order + 1] = moves[#moves]
     end, "moves")
     bus:observe(1, hostevents.KeyPress, function(event)
         keys[#keys + 1] = event.key .. (event.down and "+" or "-")
+        order[#order + 1] = keys[#keys]
     end, "keys")
     local moveRoute = host.route("test.move", hostevents.PointerMove, bus, 1, "dropOldest", 3)
     local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "latest")
@@ -270,6 +273,7 @@ function scenarios.streams()
     return {
         moves = table.concat(moves, " "),
         keys = table.concat(keys, " "),
+        order = table.concat(order, " "),
         dropped = dropped,
         outbound = outbound,
     }

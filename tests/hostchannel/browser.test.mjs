@@ -82,9 +82,9 @@ function testHost() {
     "test.note": ([index, bytes]) => { notes.push(`${index}:${bytes.length}`); },
     "test.notes": () => notes.join(","),
     "test.pushInput": ([count]) => {
-      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
       push("test.key", "a", true);
       push("test.key", "b", false);
+      for (let index = 1; index <= count; index++) push("test.move", index, index * 10);
     },
     "test.packet": ([bytes]) => { outbound.push(`packet:${bytes.length}`); },
     "test.log": ([text]) => { outbound.push(`log:${text}`); },
@@ -222,6 +222,7 @@ test("more requests than a frame carries all ship and all answer", async () => {
 test("streams route inbound events and ship outbound messages under their policies", async () => {
   const {value} = await scenario("streams");
   assert.equal(value.moves, "3,30 4,40 5,50");
+  assert.equal(value.order, "b- 3,30 4,40 5,50");
   assert.equal(value.keys, "b-");
   assert.equal(value.dropped, 2);
   assert.equal(value.outbound, "packet:4 log:two log:three block:x block:y block:z");

@@ -103,55 +103,62 @@ end
 
 local routes: {[string]: any} = {}
 
-local function popPushed(kind: any, kinds: any, ...: any): (any, any, any)
-    if kind == nil then
-        return nil, nil, nil
-    end
-    return kind, #(kinds as string), {...}
-end
+-- What the host pushed, drained flat: a kind, a value count, the values.
+local pushed: any = {}
+local pushedCounts: {[string]: integer} = {}
 
 -- Delivers what the host pushed since the last pass to the routes declared for
--- it, each route keeping what its policy says. Observers run where no task is,
--- so one installation refuses a park for the whole pass.
+-- it, in the order the host pushed it, each route keeping what its policy says.
+-- Observers run where no task is, so one installation refuses a park for the
+-- whole pass.
 local function deliverPushed(): integer
-    local byKind: {[string]: any} = {}
-    local delivered: integer = 0
-    while true do
-        local kind, count, decoded = popPushed(channel.pop())
-        if kind == nil then
-            break
-        end
-        if routes[kind] ~= nil then
-            local list = byKind[kind]
-            if list == nil then
-                list = {}
-                byKind[kind] = list
-            end
-            list[#list + 1] = {count = count, values = decoded}
-        end
-    end
-    if next(byKind) == nil then
+    local used: integer = channel.drain(pushed)
+    if used == 0 then
         return 0
     end
-    local installed = suspensionHost.install(refusingHandler)
-    for kind, list in pairs(byKind) do
-        local route = routes[kind]
-        local keep = route.policy == "latest" and 1 or route.limit
-        local first = math.max(1, #list - keep + 1)
-        route.dropped = route.dropped + (first - 1)
-        for index = first, #list do
-            if routes[kind] ~= route then
-                break
+    local routed: integer = 0
+    local slot: integer = 1
+    while slot <= used do
+        local kind: string = pushed[slot]
+        local count: integer = pushed[slot + 1]
+        if routes[kind] ~= nil then
+            pushedCounts[kind] = (pushedCounts[kind] or 0) + 1
+            routed = routed + 1
+        end
+        slot = slot + 2 + count
+    end
+    local delivered: integer = 0
+    if routed > 0 then
+        local installed = suspensionHost.install(refusingHandler)
+        slot = 1
+        while slot <= used do
+            local kind: string = pushed[slot]
+            local count: integer = pushed[slot + 1]
+            local route = routes[kind]
+            local remaining = pushedCounts[kind]
+            if route ~= nil and remaining ~= nil then
+                pushedCounts[kind] = remaining - 1
+                local keep = route.policy == "latest" and 1 or route.limit
+                if remaining > keep then
+                    route.dropped = route.dropped + 1
+                else
+                    local ok, problem = pcall(route.deliver, unpackValues(pushed, slot + 2, slot + 1 + count))
+                    if not ok then
+                        report(kind, "delivery failed: " .. tostring(problem))
+                    end
+                    delivered = delivered + 1
+                end
             end
-            local message = list[index]
-            local ok, problem = pcall(route.deliver, unpackValues(message.values, 1, message.count))
-            if not ok then
-                report(kind, "delivery failed: " .. tostring(problem))
-            end
-            delivered = delivered + 1
+            slot = slot + 2 + count
+        end
+        installed:close()
+        for kind in pairs(pushedCounts) do
+            pushedCounts[kind] = nil
         end
     end
-    installed:close()
+    for each = 1, used do
+        pushed[each] = nil
+    end
 
     return delivered
 end

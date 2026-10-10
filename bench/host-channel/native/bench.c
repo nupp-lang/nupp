@@ -8,6 +8,9 @@
  *   n3  the host channel answered later: the frame waits on a call this loop
  *       answers, driven by nupp.host.pump.
  *
+ * n1-input, n1-rest, n2-input, n2-poll and n2-send time one part of a frame;
+ * n2-unrouted pushes and polls with no route, which is the channel's own cost.
+ *
  * Usage: bench COMPONENT MODE PACKET_BYTES FRAMES
  * Prints: MODE PACKET_BYTES FRAMES NS_PER_FRAME EVENTS_CONSUMED
  */
@@ -106,7 +109,7 @@ int main(int argc, char **argv) {
     const char *mode = argv[2];
     int packet = atoi(argv[3]);
     long frames = atol(argv[4]);
-    int channel = strcmp(mode, "n1") != 0;
+    int channel = strcmp(mode, "n1") != 0 && strcmp(mode, "n2-unrouted") != 0;
 
     check(nupp_runtime_new(NULL, &runtime, &error), error, "nupp_runtime_new");
     check(nupp_host_register(runtime, "bench.packet", handle, NULL, NULL, &error), error, "register");
@@ -151,7 +154,7 @@ int main(int argc, char **argv) {
             push_input();
             check(nupp_runtime_poll(runtime, &error), error, "nupp_runtime_poll");
             call(frame, NULL, 0, "frame");
-        } else if (strcmp(mode, "n2-input") == 0) {
+        } else if (strcmp(mode, "n2-input") == 0 || strcmp(mode, "n2-unrouted") == 0) {
             push_input();
             check(nupp_runtime_poll(runtime, &error), error, "nupp_runtime_poll");
         } else if (strcmp(mode, "n2-poll") == 0) {

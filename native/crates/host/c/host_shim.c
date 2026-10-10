@@ -273,38 +273,36 @@ static int cancel(lua_State *state) {
     return 0;
 }
 
-/* pop() answers the next pushed message as its kind, a kind letter per value
- * and the values, or nothing when none is waiting. */
-static int pop(lua_State *state) {
+/* drain(list) moves every pushed message into list, in push order and flat:
+ * each message is its kind, its value count and its values. Answers how many
+ * slots it wrote, so one call and no table per message carries a frame's
+ * input, however many messages it holds. */
+static int drain(lua_State *state) {
     const void *channel = required_channel(state);
     const char *kind = NULL;
     size_t kind_length = 0, count = 0;
     const NuppHostValue *values = NULL;
-    char kinds[MAX_VALUES];
-    if (!rust->pop(channel, &kind, &kind_length, &count, &values)) return 0;
-    if (count > MAX_VALUES || !lua_checkstack(state, (int)count + 4)) {
-        return luaL_error(state, "a pushed host message has too many values");
-    }
-    lua_pushlstring(state, kind, kind_length);
-    for (size_t index = 0; index < count; index++) {
-        switch (values[index].kind) {
-        case VALUE_BOOLEAN: kinds[index] = 'b'; break;
-        case VALUE_NUMBER: kinds[index] = 'd'; break;
-        case VALUE_STRING: kinds[index] = 's'; break;
-        default: kinds[index] = 'n'; break;
+    lua_Integer slot = 0;
+    luaL_checktype(state, 1, LUA_TTABLE);
+    while (rust->pop(channel, &kind, &kind_length, &count, &values)) {
+        if (count > MAX_VALUES) return luaL_error(state, "a pushed host message has too many values");
+        lua_pushlstring(state, kind, kind_length);
+        lua_rawseti(state, 1, (int)++slot);
+        lua_pushinteger(state, (lua_Integer)count);
+        lua_rawseti(state, 1, (int)++slot);
+        for (size_t index = 0; index < count; index++) {
+            const NuppHostValue *value = &values[index];
+            switch (value->kind) {
+            case VALUE_BOOLEAN: lua_pushboolean(state, value->boolean); break;
+            case VALUE_NUMBER: lua_pushnumber(state, value->number); break;
+            case VALUE_STRING: lua_pushlstring(state, (const char *)value->data, value->length); break;
+            default: lua_pushnil(state); break;
+            }
+            lua_rawseti(state, 1, (int)++slot);
         }
     }
-    lua_pushlstring(state, kinds, count);
-    for (size_t index = 0; index < count; index++) {
-        const NuppHostValue *value = &values[index];
-        switch (value->kind) {
-        case VALUE_BOOLEAN: lua_pushboolean(state, value->boolean); break;
-        case VALUE_NUMBER: lua_pushnumber(state, value->number); break;
-        case VALUE_STRING: lua_pushlstring(state, (const char *)value->data, value->length); break;
-        default: lua_pushnil(state); break;
-        }
-    }
-    return (int)count + 2;
+    lua_pushinteger(state, slot);
+    return 1;
 }
 
 static void field(lua_State *state, const char *name, lua_CFunction function) {
@@ -319,6 +317,6 @@ int nupp_luaopen_host_channel(lua_State *state) {
     field(state, "take", take);
     field(state, "ready", ready);
     field(state, "cancel", cancel);
-    field(state, "pop", pop);
+    field(state, "drain", drain);
     return 1;
 }

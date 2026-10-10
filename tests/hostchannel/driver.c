@@ -170,10 +170,6 @@ static void handle(nupp_runtime *owner, uint64_t request, const char *kind,
         answer(request, &value, 1);
     } else if (strcmp(kind, "test.pushInput") == 0) {
         nupp_error *error = NULL;
-        for (int index = 1; index <= (int)args[0].number; index++) {
-            nupp_value move[2] = {number(index), number(index * 10)};
-            check(nupp_host_push(runtime, "test.move", move, 2, &error), error, "nupp_host_push");
-        }
         nupp_value down[2] = {text("a"), {0}};
         down[1].kind = NUPP_VALUE_BOOLEAN;
         down[1].boolean = 1;
@@ -181,6 +177,10 @@ static void handle(nupp_runtime *owner, uint64_t request, const char *kind,
         nupp_value up[2] = {text("b"), {0}};
         up[1].kind = NUPP_VALUE_BOOLEAN;
         check(nupp_host_push(runtime, "test.key", up, 2, &error), error, "nupp_host_push");
+        for (int index = 1; index <= (int)args[0].number; index++) {
+            nupp_value move[2] = {number(index), number(index * 10)};
+            check(nupp_host_push(runtime, "test.move", move, 2, &error), error, "nupp_host_push");
+        }
         answer(request, NULL, 0);
     } else if (strcmp(kind, "test.packet") == 0 || strcmp(kind, "test.log") == 0 ||
         strcmp(kind, "test.block") == 0) {

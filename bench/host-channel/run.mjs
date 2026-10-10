@@ -114,7 +114,7 @@ const CONTRACT = {
     /more than the 8 MiB/.test(value.tooLarge) && value.live === 0,
   manySmallCalls: (value) => value.correct === 600,
   posts: (value) => value.notes === "1:100,2:100,3:100,4:100,5:100,6:100,7:100,8:100,9:100,10:100",
-  streams: (value) => value.moves === "3,30 4,40 5,50" && value.keys === "b-" && value.dropped === 2 &&
+  streams: (value) => value.moves === "3,30 4,40 5,50" && value.keys === "b-" && value.order === "b- 3,30 4,40 5,50" && value.dropped === 2 &&
     value.outbound === "packet:4 log:two log:three block:x block:y block:z",
 };
 
