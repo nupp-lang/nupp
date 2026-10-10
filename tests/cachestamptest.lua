@@ -151,7 +151,7 @@ function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
     assert(
         fingerprint.subsystemFingerprint({
             "nupp.compiler.no.such.module"
-        }) == fingerprint.toolFingerprint(),
+        }) == fingerprint.graphFingerprint(),
         "an unknown module has to leave the stamp covering everything"
     )
 end
@@ -191,6 +191,45 @@ function M.theToolStampCoversTheToolsTreeAsWellAsTheCompilers()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The graph digests every module beside the compiler too, so it has to be kept
+-- under a stamp that covers them. Stamped with the compiler and tools alone, an
+-- edit to the runtime went on being answered from the graph before it, and every
+-- subsystem stamp reaching that module described code that was gone.
+function M.aKeptGraphIsNotReusedAcrossAnEditBesideTheCompiler()
+    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
+    local cacheCode = source:read("*a")
+    source:close()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
+        ["nupp/compiler/entry.lua"] = 'return require("nupp.runtime.part")',
+        ["nupp/runtime/part.lua"] = "return 1\n",
+    })
+    local cacheDir = dir .. "/cache"
+
+    local function stamp()
+        local prior = package.loaded["nupp.compiler.project.fingerprint"]
+        local ok, result = pcall(function()
+            return dofile(dir .. "/nupp/compiler/project/fingerprint.lua").subsystemFingerprint(
+                {"nupp.compiler.entry"},
+                cacheDir
+            )
+        end)
+        package.loaded["nupp.compiler.project.fingerprint"] = prior
+        assert(ok, result)
+
+        return result
+    end
+
+    local before = stamp()
+    assert(exists(cacheDir .. "/modulegraph.buf"), "the graph was kept")
+    local file = assert(io.open(dir .. "/nupp/runtime/part.lua", "wb"))
+    file:write("return 2\n")
+    file:close()
+    local after = stamp()
+    assert(require("nupp.io.files").remove(dir, true))
+    assert(before ~= after, "the kept graph answered for a runtime module that had changed")
+end
+
 -- The first caller in a process may have nowhere to keep the graph -- a check with
 -- no build directory -- and used to be the only caller that could compute it, so a
 -- build in the same process never wrote the store and every later command lexed the
@@ -218,7 +257,7 @@ function M.aMalformedModuleGraphIsRecomputed()
     local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
     local cacheDir = dir .. "/cache"
     local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local stamp = "modules/2\0" .. isolated.toolFingerprint()
+    local stamp = "modules/2\0" .. isolated.graphFingerprint()
     local store = require("nupp.compiler.project.store")
     local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
     damaged.set({files = {}})

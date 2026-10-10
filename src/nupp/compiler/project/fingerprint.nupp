@@ -98,6 +98,32 @@ end
 -- for a second process to be told the same thing.
 local toolFingerprintMemo = nil
 
+local treeFilesMemo: {string}? = nil
+
+-- Every Lua file under the directory holding the compiler and the tools, listed
+-- once: both fingerprints below read from it.
+local function treeFiles(dir: string): {string}
+    if treeFilesMemo == nil then
+        local files: {string} = {}
+        for _, path in ipairs(listFiles(dir)) do
+            if path:match("%.lua$") then
+                files[#files + 1] = path
+            end
+        end
+        treeFilesMemo = files
+    end
+
+    return treeFilesMemo as {string}
+end
+
+local function relativeTo(dir: string, path: string): string
+    if path:sub(1, #dir + 1) == dir .. "/" then
+        return path:sub(#dir + 2)
+    end
+
+    return path
+end
+
 local function toolFingerprint(contentDigest: (function(string): string)?): string
     if toolFingerprintMemo then
         return toolFingerprintMemo
@@ -111,11 +137,10 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
     if bundled() then
         files = {(debug.getinfo(1, "S").source:gsub("^@", ""))}
     else
-        for _, tree in ipairs({"compiler", "tools"}) do
-            for _, path in ipairs(listFiles(join(dir, tree))) do
-                if path:match("%.lua$") then
-                    files[#files + 1] = path
-                end
+        for _, path in ipairs(treeFiles(dir)) do
+            local relative = relativeTo(dir, path)
+            if relative:match("^compiler/") or relative:match("^tools/") then
+                files[#files + 1] = path
             end
         end
     end
@@ -137,6 +162,45 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
     toolFingerprintMemo = digest(table.concat(parts, "\0"))
 
     return toolFingerprintMemo
+end
+
+local besideToolMemo: string? = nil
+
+--- The digest of every module beside the compiler and the tools: the runtime and
+--- the standard library the module graph also covers.
+---
+--- The graph used to be stamped with `toolFingerprint` alone, which reads only the
+--- compiler and the tools. An edit to the runtime then kept serving the graph from
+--- before it, with the old file's digest, and every subsystem stamp reaching that
+--- module described code that was no longer there.
+local function besideToolFingerprint(digest: function(string): string): string
+    if besideToolMemo then
+        return besideToolMemo as string
+    end
+    local dir = dirname(compilerDir())
+    local parts = {}
+    for _, path in ipairs(treeFiles(dir)) do
+        local relative = relativeTo(dir, path)
+        if not relative:match("^compiler/") and not relative:match("^tools/") then
+            parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
+        end
+    end
+    table.sort(parts)
+    besideToolMemo = digest(table.concat(parts, "\0"))
+
+    return besideToolMemo as string
+end
+
+--- What the module graph covers: the compiler, the tools and every module beside
+--- them. The graph is stamped with it, and a subsystem it cannot narrow falls back
+--- to it.
+local function graphFingerprint(contentDigest: (function(string): string)?): string
+    local digest = contentDigest or hash.digest
+    if bundled() then
+        return toolFingerprint(digest)
+    end
+
+    return digest(toolFingerprint(digest) .. "\0" .. besideToolFingerprint(digest))
 end
 
 --- What the compiler's own modules are, and which of them each one requires.
@@ -365,7 +429,7 @@ local function moduleGraph(
         end
         store = require(
             "nupp.compiler.project.store"
-        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
+        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. graphFingerprint(digest))
         local stored = store.value
         if validGraph(stored) then
             graphMemo = stored as fingerprint.ModuleGraph
@@ -388,7 +452,7 @@ local function moduleGraph(
     -- here is a `nupp.*` one, and listing the root meant whatever else happened to sit
     -- beside the compiler -- a project's own build output, in a development checkout --
     -- was read and digested for a graph it is not part of.
-    for _, path in ipairs(listFiles(join(root, "nupp"))) do
+    for _, path in ipairs(treeFiles(join(root, "nupp"))) do
         if path:match("%.lua$") then
             local name = moduleNameOf(root, path)
             local text = name and readFile(path) or nil
@@ -526,7 +590,9 @@ function fingerprint.subsystemFingerprint(
             answer = digest(table.concat(parts, "\0"))
         end
     end
-    answer = answer or toolFingerprint(digest)
+    -- The whole of what the graph covers, when it cannot say which part: the
+    -- compiler and tools alone would miss an edit to the runtime beside them.
+    answer = answer or graphFingerprint(digest)
     subsystemMemo[memoKey] = answer
 
     return answer as string
@@ -579,5 +645,6 @@ end
 fingerprint.hashFile = hashFile
 fingerprint.hashFiles = hashFiles
 fingerprint.toolFingerprint = toolFingerprint
+fingerprint.graphFingerprint = graphFingerprint
 
 export = fingerprint
