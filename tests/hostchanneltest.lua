@@ -255,6 +255,12 @@ function M.embeddedStreamsRouteAndSend()
     check.equal(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")
 end
 
+function M.anEmbeddedObserverFailureCostsOnlyItsMessage()
+    local value, _, output = embedded("streamObserverFails")
+    check.equal(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50")
+    check.assert(output:find("host test.move: delivery failed: .*observer refused 3"), output)
+end
+
 function M.anUnansweredCallWithoutAHandlerIsRefused()
     local value, host = embedded("unansweredWithoutAHandler", true)
     check.assert(value.problem:find("was not answered during the call", 1, true), value.problem)

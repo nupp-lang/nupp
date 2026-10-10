@@ -107,6 +107,56 @@ local routes: {[string]: any} = {}
 local pushed: any = {}
 local pushedCounts: {[string]: integer} = {}
 
+-- Where a pass's delivery has reached, so a failed delivery resumes after the
+-- message that failed rather than abandoning the rest.
+local deliveryCursor: integer = 1
+local deliveredCount: integer = 0
+
+-- `unpack` is beyond the JIT, so the counts input usually has are spelled out.
+local function deliverMessage(deliverTo: any, slot: integer, count: integer): nil
+    if count == 2 then
+        deliverTo(pushed[slot + 2], pushed[slot + 3])
+    elseif count == 1 then
+        deliverTo(pushed[slot + 2])
+    elseif count == 3 then
+        deliverTo(pushed[slot + 2], pushed[slot + 3], pushed[slot + 4])
+    elseif count == 4 then
+        deliverTo(pushed[slot + 2], pushed[slot + 3], pushed[slot + 4], pushed[slot + 5])
+    elseif count == 0 then
+        deliverTo()
+    else
+        deliverTo(unpackValues(pushed, slot + 2, slot + 1 + count))
+    end
+end
+
+-- The pass's delivery from `deliveryCursor`, a plain loop the JIT compiles. A
+-- route delivers through a vararg closure, and a vararg frame returning into
+-- `pcall` is beyond the recorder, so the whole loop is protected once instead of
+-- each message.
+local function deliverRouted(used: integer): nil
+    while deliveryCursor <= used do
+        local slot = deliveryCursor
+        local kind: string = pushed[slot]
+        local count: integer = pushed[slot + 1]
+        deliveryCursor = slot + 2 + count
+        local route = routes[kind]
+        local remaining = pushedCounts[kind]
+        if route ~= nil and remaining ~= nil then
+            pushedCounts[kind] = remaining - 1
+            local keep = route.policy == "latest" and 1 or route.limit
+            if remaining > keep then
+                route.dropped = route.dropped + 1
+            else
+                deliveredCount = deliveredCount + 1
+                deliverMessage(route.deliver, slot, count)
+            end
+        end
+    end
+end
+
+-- Held untyped, so closing it is a call and not a scoped cleanup.
+local installRefusing: any = suspensionHost.install
+
 -- Delivers what the host pushed since the last pass to the routes declared for
 -- it, in the order the host pushed it, each route keeping what its policy says.
 -- Observers run where no task is, so one installation refuses a park for the
@@ -129,28 +179,25 @@ local function deliverPushed(): integer
     end
     local delivered: integer = 0
     if routed > 0 then
-        local installed = suspensionHost.install(refusingHandler)
-        slot = 1
-        while slot <= used do
-            local kind: string = pushed[slot]
-            local count: integer = pushed[slot + 1]
-            local route = routes[kind]
-            local remaining = pushedCounts[kind]
-            if route ~= nil and remaining ~= nil then
-                pushedCounts[kind] = remaining - 1
-                local keep = route.policy == "latest" and 1 or route.limit
-                if remaining > keep then
-                    route.dropped = route.dropped + 1
-                else
-                    local ok, problem = pcall(route.deliver, unpackValues(pushed, slot + 2, slot + 1 + count))
-                    if not ok then
-                        report(kind, "delivery failed: " .. tostring(problem))
-                    end
-                    delivered = delivered + 1
-                end
+        local installed: any = installRefusing(refusingHandler)
+        deliveryCursor = 1
+        deliveredCount = 0
+        while true do
+            local failed = deliveryCursor
+            local finished, problem = pcall(deliverRouted, used)
+            if finished then
+                break
             end
-            slot = slot + 2 + count
+            -- The message that raised is the last one the cursor passed.
+            local kind = pushed[failed]
+            local scan = failed
+            while scan < deliveryCursor do
+                kind = pushed[scan]
+                scan = scan + 2 + pushed[scan + 1]
+            end
+            report(tostring(kind), "delivery failed: " .. tostring(problem))
         end
+        delivered = deliveredCount
         installed:close()
         for kind in pairs(pushedCounts) do
             pushedCounts[kind] = nil

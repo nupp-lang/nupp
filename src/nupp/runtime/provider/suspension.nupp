@@ -628,6 +628,17 @@ type suspension.Installed = contract.Installed
 
 suspension.Installed = contract.Installed
 
+-- Runs one step of a close, answering the first failure so far. A function
+-- rather than a closure over the close's state, so a close allocates nothing.
+local function attempted(firstError: any, fn: any, argument: any): any
+    local ok, err = pcall(fn, argument)
+    if not ok and firstError == nil then
+        return err
+    end
+
+    return firstError
+end
+
 local function closeInstallation(self: any): nil
     if self._released then
         return
@@ -650,14 +661,7 @@ local function closeInstallation(self: any): nil
     -- at the first would leave the remaining parks abandoned in the literal sense,
     -- which is what this exists to prevent; swallowing them all would close the
     -- scope on a lie.
-    local firstError = nil
-
-    local function attempt(fn: any, argument: any): nil
-        local ok, err = pcall(fn, argument)
-        if not ok and firstError == nil then
-            firstError = err
-        end
-    end
+    local firstError: any = nil
 
     -- Cancellation before shutdown, and outside its failure: a handler whose
     -- shutdown raises would otherwise strand every park it accepted.
@@ -665,22 +669,25 @@ local function closeInstallation(self: any): nil
     -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
     -- suspended stack resumes, `suspend` raises, and every cleanup region between
     -- there and the park runs its cleanup.
-    for ticket in pairs(self._parks or {}) do
-        attempt(ticket.abandon, "the handled extent ended")
+    local parks = self._parks
+    if parks ~= nil and next(parks) ~= nil then
+        for ticket in pairs(parks) do
+            firstError = attempted(firstError, ticket.abandon, "the handled extent ended")
+        end
     end
     -- Shutdown is also how a handler *drives* what it only enqueued. A scheduler
     -- that answers a wake by queueing the coroutine has not unwound anything yet;
     -- this is its opportunity to run the queue down.
     if self.handler.shutdown then
-        attempt(self.handler.shutdown, self.handler)
+        firstError = attempted(firstError, self.handler.shutdown, self.handler)
     end
     -- And the pumps, in case unwinding is waiting on one.
-    local remaining = next(self._parks or {})
+    local remaining = parks and next(parks)
     local passes = 0
     while remaining ~= nil and passes < MAX_DRAIN_PASSES do
         passes = passes + 1
-        attempt(suspension.poll, nil)
-        remaining = next(self._parks or {})
+        firstError = attempted(firstError, suspension.poll, nil)
+        remaining = next(parks)
     end
 
     -- The first failure wins, whatever it was: an unfinished-park report raised
@@ -723,15 +730,18 @@ local function installHandler(handler: suspension.Handler, transparent: boolean)
     end
     -- The close runs the handler's shutdown and the pumps, which the checker cannot
     -- prove non-suspending; the contract promises it, as it does for any provider.
-    local owned = new contract.Installed(close = closeInstallation as any, handler = handler)
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
     -- obligation to close it.
     --
     -- What is stored is the installation, not the handler: a park belongs to the extent
     -- that accepted it, and one handler may be installed by two of them. The rest of
     -- the extent's state is written here rather than declared on the record, because
-    -- nobody outside this file has any business reading it.
-    local installation: any = @unsafe nupp.release(owned)
+    -- nobody outside this file has any business reading it. Released as it is made:
+    -- an obligation held in a local here would cost every installation the closure
+    -- its scoped cleanup is built from, and one is made per task scope.
+    local installation: any = @unsafe nupp.release(
+        new contract.Installed(close = closeInstallation as any, handler = handler)
+    )
     installation._co = co
     installation._previous = previous
     installation.transparent = transparent

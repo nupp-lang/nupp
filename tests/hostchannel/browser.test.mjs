@@ -192,6 +192,12 @@ test("late releases an answer whose caller was cancelled before it ran", async (
   assert.equal(state.live.size, 0);
 });
 
+test("an observer that raises costs only its own message", async () => {
+  const {value, outcome} = await scenario("streamObserverFails");
+  assert.equal(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50");
+  assert.match(outcome.stderr, /host test\.move: delivery failed: .*observer refused 3/);
+});
+
 test("late cannot wait, and other deliveries carry on", async () => {
   const {value, outcome} = await scenario("lateCannotWait");
   assert.equal(value.echoed, "still answering");

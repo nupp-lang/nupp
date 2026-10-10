@@ -316,6 +316,31 @@ function scenarios.streams()
     }
 end
 
+-- An observer that raises costs only its own message: the failure is reported
+-- and the rest of the pass is delivered in order.
+function scenarios.streamObserverFails()
+    local hostevents = require("hostevents")
+    local events = require("nupp.events")
+    local bus = events.newMessageBus()
+    local order = {}
+    bus:observe(1, hostevents.PointerMove, function(event)
+        order[#order + 1] = event.x .. "," .. event.y
+        if event.x == 3 then
+            error("observer refused 3")
+        end
+    end, "moves")
+    bus:observe(1, hostevents.KeyPress, function(event)
+        order[#order + 1] = event.key .. (event.down and "+" or "-")
+    end, "keys")
+    local moveRoute = host.route("test.move", hostevents.PointerMove, bus, 1, "dropOldest", 16)
+    local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "dropOldest", 16)
+    host.call("test.pushInput", 5)
+    time.sleep(30)
+    moveRoute:close()
+    keyRoute:close()
+    return {order = table.concat(order, " ")}
+end
+
 -- Natively, with no suspension handler around it, a call the host does not
 -- answer at once is refused rather than left to block the host's own call.
 function scenarios.unansweredWithoutAHandler()
