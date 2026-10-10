@@ -4,26 +4,32 @@ module nupp.runtime.browser.host
 --[[
 The page's answers to [](nupp.host) requests.
 
-Every request is a `host` effect naming an operation. `call` and `post` carry the
-request's values as an object keyed by position beside an explicit count, which
-survives the bridge's JSON round trip where an array's `null`s would not. A byte
-value up to one MiB crosses as a read lease the page copies and releases before
-its handler runs, so a slow handler never holds the frame that carried it; a
-larger one is uploaded first in one-MiB `upload` chunks the page reassembles.
+A frame's host traffic is one `host` effect, `x`, carrying binary records
+([](nupp.runtime.browser.hostwire)) in a read lease and lending a writable
+inbox for the page's records back. Requests wait as Lua records until the frame
+is about to ship, and only then are encoded, so a call cancelled before that
+never reaches the page. The page answers `x` at the end of its frame with
+whatever answers and inbound messages are ready, and holds the frame until
+something is, so a waiting application does not spin.
 
-A host's byte results stay with the page until fetched. Its answer announces
-their sizes, and the caller, still inside its own wait, admits them against the
-guest's reassembly budget and `fetch`es them in pieces into storage it owns.
-The page releases a result when its last byte is fetched, or when the guest
-`abandon`s it; until then the result is the page's. A caller cancelled before
-that point never received its result, so the page releases it rather than
-`late`.
+Bytes up to one MiB travel inside the records, copied from the caller's span
+when the frame ships; a call's caller is suspended until then, so its span is
+alive, and a post or send copies its bytes when it is made. A larger argument
+is uploaded first in one-MiB `upload` effects the page reassembles, and the
+call's record waits for them. A byte result small enough rides the inbox;
+a larger one stays with the page, announced, until the caller admits it against
+the guest's reassembly budget and `fetch`es it into storage it owns. The page
+releases a result when its last byte is fetched, or when the guest abandons it;
+until then it is the page's. A caller cancelled before that point never
+received its result, so the page releases it rather than `late`.
 ]]
 
 local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
 local values = require("nupp.host.internal.values")
+local wire = require("nupp.runtime.browser.hostwire")
+local json = require("nupp.runtime.provider.lunajson")
 local ffi = require("ffi")
 
 local unpackValues: any = rawget(_G, "unpack") or (table as any).unpack
@@ -37,6 +43,11 @@ const RESULT_BUDGET_BYTES = 8 * 1024 * 1024
 --- How many posts may wait to ship before posting raises.
 const MAX_PENDING_POSTS = 1024
 
+--- The inbox a frame lends to begin with, and the most it ever lends.
+const INBOX_BYTES = 4096
+
+const MAX_INBOX_BYTES = 1024 * 1024
+
 local memoryModule: any = nil
 
 local function memory(): any
@@ -45,19 +56,6 @@ local function memory(): any
     end
 
     return memoryModule
-end
-
-local nextTransfer = 1
-local pendingPosts = 0
-local admittedBytes = 0
-local admissionWaiters: {any} = {}
-
-local function noop(_: any): nil
-end
-
--- A request the guest makes for its own bookkeeping, never waited on.
-local function control(payload: any): nil
-    effects.request("host", payload, noop, nil, true)
 end
 
 local function report(kind: string, problem: any): nil
@@ -85,20 +83,328 @@ local function runLate(kind: string, late: any, ...: any): nil
     end
 end
 
-local function encodeArguments(kind: string, allowUploads: boolean, ...: any): (integer, any, any, any)
+----------------------------------------------------------------------------
+-- The frame
+----------------------------------------------------------------------------
+
+local nextRecord = 1
+local nextTransfer = 1
+-- Records waiting for the next frame, in the order they were made.
+local pending: {any} = {}
+local pendingPosts = 0
+-- Calls the page has been sent and not yet answered, by record id.
+local calls: {[integer]: any} = {}
+local callCount = 0
+local routes: {[string]: any} = {}
+local routeCount = 0
+local inboxBytes: integer = INBOX_BYTES
+-- The frame request waiting to ship, kept queued while anything is owed so the
+-- effect layer knows this provider is waiting on the page.
+local frame: any = nil
+-- Senders `block` suspended until the frame that holds their stream ships.
+local blockedSenders: {any} = {}
+-- The buffer one frame at a time reuses. A frame prepared but not yet answered
+-- still owns its buffer, so another frame gets its own.
+local spareWriter: any = nil
+local unanswered: integer = 0
+
+local function newRecord(op: integer, kind: string?): any
+    local id = nextRecord
+    nextRecord = nextRecord + 1
+    return {op = op, id = id, kind = kind}
+end
+
+local function needsFrame(): boolean
+    return #pending > 0 or callCount > 0 or routeCount > 0
+end
+
+local ensureFrame: function(): nil
+
+-- Packs one value list. A byte value is copied into the records from its
+-- pointer, which a call's suspended caller or a post's own copy keeps alive.
+local function writeValues(writer: any, list: any): nil
+    local count = list.n as integer
+    wire.u16(writer, count)
+    for position = 1, count do
+        local value = list[position]
+        local tag = list.tags[position]
+        if tag == "nil" then
+            wire.u8(writer, wire.NIL)
+        elseif tag == "boolean" then
+            wire.u8(writer, value and wire.TRUE or wire.FALSE)
+        elseif tag == "number" then
+            wire.u8(writer, wire.NUMBER)
+            wire.f64(writer, value)
+        elseif tag == "string" then
+            wire.u8(writer, wire.STRING)
+            wire.sized(writer, value, #value)
+        elseif tag == "bytes" then
+            wire.u8(writer, wire.BYTES)
+            wire.sized(writer, value.pointer, value.size)
+        else
+            wire.u8(writer, wire.UPLOAD)
+            wire.u32(writer, value.transfer)
+        end
+    end
+end
+
+local function writeRecord(writer: any, record: any): nil
+    wire.u8(writer, record.op)
+    wire.u32(writer, record.id)
+    local op = record.op
+    if op == wire.CALL or op == wire.POST or op == wire.SEND then
+        wire.u16(writer, #record.kind)
+        wire.raw(writer, record.kind, #record.kind)
+        writeValues(writer, record.values)
+    elseif op == wire.ABANDON then
+        wire.u32(writer, record.result)
+    elseif op == wire.ABORT then
+        wire.u32(writer, record.transfer)
+    elseif op == wire.ROUTES then
+        wire.sized(writer, record.text, #record.text)
+    end
+end
+
+-- Writes the waiting records into the frame request just before it ships,
+-- with the inbox it lends. A record whose uploads have not all arrived waits,
+-- and past one MiB of records the rest wait for the next frame.
+local function prepareFrame(): boolean
+    local current = frame
+    if current == nil then
+        return false
+    end
+    local writer: any = nil
+    if unanswered == 0 and spareWriter ~= nil then
+        writer = spareWriter
+        wire.reset(writer)
+    else
+        writer = wire.writer(1024)
+    end
+    local kept: {any} = {}
+    local shipped: {any} = {}
+    for _, record in ipairs(pending) do
+        local size = (record.size or 64) as integer
+        -- A record larger than one frame's share ships alone.
+        if (record.uploads or 0) > 0 or (writer.length > 0 and writer.length + size > values.CHUNK_BYTES) then
+            kept[#kept + 1] = record
+        else
+            writeRecord(writer, record)
+            shipped[#shipped + 1] = record
+        end
+    end
+    pending = kept
+    for _, record in ipairs(shipped) do
+        record.shipped = true
+        if record.op == wire.POST then
+            pendingPosts = pendingPosts - 1
+        end
+    end
+    -- One buffer carries the records out and the page's answers back: the page
+    -- reads the records, then writes over them. Every lease costs the bridge a
+    -- copy each way and a descriptor in the frame's text, so a frame lends one.
+    local records = writer.length
+    local size = math.max(records, inboxBytes) as integer
+    if writer.capacity < size then
+        local grown = wire.writer(size)
+        wire.raw(grown, writer.buffer, records)
+        writer = grown
+    end
+    current.writer = writer
+    current.inbox = writer.buffer
+    current.inboxBytes = size
+    unanswered = unanswered + 1
+    current.inboxLease = memory().lease(writer.buffer, size, true)
+    current.payload.spans = {{lease = current.inboxLease, bytes = size}}
+    current.payload.records = records
+    frame = nil
+    -- A sender a full stream blocked may send into the next frame now, and
+    -- since it can run, this frame must not wait for the page.
+    local blocked = blockedSenders
+    blockedSenders = {}
+    for _, resume in ipairs(blocked) do
+        resume(true)
+    end
+
+    return #blocked > 0
+end
+
+effects.beforePark(prepareFrame)
+
+local function readValues(reader: any, count: integer): (any, any)
+    local decoded: any = {}
+    local fetches: any = nil
+    for position = 1, count do
+        local tag = wire.readU8(reader)
+        if tag == wire.FALSE then
+            decoded[position] = false
+        elseif tag == wire.TRUE then
+            decoded[position] = true
+        elseif tag == wire.NUMBER then
+            decoded[position] = wire.readF64(reader)
+        elseif tag == wire.STRING then
+            decoded[position] = wire.readString(reader, wire.readU32(reader))
+        elseif tag == wire.BYTES then
+            local text = wire.readString(reader, wire.readU32(reader))
+            decoded[position] = values.byteSpan(text, ffi.cast("const uint8_t *", text), #text)
+        elseif tag == wire.FETCH then
+            fetches = fetches or {}
+            fetches[#fetches + 1] = {index = position, size = wire.readU32(reader)}
+        elseif tag ~= wire.NIL then
+            error("nupp: a host answer carried an unknown value tag " .. tostring(tag), 0)
+        end
+    end
+
+    return decoded, fetches
+end
+
+local function control(record: any): nil
+    pending[#pending + 1] = record
+    ensureFrame()
+end
+
+-- Hands a late answer to `late`, or has the page release a result the caller
+-- never came to own.
+local function deliverLate(entry: any, answer: any): nil
+    if not answer.ok then
+        return
+    end
+    if answer.result ~= 0 then
+        local record = newRecord(wire.ABANDON)
+        record.result = answer.result
+        control(record)
+        return
+    end
+    if entry.late ~= nil then
+        runLate(entry.kind, entry.late, unpackValues(answer.values, 1, answer.count))
+    end
+end
+
+local function deliverAnswer(id: integer, answer: any): nil
+    local entry = calls[id]
+    if entry == nil then
+        return
+    end
+    calls[id] = nil
+    callCount = callCount - 1
+    if entry.cancelled then
+        deliverLate(entry, answer)
+    elseif entry.resume ~= nil then
+        entry.resume(answer)
+    end
+end
+
+local function deliverMessage(kind: string, list: any, count: integer): nil
+    local route = routes[kind]
+    if route == nil then
+        return
+    end
+    local delivered, problem = pcall(route.deliver, unpackValues(list, 1, count))
+    if not delivered then
+        report(kind, "delivery failed: " .. tostring(problem))
+    end
+end
+
+-- Reads the page's records out of a frame's inbox: answers to calls, routed
+-- messages, and what each route's policy dropped where the messages start.
+local function readInbox(current: any, written: integer): nil
+    local reader = wire.reader(current.inbox, written)
+    local messages: any = nil
+    while wire.remaining(reader) > 0 do
+        local op = wire.readU8(reader)
+        if op == wire.ANSWER then
+            local id = wire.readU32(reader)
+            local ok = wire.readU8(reader) == 1
+            if ok then
+                local result = wire.readU32(reader)
+                local count = wire.readU16(reader)
+                local decoded, fetches = readValues(reader, count)
+                deliverAnswer(id, {ok = true, result = result, count = count, values = decoded, fetches = fetches})
+            else
+                deliverAnswer(id, {ok = false, error = wire.readString(reader, wire.readU32(reader))})
+            end
+        elseif op == wire.MESSAGE then
+            local kind = wire.readString(reader, wire.readU16(reader))
+            local count = wire.readU16(reader)
+            local decoded = readValues(reader, count)
+            messages = messages or {}
+            messages[#messages + 1] = {kind = kind, values = decoded, count = count}
+        elseif op == wire.DROPPED then
+            local kind = wire.readString(reader, wire.readU16(reader))
+            local count = wire.readU32(reader)
+            local route = routes[kind]
+            if route ~= nil then
+                route.dropped = route.dropped + count
+            end
+        else
+            error("nupp: a host frame's inbox held an unknown record " .. tostring(op), 0)
+        end
+    end
+    if messages ~= nil then
+        -- Observers run here, outside any task, so nothing they do may wait.
+        local installed = suspensionHost.install(refusingHandler)
+        for _, message in ipairs(messages) do
+            deliverMessage(message.kind, message.values, message.count)
+        end
+        installed:close()
+    end
+end
+
+local function frameAnswered(current: any, response: any): nil
+    unanswered = unanswered - 1
+    spareWriter = current.writer
+    if current.inboxLease ~= nil then
+        memory().releaseLease(current.inboxLease)
+    end
+    if type(response) == "table" and response.ok == true and type(response.value) == "table" then
+        local value = response.value
+        local written = value.written
+        if type(written) == "number" and written > 0 and written <= current.inboxBytes then
+            readInbox(current, written as integer)
+        end
+        local more = value.more
+        if type(more) == "number" and more > 0 then
+            inboxBytes = math.floor(
+                math.min(MAX_INBOX_BYTES, math.max(inboxBytes * 2, (written or 0) + more))
+            ) as integer
+        elseif inboxBytes > INBOX_BYTES and (written or 0) < inboxBytes / 4 then
+            inboxBytes = math.max(INBOX_BYTES, math.floor(inboxBytes / 2)) as integer
+        end
+    elseif type(response) == "table" and response.ok == false then
+        report("frame", response.error)
+    end
+    ensureFrame()
+end
+
+ensureFrame = function(): nil
+    if frame ~= nil or not needsFrame() then
+        return
+    end
+    local current: any = {payload = {op = "x"}}
+    frame = current
+    effects.request("host", current.payload, function(response: any): nil
+        frameAnswered(current, response)
+    end)
+end
+
+----------------------------------------------------------------------------
+-- Arguments
+----------------------------------------------------------------------------
+
+-- Classifies a request's arguments into a list the frame packs later. A byte
+-- argument is lent by pointer for a call, copied for a post or send, and past
+-- one MiB in a request, uploaded first; a post or send may not carry that much.
+local function argumentList(kind: string, copyBytes: boolean, ...: any): (any, integer, any)
     local count = select("#", ...)
-    local encoded: any = {}
-    local spans: any = nil
+    local list: any = {n = count, tags = {}}
+    local size: integer = 64 + #kind
+    local carried: integer = 0
     local uploads: any = nil
-    -- What the request itself lends. A frame carries two MiB of leases, so one
-    -- request lends at most one and its other byte values are uploaded first.
-    local lent: integer = 0
     for position = 1, count do
         local tag, value, length = values.classify(kind, position, (select(position, ...)))
         if tag == "bytes" then
-            local size = length as integer
-            if lent + size > values.CHUNK_BYTES then
-                if not allowUploads then
+            local bytes = length as integer
+            if carried + bytes > values.CHUNK_BYTES then
+                if copyBytes then
                     error(
                         string.format("nupp: host %s carries more than the one MiB of bytes a post or send may", kind),
                         0
@@ -107,51 +413,39 @@ local function encodeArguments(kind: string, allowUploads: boolean, ...: any): (
                 uploads = uploads or {}
                 local transfer = nextTransfer
                 nextTransfer = nextTransfer + 1
-                uploads[#uploads + 1] = {transfer = transfer, pointer = value, size = size}
-                encoded[tostring(position)] = {transfer = transfer}
+                uploads[#uploads + 1] = {transfer = transfer, pointer = value, size = bytes}
+                list.tags[position] = "upload"
+                list[position] = {transfer = transfer}
+                size = size + 8
             else
-                lent = lent + size
-                spans = spans or {}
-                spans[#spans + 1] = {pointer = value, size = size}
-                encoded[tostring(position)] = {bytes = #spans}
+                local pointer: any = value
+                local anchor: any = nil
+                if copyBytes then
+                    anchor = ffi.string(value, bytes)
+                    pointer = anchor
+                end
+                list.tags[position] = "bytes"
+                list[position] = {pointer = pointer, size = bytes, anchor = anchor}
+                size = size + bytes + 8
+                carried = carried + bytes
             end
-        elseif tag ~= "nil" then
-            encoded[tostring(position)] = value
+        else
+            list.tags[position] = tag
+            list[position] = value
+            size = size + (tag == "string" and #value or 0) + 12
         end
     end
 
-    return count, encoded, spans, uploads
+    return list, size, uploads
 end
 
--- Lends each span for the frame that carries the request. The page copies and
--- releases a read lease when it dispatches the request.
-local function lendSpans(spans: any): any
-    if spans == nil then
-        return nil
-    end
-    local guestMemory = memory()
-    local lent: any = {}
-    for index, span in ipairs(spans) do
-        lent[index] = {lease = guestMemory.lease(span.pointer, span.size, false), bytes = span.size}
-    end
+----------------------------------------------------------------------------
+-- Uploads and fetches, for bytes past what one frame carries
+----------------------------------------------------------------------------
 
-    return lent
-end
-
-local function releaseLeases(lent: any): nil
-    if lent == nil then
-        return
-    end
-    local guestMemory = memory()
-    for _, span in ipairs(lent) do
-        guestMemory.releaseLease(span.lease)
-    end
-end
-
--- Queues each upload's chunks ahead of the request that names it, so the page
--- has reassembled a value before it dispatches the call. Answers the cancel
--- functions and the leases the chunks hold.
-local function queueUploads(uploads: any): (any, any)
+-- Queues each upload's chunks as effects of their own; the call's record waits
+-- until the page has every chunk. Answers the cancel functions and leases.
+local function queueUploads(record: any, uploads: any): (any, any)
     local cancels: any = {}
     local leases: any = {}
     local guestMemory = memory()
@@ -162,6 +456,7 @@ local function queueUploads(uploads: any): (any, any)
             local length = math.min(values.CHUNK_BYTES, upload.size - offset)
             local lease = guestMemory.lease(base + offset, length, false)
             leases[#leases + 1] = lease
+            record.uploads = (record.uploads or 0) + 1
             cancels[#cancels + 1] = effects.request(
                 "host",
                 {
@@ -171,8 +466,12 @@ local function queueUploads(uploads: any): (any, any)
                     total = upload.size,
                     spans = {{lease = lease, bytes = length}},
                 },
-                function(_: any): nil
+                function(response: any): nil
                     guestMemory.releaseLease(lease)
+                    record.uploads = record.uploads - 1
+                    if type(response) == "table" and response.ok == false then
+                        record.uploadFailure = record.uploadFailure or response.error
+                    end
                 end,
                 nil,
                 true
@@ -184,28 +483,8 @@ local function queueUploads(uploads: any): (any, any)
     return cancels, leases
 end
 
-local function decodeScalars(value: any, count: integer): any
-    local decoded: any = {}
-    local encoded = type(value.v) == "table" and value.v or {}
-    for position = 1, count do
-        local item = encoded[tostring(position)]
-        if item == nil then
-            item = encoded[position]
-        end
-        decoded[position] = item
-    end
-
-    return decoded
-end
-
-local function resultCount(kind: string, value: any): integer
-    local count = value.n
-    if type(count) ~= "number" or count < 0 or count % 1 ~= 0 or count > 255 then
-        error("nupp: host " .. kind .. " answered without a valid result count", 0)
-    end
-
-    return count as integer
-end
+local admittedBytes: integer = 0
+local admissionWaiters: {any} = {}
 
 local function release(amount: integer): nil
     admittedBytes = admittedBytes - amount
@@ -215,7 +494,7 @@ local function release(amount: integer): nil
             return
         end
         table.remove(admissionWaiters, 1)
-        admittedBytes = admittedBytes + waiter.size
+        admittedBytes = admittedBytes + (waiter.size as integer)
         waiter.resume(true)
     end
 end
@@ -240,28 +519,32 @@ local function admit(kind: string, size: integer): nil
     end)
 end
 
+local function abandon(result: integer): nil
+    local record = newRecord(wire.ABANDON)
+    record.result = result
+    control(record)
+end
+
 -- Fetches the byte results the page announced into storage the caller owns. The
 -- page owns them until the last byte arrives; a caller stopped before that
 -- abandons them, and the page releases them itself.
-local function fetchBytes(kind: string, value: any, decoded: any): nil
-    local result = value.result
-    local announced = value.bytes
+local function fetchBytes(kind: string, result: integer, announced: any, decoded: any): nil
     local total: integer = 0
     for _, entry in ipairs(announced) do
-        local size = entry.size
-        if type(size) ~= "number" or size < 0 or size % 1 ~= 0 or size > values.MAX_INBOUND_BYTES then
-            control({op = "abandon", result = result})
+        local size = entry.size as integer
+        if size > values.MAX_INBOUND_BYTES then
+            abandon(result)
             error("nupp: host " .. kind .. " answered a byte value larger than 8 MiB", 0)
         end
-        total = total + (size as integer)
+        total = total + size
     end
     if total > RESULT_BUDGET_BYTES then
-        control({op = "abandon", result = result})
+        abandon(result)
         error(string.format("nupp: host %s answered %d bytes, more than the 8 MiB a result may hold", kind, total), 0)
     end
     local admitted, admissionProblem = pcall(admit, kind, total)
     if not admitted then
-        control({op = "abandon", result = result})
+        abandon(result)
         error(admissionProblem, 0)
     end
     local storage: any = {}
@@ -299,7 +582,7 @@ local function fetchBytes(kind: string, value: any, decoded: any): nil
                     {
                         op = "fetch",
                         result = result,
-                        index = index,
+                        index = entry.index,
                         offset = offset,
                         spans = {{lease = lease, bytes = length}},
                     },
@@ -324,7 +607,7 @@ local function fetchBytes(kind: string, value: any, decoded: any): nil
             for _, lease in ipairs(leases) do
                 guestMemory.releaseLease(lease)
             end
-            control({op = "abandon", result = result})
+            abandon(result)
         end
     end)
     release(total)
@@ -332,83 +615,76 @@ local function fetchBytes(kind: string, value: any, decoded: any): nil
         error(problem, 0)
     end
     if problem ~= nil then
-        control({op = "abandon", result = result})
+        abandon(result)
         error("nupp: host " .. kind .. " result could not be fetched: " .. tostring(problem), 0)
     end
     for index, entry in ipairs(announced) do
-        local position = entry.index
-        decoded[position] = values.byteSpan(storage[index], storage[index], entry.size)
+        decoded[entry.index] = values.byteSpan(storage[index], storage[index], entry.size)
     end
 end
 
--- Hands a late answer to `late`, or has the page release a result the caller
--- never came to own.
-local function deliverLate(kind: string, late: any, response: any): nil
-    if type(response) ~= "table" or response.ok ~= true or type(response.value) ~= "table" then
-        return
-    end
-    local value = response.value
-    if value.result ~= nil then
-        control({op = "abandon", result = value.result})
-        return
-    end
-    if late == nil then
-        return
-    end
-    local ok, count = pcall(resultCount, kind, value)
-    if not ok then
-        report(kind, count)
-        return
-    end
-    runLate(kind, late, unpackValues(decodeScalars(value, count), 1, count))
-end
+----------------------------------------------------------------------------
+-- Requests
+----------------------------------------------------------------------------
 
 function provider.attached(): boolean
     return true
 end
 
 function provider.call(kind: string, late: any, ...: any): ...any
-    local count, encoded, spans, uploads = encodeArguments(kind, true, ...)
+    local list, size, uploads = argumentList(kind, false, ...)
+    local record = newRecord(wire.CALL, kind)
+    record.values = list
+    record.size = size
     local uploadCancels: any = nil
     local uploadLeases: any = nil
     if uploads ~= nil then
-        uploadCancels, uploadLeases = queueUploads(uploads)
+        uploadCancels, uploadLeases = queueUploads(record, uploads)
     end
-    local lent = lendSpans(spans)
-    local payload: any = {op = "call", name = kind, n = count, v = encoded, spans = lent}
+    local entry: any = {kind = kind, late = late, cancelled = false, resume = nil}
     local ok, suspended = pcall(suspension.suspend, "host " .. kind, function(resume: function(any): nil): function()
-        local cancelCall = effects.request(
-            "host",
-            payload,
-            resume,
-            function(response: any): nil
-                deliverLate(kind, late, response)
-            end,
-            true
-        )
+        entry.resume = resume
+        calls[record.id] = entry
+        callCount = callCount + 1
+        pending[#pending + 1] = record
+        ensureFrame()
 
         return function(): nil
-            local unshipped = cancelCall()
-            local anyUploadShipped = false
+            entry.resume = nil
+            if not record.shipped then
+                -- Never sent: the page will not hear of it at all.
+                for index = #pending, 1, -1 do
+                    if pending[index] == record then
+                        table.remove(pending, index)
+                    end
+                end
+                if calls[record.id] == entry then
+                    calls[record.id] = nil
+                    callCount = callCount - 1
+                end
+            else
+                entry.cancelled = true
+                local cancel = newRecord(wire.CANCEL)
+                cancel.id = record.id
+                control(cancel)
+            end
             if uploadCancels ~= nil then
+                local anyShipped = false
                 for _, cancel in ipairs(uploadCancels) do
                     if not cancel() then
-                        anyUploadShipped = true
+                        anyShipped = true
+                    end
+                end
+                if anyShipped then
+                    for _, upload in ipairs(uploads) do
+                        local abort = newRecord(wire.ABORT)
+                        abort.transfer = upload.transfer
+                        control(abort)
                     end
                 end
             end
-            if anyUploadShipped then
-                for _, upload in ipairs(uploads) do
-                    control({op = "abort", transfer = upload.transfer})
-                end
-            end
-            if not unshipped then
-                control({op = "cancel", target = payload.id})
-            end
         end
     end)
-    local answer: any = suspended
-    releaseLeases(lent)
     if uploadLeases ~= nil then
         local guestMemory = memory()
         for _, lease in ipairs(uploadLeases) do
@@ -416,166 +692,58 @@ function provider.call(kind: string, late: any, ...: any): ...any
         end
     end
     if not ok then
-        error(answer, 0)
+        error(suspended, 0)
     end
-    local response = answer as any
-    if type(response) ~= "table" or type(response.ok) ~= "boolean" then
-        error("nupp: host " .. kind .. " returned an invalid response", 0)
+    local answer = suspended as any
+    if not answer.ok then
+        error("nupp: host " .. kind .. " failed: " .. tostring(answer.error), 0)
     end
-    if not response.ok then
-        error("nupp: host " .. kind .. " failed: " .. tostring(response.error), 0)
-    end
-    local value = response.value
-    if type(value) ~= "table" then
-        error("nupp: host " .. kind .. " returned an invalid response value", 0)
-    end
-    local resultsCount = resultCount(kind, value)
-    local decoded = decodeScalars(value, resultsCount)
-    if value.result ~= nil then
-        if type(value.bytes) ~= "table" then
-            control({op = "abandon", result = value.result})
-            error("nupp: host " .. kind .. " announced a result without its byte values", 0)
-        end
-        fetchBytes(kind, value, decoded)
+    local decoded = answer.values
+    if answer.fetches ~= nil then
+        fetchBytes(kind, answer.result, answer.fetches, decoded)
     end
 
-    return unpackValues(decoded, 1, resultsCount)
+    return unpackValues(decoded, 1, answer.count)
 end
 
 function provider.post(kind: string, ...: any): nil
     if pendingPosts >= MAX_PENDING_POSTS then
         error("nupp: host " .. kind .. " cannot be posted: 1024 posts are already waiting to ship", 0)
     end
-    local count, encoded, spans = encodeArguments(kind, false, ...)
-    -- Nothing roots the caller's spans once post returns, so the bytes are copied
-    -- into strings this request keeps until the page has dispatched it.
-    local copies: any = nil
-    if spans ~= nil then
-        copies = {}
-        for index, span in ipairs(spans) do
-            local copy = ffi.string(span.pointer, span.size)
-            copies[index] = copy
-            span.pointer = ffi.cast("const uint8_t *", copy)
-        end
-    end
-    local lent = lendSpans(spans)
+    local list, size = argumentList(kind, true, ...)
+    local record = newRecord(wire.POST, kind)
+    record.values = list
+    record.size = size
     pendingPosts = pendingPosts + 1
-    effects.request(
-        "host",
-        {op = "post", name = kind, n = count, v = encoded, spans = lent},
-        function(response: any): nil
-            pendingPosts = pendingPosts - 1
-            releaseLeases(lent)
-            copies = nil
-            if type(response) == "table" and response.ok == false then
-                report(kind, "post failed: " .. tostring(response.error))
-            end
-        end,
-        nil,
-        true
-    )
+    pending[#pending + 1] = record
+    ensureFrame()
 end
 
 ----------------------------------------------------------------------------
 -- Streams
 ----------------------------------------------------------------------------
 
--- A turn's outbound messages travel in one `send` request the provider keeps
--- adding to until its frame ships, so it is not frozen. Each message's bytes
--- are copied, because nothing roots the caller's span after `send` returns, and
--- one batch lends at most one MiB; past that the next message starts another.
-local outbound: any = nil
-
-local function rebuildSpans(batch: any): nil
-    local spans: any = {}
-    for _, message in ipairs(batch.messages) do
-        for _, value in ipairs(message.bytes) do
-            spans[#spans + 1] = {lease = value.lease, bytes = value.size}
-            message.v[tostring(value.position)] = {bytes = #spans}
-        end
-    end
-    batch.payload.spans = spans
-    batch.payload.messages = {}
-    for index, message in ipairs(batch.messages) do
-        batch.payload.messages[index] = {kind = message.kind, n = message.n, v = message.v}
-    end
-end
-
-local function dropMessage(batch: any, index: integer): nil
-    local message = table.remove(batch.messages, index)
-    local guestMemory = memory()
-    for _, value in ipairs(message.bytes) do
-        guestMemory.releaseLease(value.lease)
-        batch.lent = batch.lent - value.size
-    end
-    batch.counts[message.kind] = batch.counts[message.kind] - 1
-end
-
-local function openBatch(): any
-    local batch: any = {
-        payload = {op = "send", messages = {}, spans = {}},
-        messages = {},
-        counts = {},
-        lent = 0,
-        sealed = false,
-        waiters = {},
-    }
-    effects.request("host", batch.payload, function(response: any): nil
-        batch.sealed = true
-        if outbound == batch then
-            outbound = nil
-        end
-        local guestMemory = memory()
-        for _, message in ipairs(batch.messages) do
-            for _, value in ipairs(message.bytes) do
-                guestMemory.releaseLease(value.lease)
-            end
-        end
-        batch.messages = {}
-        for _, resume in ipairs(batch.waiters) do
-            resume(true)
-        end
-        if type(response) == "table" and response.ok == false then
-            report("send", "a stream batch failed: " .. tostring(response.error))
-        end
-    end)
-
-    return batch
-end
-
 function provider.send(kind: string, policy: string, limit: integer, ...: any): nil
-    local count, encoded, spans = encodeArguments(kind, false, ...)
-    local size: integer = 0
-    for _, span in ipairs(spans or {}) do
-        size = size + (span.size as integer)
-    end
-    local batch = outbound
-    if batch == nil or batch.lent + size > values.CHUNK_BYTES then
-        if batch ~= nil then
-            batch.sealed = true
+    local held: integer = 0
+    local oldest: integer? = nil
+    for index, record in ipairs(pending) do
+        if record.op == wire.SEND and record.kind == kind then
+            held = held + 1
+            oldest = oldest or index
         end
-        batch = openBatch()
-        outbound = batch
     end
-    local held: integer = batch.counts[kind] or 0
     -- `latest` keeps one message whatever the limit says.
     if held >= (policy == "latest" and 1 or limit) then
         if policy == "latest" or policy == "dropOldest" then
-            for index, message in ipairs(batch.messages) do
-                if message.kind == kind then
-                    dropMessage(batch, index)
-                    break
-                end
-            end
+            table.remove(pending, oldest as integer)
         else
-            -- `block`: wait for this batch to ship, then send into the next.
+            -- `block`: wait for the waiting messages to ship, then send.
             suspension.suspend("host stream " .. kind, function(resume: function(any): nil): function()
-                local waiters = batch.waiters
-                waiters[#waiters + 1] = resume
+                blockedSenders[#blockedSenders + 1] = resume
                 return function(): nil
-                    for index = #waiters, 1, -1 do
-                        if waiters[index] == resume then
-                            table.remove(waiters, index)
+                    for index = #blockedSenders, 1, -1 do
+                        if blockedSenders[index] == resume then
+                            table.remove(blockedSenders, index)
                         end
                     end
                 end
@@ -584,103 +752,25 @@ function provider.send(kind: string, policy: string, limit: integer, ...: any): 
             return
         end
     end
-    local guestMemory = memory()
-    local bytes: any = {}
-    for index, span in ipairs(spans or {}) do
-        local copy = ffi.string(span.pointer, span.size)
-        bytes[
-            index
-        ] = {
-            position = 0,
-            size = span.size,
-            copy = copy,
-            lease = guestMemory.lease(ffi.cast("const uint8_t *", copy), span.size, false),
-        }
-    end
-    -- The placeholders encodeArguments wrote name the span list in order.
-    local next = 1
-    for position = 1, count do
-        local value = encoded[tostring(position)]
-        if type(value) == "table" and value.bytes ~= nil then
-            bytes[next].position = position
-            next = next + 1
-        end
-    end
-    local messages = batch.messages
-    messages[#messages + 1] = {kind = kind, n = count, v = encoded, bytes = bytes}
-    batch.counts[kind] = held + 1
-    batch.lent = batch.lent + size
-    rebuildSpans(batch)
+    local list, size = argumentList(kind, true, ...)
+    local record = newRecord(wire.SEND, kind)
+    record.values = list
+    record.size = size
+    pending[#pending + 1] = record
+    ensureFrame()
 end
 
--- Inbound messages arrive as the answer to a standing `drain` request, which
--- the page holds until it has something to deliver; while it is held it also
--- wakes an application that is otherwise waiting.
-local routes: {[string]: any} = {}
-local draining: any = nil
+-- What the page needs to apply each route's policy where the messages start.
+local function routesRecord(): any
+    local policies: any = {}
+    for kind, route in pairs(routes) do
+        policies[kind] = {p = route.policy, l = route.limit}
+    end
+    local record = newRecord(wire.ROUTES)
+    record.text = json.encode(json.asObject(policies))
+    record.size = 64 + #record.text
 
-local function deliverMessages(messages: any): nil
-    local byKind: {[string]: any} = {}
-    for _, message in ipairs(messages) do
-        if type(message) == "table" and type(message.kind) == "string" and routes[message.kind] ~= nil then
-            local list = byKind[message.kind]
-            if list == nil then
-                list = {}
-                byKind[message.kind] = list
-            end
-            list[#list + 1] = message
-        end
-    end
-    -- Observers run here, at the turn boundary and outside any task, so nothing
-    -- they do may wait: one installation refuses a park for the whole pass.
-    local installed = suspensionHost.install(refusingHandler)
-    for kind, list in pairs(byKind) do
-        local route = routes[kind]
-        local keep = route.policy == "latest" and 1 or route.limit
-        local first = math.max(1, #list - keep + 1)
-        route.dropped = route.dropped + (first - 1)
-        for index = first, #list do
-            if routes[kind] ~= route then
-                break
-            end
-            local message = list[index]
-            local counted, count = pcall(resultCount, kind, message)
-            if counted then
-                local delivered, problem = pcall(route.deliver, unpackValues(decodeScalars(message, count), 1, count))
-                if not delivered then
-                    report(kind, "delivery failed: " .. tostring(problem))
-                end
-            else
-                report(kind, count)
-            end
-        end
-    end
-    installed:close()
-end
-
-local function ensureDrain(): nil
-    if draining ~= nil or next(routes) == nil then
-        return
-    end
-    local request: any = nil
-    request = effects.request(
-        "host",
-        {op = "drain"},
-        function(response: any): nil
-            if draining == request then
-                draining = nil
-            end
-            if type(response) == "table" and response.ok == true and type(response.value) == "table" then
-                deliverMessages(response.value.messages or {})
-            elseif type(response) == "table" and response.ok == false then
-                report("drain", response.error)
-            end
-            ensureDrain()
-        end,
-        nil,
-        true
-    )
-    draining = request
+    return record
 end
 
 function provider.route(kind: string, policy: string, limit: integer, deliver: any): (any, any)
@@ -689,16 +779,16 @@ function provider.route(kind: string, policy: string, limit: integer, deliver: a
     end
     local route: any = {deliver = deliver, policy = policy, limit = limit, dropped = 0}
     routes[kind] = route
-    ensureDrain()
+    routeCount = routeCount + 1
+    -- The page applies policies where messages start, so it hears of every
+    -- change, in order with whatever else this turn sends.
+    control(routesRecord())
 
     local function stop(): nil
         if routes[kind] == route then
             routes[kind] = nil
-        end
-        if next(routes) == nil and draining ~= nil then
-            local cancel = draining
-            draining = nil
-            cancel()
+            routeCount = routeCount - 1
+            control(routesRecord())
         end
     end
 

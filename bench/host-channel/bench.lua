@@ -65,7 +65,11 @@ function workloads.latency(options)
         wall[index] = (time.now() - started) / batch
         cpu[index] = (os.clock() - startedCpu) * 1000 / batch
     end
-    return {samples = {wallMs = wall, cpuMs = cpu}, summary = {wallMs = summarize(wall), cpuMs = summarize(cpu)}}
+    local profile = {}
+    for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
+        profile[name] = seconds * 1000 / (batch * batches + 3)
+    end
+    return {samples = {wallMs = wall, cpuMs = cpu}, summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerCall = profile}}
 end
 
 -- W5 and its parts: back-to-back frames, each taking the frame's input from the
@@ -108,6 +112,107 @@ function workloads.frames(options)
     return {samples = {wallMs = wall, cpuMs = cpu}, summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerFrame = profile}}
 end
 
+-- W2, W4 and W5 as a game frame would use the channel: the frame's tick and its
+-- render packet go out on streams, and the page answers each tick by pushing
+-- that frame's pointer events, which arrive routed to a bus at the next turn.
+-- `time.sleep(0)` is the frame boundary, the one round trip a frame costs.
+function workloads.streamFrames(options)
+    local hostevents = require("hostevents")
+    local events = require("nupp.events")
+    local frames = options.frames or 300
+    local eventCount = options.events or 17
+    local packetBytes = options.packetBytes or 0
+    local assetEvery = options.assetEvery or 0
+    local stub = options.stub == true
+    local bus = events.newMessageBus()
+    local received = 0
+    bus:observe(1, hostevents.PointerMove, function(_)
+        received = received + 1
+    end, "bench")
+    local route = not stub and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256) or nil
+    local tick = host.bindSend("bench.frame", "latest")
+    local post = host.bindSend("bench.packet", "latest")
+    local packetText = bytes(packetBytes)
+    local packet = span.fromString(packetText)
+    local wall, cpu = {}, {}
+    for frame = 1, frames + 10 do
+        local started, startedCpu = time.now(), os.clock()
+        if not stub then
+            tick(eventCount)
+            if packetBytes > 0 then
+                post(packet)
+            end
+            if assetEvery > 0 and frame % assetEvery == 0 then
+                host.call("test.echo", "asset.png", 512, 512)
+            end
+        end
+        time.sleep(0)
+        if frame > 10 then
+            wall[frame - 10] = time.now() - started
+            cpu[frame - 10] = (os.clock() - startedCpu) * 1000
+        end
+    end
+    if route ~= nil then
+        route:close()
+    end
+    return {
+        samples = {wallMs = wall, cpuMs = cpu},
+        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), eventsReceived = received, profileMsPerFrame = (function()
+            local profile = {}
+            for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
+                profile[name] = seconds * 1000 / (frames + 10)
+            end
+            return profile
+        end)()},
+    }
+end
+
+-- W2, W4 and W5 with the channel as the frame boundary itself, as a game would
+-- use it: each frame waits on one call for the next frame, the page pushes that
+-- frame's pointer events beside its answer, and the packet goes out on a stream.
+function workloads.channelFrames(options)
+    local hostevents = require("hostevents")
+    local events = require("nupp.events")
+    local frames = options.frames or 300
+    local eventCount = options.events or 17
+    local packetBytes = options.packetBytes or 0
+    local assetEvery = options.assetEvery or 0
+    local bus = events.newMessageBus()
+    local received = 0
+    bus:observe(1, hostevents.PointerMove, function(_)
+        received = received + 1
+    end, "bench")
+    local route = host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
+    local nextFrame = host.bind("bench.tick")
+    local post = host.bindSend("bench.packet", "latest")
+    local packetText = bytes(packetBytes)
+    local packet = span.fromString(packetText)
+    local wall, cpu = {}, {}
+    for frame = 1, frames + 10 do
+        local started, startedCpu = time.now(), os.clock()
+        if packetBytes > 0 then
+            post(packet)
+        end
+        if assetEvery > 0 and frame % assetEvery == 0 then
+            host.call("test.echo", "asset.png", 512, 512)
+        end
+        nextFrame(eventCount)
+        if frame > 10 then
+            wall[frame - 10] = time.now() - started
+            cpu[frame - 10] = (os.clock() - startedCpu) * 1000
+        end
+    end
+    route:close()
+    local profile = {}
+    for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
+        profile[name] = seconds * 1000 / (frames + 10)
+    end
+    return {
+        samples = {wallMs = wall, cpuMs = cpu},
+        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), eventsReceived = received, profileMsPerFrame = profile},
+    }
+end
+
 -- W3b: bulk bytes in both directions, chunked by the channel.
 function workloads.bulk(options)
     local size = options.size or 4 * 1024 * 1024
@@ -130,6 +235,37 @@ function workloads.bulk(options)
         samples = {uploadMs = upload, downloadMs = download},
         summary = {uploadMs = summarize(upload), downloadMs = summarize(download), bytes = size},
     }
+end
+
+-- What one host request's JSON costs the guest, apart from everything else:
+-- encoding a call, and decoding an answer of a few values, as the effect layer
+-- does, against packing the same values into bytes with the FFI.
+function workloads.codecCost(options)
+    local json = require("nupp.runtime.provider.lunajson")
+    local repeats = options.repeats or 2000
+    local request = {op = "call", name = "app.input", n = 2, v = {["1"] = 17, ["2"] = "frame"}, id = 12, kind = "host"}
+    local answerText = json.encode({responses = {{id = 12, ok = true, value = {n = 3, v = {["1"] = 1.5, ["2"] = 2.5, ["3"] = "x"}}}}})
+    local started = os.clock()
+    for _ = 1, repeats do
+        json.encode(request)
+    end
+    local encodeMs = (os.clock() - started) * 1000 / repeats
+    started = os.clock()
+    for _ = 1, repeats do
+        json.decode(answerText)
+    end
+    local decodeMs = (os.clock() - started) * 1000 / repeats
+    local buffer = ffi.new("uint8_t[256]")
+    started = os.clock()
+    for index = 1, repeats do
+        local doubles = ffi.cast("double *", buffer + 8)
+        ffi.cast("uint32_t *", buffer)[0] = 12
+        ffi.cast("uint32_t *", buffer)[1] = 2
+        doubles[0] = 17
+        doubles[1] = index
+    end
+    local binaryMs = (os.clock() - started) * 1000 / repeats
+    return {samples = {}, summary = {encodeMs = encodeMs, decodeMs = decodeMs, binaryMs = binaryMs}}
 end
 
 return workloads

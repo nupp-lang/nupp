@@ -80,6 +80,13 @@ export function testHost() {
       return [count, ...values.slice(0, 200)];
     },
     "bench.packet": ([bytes]) => { packets.push(bytes.length); },
+    "bench.tick": ([count]) => {
+      for (let index = 0; index < count; index++) push("bench.move", index * 1.5, index * 0.5);
+      return performance.now();
+    },
+    "bench.frame": ([count]) => {
+      for (let index = 0; index < count; index++) push("bench.move", index * 1.5, index * 0.5);
+    },
   };
   return {
     host: {handlers, start: (api) => { push = api.push; }, end: () => { ended++; }, onError: () => {}},

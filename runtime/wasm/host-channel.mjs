@@ -16,17 +16,28 @@
 // queues an inbound message for the next frame the application takes; an
 // inbound message carries scalars and strings only, which is what an event's
 // fields hold.
+//
+// The application's traffic arrives once a frame as binary records in a read
+// lease (the format is `src/nupp/runtime/browser/hostwire.g.nupp`'s), and the
+// page answers into the writable inbox the same frame lends, at the end of the
+// frame, with whatever answers and messages are ready by then.
 
 const MAX_STRING_BYTES = 64 * 1024;
 const MAX_OUTBOUND_BYTES = 64 * 1024 * 1024;
 const MAX_INBOUND_BYTES = 8 * 1024 * 1024;
+// A byte result larger than this stays with the page to be fetched rather than
+// riding the inbox, which every frame copies whole in both directions.
+const INLINE_BYTES = 16 * 1024;
 const MAX_VALUES = 255;
 const DEFAULT_REASSEMBLY_BYTES = 128 * 1024 * 1024;
 const MAX_INBOUND_MESSAGES = 4096;
-// What one drain answer's messages may take of the guest's one-MiB text slot.
-const DRAIN_TEXT_BUDGET = 512 * 1024;
 const KIND = /^[\w-]+\.[\w.-]*[\w-]$/;
 const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8", {fatal: true});
+
+const OUT = {CALL: 1, POST: 2, SEND: 3, CANCEL: 4, ABANDON: 5, ABORT: 6, ROUTES: 7};
+const IN = {ANSWER: 1, MESSAGE: 2, DROPPED: 3};
+const TAG = {NIL: 0, FALSE: 1, TRUE: 2, NUMBER: 3, STRING: 4, BYTES: 5, UPLOAD: 6, FETCH: 7};
 
 function checkedKind(name) {
   if (typeof name !== "string" || name.length > 128 || !KIND.test(name) || name.includes("..")) {
@@ -73,101 +84,27 @@ export function createHostChannel(host = {}) {
     uploads: new Map(),
     results: new Map(),
     inflight: new Map(),
+    answers: [],
+    inbound: [],
+    dropped: {},
+    routes: {},
+    frames: new Map(),
+    notify: null,
     nextResult: 1,
     closed: false,
-    inbound: [],
-    dropped: 0,
-    pendingDrain: null,
   };
   host.start?.({push: (kind, ...values) => pushMessage(channel, kind, values)});
   return channel;
 }
 
-function inboundValue(kind, value, position) {
-  if (value === null || value === undefined || typeof value === "boolean") return value ?? null;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error(`host push ${kind} value ${position} is not a finite number`);
-    return value;
-  }
-  if (typeof value === "string") {
-    if (value.isWellFormed?.() === false || encoder.encode(value).length > MAX_STRING_BYTES) {
-      throw new Error(`host push ${kind} value ${position} is not text of at most 64 KiB`);
-    }
-    return value;
-  }
-  throw new Error(`host push ${kind} value ${position} is a ${typeof value}; an inbound message carries scalars and strings`);
-}
-
-function drainAnswer(channel) {
-  const messages = [];
-  let used = 0;
-  while (channel.inbound.length > 0) {
-    const size = JSON.stringify(channel.inbound[0]).length + 1;
-    if (used + size > DRAIN_TEXT_BUDGET && messages.length > 0) break;
-    used += size;
-    messages.push(channel.inbound.shift());
-  }
-  return {messages};
-}
-
-// Queues an inbound message, dropping the oldest past the bound, and answers a
-// drain the application left waiting.
-function pushMessage(channel, kind, values) {
-  checkedKind(kind);
-  if (values.length > MAX_VALUES) throw new Error(`host push ${kind} carries more than 255 values`);
-  const encoded = {};
-  values.forEach((value, index) => {
-    const checked = inboundValue(kind, value, index + 1);
-    if (checked !== null) encoded[index + 1] = checked;
-  });
-  if (channel.closed) return;
-  channel.inbound.push({kind, n: values.length, v: encoded});
-  while (channel.inbound.length > MAX_INBOUND_MESSAGES) {
-    channel.inbound.shift();
-    channel.dropped++;
-  }
-  // Answer a waiting drain once this task's pushes are all queued, so a burst
-  // pushed together arrives together and a per-turn policy sees all of it.
-  if (channel.pendingDrain && !channel.drainScheduled) {
-    channel.drainScheduled = true;
-    queueMicrotask(() => {
-      channel.drainScheduled = false;
-      const waiting = channel.pendingDrain;
-      if (!waiting) return;
-      channel.pendingDrain = null;
-      waiting(drainAnswer(channel));
-    });
-  }
-}
-
-function drain(channel) {
-  if (channel.inbound.length > 0 || channel.closed) return drainAnswer(channel);
-  // A drain already waiting is superseded: the application only ever has one.
-  channel.pendingDrain?.({messages: []});
-  return new Promise((resolve) => { channel.pendingDrain = resolve; });
-}
-
-// Hands a frame's sent messages to their handlers in order. A stream has no
-// answers, so a missing handler or a failing one is reported, not raised.
-function deliverSent(channel, effect, options) {
-  const copies = takeSpans(effect, options);
-  const messages = Array.isArray(effect.messages) ? effect.messages : effect.messages ? Object.values(effect.messages) : [];
-  for (const message of messages) {
-    try {
-      const name = checkedKind(message.kind);
-      const handler = channel.handlers.get(name);
-      if (!handler) throw new Error(`no host answers ${name}`);
-      const args = decodeArguments(channel, message, copies);
-      Promise.resolve(handler.call(args, {kind: name})).catch((error) => channel.report(error));
-    } catch (error) {
-      channel.report(error);
-    }
-  }
-  return {};
-}
-
 function channelOf(options) {
   return options.hostChannel ||= createHostChannel(options.host);
+}
+
+function wake(channel) {
+  const notify = channel.notify;
+  channel.notify = null;
+  notify?.();
 }
 
 function releaseResult(channel, record) {
@@ -185,12 +122,13 @@ export function closeHostChannel(options) {
   channel.closed = true;
   for (const controller of channel.inflight.values()) controller.abort(new Error("the application finished"));
   channel.inflight.clear();
+  for (const item of channel.answers) if (item.ok) releaseResult(channel, {release: item.release, values: item.results});
+  channel.answers = [];
   for (const record of channel.results.values()) releaseResult(channel, record);
   channel.results.clear();
   channel.uploads.clear();
   channel.reassembled = 0;
-  channel.pendingDrain?.({messages: []});
-  channel.pendingDrain = null;
+  wake(channel);
   try {
     channel.end?.();
   } catch (error) {
@@ -198,67 +136,9 @@ export function closeHostChannel(options) {
   }
 }
 
-// Copies a request's leased bytes and releases every lease it names before
-// anything can fail, so the frame that carried it can be answered at once.
-function takeSpans(effect, options) {
-  const spans = Array.isArray(effect.spans) ? effect.spans : effect.spans ? Object.values(effect.spans) : [];
-  const copies = [];
-  let failure;
-  for (const span of spans) {
-    try {
-      const lease = options.transfers.lease(span?.lease, span?.bytes, false);
-      copies.push(lease.view.slice());
-    } catch (error) {
-      failure ||= error;
-    } finally {
-      try { options.transfers.release(span?.lease); } catch {}
-    }
-  }
-  if (failure) throw failure;
-  return copies;
-}
-
-function encodedEntries(effect) {
-  const encoded = effect.v;
-  if (encoded === undefined || encoded === null) return () => undefined;
-  if (Array.isArray(encoded)) return (position) => encoded[position - 1];
-  if (typeof encoded === "object") return (position) => encoded[String(position)];
-  throw new Error("host request values are malformed");
-}
-
-function decodeArguments(channel, effect, copies) {
-  const count = effect.n;
-  if (!Number.isInteger(count) || count < 0 || count > MAX_VALUES) {
-    throw new Error("host request has no valid value count");
-  }
-  const entry = encodedEntries(effect);
-  const args = new Array(count);
-  for (let position = 1; position <= count; position++) {
-    const value = entry(position);
-    if (value === undefined || value === null) {
-      args[position - 1] = null;
-    } else if (typeof value === "object") {
-      if (Number.isInteger(value.bytes)) {
-        const bytes = copies[value.bytes - 1];
-        if (!bytes) throw new Error(`host request value ${position} names a missing byte span`);
-        args[position - 1] = bytes;
-      } else if (Number.isInteger(value.transfer)) {
-        const upload = channel.uploads.get(value.transfer);
-        if (!upload || upload.received !== upload.total) {
-          throw new Error(`host request value ${position} names an incomplete upload`);
-        }
-        channel.uploads.delete(value.transfer);
-        channel.reassembled -= upload.total;
-        args[position - 1] = upload.bytes;
-      } else {
-        throw new Error(`host request value ${position} is malformed`);
-      }
-    } else {
-      args[position - 1] = value;
-    }
-  }
-  return args;
-}
+// ---------------------------------------------------------------------------
+// Values
+// ---------------------------------------------------------------------------
 
 function asBytes(value) {
   if (value instanceof Uint8Array) return value;
@@ -267,93 +147,433 @@ function asBytes(value) {
   return null;
 }
 
-// Validates a handler's answer against the value model and splits its byte values
-// out to be fetched.
-function encodeResults(name, answer) {
-  const results = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
-  if (results.length > MAX_VALUES) throw new Error(`host handler ${name} answered more than 255 values`);
-  const encoded = {};
-  const bytes = [];
-  results.forEach((value, index) => {
-    const position = index + 1;
-    if (value === null || value === undefined) return;
-    const view = asBytes(value);
-    if (view) {
-      if (view.byteLength > MAX_INBOUND_BYTES) {
-        throw new Error(`host handler ${name} result ${position} is more than 8 MiB of bytes`);
-      }
-      bytes.push({index: position, size: view.byteLength, view});
-      return;
-    }
-    if (typeof value === "boolean") {
-      encoded[position] = value;
-    } else if (typeof value === "number") {
-      if (!Number.isFinite(value)) throw new Error(`host handler ${name} result ${position} is not a finite number`);
-      encoded[position] = value;
-    } else if (typeof value === "string") {
-      if (value.isWellFormed?.() === false) throw new Error(`host handler ${name} result ${position} is not valid text`);
-      if (encoder.encode(value).length > MAX_STRING_BYTES) {
-        throw new Error(`host handler ${name} result ${position} is a string longer than 64 KiB; answer bytes`);
-      }
-      encoded[position] = value;
-    } else {
-      throw new Error(`host handler ${name} result ${position} is a ${typeof value}, which cannot cross`);
-    }
-  });
-  return {count: results.length, encoded, bytes, results};
+function checkedText(value, describe) {
+  if (value.isWellFormed?.() === false) throw new Error(`${describe} is not valid text`);
+  const bytes = encoder.encode(value);
+  if (bytes.length > MAX_STRING_BYTES) throw new Error(`${describe} is a string longer than 64 KiB; answer bytes`);
+  return bytes;
 }
 
-async function callHandler(channel, effect, options) {
-  const name = checkedKind(effect.name);
-  let copies;
-  try {
-    copies = takeSpans(effect, options);
-  } catch (error) {
-    throw new Error(`host request ${name} carried an invalid byte span: ${error?.message || error}`);
-  }
-  const args = decodeArguments(channel, effect, copies);
-  const handler = channel.handlers.get(name);
-  if (!handler) throw new Error(`no host answers ${name}`);
-  const controller = new AbortController();
-  channel.inflight.set(effect.id, controller);
-  let answer;
-  try {
-    answer = await handler.call(args, {kind: name, signal: controller.signal});
-  } finally {
-    channel.inflight.delete(effect.id);
-  }
-  let encoded;
-  try {
-    encoded = encodeResults(name, answer);
-  } catch (error) {
-    releaseResult(channel, {release: handler.release, values: Array.isArray(answer) ? answer : [answer]});
-    throw error;
-  }
-  if (effect.op === "post" || channel.closed) {
-    // Nobody takes a post's results, so whatever they name is the page's to release.
-    if (encoded.count > 0) releaseResult(channel, {release: handler.release, values: encoded.results});
-    return {n: 0, v: {}};
-  }
-  if (encoded.bytes.length === 0) return {n: encoded.count, v: encoded.encoded};
-  const remaining = encoded.bytes.reduce((total, entry) => total + entry.size, 0);
-  const result = channel.nextResult++;
-  const announced = {
-    n: encoded.count,
-    v: encoded.encoded,
-    result,
-    bytes: encoded.bytes.map(({index, size}) => ({index, size})),
-  };
-  // Empty byte values need no fetch, so the application owns them at once.
-  if (remaining === 0) return announced;
-  channel.results.set(result, {
-    name,
-    values: encoded.results,
-    views: encoded.bytes.map((entry) => entry.view),
-    remaining,
-    release: handler.release,
+// Validates a handler's answer against the value model.
+function checkedResults(name, answer) {
+  const results = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
+  if (results.length > MAX_VALUES) throw new Error(`host handler ${name} answered more than 255 values`);
+  return results.map((value, index) => {
+    const describe = `host handler ${name} result ${index + 1}`;
+    if (value === null || value === undefined) return {tag: TAG.NIL};
+    const view = asBytes(value);
+    if (view) {
+      if (view.byteLength > MAX_INBOUND_BYTES) throw new Error(`${describe} is more than 8 MiB of bytes`);
+      return {tag: TAG.BYTES, bytes: view};
+    }
+    if (typeof value === "boolean") return {tag: value ? TAG.TRUE : TAG.FALSE};
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) throw new Error(`${describe} is not a finite number`);
+      return {tag: TAG.NUMBER, number: value};
+    }
+    if (typeof value === "string") return {tag: TAG.STRING, bytes: checkedText(value, describe)};
+    throw new Error(`${describe} is a ${typeof value}, which cannot cross`);
   });
-  return announced;
 }
+
+function inboundValue(kind, value, position) {
+  const describe = `host push ${kind} value ${position}`;
+  if (value === null || value === undefined) return {tag: TAG.NIL};
+  if (typeof value === "boolean") return {tag: value ? TAG.TRUE : TAG.FALSE};
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error(`${describe} is not a finite number`);
+    return {tag: TAG.NUMBER, number: value};
+  }
+  if (typeof value === "string") return {tag: TAG.STRING, bytes: checkedText(value, describe)};
+  throw new Error(`${describe} is a ${typeof value}; an inbound message carries scalars and strings`);
+}
+
+// ---------------------------------------------------------------------------
+// The binary records
+// ---------------------------------------------------------------------------
+
+class Reader {
+  constructor(bytes) {
+    this.buffer = bytes;
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.at = 0;
+  }
+  take(count) {
+    const at = this.at;
+    if (at + count > this.buffer.length) throw new Error("a host frame's records ended inside a record");
+    this.at = at + count;
+    return at;
+  }
+  u8() { return this.view.getUint8(this.take(1)); }
+  u16() { return this.view.getUint16(this.take(2), true); }
+  u32() { return this.view.getUint32(this.take(4), true); }
+  f64() { return this.view.getFloat64(this.take(8), true); }
+  bytes(count) { const at = this.take(count); return this.buffer.slice(at, at + count); }
+  text(count) { const at = this.take(count); return decoder.decode(this.buffer.subarray(at, at + count)); }
+  get remaining() { return this.buffer.length - this.at; }
+}
+
+class Writer {
+  constructor(capacity = 256) {
+    this.buffer = new Uint8Array(capacity);
+    this.view = new DataView(this.buffer.buffer);
+    this.length = 0;
+  }
+  reserve(count) {
+    const needed = this.length + count;
+    if (needed > this.buffer.length) {
+      const grown = new Uint8Array(Math.max(needed, this.buffer.length * 2));
+      grown.set(this.buffer.subarray(0, this.length));
+      this.buffer = grown;
+      this.view = new DataView(grown.buffer);
+    }
+    const at = this.length;
+    this.length = needed;
+    return at;
+  }
+  // Reserve before reading `buffer` or `view`: growing replaces both.
+  u8(value) { const at = this.reserve(1); this.view.setUint8(at, value); }
+  u16(value) { const at = this.reserve(2); this.view.setUint16(at, value, true); }
+  u32(value) { const at = this.reserve(4); this.view.setUint32(at, value, true); }
+  f64(value) { const at = this.reserve(8); this.view.setFloat64(at, value, true); }
+  raw(bytes) { const at = this.reserve(bytes.length); this.buffer.set(bytes, at); }
+  sized(bytes) { this.u32(bytes.length); this.raw(bytes); }
+  result() { return this.buffer.subarray(0, this.length); }
+}
+
+function readArguments(channel, reader) {
+  const count = reader.u16();
+  if (count > MAX_VALUES) throw new Error("a host request carries more than 255 values");
+  const args = new Array(count);
+  for (let index = 0; index < count; index++) {
+    const tag = reader.u8();
+    if (tag === TAG.NIL) args[index] = null;
+    else if (tag === TAG.FALSE) args[index] = false;
+    else if (tag === TAG.TRUE) args[index] = true;
+    else if (tag === TAG.NUMBER) args[index] = reader.f64();
+    else if (tag === TAG.STRING) args[index] = reader.text(reader.u32());
+    else if (tag === TAG.BYTES) args[index] = reader.bytes(reader.u32());
+    else if (tag === TAG.UPLOAD) {
+      const transfer = reader.u32();
+      const upload = channel.uploads.get(transfer);
+      if (!upload || upload.received !== upload.total) {
+        throw new Error(`host request value ${index + 1} names an incomplete upload`);
+      }
+      channel.uploads.delete(transfer);
+      channel.reassembled -= upload.total;
+      args[index] = upload.bytes;
+    } else {
+      throw new Error(`host request value ${index + 1} has an unknown tag ${tag}`);
+    }
+  }
+  return args;
+}
+
+function writeValue(writer, value) {
+  writer.u8(value.tag);
+  if (value.tag === TAG.NUMBER) writer.f64(value.number);
+  else if (value.tag === TAG.STRING || value.tag === TAG.BYTES) writer.sized(value.bytes);
+  else if (value.tag === TAG.FETCH) writer.u32(value.size);
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+function answer(channel, id, record) {
+  channel.answers.push({id, ...record});
+  wake(channel);
+}
+
+async function dispatchCall(channel, id, name, args) {
+  const handler = channel.handlers.get(name);
+  if (!handler) {
+    answer(channel, id, {ok: false, error: `no host answers ${name}`});
+    return;
+  }
+  const controller = new AbortController();
+  channel.inflight.set(id, controller);
+  let results;
+  try {
+    results = await handler.call(args, {kind: name, signal: controller.signal});
+  } catch (error) {
+    answer(channel, id, {ok: false, error: String(error?.message || error)});
+    return;
+  } finally {
+    channel.inflight.delete(id);
+  }
+  let values;
+  try {
+    values = checkedResults(name, results);
+  } catch (error) {
+    releaseResult(channel, {release: handler.release, values: Array.isArray(results) ? results : [results]});
+    answer(channel, id, {ok: false, error: String(error?.message || error)});
+    return;
+  }
+  if (channel.closed) {
+    releaseResult(channel, {release: handler.release, values: results});
+    return;
+  }
+  answer(channel, id, {ok: true, values, release: handler.release, results});
+}
+
+// A post or a send has no answer. What a post's results name is the page's to
+// release, and a failure of either is reported, not raised.
+function dispatchOneWay(channel, name, args, post) {
+  const handler = channel.handlers.get(name);
+  if (!handler) {
+    channel.report(new Error(`no host answers ${name}`));
+    return;
+  }
+  // Called now, as a call's handler is, so requests reach their handlers in the
+  // order the application made them.
+  let settling;
+  try {
+    settling = handler.call(args, {kind: name});
+  } catch (error) {
+    channel.report(error);
+    return;
+  }
+  Promise.resolve(settling).then((results) => {
+    if (post && results !== undefined) releaseResult(channel, {release: handler.release, values: results});
+  }, (error) => channel.report(error));
+}
+
+function readRecords(channel, bytes) {
+  const reader = new Reader(bytes);
+  while (reader.remaining > 0) {
+    const op = reader.u8();
+    const id = reader.u32();
+    if (op === OUT.CALL || op === OUT.POST || op === OUT.SEND) {
+      const name = reader.text(reader.u16());
+      // A malformed request stops the frame's records: everything after it
+      // could be misread.
+      const args = readArguments(channel, reader);
+      let checked;
+      try {
+        checked = checkedKind(name);
+      } catch (error) {
+        if (op === OUT.CALL) answer(channel, id, {ok: false, error: String(error?.message || error)});
+        else channel.report(error);
+        continue;
+      }
+      if (op === OUT.CALL) dispatchCall(channel, id, checked, args);
+      else dispatchOneWay(channel, checked, args, op === OUT.POST);
+    } else if (op === OUT.CANCEL) {
+      channel.inflight.get(id)?.abort(new Error("the caller stopped waiting"));
+    } else if (op === OUT.ABANDON) {
+      const result = reader.u32();
+      const record = channel.results.get(result);
+      if (record) {
+        channel.results.delete(result);
+        releaseResult(channel, record);
+      }
+    } else if (op === OUT.ABORT) {
+      const transfer = reader.u32();
+      const upload = channel.uploads.get(transfer);
+      if (upload) {
+        channel.uploads.delete(transfer);
+        channel.reassembled -= upload.total;
+      }
+    } else if (op === OUT.ROUTES) {
+      const routes = JSON.parse(reader.text(reader.u32()));
+      channel.routes = routes && typeof routes === "object" && !Array.isArray(routes) ? routes : {};
+    } else {
+      throw new Error(`a host frame carried an unknown record ${op}`);
+    }
+  }
+}
+
+/**
+ * Reads a frame's records and dispatches them. The frame lends one buffer: its
+ * first `records` bytes are the application's records, and the page's answers
+ * are written over it from the start once the frame has waited.
+ */
+export function beginHostFrame(effect, options) {
+  const channel = channelOf(options);
+  const spans = Array.isArray(effect.spans) ? effect.spans : effect.spans ? Object.values(effect.spans) : [];
+  const inbox = spans[0];
+  let failure;
+  let lease;
+  if (inbox) {
+    try {
+      lease = options.transfers.lease(inbox.lease, inbox.bytes, true);
+      const records = effect.records | 0;
+      if (records < 0 || records > lease.view.length) throw new Error("a host frame's records overrun its buffer");
+      if (records > 0) readRecords(channel, lease.view.subarray(0, records));
+    } catch (error) {
+      failure = error;
+    }
+  }
+  channel.frames.set(effect.id, {lease, inbox, failure});
+}
+
+/** Whether anything is ready for a frame's inbox. */
+export function hostFrameReady(options) {
+  const channel = options.hostChannel;
+  return !!channel && (channel.answers.length > 0 || channel.inbound.length > 0 ||
+    Object.keys(channel.dropped).length > 0);
+}
+
+/** Whether something the page is doing will produce an answer or a message. */
+export function hostFrameWaitable(options) {
+  const channel = options.hostChannel;
+  return !!channel && !channel.closed && (channel.inflight.size > 0 || Object.keys(channel.routes).length > 0);
+}
+
+/** Calls `notify` once something is ready for a frame's inbox. */
+export function onHostFrameReady(options, notify) {
+  const channel = options.hostChannel;
+  if (channel) channel.notify = notify;
+}
+
+// Applies each route's policy where the messages start, so what a route would
+// drop never crosses: `latest` keeps a kind's newest message, `dropOldest` its
+// newest `l`, and a kind nothing routes is dropped. Order across kinds is kept.
+function applyPolicies(channel) {
+  const routes = channel.routes;
+  const totals = new Map();
+  for (const message of channel.inbound) totals.set(message.kind, (totals.get(message.kind) || 0) + 1);
+  const seen = new Map();
+  const kept = [];
+  for (const message of channel.inbound) {
+    const route = routes[message.kind];
+    const keep = !route ? 0 : route.p === "latest" ? 1 : Math.max(1, route.l | 0);
+    const index = seen.get(message.kind) || 0;
+    seen.set(message.kind, index + 1);
+    if (index >= totals.get(message.kind) - keep) kept.push(message);
+    else if (route) channel.dropped[message.kind] = (channel.dropped[message.kind] || 0) + 1;
+  }
+  channel.inbound = kept;
+}
+
+function encodeAnswer(channel, item) {
+  const writer = new Writer(64);
+  writer.u8(IN.ANSWER);
+  writer.u32(item.id);
+  if (!item.ok) {
+    writer.u8(0);
+    writer.sized(encoder.encode(item.error));
+    return writer.result();
+  }
+  writer.u8(1);
+  // Bytes too large to ride the inbox stay here, announced, until fetched.
+  const fetched = item.values.filter((value) => value.tag === TAG.BYTES && value.bytes.byteLength > INLINE_BYTES);
+  let result = 0;
+  if (fetched.length > 0) {
+    result = channel.nextResult++;
+    channel.results.set(result, {
+      views: item.values.map((value) => value.tag === TAG.BYTES ? value.bytes : null),
+      remaining: fetched.reduce((total, value) => total + value.bytes.byteLength, 0),
+      release: item.release,
+      values: item.results,
+    });
+  }
+  writer.u32(result);
+  writer.u16(item.values.length);
+  for (const value of item.values) {
+    if (value.tag === TAG.BYTES && value.bytes.byteLength > INLINE_BYTES) {
+      writeValue(writer, {tag: TAG.FETCH, size: value.bytes.byteLength});
+    } else {
+      writeValue(writer, value);
+    }
+  }
+  return writer.result();
+}
+
+function encodeMessage(message) {
+  const writer = new Writer(64);
+  writer.u8(IN.MESSAGE);
+  const kind = encoder.encode(message.kind);
+  writer.u16(kind.length);
+  writer.raw(kind);
+  writer.u16(message.values.length);
+  for (const value of message.values) writeValue(writer, value);
+  return writer.result();
+}
+
+/** Fills a frame's inbox with what is ready and answers its request. */
+export function finishHostFrame(effect, options) {
+  const channel = channelOf(options);
+  const frame = channel.frames.get(effect.id);
+  channel.frames.delete(effect.id);
+  if (!frame) throw new Error("a host frame was never begun");
+  if (frame.failure) {
+    if (frame.lease) options.transfers.release(frame.inbox.lease);
+    throw frame.failure;
+  }
+  if (!frame.lease) return {written: 0};
+  const view = frame.lease.view;
+  let written = 0;
+  let more = 0;
+  try {
+    const put = (bytes) => {
+      if (written + bytes.length > view.length) {
+        more ||= bytes.length;
+        return false;
+      }
+      view.set(bytes, written);
+      written += bytes.length;
+      return true;
+    };
+    while (channel.answers.length > 0) {
+      const item = channel.answers[0];
+      const bytes = item.encoded ||= encodeAnswer(channel, item);
+      if (!put(bytes)) break;
+      channel.answers.shift();
+    }
+    if (more === 0) {
+      applyPolicies(channel);
+      for (const [kind, count] of Object.entries(channel.dropped)) {
+        const writer = new Writer(32);
+        writer.u8(IN.DROPPED);
+        const name = encoder.encode(kind);
+        writer.u16(name.length);
+        writer.raw(name);
+        writer.u32(count);
+        if (!put(writer.result())) break;
+        delete channel.dropped[kind];
+      }
+      while (more === 0 && channel.inbound.length > 0) {
+        const message = channel.inbound[0];
+        if (!put(message.encoded ||= encodeMessage(message))) break;
+        channel.inbound.shift();
+      }
+    }
+  } finally {
+    options.transfers.release(frame.inbox.lease);
+  }
+  return more > 0 ? {written, more} : {written};
+}
+
+// ---------------------------------------------------------------------------
+// Streams in
+// ---------------------------------------------------------------------------
+
+// Queues an inbound message, dropping the oldest past the bound, and wakes a
+// frame waiting for something to deliver once this task's pushes are queued.
+function pushMessage(channel, kind, values) {
+  checkedKind(kind);
+  if (values.length > MAX_VALUES) throw new Error(`host push ${kind} carries more than 255 values`);
+  const checked = values.map((value, index) => inboundValue(kind, value, index + 1));
+  if (channel.closed) return;
+  channel.inbound.push({kind, values: checked});
+  while (channel.inbound.length > MAX_INBOUND_MESSAGES) {
+    const dropped = channel.inbound.shift();
+    channel.dropped[dropped.kind] = (channel.dropped[dropped.kind] || 0) + 1;
+  }
+  if (channel.notify && !channel.wakeScheduled) {
+    channel.wakeScheduled = true;
+    queueMicrotask(() => {
+      channel.wakeScheduled = false;
+      wake(channel);
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk bytes
+// ---------------------------------------------------------------------------
 
 function fetchResult(channel, effect, options) {
   const record = channel.results.get(effect.result);
@@ -406,40 +626,14 @@ function receiveUpload(channel, effect, options) {
   }
 }
 
-/** Performs one `host` effect: a call, a post, or the channel's own bookkeeping. */
+/** Performs one bulk `host` effect: a fetch or an upload chunk. */
 export async function performHostEffect(effect, options) {
   const channel = channelOf(options);
   switch (effect.op) {
-    case "call":
-    case "post":
-      return callHandler(channel, effect, options);
     case "fetch":
       return fetchResult(channel, effect, options);
-    case "send":
-      return deliverSent(channel, effect, options);
-    case "drain":
-      return drain(channel);
     case "upload":
       return receiveUpload(channel, effect, options);
-    case "abandon": {
-      const record = channel.results.get(effect.result);
-      if (record) {
-        channel.results.delete(effect.result);
-        releaseResult(channel, record);
-      }
-      return {};
-    }
-    case "abort": {
-      const upload = channel.uploads.get(effect.transfer);
-      if (upload) {
-        channel.uploads.delete(effect.transfer);
-        channel.reassembled -= upload.total;
-      }
-      return {};
-    }
-    case "cancel":
-      channel.inflight.get(effect.target)?.abort(new Error("the caller stopped waiting"));
-      return {};
     default:
       for (const span of Array.isArray(effect.spans) ? effect.spans : []) {
         try { options.transfers?.release(span?.lease); } catch {}
@@ -448,11 +642,12 @@ export async function performHostEffect(effect, options) {
   }
 }
 
-/**
- * Whether a host effect must be answered in the frame that carried it. A call or
- * post releases its leases when dispatched and may then take as long as its
- * handler does; a fetch or upload copies through a lease and settles at once.
- */
+/** Whether a `host` effect is a frame, which `handleBrowserEffects` answers last. */
+export function isHostFrame(effect) {
+  return effect?.kind === "host" && effect.op === "x";
+}
+
+/** Fetches and uploads copy through a lease and settle at once. */
 export function hostEffectBoundToFrame(effect) {
   return effect.op === "fetch" || effect.op === "upload";
 }

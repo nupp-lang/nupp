@@ -934,6 +934,8 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
         {"nupp.runtime.browser.workers", false, true},
         {"nupp.runtime.provider.nativehost", true, false},
         {"nupp.runtime.browser.host", false, true},
+        -- The codec the browser provider requires, carried like the transport.
+        {"nupp.runtime.browser.hostwire", true, true},
         -- The compiler may carry the transport helper without selecting a browser
         -- provider.
         {"nupp.runtime.browser.memory", true, true},

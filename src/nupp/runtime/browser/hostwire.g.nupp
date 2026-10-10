@@ -1,0 +1,194 @@
+@!internal
+module nupp.runtime.browser.hostwire
+
+--[[
+The binary records a frame's [](nupp.host) traffic travels in.
+
+Encoding a request as JSON cost the guest more than everything else it did for
+the request, and the bridge decoded and re-encoded it again; packing the same
+values with the FFI costs almost nothing, and the bridge copies leased bytes
+without reading them. So a frame's host requests go to the page as records in
+one read lease, and the page's answers come back as records in one writable
+inbox, both little-endian:
+
+```text
+outbound   u8 op | u32 id | ...
+  1 call, 2 post, 3 send   u16 kind length | kind | values
+  4 cancel                 (id is the request it cancels)
+  5 abandon                u32 result
+  6 abort                  u32 transfer
+  7 routes                 u32 length | the route policies as JSON
+inbound    u8 op | ...
+  1 answer    u32 id | u8 ok | ok: u32 result | values ; failed: u32 length | message
+  2 message   u16 kind length | kind | values
+  3 dropped   u16 kind length | kind | u32 count
+values     u16 count | per value: u8 tag | payload
+  0 nil, 1 false, 2 true, 3 number (f64), 4 string (u32 length | bytes),
+  5 bytes (u32 length | bytes), 6 upload (u32 transfer), 7 fetch (u32 size)
+```
+
+A value tagged 7 is a byte result too large for the inbox: its result id names
+it for the fetches that bring it across.
+]]
+
+local ffi = require("ffi")
+local bit = require("bit")
+
+local band = bit.band
+local rshift = bit.rshift
+
+local wire = {}
+
+wire.CALL = 1
+wire.POST = 2
+wire.SEND = 3
+wire.CANCEL = 4
+wire.ABANDON = 5
+wire.ABORT = 6
+wire.ROUTES = 7
+
+wire.ANSWER = 1
+wire.MESSAGE = 2
+wire.DROPPED = 3
+
+wire.NIL = 0
+wire.FALSE = 1
+wire.TRUE = 2
+wire.NUMBER = 3
+wire.STRING = 4
+wire.BYTES = 5
+wire.UPLOAD = 6
+wire.FETCH = 7
+
+-- One scratch double and a byte view of it, made once: under emulation every
+-- cdata a field allocated cost more than packing the field.
+local scratch: any = ffi.new("double[1]")
+local scratchBytes: any = ffi.cast("uint8_t *", scratch)
+
+--- A growable byte buffer records are written into.
+function wire.writer(capacity: integer): any
+    return {buffer = ffi.new("uint8_t[?]", capacity), capacity = capacity, length = 0}
+end
+
+--- Empties a writer for reuse, keeping its storage.
+function wire.reset(writer: any): nil
+    writer.length = 0
+end
+
+local function reserve(writer: any, count: integer): any
+    local needed = writer.length + count
+    if needed > writer.capacity then
+        local capacity = writer.capacity * 2
+        while capacity < needed do
+            capacity = capacity * 2
+        end
+        local grown = ffi.new("uint8_t[?]", capacity)
+        ffi.copy(grown, writer.buffer, writer.length)
+        writer.buffer = grown
+        writer.capacity = capacity
+    end
+    local at = writer.length
+    writer.length = needed
+
+    return at
+end
+
+function wire.u8(writer: any, value: integer): nil
+    local at = reserve(writer, 1)
+    writer.buffer[at] = value
+end
+
+function wire.u16(writer: any, value: integer): nil
+    local at = reserve(writer, 2)
+    local buffer = writer.buffer
+    buffer[at] = band(value, 255)
+    buffer[at + 1] = band(rshift(value, 8), 255)
+end
+
+function wire.u32(writer: any, value: integer): nil
+    local at = reserve(writer, 4)
+    local buffer = writer.buffer
+    buffer[at] = band(value, 255)
+    buffer[at + 1] = band(rshift(value, 8), 255)
+    buffer[at + 2] = band(rshift(value, 16), 255)
+    buffer[at + 3] = band(rshift(value, 24), 255)
+end
+
+function wire.f64(writer: any, value: number): nil
+    local at = reserve(writer, 8)
+    local buffer = writer.buffer
+    scratch[0] = value
+    for index = 0, 7 do
+        buffer[at + index] = scratchBytes[index]
+    end
+end
+
+--- Appends `count` bytes from `pointer`, a cdata pointer or a Lua string.
+function wire.raw(writer: any, pointer: any, count: integer): nil
+    local at = reserve(writer, count)
+    if count > 0 then
+        ffi.copy(writer.buffer + at, pointer, count)
+    end
+end
+
+--- Appends a string or byte value with its u32 length.
+function wire.sized(writer: any, pointer: any, count: integer): nil
+    wire.u32(writer, count)
+    wire.raw(writer, pointer, count)
+end
+
+--- A reader over `count` bytes at `pointer`.
+function wire.reader(pointer: any, count: integer): any
+    return {buffer = ffi.cast("const uint8_t *", pointer), length = count, at = 0}
+end
+
+local function take(reader: any, count: integer): integer
+    local at = reader.at
+    if at + count > reader.length then
+        error("nupp: a host frame's inbox ended inside a record", 0)
+    end
+    reader.at = at + count
+
+    return at
+end
+
+function wire.readU8(reader: any): integer
+    return reader.buffer[take(reader, 1)]
+end
+
+function wire.readU16(reader: any): integer
+    local at = take(reader, 2)
+    local buffer = reader.buffer
+
+    return (buffer[at] + buffer[at + 1] * 256) as integer
+end
+
+function wire.readU32(reader: any): integer
+    local at = take(reader, 4)
+    local buffer = reader.buffer
+
+    return (buffer[at] + buffer[at + 1] * 256 + buffer[at + 2] * 65536 + buffer[at + 3] * 16777216) as integer
+end
+
+function wire.readF64(reader: any): number
+    local at = take(reader, 8)
+    local buffer = reader.buffer
+    for index = 0, 7 do
+        scratchBytes[index] = buffer[at + index]
+    end
+
+    return scratch[0]
+end
+
+--- Reads `count` bytes as a Lua string.
+function wire.readString(reader: any, count: integer): string
+    local at = take(reader, count)
+
+    return ffi.string(reader.buffer + at, count)
+end
+
+function wire.remaining(reader: any): integer
+    return (reader.length - reader.at) as integer
+end
+
+export = wire

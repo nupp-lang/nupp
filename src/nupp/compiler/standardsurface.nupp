@@ -29,6 +29,7 @@ local MODULES: {[string]: {
     ["nupp.host.internal.values"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.provider.nativehost"] = facility("runtime", "native.host"),
     ["nupp.runtime.browser.host"] = facility("runtime", "runtime.host"),
+    ["nupp.runtime.browser.hostwire"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.digest.spi"] = {kind = "common"},
     ["nupp.digest.internal.context"] = {kind = "common"},
     ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),

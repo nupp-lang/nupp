@@ -431,6 +431,7 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/effects.g.nupp",
     "src/nupp/host/internal/values.g.nupp",
     "src/nupp/runtime/browser/host.g.nupp",
+    "src/nupp/runtime/browser/hostwire.g.nupp",
     "src/nupp/runtime/browser/response.g.nupp",
     "src/nupp/runtime/browser/workercodec.g.nupp",
     "src/nupp/runtime/browser/crypto.g.nupp",

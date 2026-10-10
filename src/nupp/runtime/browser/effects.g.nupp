@@ -211,6 +211,17 @@ local function takeFrame(): ({string}, boolean, {any})
     return taken, #rest > 0, rest
 end
 
+local preparers: {function(): boolean} = {}
+
+--- Runs `prepare` at the start of every park, before the frame is packed.
+---
+--- For a provider that keeps one request it adds to until the frame ships and
+--- writes its final form, leases included, only then. `prepare` answers whether
+--- it made something runnable, in which case the frame must not wait.
+function effects.beforePark(prepare: function(): boolean): nil
+    preparers[#preparers + 1] = prepare
+end
+
 --- Whether `thread` can wait on the page, or the main thread where it is nil.
 ---
 --- True where no root has been recorded, which is every host but the guest bridge.
@@ -271,8 +282,14 @@ function effects.park(operation: string, turn: boolean?): nil
     if not effects.canPark() then
         error("nupp: " .. operation .. " cannot suspend here: only the browser application's root can wait", 0)
     end
+    local runnable = false
+    for _, prepare in ipairs(preparers) do
+        if prepare() then
+            runnable = true
+        end
+    end
     local encoded: string
-    local wake = turn == true and "turn" or "any"
+    local wake = (turn == true or runnable) and "turn" or "any"
     if #queued == 0 then
         encoded = json.encode({kind = "poll", operation = operation, wake = wake,})
     else

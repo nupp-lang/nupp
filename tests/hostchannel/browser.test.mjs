@@ -214,7 +214,9 @@ test("results filling the budget are admitted in turn, and an oversized one is r
 test("more requests than a frame carries all ship and all answer", async () => {
   const {value, outcome} = await scenario("manySmallCalls");
   assert.equal(value.correct, 600);
-  assert.ok(outcome.frames > 2, "the requests were packed into more than one frame");
+  // 600 requests of three KiB each are more than the one MiB a frame's records
+  // take, so they must have split across frames.
+  assert.ok(outcome.frames >= 2, "the requests were packed into more than one frame");
 });
 
 test("streams route inbound events and ship outbound messages under their policies", async () => {

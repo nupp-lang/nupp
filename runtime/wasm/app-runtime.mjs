@@ -1,4 +1,7 @@
-import {hostEffectBoundToFrame, performHostEffect} from "./host-channel.mjs";
+import {
+  beginHostFrame, finishHostFrame, hostEffectBoundToFrame, hostFrameReady, hostFrameWaitable, isHostFrame,
+  onHostFrameReady, performHostEffect,
+} from "./host-channel.mjs";
 
 export {closeHostChannel, createHostChannel} from "./host-channel.mjs";
 
@@ -851,12 +854,20 @@ export async function handleBrowserEffects(message, options = {}) {
   }
   const detached = detachedEffects(options);
   const held = [];
+  // A `nupp.host` frame is read after everything else the frame carries, so an
+  // upload it names has arrived, and answered last, with whatever its inbox can
+  // take once the frame has waited.
+  const hostFrames = [];
   if (message.kind === "effects") {
     options.limits ||= checkedLimits(options.limitOverrides);
     if (message.requests.length > options.limits.maxEffects) {
       throw new Error(`browser application yielded more than ${options.limits.maxEffects} effects`);
     }
     for (const effect of message.requests) {
+      if (isHostFrame(effect)) {
+        hostFrames.push(effect);
+        continue;
+      }
       const settling = performEffect(effect, options);
       if (wake === undefined || boundToFrame(effect)) {
         held.push(settling);
@@ -872,14 +883,33 @@ export async function handleBrowserEffects(message, options = {}) {
       });
     }
   }
+  for (const effect of hostFrames) beginHostFrame(effect, options);
   const responses = await Promise.all(held);
   if (wake === "any") {
-    if (responses.length === 0 && detached.settled.length === 0) {
-      if (detached.pending > 0) await new Promise((resolve) => { detached.wake = resolve; });
-      else await nextHostTurn();
+    const hostReady = hostFrames.length > 0 && hostFrameReady(options);
+    if (responses.length === 0 && detached.settled.length === 0 && !hostReady) {
+      const hostWaits = hostFrames.length > 0 && hostFrameWaitable(options);
+      if (detached.pending > 0 || hostWaits) {
+        await new Promise((resolve) => {
+          detached.wake = resolve;
+          if (hostWaits) onHostFrameReady(options, resolve);
+        });
+        detached.wake = null;
+        onHostFrameReady(options, null);
+      } else {
+        await nextHostTurn();
+      }
     }
   } else if (message.kind === "poll" || wake === "turn") {
     await nextHostTurn();
   }
-  return {responses: packedResponses(responses, detached)};
+  const answered = packedResponses(responses, detached);
+  for (const effect of hostFrames) {
+    try {
+      answered.push({id: effect.id, ok: true, value: finishHostFrame(effect, options)});
+    } catch (error) {
+      answered.push({id: effect.id, ok: false, error: String(error?.message || error)});
+    }
+  }
+  return {responses: answered};
 }
