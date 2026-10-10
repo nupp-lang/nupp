@@ -1,0 +1,67 @@
+module nupp.serde.internal.context
+
+local core = require("nupp.serde.internal.value")
+local store = require("nupp.util.internal.store")
+
+local record Entry
+    @readonly value: unknown
+end
+
+local record Context is core.Context
+    @readonly codec: table
+    @readonly profile: table
+    @readonly parent: core.Context?
+    @private @readonly values: {[unknown]: Entry}
+    function get<V is nupp.Copyable>(self, key: store.Key<V>): V?
+        local value = self.values[key]
+        if value ~= nil then
+            return value.value as V
+        end
+        if self.parent ~= nil then
+            return self.parent:get(key)
+        end
+
+        return nil
+    end
+end
+
+export record Builder
+    @private @readonly codec: table
+    @private @readonly profile: table
+    @private @readonly parent: core.Context?
+    @private @readonly values: {[unknown]: Entry}
+    @private frozen: boolean
+
+    --- Stores a value under a key, replacing any value set before.
+    ---
+    --- @param key the key to store under
+    --- @param value the value
+    --- @raises string when the builder is frozen
+    function set<V is nupp.Copyable>(self, key: store.Key<V>, value: V): nil
+        if self.frozen then
+            error("context builder is frozen", 2)
+        end
+        self.values[key] = new Entry(value = value)
+    end
+
+    --- Returns the context holding the values set so far.
+    ---
+    --- The builder can then no longer change, so the context it returned
+    --- cannot either. A key the context does not hold is looked up in its
+    --- parent.
+    ---
+    --- @return the context
+    --- @raises string when the builder is already frozen
+    function freeze(self): core.Context
+        if self.frozen then
+            error("context builder is frozen", 2)
+        end
+        self.frozen = true
+
+        return new Context(codec = self.codec, profile = self.profile, parent = self.parent, values = self.values)
+    end
+end
+
+export function builder(codec: table, profile: table, parent: core.Context?): Builder
+    return new Builder(codec = codec, profile = profile, parent = parent, values = {}, frozen = false)
+end

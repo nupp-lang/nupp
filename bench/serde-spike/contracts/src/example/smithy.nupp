@@ -1,9 +1,12 @@
 module example.smithy
 
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+
+const util = require("nupp.util")
+
+local core = require("nupp.serde")
 local documents = require("nupp.serde.document")
-local jsonDocument = require("nupp.serde.jsondocument")
-local syntax = require("nupp.serde.jsonsyntax")
+local jsonDocument = require("nupp.serde.json")
 
 export record Shape
     @readonly id: string
@@ -150,35 +153,30 @@ export function load(ast: documents.Document): Model
 end
 
 export function parse(source: string): Model
-    local cursor = syntax.reader(source)
-    local reader = jsonDocument.contents(cursor, nil)
-    local value = documents.documentAdapter():readContents(reader)
-    cursor:finish()
-
-    return load(value)
+    return load(jsonDocument.decodeDocument(documents.adapter(), source))
 end
 
-local plans = require("nupp.serde.jsonplan")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
-local timestamps = require("nupp.serde.timestamps")
+local timestamps = require("nupp.serde.codec")
 
-export const schemaContext = core.contextKey<Shape>()
-export const memberContext = core.contextKey<Member>()
-local wireFieldContext = core.contextKey<core.WireField>()
+export const schemaContext = util.newKey<Shape>()
+export const memberContext = util.newKey<Member>()
+local wireFieldContext = util.newKey<core.WireField>()
 export record UnknownField
     @readonly field: core.WireField
     @readonly value: documents.Document
 end
-export const unknownFieldsContext = core.contextKey<{UnknownField}>()
+export const unknownFieldsContext = util.newKey<{UnknownField}>()
 
 local function defaultValue(shape: Shape, value: documents.Document): documents.Document
-    local numbers = require("nupp.serde.numbers")
+    local numbers = require("nupp.serde.codec")
     if shape.kind == "string" or shape.kind == "enum" then
         return documents.string(value:string())
     elseif shape.kind == "boolean" then
         return documents.boolean(value:boolean())
     elseif shape.kind == "document" then
-        return documents.document(value)
+        return documents.boundary(value)
     elseif shape.kind == "byte"
         or shape.kind == "short"
         or shape.kind == "integer"
@@ -193,7 +191,7 @@ local function defaultValue(shape: Shape, value: documents.Document): documents.
     elseif shape.kind == "float" or shape.kind == "double" then
         local width: 32 | 64 = shape.kind == "float" and 32 or 64
         return documents.float(
-            new core.Float(value = numbers.floating(assert(tonumber(value:numberToken())), width), width = width)
+            new core.Float(value = numbers.float(assert(tonumber(value:numberToken())), width), width = width)
         )
     elseif shape.kind == "bigInteger" then
         return documents.bigInteger(value:numberToken())
@@ -250,9 +248,9 @@ local record Fields is core.Members<Member, documents.Document>
                 local context = field.value:context()
                 local identity = context ~= nil and context:get(wireFieldContext) or nil
                 writer:writeUnknown(
-                    identity or new jsonDocument.Name(name = field.name),
+                    identity or new jsonDocument.FieldName(name = field.name),
                     field.value,
-                    documents.documentAdapter()
+                    documents.adapter()
                 )
             end
         end
@@ -260,7 +258,7 @@ local record Fields is core.Members<Member, documents.Document>
         local unknown = context ~= nil and context:get(unknownFieldsContext) or nil
         if unknown ~= nil then
             for _, entry in ipairs(unknown) do
-                writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+                writer:writeUnknown(entry.field, entry.value, documents.adapter())
             end
         end
     end
@@ -281,19 +279,19 @@ local record Unknown is core.UnknownConsumer<State>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        local value = reader:captureValue(documents.documentAdapter())
-        if getmetatable(field) ~= jsonDocument.Name then
+        local value = reader:captureValue(documents.adapter())
+        if getmetatable(field) ~= jsonDocument.FieldName then
             state.unknown[#state.unknown + 1] = new UnknownField(field = field, value = value)
             return
         end
         local context = assert(value:context(), "unknown JSON content requires its source context")
-        local contexts = require("nupp.serde.context")
-        local metadata = contexts.builder(context.codec, context.profile, context)
+        local contexts = require("nupp.serde.codec")
+        local metadata = contexts.contextBuilder(context.codec, context.profile, context)
         metadata:set(wireFieldContext, field)
         state.fields[
             #state.fields + 1
         ] = new documents.Entry(
-            name = jsonDocument.name(field),
+            name = jsonDocument.fieldName(field),
             value = documents.withContext(value, metadata:freeze())
         )
     end
@@ -359,7 +357,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
         local kind = self.description.kind
         local member = self.member
         if kind == "document" then
-            writer:writeDocument(member, value:document(), documents.documentAdapter())
+            writer:writeDocument(member, value:document(), documents.adapter())
         elseif value.kind == "null" then
             assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
             writer:writeNull(member)
@@ -368,7 +366,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
         elseif kind == "boolean" then
             writer:writeBoolean(member, value:boolean())
         elseif kind == "integer" then
-            local numbers = require("nupp.serde.numbers")
+            local numbers = require("nupp.serde.codec")
             writer:writeInteger(
                 member,
                 numbers.integer(value:integer().decimal, self.description.width as(8 | 16 | 32 | 64), true)
@@ -418,7 +416,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
         local value: documents.Document
         local unknown: {UnknownField} = {}
         if kind == "document" then
-            value = documents.document(reader:readDocument(member, documents.documentAdapter()))
+            value = documents.boundary(reader:readDocument(member, documents.adapter()))
         elseif reader:isNull() then
             assert(self.description.nullable or kind == "document", "null is not allowed for this Smithy member")
             reader:readNull(member)
@@ -489,8 +487,8 @@ local record Adapter is core.Adapter<documents.Document, Member>
                 error("unsupported Smithy shape: " .. member.target.kind, 2)
             end
         end
-        local contexts = require("nupp.serde.context")
-        local source = contexts.builder(
+        local contexts = require("nupp.serde.codec")
+        local source = contexts.contextBuilder(
             context ~= nil and context.codec or {},
             context ~= nil and context.profile or {},
             context
@@ -604,11 +602,11 @@ local record Policy<M is core.Member> is plans.Policy<M>
         local format = (member as Member):trait("smithy.api#timestampFormat")
         local epoch = format ~= nil and format:string() == "epoch-seconds" or format == nil and self.epoch
         if epoch then
-            return json.numberToken(timestamps.epoch(value))
+            return json.numberToken(timestamps.formatEpoch(value))
         end
         assert(format == nil or format:string() == "date-time", "unsupported timestamp format in fixture")
 
-        return json.encoded(timestamps.dateTime(value))
+        return json.encoded(timestamps.formatDateTime(value))
     end
 
     function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
@@ -628,7 +626,7 @@ local record Factory is plans.PolicyFactory
     @readonly epoch: boolean
     @readonly rename: boolean
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local document = documents.policy(member, self.epoch)
+        local document = __serdeJson.documentPolicy(member, self.epoch)
         if document ~= nil then
             return document
         end

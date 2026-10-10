@@ -1,8 +1,10 @@
+const util = require("nupp.util")
+
 local serde = require("nupp.serde")
-local views = require("nupp.serde.view")
+local views = require("nupp.serde.document")
 local json = require("nupp.serde.json")
-local contexts = require("nupp.serde.context")
-local core = require("nupp.serde.value")
+local contexts = require("nupp.serde.codec")
+local core = require("nupp.serde")
 local record Child
     name: string
 end
@@ -11,13 +13,13 @@ local record Value
     items: {string}
 end
 local binding = serde.binding(Value)
-local adapter = views.adapter(binding)
-local key = core.contextKey<string>()
-local builder = contexts.builder({}, {})
+local adapter = views.viewAdapter(binding)
+local key = util.newKey<string>()
+local builder = contexts.contextBuilder({}, {})
 builder:set(key, "model context")
 local context = builder:freeze()
 local owner = new Value(child = new Child(name = "first"), items = {"one"})
-local view = views.of(binding, owner, context)
+local view = views.view(binding, owner, context)
 local snapshot = view:snapshot()
 assert(view.binding == binding and snapshot.binding == binding)
 owner.child.name, owner.items[1] = "changed", "two"
@@ -25,20 +27,20 @@ assert(json.encodeDocument(adapter, view) == '{"child":{"name":"changed"},"items
 assert(json.encodeDocument(adapter, snapshot) == '{"child":{"name":"first"},"items":["one"]}')
 assert(assert(snapshot:context()):get(key) == "model context")
 assert(assert(snapshot:document():get("child")):get("name") ~= nil)
-local restored = json.decodeDocument(adapter, '{"child":{"name":"read"},"items":[]}', nil, context)
+local restored = json.decodeDocument(adapter, '{"child":{"name":"read"},"items":[]}', context)
 assert(assert(restored:context()):get(key) == "model context")
 assert(json.encodeDocument(adapter, restored) == '{"child":{"name":"read"},"items":[]}')
-local foreign = views.adapter(serde.binding(Value, new serde.Options(naming = "snakeCase")))
+local foreign = views.viewAdapter(serde.binding(Value, new serde.Options(naming = "snakeCase")))
 assert(not pcall(json.encodeDocument, foreign, view))
 
 local model = require("example.richmodel")
 local schema = model.newModel()
 local packetBinding = model.binding(schema)
 local packet = new model.Packet(id = "first", created = new core.Timestamp(seconds = "0", nanos = 1))
-local typed = views.of(packetBinding, packet)
+local typed = views.view(packetBinding, packet)
 local held = typed:snapshot()
 packet.id = "updated"
-local packetAdapter = views.adapter(packetBinding)
+local packetAdapter = views.viewAdapter(packetBinding)
 local epochs, dates = json.codec(model.policy(true)), json.codec(model.policy(false))
 assert(epochs:encodeDocument(packetAdapter, typed):find('"identifier":"updated"', 1, true))
 assert(dates:encodeDocument(packetAdapter, held):find('"id":"first"', 1, true))

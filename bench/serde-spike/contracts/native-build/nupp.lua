@@ -10,7 +10,7 @@ return {
                 kind = "modules",
                 entries = {
                     "contract.compiledfixture",
-                    "nupp.serde.jsoncompiled",
+                    "nupp.serde.internal.json.compiled",
                     "nupp.codec.json.aot",
                     "contract.hotpath",
                     "contract.matrix",

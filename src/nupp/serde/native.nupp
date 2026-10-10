@@ -1,16 +1,52 @@
 module nupp.serde.native
 
-local core = require("nupp.serde.value")
+--[[
+The native codec saves values as a compact binary frame on a native LuaJIT
+host. See [serde.md](docs/learn/runtime/data/serde.md#native-persistence) for
+what a frame preserves.
+
+```nupp
+local serde = require("nupp.serde")
+local native = require("nupp.serde.native")
+local record Save
+    level: integer
+    inventory: {string}
+end
+local saves = serde.binding(Save)
+local bytes = native.encode(saves, new Save(level = 12, inventory = {"key"}))
+local restored = native.decode(saves, bytes)
+assert(restored.level == 12 and restored.inventory[1] == "key")
+```
+
+The frame keeps everything a [](nupp.serde.Writer) can say: exact 64-bit
+integers, float widths, decimals, bytes, timestamps, and document boundaries.
+Members are stored by name, so a binding can gain optional fields and still
+read older frames.
+
+A frame holds a finite tree of values. It does not preserve shared identity
+or cycles, never runs code from its input, and cannot hold process handles.
+Its input is bounded at 16 MiB, 128 levels of nesting, and a million values.
+
+The frame is versioned and a reader rejects any version it does not know.
+It is specific to LuaJIT: this module raises on other hosts before it selects
+a binding. Use [](nupp.serde.json) for data that leaves the machine.
+]]
+
+local core = require("nupp.serde.internal.value")
 local target = require("nupp.runtime.target")
-local publication = require("nupp.serde.publication")
-local documents = require("nupp.serde.document")
-local bridge = require("nupp.serde.nativereader")
-local readers = require("nupp.serde.documentreader")
-local writers = require("nupp.serde.nativewriter")
-local numbers = require("nupp.serde.numbers")
+local publication = require("nupp.serde.internal.publication")
+local documents = require("nupp.serde.internal.document")
+local bridge = require("nupp.serde.internal.native.reader")
+local readers = require("nupp.serde.internal.documentreader")
+local writers = require("nupp.serde.internal.native.writer")
+local numbers = require("nupp.serde.internal.numbers")
 local json = require("nupp.codec.json")
-local contexts = require("nupp.serde.context")
+local contexts = require("nupp.serde.internal.context")
+local memos = require("nupp.serde.internal.memo")
+
+--- Identifies this codec in a [](nupp.serde.Context) it attaches.
 export const identity: table = {}
+
 local profile: table = {}
 
 -- Version 1 is a LuaJIT-local tagged tree encoded by string.buffer. Names are
@@ -71,95 +107,40 @@ local function validate<M is core.Member>(
     end
 end
 
-local record Slot
-    state: "initializing" | "ready" | "failed" = "initializing"
-    failure: unknown
-    decoder: unknown
+local function selectDecoder<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    binding: core.Binding<T>,
+    direction: core.Direction
+): bridge.Decoder<T>?
+    local description = adapter:describe(direction)
+    validate(description, direction, {})
+    if direction == "read" then
+        return bridge.decoderFor(adapter, description, binding, materialize)
+    else
+        return nil
+    end
 end
-local record Entry
-    used: integer
-    write: Slot?
-    read: Slot?
-end
+
 local record Scope
-    @readonly capacity: integer
-    entries: {[unknown]: Entry} = {}
-    count: integer = 0
-    active: integer = 0
-    clock: integer = 0
+    @readonly memo: memos.Memo
     function resolve<T, M is core.Member>(
         self,
         adapter: core.Adapter<T, M>,
         binding: core.Binding<T>,
         direction: core.Direction
     ): bridge.Decoder<T>?
-        self.clock += 1
-        local entry = self.entries[binding]
-        if entry == nil then
-            if self.count >= self.capacity then
-                local oldest: unknown = nil
-                local age = self.clock + 1
-                for key, candidate in pairs(self.entries) do
-                    local busy = candidate.write ~= nil and candidate.write.state == "initializing"
-                        or candidate.read ~= nil and candidate.read.state == "initializing"
-                    if not busy and candidate.used < age then
-                        oldest, age = key, candidate.used
-                    end
-                end
-                assert(oldest ~= nil, "native extension capacity exhausted by active initialization")
-                self.entries[oldest] = nil
-                self.count -= 1
-            end
-            entry = new Entry(used = self.clock)
-            self.entries[binding] = entry
-            self.count += 1
+        local found, cached = self.memo:find(binding, direction)
+        if found then
+            return cached as bridge.Decoder<T>?
         end
-        entry.used = self.clock
-        local previous: Slot?
-        if direction == "write" then
-            previous = entry.write
-        else
-            previous = entry.read
-        end
-        if previous ~= nil then
-            if previous.state == "ready" then
-                return previous.decoder as bridge.Decoder<T>?
-            elseif previous.state == "failed" then
-                error(previous.failure, 0)
-            else
-                error("recursive native extension initialization", 2)
-            end
-        end
-        local slot = new Slot()
-        if direction == "write" then
-            entry.write = slot
-        else
-            entry.read = slot
-        end
-        self.active += 1
-        local ok, problem = pcall(function(): bridge.Decoder<T>?
-            local description = adapter:describe(direction)
-            validate(description, direction, {})
-            if direction == "read" then
-                return bridge.decoderFor(adapter, description, binding, materialize)
-            else
-                return nil
-            end
-        end)
-        self.active -= 1
-        slot.state = ok and "ready" or "failed"
-        if not ok then
-            slot.failure = problem;
-            error(problem, 0)
-        end
-        slot.decoder = problem
+        local slot = self.memo:start(binding, direction)
+        local ok, result = pcall(selectDecoder, adapter, binding, direction)
 
-        return problem as bridge.Decoder<T>?
+        return self.memo:finish(slot, ok, result) as bridge.Decoder<T>?
     end
 
     function clear(self): nil
-        assert(self.active == 0, "cannot clear an initializing native extension cache")
-        self.entries, self.count, self.clock = {}, 0, 0
+        self.memo:clear()
     end
 end
 local record Check<T> is core.Consumer<T, nil, nil>
@@ -408,14 +389,27 @@ local function decodeContents<D>(adapter: core.DocumentAdapter<D>, bytes: string
     return result
 end
 
+--- A native codec with its own cache of what it selected for each binding.
 export interface Codec
+    --- Encodes a value. See [](encode).
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
+
+    --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string): T
+
+    --- Encodes a document's contents. See [](encodeDocument).
     encodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+
+    --- Decodes document contents. See [](decodeDocument).
     decodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
+
+    --- Forgets every binding's selections.
     clear: function(self): nil
+
+    --- Returns how many bindings have selections retained.
     cachedBindings: function(self): integer
 end
+
 local record Cached is Codec
     @readonly scope: Scope
     function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
@@ -439,30 +433,67 @@ local record Cached is Codec
     end
 
     function cachedBindings(self): integer
-        return self.scope.count
+        return self.scope.memo:size()
     end
 end
+
+--- Makes a [](Codec).
+---
+--- @param capacity the most bindings to retain selections for; nil is 256
+--- @return the codec
+--- @raises string when the host is not native LuaJIT, or capacity is not a positive
+---     integer
 export function codec(capacity: integer?): Codec
     runtime()
-    local size = capacity or 256
-    assert(size > 0 and size % 1 == 0, "invalid native cache capacity")
-    return new Cached(scope = new Scope(capacity = size))
+    return new Cached(scope = new Scope(memo = memos.new("native extension", capacity)))
 end
 
-local defaultCodec = new Cached(scope = new Scope(capacity = 256))
+local defaultCodec = new Cached(scope = new Scope(memo = memos.new("native extension", 256)))
 
+--- Encodes a value as a frame.
+---
+--- @param binding the value's binding
+--- @param value the value
+--- @return the frame
+--- @raises nupp.serde.Error when a value cannot be represented, at its path
 export function encode<T>(binding: core.Binding<T>, borrows value: T): string
     return defaultCodec:encode(binding, value)
 end
 
+--- Decodes a frame into a value.
+---
+--- @param binding the binding to construct through
+--- @param bytes the frame
+--- @return the value
+--- @raises nupp.serde.Error when the frame is malformed, of an unknown version, or does
+---     not fit the binding
 export function decode<T>(binding: core.Binding<T>, bytes: string): T
     return defaultCodec:decode(binding, bytes)
 end
 
+--- Encodes a document's contents as a frame, keeping every scalar's exact form.
+---
+--- ```nupp
+--- local document = require("nupp.serde.document")
+--- local native = require("nupp.serde.native")
+--- local value = document.list({document.numberToken("1e400"), document.bytes("\0\1")})
+--- local restored = native.decodeDocument(document.adapter(), native.encodeDocument(document.adapter(), value))
+--- assert(restored:at(1):numberToken() == "1e400" and restored:at(2):bytes() == "\0\1")
+--- ```
+---
+--- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param value the document
+--- @return the frame
 export function encodeDocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
     return defaultCodec:encodeDocument(adapter, value)
 end
 
+--- Decodes a frame as document contents.
+---
+--- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param bytes the frame
+--- @return the document
+--- @raises nupp.serde.Error when the frame is malformed or of an unknown version
 export function decodeDocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
     return defaultCodec:decodeDocument(adapter, bytes)
 end

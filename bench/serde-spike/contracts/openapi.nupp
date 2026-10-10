@@ -1,3 +1,4 @@
+local __serdeJson = require("nupp.serde.json")
 local api = require("example.openapi")
 local codec = require("nupp.serde.json")
 local documents = require("nupp.serde.document")

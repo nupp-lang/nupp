@@ -1,19 +1,53 @@
 local fixture = require("contract.compiledfixture")
-local compiled = require("nupp.serde.jsoncompiled")
+local compiled = require("nupp.serde.internal.json.compiled")
 local fused = require("nupp.codec.json.aot")
 local json = require("nupp.serde.json")
-local operations = fixture.inspect(fixture.recordBinding)
+local plans = require("nupp.serde.internal.json.plan")
+local cursors = require("nupp.serde.internal.json.syntax")
+local inputs = require("nupp.serde.internal.json.reader")
+local failures = require("nupp.serde.internal.errors")
+
+-- What a codec plans for a binding, without the cache in front of it.
+local function inspect(binding, factory)
+    return binding:accept({
+        apply = function(_, adapter)
+            local description = adapter:describe("read")
+            local policy = (factory or json.defaultPolicy):policy(description.member)
+            return {adapter = adapter, plan = plans.resolve(description, policy, "read")}
+        end,
+    }, nil)
+end
+
+-- The visitor path a compiled decoder must agree with.
+local function visitor(bytes)
+    return fixture.recordBinding:accept({
+        apply = function(_, adapter, source)
+            local description = adapter:describe("read")
+            local policy = json.defaultPolicy:policy(description.member)
+            local cursor = cursors.reader(source:sub(1))
+            local reader = inputs.input(cursor, policy, plans.resolve(description, policy, "read"), nil)
+            local ok, result = pcall(adapter.read, adapter, reader)
+            reader:expire()
+            if not ok then
+                error(failures.wrap(result, cursor:path(), cursor:offset()), 0)
+            end
+            cursor:finish()
+            return result
+        end,
+    }, bytes)
+end
+local operations = inspect(fixture.recordBinding)
 assert(compiled.supports(operations.adapter, operations.plan))
-local nullable = fixture.inspect(fixture.nullableBinding)
+local nullable = inspect(fixture.nullableBinding)
 assert(not compiled.supports(nullable.adapter, nullable.plan))
-local fixed = fixture.inspect(fixture.fixedBinding)
+local fixed = inspect(fixture.fixedBinding)
 assert(compiled.supports(fixed.adapter, fixed.plan))
 local decoder = assert(compiled.select(operations.adapter, operations.plan, fused))
 for _, source in ipairs({
     '{"name":"one","child":{"value":"nested"}}',
     '{"child":{"value":"nested"},"enabled":false,"name":"two"}',
 }) do
-    local native, visitor = decoder:decode(source), fixture.visitor(source)
+    local native, visitor = decoder:decode(source), visitor(source)
     assert(native.name == visitor.name and native.enabled == visitor.enabled)
     assert(native.child.value == visitor.child.value)
     assert(getmetatable(native) == fixture.Record and getmetatable(native.child) == fixture.Child)
@@ -27,17 +61,17 @@ for _, source in ipairs({
     '{"name":"one","child":{"value":"nested"},"unknown":1e9999}',
 }) do
     assert(not pcall(decoder.decode, decoder, source), source)
-    assert(not pcall(fixture.visitor, source), source)
+    assert(not pcall(visitor, source), source)
 end
-local dynamic = fixture.inspect(fixture.indexedBinding, fixture.indexedPolicy)
+local dynamic = inspect(fixture.indexedBinding, fixture.indexedPolicy)
 assert(compiled.supports(dynamic.adapter, dynamic.plan))
 local dynamicDecoder = assert(compiled.select(dynamic.adapter, dynamic.plan, fused))
 local value = dynamicDecoder:decode('{"name":"indexed"}')
 assert(value:get(fixture.slot) == "indexed")
-assert(json.encode(fixture.indexedBinding, value, fixture.indexedPolicy) == '{"name":"indexed"}')
+assert(json.codec(fixture.indexedPolicy):encode(fixture.indexedBinding, value) == '{"name":"indexed"}')
 print("checked native recipes preserve nested records and indexed values")
 
-local fixed = fixture.inspect(fixture.fixedBinding)
+local fixed = inspect(fixture.fixedBinding)
 local integers = assert(compiled.select(fixed.adapter, fixed.plan, fused))
 for _, token in ipairs({"0", "1", "4294967295"}) do
     assert(integers:decode('{"value":' .. token .. '}').value == tonumber(token))
@@ -47,7 +81,7 @@ for _, token in ipairs({"1.0", "1e0", "-0", "-1", "4294967296", "1e9999"}) do
 end
 
 -- Diagnostics inspect syntax without repeating user construction.
-local validated = fixture.inspect(fixture.validatedBinding)
+local validated = inspect(fixture.validatedBinding)
 local checked = assert(compiled.select(validated.adapter, validated.plan, fused))
 local before = fixture.constructorCalls()
 assert(checked:decode('{"text":"ok"}').text == "ok")
@@ -57,7 +91,7 @@ assert(fixture.constructorCalls() == before + 2)
 assert(not pcall(checked.decode, checked, '{"text":"ok"} trailing'))
 assert(fixture.constructorCalls() == before + 2)
 local _, nativeError = pcall(decoder.decode, decoder, '{"name":"one","child":{"value":false}}')
-local _, visitorError = pcall(fixture.visitor, '{"name":"one","child":{"value":false}}')
+local _, visitorError = pcall(visitor, '{"name":"one","child":{"value":false}}')
 assert(nativeError.path == visitorError.path and nativeError.code == visitorError.code)
 assert(nativeError.byte == visitorError.byte)
 assert(not decoder:accepts(string.rep(" ", 1000001)))
@@ -86,17 +120,17 @@ assert(
 )
 assert(attempts == 0)
 
-local nested = fixture.inspect(fixture.nestedValidatedBinding)
+local nested = inspect(fixture.nestedValidatedBinding)
 local nestedDecoder = assert(compiled.select(nested.adapter, nested.plan, fused))
 local priorCalls = fixture.constructorCalls()
 local ok, failure = pcall(nestedDecoder.decode, nestedDecoder, '{"child":{"text":"object-error"}}')
 assert(not ok and failure.cause == fixture.constructorFailure, tostring(failure))
 assert(failure.path == '$["child"]' and fixture.constructorCalls() == priorCalls + 1)
 
-local syntax = require("nupp.serde.jsonsyntax")
-local readers = require("nupp.serde.jsonreader")
-local declarations = require("nupp.serde.declaration")
-local collections = fixture.inspect(fixture.collectionsBinding)
+local syntax = require("nupp.serde.internal.json.syntax")
+local readers = require("nupp.serde.internal.json.reader")
+local declarations = require("nupp.serde.internal.declaration")
+local collections = inspect(fixture.collectionsBinding)
 local sequence = assert(compiled.select(collections.adapter, collections.plan, fused))
 local policy = declarations.policy():policy(collections.adapter:describe("read").member)
 
@@ -138,19 +172,19 @@ local text = require("nupp.text")
 local buffer = text.newBuffer()
 buffer:put("prefix:")
 value.rows[2].value = -1
-local ok, failure = pcall(json.write, fixture.collectionsBinding, value, buffer)
+local ok, failure = pcall(json.encodeInto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["rows"][2]["value"]', tostring(failure))
 assert(buffer:tostring() == "prefix:")
 value.rows[2].value = 2
 value.labels.a = false
-ok, failure = pcall(json.write, fixture.collectionsBinding, value, buffer)
+ok, failure = pcall(json.encodeInto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["labels"]["a"]', tostring(failure))
 assert(buffer:tostring() == "prefix:")
 local many = setmetatable({items = {}}, fixture.Numbers)
 for index = 1, 1000000 do
     many.items[index] = index
 end
-ok, failure = pcall(json.write, fixture.numbersBinding, many, buffer)
+ok, failure = pcall(json.encodeInto, fixture.numbersBinding, many, buffer)
 assert(not ok and failure.code == "limit", tostring(failure))
 assert(failure.path:find('$["items"][', 1, true) == 1, failure.path)
 assert(buffer:tostring() == "prefix:")

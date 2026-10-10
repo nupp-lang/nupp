@@ -1,14 +1,15 @@
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+local core = require("nupp.serde")
 local smithy = require("example.smithy")
 local protocol = require("example.smithyxml")
 local codec = require("example.xmlcodec")
 local syntax = require("example.xmlsyntax")
 local assembly = require("example.xmlassembly")
-local structure = require("nupp.serde.structure")
-local scalar = require("nupp.serde.scalar")
-local lists = require("nupp.serde.list")
+local structure = require("nupp.serde.adapters")
+local scalar = require("nupp.serde.adapters")
+local lists = require("nupp.serde.adapters")
 local documents = require("nupp.serde.document")
-local readers = require("nupp.serde.documentreader")
+local readers = require("nupp.serde.document")
 local model = smithy.parse(
     [[{"smithy":"2.0","shapes":{
  "test#Request":{"type":"structure","traits":{"smithy.api#xmlName":"Request","smithy.api#xmlNamespace":{"uri":"urn:test"}},"members":{
@@ -71,13 +72,13 @@ local record Capture is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new smithy.UnknownField(field = field, value = reader:captureValue(documents.documentAdapter()))
+        ] = new smithy.UnknownField(field = field, value = reader:captureValue(documents.adapter()))
     end
 end
 local record Additional is core.Members<smithy.Member, Request>
     function apply(self, borrows value: Request, exclusive writer: core.Writer<smithy.Member>): nil
         for _, entry in ipairs(value.unknown) do
-            writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+            writer:writeUnknown(entry.field, entry.value, documents.adapter())
         end
     end
 end
@@ -114,7 +115,7 @@ local fields: {structure.Field<Request, Builder, smithy.Member>} = {
         function(exclusive state: Builder, value: {string}): nil
             state.items = value
         end,
-        lists.adapter(items, items.target:at(1), scalar.text(items.target:at(1))),
+        lists.list(items, items.target:at(1), scalar.text(items.target:at(1))),
         false,
         true
     ),
@@ -132,7 +133,7 @@ local fields: {structure.Field<Request, Builder, smithy.Member>} = {
     )
 }
 local recordBinding = new core.Bound<Request, smithy.Member>(
-    adapter = structure.adapter(root, fields, new Construction(), new Capture(), new Additional())
+    adapter = structure.structure(root, fields, new Construction(), new Capture(), new Additional())
 )
 local documentBinding = smithy.binding(shape)
 local policy = protocol.policy()

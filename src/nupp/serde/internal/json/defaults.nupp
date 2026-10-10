@@ -1,0 +1,18 @@
+module nupp.serde.internal.json.defaults
+
+local core = require("nupp.serde.internal.value")
+local plans = require("nupp.serde.internal.json.plan")
+local declarations = require("nupp.serde.internal.declaration")
+local documents = require("nupp.serde.internal.document")
+local declarationPolicy = declarations.policy()
+local record Factory is plans.PolicyFactory
+    function policy<M is core.Member>(self, member: M): plans.Policy<M>
+        local documentPolicy = documents.policy(member, false)
+        if documentPolicy ~= nil then
+            return documentPolicy
+        end
+
+        return declarationPolicy:policy<M>(member)
+    end
+end
+export const factory: plans.PolicyFactory = new Factory()

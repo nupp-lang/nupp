@@ -1,8 +1,8 @@
 -- Deliberately untyped clients exercise runtime lifetime checks in addition to
 -- the checked API's prohibition on retaining borrowed readers.
-local syntax = require("nupp.serde.jsonsyntax")
-local documents = require("nupp.serde.jsondocument")
-local errors = require("nupp.serde.errors")
+local syntax = require("nupp.serde.internal.json.syntax")
+local documents = require("nupp.serde.internal.json.document")
+local errors = require("nupp.serde.internal.errors")
 
 local function refused(fn, text)
     local ok, problem = pcall(fn)
@@ -129,7 +129,7 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
             discarded = value
         end,
     }
-    local ok, value = pcall(codec.decode, binding, '"value"', policy)
+    local ok, value = pcall(function() return codec.codec(policy):decode(binding, '"value"') end)
     assert(ok == (mode == "consume"), tostring(value))
     if ok then
         assert(value == "value")
@@ -144,7 +144,7 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
 end
 
 -- An embedded binding must still produce exactly one logical value.
-local core = require("nupp.serde.value")
+local core = require("nupp.serde.internal.value")
 local jsonSyntax = require("nupp.codec.json")
 local buffers = require("nupp.text")
 local profile = {
@@ -176,12 +176,12 @@ for _, mode in ipairs({"under", "over"}) do
     local destination = buffers.newBuffer()
     local sink = jsonSyntax.newWriter(destination)
     sink:startArray()
-    local ok, problem = pcall(codec.writeValue, selected, "value", sink, profile)
+    local ok, problem = pcall(function() return codec.codec(profile):writeValue(selected, "value", sink) end)
     assert(not ok and problem.code == "contract", tostring(problem))
     sink:close()
 end
 
-local diagnostics = require("nupp.serde.errors")
+local diagnostics = require("nupp.serde.internal.errors")
 local secondary = {}
 local primary = setmetatable({}, {
     __tostring = function()

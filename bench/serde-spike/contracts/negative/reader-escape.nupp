@@ -1,4 +1,4 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local record State
     retained: core.DocumentReader?
 end

@@ -1,9 +1,13 @@
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+const util = require("nupp.util")
+
+local core = require("nupp.serde")
 local documents = require("nupp.serde.document")
-local readers = require("nupp.serde.documentreader")
-local contexts = require("nupp.serde.context")
+local readers = require("nupp.serde.document")
+local contexts = require("nupp.serde.codec")
 local json = require("nupp.serde.json")
 local model = require("example.richmodel")
+local richJson = json.codec(model.policy(true))
 
 local record Custom is core.Atom
     @readonly family: table
@@ -15,8 +19,8 @@ end
 local family: table = {}
 local atom = new Custom(family = family, payload = "custom")
 local codec, profile = {}, {}
-local key = core.contextKey<string>()
-local builder = contexts.builder(codec, profile)
+local key = util.newKey<string>()
+local builder = contexts.contextBuilder(codec, profile)
 builder:set(key, "retained")
 local context = builder:freeze()
 local original = documents.withContext(
@@ -55,16 +59,20 @@ assert(snapshot:at(9):entry(1).value.kind == "null")
 assert(snapshot:at(10):atom().family == atom.family)
 assert(assert(snapshot:at(9):entry(1).value:context()):get(key) == "retained")
 local jsonValue = documents.tuple({snapshot:at(2), snapshot:at(3), snapshot:at(6), snapshot:at(9), documents.null()})
-local bytes = json.encode(documents.documentAdapter():contents(), jsonValue, model.policy(true))
+local bytes = richJson:encode(documents.adapter():contents(), jsonValue)
 assert(bytes == '[18446744073709551615,-0e-2,"AP9ibG9i",{"7":null},null]')
-assert(not pcall(json.encode, documents.documentAdapter():contents(), snapshot, model.policy(true)))
+assert(
+    not pcall(function(): string
+        return richJson:encode(documents.adapter():contents(), snapshot)
+    end)
+)
 print("rich documents snapshot exact values, typed keys, nulls, atoms, and context without wire serialization")
 
-local boundary = documents.document(documents.document(documents.string("nested")))
+local boundary = documents.boundary(documents.boundary(documents.string("nested")))
 local copied = readers.snapshot(boundary)
 assert(copied.kind == "document" and copied:document().kind == "document")
 assert(copied:document():document():string() == "nested")
-assert(json.encode(documents.documentAdapter():contents(), copied, model.policy(true)) == '"nested"')
+assert(richJson:encode(documents.adapter():contents(), copied) == '"nested"')
 
 local record Mutable is core.Atom
     @readonly family: table

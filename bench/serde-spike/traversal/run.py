@@ -63,7 +63,7 @@ for key, durations in sorted(by_case.items()):
                  "pairedForkBootstrap95": [low, high], "verdict": verdict})
 source_hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
                  for name in ["src/traversal.nupp", "benchmark.lua", "run.py", "nupp.lua",
-                              "../../../src/nupp/serde/jsonsyntax.nupp"]}
+                              "../../../src/nupp/serde/internal/json/syntax.nupp"]}
 summary = {"revision": revision, "workingTree": True, "sourceSha256": source_hashes,
            "platform": platform.platform(), "scope": reports[0]["scope"], "forks": args.forks,
            "samplesPerFork": args.samples, "practicalMarginPercent": 5,

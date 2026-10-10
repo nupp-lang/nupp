@@ -1,0 +1,81 @@
+module nupp.serde.internal.json.extensions
+
+local core = require("nupp.serde.internal.value")
+local plans = require("nupp.serde.internal.json.plan")
+local errors = require("nupp.serde.internal.errors")
+local encoding = require("nupp.serde.internal.json.encoder")
+local lowering = require("nupp.serde.internal.json.lower")
+local compiled = require("nupp.serde.internal.json.compiled")
+local memos = require("nupp.serde.internal.memo")
+
+export record Operation<T, M is core.Member>
+    @readonly policy: plans.Policy<M>
+    @readonly plan: plans.Plan<M>
+    @readonly native: compiled.Decoder<T>?
+    @readonly encoding: lowering.Encoding<T>?
+end
+
+export interface Scope
+    resolve: function<T, M is core.Member>(
+        self,
+        adapter: core.Adapter<T, M>,
+        direction: core.Direction
+    ): Operation<T, M>
+    clear: function(self): nil
+    size: function(self): integer
+    profile: function(self): plans.PolicyFactory
+end
+
+local function initialize<T, M is core.Member>(
+    adapter: core.Adapter<T, M>,
+    factory: plans.PolicyFactory,
+    direction: core.Direction
+): Operation<T, M>
+    local description = adapter:describe(direction)
+    local policy = factory:policy<M>(description.member)
+    local plan = plans.resolve(description, policy, direction)
+    return new Operation<T, M>(
+        policy = policy,
+        plan = plan,
+        native = direction == "read" and compiled.select(adapter, plan) or nil,
+        encoding = direction == "write" and encoding.select(adapter, plan) or nil
+    )
+end
+
+local record Cache is Scope
+    @readonly factory: plans.PolicyFactory
+    @readonly memo: memos.Memo
+
+    function profile(self): plans.PolicyFactory
+        return self.factory
+    end
+
+    function size(self): integer
+        return self.memo:size()
+    end
+
+    function clear(self): nil
+        self.memo:clear()
+    end
+
+    function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>, direction: core.Direction): Operation<T, M>
+        local found, cached = self.memo:find(adapter, direction)
+        if found then
+            -- The adapter identity fixes its private member type. Scope identity
+            -- fixes the backend and immutable profile; direction selects a
+            -- separate slot. No value is retained in this cache.
+            return cached as Operation<T, M>
+        end
+        local slot = self.memo:start(adapter, direction)
+        local ok, result = pcall(initialize, adapter, self.factory, direction)
+        if not ok then
+            result = errors.wrap(result, "$", nil)
+        end
+
+        return self.memo:finish(slot, ok, result) as Operation<T, M>
+    end
+end
+
+export function scope(factory: plans.PolicyFactory, capacity: integer?): Scope
+    return new Cache(factory = factory, memo = memos.new("JSON extension", capacity))
+end

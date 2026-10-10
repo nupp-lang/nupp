@@ -1,0 +1,182 @@
+@!internal
+module nupp.serde.internal.json.encoder
+
+local core = require("nupp.serde.internal.value")
+local plans = require("nupp.serde.internal.json.plan")
+local lowering = require("nupp.serde.internal.json.lower")
+local declarations = require("nupp.serde.internal.declaration")
+local structures = require("nupp.serde.internal.structure")
+local scalars = require("nupp.serde.internal.scalar")
+local numbers = require("nupp.serde.internal.numbers")
+local json = require("nupp.codec.json")
+local errors = require("nupp.serde.internal.errors")
+
+local interface Entry<T>
+    @readonly dynamic: boolean
+    write: function(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+end
+local record Project<T, V is nupp.Copyable> is Entry<T>
+    @readonly dynamic: boolean
+    @readonly key: json.EncodedString
+    @readonly path: string
+    @readonly present: structures.Has<T>
+    @readonly get: structures.Get<T, V>
+    @readonly encoding: lowering.Encoding<V>
+    function emit(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        if self.present(value) then
+            sink:key(self.key)
+            local get = self.get
+            if get.kind == "borrowed" then
+                self.encoding:write(get.read(value), sink, budget)
+            else
+                self.encoding:write(get.read(value), sink, budget)
+            end
+        end
+    end
+
+    function write(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        local ok, problem = pcall(self.emit, self, value, sink, budget)
+        if not ok then
+            error(errors.wrap(problem, self.path, nil), 0)
+        end
+    end
+end
+local record Field<T, S is nupp.Closeable, M is core.Member> is structures.FieldConsumer<T, S, M, boolean>
+    @readonly resolver: lowering.EncodeResolver<M>
+    @readonly plan: plans.Plan<M>
+    @readonly path: string
+    @readonly fields: {Entry<T>}
+    function apply<V is nupp.Copyable>(
+        self,
+        member: M,
+        has: structures.Has<T>,
+        get: structures.Get<T, V>,
+        set: structures.Set<S, V>,
+        adapter: core.Adapter<V, M>,
+        fallback: (function(): V)?
+    ): boolean
+        if self.plan:action(member) ~= "traverse" then
+            return false
+        end
+        local child = self.plan:child(member)
+        if child == nil then
+            return false
+        end
+        local path = self.path .. "[" .. json.encode(member.name) .. "]"
+        local encoding = self.resolver:resolve(adapter, child, path)
+        if encoding == nil then
+            return false
+        end
+        self.fields[
+            #self.fields + 1
+        ] = new Project<T, V>(
+            dynamic = encoding.dynamic,
+            key = assert(self.plan:key(member)),
+            path = path,
+            present = has,
+            get = get,
+            encoding = encoding
+        )
+
+        return true
+    end
+end
+local record Structure<T> is lowering.Encoding<T>
+    @readonly dynamic: boolean
+    @readonly path: string
+    @readonly fields: {Entry<T>}
+    function write(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        if budget ~= nil then
+            budget:step(self.path)
+        end
+        sink:startObject()
+        for _, field in ipairs(self.fields) do
+            field:write(value, sink, budget)
+        end
+        sink:endObject()
+    end
+end
+local record SelectStructure<T, M is core.Member> is structures.Consumer<T, M, lowering.Encoding<T>?>
+    @readonly resolver: lowering.EncodeResolver<M>
+    @readonly plan: plans.Plan<M>
+    @readonly path: string
+    function apply<S is nupp.Closeable>(
+        self,
+        member: M,
+        fields: const{structures.Field<T, S, M>},
+        construction: structures.Construction<T, S>,
+        unknown: core.UnknownConsumer<S>,
+        additional: core.Members<M, T>?
+    ): lowering.Encoding<T>?
+        if additional ~= nil then
+            return nil
+        end
+        local selected: {Entry<T>} = {}
+        for _, field in ipairs(fields) do
+            if not field:accept(
+                new Field<T, S, M>(resolver = self.resolver, plan = self.plan, path = self.path, fields = selected)
+            ) then
+                return nil
+            end
+        end
+
+        local dynamic = false
+        for _, field in ipairs(selected) do
+            dynamic = dynamic or field.dynamic
+        end
+
+        return new Structure<T>(fields = selected, dynamic = dynamic, path = self.path)
+    end
+end
+local record Primitive<T> is lowering.Encoding<T>
+    @readonly dynamic: boolean = false
+    @readonly kind: string
+    @readonly path: string
+    function write(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
+        if budget ~= nil then
+            budget:step(self.path)
+        end
+        if self.kind == "string" then
+            sink:write((value as unknown as string):sub(1))
+        elseif self.kind == "boolean" then
+            sink:write(value == true)
+        else
+            sink:write(numbers.floating((value as unknown as number) * 1, 64))
+        end
+    end
+end
+local record Resolver<M is core.Member> is lowering.EncodeResolver<M>
+    @readonly active: {[unknown]: boolean} = {}
+    depth: integer = 0
+    values: integer = 0
+    function resolve<T>(self, adapter: core.Adapter<T, M>, plan: plans.Plan<M>, path: string): lowering.Encoding<T>?
+        if self.active[adapter] or plan.description.nullable or self.depth >= 64 or self.values >= 1000000 then
+            return nil
+        end
+        self.active[adapter] = true
+        self.depth += 1
+        self.values += 1
+        local encoding = declarations.nativeEncoding(adapter, plan, self, path)
+        if encoding == nil then
+            local scalar = scalars.nativeScalar(adapter)
+            if scalar ~= nil then
+                encoding = new Primitive<T>(kind = scalar, path = path)
+            else
+                encoding = structures.inspect(
+                    adapter,
+                    new SelectStructure<T, M>(resolver = self, plan = plan, path = path)
+                )
+            end
+        end
+        self.active[adapter] = nil
+        self.depth -= 1
+
+        return encoding
+    end
+end
+
+-- All accepted operations come from identity-checked adapters and inspected
+-- access operations. Descriptions alone never authorize bypassing a callback.
+export function select<T, M is core.Member>(adapter: core.Adapter<T, M>, plan: plans.Plan<M>): lowering.Encoding<T>?
+    return (new Resolver<M>()):resolve(adapter, plan, "$")
+end

@@ -6,7 +6,7 @@
     "benchmark.lua": "baa98d6a69bde9011d37fe1b367e5c04362601b3646d8461362c567c53be07cd",
     "run.py": "bd55fb5e75dc534037aa80ef36d3e282d1dd5deeeaa3b0213922bb5b801e4851",
     "nupp.lua": "bc1e2d6451aeed8d70885ec3c2eb008b116c238ae920cd76c94e04e5e10387f6",
-    "../../../src/nupp/serde/jsonsyntax.nupp": "26e268809238a8e92d3953a50342613d7a7f49d4e7ddc34fdb848fb1fdd4f1eb"
+    "../../../src/nupp/serde/internal/json/syntax.nupp": "26e268809238a8e92d3953a50342613d7a7f49d4e7ddc34fdb848fb1fdd4f1eb"
   },
   "platform": "macOS-26.6-arm64-arm-64bit",
   "scope": "Flat 3/12 selected integer members over twelve-member record/indexed carriers; not the complete S0 semantic matrix",

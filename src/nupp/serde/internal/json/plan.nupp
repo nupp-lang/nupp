@@ -1,0 +1,214 @@
+module nupp.serde.internal.json.plan
+
+local core = require("nupp.serde.internal.value")
+local json = require("nupp.codec.json")
+local errors = require("nupp.serde.internal.errors")
+
+--- Whether a JSON policy writes a member, leaves it out, or writes it
+--- redacted.
+---
+--- `"traverse"` writes and reads the member. `"omit"` leaves it out of the
+--- output, and `"redact"` writes the string `[redacted]` in its place. On
+--- reading, both skip a value found under the member's name rather than
+--- report it as unknown.
+export type Selection = "traverse" | "omit" | "redact"
+
+export interface Policy<M is core.Member>
+    --- Returns the JSON member name of a structure or union member.
+    ---
+    --- The codec asks while planning a binding, and as it writes each member
+    --- of a dynamic value such as a document. Two members of a structure that
+    --- this policy gives the same name fail the plan unless one of them is omitted.
+    ---
+    --- @param member the member to name
+    --- @return the JSON name
+    name: function(self, member: M): string
+
+    --- Returns whether a member is traversed, omitted, or redacted.
+    ---
+    --- The codec asks about every member a binding reaches when it plans it
+    --- for a direction. Reading fails the plan when a member that is not
+    --- traversed is required and has no default.
+    ---
+    --- @param member the member to select
+    --- @param direction whether the plan is for writing or reading
+    --- @return the selection
+    select: function(self, member: M, direction: core.Direction): Selection
+
+    --- Encodes a timestamp member's value as JSON.
+    ---
+    --- @param member the member being written
+    --- @param value the timestamp
+    --- @return the encoded JSON value, such as an RFC 3339 string or a number
+    ---     of epoch seconds
+    timestamp: function(self, member: M, borrows value: core.Timestamp): json.EncodedValue
+
+    --- Decodes a timestamp member's JSON value.
+    ---
+    --- The codec rejects a value that is neither a string nor a number before
+    --- asking.
+    ---
+    --- @param member the member being read
+    --- @param text the string's contents, or the number's lexeme
+    --- @param kind which of the two the input held
+    --- @return the timestamp
+    parseTimestamp: function(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+end
+
+export interface PolicyFactory
+    --- Returns the policy for a binding whose value sits at a member.
+    ---
+    --- A codec asks when it first plans a binding for a direction, and keeps
+    --- the policy with that plan while the binding stays in its cache. The
+    --- one policy serves every member the binding reaches.
+    ---
+    --- @param member the member the binding's root value sits at
+    --- @return the policy
+    policy: function<M is core.Member>(self, member: M): Policy<M>
+end
+
+export record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @private @readonly names: {[string]: M}
+    @private @readonly keys: {[M]: json.EncodedString}
+    @private @readonly wireNames: {[M]: string}
+    @private @readonly omittedNames: {[string]: boolean}
+    @private @readonly actions: {[M]: Selection}
+    @private @readonly children: {[M]: Plan<M>}
+    function member(self, name: string): M?
+        return self.names[name]
+    end
+
+    function key(self, member: M): json.EncodedString?
+        return self.keys[member]
+    end
+
+    function wireName(self, member: M): string?
+        return self.wireNames[member]
+    end
+
+    function omitsName(self, name: string): boolean
+        return self.omittedNames[name] == true
+    end
+
+    function action(self, member: M): Selection?
+        return self.actions[member]
+    end
+
+    function child(self, member: M): Plan<M>?
+        return self.children[member]
+    end
+
+    function slot(self, index: integer): Plan<M>?
+        local child = self.description.children[index]
+        local plan = child ~= nil and self.children[child.member] or nil
+        if plan ~= nil then
+            return plan
+        end
+        if self.description.kind == "dynamic" then
+            return nil
+        else
+            error("missing container slot " .. tostring(index), 2)
+        end
+    end
+end
+
+local function build<M is core.Member>(
+    description: core.Description<M>,
+    policy: Policy<M>,
+    direction: core.Direction,
+    seen: {[core.Description<M>]: Plan<M>},
+    path: string
+): Plan<M>
+    local prior = seen[description]
+    if prior ~= nil then
+        return prior
+    end
+    if direction == "read" and not description.canRead then
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "binding has no construction operation",
+                path = path,
+                cause = nil
+            ),
+            0
+        )
+    end
+    if description.kind == "opaque" or description.kind == "atom" then
+        error(
+            new errors.Error(
+                code = "unsupported",
+                message = "JSON does not support " .. description.kind,
+                path = path,
+                cause = nil
+            ),
+            0
+        )
+    end
+    local result = new Plan<M>(
+        description = description,
+        names = {},
+        keys = {},
+        wireNames = {},
+        omittedNames = {},
+        actions = {},
+        children = {}
+    )
+    seen[description] = result
+    for _, child in ipairs(description.children) do
+        local member = child.member
+        local childPath = path .. "[" .. json.encode(member.name) .. "]"
+        local action = policy:select(member, direction)
+        result.actions[member] = action
+        if action ~= "traverse" and direction == "read" and child.required and not child.hasDefault then
+            error(
+                new errors.Error(
+                    code = "unsupported",
+                    message = "omitted member has no default",
+                    path = childPath,
+                    cause = nil
+                ),
+                0
+            )
+        end
+        if description.kind == "structure" or description.kind == "union" then
+            local name = policy:name(member)
+            if action == "omit" then
+                result.omittedNames[name] = true
+            else
+                if result.names[name] ~= nil then
+                    error(
+                        new errors.Error(
+                            code = "contract",
+                            message = "colliding JSON member name: " .. name,
+                            path = childPath,
+                            cause = nil
+                        ),
+                        0
+                    )
+                end
+                result.names[name] = member
+                result.keys[member] = json.encodedString(name)
+                result.wireNames[member] = name
+            end
+        end
+        if action == "traverse" then
+            local ok, described = pcall(child.describe, child, direction)
+            if not ok then
+                error(errors.wrap(described, childPath, nil), 0)
+            end
+            result.children[member] = build(described as core.Description<M>, policy, direction, seen, childPath)
+        end
+    end
+
+    return result
+end
+
+export function resolve<M is core.Member>(
+    description: core.Description<M>,
+    policy: Policy<M>,
+    direction: core.Direction
+): Plan<M>
+    return build(description, policy, direction, {}, "$")
+end

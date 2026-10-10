@@ -1,0 +1,262 @@
+module nupp.serde.internal.scalar
+
+local core = require("nupp.serde.internal.value")
+
+local record Description<M is core.Member> is core.Description<M>
+    @readonly member: M
+    @readonly kind: core.Kind
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<M>} = {}
+end
+
+local record Text<M is core.Member> is core.Adapter<string, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: string, exclusive writer: core.Writer<M>): nil
+        writer:writeString(self.description.member, value:sub(1))
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): string
+        return reader:readString(self.description.member)
+    end
+end
+
+local record Time<M is core.Member> is core.Adapter<core.Timestamp, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: core.Timestamp, exclusive writer: core.Writer<M>): nil
+        writer:writeTimestamp(self.description.member, value)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): core.Timestamp
+        return reader:readTimestamp(self.description.member)
+    end
+end
+
+export function text<M is core.Member>(member: M): core.Adapter<string, M>
+    return new Text<M>(description = new Description<M>(member = member, kind = "string"))
+end
+
+export function timestamp<M is core.Member>(member: M): core.Adapter<core.Timestamp, M>
+    return new Time<M>(description = new Description<M>(member = member, kind = "timestamp"))
+end
+
+export interface Conversion<T, V is nupp.Copyable>
+    --- Returns the value the base adapter writes in place of an application
+    --- value.
+    ---
+    --- @param value the application value being written
+    --- @return the projected value
+    project: function(self, borrows value: T): V
+
+    --- Builds the application value from one the base adapter read.
+    ---
+    --- @param value the value the base adapter read
+    --- @return the application value
+    restore: function(self, value: V): T
+end
+
+local record Converted<T, V is nupp.Copyable, M is core.Member> is core.Adapter<T, M>
+    @readonly base: core.Adapter<V, M>
+    @readonly conversion: Conversion<T, V>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.base:describe(direction)
+    end
+
+    function write(self, borrows value: T, exclusive writer: core.Writer<M>): nil
+        local projected = self.conversion:project(value)
+        self.base:write(projected, writer)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): T
+        return self.conversion:restore(self.base:read(reader))
+    end
+end
+
+export function convert<T, V is nupp.Copyable, M is core.Member>(
+    base: core.Adapter<V, M>,
+    conversion: Conversion<T, V>
+): core.Adapter<T, M>
+    return new Converted<T, V, M>(base = base, conversion = conversion)
+end
+
+local record Boolean<M is core.Member> is core.Adapter<boolean, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: boolean, exclusive writer: core.Writer<M>): nil
+        writer:writeBoolean(self.description.member, value == true)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): boolean
+        return reader:readBoolean(self.description.member)
+    end
+end
+export function boolean<M is core.Member>(member: M): core.Adapter<boolean, M>
+    return new Boolean<M>(description = new Description<M>(member = member, kind = "boolean"))
+end
+
+local record Bytes<M is core.Member> is core.Adapter<string, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: string, exclusive writer: core.Writer<M>): nil
+        writer:writeBytes(self.description.member, value:sub(1))
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): string
+        return reader:readBytes(self.description.member)
+    end
+end
+export function bytes<M is core.Member>(member: M): core.Adapter<string, M>
+    return new Bytes<M>(description = new Description<M>(member = member, kind = "bytes"))
+end
+
+local record BigInteger<M is core.Member> is core.Adapter<string, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: string, exclusive writer: core.Writer<M>): nil
+        assert(value:match("^%-?%d+$"), "invalid big integer")
+        writer:writeBigInteger(self.description.member, value:sub(1))
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): string
+        return reader:readBigInteger(self.description.member)
+    end
+end
+export function bigInteger<M is core.Member>(member: M): core.Adapter<string, M>
+    return new BigInteger<M>(description = new Description<M>(member = member, kind = "bigInteger"))
+end
+
+local record Decimal<M is core.Member> is core.Adapter<core.Decimal, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: core.Decimal, exclusive writer: core.Writer<M>): nil
+        writer:writeDecimal(self.description.member, value)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): core.Decimal
+        return reader:readDecimal(self.description.member)
+    end
+end
+export function decimal<M is core.Member>(member: M): core.Adapter<core.Decimal, M>
+    return new Decimal<M>(description = new Description<M>(member = member, kind = "decimal"))
+end
+
+local record Atom<M is core.Member> is core.Adapter<core.Atom, M>
+    @readonly description: Description<M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: core.Atom, exclusive writer: core.Writer<M>): nil
+        writer:writeAtom(self.description.member, value)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): core.Atom
+        return reader:readAtom(self.description.member)
+    end
+end
+export function atom<M is core.Member>(member: M): core.Adapter<core.Atom, M>
+    return new Atom<M>(description = new Description<M>(member = member, kind = "atom"))
+end
+
+local record Integer<M is core.Member> is core.Adapter<core.Integer, M>
+    @readonly description: Description<M>
+    @readonly width: 8 | 16 | 32 | 64
+    @readonly signed: boolean
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: core.Integer, exclusive writer: core.Writer<M>): nil
+        local numbers = require("nupp.serde.internal.numbers")
+        writer:writeInteger(self.description.member, numbers.integer(value.decimal, self.width, self.signed))
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): core.Integer
+        return reader:readInteger(self.description.member, self.width, self.signed)
+    end
+end
+export function integer<M is core.Member>(
+    member: M,
+    width: 8 | 16 | 32 | 64,
+    signed: boolean
+): core.Adapter<core.Integer, M>
+    return new Integer<M>(
+        description = new Description<M>(member = member, kind = "integer", width = width, signed = signed),
+        width = width,
+        signed = signed
+    )
+end
+
+local record Float<M is core.Member> is core.Adapter<number, M>
+    @readonly description: Description<M>
+    @readonly width: 32 | 64
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: number, exclusive writer: core.Writer<M>): nil
+        writer:writeFloat(self.description.member, value * 1, self.width)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): number
+        return reader:readFloat(self.description.member, self.width)
+    end
+end
+export function float<M is core.Member>(member: M, width: 32 | 64): core.Adapter<number, M>
+    return new Float<M>(description = new Description<M>(member = member, kind = "float", width = width), width = width)
+end
+
+local record Document<D, M is core.Member> is core.Adapter<D, M>
+    @readonly description: Description<M>
+    @readonly document: core.DocumentAdapter<D>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.description
+    end
+
+    function write(self, borrows value: D, exclusive writer: core.Writer<M>): nil
+        writer:writeDocument(self.description.member, value, self.document)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): D
+        return reader:readDocument(self.description.member, self.document)
+    end
+end
+export function document<D, M is core.Member>(member: M, adapter: core.DocumentAdapter<D>): core.Adapter<D, M>
+    return new Document<D, M>(description = new Description<M>(member = member, kind = "document"), document = adapter)
+end
+
+-- Only these adapters return the native parser's scalar carrier unchanged.
+export function nativeScalar<T, M is core.Member>(adapter: core.Adapter<T, M>): string?
+    local identity = getmetatable(adapter)
+    if identity == Text then
+        return "string"
+    elseif identity == Boolean then
+        return "boolean"
+    elseif identity == Float and (adapter as unknown as {width: integer}).width == 64 then
+        return "number"
+    end
+
+    return nil
+end

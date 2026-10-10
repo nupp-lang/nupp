@@ -1,4 +1,5 @@
-local declarations = require("nupp.serde.declaration")
+local __serdeJson = require("nupp.serde.json")
+local declarations = require("nupp.serde")
 local codecs = require("nupp.serde.json")
 
 local record Address
@@ -12,7 +13,7 @@ local record User
 end
 local binding = declarations.binding(User)
 assert(binding == declarations.binding(User))
-local codec = codecs.codec(declarations.policy())
+local codec = codecs.codec(__serdeJson.defaultPolicy)
 local restored = codec:decode(binding, '{"id":7,"address":{"city":"Chicago"},"nickname":null}')
 assert(restored.id == 7 and restored.address.city == "Chicago" and restored.address.postalCode == "unknown")
 assert(getmetatable(restored) == User and getmetatable(restored.address) == Address)

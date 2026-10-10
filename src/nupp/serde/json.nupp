@@ -1,21 +1,58 @@
 module nupp.serde.json
 
-local core = require("nupp.serde.value")
-local publication = require("nupp.serde.publication")
-local plans = require("nupp.serde.jsonplan")
-local readers = require("nupp.serde.jsonreader")
-local writers = require("nupp.serde.jsonwriter")
-local documents = require("nupp.serde.jsondocument")
-local syntax = require("nupp.serde.jsonsyntax")
+--[[
+This codec writes and reads JSON text through any [](nupp.serde.Binding). See
+[serde.md](docs/learn/runtime/data/serde.md#json-mappings) for field mappings.
+
+```nupp
+local serde = require("nupp.serde")
+local json = require("nupp.serde.json")
+local record Order
+    id: integer
+    items: {string}
+    note: string?
+end
+local orders = serde.binding(Order)
+local bytes = json.encode(orders, new Order(id = 9, items = {"tea"}))
+assert(bytes == '{"id":9,"items":["tea"],"note":null}')
+local order = json.decode(orders, bytes)
+assert(order.items[1] == "tea" and order.note == nil)
+```
+
+What a binding needs to be written is worked out on first use and kept, so the
+second call with a binding does none of that work again. Native AOT builds also
+select a compiled decoder for bindings whose carriers it supports.
+
+The module-level functions share one [](Codec) with [](defaultPolicy), which
+reads declaration bindings and documents. A model library passes a
+[](PolicyFactory) of its own to [](codec), or [](memberNamePolicy) when its
+member names are already the wire names.
+
+Decoding is strict: a declaration binding rejects unknown members unless its
+[](nupp.serde.Options) say `unknownMembers = "ignore"`, integers must fit their
+declared width, and nesting and token counts are bounded. Every failure is a
+[](nupp.serde.Error) naming the path and byte offset where it happened.
+]]
+
+local core = require("nupp.serde.internal.value")
+local publication = require("nupp.serde.internal.publication")
+local plans = require("nupp.serde.internal.json.plan")
+local readers = require("nupp.serde.internal.json.reader")
+local writers = require("nupp.serde.internal.json.writer")
+local documents = require("nupp.serde.internal.json.document")
+local syntax = require("nupp.serde.internal.json.syntax")
 local json = require("nupp.codec.json")
 local text = require("nupp.text")
-local contexts = require("nupp.serde.context")
-local errors = require("nupp.serde.errors")
-local extensions = require("nupp.serde.jsonextensions")
-local compiled = require("nupp.serde.jsoncompiled")
-local lowering = require("nupp.serde.jsonlower")
-local defaults = require("nupp.serde.defaultjson")
+local contexts = require("nupp.serde.internal.context")
+local errors = require("nupp.serde.internal.errors")
+local extensions = require("nupp.serde.internal.json.extensions")
+local compiled = require("nupp.serde.internal.json.compiled")
+local lowering = require("nupp.serde.internal.json.lower")
+local defaults = require("nupp.serde.internal.json.defaults")
+local documentValues = require("nupp.serde.internal.document")
 
+--- Identifies JSON as the codec in a [](nupp.serde.Context) it attaches, so a
+--- protocol can tell a document it read from one another codec read.
 export const identity: table = {}
 
 local interface WriteOperation<T>
@@ -156,15 +193,38 @@ local function decodeContents<D>(
     return result as D
 end
 
+--- A JSON codec with its own policy and its own cache of what it selected for
+--- each binding.
+---
+--- The module-level functions use one shared codec with [](defaultPolicy). Hold
+--- a codec of your own to use another policy, or to bound and clear what it
+--- retains.
 export interface Codec
+    --- Encodes a document's contents. See [](encodeDocument).
     encodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+
+    --- Decodes document contents. See [](decodeDocument).
     decodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
+
+    --- Writes one value into a JSON writer. See [](writeValue).
     writeValue: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
+
+    --- Encodes a value. See [](encode).
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
+
+    --- Appends a value to a buffer. See [](encodeInto).
     encodeInto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+
+    --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
+
+    --- Decodes a value from a buffer. See [](decodeBuffer).
     decodeBuffer: function<T>(self, binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
+
+    --- Forgets every binding's selections.
     clear: function(self): nil
+
+    --- Returns how many bindings have selections retained.
     cachedBindings: function(self): integer
 end
 
@@ -264,106 +324,210 @@ local record Cached is Codec
     end
 end
 
-export function codec(factory: plans.PolicyFactory?, capacity: integer?): Codec
-    local profile = factory or defaults.factory
-    return new Cached(factory = profile, cache = extensions.scope(profile, capacity))
+--- Chooses each member's JSON name, whether it is written, and how its
+--- timestamps are represented.
+---
+--- A model library implements one to interpret the traits on its own members,
+--- such as a Smithy `jsonName` or `timestampFormat`.
+export type Policy<M is core.Member> = plans.Policy<M>
+
+--- Returns the [](Policy) for a binding's member type.
+export type PolicyFactory = plans.PolicyFactory
+
+--- Whether a policy writes a member, leaves it out, or writes it redacted.
+export type Selection = plans.Selection
+
+--- The policy for declaration bindings and documents, which the module-level
+--- functions use. A model's own factory can delegate to it for members it does
+--- not own.
+export const defaultPolicy: plans.PolicyFactory = defaults.factory
+
+--- The policy that writes every member under its own `name`, traverses every
+--- member, and writes timestamps as RFC 3339 strings.
+---
+--- [](defaultPolicy) refuses a model's own members rather than guess at the
+--- traits they carry, so a model library has to say how its members are named.
+--- Use it for a model whose names are already the wire names.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local adapters = require("nupp.serde.adapters")
+--- local json = require("nupp.serde.json")
+--- local record Member is serde.Member
+---     @readonly name: string
+---     @readonly index: integer?
+--- end
+--- local title: serde.Binding<string> = new serde.Bound<string, Member>(
+---     adapter = adapters.text(new Member(name = "title"))
+--- )
+--- assert(not pcall(json.encode, title, "Dune"))
+--- local plain = json.codec(json.memberNamePolicy)
+--- assert(plain:encode(title, "Dune") == '"Dune"')
+--- ```
+export const memberNamePolicy: plans.PolicyFactory = documentValues.memberNames
+
+--- Returns the policy JSON applies inside a document-valued member, or nil when
+--- the member is not one of a document's own.
+---
+--- A model's [](PolicyFactory) asks this first, so documents nested in its
+--- values are read and written the way [](defaultPolicy) reads them.
+---
+--- @param member the member a codec asks about
+--- @param epochTimestamps whether document timestamps are written as epoch seconds
+--- @return the policy, or nil
+export function documentPolicy<M is core.Member>(member: M, epochTimestamps: boolean): plans.Policy<M>?
+    return documentValues.policy(member, epochTimestamps)
 end
 
-local record ProfileEntry
-    @readonly codec: Codec
-    used: integer
-end
-local profiles: {[plans.PolicyFactory]: ProfileEntry} = {}
-local profileCount: integer = 0
-local profileClock: integer = 0
-local defaultCodec = codec()
+--- The wire field a JSON decoder reports for a member the model does not
+--- declare.
+export type FieldName = documents.Name
 
-local function selectedCodec(factory: plans.PolicyFactory?): Codec
-    if factory == nil or factory == defaults.factory then
-        return defaultCodec
-    end
-    profileClock += 1
-    local entry = profiles[factory]
-    if entry == nil then
-        if profileCount == 16 then
-            local oldest: plans.PolicyFactory? = nil
-            local age = profileClock + 1
-            for key, candidate in pairs(profiles) do
-                if candidate.used < age then
-                    oldest, age = key, candidate.used
-                end
-            end
-            profiles[assert(oldest)] = nil
-            profileCount -= 1
-        end
-        entry = new ProfileEntry(codec = codec(factory), used = profileClock)
-        profiles[factory] = entry
-        profileCount += 1
-    end
-    entry.used = profileClock
+export const FieldName = documents.Name
 
-    return entry.codec
-end
+--- Returns the JSON member name of a wire field.
+---
+--- @param field a wire field from a JSON decoder
+--- @return the name
+export const fieldName = documents.name
 
-export function encode<T>(binding: core.Binding<T>, borrows value: T, factory: plans.PolicyFactory?): string
-    return selectedCodec(factory):encode(binding, value)
+--- Makes a [](Codec).
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Item
+---     id: integer
+--- end
+--- local codec = json.codec(json.defaultPolicy, 16)
+--- local items = serde.binding(Item)
+--- assert(codec:decode(items, codec:encode(items, new Item(id = 3))).id == 3)
+--- assert(codec:cachedBindings() == 1)
+--- codec:clear()
+--- ```
+---
+--- @param policy the policy; nil is [](defaultPolicy)
+--- @param capacity the most bindings to retain selections for; nil is 256
+--- @return the codec
+export function codec(policy: plans.PolicyFactory?, capacity: integer?): Codec
+    local selected = policy or defaults.factory
+    return new Cached(factory = selected, cache = extensions.scope(selected, capacity))
 end
 
-export function encodeInto<T>(
-    binding: core.Binding<T>,
-    borrows value: T,
-    exclusive buffer: text.Buffer,
-    factory: plans.PolicyFactory?
-): nil
-    selectedCodec(factory):encodeInto(binding, value, buffer)
+local shared = codec()
+
+--- Encodes a value as JSON text.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Pair
+---     left: string
+---     right: string?
+--- end
+--- assert(json.encode(serde.binding(Pair), new Pair(left = "a")) == '{"left":"a","right":null}')
+--- ```
+---
+--- @param binding the value's binding
+--- @param value the value
+--- @return the JSON text
+--- @raises nupp.serde.Error when a value cannot be represented, at its path
+export function encode<T>(binding: core.Binding<T>, borrows value: T): string
+    return shared:encode(binding, value)
 end
 
-export function decode<T>(
-    binding: core.Binding<T>,
-    bytes: string,
-    factory: plans.PolicyFactory?,
-    context: core.Context?
-): T
-    return selectedCodec(factory):decode(binding, bytes, context)
+--- Appends a value's JSON text to a caller-owned Buffer.
+---
+--- On failure the buffer is restored to what it held before the call.
+---
+--- @param binding the value's binding
+--- @param value the value
+--- @param buffer the buffer to append to
+--- @raises nupp.serde.Error when a value cannot be represented, at its path
+export function encodeInto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    shared:encodeInto(binding, value, buffer)
 end
 
---- Decodes a caller-owned Buffer, using a direct provider route when available.
-export function decodeBuffer<T>(
-    binding: core.Binding<T>,
-    exclusive input: text.Buffer,
-    factory: plans.PolicyFactory?,
-    context: core.Context?
-): T
-    return selectedCodec(factory):decodeBuffer(binding, input, context)
+--- Decodes JSON text into a value.
+---
+--- The whole input must be one value; trailing text is an error. A decoded
+--- value the codec then has to reject is dropped through the binding.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Range
+---     low: integer
+---     high: integer = 100
+--- end
+--- local range = json.decode(serde.binding(Range), '{"low":5}')
+--- assert(range.low == 5 and range.high == 100)
+--- ```
+---
+--- @param binding the binding to construct through
+--- @param bytes the JSON text
+--- @param context a parent for the context the decoder attaches, or nil
+--- @return the value
+--- @raises nupp.serde.Error with the path and byte offset of the failure
+export function decode<T>(binding: core.Binding<T>, bytes: string, context: core.Context?): T
+    return shared:decode(binding, bytes, context)
 end
 
---- Writes one value at the current position of a JSON syntax writer.
-export function writeValue<T>(
-    binding: core.Binding<T>,
-    borrows value: T,
-    exclusive sink: json.Writer,
-    factory: plans.PolicyFactory?
-): nil
-    selectedCodec(factory):writeValue(binding, value, sink)
+--- Decodes a caller-owned Buffer, reading it in place when the provider can.
+---
+--- @param binding the binding to construct through
+--- @param input the buffer holding the JSON text
+--- @param context a parent for the context the decoder attaches, or nil
+--- @return the value
+--- @raises nupp.serde.Error with the path and byte offset of the failure
+export function decodeBuffer<T>(binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
+    return shared:decodeBuffer(binding, input, context)
 end
 
-export const write = encodeInto
-
---- Encodes document contents through the selected document adapter.
-export function encodeDocument<D>(
-    adapter: core.DocumentAdapter<D>,
-    borrows value: D,
-    factory: plans.PolicyFactory?
-): string
-    return selectedCodec(factory):encodeDocument(adapter, value)
+--- Writes one value at the current position of a [](nupp.codec.json.Writer),
+--- for embedding bound values in JSON assembled by hand.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Tag
+---     name: string
+--- end
+--- local buffer = nupp.text.newBuffer()
+--- local writer = nupp.codec.json.newWriter(buffer)
+--- writer:startArray()
+--- json.writeValue(serde.binding(Tag), new Tag(name = "x"), writer)
+--- writer:endArray()
+--- writer:close()
+--- assert(buffer:tostring() == '[{"name":"x"}]')
+--- ```
+---
+--- @param binding the value's binding
+--- @param value the value
+--- @param sink the writer, positioned where a value may go
+--- @raises nupp.serde.Error when a value cannot be represented, at its path
+export function writeValue<T>(binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
+    shared:writeValue(binding, value, sink)
 end
 
---- Decodes owned document contents and retains their source context.
-export function decodeDocument<D>(
-    adapter: core.DocumentAdapter<D>,
-    bytes: string,
-    factory: plans.PolicyFactory?,
-    context: core.Context?
-): D
-    return selectedCodec(factory):decodeDocument(adapter, bytes, context)
+--- Encodes a document's contents as JSON text.
+---
+--- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param value the document
+--- @return the JSON text
+--- @raises nupp.serde.Error when a value has no JSON representation
+export function encodeDocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
+    return shared:encodeDocument(adapter, value)
+end
+
+--- Decodes JSON text as document contents, attaching the context it was read
+--- under.
+---
+--- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param bytes the JSON text
+--- @param context a parent for the attached context, or nil
+--- @return the document
+--- @raises nupp.serde.Error with the path and byte offset of the failure
+export function decodeDocument<D>(adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
+    return shared:decodeDocument(adapter, bytes, context)
 end

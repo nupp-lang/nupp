@@ -1,0 +1,179 @@
+module nupp.serde.internal.memo
+
+--[[
+A bounded cache of the work a codec selects once per binding and direction.
+
+Each entry is built at most once. A later lookup returns what the build
+returned or raises what it raised, and a lookup while that build is still
+running raises rather than recursing. A full cache evicts its least recently
+used entry, never one whose build is running.
+
+Building is split into `start` and `finish` around the caller's own protected
+call, so a lookup that hits allocates nothing and a miss allocates no closure.
+]]
+
+local core = require("nupp.serde.internal.value")
+
+--- One direction's build for one key.
+export record Slot
+    @private state: "initializing" | "ready" | "failed" = "initializing"
+    @private value: unknown
+end
+
+local record Entry
+    used: integer
+    write: Slot?
+    read: Slot?
+end
+
+--- A bounded cache keyed by identity, with a slot per direction.
+export record Memo
+    @private @readonly label: string
+    @private @readonly capacity: integer
+    @private entries: {[unknown]: Entry} = {}
+    @private count: integer = 0
+    @private clock: integer = 0
+    @private active: integer = 0
+    @private lastKey: unknown = nil
+    @private lastEntry: Entry? = nil
+
+    --- Returns whether a build for a key and direction finished, and what it
+    --- returned.
+    ---
+    --- The most recently used key is found without touching the eviction order.
+    --- @param key the identity the work belongs to
+    --- @param direction which of the key's two slots to read
+    --- @return true when a build finished
+    --- @return what that build returned
+    --- @raises unknown the failure that build raised
+    --- @raises string when the build for that slot is still running
+    function find(self, key: unknown, direction: core.Direction): (boolean, unknown)
+        local entry = self.lastKey == key and self.lastEntry or nil
+        if entry == nil then
+            entry = self.entries[key]
+            if entry == nil then
+                return false, nil
+            end
+            self.clock += 1
+            entry.used = self.clock
+            self.lastKey, self.lastEntry = key, entry
+        end
+        local slot: Slot? = nil
+        if direction == "write" then
+            slot = entry.write
+        else
+            slot = entry.read
+        end
+        if slot == nil then
+            return false, nil
+        elseif slot.state == "ready" then
+            return true, slot.value
+        elseif slot.state == "failed" then
+            error(slot.value, 0)
+        end
+
+        error("recursive " .. self.label .. " initialization", 0)
+    end
+
+    --- Starts the build for a key and direction that [](find) did not have.
+    ---
+    --- @param key the identity the work belongs to
+    --- @param direction which of the key's two slots to fill
+    --- @return the slot to hand to [](finish)
+    --- @raises string when the cache is full of builds still running
+    function start(self, key: unknown, direction: core.Direction): Slot
+        local entry = self.entries[key]
+        if entry == nil then
+            if self.count >= self.capacity then
+                self:evict()
+            end
+            entry = new Entry(used = self.clock)
+            self.entries[key] = entry
+            self.count += 1
+        end
+        self.clock += 1
+        entry.used = self.clock
+        self.lastKey, self.lastEntry = key, entry
+        local slot = new Slot()
+        if direction == "write" then
+            entry.write = slot
+        else
+            entry.read = slot
+        end
+        self.active += 1
+
+        return slot
+    end
+
+    --- Records how a build ended and returns its result.
+    ---
+    --- A failure is kept, so the next lookup raises it rather than building
+    --- again.
+    ---
+    --- @param slot the slot [](start) returned
+    --- @param ok whether the build succeeded
+    --- @param value the build's result, or its failure
+    --- @return the result
+    --- @raises unknown the failure, when the build failed
+    function finish(self, slot: Slot, ok: boolean, value: unknown): unknown
+        self.active -= 1
+        slot.state, slot.value = ok and "ready" or "failed", value
+        if not ok then
+            error(value, 0)
+        end
+
+        return value
+    end
+
+    --- Forgets every entry. Results already handed out keep working.
+    --- @raises string when a build is still running
+    function clear(self): nil
+        if self.active ~= 0 then
+            error("cannot clear the " .. self.label .. " cache while it is initializing", 2)
+        end
+        self.entries, self.count, self.clock = {}, 0, 0
+        self.lastKey, self.lastEntry = nil, nil
+    end
+
+    --- Returns how many keys hold an entry.
+    function size(self): integer
+        return self.count
+    end
+
+    --- Drops the least recently used entry whose build is not running.
+    --- @raises string when every entry is still building
+    function evict(self): nil
+        local oldest: unknown = nil
+        local age = self.clock + 1
+        for key, entry in pairs(self.entries) do
+            local busy = entry.write ~= nil and entry.write.state == "initializing"
+                or entry.read ~= nil and entry.read.state == "initializing"
+            if not busy and entry.used < age then
+                oldest, age = key, entry.used
+            end
+        end
+        if oldest == nil then
+            error(self.label .. " capacity exhausted by active initialization", 3)
+        end
+        self.entries[oldest] = nil
+        if self.lastKey == oldest then
+            self.lastKey, self.lastEntry = nil, nil
+        end
+        self.count -= 1
+    end
+end
+
+--- Makes an empty [](Memo).
+---
+--- @param label names the work in failures, as in `recursive <label> initialization`
+--- @param capacity the most keys to keep; nil is 256
+--- @return the cache
+--- @raises string when capacity is not a positive integer
+export function new(label: string, capacity: integer?): Memo
+    local limit = capacity or 256
+    if limit < 1 or limit % 1 ~= 0 then
+        error(label .. " capacity must be a positive integer", 2)
+    end
+
+    return new Memo(label = label, capacity = limit)
+end

@@ -1,0 +1,356 @@
+module nupp.serde.adapters
+
+--[[
+These builders give a model library that owns its schema adapters over its own
+[](nupp.serde.Member) type. See
+[serde.md](docs/learn/runtime/data/serde.md#model-owned-bindings) for how model
+bindings fit beside declaration bindings.
+
+A declaration binding from [](nupp.serde.binding) covers ordinary records. A
+library that generates types from Smithy, OpenAPI, or a binary schema needs its
+own member identities instead, so its codec policy can read shape identifiers,
+XML namespaces, or field numbers off them.
+
+```nupp
+local serde = require("nupp.serde")
+local adapters = require("nupp.serde.adapters")
+local json = require("nupp.serde.json")
+local plain = json.codec(json.memberNamePolicy)
+
+-- The model's own member type. A real library would carry its schema here.
+local record Member is serde.Member
+    @readonly name: string
+    @readonly index: integer?
+end
+
+local record Book
+    title: string
+    tags: {string}
+end
+
+-- Reading builds a Book through an exclusive draft that is closed either way.
+local record Draft is nupp.Closeable
+    title: string?
+    tags: {string}?
+    function close(takes self): nil
+    end
+end
+local record Construction is adapters.Construction<Book, Draft>
+    function begin(self): Draft
+        return new Draft()
+    end
+    function finish(self, takes draft: Draft): Book
+        local owned: Draft = draft
+        local book = new Book(title = assert(owned.title, "title is required"), tags = owned.tags or {})
+        owned:close()
+        return book
+    end
+end
+
+local title = new Member(name = "title")
+local tags = new Member(name = "tags")
+local book = adapters.structure(new Member(name = "Book"), {
+    adapters.field<Book, Draft, string, Member>(
+        title,
+        function(borrows value: Book): string borrows (value)
+            return value.title
+        end,
+        function(exclusive draft: Draft, value: string): nil
+            draft.title = value
+        end,
+        adapters.text(title),
+        true,
+        false
+    ),
+    adapters.field<Book, Draft, {string}, Member>(
+        tags,
+        function(borrows value: Book): {string} borrows (value)
+            return value.tags
+        end,
+        function(exclusive draft: Draft, value: {string}): nil
+            draft.tags = value
+        end,
+        adapters.list(tags, new Member(name = "tag"), adapters.text(new Member(name = "tag"))),
+        false,
+        true
+    )
+}, new Construction())
+local books: serde.Binding<Book> = new serde.Bound<Book, Member>(adapter = book)
+
+local bytes = plain:encode(books, new Book(title = "Dune", tags = {"sf"}))
+assert(bytes == '{"title":"Dune","tags":["sf"]}')
+assert(plain:decode(books, '{"title":"Emma"}').title == "Emma")
+```
+
+Every builder takes the member the value sits at, so the same scalar adapter
+type serves a top-level value, a structure field, and a list element. Wrap the
+finished adapter in [](nupp.serde.Bound) to pass it to a codec.
+]]
+
+local core = require("nupp.serde.internal.value")
+local scalars = require("nupp.serde.internal.scalar")
+local structures = require("nupp.serde.internal.structure")
+local lists = require("nupp.serde.internal.list")
+local indexed = require("nupp.serde.internal.indexed")
+
+--- A UTF-8 string.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const text = scalars.text
+
+--- A boolean.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const boolean = scalars.boolean
+
+--- An integer of a fixed width and signedness, as a [](nupp.serde.Integer).
+---
+--- The codec checks the range on both sides, so a 64-bit value round-trips
+--- exactly on every target. Use [](convert) to expose it as a plain `integer`.
+---
+--- @param member the member the value sits at
+--- @param width 8, 16, 32, or 64 bits
+--- @param signed whether the value may be negative
+--- @return the adapter
+export const integer = scalars.integer
+
+--- A floating-point number written at a fixed width.
+---
+--- A 32-bit float is rounded on write, so a codec that keeps widths, such as
+--- [](nupp.serde.native), restores the value it would have had in a `float32`.
+---
+--- @param member the member the value sits at
+--- @param width 32 or 64 bits
+--- @return the adapter
+export const float = scalars.float
+
+--- An exact decimal, as a [](nupp.serde.Decimal).
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const decimal = scalars.decimal
+
+--- An integer of unbounded size, carried as its decimal text.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const bigInteger = scalars.bigInteger
+
+--- Binary data. JSON writes it as base64.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const bytes = scalars.bytes
+
+--- An instant, as a [](nupp.serde.Timestamp). The codec policy chooses its
+--- text or numeric form.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const timestamp = scalars.timestamp
+
+--- A model-defined [](nupp.serde.Atom), passed through uninterpreted.
+---
+--- @param member the member the value sits at
+--- @return the adapter
+export const atom = scalars.atom
+
+--- A document-valued member: a value with no schema of its own, read and
+--- written through a document adapter such as
+--- [](nupp.serde.document.adapter).
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local adapters = require("nupp.serde.adapters")
+--- local document = require("nupp.serde.document")
+--- local json = require("nupp.serde.json")
+--- local plain = json.codec(json.memberNamePolicy)
+--- local record Member is serde.Member
+---     @readonly name: string
+---     @readonly index: integer?
+--- end
+--- local payload: serde.Binding<document.Document> = new serde.Bound<document.Document, Member>(
+---     adapter = adapters.document(new Member(name = "payload"), document.adapter())
+--- )
+--- assert(assert(plain:decode(payload, '{"any":[1,true]}'):get("any")):size() == 2)
+--- ```
+---
+--- @param member the member the value sits at
+--- @param adapter the document adapter that reads and writes the value
+--- @return the adapter
+export const document = scalars.document
+
+--- Converts between an application value and one an adapter already handles.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local adapters = require("nupp.serde.adapters")
+--- local json = require("nupp.serde.json")
+--- local plain = json.codec(json.memberNamePolicy)
+--- local record Member is serde.Member
+---     @readonly name: string
+---     @readonly index: integer?
+--- end
+--- local record Celsius
+---     degrees: number
+--- end
+--- local record Degrees is adapters.Conversion<Celsius, number>
+---     function project(self, borrows value: Celsius): number
+---         return value.degrees
+---     end
+---     function restore(self, value: number): Celsius
+---         return new Celsius(degrees = value)
+---     end
+--- end
+--- local member = new Member(name = "temperature")
+--- local temperature: serde.Binding<Celsius> = new serde.Bound<Celsius, Member>(
+---     adapter = adapters.convert(adapters.float(member, 64), new Degrees())
+--- )
+--- assert(plain:encode(temperature, new Celsius(degrees = 21.5)) == "21.5")
+--- ```
+---
+--- @param base the adapter for the projected value
+--- @param conversion the projection and its inverse
+--- @return the adapter
+export const convert = scalars.convert
+
+--- The projection [](convert) applies: `project` on write, `restore` on read.
+export type Conversion<T, V is nupp.Copyable> = scalars.Conversion<T, V>
+
+--- A list of values that share one element adapter.
+---
+--- @param member the member the list sits at
+--- @param element the member each element sits at
+--- @param adapter the element adapter
+--- @return the adapter
+export const list = lists.adapter
+
+--- A structure: named fields written in order, read in any order, and
+--- constructed through an exclusive draft.
+---
+--- Reading calls `construction:begin()`, applies each field's setter to the
+--- draft as the codec meets it, then hands the draft to
+--- `construction:finish()`. A wire field the model does not declare is passed
+--- to `unknown`, which rejects it when nil. `additional` emits extra members
+--- after the declared ones, such as preserved unknown fields.
+---
+--- @param member the member the structure sits at
+--- @param fields the fields, in write order; see [](field)
+--- @param construction how a draft is opened and finished
+--- @param unknown what to do with undeclared wire fields; nil rejects them
+--- @param additional extra members to write after the fields, or nil
+--- @param deferredConstruction whether setters may run after the input is validated, in
+---     field order
+--- @return the adapter
+--- @raises string when two fields share a member
+export const structure = structures.adapter
+
+--- One field of a [](structure).
+---
+--- `get` borrows the field from the value on write and `set` stores a decoded
+--- one into the draft on read. A `required` field must be present when
+--- reading; `hasDefault` tells codecs the construction supplies one, so the
+--- field may be absent. `present`, when given, decides per value whether the
+--- field is written at all.
+---
+--- @param member the member the field sits at
+--- @param get reads the field from a value
+--- @param set stores a decoded value into the draft
+--- @param adapter the field value's adapter
+--- @param required whether reading needs the field
+--- @param hasDefault whether construction supplies a default
+--- @param present decides whether to write the field; nil always writes it
+--- @return the field
+export const field = structures.field
+
+--- A field built by [](field), with the operations a codec needs to plan it.
+export type Field<T, S is nupp.Closeable, M is core.Member> = structures.Field<T, S, M>
+
+--- How a [](structure) opens and finishes the draft its fields are read into.
+---
+--- The draft is exclusive and Closeable, so a failed read drops it rather than
+--- leaking a half-built value.
+export type Construction<T, S is nupp.Closeable> = structures.Construction<T, S>
+
+--- Decides whether a field is written for a value.
+export type Has<T> = structures.Has<T>
+
+--- Stores a decoded field value into a structure's draft.
+export type Set<S, V is nupp.Copyable> = structures.Set<S, V>
+
+--- Reads a field by borrowing it from the value.
+export type BorrowGet<T, V is nupp.Copyable> = structures.BorrowGet<T, V>
+
+--- Reads a field by copying it out of the value.
+export type CopyGet<T, V is nupp.Copyable> = structures.CopyGet<T, V>
+
+--- A field reader, borrowed or copied.
+export type Get<T, V is nupp.Copyable> = structures.Get<T, V>
+
+--- Wraps a borrowing field reader.
+export const borrowedGet = structures.borrowedGet
+
+--- Wraps a copying field reader, for a field computed rather than stored.
+export const copiedGet = structures.copiedGet
+
+--- Visits one field of a structure with its value type recovered.
+export type FieldConsumer<T, S is nupp.Closeable, M is core.Member, R> = structures.FieldConsumer<T, S, M, R>
+
+--- Visits a structure adapter's fields and construction. See [](inspect).
+export type StructureConsumer<T, M is core.Member, R> = structures.Consumer<T, M, R>
+
+--- Opens a [](structure) adapter to a consumer, for a codec that plans its
+--- own field layout, such as one that assigns binary field numbers.
+---
+--- @param adapter any adapter
+--- @param consumer what to apply to the structure's fields
+--- @return the consumer's result, or nil when the adapter is not a structure
+export const inspect = structures.inspect
+
+--- A record whose fields are defined at runtime, for a model that loads its
+--- schema rather than generating Nupp types from it.
+---
+--- Each field is a typed [](Slot) the layout hands out. A value keeps absent
+--- and explicitly null fields apart, so a document-shaped protocol can round
+--- trip both.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local adapters = require("nupp.serde.adapters")
+--- local json = require("nupp.serde.json")
+--- local plain = json.codec(json.memberNamePolicy)
+--- local record Member is serde.Member
+---     @readonly name: string
+---     @readonly index: integer?
+--- end
+--- local title = new Member(name = "title")
+--- local pages = new Member(name = "pages")
+--- local layout = adapters.layout(new Member(name = "Book"))
+--- local titleSlot = layout:add(title, adapters.text(title), true)
+--- local pagesSlot = layout:addDefault(pages, adapters.float(pages, 64), function(): number return 0 end)
+--- local books = layout:binding()
+---
+--- local book = plain:decode(books, '{"title":"Dune"}')
+--- assert(book:get(titleSlot) == "Dune" and book:get(pagesSlot) == 0)
+--- book:set(pagesSlot, 412)
+--- assert(plain:encode(books, book) == '{"title":"Dune","pages":412}')
+--- ```
+export type Layout<M is core.Member> = indexed.Layout<M>
+
+--- Starts an empty [](Layout).
+---
+--- @param member the member the record sits at
+--- @return the layout
+export const layout = indexed.layout
+
+--- A typed field of a [](Layout).
+export type Slot<V is nupp.Copyable> = indexed.Slot<V>
+
+export const Slot = indexed.Slot
+
+--- One record of a [](Layout), read and written through its slots.
+export type IndexedValue = indexed.Value
+
+export const IndexedValue = indexed.Value

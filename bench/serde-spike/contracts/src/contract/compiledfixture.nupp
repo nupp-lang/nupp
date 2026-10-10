@@ -1,15 +1,14 @@
 module contract.compiledfixture
 
+local __serdeJson = require("nupp.serde.json")
+
 const {type EncodedValue} = require("nupp.codec.json")
 
-local core = require("nupp.serde.value")
-local declarations = require("nupp.serde.declaration")
-local plans = require("nupp.serde.jsonplan")
-local scalar = require("nupp.serde.scalar")
-local indexed = require("nupp.serde.indexed")
-local syntax = require("nupp.serde.jsonsyntax")
-local readers = require("nupp.serde.jsonreader")
-local errors = require("nupp.serde.errors")
+local core = require("nupp.serde")
+local declarations = require("nupp.serde")
+local plans = require("nupp.serde.json")
+local scalar = require("nupp.serde.adapters")
+local indexed = require("nupp.serde.adapters")
 
 export record Child
     value: string
@@ -28,39 +27,6 @@ end
 export const recordBinding = declarations.binding(Record)
 export const nullableBinding = declarations.binding(Nullable)
 export const fixedBinding = declarations.binding(Fixed)
-
-local record Inspect<T> is core.Consumer<T, nil, any>
-    @readonly factory: plans.PolicyFactory
-    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): any
-        local policy = self.factory:policy<M>(adapter:describe("read").member)
-        local plan = plans.resolve(adapter:describe("read"), policy, "read")
-        return {adapter = adapter, plan = plan}
-    end
-end
-export function inspect<T>(binding: core.Binding<T>, factory: plans.PolicyFactory?): any
-    return binding:accept(new Inspect<T>(factory = factory or declarations.policy()), nil)
-end
-
-local record Visitor is core.Consumer<Record, string, Record>
-    function apply<M is core.Member>(self, adapter: core.Adapter<Record, M>, borrows bytes: string): Record
-        local policy = declarations.policy():policy<M>(adapter:describe("read").member)
-        local plan = plans.resolve(adapter:describe("read"), policy, "read")
-        local cursor = syntax.reader(bytes:sub(1))
-        local reader = readers.input(cursor, policy, plan, nil)
-        local ok, result = pcall(adapter.read, adapter, reader)
-        reader:expire()
-        if not ok then
-            error(errors.wrap(result, cursor:path(), cursor:offset()), 0)
-        end
-        cursor:finish()
-
-        return result as Record
-    end
-end
-local visitorReader = new Visitor()
-export function visitor(bytes: string): Record
-    return recordBinding:accept(visitorReader, bytes)
-end
 
 local record Member is core.Member
     @readonly name: string

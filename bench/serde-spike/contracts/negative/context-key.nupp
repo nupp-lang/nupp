@@ -1,4 +1,6 @@
-local contexts = require("nupp.serde.context")
-local strings = contexts.key<string>()
-local builder = contexts.builder({}, {})
+const util = require("nupp.util")
+
+local contexts = require("nupp.serde.codec")
+local strings = util.newKey<string>()
+local builder = contexts.contextBuilder({}, {})
 builder:set(strings, 123)

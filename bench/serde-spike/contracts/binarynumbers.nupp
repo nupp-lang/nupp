@@ -1,5 +1,5 @@
 local integers = require("example.binarynumbers")
-local numbers = require("nupp.serde.numbers")
+local numbers = require("nupp.serde.codec")
 local cases = {
     numbers.integer("0", 8, false),
     numbers.integer("-1", 8, true),
@@ -29,7 +29,7 @@ assert(integers.encode(cases[15]) == "\0\32\0\0\0\0\0\1")
 assert(not pcall(integers.decode, "\0", 64, true))
 assert(not pcall(integers.decode, string.rep("\0", 9), 64, false))
 
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local positional = require("example.binarypositional")
 local layout = {
     new positional.Slot(kind = "integer", width = 64, signed = false),

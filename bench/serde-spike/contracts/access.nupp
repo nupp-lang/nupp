@@ -1,4 +1,4 @@
-local access = require("nupp.serde.accessors")
+local access = require("nupp.serde")
 
 local record Child
     count: integer
@@ -9,8 +9,8 @@ local record User
     nickname: string? = "guest"
 end
 
-local selected = access.of(User)
-assert(selected == access.of(User))
+local selected = access.access(User)
+assert(selected == access.access(User))
 assert(#selected.fields == 3 and #selected.parameters == 3)
 local state = selected:begin()
 state:set(selected.parameters[1], 7)
@@ -53,7 +53,7 @@ assert(
 local record Other
     id: integer
 end
-local other = access.of(Other)
+local other = access.access(Other)
 assert(
     not pcall(function(): nil
         local invalid = selected:begin()
@@ -81,7 +81,7 @@ local record Checked
         end
     end
 end
-local custom = access.of(Checked)
+local custom = access.access(Checked)
 assert(#custom.fields == 2 and custom.parameters[1].name == "input")
 local built = custom:begin()
 built:set(custom.parameters[1], "ok")
@@ -102,14 +102,14 @@ local record OptionalInput
         self.value = value or "fallback"
     end
 end
-local optional = access.of(OptionalInput)
+local optional = access.access(OptionalInput)
 assert(optional:finish(optional:begin()).value == "fallback")
 
 local record Hidden
     visible: string
     @private hidden: string
 end
-local hidden = access.of(Hidden)
+local hidden = access.access(Hidden)
 assert(#hidden.fields == 1)
 assert(
     not pcall(function(): nil
@@ -121,7 +121,7 @@ local struct Point
     x: int32
     y: float
 end
-local point = access.of(Point)
+local point = access.access(Point)
 local position = point:begin()
 position:set(point.parameters[1], 42)
 position:set(point.parameters[2], 1.5)
@@ -137,7 +137,7 @@ assert(
 local record Lists
     values: {integer}
 end
-local lists = access.of(Lists)
+local lists = access.access(Lists)
 assert(
     not pcall(function(): nil
         local invalid = lists:begin()

@@ -1,4 +1,4 @@
-local scalar = require("nupp.serde.scalar")
+local scalar = require("nupp.serde.adapters")
 local record Resource is nupp.Closeable
     function close(takes self): nil
     end

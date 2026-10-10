@@ -1,0 +1,234 @@
+module nupp.serde.internal.persistence
+
+local core = require("nupp.serde.internal.value")
+local util = require("nupp.util.internal.store")
+local documents = require("nupp.serde.internal.document")
+local bridge = require("nupp.serde.internal.documentcodec")
+
+export interface Migration
+    --- Upgrades a saved entry's document to the registered version.
+    ---
+    --- Loading calls it once per older entry, and its result is constructed
+    --- through the registered binding, so it must return the current
+    --- version's document directly.
+    --- @param previousVersion the version the entry was saved at
+    --- @param value the saved document
+    --- @return the document at the registered version
+    apply: function(self, previousVersion: integer, value: documents.Document): documents.Document
+end
+export record Entry
+    --- The name the entry's key is registered under.
+    @readonly name: string
+
+    --- The version the entry was saved at.
+    @readonly version: integer
+
+    --- The entry's value, as a document.
+    @readonly value: documents.Document
+end
+export record Snapshot
+    --- The snapshot layout version, which loading requires to be 1.
+    @readonly format: integer = 1
+
+    --- The saved entries.
+    @readonly entries: {Entry}
+end
+local interface Registered
+    @readonly name: string
+    save: function(self, borrows store: util.Store): Entry?
+    restore: function(self, store: util.Store, entry: Entry): nil
+end
+local record Selected<T is nupp.Copyable> is Registered
+    @readonly name: string
+    @readonly version: integer
+    @readonly key: util.Key<T>
+    @readonly binding: core.Binding<T>
+    @readonly migration: Migration?
+    function save(self, borrows store: util.Store): Entry?
+        local value = store:get(self.key)
+        if value == nil then
+            return nil
+        end
+
+        return new Entry(name = self.name, version = self.version, value = bridge.fromBinding(self.binding, value))
+    end
+
+    function restore(self, store: util.Store, entry: Entry): nil
+        local value = entry.value
+        assert(entry.version >= 1 and entry.version % 1 == 0, "invalid persisted key version")
+        if entry.version ~= self.version then
+            assert(
+                entry.version < self.version and self.migration ~= nil,
+                "unsupported persisted key version: " .. self.name
+            )
+            value = (self.migration as Migration):apply(entry.version, value)
+        end
+        local restored = bridge.into(self.binding, value)
+        assert(restored ~= nil, "persisted key value cannot be nil")
+        store:set(self.key, restored)
+    end
+end
+export interface Registry
+    --- Registers a store key for saving under a persistent name.
+    --- @param name the name the key's entry is saved under
+    --- @param key the store key
+    --- @param binding the binding the key's value is saved and restored
+    ---     through
+    --- @param version the current version, a positive integer
+    --- @param migration the migration that upgrades an older entry, or nil
+    ---     when only the current version loads
+    --- @raises string when the name is empty or already registered
+    --- @raises string when the key is already registered
+    --- @raises string when the version is not a positive integer
+    register: function<T is nupp.Copyable>(
+        self,
+        name: string,
+        key: util.Key<T>,
+        binding: core.Binding<T>,
+        version: integer,
+        migration: Migration?
+    ): nil
+
+    --- Saves the registered keys that hold a value in a store.
+    ---
+    --- Entries are in registration order, each at its key's current version.
+    --- A registered key the store holds no value under is left out.
+    --- @param store the store to read, which is borrowed
+    --- @return the snapshot
+    save: function(self, borrows store: util.Store): Snapshot
+
+    --- Restores a snapshot's entries into a new store.
+    ---
+    --- An entry at its key's registered version is constructed through the
+    --- binding as it is. An older entry passes through the key's migration
+    --- first. A newer entry, or an older one with no migration, raises.
+    --- @param snapshot the saved entries
+    --- @param unknown "reject" to raise on an entry whose name is not
+    ---     registered, or "skip" to leave it out
+    --- @return the store holding every restored entry
+    --- @raises string when the snapshot's format is not 1
+    --- @raises string when two entries share a name
+    --- @raises string when an entry's name is not registered and `unknown` is
+    ---     "reject"
+    --- @raises string when an entry's version is not a positive integer, is
+    ---     newer than the registered version, or is older with no migration
+    --- @raises nupp.serde.Error when an entry's document does not fit its
+    ---     binding
+    --- @raises string when an entry's document constructs a nil value
+    load: function(self, snapshot: Snapshot, unknown: "reject" | "skip"): util.Store
+end
+local record Owned is Registry
+    @readonly names: {[string]: Registered} = {}
+    @readonly keys: {[integer]: boolean} = {}
+    @readonly ordered: {Registered} = {}
+    function register<T is nupp.Copyable>(
+        self,
+        name: string,
+        key: util.Key<T>,
+        binding: core.Binding<T>,
+        version: integer,
+        migration: Migration?
+    ): nil
+        assert(name ~= "" and self.names[name] == nil, "duplicate or empty persistent name")
+        assert(not self.keys[key.id], "store key already has a persistence binding")
+        assert(version >= 1 and version % 1 == 0, "invalid persistence version")
+        local entry = new Selected<T>(
+            name = name,
+            key = key,
+            binding = binding,
+            version = version,
+            migration = migration
+        )
+        self.names[name] = entry
+        self.keys[key.id] = true
+        self.ordered[#self.ordered + 1] = entry
+    end
+
+    function save(self, borrows store: util.Store): Snapshot
+        local entries: {Entry} = {}
+        for _, selected in ipairs(self.ordered) do
+            local entry = selected:save(store)
+            if entry ~= nil then
+                entries[#entries + 1] = entry
+            end
+        end
+
+        return new Snapshot(entries = entries)
+    end
+
+    function load(self, snapshot: Snapshot, unknown: "reject" | "skip"): util.Store
+        assert(snapshot.format == 1, "unsupported persistence snapshot version")
+        local result = util.newStore()
+        local seen: {[string]: boolean} = {}
+        for _, entry in ipairs(snapshot.entries) do
+            assert(not seen[entry.name], "duplicate persisted key: " .. entry.name)
+            seen[entry.name] = true
+            local selected = self.names[entry.name]
+            if selected ~= nil then
+                selected:restore(result, entry)
+            else
+                assert(unknown == "skip", "unknown persisted key: " .. entry.name)
+            end
+        end
+
+        return result
+    end
+end
+export function registry(): Registry
+    return new Owned()
+end
+
+local scalar = require("nupp.serde.internal.scalar")
+local record Mapping is scalar.Conversion<Snapshot, documents.Document>
+    function project(self, borrows value: Snapshot): documents.Document
+        local entries: {documents.Document} = {}
+        for _, entry in ipairs(value.entries) do
+            entries[#entries + 1] = documents.object({
+                new documents.Entry(name = "name", value = documents.string(entry.name)),
+                new documents.Entry(name = "version", value = documents.numberToken(tostring(entry.version))),
+                new documents.Entry(name = "value", value = documents.document(entry.value))
+            })
+        end
+
+        return documents.object({
+            new documents.Entry(name = "format", value = documents.numberToken(tostring(value.format))),
+            new documents.Entry(name = "entries", value = documents.list(entries))
+        })
+    end
+
+    function restore(self, value: documents.Document): Snapshot
+        assert(value.kind == "structure" and value:size() == 2, "invalid persistence snapshot")
+        assert(assert(value:get("format")):numberToken() == "1", "unsupported persistence snapshot version")
+        local entries = assert(value:get("entries"))
+        assert(entries.kind == "list", "invalid persisted entries")
+        local result: {Entry} = {}
+        for index = 1, entries:size() do
+            local entry = entries:at(index)
+            assert(entry.kind == "structure" and entry:size() == 3, "invalid persisted entry")
+            local version = tonumber(assert(entry:get("version")):numberToken())
+            assert(
+                version ~= nil and version >= 1 and version <= 9007199254740991 and version % 1 == 0,
+                "invalid persisted key version"
+            )
+            local contents = assert(entry:get("value"))
+            -- JSON document contents have no explicit boundary tag; a native
+            -- persistence document retains it. Both use this explicit mapping.
+            if contents.kind == "document" then
+                contents = contents:document()
+            end
+            result[
+                #result + 1
+            ] = new Entry(name = assert(entry:get("name")):string(), version = version as integer, value = contents)
+        end
+
+        return new Snapshot(entries = result)
+    end
+end
+-- A document member, so every codec's default policy reads the snapshot.
+local member = new documents.Member(name = "$store")
+local selected: core.Binding<Snapshot> = new core.Bound<Snapshot, documents.Member>(
+    adapter = scalar.convert(scalar.document(member, documents.documentAdapter()), new Mapping())
+)
+export function binding(): core.Binding<Snapshot>
+    return selected
+end

@@ -1,6 +1,6 @@
 module example.binarypositional
 
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local integers = require("example.binarynumbers")
 
 -- Tuple slots have no tags. The selected schema gives integer widths and
@@ -31,7 +31,7 @@ export function encode(layout: const{Slot}, values: const{Value}): string
         if slot.kind == "integer" then
             assert(type(value) ~= "string", "integer slot requires an integer carrier")
             local selected = value as core.Integer
-            local numbers = require("nupp.serde.numbers")
+            local numbers = require("nupp.serde.codec")
             parts[index] = integers.encode(numbers.integer(selected.decimal, slot.width, slot.signed))
         else
             assert(type(value) == "string", "variable slot requires bytes")

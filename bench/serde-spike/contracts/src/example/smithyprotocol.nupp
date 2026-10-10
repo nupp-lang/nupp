@@ -1,9 +1,9 @@
 module example.smithyprotocol
 
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local smithy = require("example.smithy")
 local routing = require("example.routing")
-local plans = require("nupp.serde.jsonplan")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
 
 local function route(member: smithy.Member): routing.Route

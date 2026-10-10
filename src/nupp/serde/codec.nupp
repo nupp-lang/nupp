@@ -1,0 +1,125 @@
+module nupp.serde.codec
+
+--[[
+A new codec uses these helpers to apply the number, timestamp, error-path, and
+context rules the built-in codecs share. It implements [](nupp.serde.Writer)
+and [](nupp.serde.Reader) itself; see
+[serde.md](docs/learn/runtime/data/serde.md#model-owned-bindings) for where a
+codec sits beside a model library.
+
+A codec that follows these rules accepts and rejects the same values as
+[](nupp.serde.json) and [](nupp.serde.native), so a binding behaves the same
+whichever one carries it.
+
+```nupp
+local codec = require("nupp.serde.codec")
+assert(codec.integer("255", 8, false).decimal == "255")
+assert(not pcall(codec.integer, "256", 8, false))
+assert(codec.formatDateTime(codec.parseEpoch("86400")) == "1970-01-02T00:00:00Z")
+```
+]]
+
+local numbers = require("nupp.serde.internal.numbers")
+local timestamps = require("nupp.serde.internal.timestamps")
+local errors = require("nupp.serde.internal.errors")
+local publication = require("nupp.serde.internal.publication")
+local contexts = require("nupp.serde.internal.context")
+
+--- Checks an integer lexeme against a width and signedness.
+---
+--- @param text the decimal lexeme, with an optional leading `-`
+--- @param width 8, 16, 32, or 64 bits
+--- @param signed whether the value may be negative
+--- @return the integer
+--- @raises string when the lexeme is malformed, has leading zeroes, or is out of range
+export const integer = numbers.integer
+
+--- Rounds a number to a float width and checks it is finite.
+---
+--- @param value the number
+--- @param width 32 or 64 bits
+--- @param allowNonfinite whether infinities and NaN are accepted
+--- @return the number at that width
+--- @raises string when the value is not finite and that is not allowed
+export const float = numbers.floating
+
+--- Parses an RFC 3339 date-time.
+---
+--- @param text the date-time, such as `2026-10-10T12:00:00.5Z`
+--- @return the timestamp
+--- @raises string when the text is not a valid date-time
+export const parseDateTime = timestamps.parseDateTime
+
+--- Formats a timestamp as an RFC 3339 date-time in UTC.
+---
+--- @param value the timestamp
+--- @return the date-time, with fractional seconds only when there are any
+export const formatDateTime = timestamps.dateTime
+
+--- Parses epoch seconds, with an optional fraction.
+---
+--- @param text the seconds, such as `1700000000.25`
+--- @return the timestamp
+--- @raises string when the text is not a number of seconds
+export const parseEpoch = timestamps.parseEpoch
+
+--- Formats a timestamp as epoch seconds.
+---
+--- @param value the timestamp
+--- @return the seconds, with a fraction only when there is one
+export const formatEpoch = timestamps.epoch
+
+--- Wraps any failure as a [](nupp.serde.Error) at a path.
+---
+--- An existing error is returned unchanged, so wrapping at each level keeps the
+--- innermost path.
+---
+--- @param problem the failure
+--- @param path the logical path, such as `$["items"][3]`
+--- @param byte the input offset, or nil
+--- @return the error
+export const wrapError = errors.wrap
+
+--- Prefixes a failure's path with its parent's.
+---
+--- @param problem the failure, raised at a path relative to the parent
+--- @param parent the parent's logical path
+--- @return the error at the combined path
+export const prefixError = errors.prefix
+
+--- Discards a value a codec decoded and then has to reject, returning the
+--- failure to raise.
+---
+--- When the discard itself fails, its failure is recorded in the error's
+--- `suppressed` list and the original cause is kept.
+---
+--- @param owner the binding or document adapter that owns the value
+--- @param value the value to discard
+--- @param cause why it is being rejected
+--- @return the failure to raise
+export const discardFailed = publication.failure
+
+--- Collects the values of a [](nupp.serde.Context) before it is frozen.
+export type ContextBuilder = contexts.Builder
+
+export const ContextBuilder = contexts.Builder
+
+--- Starts a context for what a codec reads.
+---
+--- `codec` and `profile` identify where the value came from, so a protocol can
+--- refuse to replay a document captured under an incompatible one. Values are
+--- set under [](nupp.util.Key)s and must be Copyable.
+---
+--- ```nupp
+--- local codec = require("nupp.serde.codec")
+--- local source: nupp.util.Key<string> = nupp.util.newKey()
+--- local builder = codec.contextBuilder({}, {}, nil)
+--- builder:set(source, "upload.json")
+--- assert(builder:freeze():get(source) == "upload.json")
+--- ```
+---
+--- @param codec a table that identifies the codec
+--- @param profile a table that identifies the codec's settings
+--- @param parent the context to inherit values from, or nil
+--- @return the builder
+export const contextBuilder = contexts.builder

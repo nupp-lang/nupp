@@ -1,51 +1,350 @@
 module nupp.serde
 
 --[[
-Bindings select a value's access and construction independently of its codec.
-A declaration binding uses ordinary records and structs without a derive.
+A binding selects how a value is read and constructed, separately from the
+codec that chooses its wire representation. See
+[serde.md](docs/learn/runtime/data/serde.md) for the guide to bindings, codecs,
+and documents.
 
 ```nupp
 local serde = require("nupp.serde")
 local json = require("nupp.serde.json")
 local record User
+    id: integer
     name: string
 end
 local users = serde.binding(User)
-assert(json.decode(users, json.encode(users, new User(name = "Ada"))).name == "Ada")
+local bytes = json.encode(users, new User(id = 7, name = "Ada"))
+assert(bytes == '{"id":7,"name":"Ada"}')
+assert(json.decode(users, bytes).name == "Ada")
 ```
+
+A [](Binding) is chosen at the call site and passed to a codec, so one record
+can have several: the binding a save file uses can differ from the one a web
+service uses. [](binding) builds one from a record or struct declaration with
+no derive, and [](Options) renames, filters, or reinterprets its fields.
+
+The package splits by audience:
+
+- [](nupp.serde.json), [](nupp.serde.native), and [](nupp.serde.debug) are the
+  codecs: JSON text, a LuaJIT-local persistence frame, and diagnostic text.
+- [](nupp.serde.document) holds schema-free values: a document tree, typed views
+  of bound values, and saved [](nupp.util.Store) snapshots.
+- [](nupp.serde.adapters) builds bindings for a model library that owns its own
+  schema, such as one generated from Smithy or OpenAPI.
+- [](nupp.serde.codec) holds what a new codec needs beyond the contracts here.
+
+This module holds the contracts all of them share. A model library implements
+[](Adapter) over its own [](Member) type and wraps it in [](Bound); a codec
+implements [](Writer) and [](Reader). Neither imports the other, and the erased
+[](Binding) is the only thing a caller passes between them.
+
+Failures are raised as an [](Error) carrying the logical path to the value, the
+byte offset when a decoder has one, and the original cause.
 ]]
 
-local core = require("nupp.serde.value")
-local declarations = require("nupp.serde.declaration")
-local accessModule = require("nupp.serde.accessors")
+local core = require("nupp.serde.internal.value")
+local declarations = require("nupp.serde.internal.declaration")
+local accessors = require("nupp.serde.internal.accessors")
+local errors = require("nupp.serde.internal.errors")
 
+--- Selects how a value of type `T` is written and constructed.
+---
+--- A binding is opaque: it hides the model's [](Member) type and is invariant in
+--- `T`, so a binding for one record cannot be passed where another is expected.
+--- Make one with [](binding), or with [](Bound) or [](OwnedBound) over an
+--- [](Adapter).
 export type Binding<T> = core.Binding<T>
-export type Member = core.Member
-export type Adapter<T, M is core.Member> = core.Adapter<T, M>
-export type Reader<M is core.Member> = core.Reader<M>
-export type Writer<M is core.Member> = core.Writer<M>
-export type Description<M is core.Member> = core.Description<M>
-export type Child<M is core.Member> = core.Child<M>
-export type Consumer<T, S, R> = core.Consumer<T, S, R>
-export type IntoConsumer<T, S, O, R> = core.IntoConsumer<T, S, O, R>
-export type DocumentAdapter<D> = core.DocumentAdapter<D>
-export type DocumentReader = core.DocumentReader
-export type Context = core.Context
-export type ContextKey<V is nupp.Copyable> = core.ContextKey<V>
-export type Bound<T is nupp.Copyable, M is core.Member> = core.Bound<T, M>
-export const Bound = core.Bound
-export type OwnedBound<T, M is core.Member> = core.OwnedBound<T, M>
-export const OwnedBound = core.OwnedBound
-export type Options = declarations.Options
-export const Options = declarations.Options
-export type FieldOptions = declarations.FieldOptions
-export const FieldOptions = declarations.FieldOptions
 
---- Selects access and construction from a declaration.
+--- Builds a binding from a record or struct declaration.
+---
+--- Fields are read through the declaration's own access rules and values are
+--- constructed through its constructor, so defaults, `@private` storage, and
+--- custom construction all hold. Recursive types are supported. Optional
+--- fields and homogeneous literal unions use their declared carriers; a record
+--- union needs an explicit [](Adapter), since a declaration names no
+--- discriminator.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Node
+---     name: string
+---     children: {Node} = {}
+--- end
+--- local nodes = serde.binding(Node)
+--- local tree = new Node(name = "root", children = {new Node(name = "leaf")})
+--- assert(json.encode(nodes, tree) == '{"name":"root","children":[{"name":"leaf","children":[]}]}')
+--- ```
+---
+--- @param target the record or struct declaration
+--- @param options field names, filters, and representations; nil keeps every field
+---     under its own name
+--- @return the binding
+--- @raises string when a field's type has no declaration adapter, or when options name
+---     a missing field
 export const binding = declarations.binding
 
---- Selects neutral declaration access for an external model binding.
-export const access = accessModule.of
+--- Field mapping for [](binding).
+---
+--- `naming` and `unknownMembers` apply to every record the binding reaches.
+--- `fields` maps the root declaration's fields one by one, and when it is present
+--- it is a whitelist, so a field it does not mention is neither written nor read.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Account
+---     displayName: string
+---     passwordHash: string?
+--- end
+--- local public = serde.binding(Account, new serde.Options(
+---     naming = "snakeCase",
+---     fields = {displayName = new serde.FieldOptions()},
+---     unknownMembers = "ignore"
+--- ))
+--- assert(json.encode(public, new Account(displayName = "Ada", passwordHash = "x")) == '{"display_name":"Ada"}')
+--- assert(json.decode(public, '{"display_name":"Ada","admin":true}').passwordHash == nil)
+--- ```
+---
+--- A field left out of the whitelist must have a default for decoding to be
+--- selected; an encode-only binding can leave out required fields.
+export type Options = declarations.Options
 
---- Interprets an integer field as epoch seconds in a JSON mapping.
+export const Options = declarations.Options
+
+--- Mapping for one field of a declaration binding.
+---
+--- `name` replaces the wire name, overriding [](Options)'s naming. `omitEmpty`
+--- leaves an empty field out instead of writing it: nil, `false`, `""`, or an
+--- empty table. `representation` reinterprets the field's carrier;
+--- [](iso8601Seconds) is the one supplied.
+export type FieldOptions = declarations.FieldOptions
+
+export const FieldOptions = declarations.FieldOptions
+
+--- The representation that writes an integer field of epoch seconds as an
+--- RFC 3339 timestamp, and reads one back.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record Event
+---     at: integer
+--- end
+--- local events = serde.binding(Event, new serde.Options(
+---     fields = {at = new serde.FieldOptions(representation = serde.iso8601Seconds)}
+--- ))
+--- assert(json.encode(events, new Event(at = 0)) == '{"at":"1970-01-01T00:00:00Z"}')
+--- assert(json.decode(events, '{"at":"1970-01-01T00:01:00Z"}').at == 60)
+--- ```
 export const iso8601Seconds = declarations.iso8601Seconds
+
+--- Chooses an adapter in place of the one a declared type implies.
+---
+--- Set as [](Options)'s `view`. `resolve` is asked once for every type at every
+--- member the binding reaches: the root, each field, list and tuple elements, map
+--- keys and values, and both an optional type and the type inside it. It returns
+--- nil to keep the default, and an adapter it returns takes precedence over a
+--- field's `representation`.
+export type FieldView = declarations.View
+
+--- A declaration's fields and constructor, as an external model sees them.
+---
+--- [](access) returns one for a model library that maps a Nupp record onto its
+--- own schema, so it reads fields and constructs values exactly as
+--- [](binding) does without depending on that binding.
+export type Access<T is nupp.Copyable> = accessors.Access<T>
+
+export const Access = accessors.Access
+
+--- Returns the [](Access) for a declaration, cached on the declaration.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local record Point
+---     x: number
+---     y: number = 0
+--- end
+--- local point = serde.access(Point)
+--- assert(#point.fields == 2 and point.fields[2].hasDefault)
+--- ```
+---
+--- @param target the record or struct declaration
+--- @return the declaration's access
+export const access = accessors.of
+
+--- A field, list element, or other position in a model's schema.
+---
+--- A model library implements this with whatever its schema needs, such as a
+--- shape identifier or numbered binary field, and its codec policy interprets
+--- it. Codecs see only `name` and, for positional formats, `index`.
+export type Member = core.Member
+
+--- Reads and writes one type of value against a model's members.
+---
+--- `describe` returns the shape a codec plans against, `write` emits a value
+--- through a [](Writer), and `read` constructs one from a [](Reader). The
+--- builders in [](nupp.serde.adapters) cover scalars, structures, and lists.
+export type Adapter<T, M is core.Member> = core.Adapter<T, M>
+
+--- Erases an [](Adapter)'s member type into a [](Binding) for a Copyable value.
+---
+--- A codec still has to be told how the model's members are named: see
+--- [](nupp.serde.json.memberNamePolicy).
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local adapters = require("nupp.serde.adapters")
+--- local json = require("nupp.serde.json")
+--- local record Member is serde.Member
+---     @readonly name: string
+---     @readonly index: integer?
+--- end
+--- local title: serde.Binding<string> = new serde.Bound<string, Member>(
+---     adapter = adapters.text(new Member(name = "title"))
+--- )
+--- assert(json.codec(json.memberNamePolicy):encode(title, "Dune") == '"Dune"')
+--- ```
+export type Bound<T is nupp.Copyable, M is core.Member> = core.Bound<T, M>
+
+export const Bound = core.Bound
+
+--- Erases an [](Adapter) for a value that owns resources.
+---
+--- `drop` takes a decoded value the codec has to discard, such as one whose
+--- adapter returned without consuming its input, and drops it, so a failed
+--- decode does not leak what it built.
+export type OwnedBound<T, M is core.Member> = core.OwnedBound<T, M>
+
+export const OwnedBound = core.OwnedBound
+
+--- What a codec emits a value into. Adapters call it; codecs implement it.
+export type Writer<M is core.Member> = core.Writer<M>
+
+--- What a codec reads a value from. Adapters call it; codecs implement it.
+export type Reader<M is core.Member> = core.Reader<M>
+
+--- The shape of an adapter's value for one direction, which a codec plans
+--- against before it reads or writes anything.
+export type Description<M is core.Member> = core.Description<M>
+
+--- One member of a described structure, union, list, or map.
+export type Child<M is core.Member> = core.Child<M>
+
+--- The broad shape of a value: a scalar kind, or a structure, union, list,
+--- tuple, map, or opaque value.
+export type Kind = core.Kind
+
+--- The scalar kinds a [](Writer) and [](Reader) carry.
+export type ScalarKind = core.ScalarKind
+
+--- Whether a description is for writing or for reading.
+export type Direction = core.Direction
+
+--- Whether a member was absent, explicitly null, or present.
+export type Presence = core.Presence
+
+--- An integer of a declared width, carried as its decimal text so 64-bit
+--- values survive targets without an exact carrier.
+export type Integer = core.Integer
+
+export const Integer = core.Integer
+
+--- An exact decimal: `coefficient` times ten to the `exponent`.
+export type Decimal = core.Decimal
+
+export const Decimal = core.Decimal
+
+--- A floating-point value with the width it was written at.
+export type Float = core.Float
+
+export const Float = core.Float
+
+--- An instant as whole seconds since the Unix epoch, in decimal text, and
+--- nanoseconds within that second.
+export type Timestamp = core.Timestamp
+
+export const Timestamp = core.Timestamp
+
+--- A model-defined scalar a codec passes through without interpreting, such as
+--- an enum member or an XML qualified name.
+export type Atom = core.Atom
+
+--- A wire field a decoder met that the model does not declare.
+export type WireField = core.WireField
+
+--- Typed values a codec attaches to what it reads, such as the schema a
+--- document came from. Keys are [](nupp.util.Key)s; a context returns its own
+--- value for a key, then its parent's.
+export type Context = core.Context
+
+--- Disposes a value a codec has to give up.
+export type Discard<T> = core.Discard<T>
+
+--- Reads and writes a document type as its logical contents. See
+--- [](nupp.serde.document).
+export type DocumentAdapter<D> = core.DocumentAdapter<D>
+
+--- Reads one document value without a schema. See [](nupp.serde.document).
+export type DocumentReader = core.DocumentReader
+
+--- Applies an adapter to state, recovering the member type a [](Binding)
+--- erased. A codec passes one to `Binding:accept`.
+export type Consumer<T, S, R> = core.Consumer<T, S, R>
+
+--- A [](Consumer) that also writes into an exclusive output.
+export type IntoConsumer<T, S, O, R> = core.IntoConsumer<T, S, O, R>
+
+--- Emits a structure's members, a list's elements, or a map's entries.
+export type Members<M is core.Member, S> = core.Members<M, S>
+
+--- Receives one structure or union member while reading.
+export type MemberConsumer<M is core.Member, S> = core.MemberConsumer<M, S>
+
+--- Receives one list or tuple element while reading.
+export type ElementConsumer<M is core.Member, S> = core.ElementConsumer<M, S>
+
+--- Receives one map entry while reading.
+export type EntryConsumer<M is core.Member, S> = core.EntryConsumer<M, S>
+
+--- Receives a wire field the model does not declare.
+export type UnknownConsumer<S> = core.UnknownConsumer<S>
+
+--- Skips or captures an undeclared wire field's value.
+export type UnknownReader = core.UnknownReader
+
+--- Receives one document list element.
+export type DocumentElement<S> = core.DocumentElement<S>
+
+--- Receives one document structure member.
+export type DocumentMember<S> = core.DocumentMember<S>
+
+--- Receives one document map entry.
+export type DocumentEntry<S> = core.DocumentEntry<S>
+
+--- A serialization failure.
+---
+--- `path` is the logical path to the value, such as `$["users"][2]["name"]`; `byte` is
+--- the input offset when a decoder knows it. `cause` is the original problem,
+--- and `suppressed` collects failures raised while cleaning up after it.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local json = require("nupp.serde.json")
+--- local record User
+---     id: integer
+--- end
+--- local ok, problem = pcall(json.decode, serde.binding(User), '{"id":"seven"}')
+--- assert(not ok)
+--- local failure = problem as serde.Error
+--- assert(failure.path == '$["id"]')
+--- ```
+export type Error = errors.Error
+
+export const Error = errors.Error
+
+--- What kind of failure an [](Error) is: malformed input, an exceeded limit, a
+--- value the codec cannot represent, a model's own failure, or a broken
+--- adapter contract.
+export type ErrorCode = errors.Code

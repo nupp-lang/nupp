@@ -1,8 +1,0 @@
-const extensions = require("nupp.serde.extensions")
-const model = require("example.model")
-local record Other
-    name: string
-end
-local cache = extensions.cache(new Other(name = "text"))
-local wrong = cache:get(model.names(false))
-return wrong

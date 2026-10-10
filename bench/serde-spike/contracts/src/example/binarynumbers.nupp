@@ -1,7 +1,7 @@
 module example.binarynumbers
 
-local core = require("nupp.serde.value")
-local numbers = require("nupp.serde.numbers")
+local core = require("nupp.serde")
+local numbers = require("nupp.serde.codec")
 
 -- Big-endian two's complement integers. Decimal carriers never pass through a
 -- double as a whole, so all 64 bits survive on portable Lua as well as LuaJIT.

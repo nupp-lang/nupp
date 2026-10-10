@@ -1,4 +1,4 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde.internal.value")
 local json = require("nupp.serde.json")
 
 local function bind(adapter)
@@ -24,6 +24,7 @@ local factory = {
         return {}
     end
 }
+local factoryJson = json.codec(factory)
 for _, case in ipairs({
     {"0.001", "1e-3"},
     {"-0.001", "-1e-3"},
@@ -33,11 +34,11 @@ for _, case in ipairs({
     {"1e-2147483648", "1e-2147483648"},
     {"1e2147483647", "1e2147483647"},
 }) do
-    local value = json.decode(binding, case[1], factory)
-    assert(json.encode(binding, value, factory) == case[2])
+    local value = factoryJson:decode(binding, case[1])
+    assert(factoryJson:encode(binding, value) == case[2])
 end
 for _, bytes in ipairs({"1e-2147483649", "1e2147483648", "0.1e-2147483648"}) do
-    assert(not pcall(json.decode, binding, bytes, factory))
+    assert(not pcall(function() return factoryJson:decode(binding, bytes) end))
 end
 
 -- A decoder owns the root reader token. Even an untyped adapter that keeps it
@@ -56,7 +57,7 @@ for _, mode in ipairs({"success", "model-error", "trailing"}) do
             return adapter:read(reader)
         end,
     })
-    local ok, problem = pcall(json.decode, capturing, mode == "trailing" and "1 2" or "1", factory)
+    local ok, problem = pcall(function() return factoryJson:decode(capturing, mode == "trailing" and "1 2" or "1") end)
     assert(ok == (mode == "success"), tostring(problem))
     local live, expired = pcall(retained.context, retained)
     assert(not live and tostring(expired):find("expired", 1, true), tostring(expired))

@@ -1,4 +1,5 @@
-local declarations = require("nupp.serde.declaration")
+local __serdeJson = require("nupp.serde.json")
+local declarations = require("nupp.serde")
 local debug = require("nupp.serde.debug")
 local json = require("nupp.serde.json")
 local text = require("nupp.text")
@@ -24,7 +25,11 @@ local value = new Credentials(
 )
 local expected = 'Credentials { user = "ada", password = <redacted>, callback = <redacted> }'
 assert(debug.render(binding, value) == expected)
-assert(not pcall(json.encode, binding, value, declarations.policy()))
+assert(
+    not pcall(function()
+        return json.codec(__serdeJson.defaultPolicy):encode(binding, value)
+    end)
+)
 assert(debug.render(binding, value) == expected)
 local buffer = text.newBuffer()
 buffer:put("prefix:")
@@ -38,7 +43,11 @@ end
 local other = declarations.binding(Other)
 local instance = new Other(name = "second", ignored = function(): nil
 end)
-assert(not pcall(json.encode, other, instance, declarations.policy()))
+assert(
+    not pcall(function()
+        return json.codec(__serdeJson.defaultPolicy):encode(other, instance)
+    end)
+)
 assert(debug.render(other, instance) == 'Other { name = "second" }')
 local record Node
     name: string
@@ -88,7 +97,10 @@ local record Printable
 end
 assert(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
 assert(
-    not pcall(json.encode, declarations.binding(Printable), new Printable(value = customized), declarations.policy())
+    not pcall(function()
+        return json.codec(__serdeJson.defaultPolicy)
+            :encode(declarations.binding(Printable), new Printable(value = customized))
+    end)
 )
 
 local record Box<T is nupp.Debug>

@@ -1,14 +1,16 @@
 module example.binarycodec
 
-local core = require("nupp.serde.value")
-local publication = require("nupp.serde.publication")
+local __serdeJson = require("nupp.serde.json")
+
+local core = require("nupp.serde")
+local publication = require("nupp.serde.codec")
 local syntax = require("example.binary")
 local integers = require("example.binarynumbers")
 local positional = require("example.binarypositional")
 local documents = require("nupp.serde.document")
-local documentReaders = require("nupp.serde.documentreader")
-local bridge = require("nupp.serde.documentcodec")
-local contexts = require("nupp.serde.context")
+local documentReaders = require("nupp.serde.document")
+local bridge = require("nupp.serde.document")
+local contexts = require("nupp.serde.codec")
 local utf8 = require("nupp.text.utf8")
 
 export interface Policy
@@ -161,7 +163,7 @@ local record Unknown is core.UnknownReader, nupp.Closeable
         local result = adapter:readContents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
-            error(publication.failure(adapter, result, problem), 0)
+            error(publication.discardFailed(adapter, result, problem), 0)
         end
         self.used = true
 
@@ -226,7 +228,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
         if type(self.value) == "string" then
             return integers.decode(self.value as string, width, signed)
         else
-            local numbers = require("nupp.serde.numbers")
+            local numbers = require("nupp.serde.codec")
             return numbers.integer((self.value as core.Integer).decimal, width, signed)
         end
     end
@@ -408,7 +410,7 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
         local selected = self:selected(member)
-        local numbers = require("nupp.serde.numbers")
+        local numbers = require("nupp.serde.codec")
         self:put(
             member,
             "integer",
@@ -462,7 +464,7 @@ local record Output<M is core.Member> is core.Writer<M>
             source ~= nil and source.codec == family and source.profile == self.policy,
             "unknown binary value needs its original protocol context"
         )
-        local captured = bridge.fromBinding(adapter:contents(), value)
+        local captured = bridge.from(adapter:contents(), value)
         local atom = captured:atom()
         assert(
             getmetatable(atom) == Opaque and atom.family == family,
@@ -565,11 +567,11 @@ local record Decode<T> is core.Consumer<T, nil, T>
     @readonly bytes: string
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): T
         local selected = self.scope:resolve(adapter, "read")
-        local source = contexts.builder(family, self.scope.policy as table):freeze()
+        local source = contexts.contextBuilder(family, self.scope.policy as table):freeze()
         local reader = input(selected, self.bytes, source)
         local value = adapter:read(reader)
         if not reader.used then
-            error(publication.failure(self.binding, value, "binary binding did not consume its root"), 0)
+            error(publication.discardFailed(self.binding, value, "binary binding did not consume its root"), 0)
         end
 
         return value

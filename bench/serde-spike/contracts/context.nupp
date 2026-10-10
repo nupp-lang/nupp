@@ -1,17 +1,19 @@
-local contexts = require("nupp.serde.context")
+const util = require("nupp.util")
+
+local contexts = require("nupp.serde.codec")
 local model = require("example.richmodel")
 local json = require("nupp.serde.json")
-local key = contexts.key<model.Model>()
-local member = contexts.key<string>()
-local inherited = contexts.key<string?>()
+local key = util.newKey<model.Model>()
+local member = util.newKey<string>()
+local inherited = util.newKey<string?>()
 local schema = model.newModel()
 local codec = {}
 local profile = {}
-local builder = contexts.builder(codec, profile)
+local builder = contexts.contextBuilder(codec, profile)
 builder:set(key, schema)
 builder:set(inherited, "parent")
 local root = builder:freeze()
-local childBuilder = contexts.builder(codec, profile, root)
+local childBuilder = contexts.contextBuilder(codec, profile, root)
 childBuilder:set(member, "document")
 childBuilder:set(inherited, nil)
 local child = childBuilder:freeze()
@@ -24,12 +26,12 @@ assert(
     end)
 )
 local policy = model.policy(true)
-local decoded = json.decode(
-    model.binding(schema),
-    [[{"identifier":"ctx","created":0,"document":{"nested":[null,999999999999999999999]}}]],
-    policy,
-    child
-)
+local decoded = json.codec(policy)
+    :decode(
+        model.binding(schema),
+        [[{"identifier":"ctx","created":0,"document":{"nested":[null,999999999999999999999]}}]],
+        child
+    )
 local document = assert(decoded.document)
 local nested = assert(document:get("nested"))
 assert(assert(nested:context()):get(key) == schema)

@@ -1,7 +1,8 @@
-local core = require("nupp.serde.value")
+local __serdeCodec = require("nupp.serde.codec")
+local core = require("nupp.serde")
 local json = require("nupp.serde.json")
 local model = require("example.richmodel")
-local errors = require("nupp.serde.errors")
+local errors = require("nupp.serde")
 
 local record Counts
     writes: integer = 0
@@ -98,8 +99,9 @@ print("codec extensions initialize lazily by adapter, profile, and direction wit
 local directCounts = new Counts()
 local directBinding = counted(model.binding(schema), directCounts)
 local directProfile = model.policy(true)
+local directJson = json.codec(directProfile)
 for _ = 1, 3 do
-    local restored = json.decode(directBinding, bytes, directProfile)
-    assert(json.encode(directBinding, restored, directProfile) == bytes)
+    local restored = directJson:decode(directBinding, bytes)
+    assert(directJson:encode(directBinding, restored) == bytes)
 end
 assert(directCounts.reads == 1 and directCounts.writes == 1, "convenience calls rebuilt protocol schema extensions")

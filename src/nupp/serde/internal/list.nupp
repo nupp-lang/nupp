@@ -1,0 +1,70 @@
+module nupp.serde.internal.list
+
+local core = require("nupp.serde.internal.value")
+local record Child<V is nupp.Copyable, M is core.Member> is core.Child<M>
+    @readonly member: M
+    @readonly required: boolean = true
+    @readonly hasDefault: boolean = false
+    @readonly adapter: core.Adapter<V, M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.adapter:describe(direction)
+    end
+end
+local record Description<M is core.Member> is core.Description<M>
+    @readonly member: M
+    @readonly kind: core.Kind = "list"
+    @readonly nullable: boolean = false
+    @readonly width: integer?
+    @readonly signed: boolean?
+    @readonly canRead: boolean = true
+    @readonly children: {core.Child<M>}
+end
+local record Elements<V is nupp.Copyable, M is core.Member> is core.Members<M, {V}>
+    @readonly adapter: core.Adapter<V, M>
+    function apply(self, borrows source: {V}, exclusive writer: core.Writer<M>): nil
+        for _, value in ipairs(source) do
+            self.adapter:write(value, writer)
+        end
+    end
+end
+local record Read<V is nupp.Copyable, M is core.Member> is core.ElementConsumer<M, {V}>
+    @readonly adapter: core.Adapter<V, M>
+    function apply(self, exclusive state: {V}, index: integer, exclusive reader: core.Reader<M>): nil
+        assert(index == #state + 1, "nonsequential list element")
+        local value = self.adapter:read(reader)
+        assert(value ~= nil, "dense list elements cannot be nil")
+        state[index] = value
+    end
+end
+local record Adapter<V is nupp.Copyable, M is core.Member> is core.Adapter<{V}, M>
+    @readonly member: M
+    @readonly child: Child<V, M>
+    @readonly emit: Elements<V, M>
+    @readonly consume: Read<V, M>
+    function describe(self, direction: core.Direction): core.Description<M>
+        local selected = self.child:describe(direction)
+        return new Description<M>(member = self.member, children = {self.child}, canRead = selected.canRead)
+    end
+
+    function write(self, borrows value: {V}, exclusive writer: core.Writer<M>): nil
+        writer:writeList(self.member, #value, value, self.emit)
+    end
+
+    function read(self, exclusive reader: core.Reader<M>): {V}
+        local values: {V} = {}
+        reader:readList(self.member, values, self.consume)
+        return values
+    end
+end
+export function adapter<V is nupp.Copyable, M is core.Member>(
+    member: M,
+    element: M,
+    adapter: core.Adapter<V, M>
+): core.Adapter<{V}, M>
+    return new Adapter<V, M>(
+        member = member,
+        child = new Child<V, M>(member = element, adapter = adapter),
+        emit = new Elements<V, M>(adapter = adapter),
+        consume = new Read<V, M>(adapter = adapter)
+    )
+end

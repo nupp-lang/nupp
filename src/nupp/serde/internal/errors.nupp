@@ -1,0 +1,90 @@
+module nupp.serde.internal.errors
+
+--- What kind of failure an `Error` is.
+---
+--- `syntax` is malformed input, `limit` an exceeded limit, `unsupported` a
+--- value the codec cannot represent, `model` a model's own failure, and
+--- `contract` a broken adapter contract.
+export type Code = "syntax" | "limit" | "unsupported" | "model" | "contract"
+
+--- A serialization failure.
+export record Error
+    --- The kind of failure.
+    @readonly code: Code
+
+    --- A description of the failure.
+    @readonly message: string
+
+    --- The logical path to the value, such as `$["users"][2]["name"]`.
+    @readonly path: string
+
+    --- The input byte offset, when a decoder knows it.
+    @readonly byte: integer?
+
+    --- The original problem, such as the value an adapter raised.
+    @readonly cause: unknown
+
+    --- Failures raised while handling this one, such as a discard that
+    --- failed after it.
+    @readonly suppressed: const{unknown} = {}
+
+    --- Renders the code, the path, the byte offset when known, and the
+    --- message, as in `model $["id"] at byte 7: expected an integer`.
+    metamethod __tostring: function(self): string
+end
+
+Error.__tostring = function(self: Error): string
+    local position = self.byte ~= nil and " at byte " .. tostring(self.byte) or ""
+    return self.code .. " " .. self.path .. position .. ": " .. self.message
+end
+
+--- Converts a raised value into an `Error`.
+---
+--- An `Error` is returned unchanged, keeping its own path and offset. Any other
+--- value becomes a `model` error whose `cause` is the value and whose message
+--- is its `tostring`, or a fixed message when `tostring` raises.
+---
+--- @param problem the raised value
+--- @param path the logical path to record on a new error
+--- @param byte the input offset to record on a new error, or nil
+--- @return the error
+export function wrap(problem: unknown, path: string, byte: integer?): Error
+    if getmetatable(problem) == Error then
+        return problem as Error
+    end
+    local ok, message = pcall(tostring, problem)
+
+    return new Error(
+        code = "model",
+        message = ok and type(message) == "string" and message as string or "model operation failed",
+        path = path,
+        byte = byte,
+        cause = problem,
+        suppressed = not ok and {message} or {}
+    )
+end
+
+--- Places a raised value's path under the path of the value enclosing it.
+---
+--- `problem` is converted as `wrap` does, at `$`, and its path is appended to
+--- `parent`, so `$["name"]` under `$["users"][2]` becomes
+--- `$["users"][2]["name"]`.
+---
+--- @param problem the raised value
+--- @param parent the path of the enclosing value
+--- @return the error, carrying the combined path
+export function prefix(problem: unknown, parent: string): Error
+    local inner = wrap(problem, "$", nil)
+    if parent == "$" then
+        return inner
+    end
+
+    return new Error(
+        code = inner.code,
+        message = inner.message,
+        path = parent .. inner.path:sub(2),
+        byte = inner.byte,
+        cause = inner.cause,
+        suppressed = inner.suppressed
+    )
+end

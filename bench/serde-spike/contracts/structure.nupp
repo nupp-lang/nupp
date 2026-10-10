@@ -1,7 +1,7 @@
-local core = require("nupp.serde.value")
-local structure = require("nupp.serde.structure")
+local core = require("nupp.serde")
+local structure = require("nupp.serde.adapters")
 local codec = require("nupp.serde.json")
-local plans = require("nupp.serde.jsonplan")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
 
 local record Counts
@@ -137,7 +137,7 @@ local fields: {structure.Field<Value, Builder, Member>} = {
         true
     )
 }
-local selected = structure.adapter(root, fields, new Construction())
+local selected = structure.structure(root, fields, new Construction())
 local binding: core.Binding<Value> = new core.Bound<Value, Member>(adapter = selected)
 local engine = codec.codec(new Factory())
 assert(engine:encode(binding, new Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
@@ -150,7 +150,7 @@ for _, input in ipairs({'{}', '{"text":"invalid"}', '{"text":"ok","callback":[}'
     assert(counts.closed == counts.opened, input .. ": " .. tostring(counts.closed) .. "/" .. tostring(counts.opened))
     assert(counts.finished == 1)
 end
-local record Inspect is structure.Consumer<Value, Member, integer>
+local record Inspect is structure.StructureConsumer<Value, Member, integer>
     function apply<S is nupp.Closeable>(
         self,
         member: Member,

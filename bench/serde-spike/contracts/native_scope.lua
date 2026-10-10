@@ -1,6 +1,6 @@
 local native = require("nupp.serde.native")
 local buffer = require("string.buffer")
-local documents = require("nupp.serde.document")
+local documents = require("nupp.serde.internal.document")
 local adapter = documents.documentAdapter()
 
 local function refused(fn, text)
@@ -93,7 +93,7 @@ refused(
     end,
     "cannot clear"
 )
-local core = require("nupp.serde.value")
+local core = require("nupp.serde.internal.value")
 local lru = native.codec(1)
 local weak = setmetatable({}, {__mode = "k"})
 local descriptions = 0

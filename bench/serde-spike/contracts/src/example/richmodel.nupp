@@ -1,12 +1,16 @@
 module example.richmodel
 
-local core = require("nupp.serde.value")
-local plans = require("nupp.serde.jsonplan")
+local __serdeJson = require("nupp.serde.json")
+
+const util = require("nupp.util")
+
+local core = require("nupp.serde")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
-local timestamps = require("nupp.serde.timestamps")
+local timestamps = require("nupp.serde.codec")
 local documents = require("nupp.serde.document")
 local maps = require("example.maps")
-local contexts = require("nupp.serde.context")
+local contexts = require("nupp.serde.codec")
 
 local record Member is core.Member
     @readonly name: string
@@ -244,8 +248,8 @@ export record Model
     @private @readonly owner: table
 end
 
-export const schemaContext = core.contextKey<Model>()
-export const memberContext = core.contextKey<string>()
+export const schemaContext = util.newKey<Model>()
+export const memberContext = util.newKey<string>()
 
 export record ModelDocument
     @private @readonly model: Model
@@ -295,7 +299,7 @@ export record ModelDocument
             return value
         end
         local source = state.sourceContext as core.Context
-        local context = contexts.builder(source.codec, source.profile, source)
+        local context = contexts.contextBuilder(source.codec, source.profile, source)
         context:set(schemaContext, self.model)
         context:set(memberContext, name)
 
@@ -360,7 +364,7 @@ local record EmitChoice is core.Members<Member, Choice>
         if value.text ~= nil then
             writer:writeString(self.member, value.text)
         elseif value.field ~= nil and value.payload ~= nil then
-            writer:writeUnknown(value.field, value.payload, documents.documentAdapter())
+            writer:writeUnknown(value.field, value.payload, documents.adapter())
         else
             error("empty union carrier", 2)
         end
@@ -381,7 +385,7 @@ local record UnknownChoice is core.UnknownConsumer<ChoiceState>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        state.value = new Choice(field = field, payload = reader:captureValue(documents.documentAdapter()))
+        state.value = new Choice(field = field, payload = reader:captureValue(documents.adapter()))
     end
 end
 local readChoice, unknownChoice = new ReadChoice(), new UnknownChoice()
@@ -408,7 +412,7 @@ local record Fields<T> is core.Members<Member, T>
         if writer:include(model.document) then
             local document = self.storage:document(source)
             if document ~= nil then
-                writer:writeDocument(model.document, document, documents.documentAdapter())
+                writer:writeDocument(model.document, document, documents.adapter())
             end
         end
         if writer:include(model.labels) then
@@ -462,7 +466,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
         elseif member == model.created then
             state.created = reader:readTimestamp(member)
         elseif member == model.document then
-            state.document = reader:readDocument(member, documents.documentAdapter())
+            state.document = reader:readDocument(member, documents.adapter())
         elseif member == model.note then
             if reader:isNull() then
                 reader:readNull(member)
@@ -647,9 +651,9 @@ local record Policy<M is core.Member> is plans.Policy<M>
 
     function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
         if self.rename then
-            return json.numberToken(timestamps.epoch(value))
+            return json.numberToken(timestamps.formatEpoch(value))
         end
-        return json.encoded(timestamps.dateTime(value))
+        return json.encoded(timestamps.formatDateTime(value))
     end
 
     function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
@@ -665,7 +669,7 @@ end
 local record Factory is plans.PolicyFactory
     @readonly rename: boolean
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local documentPolicy = documents.policy(member, self.rename)
+        local documentPolicy = __serdeJson.documentPolicy(member, self.rename)
         if documentPolicy ~= nil then
             return documentPolicy
         end

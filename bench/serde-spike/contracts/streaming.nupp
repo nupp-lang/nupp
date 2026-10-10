@@ -1,9 +1,9 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local smithy = require("example.smithy")
-local scalar = require("nupp.serde.scalar")
-local structures = require("nupp.serde.structure")
-local indexed = require("nupp.serde.indexed")
-local bridge = require("nupp.serde.documentcodec")
+local scalar = require("nupp.serde.adapters")
+local structures = require("nupp.serde.adapters")
+local indexed = require("nupp.serde.adapters")
+local bridge = require("nupp.serde.document")
 local json = require("nupp.serde.json")
 local protocol = require("example.smithyprotocol")
 local routing = require("example.routing")
@@ -112,7 +112,7 @@ local fields: {structures.Field<Request, Builder, smithy.Member>} = {
     )
 }
 local binding = new core.Bound<Request, smithy.Member>(
-    adapter = structures.adapter(root, fields, new Construction(), nil, nil)
+    adapter = structures.structure(root, fields, new Construction(), nil, nil)
 )
 local stream = new Stream()
 local request = new Request(name = "a b", payload = "metadata", stream = stream)
@@ -133,7 +133,7 @@ assert(routing.query(parameters:encode(layout:binding(), slots)) == 'name=a%20b'
 assert(stream.reads == 0 and slots:get(streamSlot) == stream)
 assert(
     not pcall(function(): nil
-        bridge.fromBinding(binding, request)
+        bridge.from(binding, request)
     end)
 )
 local finite = json.codec(smithy.policy(true, false))

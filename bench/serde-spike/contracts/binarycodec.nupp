@@ -1,12 +1,13 @@
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+local core = require("nupp.serde")
 local codec = require("example.binarycodec")
 local syntax = require("example.binary")
-local declarations = require("nupp.serde.declaration")
-local structure = require("nupp.serde.structure")
-local indexed = require("nupp.serde.indexed")
-local bridge = require("nupp.serde.documentcodec")
+local declarations = require("nupp.serde")
+local structure = require("nupp.serde.adapters")
+local indexed = require("nupp.serde.adapters")
+local bridge = require("nupp.serde.document")
 local documents = require("nupp.serde.document")
-local scalar = require("nupp.serde.scalar")
+local scalar = require("nupp.serde.adapters")
 
 local record Numbers is codec.Policy
     function number<M is core.Member>(self, member: M): integer
@@ -68,7 +69,10 @@ local record IndexField<T, S is nupp.Closeable, M is core.Member> is structure.F
         end
     end
 end
-local record IndexStructure<T, M is core.Member> is structure.Consumer<T, M, core.Binding<indexed.Value>>
+local record IndexStructure<
+    T,
+    M is core.Member
+> is structure.StructureConsumer<T, M, core.Binding<indexed.IndexedValue>>
     function apply<S is nupp.Closeable>(
         self,
         member: M,
@@ -76,7 +80,7 @@ local record IndexStructure<T, M is core.Member> is structure.Consumer<T, M, cor
         construction: structure.Construction<T, S>,
         unknown: core.UnknownConsumer<S>,
         additional: core.Members<M, T>?
-    ): core.Binding<indexed.Value>
+    ): core.Binding<indexed.IndexedValue>
         assert(additional == nil, "this indexed fixture needs fixed known fields")
         local layout = indexed.layout(member)
         for _, field in ipairs(fields) do
@@ -86,8 +90,12 @@ local record IndexStructure<T, M is core.Member> is structure.Consumer<T, M, cor
         return layout:binding()
     end
 end
-local record IndexBinding<T> is core.Consumer<T, nil, core.Binding<indexed.Value>>
-    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): core.Binding<indexed.Value>
+local record IndexBinding<T> is core.Consumer<T, nil, core.Binding<indexed.IndexedValue>>
+    function apply<M is core.Member>(
+        self,
+        adapter: core.Adapter<T, M>,
+        borrows state: nil
+    ): core.Binding<indexed.IndexedValue>
         return assert(structure.inspect(adapter, new IndexStructure<T, M>()))
     end
 end
@@ -137,13 +145,13 @@ local record Unknown is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new Captured(field = syntax.identity(identity), value = reader:captureValue(documents.documentAdapter()))
+        ] = new Captured(field = syntax.identity(identity), value = reader:captureValue(documents.adapter()))
     end
 end
 local record Additional is core.Members<Member, Envelope>
     function apply(self, borrows value: Envelope, exclusive writer: core.Writer<Member>): nil
         for _, entry in ipairs(value.unknown) do
-            writer:writeUnknown(entry.field, entry.value, documents.documentAdapter())
+            writer:writeUnknown(entry.field, entry.value, documents.adapter())
         end
     end
 end
@@ -173,15 +181,17 @@ local fields: {structure.Field<Envelope, Builder, Member>} = {
         false
     )
 }
-local plain = new core.Bound<Envelope, Member>(adapter = structure.adapter(root, fields, new Construction(), nil, nil))
+local plain = new core.Bound<Envelope, Member>(
+    adapter = structure.structure(root, fields, new Construction(), nil, nil)
+)
 local dynamic = plain:accept(new IndexBinding<Envelope>(), nil)
 local envelope = new Envelope(name = "wire", blob = "\0\255bytes")
 local encoded = binary:encode(plain, envelope)
 local indexedValue = binary:decode(dynamic, encoded)
 assert(binary:encode(dynamic, indexedValue) == encoded)
-assert(bridge.into(plain, bridge.fromBinding(dynamic, indexedValue)).blob == envelope.blob)
+assert(bridge.into(plain, bridge.from(dynamic, indexedValue)).blob == envelope.blob)
 local opened = new core.Bound<Envelope, Member>(
-    adapter = structure.adapter(root, fields, new Construction(), new Unknown(), new Additional())
+    adapter = structure.structure(root, fields, new Construction(), new Unknown(), new Additional())
 )
 local reader = syntax.reader(encoded)
 local first, second = assert(reader:next()), assert(reader:next())
@@ -211,7 +221,7 @@ local record Skip is core.UnknownConsumer<Builder>
     end
 end
 local skipping = new core.Bound<Envelope, Member>(
-    adapter = structure.adapter(root, fields, new Construction(), new Skip(), nil)
+    adapter = structure.structure(root, fields, new Construction(), new Skip(), nil)
 )
 local skipped = binary:decode(skipping, syntax.encode({future, first, second}))
 assert(skipped.name == envelope.name and #skipped.unknown == 0)

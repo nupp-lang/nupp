@@ -2,7 +2,6 @@ const core = require("contract.dispatch")
 const render = require("contract.render")
 const model = require("example.model")
 const other = require("example.other")
-const extensions = require("nupp.serde.extensions")
 
 local record Stored
     binding: core.Binding<string>
@@ -15,10 +14,4 @@ assert(render.render(first.binding, "hello") == "text=hello")
 assert(render.render(second.binding, "hello") == "other=hello")
 assert(render.render(first.binding, "again") == "text=again")
 
-local cache = extensions.cache(schema)
-local normal = model.names(false)
-local wire = model.names(true)
-assert(cache:get(wire) == "wire_text")
-assert(cache:get(normal) == "text")
-assert(cache:get(wire) == "wire_text")
 return true

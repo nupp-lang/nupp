@@ -1,4 +1,4 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local record Resource is nupp.Closeable
     function close(takes self): nil
     end

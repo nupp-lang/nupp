@@ -1,8 +1,10 @@
 module example.registry
 
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+
+local core = require("nupp.serde")
 local documents = require("nupp.serde.document")
-local bridge = require("nupp.serde.documentcodec")
+local bridge = require("nupp.serde.document")
 
 export interface Consumer<R>
     apply: function<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>, borrows value: T): R
@@ -59,7 +61,7 @@ local record Project is Consumer<documents.Document>
         binding: core.Binding<T>,
         borrows value: T
     ): documents.Document
-        return bridge.fromBinding(binding, value)
+        return bridge.from(binding, value)
     end
 end
 export function project(value: Value): documents.Document

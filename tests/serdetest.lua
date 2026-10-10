@@ -246,7 +246,7 @@ local record User id: integer end
 local binding = serde.binding(User)
 local buffer = require("nupp.text").newBuffer()
 buffer:put("prefix:")
-json.write(binding, new User(id = 7), buffer)
+json.encodeInto(binding, new User(id = 7), buffer)
 local first = buffer:get()
 local writer = nupp.codec.json.newWriter(buffer)
 writer:startArray()

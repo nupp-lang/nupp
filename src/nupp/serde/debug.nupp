@@ -1,9 +1,33 @@
 module nupp.serde.debug
 
-local core = require("nupp.serde.value")
-local declarations = require("nupp.serde.declaration")
+--[[
+Debug rendering turns any bound value into readable text for logs, assertions,
+and error messages. See [derives.md](docs/reference/derives.md#debug) for the
+`Debug` derive and its field annotations.
+
+```nupp
+local serde = require("nupp.serde")
+local debug = require("nupp.serde.debug")
+local record Login
+    user: string
+    @debug(redact = true)
+    password: string
+end
+assert(debug.render(debug.binding(Login), new Login(user = "ada", password = "x"))
+    == 'Login { user = "ada", password = <redacted> }')
+```
+
+The text is for people, not for reading back: it has no decoder and its
+format may change. [](binding) honours the `Debug` derive's field annotations
+and a declaration's own `Debug` method; any other binding renders through its
+adapter as written, so a model library's values render without a derive.
+]]
+
+local core = require("nupp.serde.internal.value")
+local declarations = require("nupp.serde.internal.declaration")
 local text = require("nupp.text")
-local identity = require("nupp.serde.identity") as function(borrows value: unknown): integer?
+local memos = require("nupp.serde.internal.memo")
+local identity = require("nupp.serde.internal.identity") as function(borrows value: unknown): integer?
 
 local customFamily: table = {}
 local record CustomText is core.Atom
@@ -92,6 +116,15 @@ local record View is declarations.View
     end
 end
 local bindingKey: table = {}
+
+--- Builds the binding Debug renders a declaration through.
+---
+--- Like [](nupp.serde.binding), with Debug's own selection: skipped and
+--- redacted fields are never read, so a field that has no other
+--- representation can still be rendered around.
+---
+--- @param target the record or struct declaration
+--- @return the binding, cached on the declaration
 export function binding<T is nupp.Copyable>(target: Type<T>): core.Binding<T>
     local info = nupp.reflect.runtime(target)
     local prior = rawget(info, bindingKey)
@@ -150,61 +183,25 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     return result
 end
 
-local record Slot
-    state: "initializing" | "ready" | "failed"
-    value: unknown
-    used: integer
+local function planFor<T, M is core.Member>(adapter: core.Adapter<T, M>): Plan<M>
+    return plan(adapter:describe("write"), {})
 end
+
 local record Cache
-    @readonly capacity: integer
-    entries: {[unknown]: Slot} = {}
-    count: integer = 0
-    clock: integer = 0
-    active: integer = 0
+    @readonly memo: memos.Memo
     function clear(self): nil
-        assert(self.active == 0, "Debug extensions are initializing")
-        self.entries, self.count, self.clock = {}, 0, 0
+        self.memo:clear()
     end
 
     function resolve<T, M is core.Member>(self, adapter: core.Adapter<T, M>): Plan<M>
-        self.clock += 1
-        local slot = self.entries[adapter]
-        if slot ~= nil then
-            slot.used = self.clock
-            if slot.state == "ready" then
-                return slot.value as Plan<M>
-            elseif slot.state == "failed" then
-                error(slot.value, 0)
-            else
-                error("recursive Debug extension initialization", 2)
-            end
+        local found, cached = self.memo:find(adapter, "write")
+        if found then
+            return cached as Plan<M>
         end
-        if self.count >= self.capacity then
-            local oldest: unknown = nil
-            local age = self.clock + 1
-            for key, entry in pairs(self.entries) do
-                if entry.state ~= "initializing" and entry.used < age then
-                    oldest, age = key, entry.used
-                end
-            end
-            assert(oldest ~= nil, "Debug extension capacity exhausted by active initialization")
-            self.entries[oldest] = nil
-            self.count -= 1
-        end
-        slot = new Slot(state = "initializing", value = nil, used = self.clock)
-        self.entries[adapter] = slot
-        self.count += 1
-        self.active += 1
-        local ok, result = pcall(function(): Plan<M>
-            return plan(adapter:describe("write"), {})
-        end)
-        self.active -= 1
-        slot.state, slot.value = ok and "ready" or "failed", result
-        if not ok then
-            error(result, 0)
-        end
+        local slot = self.memo:start(adapter, "write")
+        local ok, result = pcall(planFor, adapter)
 
-        return result as Plan<M>
+        return self.memo:finish(slot, ok, result) as Plan<M>
     end
 end
 local record State
@@ -467,12 +464,25 @@ contents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, state
     assert(depth <= 128, "debug nesting limit exceeded")
     adapter:contents():accept(new Render<D>(state = state, depth = depth), value)
 end
+
+--- Renders values, keeping what it selected for each binding.
+---
+--- The module-level functions share one; hold a renderer of your own to bound
+--- or clear what it retains.
 export interface Renderer
+    --- Renders a value. See [](render).
     render: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
+
+    --- Appends a rendered value. See [](write).
     write: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+
+    --- Forgets every binding's selections.
     clear: function(self): nil
+
+    --- Returns how many bindings have selections retained.
     cachedBindings: function(self): integer
 end
+
 local record Implementation is Renderer
     @readonly cache: Cache
     function render<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
@@ -494,20 +504,47 @@ local record Implementation is Renderer
     end
 
     function cachedBindings(self): integer
-        return self.cache.count
+        return self.cache.memo:size()
     end
 end
+
+--- Makes a [](Renderer).
+---
+--- @param capacity the most bindings to retain selections for; nil is 256
+--- @return the renderer
+--- @raises string when capacity is not positive
 export function renderer(capacity: integer?): Renderer
-    local limit = capacity or 256
-    assert(limit > 0, "Debug extension capacity must be positive")
-    return new Implementation(cache = new Cache(capacity = limit))
+    return new Implementation(cache = new Cache(memo = memos.new("Debug extension", capacity)))
 end
 
 local defaultRenderer = renderer()
+
+--- Renders a value as text.
+---
+--- @param selectedBinding the value's binding
+--- @param value the value
+--- @return the text
 export function render<T>(selectedBinding: core.Binding<T>, borrows value: T): string
     return defaultRenderer:render(selectedBinding, value)
 end
 
+--- Appends a value's text to a Buffer.
+---
+--- ```nupp
+--- local serde = require("nupp.serde")
+--- local debug = require("nupp.serde.debug")
+--- local struct Vec2
+---     x: float
+---     y: float
+--- end
+--- local output = nupp.text.newBuffer()
+--- debug.write(serde.binding(Vec2), new Vec2(1.25, 2.5), output)
+--- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
+--- ```
+---
+--- @param selectedBinding the value's binding
+--- @param value the value
+--- @param buffer the buffer to append to
 export function write<T>(selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
     defaultRenderer:write(selectedBinding, value, buffer)
 end
@@ -515,6 +552,12 @@ end
 -- The derive forwarding method supplies its own declaration witness. Generic
 -- arguments need no runtime carrier specialization for this write-only view;
 -- reflected bounds select custom Debug methods without constructing a value.
+
+--- Renders a value through its declaration's Debug binding. The `Debug` derive
+--- forwards to this; call [](render) instead.
+--- @param target the declaration
+--- @param value the value
+--- @return the text
 export function derived(target: Type<unknown>, borrows value: unknown): string
     return defaultRenderer:render(binding(target), value)
 end

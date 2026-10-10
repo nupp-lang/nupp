@@ -1,11 +1,12 @@
-local core = require("nupp.serde.value")
-local indexed = require("nupp.serde.indexed")
-local scalar = require("nupp.serde.scalar")
-local structure = require("nupp.serde.structure")
+local __serdeJson = require("nupp.serde.json")
+local core = require("nupp.serde")
+local indexed = require("nupp.serde.adapters")
+local scalar = require("nupp.serde.adapters")
+local structure = require("nupp.serde.adapters")
 local smithy = require("example.smithy")
 local json = require("nupp.serde.json")
 local documents = require("nupp.serde.document")
-local numbers = require("nupp.serde.numbers")
+local numbers = require("nupp.serde.codec")
 
 local model = smithy.parse(
     [[{"smithy":"2.0","shapes":{"example#Row":{"type":"structure","members":{
@@ -36,7 +37,7 @@ local emailSlot = layout:addDefault(email, emailAdapter, function(): Email
     return new Email(text = "default@example.com")
 end)
 local countSlot = layout:add(count, scalar.integer(count, 64, true), false)
-local payloadSlot = layout:add(payload, scalar.document(payload, documents.documentAdapter()), false)
+local payloadSlot = layout:add(payload, scalar.document(payload, documents.adapter()), false)
 local bytesSlot = layout:add(bytes, scalar.bytes(bytes), false)
 local binding = layout:binding()
 local codec = json.codec(smithy.policy(true, false))
@@ -62,13 +63,13 @@ local empty = layout:value()
 local record InspectField<
     S is nupp.Closeable,
     M is core.Member
-> is structure.FieldConsumer<indexed.Value, S, M, integer>
-    @readonly source: indexed.Value
+> is structure.FieldConsumer<indexed.IndexedValue, S, M, integer>
+    @readonly source: indexed.IndexedValue
     function apply<V is nupp.Copyable>(
         self,
         member: M,
-        has: structure.Has<indexed.Value>,
-        get: structure.Get<indexed.Value, V>,
+        has: structure.Has<indexed.IndexedValue>,
+        get: structure.Get<indexed.IndexedValue, V>,
         set: structure.Set<S, V>,
         adapter: core.Adapter<V, M>,
         fallback: (function(): V)?
@@ -88,15 +89,15 @@ local record InspectField<
         end
     end
 end
-local record InspectStructure<M is core.Member> is structure.Consumer<indexed.Value, M, integer>
-    @readonly source: indexed.Value
+local record InspectStructure<M is core.Member> is structure.StructureConsumer<indexed.IndexedValue, M, integer>
+    @readonly source: indexed.IndexedValue
     function apply<S is nupp.Closeable>(
         self,
         member: M,
-        fields: const{structure.Field<indexed.Value, S, M>},
-        construction: structure.Construction<indexed.Value, S>,
+        fields: const{structure.Field<indexed.IndexedValue, S, M>},
+        construction: structure.Construction<indexed.IndexedValue, S>,
         unknown: core.UnknownConsumer<S>,
-        additional: core.Members<M, indexed.Value>?
+        additional: core.Members<M, indexed.IndexedValue>?
     ): integer
         local result: integer = 0
         for _, field in ipairs(fields) do
@@ -106,9 +107,9 @@ local record InspectStructure<M is core.Member> is structure.Consumer<indexed.Va
         return result
     end
 end
-local record Inspect is core.Consumer<indexed.Value, nil, integer>
-    @readonly source: indexed.Value
-    function apply<M is core.Member>(self, adapter: core.Adapter<indexed.Value, M>, borrows state: nil): integer
+local record Inspect is core.Consumer<indexed.IndexedValue, nil, integer>
+    @readonly source: indexed.IndexedValue
+    function apply<M is core.Member>(self, adapter: core.Adapter<indexed.IndexedValue, M>, borrows state: nil): integer
         return assert(structure.inspect(adapter, new InspectStructure<M>(source = self.source)))
     end
 end

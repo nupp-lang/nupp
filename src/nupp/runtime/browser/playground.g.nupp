@@ -13,7 +13,9 @@ local serde = require("nupp.serde")
 local dataJson = require("nupp.serde.json")
 local document = require("nupp.serde.document")
 local nativeValues = require("nupp.serde.native")
-local context = require("nupp.serde.context")
+local adapters = require("nupp.serde.adapters")
+local codecs = require("nupp.serde.codec")
+local rendering = require("nupp.serde.debug")
 -- And the PEG runtime, which a materialized matcher requires by name. Its
 -- general backend is LPeg, which the application host links in.
 local pegRuntime = require("nupp.compiler.runtime.peg")
@@ -85,7 +87,15 @@ _G.print = function(...: any): nil
 end
 
 _G.__nuppPlaygroundRun = function(source: string): string
-    if derive == nil or serde == nil or dataJson == nil or document == nil or nativeValues == nil or context == nil then
+    if derive == nil
+        or serde == nil
+        or dataJson == nil
+        or document == nil
+        or nativeValues == nil
+        or adapters == nil
+        or codecs == nil
+        or rendering == nil
+    then
         error("nupp: derive runtime did not load", 0)
     end
     if pegRuntime == nil then

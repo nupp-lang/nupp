@@ -1,4 +1,5 @@
-local declarations = require("nupp.serde.declaration")
+local __serdeJson = require("nupp.serde.json")
+local declarations = require("nupp.serde")
 local json = require("nupp.serde.json")
 
 local record Text
@@ -9,7 +10,7 @@ local record Wide
 end
 local text = declarations.binding(Text)
 local wide = declarations.binding(Wide)
-local codec = json.codec(declarations.policy())
+local codec = json.codec(__serdeJson.defaultPolicy)
 local original: any = _G.require
 _G.require = function(name: string): any
     if name == "ffi" then

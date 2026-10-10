@@ -1,9 +1,10 @@
+local __serdeJson = require("nupp.serde.json")
 local native = require("nupp.serde.native")
-local declaration = require("nupp.serde.declaration")
-local core = require("nupp.serde.value")
+local declaration = require("nupp.serde")
+local core = require("nupp.serde")
 local documents = require("nupp.serde.document")
-local numbers = require("nupp.serde.numbers")
-local persistence = require("nupp.serde.persistence")
+local numbers = require("nupp.serde.codec")
+local persistence = require("nupp.serde.document")
 local util = require("nupp.util")
 
 local record Save
@@ -52,13 +53,13 @@ local document = documents.tuple({
     documents.float(new core.Float(value = 1.5, width = 32)),
     documents.bigInteger("123456789012345678901234567890"),
     documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 123456789)),
-    documents.document(documents.null()),
+    documents.boundary(documents.null()),
     documents.union("choice", documents.boolean(false)),
     documents.map({
         new documents.MapEntry(key = documents.integer(numbers.integer("7", 8, false)), value = documents.null())
     })
 })
-local adapter = documents.documentAdapter()
+local adapter = documents.adapter()
 local dynamic = native.decodeDocument(adapter, native.encodeDocument(adapter, document))
 assert(dynamic.kind == "tuple" and dynamic:size() == 10 and dynamic:at(1).kind == "null")
 assert(dynamic:at(2):integer().decimal == "-9223372036854775808" and dynamic:at(3):bytes() == "\0\255blob")
@@ -77,14 +78,14 @@ assert(not pcall(native.encodeDocument, adapter, documents.atom(new Atom())))
 
 local key: util.Key<Save> = util.newKey()
 local localKey: util.Key<string> = util.newKey()
-local registry = persistence.registry()
+local registry = persistence.storeRegistry()
 registry:register("game", key, binding, 1)
 local store = util.newStore()
 store:set(key, saved)
 store:set(localKey, "transient")
 local snapshot = registry:save(store)
 assert(#snapshot.entries == 1 and snapshot.entries[1].name == "game")
-local stateBinding = persistence.binding()
+local stateBinding = persistence.storeBinding()
 local snapshotBytes = native.encode(stateBinding, snapshot)
 local loaded = registry:load(native.decode(stateBinding, snapshotBytes), "reject")
 assert(assert(loaded:get(key)).score == saved.score and loaded:get(localKey) == nil)
@@ -93,8 +94,8 @@ assert(
         registry:register("game", key, binding, 1)
     end)
 )
-local future = new persistence.Entry(name = "future", version = 1, value = documents.null())
-local mixed = new persistence.Snapshot(entries = {snapshot.entries[1], future})
+local future = new persistence.StoreEntry(name = "future", version = 1, value = documents.null())
+local mixed = new persistence.StoreSnapshot(entries = {snapshot.entries[1], future})
 assert(not pcall(registry.load, registry, mixed, "reject"))
 assert(assert(registry:load(mixed, "skip"):get(key)).name == saved.name)
 assert(store:get(localKey) == "transient" and store:get(key) == saved)
@@ -102,7 +103,7 @@ assert(
     not pcall(
         registry.load,
         registry,
-        new persistence.Snapshot(entries = {snapshot.entries[1], snapshot.entries[1]}),
+        new persistence.StoreSnapshot(entries = {snapshot.entries[1], snapshot.entries[1]}),
         "skip"
     )
 )
@@ -118,11 +119,11 @@ local record Upgrade is persistence.Migration
         })
     end
 end
-local versionTwo = persistence.registry()
+local versionTwo = persistence.storeRegistry()
 versionTwo:register("game", key, binding, 2, new Upgrade())
 assert(assert(versionTwo:load(snapshot, "reject"):get(key)).name == "game upgraded")
-local wrongVersion = new persistence.Snapshot(
-    entries = {new persistence.Entry(name = "game", version = 3, value = snapshot.entries[1].value)}
+local wrongVersion = new persistence.StoreSnapshot(
+    entries = {new persistence.StoreEntry(name = "game", version = 3, value = snapshot.entries[1].value)}
 )
 assert(not pcall(versionTwo.load, versionTwo, wrongVersion, "reject"))
 
@@ -143,7 +144,11 @@ hot:clear()
 assert(hot:cachedBindings() == 0)
 local json = require("nupp.serde.json")
 local model = require("example.richmodel")
-assert(not pcall(json.encode, adapter:contents(), nonfinite, model.policy(false)))
+assert(
+    not pcall(function(): string
+        return json.codec(model.policy(false)):encode(adapter:contents(), nonfinite)
+    end)
+)
 
 local record Floating
     value: number
@@ -156,7 +161,7 @@ local record DocumentMember is core.Member
     @readonly name: string = "document"
     @readonly index: integer?
 end
-local scalar = require("nupp.serde.scalar")
+local scalar = require("nupp.serde.adapters")
 local documentBinding = new core.Bound<documents.Document, DocumentMember>(
     adapter = scalar.document(new DocumentMember(), adapter)
 )

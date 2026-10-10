@@ -1,6 +1,6 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local codec = require("nupp.serde.json")
-local plans = require("nupp.serde.jsonplan")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
 
 local record Counts

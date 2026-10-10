@@ -1,4 +1,5 @@
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+local core = require("nupp.serde")
 local native = require("nupp.serde.native")
 local documents = require("nupp.serde.document")
 local record Counts
@@ -64,7 +65,7 @@ end
 
 local selected = binding(false)
 local codec = native.codec()
-local bytes = native.encodeDocument(documents.documentAdapter(), documents.string("retained"))
+local bytes = native.encodeDocument(documents.adapter(), documents.string("retained"))
 for index = 1, 3 do
     local resource = codec:decode(selected, bytes)
     assert(resource.text == "retained")

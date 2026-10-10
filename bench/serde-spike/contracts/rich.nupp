@@ -1,37 +1,38 @@
+local __serdeJson = require("nupp.serde.json")
 local model = require("example.richmodel")
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local json = require("nupp.serde.json")
 local schema = model.newModel()
 local binding = model.binding(schema)
-local first, second = model.policy(true), model.policy(false)
+local first, second = json.codec(model.policy(true)), json.codec(model.policy(false))
 -- The first operation is decode: no model value exists to inspect while the
 -- codec resolves members, names, recursive edges, and construction support.
-local cold = json.decode(binding, [[{"identifier":"cold","created":0}]], first)
+local cold = first:decode(binding, [[{"identifier":"cold","created":0}]])
 assert(cold.id == "cold" and cold.created.seconds == "0")
 local value = new model.Packet(id = "abc", created = new core.Timestamp(seconds = "1700000000", nanos = 0))
-local encoded = json.encode(binding, value, first)
+local encoded = first:encode(binding, value)
 assert(encoded == [[{"identifier":"abc","created":1700000000}]])
-local decoded = json.decode(binding, encoded, first)
+local decoded = first:decode(binding, encoded)
 assert(decoded.id == "abc" and decoded.created.seconds == "1700000000" and decoded.note == nil)
-assert(json.encode(binding, value, second) == [[{"id":"abc","created":"2023-11-14T22:13:20Z"}]])
+assert(second:encode(binding, value) == [[{"id":"abc","created":"2023-11-14T22:13:20Z"}]])
 print("rich binding round-trip passed")
 
 local indexed = model.indexed(schema)
 local slots = model.indexedValue(schema, value.id, value.created)
-assert(json.encode(indexed, slots, first) == encoded)
-local restored = json.decode(indexed, encoded, first)
-assert(json.encode(indexed, restored, first) == encoded)
+assert(first:encode(indexed, slots) == encoded)
+local restored = first:decode(indexed, encoded)
+assert(first:encode(indexed, restored) == encoded)
 assert(
     not pcall(function(): nil
         local foreign = model.indexedValue(model.newModel(), value.id, value.created)
-        json.encode(indexed, foreign, first)
+        first:encode(indexed, foreign)
     end)
 )
 
 local fractional = new model.Packet(id = "fraction", created = new core.Timestamp(seconds = "-1", nanos = 123456789))
 for _, profile in ipairs({first, second}) do
-    local bytes = json.encode(binding, fractional, profile)
-    local actual = json.decode(binding, bytes, profile)
+    local bytes = profile:encode(binding, fractional)
+    local actual = profile:decode(binding, bytes)
     assert(actual.created.seconds == "-1" and actual.created.nanos == 123456789)
 end
 
@@ -50,17 +51,17 @@ local withDocument = new model.Packet(
         )
     })
 )
-local documentBytes = json.encode(binding, withDocument, first)
-local documentValue = json.decode(binding, documentBytes, first)
+local documentBytes = first:encode(binding, withDocument)
+local documentValue = first:decode(binding, documentBytes)
 local items = assert(assert(documentValue.document):get("items"))
 assert(items:size() == 3 and items:at(1).kind == "null")
 assert(items:at(2):numberToken() == "123456789012345678901234567890")
-assert(json.encode(binding, documentValue, first) == documentBytes)
+assert(first:encode(binding, documentValue) == documentBytes)
 
-local timestamps = require("nupp.serde.timestamps")
+local timestamps = require("nupp.serde.codec")
 for _, seconds in ipairs({"900719925474099312345", "-900719925474099312345", "-1", "0"}) do
     local stamp = new core.Timestamp(seconds = seconds, nanos = 123456789)
-    local actual = timestamps.parseEpoch(timestamps.epoch(stamp))
+    local actual = timestamps.parseEpoch(timestamps.formatEpoch(stamp))
     assert(actual.seconds == seconds and actual.nanos == stamp.nanos)
 end
 
@@ -73,22 +74,26 @@ local parent = new model.Packet(
     labels = {[0] = "zero", [-2] = "negative", [2147483647] = "max"}
 )
 for _, profile in ipairs({first, second}) do
-    local bytes = json.encode(binding, parent, profile)
-    local actual = json.decode(binding, bytes, profile)
+    local bytes = profile:encode(binding, parent)
+    local actual = profile:decode(binding, bytes)
     assert(actual.labels ~= nil and actual.labels[-2] == "negative" and actual.labels[2147483647] == "max")
     assert(actual.next ~= nil and actual.next.id == "child")
-    assert(json.encode(binding, actual, profile) == bytes)
-    local indexed = json.decode(model.indexed(schema), bytes, profile)
-    assert(json.encode(model.indexed(schema), indexed, profile) == bytes)
+    assert(profile:encode(binding, actual) == bytes)
+    local indexed = profile:decode(model.indexed(schema), bytes)
+    assert(profile:encode(model.indexed(schema), indexed) == bytes)
     assert(debug.render(binding, actual) == debug.render(model.indexed(schema), indexed))
 end
 
 local unknownBytes = [[{"identifier":"unknown","created":0,"choice":{"future":{"exact":999999999999999999999999}}}]]
-local unknownValue = json.decode(binding, unknownBytes, first)
+local unknownValue = first:decode(binding, unknownBytes)
 assert(unknownValue.choice ~= nil and unknownValue.choice:unknownField() ~= nil)
 assert(assert(assert(unknownValue.choice:unknownValue()):get("exact")):numberToken() == "999999999999999999999999")
-assert(json.encode(binding, unknownValue, first) == unknownBytes)
-assert(not pcall(json.encode, binding, unknownValue, second))
+assert(first:encode(binding, unknownValue) == unknownBytes)
+assert(
+    not pcall(function()
+        return second:encode(binding, unknownValue)
+    end)
+)
 for _, bytes in ipairs({
     [[{"identifier":"x","created":0,"choice":{}}]],
     [[{"identifier":"x","created":0,"choice":{"text":"known","future":null}}]],
@@ -96,9 +101,21 @@ for _, bytes in ipairs({
     [[{"identifier":"x","created":0,"labels":{"0":"one","-0":"two"}}]],
     [[{"identifier":"x","created":0,"labels":{"2147483648":"overflow"}}]],
 }) do
-    assert(not pcall(json.decode, binding, bytes, first))
+    assert(
+        not pcall(function()
+            return first:decode(binding, bytes)
+        end)
+    )
 end
-assert(not pcall(json.decode, model.binding(model.newModel(true)), "{}", first))
-assert(not pcall(json.encode, model.binding(model.newModel(true)), value, first))
-assert(json.encode(model.binding(model.newModel(true)), value, second) == json.encode(binding, value, second))
+assert(
+    not pcall(function(): unknown
+        return first:decode(model.binding(model.newModel(true)), "{}")
+    end)
+)
+assert(
+    not pcall(function(): string
+        return first:encode(model.binding(model.newModel(true)), value)
+    end)
+)
+assert(second:encode(model.binding(model.newModel(true)), value) == second:encode(binding, value))
 print("maps, recursion, unknown unions, and model-blind traversal passed")

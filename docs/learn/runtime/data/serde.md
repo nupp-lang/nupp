@@ -63,9 +63,9 @@ decoding is selected. An encode-only mapping can omit required fields.
 `serde.iso8601Seconds` maps an integer epoch-seconds field to a timestamp;
 other conversions use an explicit adapter.
 
-`json.write(binding, value, buffer)` appends to a caller-owned Buffer and
+`json.encodeInto(binding, value, buffer)` appends to a caller-owned Buffer and
 restores its previous contents if serialization fails. `json.codec(policy)`
-retains lazy schema extensions for repeated calls with a model-owned policy.
+makes a codec with a model-owned policy and its own bounded cache.
 
 ## Model-owned bindings
 
@@ -76,27 +76,37 @@ XML namespaces, and numbered binary fields.
 
 The erased `Binding<T>` keeps the value type invariant and hides the model's
 member type. Generic consumers can use it without importing that model or
-turning its schema into a standard-library schema first. Neutral declaration
-access and indexed storage are optional helpers.
+turning its schema into a standard-library schema first. `serde.access(T)`
+exposes a declaration's fields and constructor to a model that maps an existing
+record.
 
-A model can reuse scalar operations while retaining its own member type:
+[](nupp.serde.adapters) builds scalar, list, and structure adapters over the
+model's own member type:
 
 ```nupp
 local serde = require("nupp.serde")
-local scalar = require("nupp.serde.scalar")
+local adapters = require("nupp.serde.adapters")
+local json = require("nupp.serde.json")
 local record Member is serde.Member
     @readonly name: string
+    @readonly index: integer?
     @readonly shapeId: string
 end
 local function textBinding(member: Member): serde.Binding<string>
-    return new serde.Bound<string, Member>(adapter = scalar.text(member))
+    return new serde.Bound<string, Member>(adapter = adapters.text(member))
 end
 local binding = textBinding(new Member(name = "title", shapeId = "example#Title"))
+assert(json.codec(json.memberNamePolicy):encode(binding, "Dune") == '"Dune"')
 ```
+
+A new codec implements `serde.Writer` and `serde.Reader`;
+[](nupp.serde.codec) supplies the number, timestamp, error-path, and context
+rules the built-in codecs follow.
 
 The model's JSON policy interprets those handles. Callers pass that policy to
 `json.codec(policy)`; the default JSON policy only selects standard declaration
-and document conventions.
+and document conventions, and refuses other members rather than guess at their
+traits. `json.memberNamePolicy` writes a model's members under their own names.
 
 Operation routing remains with the model library. A Smithy request can select
 separate header, query, and body writers, with streaming members handled by
@@ -109,12 +119,12 @@ profile. They distinguish a document boundary from its contents, so a protocol
 can interpret a document-valued member separately from the value inside it.
 
 ```nupp
-local documents = require("nupp.serde.document")
+local document = require("nupp.serde.document")
 local json = require("nupp.serde.json")
-local adapter = documents.documentAdapter()
-local value = documents.object({
-    new documents.Entry(name = "count", value = documents.numberToken("18446744073709551615")),
-    new documents.Entry(name = "payload", value = documents.null())
+local adapter = document.adapter()
+local value = document.object({
+    new document.Entry(name = "count", value = document.numberToken("18446744073709551615")),
+    new document.Entry(name = "payload", value = document.null())
 })
 assert(json.encodeDocument(adapter, value) == '{"count":18446744073709551615,"payload":null}')
 ```
@@ -123,11 +133,12 @@ The value vocabulary includes exact integers, numeric tokens, decimals,
 width-preserving floats, bytes, timestamps, lists, tuples, maps, structures,
 unions, and model-defined atoms. A codec rejects values it cannot represent.
 Absent members, explicit null, and present values remain distinct.
-`json.decodeDocument(adapter, bytes)` reads contents and attaches source context.
+`json.decodeDocument(adapter, bytes)` reads contents and attaches source
+context.
 
-Context uses typed keys. Child documents retain inherited model and member
-context after the input reader closes; borrowed reader handles expire when
-the callback returns. Unknown content can be retained as an owned value with
+Context values are keyed by [](nupp.util.Key)s. Child documents retain
+inherited model and member context after the input reader is dropped; borrowed
+reader handles expire when the callback returns. Unknown content can be retained as an owned value with
 its original identity and profile, and an incompatible target protocol can
 refuse replay.
 
@@ -138,17 +149,17 @@ tree. Serialization reads the current value through that binding:
 
 ```nupp
 local serde = require("nupp.serde")
-local views = require("nupp.serde.view")
+local document = require("nupp.serde.document")
 local json = require("nupp.serde.json")
 local record Counter
     count: integer
 end
 local binding = serde.binding(Counter)
 local owner = new Counter(count = 1)
-local view = views.of(binding, owner)
+local view = document.view(binding, owner)
 local snapshot = view:snapshot()
 owner.count = 2
-local adapter = views.adapter(binding)
+local adapter = document.viewAdapter(binding)
 assert(json.encodeDocument(adapter, view) == '{"count":2}')
 assert(json.encodeDocument(adapter, snapshot) == '{"count":1}')
 ```
@@ -164,30 +175,30 @@ its model's wire policy. `decodeDocument` reads logical document contents; a
 model-specific document adapter owns any additional interpretation of those
 contents.
 
-## Schema extensions
+## Caching
 
-Bindings and codecs cache names, field dispatch, construction operations, and
-conversions lazily. An extension can contain ordinary functions or an optional
-runtime-generated implementation; callers use the same encode and decode API.
+A codec works out what a binding needs the first time it sees it: names, field
+dispatch, construction, and conversions, or a compiled decoder on native AOT.
+It keeps that work per binding, so later calls skip it. A failed selection is
+kept too, so a bad binding fails the same way each time without being retried.
 
-Codec scopes keep different policies and read/write directions separate.
-Bounded caches support explicit clearing, cache failed selection, and retain
-no serialized values or borrowed reader handles. Shared extension values must
-be Copyable; resource extensions use an owning scope. Document reconstruction
-also caches operations by binding identity; `documentcodec.clear()` releases
-that bounded cache without invalidating decoders already held by callers.
+Caches are bounded at 256 bindings by default and retain no serialized values
+or borrowed reader handles. `json.codec(policy, capacity)` and
+`native.codec(capacity)` make a codec with a cache of its own, which
+`codec:clear()` empties; `document.clear()` empties the cache behind
+`document.into`. Decoders already handed out keep working after a clear.
 
 ## Owned results
 
 A successful decode transfers an owning result to its caller. An owning
-binding provides a typed consuming disposal function so a codec can close a
-result rejected after an adapter returns, such as when the adapter leaves its
-reader unconsumed.
+binding provides a typed consuming `drop` function, so a codec can drop a result
+it rejects after an adapter returns, such as when the adapter leaves its reader
+unconsumed.
 
-`Bound<T, Member>` requires Copyable values. `OwnedBound<T, Member>` also takes
-that disposal function, and document adapters carry the same contract.
-Construction failures close partial resources; cleanup failures preserve the
-original error and its suppressed causes.
+`serde.Bound<T, Member>` requires Copyable values. `serde.OwnedBound<T, Member>`
+also takes the `drop` function, and document adapters carry the same contract.
+A construction failure drops the partial draft. A failure raised while dropping
+is kept in the error's `suppressed` list, beside the original cause.
 
 ## Native persistence
 
@@ -208,9 +219,10 @@ assert(native.decode(saves, bytes).inventory[1] == "key")
 ```
 
 Native persistence stores finite value trees. It does not preserve shared
-object identity, execute code from the input, or save process handles. Store
-snapshots use an explicit registry of binding names, versions, and migration
-functions.
+object identity, execute code from the input, or save process handles.
+`document.storeRegistry()` saves a [](nupp.util.Store) through an explicit
+registry of entry names, bindings, versions, and migrations, and any codec
+carries the snapshot through `document.storeBinding()`.
 
 The frame is not compatible with the previous JSON store snapshot format.
 Read old snapshots with the previous codec and write them through an explicit
@@ -241,8 +253,8 @@ It removes JSON annotations, creates explicit field mappings, and preserves
 `fromJSON`'s old value/error convention with a local `pcall` helper.
 
 Generic declarations, imported callers, record unions, and nested declarations
-with distinct JSON policies need explicit binding selection. Migration refuses ambiguous
-rewrites instead of dropping their policies. Handwritten methods named
+with distinct JSON policies need explicit binding selection. Migration refuses
+ambiguous rewrites instead of dropping their policies. Handwritten methods named
 `writeJSON` or `fromJSON` remain ordinary methods.
 
 | Previous API | Explicit binding API |

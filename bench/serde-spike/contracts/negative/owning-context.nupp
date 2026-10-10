@@ -1,6 +1,10 @@
-local context = require("nupp.serde.context")
+const {type Key} = require("nupp.util")
+const util = require("nupp.util")
+
+local codec = require("nupp.serde.codec")
 local record Resource is nupp.Closeable
     function close(takes self): nil
     end
 end
-return context.key<Resource>()
+local key: Key<Resource> = util.newKey()
+print(codec.contextBuilder({}, {}):freeze():get(key) == nil)

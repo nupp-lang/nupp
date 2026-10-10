@@ -1,0 +1,280 @@
+module nupp.serde.internal.indexed
+
+local core = require("nupp.serde.internal.value")
+local structures = require("nupp.serde.internal.structure")
+
+--- A typed field of one indexed layout.
+---
+--- A slot reads and writes only the values of the layout that made it.
+export record Slot<V is nupp.Copyable>
+    @private @readonly owner: table
+    @private @readonly position: integer
+    @private @readonly valueType: (function(value: V): V)?
+end
+
+export record Value
+    @private @readonly owner: table
+    @private @readonly values: {[integer]: unknown} = {}
+    @private @readonly present: {[integer]: boolean} = {}
+
+    --- Returns whether a slot holds a value, explicit null included.
+    ---
+    --- A slot whose adapter reads null holds nil and still counts as present,
+    --- so `has` tells an explicit null from an absent field where `get` does
+    --- not.
+    ---
+    --- @param slot the slot to test
+    --- @return whether the slot is present
+    --- @raises string when the slot belongs to another layout
+    function has<V is nupp.Copyable>(self, slot: Slot<V>): boolean
+        assert(slot.owner == self.owner, "slot belongs to another layout")
+        return self.present[slot.position] == true
+    end
+
+    --- Returns the value a slot holds.
+    ---
+    --- A default is not applied here. Decoding stores it when the field is
+    --- absent, but a value made by the layout's `value` holds nothing until it
+    --- is set.
+    ---
+    --- @param slot the slot to read
+    --- @return the value, or nil when the slot is absent or explicitly null
+    --- @raises string when the slot belongs to another layout
+    function get<V is nupp.Copyable>(self, slot: Slot<V>): V?
+        assert(slot.owner == self.owner, "slot belongs to another layout")
+        return self.values[slot.position] as V?
+    end
+
+    --- Stores a value under a slot and marks it present.
+    ---
+    --- @param slot the slot to write
+    --- @param value the value, which is nil for an explicit null
+    --- @raises string when the slot belongs to another layout
+    function set<V is nupp.Copyable>(self, slot: Slot<V>, value: V): nil
+        assert(slot.owner == self.owner, "slot belongs to another layout")
+        self.values[slot.position] = value
+        self.present[slot.position] = true
+    end
+
+    --- Clears a slot, making it absent.
+    ---
+    --- @param slot the slot to clear
+    --- @raises string when the slot belongs to another layout
+    function remove<V is nupp.Copyable>(self, slot: Slot<V>): nil
+        assert(slot.owner == self.owner, "slot belongs to another layout")
+        self.values[slot.position] = nil
+        self.present[slot.position] = nil
+    end
+end
+
+local record Builder is nupp.Closeable
+    value: Value?
+    function close(takes self): nil
+        self.value = nil
+    end
+end
+
+local record Field<V is nupp.Copyable, M is core.Member> is structures.Field<Value, Builder, M>
+    @readonly member: M
+    @readonly required: boolean
+    @readonly hasDefault: boolean
+    @readonly slot: Slot<V>
+    @readonly adapter: core.Adapter<V, M>
+    @readonly default: (function(): V)?
+    function describe(self, direction: core.Direction): core.Description<M>
+        return self.adapter:describe(direction)
+    end
+
+    function write(self, borrows source: Value, exclusive writer: core.Writer<M>): nil
+        assert(source.owner == self.slot.owner, "value belongs to another layout")
+        if source:has(self.slot) then
+            self.adapter:write(source.values[self.slot.position] as V, writer)
+        elseif self.hasDefault then
+            self.adapter:write(assert(self.default)(), writer)
+        else
+            assert(not self.required, "missing required indexed member: " .. self.member.name)
+        end
+    end
+
+    function read(self, exclusive state: Builder, exclusive reader: core.Reader<M>): nil
+        local value = assert(state.value, "closed indexed builder")
+        assert(not value:has(self.slot), "duplicate indexed member")
+        value:set(self.slot, self.adapter:read(reader))
+    end
+
+    function accept<R>(self, consumer: structures.FieldConsumer<Value, Builder, M, R>): R
+        local slot = self.slot
+        return consumer:apply<V>(
+            self.member,
+            function(borrows source: Value): boolean
+                return source:has(slot)
+            end,
+            structures.borrowedGet<Value, V>(function(borrows source: Value): V borrows (source)
+                assert(source:has(slot), "absent indexed member")
+                return source.values[slot.position] as V
+            end),
+            function(exclusive state: Builder, value: V): nil
+                assert(state.value, "closed indexed builder"):set(slot, value)
+            end,
+            self.adapter,
+            self.default
+        )
+    end
+end
+
+local record Construction<M is core.Member> is structures.Construction<Value, Builder>
+    @readonly owner: table
+    @readonly fields: {structures.Field<Value, Builder, M>}
+    @readonly defaults: {[integer]: function(): unknown}
+    function begin(self): Builder
+        return new Builder(value = new Value(owner = self.owner))
+    end
+
+    function finish(self, takes state: Builder): Value
+        local owned: Builder = state
+        local value = assert(owned.value)
+        for index, field in ipairs(self.fields) do
+            if not value.present[index] then
+                assert(not field.required or field.hasDefault, "missing required indexed member: " .. field.member.name)
+                if field.hasDefault then
+                    value.values[index] = assert(self.defaults[index])()
+                    value.present[index] = true
+                end
+            end
+        end
+        owned:close()
+
+        return value
+    end
+end
+
+export interface Layout<M is core.Member>
+    --- Adds a field with no default.
+    ---
+    --- A required field that is absent fails both directions: decoding raises
+    --- once the input is read, and encoding raises at the field. An optional
+    --- field that is absent is left out of the output and stays absent on
+    --- decode.
+    ---
+    --- @param member the member the field sits at
+    --- @param adapter the field value's adapter, which must describe `member`
+    --- @param required whether the field must be present
+    --- @return the field's slot
+    --- @raises string when the layout is sealed, the adapter describes another
+    ---     member, or the member is already a field
+    add: function<V is nupp.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
+
+    --- Adds a field that falls back to a default when absent.
+    ---
+    --- Decoding stores the default in a value that lacks the field, so it reads
+    --- as present. Encoding writes the default for an absent field without
+    --- storing it.
+    ---
+    --- @param member the member the field sits at
+    --- @param adapter the field value's adapter, which must describe `member`
+    --- @param default makes the field's default, called each time one is
+    ---     needed
+    --- @return the field's slot
+    --- @raises string when the layout is sealed, the adapter describes another
+    ---     member, or the member is already a field
+    addDefault: function<V is nupp.Copyable>(
+        self,
+        member: M,
+        adapter: core.Adapter<V, M>,
+        default: function(): V
+    ): Slot<V>
+
+    --- Makes an empty value of this layout, with every field absent.
+    ---
+    --- @return the value
+    value: function(self): Value
+
+    --- Returns the binding that reads and writes this layout's values.
+    ---
+    --- The first call seals the layout, so no field can be added after it, and
+    --- every call returns the same binding. Fields are written in the order
+    --- they were added.
+    ---
+    --- @return the binding
+    binding: function(self): core.Binding<Value>
+end
+
+local record Mapping<M is core.Member> is Layout<M>
+    @private @readonly member: M
+    @private @readonly owner: table = {}
+    @private @readonly fields: {structures.Field<Value, Builder, M>} = {}
+    @private @readonly defaults: {[integer]: function(): unknown} = {}
+    @private selected: core.Binding<Value>?
+
+    function define<V is nupp.Copyable>(
+        self,
+        member: M,
+        adapter: core.Adapter<V, M>,
+        required: boolean,
+        default: (function(): V)?,
+        hasDefault: boolean
+    ): Slot<V>
+        assert(self.selected == nil, "indexed layout is sealed")
+        assert(adapter:describe("write").member == member, "adapter describes another member")
+        for _, field in ipairs(self.fields) do
+            assert(field.member ~= member, "duplicate indexed member")
+        end
+        local position = #self.fields + 1
+        local slot = new Slot<V>(owner = self.owner, position = position)
+        self.fields[
+            position
+        ] = new Field<V, M>(
+            member = member,
+            required = required,
+            hasDefault = hasDefault,
+            slot = slot,
+            adapter = adapter,
+            default = default
+        )
+        if default ~= nil then
+            self.defaults[position] = default
+        end
+
+        return slot
+    end
+
+    function add<V is nupp.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
+        return self:define<V>(member, adapter, required, nil, false)
+    end
+
+    function addDefault<V is nupp.Copyable>(
+        self,
+        member: M,
+        adapter: core.Adapter<V, M>,
+        default: function(): V
+    ): Slot<V>
+        return self:define<V>(member, adapter, false, default, true)
+    end
+
+    function value(self): Value
+        return new Value(owner = self.owner)
+    end
+
+    function binding(self): core.Binding<Value>
+        local selected = self.selected
+        if selected == nil then
+            selected = new core.Bound<Value, M>(
+                adapter = structures.adapter(
+                    self.member,
+                    self.fields,
+                    new Construction<M>(owner = self.owner, fields = self.fields, defaults = self.defaults),
+                    nil,
+                    nil,
+                    true
+                )
+            )
+            self.selected = selected
+        end
+
+        return selected
+    end
+end
+
+export function layout<M is core.Member>(member: M): Layout<M>
+    return new Mapping<M>(member = member)
+end

@@ -1,18 +1,20 @@
 module contract.breadth
 
+local __serdeJson = require("nupp.serde.json")
+
 local model = require("example.richmodel")
 local smithy = require("example.smithy")
 local api = require("example.openapi")
 local registry = require("example.registry")
-local core = require("nupp.serde.value")
+local core = require("nupp.serde")
 local serde = require("nupp.serde")
 local json = require("nupp.serde.json")
 local syntax = require("nupp.codec.json")
 local text = require("nupp.text")
 local docs = require("nupp.serde.document")
-local bridge = require("nupp.serde.documentcodec")
-local readers = require("nupp.serde.documentreader")
-local views = require("nupp.serde.view")
+local bridge = require("nupp.serde.document")
+local readers = require("nupp.serde.document")
+local views = require("nupp.serde.document")
 local cases = {}
 
 local function task(name, work)
@@ -64,10 +66,10 @@ local source = '{"identifier":"outer","created":0.000000001,"next":{"identifier"
 local value, codec = bindingCases("recursive/nominal", nominal, source, epoch)
 bindingCases("recursive/indexed", indexed, source, epoch)
 bindingCases("recursive/document", document, source, epoch)
-local logical = bridge.fromBinding(nominal, value)
-local view, viewAdapter = views.of(nominal, value), views.adapter(nominal)
+local logical = bridge.from(nominal, value)
+local view, viewAdapter = views.view(nominal, value), views.viewAdapter(nominal)
 task("document/typed-view-create", function()
-    return views.of(nominal, value)
+    return views.view(nominal, value)
 end)
 task("document/typed-view-encode", function()
     return codec:encodeDocument(viewAdapter, view)
@@ -79,7 +81,7 @@ task("document/snapshot", function()
     return readers.snapshot(logical)
 end)
 task("document/project", function()
-    return bridge.fromBinding(nominal, value)
+    return bridge.from(nominal, value)
 end)
 local reconstruction = bridge.decoder(nominal)
 task("document/reconstruct", function()
@@ -119,8 +121,8 @@ local record Strings
     active: boolean
     name: string
 end
-local structure = require("nupp.serde.structure")
-local scalar = require("nupp.serde.scalar")
+local structure = require("nupp.serde.adapters")
+local scalar = require("nupp.serde.adapters")
 local record StringBuilder is nupp.Closeable
     id: string?
     active: boolean?
@@ -187,7 +189,7 @@ local smithyFields = {
     )
 }
 local typedSmithy = new core.Bound<Strings, smithy.Member>(
-    adapter = structure.adapter(smithy.root(smithyShape), smithyFields, new StringConstruction(), nil, nil, true)
+    adapter = structure.structure(smithy.root(smithyShape), smithyFields, new StringConstruction(), nil, nil, true)
 )
 bindingCases("smithy/nominal", typedSmithy, '{"id":"7","active":true,"name":"sample"}', smithy.policy(false, true))
 bindingCases("declaration/smithy-equivalent", serde.binding(Strings), '{"id":"7","active":true,"name":"sample"}')
@@ -207,7 +209,7 @@ local hook = serde.binding(
     new serde.Options(fields = {createdAt = new serde.FieldOptions(representation = serde.iso8601Seconds)})
 )
 bindingCases("hook/timestamp", hook, '{"createdAt":"1970-01-01T00:00:02Z"}')
-local documentAdapter = docs.documentAdapter()
+local documentAdapter = docs.adapter()
 local rich = docs.tuple({
     docs.bigInteger("123456789012345678901234567890"),
     docs.decimal(new core.Decimal(coefficient = "12345678901234567890", exponent = -9)),

@@ -34,4 +34,4 @@ scripts/** text eol=lf
 runtime/luajit/** text=auto eol=lf
 
 # The serde identity helper is embedded in the compiler bundle.
-src/nupp/serde/identity.lua text eol=lf
+src/nupp/serde/internal/identity.lua text eol=lf

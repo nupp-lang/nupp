@@ -1,7 +1,7 @@
 -- A finite codec hands owned bytes to transport. The transport controls partial
 -- publication and suspension; it never retains a borrowed serializer handle.
 local json = require("nupp.serde.json")
-local documents = require("nupp.serde.document")
+local documents = require("nupp.serde.internal.document")
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
 local codec = json.codec()

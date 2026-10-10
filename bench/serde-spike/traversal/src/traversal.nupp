@@ -1,7 +1,7 @@
 module traversal
 
 local json = require("nupp.codec.json")
-local syntax = require("nupp.serde.jsonsyntax")
+local syntax = require("nupp.serde.internal.json.syntax")
 
 export type Variant = "callbacks" | "specialized" | "cursor" | "interpreter" | "generated" | "direct"
 

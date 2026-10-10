@@ -1,9 +1,9 @@
-local bridge = require("nupp.serde.documentcodec")
+local bridge = require("nupp.serde.internal.documentcodec")
 local model = require("example.richmodel")
 local json = require("nupp.serde.json")
 bridge.clear()
 local binding = model.binding(model.newModel())
-local value = json.decode(binding, '{"identifier":"cached","created":0}', model.policy(true))
+local value = json.codec(model.policy(true)):decode(binding, '{"identifier":"cached","created":0}')
 local document = bridge.fromBinding(binding, value)
 local selections = 0
 local wrapped = {
@@ -71,7 +71,7 @@ end
 assert(attemptsToClear == 1)
 bridge.clear()
 local ready = bridge.decoder(binding)
-local documents = require("nupp.serde.document")
+local documents = require("nupp.serde.internal.document")
 assert(not pcall(ready.read, ready, documents.null()))
 assert(ready:read(document).id == "cached")
 bridge.clear()

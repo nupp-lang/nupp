@@ -5,10 +5,10 @@ local schema = model.newModel()
 local binding = model.documentBinding(schema)
 local epoch = model.policy(true)
 local dateTime = model.policy(false)
-local value = json.decode(
+local epochJson, dateJson = json.codec(epoch), json.codec(dateTime)
+local value = epochJson:decode(
     binding,
-    '{"identifier":"outer","created":0.000000001,"next":{"identifier":"inner","created":-0.5},"labels":{"7":"seven"}}',
-    epoch
+    '{"identifier":"outer","created":0.000000001,"next":{"identifier":"inner","created":-0.5},"labels":{"7":"seven"}}'
 )
 assert(value:schema() == schema)
 assert(assert(value:get("id")):string() == "outer")
@@ -25,18 +25,22 @@ assert(assert(nested:get("id")):string() == "inner")
 assert(assert(nested:get("created")):timestamp().seconds == "-1")
 local labels = assert(value:get("labels"))
 assert(labels.kind == "map" and labels:entry(1).key:integer().decimal == "7")
-local converted = json.encode(binding, value, dateTime)
+local converted = dateJson:encode(binding, value)
 assert(converted:find('"id":"outer"', 1, true))
 assert(converted:find('"created":"1970-01-01T00:00:00.000000001Z"', 1, true))
 assert(converted:find('"created":"1969-12-31T23:59:59.5Z"', 1, true))
-local packet = json.decode(model.binding(schema), converted, dateTime)
+local packet = dateJson:decode(model.binding(schema), converted)
 assert(packet.id == "outer" and packet.created.nanos == 1)
-assert(not pcall(json.encode, model.documentBinding(model.newModel()), value, epoch))
-local withNull = json.decode(binding, '{"identifier":"null","created":0,"note":null}', epoch)
+assert(
+    not pcall(function(): string
+        return epochJson:encode(model.documentBinding(model.newModel()), value)
+    end)
+)
+local withNull = epochJson:decode(binding, '{"identifier":"null","created":0,"note":null}')
 assert(assert(withNull:get("note")).kind == "null")
 assert(value:get("note") == nil)
-assert(json.encode(binding, withNull, dateTime):find('"note":null', 1, true))
+assert(dateJson:encode(binding, withNull):find('"note":null', 1, true))
 local indexedBinding = model.indexed(schema)
-local indexedNull = json.decode(indexedBinding, '{"identifier":"null","created":0,"note":null}', epoch)
-assert(json.encode(indexedBinding, indexedNull, epoch):find('"note":null', 1, true))
+local indexedNull = epochJson:decode(indexedBinding, '{"identifier":"null","created":0,"note":null}')
+assert(epochJson:encode(indexedBinding, indexedNull):find('"note":null', 1, true))
 print("schema-backed documents preserve logical names, exact timestamps, and source context across profiles")

@@ -1,0 +1,80 @@
+@!internal
+module nupp.serde.internal.json.diagnostic
+
+local syntax = require("nupp.serde.internal.json.syntax")
+local errors = require("nupp.serde.internal.errors")
+local numbers = require("nupp.serde.internal.numbers")
+
+-- This failure-only walk reads syntax and scalar constraints. It never calls
+-- a binding, getter, setter, conversion, default factory, or constructor.
+local function validate(recipe: any, cursor: syntax.Cursor): nil
+    local kind = recipe.kind
+    if kind == "structure" then
+        cursor:start("object")
+        local seen: {[string]: boolean} = {}
+        while true do
+            local name = cursor:nextKey()
+            if name == nil then
+                break
+            end
+            local field: any = nil
+            for _, candidate in ipairs(recipe.fields) do
+                if candidate.wire == name then
+                    field = candidate
+                    break
+                end
+            end
+            assert(field ~= nil, "unknown member: " .. name)
+            seen[name] = true
+            cursor:selectMember(field.name)
+            validate(field.target, cursor)
+        end
+        for _, field in ipairs(recipe.fields) do
+            assert(not field.required or seen[field.wire], "missing required member: " .. field.name)
+        end
+    elseif kind == "list" or kind == "tuple" then
+        cursor:start("array")
+        local index = 0
+        while cursor:next("array") do
+            index += 1
+            local item = kind == "list" and recipe.element or recipe.items[index]
+            assert(item ~= nil, "too many tuple elements")
+            validate(item, cursor)
+        end
+        assert(kind ~= "tuple" or index == #recipe.items, "missing tuple elements")
+    elseif kind == "map" then
+        cursor:start("object")
+        while cursor:nextKey() ~= nil do
+            validate(recipe.value, cursor)
+        end
+    elseif kind == "string" then
+        cursor:readString()
+    elseif kind == "boolean" then
+        cursor:readBoolean()
+    else
+        local token = cursor:readNumber()
+        if recipe.strictInteger then
+            numbers.integer(token, recipe.width, recipe.signed)
+        else
+            local value = tonumber(token)
+            assert(
+                value ~= nil and value == value and value ~= math.huge and value ~= -math.huge,
+                "expected finite number"
+            )
+            assert(kind ~= "integer" or value % 1 == 0, "expected integer")
+        end
+    end
+end
+
+export function explain(recipe: any, bytes: string, original: unknown): errors.Error
+    local cursor = syntax.reader(bytes)
+    local valid, problem = pcall(validate, recipe, cursor)
+    if valid then
+        valid, problem = pcall(cursor.finish, cursor)
+    end
+    if not valid then
+        return errors.wrap(problem, cursor:path(), cursor:offset())
+    end
+
+    return errors.wrap(original, "$", nil)
+end

@@ -1,4 +1,4 @@
-local core = require("nupp.serde.value")
+local core = require("nupp.serde.internal.value")
 local json = require("nupp.serde.json")
 local model = require("example.richmodel")
 
@@ -47,7 +47,7 @@ print("codec caches release their adapters and refuse recursive initialization")
 
 -- Reusing the binding executes its selected operations without re-entering the
 -- generic consumer or probing the extension table on every value.
-local extensions = require("nupp.serde.jsonextensions")
+local extensions = require("nupp.serde.internal.json.extensions")
 local scopeType = getmetatable(extensions.scope(model.policy(true), 2))
 local resolve = scopeType.resolve
 local resolutions, selections = 0, 0

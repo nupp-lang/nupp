@@ -1,5 +1,5 @@
-local documents = require("nupp.serde.document")
-local readers = require("nupp.serde.documentreader")
+local documents = require("nupp.serde.internal.document")
+local readers = require("nupp.serde.internal.documentreader")
 local map = documents.map({{key = documents.string("key"), value = documents.null()}})
 local retainedKey, retainedValue
 local input = readers.reader(map)

@@ -1,14 +1,16 @@
-local core = require("nupp.serde.value")
+local __serdeJson = require("nupp.serde.json")
+local core = require("nupp.serde")
 local documents = require("nupp.serde.document")
 local codec = require("nupp.serde.json")
 local model = require("example.richmodel")
 local text = require("nupp.text")
 
-local binding = documents.documentAdapter():contents()
+local binding = documents.adapter():contents()
 local profile = model.policy(true)
+local profileJson = codec.codec(profile)
 local buffer = text.newBuffer()
 buffer:put("prefix:")
-codec.encodeInto(binding, documents.string("ok"), buffer, profile)
+profileJson:encodeInto(binding, documents.string("ok"), buffer)
 assert(buffer:tostring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
@@ -19,12 +21,12 @@ end
 local value = documents.list({documents.string("already written"), documents.atom(new Unsupported(family = {}))})
 
 local function write(): nil
-    codec.encodeInto(binding, value, buffer, profile)
+    profileJson:encodeInto(binding, value, buffer)
 end
 
 assert(not pcall(write))
 assert(buffer:tostring() == 'prefix:"ok"')
-codec.encodeInto(binding, documents.null(), buffer, profile)
+profileJson:encodeInto(binding, documents.null(), buffer)
 assert(buffer:tostring() == 'prefix:"ok"null')
 print("direct Buffer output rolls back partial writes and remains reusable")
 

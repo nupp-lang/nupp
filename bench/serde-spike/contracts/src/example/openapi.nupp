@@ -1,11 +1,13 @@
 module example.openapi
 
-local core = require("nupp.serde.value")
-local structures = require("nupp.serde.structure")
-local plans = require("nupp.serde.jsonplan")
+local __serdeJson = require("nupp.serde.json")
+
+local core = require("nupp.serde")
+local structures = require("nupp.serde.adapters")
+local plans = require("nupp.serde.json")
 local json = require("nupp.codec.json")
 local documents = require("nupp.serde.document")
-local jsonDocument = require("nupp.serde.jsondocument")
+local jsonDocument = require("nupp.serde.json")
 
 export type View = "request" | "response"
 export record Property is core.Member
@@ -99,7 +101,7 @@ local record Alternatives is core.Adapter<Choice, Property>
     end
 
     function read(self, exclusive reader: core.Reader<Property>): Choice
-        local value = reader:readDocument(self.schema.payload, documents.documentAdapter())
+        local value = reader:readDocument(self.schema.payload, documents.adapter())
         return choose(self.schema, value)
     end
 end
@@ -140,8 +142,8 @@ local record Unknown is core.UnknownConsumer<Builder>
     ): nil
         -- This fixture's JSON field identity exposes its literal name explicitly.
         -- Protocols with different identities supply their own capture operation.
-        local name = jsonDocument.name(field)
-        state.additional[name] = reader:captureValue(documents.documentAdapter())
+        local name = jsonDocument.fieldName(field)
+        state.additional[name] = reader:captureValue(documents.adapter())
     end
 end
 local record Additional is core.Members<Property, Value>
@@ -153,9 +155,9 @@ local record Additional is core.Members<Property, Value>
         table.sort(names)
         for _, name in ipairs(names) do
             writer:writeUnknown(
-                new jsonDocument.Name(name = name),
+                new jsonDocument.FieldName(name = name),
                 assert(value.additional[name]),
-                documents.documentAdapter()
+                documents.adapter()
             )
         end
     end
@@ -213,7 +215,7 @@ export function binding(schema: Model): core.Binding<Value>
     }
 
     return new core.Bound<Value, Property>(
-        adapter = structures.adapter(schema.root, fields, new Construction(), new Unknown(), new Additional())
+        adapter = structures.structure(schema.root, fields, new Construction(), new Unknown(), new Additional())
     )
 end
 
@@ -312,7 +314,7 @@ local record DocumentScalar is core.Adapter<documents.Document, Property>
 
     function read(self, exclusive reader: core.Reader<Property>): documents.Document
         if self.member == self.schema.payload then
-            local value = reader:readDocument(self.member, documents.documentAdapter())
+            local value = reader:readDocument(self.member, documents.adapter())
             return choose(self.schema, value).value
         else
             return documents.string(reader:readString(self.member))
@@ -328,10 +330,7 @@ local record DocumentUnknown is core.UnknownConsumer<DocumentBuilder>
     ): nil
         state.fields[
             #state.fields + 1
-        ] = new documents.Entry(
-            name = jsonDocument.name(field),
-            value = reader:captureValue(documents.documentAdapter())
-        )
+        ] = new documents.Entry(name = jsonDocument.fieldName(field), value = reader:captureValue(documents.adapter()))
     end
 end
 local record DocumentAdditional is core.Members<Property, documents.Document>
@@ -346,11 +345,7 @@ local record DocumentAdditional is core.Members<Property, documents.Document>
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            writer:writeUnknown(
-                new jsonDocument.Name(name = name),
-                assert(value:get(name)),
-                documents.documentAdapter()
-            )
+            writer:writeUnknown(new jsonDocument.FieldName(name = name), assert(value:get(name)), documents.adapter())
         end
     end
 end
@@ -371,7 +366,7 @@ export function documentBinding(schema: Model): core.Binding<documents.Document>
     end
 
     return new core.Bound<documents.Document, Property>(
-        adapter = structures.adapter(
+        adapter = structures.structure(
             schema.root,
             fields,
             new DocumentConstruction(),
@@ -408,7 +403,7 @@ end
 local record Factory is plans.PolicyFactory
     @readonly view: View
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local documentPolicy = documents.policy(member, true)
+        local documentPolicy = __serdeJson.documentPolicy(member, true)
         if documentPolicy ~= nil then
             return documentPolicy
         end
