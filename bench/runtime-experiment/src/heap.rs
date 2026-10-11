@@ -13,6 +13,13 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 /// Keys are value bits, interned strings by pointer, so a multiply-shift mix
 /// is all a table needs.
+/// FNV-1a over the bytes: the intern table's hasher, cheap on short strings.
+#[derive(Default)]
+pub struct StrHasher(u64);
+impl Hasher for StrHasher {
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, bytes: &[u8]) { let mut h = if self.0 == 0 { 0xcbf29ce484222325 } else { self.0 }; for &b in bytes { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } self.0 = h; }
+}
 #[derive(Default)]
 pub struct BitsHasher(u64);
 impl Hasher for BitsHasher {
@@ -46,6 +53,9 @@ impl Value {
     /// What a resumable compiled entry returns when the activation parked:
     /// its registers are in the frame record and its pc in the header.
     pub const PARKED: Value = Value(QNAN | (6 << TAG_SHIFT));
+    /// A library function by id (`builtins::NAMES`).
+    pub fn builtin(id: u32) -> Value { Value(QNAN | (7 << TAG_SHIFT) | id as u64) }
+    pub fn as_builtin(self) -> Option<u32> { if !self.is_num() && self.0 & TAG_MASK == (7 << TAG_SHIFT) { Some((self.0 & PAYLOAD) as u32) } else { None } }
     pub fn num(x: f64) -> Value {
         let b = x.to_bits();
         // A real NaN is canonicalised so it never aliases a tag.
@@ -75,7 +85,8 @@ pub struct Shape {
     pub names: Vec<Value>, // interned strings
     pub types: Vec<SlotTy>,
     /// The descriptor: method name (interned) to function id.
-    pub methods: HashMap<Value, u32>,
+    /// The descriptor: method name (interned) to the function value that runs it.
+    pub methods: HashMap<Value, Value>,
 }
 
 pub enum Body {
@@ -90,6 +101,9 @@ pub enum Body {
     Closure { fid: u32, captures: Vec<Value> },
     /// A shared mutable location a captured local lives in.
     Cell { value: Value },
+    /// Iteration state for `pairs` (1, over a key snapshot), `ipairs` (2) and
+    /// `gmatch` (3, `pattern` holds the pattern string).
+    Iter { kind: u8, obj: Value, pattern: Value, pos: usize, keys: Vec<Value> },
     Freed(String),
 }
 
@@ -102,8 +116,10 @@ pub const KIND_FREED: u8 = 0;
 pub const KIND_CLOSURE: u8 = 5;
 pub const KIND_CELL: u8 = 6;
 pub const KIND_BYTES: u8 = 7;
+pub const KIND_ITER: u8 = 8;
 /// Objects per allocation chunk.
 pub const CHUNK: usize = 1024;
+pub static ALLOC_KINDS: std::sync::Mutex<[u64; 9]> = std::sync::Mutex::new([0; 9]);
 
 /// The header has a fixed layout so compiled code reads an object's kind, the
 /// pointer to its payload (slots, array part, storage, bytes) and that
@@ -139,6 +155,7 @@ impl Object {
             Body::Record { slots, .. } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64; }
             Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
             Body::Bytes { data } => { self.kind = KIND_BYTES; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
+            Body::Iter { keys, .. } => { self.kind = KIND_ITER; self.aux_ptr = keys.as_mut_ptr() as *mut u8; self.aux_len = keys.len() as u64; }
             Body::Closure { captures, .. } => { self.kind = KIND_CLOSURE; self.aux_ptr = captures.as_mut_ptr() as *mut u8; self.aux_len = captures.len() as u64; }
             Body::Cell { value } => { self.kind = KIND_CELL; self.aux_ptr = value as *mut Value as *mut u8; self.aux_len = 1; }
             Body::Freed(_) => { self.kind = KIND_FREED; self.aux_ptr = std::ptr::null_mut(); self.aux_len = 0; }
@@ -174,7 +191,7 @@ pub struct Heap {
     pub oracle: bool,
     pub quarantine: bool,
     pub shapes: Vec<Shape>,
-    interned: HashMap<Box<str>, NonNull<Object>>,
+    interned: HashMap<Box<str>, NonNull<Object>, BuildHasherDefault<StrHasher>>,
     pub stats: Stats,
 }
 
@@ -186,7 +203,7 @@ pub trait Roots { fn each_root(&self, f: &mut dyn FnMut(Value)); }
 
 impl Heap {
     pub fn new() -> Heap {
-        Heap { chunks: Vec::new(), bump: CHUNK, free: Vec::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_index: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: false, stress_steps: false, oracle: false, quarantine: std::env::var("GC_QUARANTINE").is_ok(), shapes: Vec::new(), interned: HashMap::new(), stats: Stats::default() }
+        Heap { chunks: Vec::new(), bump: CHUNK, free: Vec::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_index: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: false, stress_steps: false, oracle: false, quarantine: std::env::var("GC_QUARANTINE").is_ok(), shapes: Vec::new(), interned: HashMap::default(), stats: Stats::default() }
     }
 
     pub fn shape(&mut self, names: &[Value], types: &[SlotTy]) -> u32 {
@@ -195,6 +212,7 @@ impl Heap {
     }
 
     fn alloc_raw(&mut self, body: Body, bytes: usize) -> NonNull<Object> {
+        if crate::builtins::STATS.load(std::sync::atomic::Ordering::Relaxed) { let k = match &body { Body::Str { .. } => 0, Body::Table { .. } => 1, Body::Record { .. } => 2, Body::Storage { .. } => 3, Body::Bytes { .. } => 4, Body::Closure { .. } => 5, Body::Cell { .. } => 6, Body::Iter { .. } => 7, Body::Freed(_) => 8 }; let mut c = ALLOC_KINDS.lock().unwrap(); c[k] += 1; }
         // New objects are allocated black while a cycle is in progress, so a
         // cycle never frees what it did not scan and a sweep in progress never
         // frees what was allocated after marking ended. The sweep whitens
@@ -247,12 +265,14 @@ impl Heap {
         Value::obj(p)
     }
 
+    pub fn new_table_sized(&mut self, n: usize, m: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Table { array: Vec::with_capacity(n), hash: ValueMap::with_capacity_and_hasher(m, Default::default()) }, 64 + 8 * n + 24 * m, roots)) }
     pub fn new_table(&mut self, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Table { array: Vec::new(), hash: ValueMap::default() }, 64, roots)) }
     pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
         let n = self.shapes[shape as usize].names.len();
         Value::obj(self.alloc(Body::Record { shape, slots: vec![Value::NIL; n] }, 24 + 8 * n, roots))
     }
     pub fn new_closure(&mut self, fid: u32, captures: Vec<Value>, roots: &dyn Roots) -> Value { let n = captures.len(); Value::obj(self.alloc(Body::Closure { fid, captures }, 32 + 8 * n, roots)) }
+    pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value, keys: Vec<Value>, roots: &dyn Roots) -> Value { let n = keys.len(); Value::obj(self.alloc(Body::Iter { kind, obj, pattern, pos: 0, keys }, 48 + 8 * n, roots)) }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Cell { value }, 32, roots)) }
     /// A growable buffer with room for a short result before it reallocates.
     pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Bytes { data: Vec::with_capacity(64) }, 24 + 64, roots)) }
@@ -341,7 +361,8 @@ impl Heap {
             unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; self.gray.push(p); } }
         }
         let gray = &mut self.gray;
-        for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
+        // Shapes root their slot names and their method names and values.
+        for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.values()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
     }
 
     fn scan(&mut self, p: NonNull<Object>) {
@@ -353,6 +374,7 @@ impl Heap {
                 Body::Record { slots, .. } => { for &v in slots { push(v); } }
                 Body::Closure { captures, .. } => { for &v in captures { push(v); } }
                 Body::Cell { value } => push(*value),
+                Body::Iter { obj, pattern, keys, .. } => { push(*obj); push(*pattern); for &v in keys { push(v); } }
                 Body::Str { .. } | Body::Storage { .. } | Body::Bytes { .. } | Body::Freed(_) => {}
             }
             (*p.as_ptr()).color = Color::Black;
@@ -408,7 +430,7 @@ impl Heap {
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
-                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Freed(w) => w.clone() };
+                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Iter { kind, .. } => format!("iterator {kind}"), Body::Freed(w) => w.clone() };
                 // A tombstone: dropped from the heap's accounting and never
                 // swept or reused, but its memory stays so a dangling
                 // reference reaches a Freed body rather than a new object.
@@ -449,7 +471,7 @@ impl Heap {
         let mut visit = |v: Value, via: String, stack: &mut Vec<(NonNull<Object>, String)>| { if let Some(p) = v.as_obj() { stack.push((p, via)); } };
         let mut n = 0;
         roots.each_root(&mut |v| { n += 1; if let Some(p) = v.as_obj() { if !self.is_live_slot(p) { return; } } visit(v, format!("root #{n}"), &mut stack) });
-        for s in &self.shapes { for &nm in s.names.iter().chain(s.methods.keys()) { visit(nm, "shape".into(), &mut stack); } }
+        for s in &self.shapes { for &nm in s.names.iter().chain(s.methods.keys()).chain(s.methods.values()) { visit(nm, "shape".into(), &mut stack); } }
         while let Some((p, via)) = stack.pop() {
             if !seen.insert(p.as_ptr() as usize) { continue; }
             unsafe {
@@ -459,13 +481,14 @@ impl Heap {
                     Body::Record { slots, shape } => { for (i, &v) in slots.iter().enumerate() { visit(v, format!("{via} > record{shape}.slot{i}"), &mut stack); } }
                     Body::Closure { captures, .. } => { for (i, &v) in captures.iter().enumerate() { visit(v, format!("{via} > closure.capture{i}"), &mut stack); } }
                     Body::Cell { value } => visit(*value, format!("{via} > cell"), &mut stack),
+                    Body::Iter { obj, pattern, keys, .. } => { visit(*obj, format!("{via} > iterator"), &mut stack); visit(*pattern, format!("{via} > iterator pattern"), &mut stack); for &v in keys { visit(v, format!("{via} > iterator key"), &mut stack); } }
                     _ => {}
                 }
             }
         }
         let survivors: Vec<usize> = self.objects().iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed(_)) }).map(|p| p.as_ptr() as usize).collect();
         let set: std::collections::HashSet<usize> = survivors.iter().copied().collect();
-        for s in &seen { if !set.contains(s) { let o = unsafe { &*(*s as *const Object) }; let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Bytes { data } => format!("bytes {}", data.len()), _ => "other".into() }; panic!("oracle: a reachable object is missing from the heap: {what} used={} kind={} color={:?} epoch={} cycles={}", o.used, o.kind, o.color, o.epoch, self.stats.cycles); } }
+        for s in &seen { if !set.contains(s) { let o = unsafe { &*(*s as *const Object) }; let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Bytes { data } => format!("bytes {}", data.len()), _ => "other".into() }; panic!("oracle: a reachable object is missing from the heap: {what} used={} kind={} color={:?} epoch={} cycles={}", o.used, o.kind, o.color, o.epoch, self.stats.cycles); } }
         if exact {
             for s in &survivors { assert!(seen.contains(s), "oracle: an unreachable object survived"); }
             assert_eq!(seen.len(), survivors.len(), "oracle: reachable and surviving sets differ");

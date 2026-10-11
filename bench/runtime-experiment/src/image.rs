@@ -40,7 +40,8 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let v = match parts[2] {
                     "num" => crate::heap::Value::num(parts[3].parse().unwrap()),
                     "str" => { let s = unquote(&line[line.find('"').unwrap()..]); it.intern(&s) }
-                    "nil" | "builtin" => crate::heap::Value::NIL,
+                    "nil" => crate::heap::Value::NIL,
+                    "builtin" => crate::heap::Value::builtin(crate::builtins::id_of(parts[3]).ok_or_else(|| format!("line {ln}: unknown builtin {}", parts[3]))?),
                     "true" => crate::heap::Value::TRUE,
                     "false" => crate::heap::Value::FALSE,
                     "func" => crate::heap::Value::func(base + parts[3].parse::<u32>().unwrap()),
@@ -56,6 +57,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let offs: Vec<i32> = parts[3..].iter().map(|s| s.parse().unwrap()).collect();
                 f.jump_tables.push((def, offs));
             }
+            "module" => { it.modules.insert(parts[1].to_string(), base + parts[2].parse::<u32>().unwrap()); }
             "entry2" => { it.entry2 = Some(base + parts[1].parse::<u32>().unwrap()); }
             name => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
@@ -75,7 +77,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                     "FK" => Op::FK(a(1) as u8, parts[2].parse().unwrap()), "FMov" => Op::FMov(a(1) as u8, a(2) as u8), "FUnbox" => Op::FUnbox(a(1) as u8, a(2) as u8), "FBox" => Op::FBox(a(1) as u8, a(2) as u8),
                     "FAdd" => Op::FAdd(a(1) as u8, a(2) as u8, a(3) as u8), "FSub" => Op::FSub(a(1) as u8, a(2) as u8, a(3) as u8), "FMul" => Op::FMul(a(1) as u8, a(2) as u8, a(3) as u8), "FDiv" => Op::FDiv(a(1) as u8, a(2) as u8, a(3) as u8), "FNeg" => Op::FNeg(a(1) as u8, a(2) as u8),
                     "FCmpLt" => Op::FCmpLt(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpLe" => Op::FCmpLe(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpEq" => Op::FCmpEq(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpNe" => Op::FCmpNe(a(1) as u8, a(2) as u8, a(3) as u8),
-                    "JmpIfIZero" => Op::JmpIfIZero(a(1) as u8, a(2) as i32), "FToI" => Op::FToI(a(1) as u8, a(2) as u8), "IK" => Op::IK(a(1) as u8, a(2)), "IAdd" => Op::IAdd(a(1) as u8, a(2) as u8, a(3) as u8), "ISub" => Op::ISub(a(1) as u8, a(2) as u8, a(3) as u8), "IAddK" => Op::IAddK(a(1) as u8, a(2) as u8, a(3)), "IMov" => Op::IMov(a(1) as u8, a(2) as u8), "IToF" => Op::IToF(a(1) as u8, a(2) as u8), "IUnbox" => Op::IUnbox(a(1) as u8, a(2) as u8), "ICmpSLt" => Op::ICmpSLt(a(1) as u8, a(2) as u8, a(3) as u8), "ICmpSLe" => Op::ICmpSLe(a(1) as u8, a(2) as u8, a(3) as u8), "GetIdxI" => Op::GetIdxI(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdxI" => Op::SetIdxI(a(1) as u8, a(2) as u8, a(3) as u8), "Switch" => Op::Switch(a(1) as u8, a(2) as u16), "BoolFromI" => Op::BoolFromI(a(1) as u8, a(2) as u8), "FRet" => Op::FRet(a(1) as u8),
+                    "JmpIfIZero" => Op::JmpIfIZero(a(1) as u8, a(2) as i32), "FToI" => Op::FToI(a(1) as u8, a(2) as u8), "IK" => Op::IK(a(1) as u8, a(2)), "IAdd" => Op::IAdd(a(1) as u8, a(2) as u8, a(3) as u8), "ISub" => Op::ISub(a(1) as u8, a(2) as u8, a(3) as u8), "IAddK" => Op::IAddK(a(1) as u8, a(2) as u8, a(3)), "IMov" => Op::IMov(a(1) as u8, a(2) as u8), "IToF" => Op::IToF(a(1) as u8, a(2) as u8), "IUnbox" => Op::IUnbox(a(1) as u8, a(2) as u8), "ICmpSLt" => Op::ICmpSLt(a(1) as u8, a(2) as u8, a(3) as u8), "ICmpSLe" => Op::ICmpSLe(a(1) as u8, a(2) as u8, a(3) as u8), "GetIdxI" => Op::GetIdxI(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdxI" => Op::SetIdxI(a(1) as u8, a(2) as u8, a(3) as u8), "Switch" => Op::Switch(a(1) as u8, a(2) as u16), "Mod" => Op::Mod(a(1) as u8, a(2) as u8, a(3) as u8), "Div" => Op::Div(a(1) as u8, a(2) as u8, a(3) as u8), "FMod" => Op::FMod(a(1) as u8, a(2) as u8, a(3) as u8), "RetN" => Op::RetN(a(1) as u8, a(2) as u8), "Require" => Op::Require(a(1) as u8, a(2) as u16), "RequireV" => Op::RequireV(a(1) as u8, a(2) as u8), "NewTableN" => Op::NewTableN(a(1) as u8, a(2) as u8, a(3) as u8), "SetMethod" => Op::SetMethod(shape_ids[a(1) as usize], a(2) as u16, a(3) as u8), "BoolFromI" => Op::BoolFromI(a(1) as u8, a(2) as u8), "FRet" => Op::FRet(a(1) as u8),
                     "GetSlotF" => Op::GetSlotF(a(1) as u8, a(2) as u8, a(3) as u16), "SetSlotF" => Op::SetSlotF(a(1) as u8, a(2) as u16, a(3) as u8), "LenF" => Op::LenF(a(1) as u8, a(2) as u8), "GetIdxF" => Op::GetIdxF(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdxF" => Op::SetIdxF(a(1) as u8, a(2) as u8, a(3) as u8),
                     "NewClosure" => Op::NewClosure(a(1) as u8, base + a(2) as u32, a(3) as u8, a(4) as u8), "NewCell" => Op::NewCell(a(1) as u8, a(2) as u8), "GetCell" => Op::GetCell(a(1) as u8, a(2) as u8), "SetCell" => Op::SetCell(a(1) as u8, a(2) as u8), "GetUpval" => Op::GetUpval(a(1) as u8, a(2) as u8),
                     other => return Err(format!("line {ln}: unknown opcode {other}")),
@@ -87,7 +89,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
     let total = it.funcs.len() + funcs.len();
     for (i, f) in funcs.iter().enumerate() { crate::lower_ir::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
     for f in funcs { it.funcs.push(f); }
-    for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, base + fid); }
+    for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, crate::heap::Value::func(base + fid)); }
     Ok(entry)
 }
 

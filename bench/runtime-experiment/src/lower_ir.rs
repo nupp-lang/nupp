@@ -685,6 +685,13 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         VFma(d, a, b, c) => r(&[(X, d), (X, a), (X, b), (X, c)]),
         VLane(f, v, _) => r(&[(F, f), (X, v)]),
         FRet(f) => r(&[(F, f)]),
+        Mod(d, a, b) | Div(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
+        FMod(d, a, b) => r(&[(F, d), (F, a), (F, b)]),
+        RetN(start, _) => r(&[(V, start)]),
+        Require(d, _) => r(&[(V, d)]),
+        RequireV(d, s) => r(&[(V, d), (V, s)]),
+        NewTableN(d, _, _) => r(&[(V, d)]),
+        SetMethod(_, _, v) => r(&[(V, v)]),
     }
 }
 

@@ -14,6 +14,9 @@ assert(tree, "check failed")
 
 local out = {}
 local function emit(s) out[#out + 1] = s end
+local DRY = os.getenv("DRY")
+local gaps = {}
+local function gap(what) if not DRY then error(what) end gaps[what] = (gaps[what] or 0) + 1 end
 
 -- Shapes: one per record declaration, slots in declared order, methods as
 -- functions named Record.method with self first.
@@ -315,7 +318,7 @@ expr = function(f, node, dst, want)
         local name = tokText(node.token)
         if funcByName[name] then f:op("K", dst, f:const("func", funcByName[name].id))
         elseif name == "pcall" then f:op("K", dst, f:const("builtin", "pcall"))
-        else error("unresolved name " .. name) end
+        else gap("unresolved name " .. name) end
     elseif k == "binop" then
         local op = tokText(node.op)
         if op == "and" or op == "or" then
@@ -326,7 +329,7 @@ expr = function(f, node, dst, want)
         else
             local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
             local map = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["<"] = "Lt", ["<="] = "Le", ["=="] = "Eq", [".."] = "Concat", ["~="] = "Ne", [">"] = "Gt", [">="] = "Ge"}
-            local name = assert(map[op], "operator " .. op)
+            local name = map[op] or (gap("operator " .. op) or "Add")
             if name == "Gt" then f:op("Lt", dst, b, a) elseif name == "Ge" then f:op("Le", dst, b, a) else f:op(name, dst, a, b) end
         end
     elseif k == "unop" then
@@ -406,7 +409,7 @@ expr = function(f, node, dst, want)
                 local i = f:reg(); f:op("K", i, f:const("num", n))
                 local v = exprAs(f, field.value, "v")
                 f:op("SetIdx", dst, i, v)
-            else error("table field " .. field.kind) end
+            else gap("table field " .. field.kind) end
         end
     elseif k == "funcExpr" then
         local inner = newFn(f.name .. ".fn" .. tostring(#functions))
@@ -429,7 +432,7 @@ expr = function(f, node, dst, want)
         elseif tyTag(target) == "string" then f:op("TagCheckStr", dst, v)
         else if v ~= dst then f:op("Move", dst, v) end end
     else
-        error("expression kind " .. tostring(k))
+        gap("expression kind " .. tostring(k))
     end
     return dst, "v"
 end
@@ -483,7 +486,7 @@ local function stmt(f, node)
             else
                 local i = exprAs(f, target.expr, "v"); f:op("SetIdx", o, i, v)
             end
-        else error("assignment target " .. target.kind) end
+        else gap("assignment target " .. target.kind) end
     elseif k == "callStmt" then
         expr(f, node.expr, nil, "v")
     elseif k == "returnStmt" then
@@ -532,14 +535,16 @@ local function stmt(f, node)
     elseif k == "localFuncStmt" or k == "recordDecl" then
         -- Declared ahead of time; nothing to do inline.
     else
-        error("statement kind " .. tostring(k))
+        gap("statement kind " .. tostring(k))
     end
     f.nregs = math.max(mark, f.nregs)
 end
 
 block = function(f, node)
     f:push()
-    for _, s in ipairs(node.stats or node.body and node.body.stats or {}) do stmt(f, s) end
+    for _, s in ipairs(node.stats or node.body and node.body.stats or {}) do
+        if DRY then local ok, err = pcall(stmt, f, s); if not ok then gap("error: " .. tostring(err):gsub("^.-:%d+: ", "")) end else stmt(f, s) end
+    end
     f:pop()
 end
 
@@ -721,4 +726,4 @@ for _, f in ipairs(functions) do
 end
 emit("entry " .. (funcByName.main and funcByName.main.id or 0))
 if funcByName.hot then emit("entry2 " .. funcByName.hot.id) end
-io.write(table.concat(out, "\n"), "\n")
+if DRY then local ks = {} for k, v in pairs(gaps) do ks[#ks + 1] = k .. " x" .. v end table.sort(ks) io.stderr:write(table.concat(ks, "\n"), "\n") else io.write(table.concat(out, "\n"), "\n") end

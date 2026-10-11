@@ -1,5 +1,6 @@
 mod heap;
 mod interp;
+mod builtins;
 mod image;
 mod ir;
 mod jit;
@@ -549,6 +550,45 @@ fn main() {
             println!("park-compiled1000x1000\t{:.6}", cpu_now() - start);
         }
         eprintln!("compiled parks {} of {}", it.compiled_parks, it.parks);
+        return;
+    }
+    if mode == "lexer" {
+        // The compiler's lexer, emitted as a module graph, lexing a source file:
+        // checked against the LuaJIT run's token count and checksum, then timed.
+        let text = std::fs::read_to_string(&args[2]).expect("image");
+        let _entry = image::load(&mut it, &text).unwrap_or_else(|e| panic!("load: {e}"));
+        let source_text = std::fs::read_to_string(&args[3]).expect("source");
+        let want: Vec<f64> = args.get(4).map(|s| s.split(',').map(|x| x.parse().unwrap()).collect()).unwrap_or_default();
+        CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        it.compiled = vec![None; it.funcs.len()];
+        let bench = it.require("nupp.bench.lexbench");
+        let k = it.intern("setup"); let setup = it.get_index(bench, k);
+        it.call_value(setup, &[]);
+        let k = it.intern("lex"); let lex = it.get_index(bench, k);
+        let src = it.heap_new_string(source_text.clone()); it.registered.push(src);
+        let outs = it.call_value(lex, &[src]);
+        let got: Vec<f64> = outs.iter().map(|v| v.as_num()).collect();
+        eprintln!("lex	tokens {}	errors {}	checksum {}", got[0], got[1], got[2]);
+        if !want.is_empty() { assert_eq!(got, want, "token count, errors and checksum against LuaJIT"); eprintln!("PASS lexer agrees with LuaJIT"); }
+        if std::env::var("BUILTIN_STATS").is_ok() {
+            builtins::STATS.store(true, std::sync::atomic::Ordering::Relaxed);
+            let before = it.heap.stats.allocated;
+            it.call_value(lex, &[src]);
+            builtins::STATS.store(false, std::sync::atomic::Ordering::Relaxed);
+            eprintln!("objects allocated in one lex: {}", it.heap.stats.allocated - before);
+            let c = builtins::CALLS.lock().unwrap();
+            let mut rows: Vec<(u64, &str)> = c.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, builtins::NAMES[i])).collect();
+            rows.sort_by(|a, b| b.0.cmp(&a.0));
+            for (n, name) in rows { eprintln!("  {name}\t{n}"); }
+            let k = heap::ALLOC_KINDS.lock().unwrap(); for (i, name) in ["strings", "tables", "records", "storage", "bytes", "closures", "cells", "iterators", "freed"].iter().enumerate() { if k[i] > 0 { eprintln!("  alloc {name}\t{}", k[i]); } }
+        }
+        let reps: usize = std::env::var("LEX_REPEAT").ok().and_then(|s| s.parse().ok()).unwrap_or(7);
+        let mut samples = Vec::new();
+        for _ in 0..reps { let s = cpu_now(); let o = it.call_value(lex, &[src]); let e = cpu_now() - s; assert_eq!(o[2].as_num(), got[2]); samples.push(e); }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let m = samples[3];
+        println!("lexer	prototype	{:.2} ms per lex	{:.1} ns per byte	({} bytes, {} tokens)", m * 1e3, m / source_text.len() as f64 * 1e9, source_text.len(), got[0]);
+        eprintln!("objects live {} allocated {}", it.heap.object_count(), it.heap.stats.allocated);
         return;
     }
     if mode == "fibloop" { let it = &mut it; for _ in 0..60 { black_box(run_to_end(it, FIB, &[Value::num(30.0)]).as_num()); } return; }

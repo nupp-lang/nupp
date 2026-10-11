@@ -812,3 +812,61 @@ function that can park is compiled with its frame record, calls to
 functions the checker marks `suspends` go through a frame record rather
 than a direct typed call, and the browser's compiled tier, if it ever
 exists, parks the same way. No stack switching anywhere in the runtime.
+
+## The compiler's lexer on the runtime
+
+Date: 2026-10-11. The first real compiler module run end to end on the
+prototype: `nupp.compiler.syntax.lexer`, unmodified, with its trivia-arena
+dependency and the table arena provider, emitted as a module graph by
+`emit/emitmod.lua` and driven by `src/nupp/bench/lexbench.nupp` (in the
+tree, because the checker judges package membership by path). Mode:
+`runtime-experiment lexer evidence/lexer.image <source> tokens,errors,sum`.
+The subject is the lexer's own source: 41,192 bytes, 4,903 tokens. The
+prototype agrees with LuaJIT on the token count, the error count and a
+checksum over every token's text, line and column.
+
+What the module graph needed, all new to the emitter and runtime: a chunk
+function per module with its top-level locals as cells when captured,
+every function a closure and every call dynamic, `require` by constant
+and by value with a module registry, multiple results (`RetN`, results
+delivered into the caller's window), the generic `for` protocol over
+iterator objects (`pairs`, `ipairs`, `gmatch`), `repeat`, `break`, tuple
+locals and assignments, function statements on tables and as record
+methods (with the implicit `self`), interfaces as shapeless, `%` and `/`,
+string comparison, sized table constructors, `error` values through
+`pcall`, and a library: `string.byte`, `sub`, `find`, `char`, `rep`,
+`format`, `gsub`, `gmatch`, `table.concat`, `math.*`, `pairs`, `type`,
+`tostring`, `tonumber`, with a Lua pattern matcher for the three
+pattern users. Bugs found by the run, each a lesson for P3: method values
+are closures now and the shape table rooted only their names, so the
+collector freed them; `string.byte` copied the whole source per call;
+the first capture analysis made a cell of every local that shared a name
+with anything a nested function used, 26,521 cells per lex.
+
+| the lexer's own source, per lex | ms | ns per byte |
+| --- | ---: | ---: |
+| LuaJIT trace, ffi arena (the toolchain's selection) | 0.43 | 10.6 |
+| LuaJIT interpreter, ffi arena | 2.70 | 65.6 |
+| prototype, table arena, first run | 32.3 | 784 |
+| prototype, after the source-copy fix | 11.7 | 285 |
+| prototype, after sized tables and allocation-free builtin calls | 9.1 | 220 |
+| prototype, after free-variable capture analysis | 8.6 | 210 |
+
+Allocation per lex, after the fixes: 7,239 objects, of which 4,907 are
+the token tables, 1,354 cells, 970 closures, 6 strings (every token text
+is an interned hit). Cutting the cells from 26,521 to 1,354 moved the
+time by 2%. The sampler puts 62% of the run in the interpreter's dispatch
+loop and 20% in malloc and free, the latter mostly the token tables' hash
+parts and the closures. This is the first compiler-shaped evidence and
+it says the same thing the call path said: the untyped tier is
+dispatch-bound, at 3.2x LuaJIT's interpreter here, and allocation is
+second. The strings-as-views item added to the plan would not move this
+workload: its substrings are interned hits. Where it would move is code
+whose substrings are distinct, which the path normaliser is.
+
+What is still not measured: the lexer compiled by the typed tier. Every
+function here is a closure called dynamically and carries `any`-shaped
+locals, so the JIT refuses all of them; the typed tier's number for the
+lexer needs the emitter to keep the checker's types for locals and
+parameters (it discards them for dynamic calls) and the JIT to take
+closures and upvalues. That is the next step for this slice.

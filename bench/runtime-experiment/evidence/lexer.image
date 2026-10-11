@@ -1,0 +1,5008 @@
+shape 0 TableArena source:str count:num words:any
+function module:nupp.compiler.syntax.triviaarena 0 0 19 2 :v
+  const 0 str "install"
+  const 1 str "new"
+  NewTableN 2 0 0
+  Move 1 2
+  Nil 3
+  NewCell 2 3
+  Move 5 2
+  NewClosure 3 1 4 1
+  SetField 1 0 3
+  Nil 3
+  Nil 4
+  NewCell 3 4
+  NewClosure 5 2 6 0
+  SetCell 3 5
+  Nil 4
+  Nil 5
+  NewCell 4 5
+  Move 8 2
+  Move 9 3
+  NewClosure 6 3 7 2
+  SetCell 4 6
+  Move 7 4
+  NewClosure 5 4 6 1
+  SetField 1 1 5
+  Ret 1
+end
+function triviaarena.install 1 1 25 3 v:v
+  const 0 builtin error
+  const 1 str "nupp: compiler trivia arena provider is already selected"
+  GetUpval 4 0
+  GetCell 5 4
+  Nil 6
+  Ne 3 5 6
+  Move 2 3
+  JmpIfNot 2 4
+  GetUpval 8 0
+  GetCell 9 8
+  Ne 7 9 1
+  Move 2 7
+  JmpIfNot 2 8
+  K 11 0
+  K 15 1
+  Move 13 15
+  FK 0 2
+  FBox 14 0
+  CallDyn 11 12 2
+  Move 10 12
+  Jmp 0
+  GetUpval 2 0
+  SetCell 2 1
+  RetNil
+end
+function load 2 1 15 2 v:v
+  const 0 str "nupp.compiler.syntax.triviaarena."
+  K 5 0
+  Concat 4 5 1
+  RequireV 3 4
+  Move 2 3
+  Ret 2
+end
+function provider 3 0 21 2 :v
+  const 0 str "ffi"
+  GetUpval 2 0
+  GetCell 3 2
+  Nil 4
+  Eq 1 3 4
+  JmpIfNot 1 9
+  GetUpval 6 1
+  GetCell 7 6
+  K 10 0
+  Move 9 10
+  CallDyn 7 8 1
+  Move 5 8
+  GetUpval 11 0
+  SetCell 11 5
+  Jmp 0
+  GetUpval 2 0
+  GetCell 3 2
+  Move 1 3
+  Ret 1
+end
+function triviaarena.new 4 1 20 2 v:v
+  const 0 str "new"
+  GetUpval 6 0
+  GetCell 7 6
+  CallDyn 7 8 0
+  Move 5 8
+  GetField 4 5 0
+  Move 10 1
+  CallDyn 4 9 1
+  Move 2 9
+  Move 3 10
+  Move 4 11
+  Move 5 12
+  Move 6 13
+  Move 7 14
+  Move 8 15
+  Move 9 16
+  RetN 2 8
+end
+function module:nupp.compiler.syntax.triviaarena.table 5 0 16 3 :v
+  const 0 str "append"
+  const 1 str "record"
+  const 2 str "new"
+  Nil 1
+  NewTableN 3 0 0
+  Move 2 3
+  FK 0 5
+  FBox 4 0
+  NewCell 3 4
+  Move 6 3
+  NewClosure 4 6 5 1
+  SetMethod 0 0 4
+  Move 6 3
+  NewClosure 4 7 5 1
+  SetMethod 0 1 4
+  NewClosure 4 8 5 0
+  SetField 2 2 4
+  Ret 2
+end
+function TableArena:append 6 6 18 9 vvvvvv:v
+  GetSlotF 1 1 1
+  GetUpval 7 0
+  GetCell 8 7
+  FUnbox 2 8
+  FMul 3 1 2
+  FToI 0 3
+  GetSlot 7 1 2
+  IK 1 1
+  IAdd 2 0 1
+  SetIdxI 7 2 2
+  GetSlot 7 1 2
+  IK 1 2
+  IAdd 2 0 1
+  SetIdxI 7 2 3
+  GetSlot 7 1 2
+  IK 1 3
+  IAdd 2 0 1
+  SetIdxI 7 2 4
+  GetSlot 7 1 2
+  IK 1 4
+  IAdd 2 0 1
+  SetIdxI 7 2 5
+  GetSlot 7 1 2
+  IK 1 5
+  IAdd 2 0 1
+  SetIdxI 7 2 6
+  GetSlotF 1 1 1
+  FToI 2 1
+  IK 3 1
+  IAdd 4 2 3
+  IToF 5 4
+  FBox 7 5
+  FUnbox 6 7
+  SetSlotF 1 1 6
+  GetSlotF 1 1 1
+  FBox 7 1
+  Ret 7
+end
+function TableArena:record 7 2 27 13 vv:v
+  const 0 builtin error
+  const 1 str "nupp: trivia record "
+  const 2 str " is outside 1.."
+  IUnbox 0 2
+  IK 1 1
+  ICmpSLt 2 0 1
+  BoolFromI 4 2
+  Move 3 4
+  JmpIf 3 6
+  IUnbox 3 2
+  GetSlotF 4 1 1
+  FToI 5 4
+  ICmpSLt 6 5 3
+  BoolFromI 5 6
+  Move 3 5
+  JmpIfNot 3 14
+  K 7 0
+  K 12 1
+  K 15 2
+  GetSlotF 7 1 1
+  FBox 16 7
+  Concat 14 15 16
+  Concat 13 2 14
+  Concat 11 12 13
+  Move 9 11
+  FK 8 2
+  FBox 10 8
+  CallDyn 7 8 2
+  Move 6 8
+  Jmp 0
+  IUnbox 1 2
+  IK 2 1
+  ISub 3 1 2
+  IToF 4 3
+  GetUpval 3 0
+  GetCell 4 3
+  FUnbox 5 4
+  FMul 6 4 5
+  FToI 0 6
+  GetSlot 8 1 2
+  IK 1 1
+  IAdd 2 0 1
+  GetIdxI 9 8 2
+  Move 3 9
+  GetSlot 10 1 2
+  IK 3 2
+  IAdd 4 0 3
+  GetIdxI 11 10 4
+  Move 4 11
+  GetSlot 12 1 2
+  IK 5 3
+  IAdd 6 0 5
+  GetIdxI 13 12 6
+  Move 5 13
+  GetSlot 14 1 2
+  IK 7 4
+  IAdd 8 0 7
+  GetIdxI 15 14 8
+  Move 6 15
+  GetSlot 16 1 2
+  IK 9 5
+  IAdd 10 0 9
+  GetIdxI 17 16 10
+  Move 7 17
+  RetN 3 5
+end
+function provider.new 8 1 14 3 v:v
+  NewRecord 3 0
+  SetSlot 3 0 1
+  FK 0 0
+  SetSlotF 3 1 0
+  NewTableN 4 0 0
+  SetSlot 3 2 4
+  Move 2 3
+  Ret 2
+end
+function module:nupp.compiler.syntax.lexer 9 0 69 23 :v
+  const 0 str "nupp.compiler.syntax.triviaarena"
+  const 1 num 1
+  const 2 str "whitespace"
+  const 3 num 2
+  const 4 str "comment"
+  const 5 num 3
+  const 6 str "hashbang"
+  const 7 num 4
+  const 8 str "bom"
+  const 9 str "arena"
+  const 10 str "and break do else elseif end false for function goto if in local "
+  const 11 str "nil not or repeat return then true until while"
+  const 12 str "%S+"
+  const 13 str "gmatch"
+  const 14 true 
+  const 15 str "KEYWORDS"
+  const 16 str "~>>="
+  const 17 str "~>> ... <<= >>= //= ..= ??="
+  const 18 str "<< >> == ~= <= >= ?. :: // .. -> ?? += -= *= /= %= &= |= "
+  const 19 str "&& || !="
+  const 20 str "+ - * / % ^ # & ~ | < > = ( ) { } [ ] ; : , . ? @ !"
+  const 21 builtin pairs
+  const 22 builtin string.byte
+  const 23 str "!"
+  const 24 str "not"
+  const 25 str "&&"
+  const 26 str "and"
+  const 27 str "||"
+  const 28 str "or"
+  const 29 str "!="
+  const 30 str "~="
+  const 31 str "CUSTOMARY"
+  const 32 builtin string.sub
+  const 33 builtin string.find
+  const 34 str "\007"
+  const 35 str "\008"
+  const 36 str "\012"
+  const 37 str "\010"
+  const 38 str "\013"
+  const 39 str "\009"
+  const 40 str "\011"
+  const 41 str "\092"
+  const 42 str "\034"
+  const 43 str "'"
+  const 44 str "lex"
+  const 45 str "triviaKind"
+  const 46 str "triviaText"
+  const 47 str "triviaFields"
+  const 48 str "triviaRecord"
+  const 49 str "textOf"
+  const 50 str "quoteBacktickBody"
+  const 51 str "stringValue"
+  Nil 1
+  NewTableN 4 0 0
+  Move 3 4
+  NewCell 2 3
+  Require 5 0
+  Move 4 5
+  NewCell 3 4
+  FK 0 1
+  FBox 5 0
+  NewCell 4 5
+  FK 0 2
+  FBox 6 0
+  NewCell 5 6
+  FK 0 3
+  FBox 7 0
+  NewCell 6 7
+  FK 0 4
+  FBox 8 0
+  NewCell 7 8
+  NewTableN 10 4 0
+  K 11 1
+  K 12 2
+  SetIdx 10 11 12
+  K 13 3
+  K 14 4
+  SetIdx 10 13 14
+  K 15 5
+  K 16 6
+  SetIdx 10 15 16
+  K 17 7
+  K 18 8
+  SetIdx 10 17 18
+  Move 9 10
+  NewCell 8 9
+  Move 11 3
+  NewClosure 9 10 10 1
+  GetCell 12 2
+  SetField 12 9 9
+  NewTableN 11 0 0
+  Move 10 11
+  NewCell 9 10
+  K 14 10
+  K 15 11
+  Concat 13 14 15
+  Move 17 13
+  K 19 12
+  Move 18 19
+  CallMethod 13 16 2
+  Move 10 16
+  Move 11 17
+  Move 12 18
+  Move 21 11
+  Move 22 12
+  CallDyn 10 20 2
+  JmpIfNot 20 7
+  Move 12 20
+  NewCell 24 20
+  K 25 14
+  GetCell 26 9
+  GetCell 27 24
+  SetIdx 26 27 25
+  Jmp -11
+  GetCell 10 9
+  GetCell 11 2
+  SetField 11 15 10
+  NewTableN 11 0 1
+  K 12 16
+  K 13 14
+  SetIdx 11 12 13
+  Move 10 11
+  NewTableN 12 0 0
+  Move 11 12
+  K 15 17
+  Move 17 15
+  K 19 12
+  Move 18 19
+  CallMethod 13 16 2
+  Move 12 16
+  Move 13 17
+  Move 14 18
+  Move 21 13
+  Move 22 14
+  CallDyn 12 20 2
+  JmpIfNot 20 5
+  Move 14 20
+  Move 24 20
+  K 25 14
+  SetIdx 11 24 25
+  Jmp -9
+  NewTableN 13 0 0
+  Move 12 13
+  K 17 18
+  K 18 19
+  Concat 16 17 18
+  Move 20 16
+  K 22 12
+  Move 21 22
+  CallMethod 13 19 2
+  Move 13 19
+  Move 14 20
+  Move 15 21
+  Move 24 14
+  Move 25 15
+  CallDyn 13 23 2
+  JmpIfNot 23 5
+  Move 15 23
+  Move 27 23
+  K 28 14
+  SetIdx 12 27 28
+  Jmp -9
+  NewTableN 14 0 0
+  Move 13 14
+  K 17 20
+  Move 19 17
+  K 21 12
+  Move 20 21
+  CallMethod 13 18 2
+  Move 14 18
+  Move 15 19
+  Move 16 20
+  Move 23 15
+  Move 24 16
+  CallDyn 14 22 2
+  JmpIfNot 22 5
+  Move 16 22
+  Move 26 22
+  K 27 14
+  SetIdx 13 26 27
+  Jmp -9
+  NewTableN 16 0 0
+  Move 15 16
+  NewCell 14 15
+  NewTableN 17 0 0
+  Move 16 17
+  NewCell 15 16
+  NewTableN 18 0 0
+  Move 17 18
+  NewCell 16 17
+  NewTableN 19 0 0
+  Move 18 19
+  NewCell 17 18
+  K 21 21
+  Move 23 13
+  CallDyn 21 22 1
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 25 19
+  Move 26 20
+  CallDyn 18 24 2
+  JmpIfNot 24 12
+  Move 20 24
+  Move 28 24
+  GetCell 29 14
+  K 31 22
+  Move 33 28
+  FK 0 1
+  FBox 34 0
+  CallDyn 31 32 2
+  Move 30 32
+  IUnbox 1 30
+  SetIdxI 29 1 28
+  Jmp -16
+  K 21 21
+  Move 23 12
+  CallDyn 21 22 1
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 25 19
+  Move 26 20
+  CallDyn 18 24 2
+  JmpIfNot 24 22
+  Move 20 24
+  Move 28 24
+  K 31 22
+  Move 33 28
+  FK 0 1
+  FBox 34 0
+  FK 1 2
+  FBox 35 1
+  CallDyn 31 32 3
+  Move 29 32
+  Move 30 33
+  IUnbox 2 29
+  Move 36 30
+  GetCell 37 15
+  IToF 3 2
+  FK 4 256
+  FMul 5 3 4
+  FToI 6 5
+  IUnbox 7 36
+  IAdd 8 6 7
+  SetIdxI 37 8 28
+  Jmp -26
+  K 21 21
+  Move 23 11
+  CallDyn 21 22 1
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 25 19
+  Move 26 20
+  CallDyn 18 24 2
+  JmpIfNot 24 30
+  Move 20 24
+  Move 28 24
+  K 32 22
+  Move 34 28
+  FK 0 1
+  FBox 35 0
+  FK 1 3
+  FBox 36 1
+  CallDyn 32 33 3
+  Move 29 33
+  Move 30 34
+  Move 31 35
+  IUnbox 2 29
+  Move 37 30
+  Move 38 31
+  GetCell 39 16
+  IToF 3 2
+  FK 4 256
+  FMul 5 3 4
+  FToI 6 5
+  IUnbox 7 37
+  IAdd 8 6 7
+  IToF 9 8
+  FK 10 256
+  FMul 11 9 10
+  FToI 12 11
+  IUnbox 13 38
+  IAdd 14 12 13
+  SetIdxI 39 14 28
+  Jmp -34
+  K 21 21
+  Move 23 10
+  CallDyn 21 22 1
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 25 19
+  Move 26 20
+  CallDyn 18 24 2
+  JmpIfNot 24 38
+  Move 20 24
+  Move 28 24
+  K 33 22
+  Move 35 28
+  FK 0 1
+  FBox 36 0
+  FK 1 4
+  FBox 37 1
+  CallDyn 33 34 3
+  Move 29 34
+  Move 30 35
+  Move 31 36
+  Move 32 37
+  IUnbox 2 29
+  Move 38 30
+  Move 39 31
+  Move 40 32
+  GetCell 41 17
+  IToF 3 2
+  FK 4 256
+  FMul 5 3 4
+  FToI 6 5
+  IUnbox 7 38
+  IAdd 8 6 7
+  IToF 9 8
+  FK 10 256
+  FMul 11 9 10
+  FToI 12 11
+  IUnbox 13 39
+  IAdd 14 12 13
+  IToF 15 14
+  FK 16 256
+  FMul 17 15 16
+  FToI 18 17
+  IUnbox 19 40
+  IAdd 20 18 19
+  SetIdxI 41 20 28
+  Jmp -42
+  NewTableN 20 0 4
+  K 21 23
+  K 22 24
+  SetIdx 20 21 22
+  K 23 25
+  K 24 26
+  SetIdx 20 23 24
+  K 25 27
+  K 26 28
+  SetIdx 20 25 26
+  K 27 29
+  K 28 30
+  SetIdx 20 27 28
+  Move 19 20
+  NewCell 18 19
+  GetCell 19 18
+  GetCell 20 2
+  SetField 20 31 19
+  K 22 22
+  Move 19 22
+  K 23 32
+  Move 20 23
+  K 24 33
+  Move 21 24
+  NewCell 25 19
+  NewCell 26 20
+  NewCell 27 21
+  Nil 28
+  Nil 29
+  NewCell 28 29
+  NewClosure 30 11 31 0
+  SetCell 28 30
+  Nil 29
+  Nil 30
+  NewCell 29 30
+  Move 33 28
+  NewClosure 31 12 32 1
+  SetCell 29 31
+  Nil 30
+  Nil 31
+  NewCell 30 31
+  NewClosure 32 13 33 0
+  SetCell 30 32
+  Nil 31
+  Nil 32
+  NewCell 31 32
+  Move 35 30
+  Move 36 28
+  NewClosure 33 14 34 2
+  SetCell 31 33
+  Nil 32
+  Nil 33
+  NewCell 32 33
+  Move 36 28
+  NewClosure 34 15 35 1
+  SetCell 32 34
+  Nil 33
+  Nil 34
+  NewCell 33 34
+  NewClosure 35 16 36 0
+  SetCell 33 35
+  NewTableN 36 0 10
+  FK 0 97
+  FBox 37 0
+  K 38 34
+  SetIdx 36 37 38
+  FK 1 98
+  FBox 39 1
+  K 40 35
+  SetIdx 36 39 40
+  FK 2 102
+  FBox 41 2
+  K 42 36
+  SetIdx 36 41 42
+  FK 3 110
+  FBox 43 3
+  K 44 37
+  SetIdx 36 43 44
+  FK 4 114
+  FBox 45 4
+  K 46 38
+  SetIdx 36 45 46
+  FK 5 116
+  FBox 47 5
+  K 48 39
+  SetIdx 36 47 48
+  FK 6 118
+  FBox 49 6
+  K 50 40
+  SetIdx 36 49 50
+  FK 7 92
+  FBox 51 7
+  K 52 41
+  SetIdx 36 51 52
+  FK 8 34
+  FBox 53 8
+  K 54 42
+  SetIdx 36 53 54
+  FK 9 39
+  FBox 55 9
+  K 56 43
+  SetIdx 36 55 56
+  Move 35 36
+  NewCell 34 35
+  Nil 35
+  Nil 36
+  NewCell 35 36
+  Move 39 25
+  Move 40 32
+  Move 41 33
+  Move 42 28
+  Move 43 34
+  NewClosure 37 17 38 5
+  SetCell 35 37
+  Nil 36
+  Nil 37
+  NewCell 36 37
+  Move 40 25
+  Move 41 27
+  NewClosure 38 19 39 2
+  SetCell 36 38
+  Move 39 2
+  Move 40 27
+  Move 41 25
+  Move 42 26
+  Move 43 7
+  Move 44 6
+  Move 45 4
+  Move 46 5
+  Move 47 36
+  Move 48 35
+  Move 49 29
+  Move 50 28
+  Move 51 31
+  Move 52 30
+  Move 53 9
+  Move 54 14
+  Move 55 15
+  Move 56 16
+  Move 57 17
+  Move 58 18
+  NewClosure 37 20 38 20
+  GetCell 59 2
+  SetField 59 44 37
+  Nil 37
+  Nil 38
+  NewCell 37 38
+  NewClosure 39 32 40 0
+  SetCell 37 39
+  Move 40 37
+  Move 41 8
+  NewClosure 38 33 39 2
+  GetCell 42 2
+  SetField 42 45 38
+  Move 40 37
+  Move 41 26
+  NewClosure 38 34 39 2
+  GetCell 42 2
+  SetField 42 46 38
+  Move 40 37
+  Move 41 8
+  Move 42 26
+  NewClosure 38 35 39 3
+  GetCell 43 2
+  SetField 43 47 38
+  Move 40 2
+  NewClosure 38 36 39 1
+  GetCell 41 2
+  SetField 41 48 38
+  Move 40 2
+  NewClosure 38 37 39 1
+  GetCell 41 2
+  SetField 41 49 38
+  NewClosure 38 38 39 0
+  GetCell 40 2
+  SetField 40 50 38
+  Move 40 2
+  Move 41 25
+  Move 42 26
+  Move 43 35
+  NewClosure 38 40 39 4
+  GetCell 44 2
+  SetField 44 51 38
+  GetCell 38 2
+  Ret 38
+end
+function lexer.arena 10 1 18 2 v:v
+  const 0 str "new"
+  GetUpval 5 0
+  GetCell 6 5
+  GetField 4 6 0
+  Move 8 1
+  CallDyn 4 7 1
+  Move 2 7
+  Move 3 8
+  Move 4 9
+  Move 5 10
+  Move 6 11
+  Move 7 12
+  Move 8 13
+  Move 9 14
+  RetN 2 8
+end
+function isDigit 11 1 15 8 v:v
+  Move 3 1
+  JmpIfNot 3 5
+  IUnbox 0 1
+  IK 1 48
+  ICmpSLe 2 1 0
+  BoolFromI 4 2
+  Move 3 4
+  Move 2 3
+  JmpIfNot 2 5
+  IUnbox 3 1
+  IK 4 57
+  ICmpSLe 5 3 4
+  BoolFromI 5 5
+  Move 2 5
+  Ret 2
+end
+function isHex 12 1 25 14 v:v
+  Move 2 1
+  JmpIfNot 2 34
+  GetUpval 6 0
+  GetCell 7 6
+  Move 9 1
+  CallDyn 7 8 1
+  Move 5 8
+  Move 4 5
+  JmpIf 4 12
+  IUnbox 0 1
+  IK 1 97
+  ICmpSLe 2 1 0
+  BoolFromI 11 2
+  Move 10 11
+  JmpIfNot 10 5
+  IUnbox 3 1
+  IK 4 102
+  ICmpSLe 5 3 4
+  BoolFromI 12 5
+  Move 10 12
+  Move 4 10
+  Move 3 4
+  JmpIf 3 12
+  IUnbox 6 1
+  IK 7 65
+  ICmpSLe 8 7 6
+  BoolFromI 14 8
+  Move 13 14
+  JmpIfNot 13 5
+  IUnbox 9 1
+  IK 10 70
+  ICmpSLe 11 9 10
+  BoolFromI 15 11
+  Move 13 15
+  Move 3 13
+  Move 2 3
+  Ret 2
+end
+function isNameStart 13 1 21 17 v:v
+  Move 2 1
+  JmpIfNot 2 33
+  IUnbox 0 1
+  IK 1 97
+  ICmpSLe 2 1 0
+  BoolFromI 6 2
+  Move 5 6
+  JmpIfNot 5 5
+  IUnbox 3 1
+  IK 4 122
+  ICmpSLe 5 3 4
+  BoolFromI 7 5
+  Move 5 7
+  Move 4 5
+  JmpIf 4 12
+  IUnbox 6 1
+  IK 7 65
+  ICmpSLe 8 7 6
+  BoolFromI 9 8
+  Move 8 9
+  JmpIfNot 8 5
+  IUnbox 9 1
+  IK 10 90
+  ICmpSLe 11 9 10
+  BoolFromI 10 11
+  Move 8 10
+  Move 4 8
+  Move 3 4
+  JmpIf 3 5
+  FUnbox 12 1
+  FK 13 95
+  FCmpEq 14 12 13
+  BoolFromI 11 14
+  Move 3 11
+  Move 2 3
+  Ret 2
+end
+function isNameChar 14 1 22 2 v:v
+  GetUpval 4 0
+  GetCell 5 4
+  Move 7 1
+  CallDyn 5 6 1
+  Move 3 6
+  Move 2 3
+  JmpIf 2 6
+  GetUpval 9 1
+  GetCell 10 9
+  Move 12 1
+  CallDyn 10 11 1
+  Move 8 11
+  Move 2 8
+  Ret 2
+end
+function hexValue 15 1 24 18 v:v
+  Not 2 1
+  JmpIfNot 2 3
+  Nil 3
+  Ret 3
+  Jmp 51
+  GetUpval 4 0
+  GetCell 5 4
+  Move 7 1
+  CallDyn 5 6 1
+  Move 3 6
+  JmpIfNot 3 7
+  IUnbox 0 1
+  IK 1 48
+  ISub 2 0 1
+  IToF 3 2
+  FBox 8 3
+  Ret 8
+  Jmp 38
+  IUnbox 0 1
+  IK 1 97
+  ICmpSLe 2 1 0
+  BoolFromI 9 2
+  Move 8 9
+  JmpIfNot 8 5
+  IUnbox 3 1
+  IK 4 102
+  ICmpSLe 5 3 4
+  BoolFromI 10 5
+  Move 8 10
+  JmpIfNot 8 7
+  IUnbox 6 1
+  IK 7 87
+  ISub 8 6 7
+  IToF 9 8
+  FBox 11 9
+  Ret 11
+  Jmp 19
+  IUnbox 6 1
+  IK 7 65
+  ICmpSLe 8 7 6
+  BoolFromI 12 8
+  Move 11 12
+  JmpIfNot 11 5
+  IUnbox 9 1
+  IK 10 70
+  ICmpSLe 11 9 10
+  BoolFromI 13 11
+  Move 11 13
+  JmpIfNot 11 7
+  IUnbox 12 1
+  IK 13 55
+  ISub 14 12 13
+  IToF 15 14
+  FBox 14 15
+  Ret 14
+  Jmp 0
+  Nil 2
+  Ret 2
+end
+function utf8Bytes 16 1 31 30 v:v
+  const 0 builtin string.char
+  const 1 builtin math.floor
+  FUnbox 0 1
+  FK 1 128
+  FCmpLt 2 0 1
+  BoolFromI 2 2
+  JmpIfNot 2 13
+  K 5 0
+  Move 7 1
+  CallDyn 5 6 1
+  Move 3 6
+  Move 4 7
+  Move 5 8
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  Move 10 13
+  RetN 3 8
+  Jmp 81
+  FUnbox 3 1
+  FK 4 2048
+  FCmpLt 5 3 4
+  BoolFromI 3 5
+  JmpIfNot 3 29
+  K 6 0
+  FK 6 192
+  K 11 1
+  FUnbox 7 1
+  FK 8 64
+  FDiv 9 7 8
+  FBox 13 9
+  CallDyn 11 12 1
+  Move 10 12
+  FUnbox 10 10
+  FAdd 11 6 10
+  FBox 8 11
+  FK 12 128
+  FUnbox 13 1
+  FK 14 64
+  FMod 15 13 14
+  FAdd 16 12 15
+  FBox 9 16
+  CallDyn 6 7 2
+  Move 4 7
+  Move 5 8
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  Move 10 13
+  Move 11 14
+  RetN 4 8
+  Jmp 47
+  FUnbox 6 1
+  FK 7 65536
+  FCmpLt 8 6 7
+  BoolFromI 4 8
+  JmpIfNot 4 42
+  K 7 0
+  FK 9 224
+  K 13 1
+  FUnbox 10 1
+  FK 11 4096
+  FDiv 12 10 11
+  FBox 15 12
+  CallDyn 13 14 1
+  Move 12 14
+  FUnbox 13 12
+  FAdd 14 9 13
+  FBox 9 14
+  FK 15 128
+  K 17 1
+  FUnbox 16 1
+  FK 17 64
+  FDiv 18 16 17
+  FBox 19 18
+  CallDyn 17 18 1
+  Move 16 18
+  FUnbox 19 16
+  FK 20 64
+  FMod 21 19 20
+  FAdd 22 15 21
+  FBox 10 22
+  FK 23 128
+  FUnbox 24 1
+  FK 25 64
+  FMod 26 24 25
+  FAdd 27 23 26
+  FBox 11 27
+  CallDyn 7 8 3
+  Move 5 8
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  Move 10 13
+  Move 11 14
+  Move 12 15
+  RetN 5 8
+  Jmp 0
+  K 4 0
+  FK 0 240
+  K 11 1
+  FUnbox 1 1
+  FK 2 262144
+  FDiv 3 1 2
+  FBox 13 3
+  CallDyn 11 12 1
+  Move 10 12
+  FUnbox 4 10
+  FAdd 5 0 4
+  FBox 6 5
+  FK 6 128
+  K 15 1
+  FUnbox 7 1
+  FK 8 4096
+  FDiv 9 7 8
+  FBox 17 9
+  CallDyn 15 16 1
+  Move 14 16
+  FUnbox 10 14
+  FK 11 64
+  FMod 12 10 11
+  FAdd 13 6 12
+  FBox 7 13
+  FK 14 128
+  K 19 1
+  FUnbox 15 1
+  FK 16 64
+  FDiv 17 15 16
+  FBox 21 17
+  CallDyn 19 20 1
+  Move 18 20
+  FUnbox 18 18
+  FK 19 64
+  FMod 20 18 19
+  FAdd 21 14 20
+  FBox 8 21
+  FK 22 128
+  FUnbox 23 1
+  FK 24 64
+  FMod 25 23 24
+  FAdd 26 22 25
+  FBox 9 26
+  CallDyn 4 5 4
+  Move 2 5
+  Move 3 6
+  Move 4 7
+  Move 5 8
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  RetN 2 8
+end
+function decodeEscape 17 3 45 59 vvv:v
+  const 0 true 
+  const 1 str ""
+  const 2 str "\010"
+  const 3 false 
+  const 4 builtin string.char
+  NewCell 4 1
+  NewCell 5 3
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  GetUpval 13 0
+  Move 10 13
+  Move 11 4
+  Move 12 5
+  NewClosure 8 18 9 3
+  SetCell 6 8
+  GetUpval 8 0
+  GetCell 9 8
+  GetCell 13 4
+  Move 11 13
+  IUnbox 1 2
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 12 4
+  CallDyn 9 10 2
+  Move 7 10
+  IUnbox 0 7
+  IToF 1 0
+  FBox 8 1
+  Nil 9
+  Eq 7 8 9
+  JmpIfNot 7 12
+  IUnbox 2 2
+  IK 3 1
+  IAdd 4 2 3
+  IToF 5 4
+  FBox 10 5
+  K 14 0
+  Move 11 14
+  Move 12 2
+  K 15 1
+  Move 13 15
+  RetN 10 4
+  Jmp 473
+  IToF 2 0
+  FK 3 10
+  FCmpEq 4 2 3
+  BoolFromI 11 4
+  Move 10 11
+  JmpIf 10 5
+  IToF 5 0
+  FK 6 13
+  FCmpEq 7 5 6
+  BoolFromI 12 7
+  Move 10 12
+  JmpIfNot 10 56
+  GetUpval 14 0
+  GetCell 15 14
+  GetCell 19 4
+  Move 17 19
+  IUnbox 9 2
+  IK 10 2
+  IAdd 11 9 10
+  IToF 12 11
+  FBox 18 12
+  CallDyn 15 16 2
+  Move 13 16
+  IUnbox 8 13
+  IToF 9 8
+  FBox 15 9
+  IToF 10 0
+  FBox 16 10
+  Ne 14 15 16
+  Move 13 14
+  JmpIfNot 13 12
+  IToF 11 8
+  FK 12 10
+  FCmpEq 13 11 12
+  BoolFromI 18 13
+  Move 17 18
+  JmpIf 17 5
+  IToF 14 8
+  FK 15 13
+  FCmpEq 16 14 15
+  BoolFromI 19 16
+  Move 17 19
+  Move 13 17
+  JmpIfNot 13 12
+  IUnbox 17 2
+  IK 18 3
+  IAdd 19 17 18
+  IToF 20 19
+  FBox 20 20
+  K 24 0
+  Move 21 24
+  Move 22 2
+  K 25 2
+  Move 23 25
+  RetN 20 4
+  Jmp 0
+  IUnbox 9 2
+  IK 10 2
+  IAdd 11 9 10
+  IToF 12 11
+  FBox 13 12
+  K 17 0
+  Move 14 17
+  Move 15 2
+  K 18 2
+  Move 16 18
+  RetN 13 4
+  Jmp 405
+  IToF 9 0
+  FK 10 122
+  FCmpEq 11 9 10
+  BoolFromI 13 11
+  JmpIfNot 13 75
+  IUnbox 13 2
+  IK 14 2
+  IAdd 15 13 14
+  IMov 12 15
+  GetUpval 15 0
+  GetCell 16 15
+  GetCell 20 4
+  Move 18 20
+  IToF 14 12
+  FBox 19 14
+  CallDyn 16 17 2
+  Move 14 17
+  IUnbox 13 14
+  IToF 14 13
+  FK 15 32
+  FCmpEq 16 14 15
+  BoolFromI 19 16
+  Move 18 19
+  JmpIf 18 5
+  IToF 17 13
+  FK 18 9
+  FCmpEq 19 17 18
+  BoolFromI 20 19
+  Move 18 20
+  Move 17 18
+  JmpIf 17 5
+  IToF 20 13
+  FK 21 10
+  FCmpEq 22 20 21
+  BoolFromI 21 22
+  Move 17 21
+  Move 16 17
+  JmpIf 16 5
+  IToF 23 13
+  FK 24 13
+  FCmpEq 25 23 24
+  BoolFromI 22 25
+  Move 16 22
+  Move 15 16
+  JmpIf 15 5
+  IToF 26 13
+  FK 27 11
+  FCmpEq 28 26 27
+  BoolFromI 23 28
+  Move 15 23
+  Move 14 15
+  JmpIf 14 5
+  IToF 29 13
+  FK 30 12
+  FCmpEq 31 29 30
+  BoolFromI 24 31
+  Move 14 24
+  JmpIfNot 14 13
+  IK 32 1
+  IAdd 33 12 32
+  IMov 12 33
+  GetUpval 26 0
+  GetCell 27 26
+  GetCell 31 4
+  Move 29 31
+  IToF 32 12
+  FBox 30 32
+  CallDyn 27 28 2
+  Move 25 28
+  IUnbox 13 25
+  Jmp -53
+  IToF 14 12
+  FBox 14 14
+  K 18 0
+  Move 15 18
+  Move 16 2
+  K 19 1
+  Move 17 19
+  RetN 14 4
+  Jmp 325
+  IToF 14 0
+  FK 15 120
+  FCmpEq 16 14 15
+  BoolFromI 14 16
+  JmpIfNot 14 75
+  IUnbox 17 2
+  IK 18 2
+  IAdd 19 17 18
+  IToF 20 19
+  FBox 15 20
+  FK 21 0
+  FBox 16 21
+  IUnbox 22 15
+  IUnbox 23 16
+  FK 25 1
+  FMov 24 25
+  FK 26 2
+  FK 27 1
+  FCmpLe 28 24 26
+  JmpIfIZero 28 41
+  GetUpval 17 1
+  GetCell 18 17
+  GetUpval 22 0
+  GetCell 23 22
+  GetCell 27 4
+  Move 25 27
+  IToF 29 22
+  FBox 26 29
+  CallDyn 23 24 2
+  Move 21 24
+  Move 20 21
+  CallDyn 18 19 1
+  Move 16 19
+  Move 15 16
+  Not 16 15
+  JmpIfNot 16 14
+  IToF 29 22
+  FBox 17 29
+  K 21 3
+  Move 18 21
+  GetCell 23 6
+  IToF 30 22
+  FBox 25 30
+  CallDyn 23 24 1
+  Move 22 24
+  Move 19 22
+  Nil 26
+  Move 20 26
+  RetN 17 4
+  Jmp 0
+  IToF 29 23
+  FK 30 16
+  FMul 31 29 30
+  FUnbox 32 15
+  FAdd 33 31 32
+  FToI 23 33
+  IK 29 1
+  IAdd 30 22 29
+  IMov 22 30
+  FAdd 24 24 27
+  Jmp -43
+  IToF 24 22
+  FBox 15 24
+  K 20 0
+  Move 16 20
+  Move 17 2
+  K 21 4
+  IToF 25 23
+  FBox 23 25
+  CallDyn 21 22 1
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 21 25
+  Move 22 26
+  Move 23 27
+  Move 24 28
+  Move 25 29
+  RetN 15 8
+  Jmp 245
+  IToF 24 0
+  FK 25 117
+  FCmpEq 26 24 25
+  BoolFromI 15 26
+  JmpIfNot 15 152
+  GetUpval 17 0
+  GetCell 18 17
+  GetCell 22 4
+  Move 20 22
+  IUnbox 27 2
+  IK 28 2
+  IAdd 29 27 28
+  IToF 30 29
+  FBox 21 30
+  CallDyn 18 19 2
+  Move 16 19
+  FUnbox 31 16
+  FK 32 123
+  FCmpNe 33 31 32
+  BoolFromI 23 33
+  JmpIfNot 23 20
+  IUnbox 34 2
+  IK 35 2
+  IAdd 36 34 35
+  IToF 37 36
+  FBox 24 37
+  K 28 3
+  Move 25 28
+  GetCell 30 6
+  IUnbox 38 2
+  IK 39 2
+  IAdd 40 38 39
+  IToF 41 40
+  FBox 32 41
+  CallDyn 30 31 1
+  Move 29 31
+  Move 26 29
+  Nil 33
+  Move 27 33
+  RetN 24 4
+  Jmp 0
+  IUnbox 27 2
+  IK 28 3
+  IAdd 29 27 28
+  IToF 30 29
+  FBox 16 30
+  FK 31 0
+  FBox 17 31
+  FK 32 0
+  FBox 18 32
+  IUnbox 33 16
+  IUnbox 34 17
+  IUnbox 35 18
+  GetUpval 18 1
+  GetCell 19 18
+  GetUpval 23 0
+  GetCell 24 23
+  GetCell 28 4
+  Move 26 28
+  IToF 36 33
+  FBox 27 36
+  CallDyn 24 25 2
+  Move 22 25
+  Move 21 22
+  CallDyn 19 20 1
+  Move 17 20
+  Move 16 17
+  JmpIfNot 16 28
+  IToF 36 34
+  FK 37 16
+  FMul 38 36 37
+  FToI 39 38
+  IUnbox 40 16
+  IAdd 41 39 40
+  IMov 34 41
+  IK 36 1
+  IAdd 37 35 36
+  IMov 35 37
+  IK 36 1
+  IAdd 37 33 36
+  IMov 33 37
+  GetUpval 18 1
+  GetCell 19 18
+  GetUpval 23 0
+  GetCell 24 23
+  GetCell 28 4
+  Move 26 28
+  IToF 36 33
+  FBox 27 36
+  CallDyn 24 25 2
+  Move 22 25
+  Move 21 22
+  CallDyn 19 20 1
+  Move 17 20
+  Move 16 17
+  Jmp -29
+  GetUpval 18 0
+  GetCell 19 18
+  GetCell 23 4
+  Move 21 23
+  IToF 36 33
+  FBox 22 36
+  CallDyn 19 20 2
+  Move 17 20
+  FUnbox 37 17
+  FK 38 125
+  FCmpNe 39 37 38
+  BoolFromI 24 39
+  JmpIfNot 24 14
+  IToF 40 33
+  FBox 25 40
+  K 29 3
+  Move 26 29
+  GetCell 31 6
+  IToF 41 33
+  FBox 33 41
+  CallDyn 31 32 1
+  Move 30 32
+  Move 27 30
+  Nil 34
+  Move 28 34
+  RetN 25 4
+  Jmp 0
+  IK 36 0
+  ICmpSLt 37 36 35
+  BoolFromI 19 37
+  Move 18 19
+  JmpIfNot 18 5
+  IToF 38 34
+  FK 39 1114111
+  FCmpLe 40 38 39
+  BoolFromI 20 40
+  Move 18 20
+  Move 17 18
+  IK 36 1
+  IAdd 37 33 36
+  IToF 38 37
+  FBox 18 38
+  Move 19 17
+  IToF 39 33
+  FBox 20 39
+  Move 23 17
+  JmpIfNot 23 7
+  GetUpval 25 2
+  GetCell 26 25
+  IToF 40 34
+  FBox 28 40
+  CallDyn 26 27 1
+  Move 24 27
+  Move 23 24
+  Move 22 23
+  JmpIf 22 2
+  Nil 29
+  Move 22 29
+  Move 21 22
+  RetN 18 4
+  Jmp 88
+  GetUpval 19 3
+  GetCell 20 19
+  IToF 36 0
+  FBox 22 36
+  CallDyn 20 21 1
+  Move 18 21
+  JmpIfNot 18 81
+  IUnbox 37 2
+  IK 38 1
+  IAdd 39 37 38
+  IToF 40 39
+  FBox 23 40
+  FK 41 0
+  FBox 24 41
+  IUnbox 42 23
+  IUnbox 43 24
+  FK 45 1
+  FMov 44 45
+  FK 46 3
+  FK 47 1
+  FCmpLe 48 44 46
+  JmpIfIZero 48 36
+  GetUpval 24 0
+  GetCell 25 24
+  GetCell 29 4
+  Move 27 29
+  IToF 50 42
+  FBox 28 50
+  CallDyn 25 26 2
+  Move 23 26
+  IUnbox 49 23
+  IToF 50 49
+  FBox 24 50
+  JmpIfNot 24 7
+  GetUpval 26 3
+  GetCell 27 26
+  IToF 51 49
+  FBox 29 51
+  CallDyn 27 28 1
+  Move 25 28
+  Move 24 25
+  Not 23 24
+  JmpIfNot 23 2
+  Jmp 14
+  Jmp 0
+  IToF 50 43
+  FK 51 10
+  FMul 52 50 51
+  IToF 53 49
+  FAdd 54 52 53
+  FK 55 48
+  FSub 56 54 55
+  FToI 43 56
+  IK 50 1
+  IAdd 51 42 50
+  IMov 42 51
+  FAdd 44 44 47
+  Jmp -38
+  IToF 44 42
+  FBox 23 44
+  IToF 45 43
+  FK 46 255
+  FCmpLe 47 45 46
+  BoolFromI 27 47
+  Move 24 27
+  IK 48 1
+  ISub 49 42 48
+  IToF 50 49
+  FBox 25 50
+  IToF 51 43
+  FK 52 255
+  FCmpLe 53 51 52
+  BoolFromI 30 53
+  Move 29 30
+  JmpIfNot 29 6
+  K 32 4
+  IToF 54 43
+  FBox 34 54
+  CallDyn 32 33 1
+  Move 31 33
+  Move 29 31
+  Move 28 29
+  JmpIf 28 2
+  Nil 35
+  Move 28 35
+  Move 26 28
+  RetN 23 4
+  Jmp 0
+  GetUpval 9 4
+  GetCell 10 9
+  GetIdxI 8 10 0
+  Move 7 8
+  Nil 9
+  Ne 8 7 9
+  JmpIfNot 8 11
+  IUnbox 1 2
+  IK 2 2
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 10 4
+  K 14 0
+  Move 11 14
+  Move 12 2
+  Move 13 7
+  RetN 10 4
+  Jmp 0
+  IUnbox 1 2
+  IK 2 2
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 8 4
+  K 12 3
+  Move 9 12
+  IUnbox 5 2
+  IK 6 1
+  IAdd 7 5 6
+  IToF 8 7
+  FBox 10 8
+  Nil 13
+  Move 11 13
+  RetN 8 4
+end
+function upTo 18 1 23 17 v:v
+  GetUpval 3 0
+  GetCell 4 3
+  GetUpval 8 1
+  GetCell 9 8
+  Move 6 9
+  Move 7 1
+  CallDyn 4 5 2
+  Move 2 5
+  IUnbox 0 2
+  IToF 1 0
+  FBox 6 1
+  Nil 7
+  Eq 5 6 7
+  Move 4 5
+  JmpIf 4 7
+  IToF 2 0
+  GetUpval 8 2
+  GetCell 9 8
+  FUnbox 3 9
+  FCmpEq 4 2 3
+  BoolFromI 10 4
+  Move 4 10
+  Move 3 4
+  JmpIf 3 5
+  IToF 5 0
+  FK 6 10
+  FCmpEq 7 5 6
+  BoolFromI 11 7
+  Move 3 11
+  Move 2 3
+  JmpIf 2 5
+  IToF 8 0
+  FK 9 13
+  FCmpEq 10 8 9
+  BoolFromI 12 10
+  Move 2 12
+  JmpIfNot 2 7
+  IUnbox 11 1
+  IK 12 1
+  ISub 13 11 12
+  IToF 14 13
+  FBox 13 14
+  Ret 13
+  Jmp 0
+  Ret 1
+end
+function scanLongBracket 19 2 23 10 vv:v
+  const 0 false 
+  const 1 str "]"
+  const 2 str "="
+  const 3 str "rep"
+  const 4 true 
+  GetUpval 4 0
+  GetCell 5 4
+  Move 7 1
+  Move 8 2
+  CallDyn 5 6 2
+  Move 3 6
+  FUnbox 0 3
+  FK 1 91
+  FCmpNe 2 0 1
+  BoolFromI 9 2
+  JmpIfNot 9 6
+  Nil 12
+  Move 10 12
+  K 13 0
+  Move 11 13
+  RetN 10 2
+  Jmp 0
+  IK 1 0
+  IMov 0 1
+  IUnbox 2 2
+  IK 3 1
+  IAdd 4 2 3
+  IMov 1 4
+  GetUpval 4 0
+  GetCell 5 4
+  Move 7 1
+  IToF 2 1
+  FBox 8 2
+  CallDyn 5 6 2
+  Move 3 6
+  FUnbox 3 3
+  FK 4 61
+  FCmpEq 5 3 4
+  BoolFromI 9 5
+  JmpIfNot 9 7
+  IK 6 1
+  IAdd 7 0 6
+  IMov 0 7
+  IK 6 1
+  IAdd 7 1 6
+  IMov 1 7
+  Jmp -19
+  GetUpval 4 0
+  GetCell 5 4
+  Move 7 1
+  IToF 2 1
+  FBox 8 2
+  CallDyn 5 6 2
+  Move 3 6
+  FUnbox 3 3
+  FK 4 91
+  FCmpNe 5 3 4
+  BoolFromI 9 5
+  JmpIfNot 9 6
+  Nil 12
+  Move 10 12
+  K 13 0
+  Move 11 13
+  RetN 10 2
+  Jmp 0
+  K 5 1
+  K 8 2
+  Move 10 8
+  IToF 2 0
+  FBox 11 2
+  CallMethod 3 9 2
+  Move 7 9
+  K 12 1
+  Concat 6 7 12
+  Concat 4 5 6
+  Move 3 4
+  GetUpval 6 1
+  GetCell 7 6
+  Move 9 1
+  Move 10 3
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 11 4
+  K 13 4
+  Move 12 13
+  CallDyn 7 8 4
+  Move 5 8
+  Move 4 5
+  Not 5 4
+  JmpIfNot 5 10
+  LenF 2 1
+  FToI 3 2
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 6 6
+  K 8 0
+  Move 7 8
+  RetN 6 2
+  Jmp 0
+  IUnbox 2 4
+  LenF 3 3
+  FToI 4 3
+  IAdd 5 2 4
+  IToF 6 5
+  FBox 5 6
+  K 7 4
+  Move 6 7
+  RetN 5 2
+end
+function lexer.lex 20 2 136 74 vv:v
+  const 0 str "arena"
+  const 1 str "\010"
+  const 2 true 
+  const 3 str "unterminated interpolated string"
+  const 4 str "eof"
+  const 5 str "kind"
+  const 6 str ""
+  const 7 str "text"
+  const 8 str "offset"
+  const 9 str "line"
+  const 10 str "col"
+  const 11 str "trivia"
+  const 12 str "triviaFirst"
+  const 13 str "triviaCount"
+  const 14 str "name"
+  const 15 str "number"
+  const 16 str "error"
+  const 17 str "malformed number"
+  const 18 str "string"
+  const 19 str "unterminated string"
+  const 20 str "{"
+  const 21 false 
+  const 22 str "}"
+  const 23 str "unterminated long string"
+  const 24 str "["
+  const 25 str "\034\092x%02X\034"
+  const 26 str "format"
+  const 27 str "%q"
+  const 28 str "unexpected character "
+  NewCell 3 1
+  NewCell 4 2
+  NewTableN 6 0 0
+  Move 5 6
+  NewTableN 8 0 0
+  Move 7 8
+  NewCell 6 7
+  GetUpval 11 0
+  GetCell 12 11
+  GetField 10 12 0
+  GetCell 15 3
+  Move 14 15
+  CallDyn 10 13 1
+  Move 9 13
+  Move 8 9
+  NewCell 7 8
+  FK 0 1
+  FBox 9 0
+  NewCell 8 9
+  FK 0 1
+  FBox 10 0
+  NewCell 9 10
+  FK 0 1
+  FBox 11 0
+  NewCell 10 11
+  GetCell 13 3
+  LenF 0 13
+  FBox 12 0
+  NewCell 11 12
+  NewTableN 14 0 0
+  Move 13 14
+  NewCell 12 13
+  Nil 13
+  Nil 14
+  NewCell 13 14
+  Move 17 10
+  NewClosure 15 21 16 1
+  SetCell 13 15
+  GetUpval 18 1
+  GetCell 19 18
+  GetCell 25 3
+  Move 21 25
+  K 26 1
+  Move 22 26
+  FK 0 1
+  FBox 23 0
+  K 27 2
+  Move 24 27
+  CallDyn 19 20 4
+  Move 17 20
+  Move 16 17
+  JmpIf 16 6
+  GetCell 28 11
+  IUnbox 1 28
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 16 4
+  Move 15 16
+  NewCell 14 15
+  Nil 15
+  Nil 16
+  NewCell 15 16
+  Move 19 14
+  Move 20 9
+  Move 21 10
+  GetUpval 25 1
+  Move 22 25
+  Move 23 3
+  Move 24 11
+  NewClosure 17 22 18 6
+  SetCell 15 17
+  Nil 16
+  Nil 17
+  NewCell 16 17
+  Move 20 8
+  Move 21 4
+  Move 22 6
+  NewClosure 18 23 19 3
+  SetCell 16 18
+  Nil 17
+  Nil 18
+  NewCell 17 18
+  Move 21 7
+  Move 22 8
+  Move 23 11
+  Move 24 9
+  Move 25 13
+  GetUpval 37 2
+  Move 26 37
+  Move 27 3
+  GetUpval 38 3
+  Move 28 38
+  GetUpval 39 4
+  Move 29 39
+  GetUpval 40 5
+  Move 30 40
+  GetUpval 41 1
+  Move 31 41
+  GetUpval 42 6
+  Move 32 42
+  GetUpval 43 7
+  Move 33 43
+  GetUpval 44 8
+  Move 34 44
+  Move 35 16
+  Move 36 15
+  NewClosure 19 24 20 16
+  SetCell 17 19
+  Nil 18
+  Nil 19
+  NewCell 18 19
+  GetUpval 24 9
+  Move 22 24
+  Move 23 3
+  NewClosure 20 25 21 2
+  SetCell 18 20
+  Nil 19
+  Nil 20
+  NewCell 19 20
+  Move 23 8
+  Move 24 11
+  GetUpval 35 2
+  Move 25 35
+  Move 26 3
+  Move 27 18
+  Move 28 9
+  Move 29 10
+  Move 30 14
+  GetUpval 36 1
+  Move 31 36
+  GetUpval 37 3
+  Move 32 37
+  Move 33 4
+  Move 34 6
+  NewClosure 21 26 22 12
+  SetCell 19 21
+  Nil 20
+  Nil 21
+  NewCell 20 21
+  Move 24 8
+  Move 25 9
+  Move 26 13
+  Move 27 11
+  GetUpval 32 2
+  Move 28 32
+  Move 29 3
+  Move 30 12
+  Move 31 16
+  NewClosure 22 27 23 8
+  SetCell 20 22
+  Nil 21
+  Nil 22
+  NewCell 21 22
+  Move 25 8
+  GetUpval 31 2
+  Move 26 31
+  Move 27 3
+  GetUpval 32 10
+  Move 28 32
+  GetUpval 33 11
+  Move 29 33
+  GetUpval 34 12
+  Move 30 34
+  NewClosure 23 28 24 6
+  SetCell 21 23
+  K 22 2
+  JmpIfNot 22 664
+  GetCell 25 17
+  CallDyn 25 26 0
+  Move 23 26
+  Move 24 27
+  IUnbox 0 23
+  Move 27 24
+  GetCell 28 8
+  IUnbox 1 28
+  GetCell 29 11
+  IUnbox 2 29
+  ICmpSLt 3 2 1
+  BoolFromI 30 3
+  JmpIfNot 30 51
+  GetCell 31 12
+  LenF 4 31
+  FToI 5 4
+  IK 6 0
+  ICmpSLt 7 6 5
+  BoolFromI 32 7
+  JmpIfNot 32 16
+  GetCell 34 16
+  GetCell 40 8
+  Move 36 40
+  GetCell 41 9
+  Move 37 41
+  GetCell 43 13
+  GetCell 46 8
+  Move 45 46
+  CallDyn 43 44 1
+  Move 42 44
+  Move 38 42
+  K 47 3
+  Move 39 47
+  CallDyn 34 35 4
+  Move 33 35
+  Jmp 0
+  NewTableN 31 0 8
+  K 32 4
+  SetField 31 5 32
+  K 33 6
+  SetField 31 7 33
+  GetCell 34 8
+  SetField 31 8 34
+  GetCell 35 9
+  SetField 31 9 35
+  GetCell 37 13
+  GetCell 40 8
+  Move 39 40
+  CallDyn 37 38 1
+  Move 36 38
+  SetField 31 10 36
+  GetCell 41 7
+  SetField 31 11 41
+  IToF 4 0
+  FBox 42 4
+  SetField 31 12 42
+  SetField 31 13 27
+  LenF 5 5
+  FToI 6 5
+  IK 7 1
+  IAdd 8 6 7
+  SetIdxI 5 8 31
+  Jmp 601
+  Jmp 0
+  GetCell 28 8
+  IUnbox 1 28
+  GetCell 30 9
+  Move 28 30
+  GetCell 32 13
+  GetCell 35 8
+  Move 34 35
+  CallDyn 32 33 1
+  Move 31 33
+  Move 29 31
+  IUnbox 2 28
+  IUnbox 3 29
+  GetUpval 29 2
+  GetCell 30 29
+  GetCell 34 3
+  Move 32 34
+  GetCell 35 8
+  Move 33 35
+  CallDyn 30 31 2
+  Move 28 31
+  IUnbox 4 28
+  Nil 28
+  Nil 30
+  Move 29 30
+  GetUpval 31 13
+  GetCell 32 31
+  IToF 5 4
+  FBox 34 5
+  CallDyn 32 33 1
+  Move 30 33
+  JmpIfNot 30 49
+  GetCell 35 8
+  IUnbox 6 35
+  IK 7 1
+  IAdd 8 6 7
+  IToF 9 8
+  FBox 36 9
+  SetCell 8 36
+  GetUpval 37 12
+  GetCell 38 37
+  GetUpval 42 2
+  GetCell 43 42
+  GetCell 47 3
+  Move 45 47
+  GetCell 48 8
+  Move 46 48
+  CallDyn 43 44 2
+  Move 41 44
+  Move 40 41
+  CallDyn 38 39 1
+  Move 36 39
+  Not 35 36
+  JmpIfNot 35 -22
+  GetUpval 36 3
+  GetCell 37 36
+  GetCell 42 3
+  Move 39 42
+  IToF 6 1
+  FBox 40 6
+  GetCell 43 8
+  IUnbox 7 43
+  IK 8 1
+  ISub 9 7 8
+  IToF 10 9
+  FBox 41 10
+  CallDyn 37 38 3
+  Move 35 38
+  Move 29 35
+  GetUpval 38 14
+  GetCell 39 38
+  GetIdx 37 39 29
+  Move 36 37
+  JmpIfNot 36 1
+  Move 36 29
+  Move 35 36
+  JmpIf 35 2
+  K 40 14
+  Move 35 40
+  Move 28 35
+  Jmp 467
+  GetUpval 37 11
+  GetCell 38 37
+  IToF 6 4
+  FBox 40 6
+  CallDyn 38 39 1
+  Move 36 39
+  Move 35 36
+  JmpIf 35 25
+  IToF 7 4
+  FK 8 46
+  FCmpEq 9 7 8
+  BoolFromI 42 9
+  Move 41 42
+  JmpIfNot 41 18
+  GetUpval 44 11
+  GetCell 45 44
+  GetUpval 49 2
+  GetCell 50 49
+  GetCell 54 3
+  Move 52 54
+  GetCell 55 8
+  IUnbox 10 55
+  IK 11 1
+  IAdd 12 10 11
+  IToF 13 12
+  FBox 53 13
+  CallDyn 50 51 2
+  Move 48 51
+  Move 47 48
+  CallDyn 45 46 1
+  Move 43 46
+  Move 41 43
+  Move 35 41
+  JmpIfNot 35 27
+  GetCell 58 21
+  CallDyn 58 59 0
+  Move 56 59
+  Move 57 60
+  IUnbox 14 56
+  Move 60 57
+  IToF 15 14
+  FBox 61 15
+  SetCell 8 61
+  JmpIfNot 60 3
+  K 61 15
+  Move 28 61
+  Jmp 13
+  K 61 16
+  Move 28 61
+  GetCell 62 16
+  IToF 15 1
+  FBox 64 15
+  IToF 16 2
+  FBox 65 16
+  IToF 17 3
+  FBox 66 17
+  K 68 17
+  Move 67 68
+  CallDyn 62 63 4
+  Move 61 63
+  Jmp 406
+  IToF 15 4
+  FK 16 34
+  FCmpEq 17 15 16
+  BoolFromI 62 17
+  Move 61 62
+  JmpIf 61 5
+  IToF 18 4
+  FK 19 39
+  FCmpEq 20 18 19
+  BoolFromI 63 20
+  Move 61 63
+  JmpIfNot 61 29
+  GetCell 66 19
+  IToF 21 4
+  FBox 68 21
+  CallDyn 66 67 1
+  Move 64 67
+  Move 65 68
+  IUnbox 22 64
+  Move 69 65
+  IToF 23 22
+  FBox 70 23
+  SetCell 8 70
+  JmpIfNot 69 3
+  K 70 18
+  Move 28 70
+  Jmp 13
+  K 70 16
+  Move 28 70
+  GetCell 71 16
+  IToF 23 1
+  FBox 73 23
+  IToF 24 2
+  FBox 74 24
+  IToF 25 3
+  FBox 75 25
+  K 77 19
+  Move 76 77
+  CallDyn 71 72 4
+  Move 70 72
+  Jmp 365
+  IToF 23 4
+  FK 24 96
+  FCmpEq 25 23 24
+  BoolFromI 70 25
+  JmpIfNot 70 7
+  GetCell 72 20
+  K 75 2
+  Move 74 75
+  CallDyn 72 73 1
+  Move 71 73
+  Move 28 71
+  Jmp 353
+  IToF 26 4
+  FK 27 123
+  FCmpEq 28 26 27
+  BoolFromI 72 28
+  Move 71 72
+  JmpIfNot 71 7
+  GetCell 73 12
+  LenF 29 73
+  FToI 30 29
+  IK 31 0
+  ICmpSLt 32 31 30
+  BoolFromI 74 32
+  Move 71 74
+  JmpIfNot 71 23
+  GetCell 77 12
+  GetCell 78 12
+  LenF 33 78
+  FToI 34 33
+  GetIdxI 76 77 34
+  FK 35 1
+  FBox 79 35
+  Add 75 76 79
+  GetCell 80 12
+  GetCell 81 12
+  LenF 36 81
+  FToI 37 36
+  SetIdxI 80 37 75
+  GetCell 75 8
+  IUnbox 33 75
+  IK 34 1
+  IAdd 35 33 34
+  IToF 36 35
+  FBox 76 36
+  SetCell 8 76
+  K 75 20
+  Move 28 75
+  Jmp 316
+  IToF 33 4
+  FK 34 125
+  FCmpEq 35 33 34
+  BoolFromI 77 35
+  Move 76 77
+  JmpIfNot 76 7
+  GetCell 78 12
+  LenF 36 78
+  FToI 37 36
+  IK 38 0
+  ICmpSLt 39 38 37
+  BoolFromI 79 39
+  Move 76 79
+  Move 75 76
+  JmpIfNot 75 9
+  GetCell 82 12
+  GetCell 83 12
+  LenF 40 83
+  FToI 41 40
+  GetIdxI 81 82 41
+  FK 42 0
+  FBox 84 42
+  Eq 80 81 84
+  Move 75 80
+  JmpIfNot 75 7
+  GetCell 86 20
+  K 89 21
+  Move 88 89
+  CallDyn 86 87 1
+  Move 85 87
+  Move 28 85
+  Jmp 284
+  IToF 43 4
+  FK 44 125
+  FCmpEq 45 43 44
+  BoolFromI 86 45
+  Move 85 86
+  JmpIfNot 85 7
+  GetCell 87 12
+  LenF 46 87
+  FToI 47 46
+  IK 48 0
+  ICmpSLt 49 48 47
+  BoolFromI 88 49
+  Move 85 88
+  JmpIfNot 85 23
+  GetCell 91 12
+  GetCell 92 12
+  LenF 50 92
+  FToI 51 50
+  GetIdxI 90 91 51
+  FK 52 1
+  FBox 93 52
+  Sub 89 90 93
+  GetCell 94 12
+  GetCell 95 12
+  LenF 53 95
+  FToI 54 53
+  SetIdxI 94 54 89
+  GetCell 89 8
+  IUnbox 50 89
+  IK 51 1
+  IAdd 52 50 51
+  IToF 53 52
+  FBox 90 53
+  SetCell 8 90
+  K 89 22
+  Move 28 89
+  Jmp 247
+  IToF 50 4
+  FK 51 91
+  FCmpEq 52 50 51
+  BoolFromI 89 52
+  JmpIfNot 89 51
+  GetUpval 92 8
+  GetCell 93 92
+  GetCell 97 3
+  Move 95 97
+  GetCell 98 8
+  Move 96 98
+  CallDyn 93 94 2
+  Move 90 94
+  Move 91 95
+  Move 99 90
+  Move 100 91
+  Move 101 99
+  JmpIfNot 101 1
+  Move 101 100
+  JmpIfNot 101 4
+  SetCell 8 99
+  K 102 18
+  Move 28 102
+  Jmp 31
+  JmpIfNot 99 21
+  GetCell 102 11
+  IUnbox 53 102
+  IK 54 1
+  IAdd 55 53 54
+  IToF 56 55
+  FBox 103 56
+  SetCell 8 103
+  K 102 16
+  Move 28 102
+  GetCell 103 16
+  IToF 53 1
+  FBox 105 53
+  IToF 54 2
+  FBox 106 54
+  IToF 55 3
+  FBox 107 55
+  K 109 23
+  Move 108 109
+  CallDyn 103 104 4
+  Move 102 104
+  Jmp 9
+  GetCell 102 8
+  IUnbox 53 102
+  IK 54 1
+  IAdd 55 53 54
+  IToF 56 55
+  FBox 103 56
+  SetCell 8 103
+  K 102 24
+  Move 28 102
+  Jmp 191
+  GetCell 101 11
+  IUnbox 54 101
+  GetCell 102 8
+  IUnbox 55 102
+  ISub 56 54 55
+  IK 57 1
+  IAdd 58 56 57
+  IMov 53 58
+  IToF 55 4
+  FBox 101 55
+  TagCheckNum 101 101
+  IUnbox 54 101
+  IMov 55 54
+  GetUpval 103 15
+  GetCell 104 103
+  GetIdxI 102 104 55
+  Move 101 102
+  IK 56 2
+  ICmpSLe 57 56 53
+  BoolFromI 102 57
+  JmpIfNot 102 95
+  IToF 58 55
+  FK 59 256
+  FMul 60 58 59
+  FToI 61 60
+  GetUpval 105 2
+  GetCell 106 105
+  GetCell 110 3
+  Move 108 110
+  GetCell 111 8
+  IUnbox 62 111
+  IK 63 1
+  IAdd 64 62 63
+  IToF 65 64
+  FBox 109 65
+  CallDyn 106 107 2
+  Move 104 107
+  Move 103 104
+  TagCheckNum 103 103
+  IUnbox 66 103
+  IAdd 67 61 66
+  IMov 55 67
+  GetUpval 105 16
+  GetCell 106 105
+  GetIdxI 104 106 55
+  Move 103 104
+  JmpIf 103 1
+  Move 103 101
+  Move 101 103
+  IK 58 3
+  ICmpSLe 59 58 53
+  BoolFromI 103 59
+  JmpIfNot 103 62
+  IToF 60 55
+  FK 61 256
+  FMul 62 60 61
+  FToI 63 62
+  GetUpval 106 2
+  GetCell 107 106
+  GetCell 111 3
+  Move 109 111
+  GetCell 112 8
+  IUnbox 64 112
+  IK 65 2
+  IAdd 66 64 65
+  IToF 67 66
+  FBox 110 67
+  CallDyn 107 108 2
+  Move 105 108
+  Move 104 105
+  TagCheckNum 104 104
+  IUnbox 68 104
+  IAdd 69 63 68
+  IMov 55 69
+  GetUpval 106 17
+  GetCell 107 106
+  GetIdxI 105 107 55
+  Move 104 105
+  JmpIf 104 1
+  Move 104 101
+  Move 101 104
+  IK 60 4
+  ICmpSLe 61 60 53
+  BoolFromI 104 61
+  JmpIfNot 104 29
+  IToF 62 55
+  FK 63 256
+  FMul 64 62 63
+  FToI 65 64
+  GetUpval 107 2
+  GetCell 108 107
+  GetCell 112 3
+  Move 110 112
+  GetCell 113 8
+  IUnbox 66 113
+  IK 67 3
+  IAdd 68 66 67
+  IToF 69 68
+  FBox 111 69
+  CallDyn 108 109 2
+  Move 106 109
+  Move 105 106
+  TagCheckNum 105 105
+  IUnbox 70 105
+  IAdd 71 65 70
+  IMov 55 71
+  GetUpval 107 18
+  GetCell 108 107
+  GetIdxI 106 108 55
+  Move 105 106
+  JmpIf 105 1
+  Move 105 101
+  Move 101 105
+  Jmp 0
+  Jmp 0
+  Jmp 0
+  JmpIfNot 101 11
+  GetCell 102 8
+  IUnbox 56 102
+  LenF 57 101
+  FToI 58 57
+  IAdd 59 56 58
+  IToF 60 59
+  FBox 103 60
+  SetCell 8 103
+  Move 28 101
+  Move 29 101
+  Jmp 63
+  GetCell 102 8
+  IUnbox 56 102
+  IK 57 1
+  IAdd 58 56 57
+  IToF 59 58
+  FBox 103 59
+  SetCell 8 103
+  K 102 16
+  Move 28 102
+  GetUpval 104 3
+  GetCell 105 104
+  GetCell 110 3
+  Move 107 110
+  IToF 56 1
+  FBox 108 56
+  IToF 57 1
+  FBox 109 57
+  CallDyn 105 106 3
+  Move 103 106
+  Move 102 103
+  GetUpval 107 2
+  GetCell 108 107
+  Move 110 102
+  CallDyn 108 109 1
+  Move 106 109
+  IUnbox 56 106
+  IK 57 128
+  ICmpSLe 58 57 56
+  BoolFromI 111 58
+  Move 105 111
+  JmpIfNot 105 11
+  K 113 25
+  Move 115 113
+  GetUpval 118 2
+  GetCell 119 118
+  Move 121 102
+  CallDyn 119 120 1
+  Move 117 120
+  Move 116 117
+  CallMethod 26 114 2
+  Move 112 114
+  Move 105 112
+  Move 104 105
+  JmpIf 104 6
+  K 123 27
+  Move 125 123
+  Move 126 102
+  CallMethod 26 124 2
+  Move 122 124
+  Move 104 122
+  Move 103 104
+  GetCell 105 16
+  IToF 56 1
+  FBox 107 56
+  IToF 57 2
+  FBox 108 57
+  IToF 58 3
+  FBox 109 58
+  K 112 28
+  Concat 111 112 103
+  Move 110 111
+  CallDyn 105 106 4
+  Move 104 106
+  GetUpval 32 19
+  GetCell 33 32
+  GetIdx 31 33 28
+  Move 30 31
+  JmpIf 30 1
+  Move 30 28
+  Move 28 30
+  NewTableN 30 0 8
+  SetField 30 5 28
+  Move 31 29
+  JmpIf 31 15
+  GetUpval 33 3
+  GetCell 34 33
+  GetCell 39 3
+  Move 36 39
+  IToF 5 1
+  FBox 37 5
+  GetCell 40 8
+  IUnbox 6 40
+  IK 7 1
+  ISub 8 6 7
+  IToF 9 8
+  FBox 38 9
+  CallDyn 34 35 3
+  Move 32 35
+  Move 31 32
+  SetField 30 7 31
+  IToF 10 1
+  FBox 41 10
+  SetField 30 8 41
+  IToF 11 2
+  FBox 42 11
+  SetField 30 9 42
+  IToF 12 3
+  FBox 43 12
+  SetField 30 10 43
+  GetCell 44 7
+  SetField 30 11 44
+  IToF 13 0
+  FBox 45 13
+  SetField 30 12 45
+  SetField 30 13 27
+  LenF 14 5
+  FToI 15 14
+  IK 16 1
+  IAdd 17 15 16
+  SetIdxI 5 17 30
+  GetCell 31 15
+  GetCell 34 8
+  Move 33 34
+  CallDyn 31 32 1
+  Move 30 32
+  Jmp -666
+  Move 22 5
+  GetCell 24 6
+  Move 23 24
+  RetN 22 2
+end
+function colOf 21 1 14 8 v:v
+  IUnbox 0 1
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 1 3
+  ISub 2 0 1
+  IK 3 1
+  IAdd 4 2 3
+  IToF 5 4
+  FBox 4 5
+  Ret 4
+end
+function advanceLines 22 1 32 13 v:v
+  const 0 str "\010"
+  const 1 true 
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 0 3
+  IUnbox 1 1
+  ICmpSLt 2 0 1
+  BoolFromI 4 2
+  JmpIfNot 4 48
+  GetUpval 5 1
+  GetCell 6 5
+  IUnbox 3 6
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 7 6
+  GetUpval 8 1
+  SetCell 8 7
+  GetUpval 5 0
+  GetCell 6 5
+  IUnbox 3 6
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 7 6
+  GetUpval 8 2
+  SetCell 8 7
+  GetUpval 7 3
+  GetCell 8 7
+  GetUpval 14 4
+  GetCell 15 14
+  Move 10 15
+  K 16 0
+  Move 11 16
+  GetUpval 17 0
+  GetCell 18 17
+  IUnbox 3 18
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 12 6
+  K 19 1
+  Move 13 19
+  CallDyn 8 9 4
+  Move 6 9
+  Move 5 6
+  JmpIf 5 7
+  GetUpval 20 5
+  GetCell 21 20
+  IUnbox 7 21
+  IK 8 1
+  IAdd 9 7 8
+  IToF 10 9
+  FBox 5 10
+  GetUpval 22 0
+  SetCell 22 5
+  Jmp -55
+  RetNil
+end
+function addError 23 4 29 11 vvvv:v
+  const 0 str "NUPP1001"
+  const 1 str "code"
+  const 2 str "offset"
+  const 3 builtin math.max
+  const 4 str "length"
+  const 5 str "line"
+  const 6 str "col"
+  const 7 str "msg"
+  const 8 str "filename"
+  NewTableN 5 0 7
+  K 6 0
+  SetField 5 1 6
+  SetField 5 2 1
+  K 8 3
+  FK 0 1
+  FBox 10 0
+  GetUpval 12 0
+  GetCell 13 12
+  IUnbox 1 13
+  IUnbox 2 1
+  ISub 3 1 2
+  IToF 4 3
+  FBox 11 4
+  CallDyn 8 9 2
+  Move 7 9
+  SetField 5 4 7
+  SetField 5 5 2
+  SetField 5 6 3
+  SetField 5 7 4
+  GetUpval 14 1
+  GetCell 15 14
+  SetField 5 8 15
+  GetUpval 16 2
+  GetCell 17 16
+  GetUpval 18 2
+  GetCell 19 18
+  LenF 5 19
+  FToI 6 5
+  IK 7 1
+  IAdd 8 6 7
+  SetIdxI 17 8 5
+  RetNil
+end
+function scanTrivia 24 0 119 61 :v
+  const 0 str "count"
+  const 1 str "﻿"
+  const 2 str "#"
+  const 3 str "\010"
+  const 4 true 
+  const 5 str "unterminated long comment"
+  const 6 str "append"
+  GetUpval 2 0
+  GetCell 3 2
+  GetField 1 3 0
+  IUnbox 1 1
+  IK 2 1
+  IAdd 3 1 2
+  IMov 0 3
+  IK 2 0
+  IMov 1 2
+  GetUpval 1 1
+  GetCell 2 1
+  IUnbox 2 2
+  GetUpval 3 2
+  GetCell 4 3
+  IUnbox 3 4
+  ICmpSLe 4 2 3
+  BoolFromI 5 4
+  JmpIfNot 5 390
+  GetUpval 6 1
+  GetCell 7 6
+  IUnbox 5 7
+  GetUpval 8 3
+  GetCell 9 8
+  Move 6 9
+  GetUpval 11 4
+  GetCell 12 11
+  GetUpval 15 1
+  GetCell 16 15
+  Move 14 16
+  CallDyn 12 13 1
+  Move 10 13
+  Move 7 10
+  IUnbox 6 6
+  IUnbox 7 7
+  GetUpval 7 5
+  GetCell 8 7
+  GetUpval 12 6
+  GetCell 13 12
+  Move 10 13
+  GetUpval 14 1
+  GetCell 15 14
+  Move 11 15
+  CallDyn 8 9 2
+  Move 6 9
+  IUnbox 8 6
+  IK 9 0
+  GetUpval 7 1
+  GetCell 8 7
+  FUnbox 10 8
+  FK 11 1
+  FCmpEq 12 10 11
+  BoolFromI 9 12
+  Move 6 9
+  JmpIfNot 6 14
+  GetUpval 12 7
+  GetCell 13 12
+  GetUpval 18 6
+  GetCell 19 18
+  Move 15 19
+  FK 13 1
+  FBox 16 13
+  FK 14 3
+  FBox 17 14
+  CallDyn 13 14 3
+  Move 11 14
+  K 20 1
+  Eq 10 11 20
+  Move 6 10
+  JmpIfNot 6 9
+  GetUpval 23 8
+  GetCell 24 23
+  Move 21 24
+  FK 15 4
+  FBox 22 15
+  IUnbox 9 21
+  GetUpval 25 1
+  SetCell 25 22
+  Jmp 300
+  GetUpval 23 1
+  GetCell 24 23
+  FUnbox 15 24
+  FK 16 1
+  FCmpEq 17 15 16
+  BoolFromI 25 17
+  Move 22 25
+  JmpIf 22 23
+  GetUpval 27 1
+  GetCell 28 27
+  FUnbox 18 28
+  FK 19 4
+  FCmpEq 20 18 19
+  BoolFromI 29 20
+  Move 26 29
+  JmpIfNot 26 14
+  GetUpval 32 7
+  GetCell 33 32
+  GetUpval 38 6
+  GetCell 39 38
+  Move 35 39
+  FK 21 1
+  FBox 36 21
+  FK 22 3
+  FBox 37 22
+  CallDyn 33 34 3
+  Move 31 34
+  K 40 1
+  Eq 30 31 40
+  Move 26 30
+  Move 22 26
+  Move 21 22
+  JmpIfNot 21 16
+  GetUpval 43 7
+  GetCell 44 43
+  GetUpval 49 6
+  GetCell 50 49
+  Move 46 50
+  GetUpval 51 1
+  GetCell 52 51
+  Move 47 52
+  GetUpval 53 1
+  GetCell 54 53
+  Move 48 54
+  CallDyn 44 45 3
+  Move 42 45
+  K 55 2
+  Eq 41 42 55
+  Move 21 41
+  JmpIfNot 21 37
+  GetUpval 56 9
+  GetCell 57 56
+  IUnbox 9 57
+  GetUpval 58 10
+  GetCell 59 58
+  GetUpval 65 6
+  GetCell 66 65
+  Move 61 66
+  K 67 3
+  Move 62 67
+  GetUpval 68 1
+  GetCell 69 68
+  Move 63 69
+  K 70 4
+  Move 64 70
+  CallDyn 59 60 4
+  Move 57 60
+  Move 56 57
+  Move 58 56
+  JmpIfNot 58 5
+  IUnbox 23 56
+  IK 24 1
+  IAdd 25 23 24
+  IToF 26 25
+  FBox 58 26
+  Move 57 58
+  JmpIf 57 7
+  GetUpval 59 2
+  GetCell 60 59
+  IUnbox 27 60
+  IK 28 1
+  IAdd 29 27 28
+  IToF 30 29
+  FBox 57 30
+  GetUpval 61 1
+  SetCell 61 57
+  Jmp 213
+  IToF 23 8
+  FK 24 32
+  FCmpEq 25 23 24
+  BoolFromI 62 25
+  Move 61 62
+  JmpIf 61 5
+  IToF 26 8
+  FK 27 9
+  FCmpEq 28 26 27
+  BoolFromI 63 28
+  Move 61 63
+  Move 60 61
+  JmpIf 60 5
+  IToF 29 8
+  FK 30 13
+  FCmpEq 31 29 30
+  BoolFromI 64 31
+  Move 60 64
+  Move 59 60
+  JmpIf 59 5
+  IToF 32 8
+  FK 33 10
+  FCmpEq 34 32 33
+  BoolFromI 65 34
+  Move 59 65
+  Move 58 59
+  JmpIf 58 5
+  IToF 35 8
+  FK 36 11
+  FCmpEq 37 35 36
+  BoolFromI 66 37
+  Move 58 66
+  Move 57 58
+  JmpIf 57 5
+  IToF 38 8
+  FK 39 12
+  FCmpEq 40 38 39
+  BoolFromI 67 40
+  Move 57 67
+  JmpIfNot 57 65
+  GetUpval 68 11
+  GetCell 69 68
+  IUnbox 9 69
+  GetUpval 68 1
+  GetCell 69 68
+  IUnbox 41 69
+  IK 42 1
+  IAdd 43 41 42
+  IToF 44 43
+  FBox 70 44
+  GetUpval 71 1
+  SetCell 71 70
+  GetUpval 69 5
+  GetCell 70 69
+  GetUpval 74 6
+  GetCell 75 74
+  Move 72 75
+  GetUpval 76 1
+  GetCell 77 76
+  Move 73 77
+  CallDyn 70 71 2
+  Move 68 71
+  IUnbox 8 68
+  IToF 41 8
+  FK 42 32
+  FCmpEq 43 41 42
+  BoolFromI 74 43
+  Move 73 74
+  JmpIf 73 5
+  IToF 44 8
+  FK 45 9
+  FCmpEq 46 44 45
+  BoolFromI 75 46
+  Move 73 75
+  Move 72 73
+  JmpIf 72 5
+  IToF 47 8
+  FK 48 13
+  FCmpEq 49 47 48
+  BoolFromI 76 49
+  Move 72 76
+  Move 71 72
+  JmpIf 71 5
+  IToF 50 8
+  FK 51 10
+  FCmpEq 52 50 51
+  BoolFromI 77 52
+  Move 71 77
+  Move 70 71
+  JmpIf 70 5
+  IToF 53 8
+  FK 54 11
+  FCmpEq 55 53 54
+  BoolFromI 78 55
+  Move 70 78
+  Move 69 70
+  JmpIf 69 5
+  IToF 56 8
+  FK 57 12
+  FCmpEq 58 56 57
+  BoolFromI 79 58
+  Move 69 79
+  Not 68 69
+  JmpIfNot 68 -61
+  Jmp 108
+  IToF 41 8
+  FK 42 45
+  FCmpEq 43 41 42
+  BoolFromI 69 43
+  Move 68 69
+  JmpIfNot 68 19
+  GetUpval 71 5
+  GetCell 72 71
+  GetUpval 76 6
+  GetCell 77 76
+  Move 74 77
+  GetUpval 78 1
+  GetCell 79 78
+  IUnbox 44 79
+  IK 45 1
+  IAdd 46 44 45
+  IToF 47 46
+  FBox 75 47
+  CallDyn 72 73 2
+  Move 70 73
+  FUnbox 48 70
+  FK 49 45
+  FCmpEq 50 48 49
+  BoolFromI 80 50
+  Move 68 80
+  JmpIfNot 68 81
+  GetUpval 81 12
+  GetCell 82 81
+  IUnbox 9 82
+  GetUpval 83 13
+  GetCell 84 83
+  GetUpval 88 6
+  GetCell 89 88
+  Move 86 89
+  GetUpval 90 1
+  GetCell 91 90
+  IUnbox 51 91
+  IK 52 2
+  IAdd 53 51 52
+  IToF 54 53
+  FBox 87 54
+  CallDyn 84 85 2
+  Move 81 85
+  Move 82 86
+  Move 92 81
+  Move 93 82
+  Move 94 92
+  JmpIfNot 94 1
+  Move 94 93
+  JmpIfNot 94 3
+  GetUpval 95 1
+  SetCell 95 92
+  Jmp 53
+  JmpIfNot 92 22
+  GetUpval 95 2
+  GetCell 96 95
+  IUnbox 51 96
+  IK 52 1
+  IAdd 53 51 52
+  IToF 54 53
+  FBox 97 54
+  GetUpval 98 1
+  SetCell 98 97
+  GetUpval 96 14
+  GetCell 97 96
+  IToF 51 5
+  FBox 99 51
+  IToF 52 6
+  FBox 100 52
+  IToF 53 7
+  FBox 101 53
+  K 103 5
+  Move 102 103
+  CallDyn 97 98 4
+  Move 95 98
+  Jmp 30
+  GetUpval 97 10
+  GetCell 98 97
+  GetUpval 104 6
+  GetCell 105 104
+  Move 100 105
+  K 106 3
+  Move 101 106
+  GetUpval 107 1
+  GetCell 108 107
+  IUnbox 51 108
+  IK 52 2
+  IAdd 53 51 52
+  IToF 54 53
+  FBox 102 54
+  K 109 4
+  Move 103 109
+  CallDyn 98 99 4
+  Move 96 99
+  Move 95 96
+  Move 96 95
+  JmpIf 96 7
+  GetUpval 97 2
+  GetCell 98 97
+  IUnbox 51 98
+  IK 52 1
+  IAdd 53 51 52
+  IToF 54 53
+  FBox 96 54
+  GetUpval 99 1
+  SetCell 99 96
+  Jmp 1
+  Jmp 30
+  GetUpval 7 0
+  GetCell 8 7
+  Move 10 8
+  IToF 10 9
+  FBox 11 10
+  IToF 11 5
+  FBox 12 11
+  GetUpval 16 1
+  GetCell 17 16
+  IUnbox 12 17
+  ISub 13 12 5
+  IToF 14 13
+  FBox 13 14
+  IToF 15 6
+  FBox 14 15
+  IToF 16 7
+  FBox 15 16
+  CallMethod 6 9 6
+  Move 6 9
+  IK 10 1
+  IAdd 11 1 10
+  IMov 1 11
+  GetUpval 7 15
+  GetCell 8 7
+  GetUpval 11 1
+  GetCell 12 11
+  Move 10 12
+  CallDyn 8 9 1
+  Move 6 9
+  Jmp -399
+  IToF 2 0
+  FBox 1 2
+  IToF 3 1
+  FBox 2 3
+  RetN 1 2
+end
+function scanEscape 25 2 28 4 vv:v
+  GetUpval 6 0
+  GetCell 7 6
+  GetUpval 12 1
+  GetCell 13 12
+  Move 9 13
+  Move 10 1
+  Move 11 2
+  CallDyn 7 8 3
+  Move 3 8
+  Move 4 9
+  Move 5 10
+  IUnbox 0 3
+  Move 14 4
+  Move 15 5
+  IToF 1 0
+  FBox 16 1
+  Move 17 14
+  Move 18 15
+  RetN 16 3
+end
+function scanShortString 26 1 53 33 v:v
+  const 0 true 
+  const 1 str "\010"
+  const 2 str "NUPP1001"
+  const 3 str "code"
+  const 4 str "offset"
+  const 5 str "length"
+  const 6 str "line"
+  const 7 str "col"
+  const 8 str "invalid escape sequence '%s'"
+  const 9 str "format"
+  const 10 str "msg"
+  const 11 str "filename"
+  const 12 builtin math.min
+  const 13 false 
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 1 3
+  IK 2 1
+  IAdd 3 1 2
+  IMov 0 3
+  GetUpval 2 1
+  GetCell 3 2
+  IUnbox 1 3
+  ICmpSLe 2 0 1
+  BoolFromI 4 2
+  JmpIfNot 4 168
+  GetUpval 6 2
+  GetCell 7 6
+  GetUpval 11 3
+  GetCell 12 11
+  Move 9 12
+  IToF 4 0
+  FBox 10 4
+  CallDyn 7 8 2
+  Move 5 8
+  IUnbox 3 5
+  IToF 4 3
+  FUnbox 5 1
+  FCmpEq 6 4 5
+  BoolFromI 5 6
+  JmpIfNot 5 8
+  IK 7 1
+  IAdd 8 0 7
+  IToF 9 8
+  FBox 6 9
+  K 8 0
+  Move 7 8
+  RetN 6 2
+  Jmp 144
+  IToF 7 3
+  FK 8 92
+  FCmpEq 9 7 8
+  BoolFromI 6 9
+  JmpIfNot 6 125
+  GetUpval 10 4
+  GetCell 11 10
+  IToF 10 0
+  FBox 13 10
+  Move 14 1
+  CallDyn 11 12 2
+  Move 7 12
+  Move 8 13
+  Move 9 14
+  IUnbox 11 7
+  Move 15 8
+  Move 16 9
+  Not 17 15
+  JmpIfNot 17 97
+  GetUpval 20 5
+  GetCell 21 20
+  Move 18 21
+  GetUpval 22 6
+  GetCell 23 22
+  Move 19 23
+  IUnbox 12 18
+  IUnbox 13 19
+  GetUpval 18 7
+  GetCell 19 18
+  IUnbox 14 19
+  ICmpSLt 15 14 0
+  BoolFromI 18 15
+  JmpIfNot 18 32
+  IK 16 1
+  IAdd 17 12 16
+  IMov 12 17
+  IK 16 1
+  IAdd 17 14 16
+  IMov 13 17
+  GetUpval 21 8
+  GetCell 22 21
+  GetUpval 28 3
+  GetCell 29 28
+  Move 24 29
+  K 30 1
+  Move 25 30
+  IK 16 1
+  IAdd 17 14 16
+  IToF 18 17
+  FBox 26 18
+  K 31 0
+  Move 27 31
+  CallDyn 22 23 4
+  Move 20 23
+  Move 19 20
+  JmpIf 19 7
+  GetUpval 32 1
+  GetCell 33 32
+  IUnbox 19 33
+  IK 20 1
+  IAdd 21 19 20
+  IToF 22 21
+  FBox 19 22
+  IUnbox 14 19
+  Jmp -35
+  NewTableN 18 0 7
+  K 19 2
+  SetField 18 3 19
+  IToF 15 0
+  FBox 20 15
+  SetField 18 4 20
+  IUnbox 16 16
+  ISub 17 16 0
+  IK 18 1
+  IAdd 19 17 18
+  IToF 20 19
+  FBox 21 20
+  SetField 18 5 21
+  IToF 21 12
+  FBox 22 21
+  SetField 18 6 22
+  ISub 22 0 13
+  IK 23 1
+  IAdd 24 22 23
+  IToF 25 24
+  FBox 23 25
+  SetField 18 7 23
+  K 25 8
+  Move 27 25
+  GetUpval 30 9
+  GetCell 31 30
+  GetUpval 36 3
+  GetCell 37 36
+  Move 33 37
+  IToF 26 0
+  FBox 34 26
+  Move 35 16
+  CallDyn 31 32 3
+  Move 29 32
+  Move 28 29
+  CallMethod 9 26 2
+  Move 24 26
+  SetField 18 10 24
+  GetUpval 38 10
+  GetCell 39 38
+  SetField 18 11 39
+  GetUpval 40 11
+  GetCell 41 40
+  GetUpval 42 11
+  GetCell 43 42
+  LenF 27 43
+  FToI 28 27
+  IK 29 1
+  IAdd 30 28 29
+  SetIdxI 41 30 18
+  Jmp 0
+  K 18 12
+  IToF 12 11
+  FBox 20 12
+  GetUpval 22 1
+  GetCell 23 22
+  IUnbox 13 23
+  IK 14 1
+  IAdd 15 13 14
+  IToF 16 15
+  FBox 21 16
+  CallDyn 18 19 2
+  Move 17 19
+  IUnbox 0 17
+  Jmp 14
+  IToF 12 3
+  FK 13 10
+  FCmpEq 14 12 13
+  BoolFromI 17 14
+  JmpIfNot 17 6
+  IToF 15 0
+  FBox 18 15
+  K 20 13
+  Move 19 20
+  RetN 18 2
+  Jmp 3
+  IK 15 1
+  IAdd 16 0 15
+  IMov 0 16
+  Jmp -174
+  GetUpval 4 1
+  GetCell 5 4
+  IUnbox 1 5
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 2 4
+  K 6 13
+  Move 3 6
+  RetN 2 2
+end
+function scanIstring 27 1 36 30 v:v
+  const 0 builtin math.min
+  const 1 str "string"
+  const 2 str "istringClose"
+  const 3 str "istringOpen"
+  const 4 str "istringMid"
+  const 5 str "unterminated interpolated string"
+  const 6 str "error"
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 0 3
+  GetUpval 4 1
+  GetCell 5 4
+  Move 2 5
+  GetUpval 7 2
+  GetCell 8 7
+  GetUpval 11 0
+  GetCell 12 11
+  Move 10 12
+  CallDyn 8 9 1
+  Move 6 9
+  Move 3 6
+  IUnbox 1 2
+  IUnbox 2 3
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 3 3
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 4 6
+  GetUpval 5 0
+  SetCell 5 4
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 3 3
+  GetUpval 4 3
+  GetCell 5 4
+  IUnbox 4 5
+  ICmpSLe 5 3 4
+  BoolFromI 6 5
+  JmpIfNot 6 142
+  GetUpval 8 4
+  GetCell 9 8
+  GetUpval 13 5
+  GetCell 14 13
+  Move 11 14
+  GetUpval 15 0
+  GetCell 16 15
+  Move 12 16
+  CallDyn 9 10 2
+  Move 7 10
+  IUnbox 6 7
+  IToF 7 6
+  FK 8 92
+  FCmpEq 9 7 8
+  BoolFromI 7 9
+  JmpIfNot 7 20
+  K 9 0
+  GetUpval 13 0
+  GetCell 14 13
+  IUnbox 10 14
+  IK 11 2
+  IAdd 12 10 11
+  IToF 13 12
+  FBox 11 13
+  GetUpval 15 3
+  GetCell 16 15
+  IUnbox 14 16
+  IK 15 1
+  IAdd 16 14 15
+  IToF 17 16
+  FBox 12 17
+  CallDyn 9 10 2
+  Move 8 10
+  GetUpval 17 0
+  SetCell 17 8
+  Jmp 105
+  IToF 10 6
+  FK 11 96
+  FCmpEq 12 10 11
+  BoolFromI 8 12
+  JmpIfNot 8 24
+  GetUpval 9 0
+  GetCell 10 9
+  IUnbox 13 10
+  IK 14 1
+  IAdd 15 13 14
+  IToF 16 15
+  FBox 11 16
+  GetUpval 12 0
+  SetCell 12 11
+  JmpIfNot 1 3
+  K 9 1
+  Ret 9
+  Jmp 0
+  Nil 9
+  GetUpval 10 6
+  GetCell 11 10
+  GetUpval 12 6
+  GetCell 13 12
+  LenF 13 13
+  FToI 14 13
+  SetIdxI 11 14 9
+  K 9 2
+  Ret 9
+  Jmp 76
+  IToF 13 6
+  FK 14 36
+  FCmpEq 15 13 14
+  BoolFromI 10 15
+  Move 9 10
+  JmpIfNot 9 19
+  GetUpval 12 4
+  GetCell 13 12
+  GetUpval 17 5
+  GetCell 18 17
+  Move 15 18
+  GetUpval 19 0
+  GetCell 20 19
+  IUnbox 16 20
+  IK 17 1
+  IAdd 18 16 17
+  IToF 19 18
+  FBox 16 19
+  CallDyn 13 14 2
+  Move 11 14
+  FUnbox 20 11
+  FK 21 123
+  FCmpEq 22 20 21
+  BoolFromI 21 22
+  Move 9 21
+  JmpIfNot 9 41
+  GetUpval 22 0
+  GetCell 23 22
+  IUnbox 23 23
+  IK 24 2
+  IAdd 25 23 24
+  IToF 26 25
+  FBox 24 26
+  GetUpval 25 0
+  SetCell 25 24
+  JmpIfNot 1 12
+  FK 23 0
+  FBox 22 23
+  GetUpval 23 6
+  GetCell 24 23
+  GetUpval 25 6
+  GetCell 26 25
+  LenF 24 26
+  FToI 25 24
+  IK 26 1
+  IAdd 27 25 26
+  SetIdxI 24 27 22
+  Jmp 9
+  FK 23 0
+  FBox 22 23
+  GetUpval 23 6
+  GetCell 24 23
+  GetUpval 25 6
+  GetCell 26 25
+  LenF 24 26
+  FToI 25 24
+  SetIdxI 24 25 22
+  Move 23 1
+  JmpIfNot 23 2
+  K 24 3
+  Move 23 24
+  Move 22 23
+  JmpIf 22 2
+  K 25 4
+  Move 22 25
+  Ret 22
+  Jmp 9
+  GetUpval 22 0
+  GetCell 23 22
+  IUnbox 23 23
+  IK 24 1
+  IAdd 25 23 24
+  IToF 26 25
+  FBox 24 26
+  GetUpval 25 0
+  SetCell 25 24
+  Jmp -151
+  Not 2 1
+  JmpIfNot 2 9
+  Nil 3
+  GetUpval 4 6
+  GetCell 5 4
+  GetUpval 6 6
+  GetCell 7 6
+  LenF 3 7
+  FToI 4 3
+  SetIdxI 5 4 3
+  Jmp 0
+  GetUpval 3 7
+  GetCell 4 3
+  IToF 3 0
+  FBox 6 3
+  IToF 4 1
+  FBox 7 4
+  IToF 5 2
+  FBox 8 5
+  K 10 5
+  Move 9 10
+  CallDyn 4 5 4
+  Move 2 5
+  K 2 6
+  Ret 2
+end
+function scanNumber 28 0 79 33 :v
+  const 0 true 
+  const 1 false 
+  const 2 str "ull"
+  const 3 str "ll"
+  const 4 str "i"
+  GetUpval 3 0
+  GetCell 4 3
+  Move 2 4
+  NewCell 1 2
+  K 3 0
+  Move 2 3
+  K 4 1
+  Move 3 4
+  Nil 4
+  Nil 5
+  NewCell 4 5
+  GetUpval 10 1
+  Move 8 10
+  GetUpval 11 2
+  Move 9 11
+  NewClosure 6 29 7 2
+  SetCell 4 6
+  Nil 5
+  Nil 6
+  NewCell 5 6
+  GetUpval 12 1
+  Move 9 12
+  GetUpval 13 2
+  Move 10 13
+  Move 11 4
+  NewClosure 7 30 8 3
+  SetCell 5 7
+  GetUpval 9 1
+  GetCell 10 9
+  GetUpval 14 2
+  GetCell 15 14
+  Move 12 15
+  GetCell 16 1
+  Move 13 16
+  CallDyn 10 11 2
+  Move 8 11
+  FUnbox 1 8
+  FK 2 48
+  FCmpEq 3 1 2
+  BoolFromI 17 3
+  Move 7 17
+  JmpIfNot 7 10
+  GetCell 19 4
+  GetCell 22 1
+  IUnbox 4 22
+  IK 5 1
+  IAdd 6 4 5
+  IToF 7 6
+  FBox 21 7
+  CallDyn 19 20 1
+  Move 18 20
+  Move 7 18
+  Move 6 7
+  JmpIf 6 6
+  GetCell 23 1
+  IUnbox 8 23
+  IK 9 1
+  IAdd 10 8 9
+  IToF 11 10
+  FBox 6 11
+  IUnbox 0 6
+  GetUpval 8 1
+  GetCell 9 8
+  GetUpval 13 2
+  GetCell 14 13
+  Move 11 14
+  GetCell 15 1
+  Move 12 15
+  CallDyn 9 10 2
+  Move 7 10
+  FUnbox 1 7
+  FK 2 48
+  FCmpEq 3 1 2
+  BoolFromI 16 3
+  Move 6 16
+  JmpIfNot 6 30
+  GetUpval 19 1
+  GetCell 20 19
+  GetUpval 24 2
+  GetCell 25 24
+  Move 22 25
+  IToF 4 0
+  FBox 23 4
+  CallDyn 20 21 2
+  Move 18 21
+  FUnbox 5 18
+  FK 6 120
+  FCmpEq 7 5 6
+  BoolFromI 26 7
+  Move 17 26
+  JmpIf 17 14
+  GetUpval 28 1
+  GetCell 29 28
+  GetUpval 33 2
+  GetCell 34 33
+  Move 31 34
+  IToF 8 0
+  FBox 32 8
+  CallDyn 29 30 2
+  Move 27 30
+  FUnbox 9 27
+  FK 10 88
+  FCmpEq 11 9 10
+  BoolFromI 35 11
+  Move 17 35
+  Move 6 17
+  JmpIfNot 6 191
+  GetCell 37 4
+  IK 12 1
+  IAdd 13 0 12
+  IToF 14 13
+  FBox 39 14
+  CallDyn 37 38 1
+  Move 36 38
+  SetCell 1 36
+  Nil 36
+  Nil 37
+  Move 38 36
+  Move 39 37
+  GetCell 42 5
+  GetCell 46 1
+  Move 44 46
+  GetUpval 47 3
+  GetCell 48 47
+  Move 45 48
+  CallDyn 42 43 2
+  Move 40 43
+  Move 41 44
+  SetCell 1 40
+  Move 38 41
+  GetUpval 42 1
+  GetCell 43 42
+  GetUpval 47 2
+  GetCell 48 47
+  Move 45 48
+  GetCell 49 1
+  Move 46 49
+  CallDyn 43 44 2
+  Move 41 44
+  FUnbox 12 41
+  FK 13 46
+  FCmpEq 14 12 13
+  BoolFromI 50 14
+  Move 40 50
+  JmpIfNot 40 18
+  GetUpval 52 1
+  GetCell 53 52
+  GetUpval 57 2
+  GetCell 58 57
+  Move 55 58
+  GetCell 59 1
+  IUnbox 15 59
+  IK 16 1
+  IAdd 17 15 16
+  IToF 18 17
+  FBox 56 18
+  CallDyn 53 54 2
+  Move 51 54
+  FUnbox 19 51
+  FK 20 46
+  FCmpNe 21 19 20
+  BoolFromI 60 21
+  Move 40 60
+  JmpIfNot 40 29
+  K 61 0
+  Move 3 61
+  GetCell 62 4
+  GetCell 65 1
+  IUnbox 22 65
+  IK 23 1
+  IAdd 24 22 23
+  IToF 25 24
+  FBox 64 25
+  CallDyn 62 63 1
+  Move 61 63
+  SetCell 1 61
+  GetCell 63 5
+  GetCell 67 1
+  Move 65 67
+  GetUpval 68 3
+  GetCell 69 68
+  Move 66 69
+  CallDyn 63 64 2
+  Move 61 64
+  Move 62 65
+  SetCell 1 61
+  Move 39 62
+  IUnbox 22 38
+  IUnbox 23 39
+  IAdd 24 22 23
+  IToF 25 24
+  FBox 38 25
+  Jmp 0
+  FUnbox 12 38
+  FK 13 0
+  FCmpEq 14 12 13
+  BoolFromI 40 14
+  JmpIfNot 40 3
+  K 41 1
+  Move 2 41
+  Jmp 0
+  GetUpval 41 1
+  GetCell 42 41
+  GetUpval 46 2
+  GetCell 47 46
+  Move 44 47
+  GetCell 48 1
+  Move 45 48
+  CallDyn 42 43 2
+  Move 40 43
+  IUnbox 12 40
+  IToF 13 12
+  FK 14 112
+  FCmpEq 15 13 14
+  BoolFromI 41 15
+  Move 40 41
+  JmpIf 40 5
+  IToF 16 12
+  FK 17 80
+  FCmpEq 18 16 17
+  BoolFromI 42 18
+  Move 40 42
+  JmpIfNot 40 74
+  K 43 0
+  Move 3 43
+  GetCell 44 4
+  GetCell 47 1
+  IUnbox 19 47
+  IK 20 1
+  IAdd 21 19 20
+  IToF 22 21
+  FBox 46 22
+  CallDyn 44 45 1
+  Move 43 45
+  SetCell 1 43
+  GetUpval 44 1
+  GetCell 45 44
+  GetUpval 49 2
+  GetCell 50 49
+  Move 47 50
+  GetCell 51 1
+  Move 48 51
+  CallDyn 45 46 2
+  Move 43 46
+  IUnbox 19 43
+  IToF 20 19
+  FK 21 43
+  FCmpEq 22 20 21
+  BoolFromI 44 22
+  Move 43 44
+  JmpIf 43 5
+  IToF 23 19
+  FK 24 45
+  FCmpEq 25 23 24
+  BoolFromI 45 25
+  Move 43 45
+  JmpIfNot 43 11
+  GetCell 47 4
+  GetCell 50 1
+  IUnbox 26 50
+  IK 27 1
+  IAdd 28 26 27
+  IToF 29 28
+  FBox 49 29
+  CallDyn 47 48 1
+  Move 46 48
+  SetCell 1 46
+  Jmp 0
+  GetUpval 45 4
+  GetCell 46 45
+  GetUpval 50 1
+  GetCell 51 50
+  GetUpval 55 2
+  GetCell 56 55
+  Move 53 56
+  GetCell 57 1
+  Move 54 57
+  CallDyn 51 52 2
+  Move 49 52
+  Move 48 49
+  CallDyn 46 47 1
+  Move 44 47
+  Not 43 44
+  JmpIfNot 43 3
+  K 58 1
+  Move 2 58
+  Jmp 0
+  GetCell 44 5
+  GetCell 48 1
+  Move 46 48
+  GetUpval 49 4
+  GetCell 50 49
+  Move 47 50
+  CallDyn 44 45 2
+  Move 43 45
+  SetCell 1 43
+  Jmp 0
+  Jmp 185
+  GetUpval 41 1
+  GetCell 42 41
+  GetUpval 46 2
+  GetCell 47 46
+  Move 44 47
+  GetCell 48 1
+  Move 45 48
+  CallDyn 42 43 2
+  Move 40 43
+  FUnbox 13 40
+  FK 14 46
+  FCmpEq 15 13 14
+  BoolFromI 49 15
+  JmpIfNot 49 10
+  K 50 0
+  Move 3 50
+  GetCell 50 1
+  IUnbox 16 50
+  IK 17 1
+  IAdd 18 16 17
+  IToF 19 18
+  FBox 51 19
+  SetCell 1 51
+  Jmp 0
+  GetCell 41 5
+  GetCell 45 1
+  Move 43 45
+  GetUpval 46 4
+  GetCell 47 46
+  Move 44 47
+  CallDyn 41 42 2
+  Move 40 42
+  SetCell 1 40
+  GetUpval 42 1
+  GetCell 43 42
+  GetUpval 47 2
+  GetCell 48 47
+  Move 45 48
+  GetCell 49 1
+  Move 46 49
+  CallDyn 43 44 2
+  Move 41 44
+  FUnbox 13 41
+  FK 14 46
+  FCmpEq 15 13 14
+  BoolFromI 50 15
+  Move 40 50
+  JmpIfNot 40 18
+  GetUpval 52 1
+  GetCell 53 52
+  GetUpval 57 2
+  GetCell 58 57
+  Move 55 58
+  GetCell 59 1
+  IUnbox 16 59
+  IK 17 1
+  IAdd 18 16 17
+  IToF 19 18
+  FBox 56 19
+  CallDyn 53 54 2
+  Move 51 54
+  FUnbox 20 51
+  FK 21 46
+  FCmpNe 22 20 21
+  BoolFromI 60 22
+  Move 40 60
+  JmpIfNot 40 22
+  K 61 0
+  Move 3 61
+  GetCell 62 4
+  GetCell 65 1
+  IUnbox 23 65
+  IK 24 1
+  IAdd 25 23 24
+  IToF 26 25
+  FBox 64 26
+  CallDyn 62 63 1
+  Move 61 63
+  SetCell 1 61
+  GetCell 62 5
+  GetCell 66 1
+  Move 64 66
+  GetUpval 67 4
+  GetCell 68 67
+  Move 65 68
+  CallDyn 62 63 2
+  Move 61 63
+  SetCell 1 61
+  Jmp 0
+  GetUpval 41 1
+  GetCell 42 41
+  GetUpval 46 2
+  GetCell 47 46
+  Move 44 47
+  GetCell 48 1
+  Move 45 48
+  CallDyn 42 43 2
+  Move 40 43
+  IUnbox 13 40
+  IToF 14 13
+  FK 15 101
+  FCmpEq 16 14 15
+  BoolFromI 41 16
+  Move 40 41
+  JmpIf 40 5
+  IToF 17 13
+  FK 18 69
+  FCmpEq 19 17 18
+  BoolFromI 42 19
+  Move 40 42
+  JmpIfNot 40 74
+  K 43 0
+  Move 3 43
+  GetCell 44 4
+  GetCell 47 1
+  IUnbox 20 47
+  IK 21 1
+  IAdd 22 20 21
+  IToF 23 22
+  FBox 46 23
+  CallDyn 44 45 1
+  Move 43 45
+  SetCell 1 43
+  GetUpval 44 1
+  GetCell 45 44
+  GetUpval 49 2
+  GetCell 50 49
+  Move 47 50
+  GetCell 51 1
+  Move 48 51
+  CallDyn 45 46 2
+  Move 43 46
+  IUnbox 20 43
+  IToF 21 20
+  FK 22 43
+  FCmpEq 23 21 22
+  BoolFromI 44 23
+  Move 43 44
+  JmpIf 43 5
+  IToF 24 20
+  FK 25 45
+  FCmpEq 26 24 25
+  BoolFromI 45 26
+  Move 43 45
+  JmpIfNot 43 11
+  GetCell 47 4
+  GetCell 50 1
+  IUnbox 27 50
+  IK 28 1
+  IAdd 29 27 28
+  IToF 30 29
+  FBox 49 30
+  CallDyn 47 48 1
+  Move 46 48
+  SetCell 1 46
+  Jmp 0
+  GetUpval 45 4
+  GetCell 46 45
+  GetUpval 50 1
+  GetCell 51 50
+  GetUpval 55 2
+  GetCell 56 55
+  Move 53 56
+  GetCell 57 1
+  Move 54 57
+  CallDyn 51 52 2
+  Move 49 52
+  Move 48 49
+  CallDyn 46 47 1
+  Move 44 47
+  Not 43 44
+  JmpIfNot 43 3
+  K 58 1
+  Move 2 58
+  Jmp 0
+  GetCell 44 5
+  GetCell 48 1
+  Move 46 48
+  GetUpval 49 4
+  GetCell 50 49
+  Move 47 50
+  CallDyn 44 45 2
+  Move 43 45
+  SetCell 1 43
+  Jmp 0
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  Move 10 1
+  GetUpval 14 1
+  Move 11 14
+  GetUpval 15 2
+  Move 12 15
+  Move 13 4
+  NewClosure 8 31 9 4
+  SetCell 6 8
+  GetCell 10 6
+  K 13 2
+  Move 12 13
+  CallDyn 10 11 1
+  Move 9 11
+  Move 8 9
+  JmpIf 8 6
+  GetCell 15 6
+  K 18 3
+  Move 17 18
+  CallDyn 15 16 1
+  Move 14 16
+  Move 8 14
+  Move 7 8
+  Move 8 7
+  JmpIfNot 8 1
+  Move 8 3
+  JmpIfNot 8 3
+  K 9 1
+  Move 2 9
+  Jmp 0
+  Move 9 7
+  JmpIf 9 6
+  GetCell 11 6
+  K 14 4
+  Move 13 14
+  CallDyn 11 12 1
+  Move 10 12
+  Move 9 10
+  Move 8 9
+  JmpIf 8 2
+  GetCell 15 1
+  Move 8 15
+  SetCell 1 8
+  GetUpval 9 5
+  GetCell 10 9
+  GetUpval 14 1
+  GetCell 15 14
+  GetUpval 19 2
+  GetCell 20 19
+  Move 17 20
+  GetCell 21 1
+  Move 18 21
+  CallDyn 15 16 2
+  Move 13 16
+  Move 12 13
+  CallDyn 10 11 1
+  Move 8 11
+  JmpIfNot 8 26
+  GetCell 22 1
+  IUnbox 1 22
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 23 4
+  SetCell 1 23
+  GetUpval 24 5
+  GetCell 25 24
+  GetUpval 29 1
+  GetCell 30 29
+  GetUpval 34 2
+  GetCell 35 34
+  Move 32 35
+  GetCell 36 1
+  Move 33 36
+  CallDyn 30 31 2
+  Move 28 31
+  Move 27 28
+  CallDyn 25 26 1
+  Move 23 26
+  Not 22 23
+  JmpIfNot 22 -23
+  K 22 1
+  Move 2 22
+  Jmp 0
+  GetCell 10 1
+  Move 8 10
+  Move 9 2
+  RetN 8 2
+end
+function skipUnderscores 29 1 20 9 v:v
+  GetUpval 3 0
+  GetCell 4 3
+  GetUpval 8 1
+  GetCell 9 8
+  Move 6 9
+  Move 7 1
+  CallDyn 4 5 2
+  Move 2 5
+  FUnbox 0 2
+  FK 1 95
+  FCmpEq 2 0 1
+  BoolFromI 10 2
+  JmpIfNot 10 6
+  IUnbox 3 1
+  IK 4 1
+  IAdd 5 3 4
+  IToF 6 5
+  FBox 1 6
+  Jmp -19
+  Ret 1
+end
+function scanDigits 30 2 28 7 vv:v
+  IK 1 0
+  IMov 0 1
+  GetUpval 7 0
+  GetCell 8 7
+  GetUpval 12 1
+  GetCell 13 12
+  Move 10 13
+  Move 11 1
+  CallDyn 8 9 2
+  Move 6 9
+  Move 5 6
+  CallDyn 2 4 1
+  Move 3 4
+  JmpIfNot 3 14
+  IK 1 1
+  IAdd 2 0 1
+  IMov 0 2
+  GetUpval 15 2
+  GetCell 16 15
+  IUnbox 1 1
+  IK 2 1
+  IAdd 3 1 2
+  IToF 4 3
+  FBox 18 4
+  CallDyn 16 17 1
+  Move 14 17
+  Move 1 14
+  Jmp -26
+  Move 3 1
+  IToF 1 0
+  FBox 4 1
+  RetN 3 2
+end
+function suffix 31 1 19 16 v:v
+  GetUpval 2 0
+  GetCell 3 2
+  IUnbox 0 3
+  FK 2 1
+  FMov 1 2
+  LenF 3 1
+  FK 4 1
+  FCmpLe 5 1 3
+  JmpIfIZero 5 53
+  GetUpval 3 1
+  GetCell 4 3
+  GetUpval 8 2
+  GetCell 9 8
+  Move 6 9
+  IToF 7 0
+  FBox 7 7
+  CallDyn 4 5 2
+  Move 2 5
+  IUnbox 6 2
+  IToF 7 6
+  FBox 3 7
+  JmpIfNot 3 4
+  IK 8 65
+  ICmpSLe 9 8 6
+  BoolFromI 4 9
+  Move 3 4
+  Move 2 3
+  JmpIfNot 2 4
+  IK 10 90
+  ICmpSLe 11 6 10
+  BoolFromI 5 11
+  Move 2 5
+  JmpIfNot 2 4
+  IK 12 32
+  IAdd 13 6 12
+  IMov 6 13
+  Jmp 0
+  IToF 7 6
+  GetUpval 3 1
+  GetCell 4 3
+  Move 6 1
+  FBox 7 1
+  CallDyn 4 5 2
+  Move 2 5
+  FUnbox 8 2
+  FCmpNe 9 7 8
+  BoolFromI 8 9
+  JmpIfNot 8 3
+  Nil 9
+  Ret 9
+  Jmp 0
+  GetUpval 3 3
+  GetCell 4 3
+  IK 7 1
+  IAdd 8 0 7
+  IToF 9 8
+  FBox 6 9
+  CallDyn 4 5 1
+  Move 2 5
+  IUnbox 0 2
+  FAdd 1 1 4
+  Jmp -55
+  IToF 1 0
+  FBox 2 1
+  Ret 2
+end
+function triviaIndex 32 2 14 8 vv:v
+  const 0 str "triviaFirst"
+  GetField 3 1 0
+  IUnbox 0 3
+  IUnbox 1 2
+  IAdd 2 0 1
+  IK 3 1
+  ISub 4 2 3
+  IToF 5 4
+  FBox 4 5
+  Ret 4
+end
+function lexer.triviaKind 33 2 23 3 vv:v
+  const 0 str "trivia"
+  const 1 str "record"
+  GetField 4 1 0
+  Move 6 4
+  GetUpval 9 0
+  GetCell 10 9
+  Move 12 1
+  Move 13 2
+  CallDyn 10 11 2
+  Move 8 11
+  Move 7 8
+  CallMethod 1 5 2
+  Move 3 5
+  IUnbox 0 3
+  GetUpval 5 1
+  GetCell 6 5
+  GetIdxI 4 6 0
+  Move 3 4
+  TagCheckStr 3 3
+  Ret 3
+end
+function lexer.triviaText 34 2 36 9 vv:v
+  const 0 str "trivia"
+  const 1 str "record"
+  const 2 str "source"
+  GetField 4 1 0
+  Move 3 4
+  Move 8 3
+  GetUpval 11 0
+  GetCell 12 11
+  Move 14 1
+  Move 15 2
+  CallDyn 12 13 2
+  Move 10 13
+  Move 9 10
+  CallMethod 1 7 2
+  Move 4 7
+  Move 5 8
+  Move 6 9
+  IUnbox 0 4
+  Move 16 5
+  Move 17 6
+  GetUpval 20 1
+  GetCell 21 20
+  GetField 26 3 2
+  Move 23 26
+  Move 24 16
+  IUnbox 1 16
+  IUnbox 2 17
+  IAdd 3 1 2
+  IK 4 1
+  ISub 5 3 4
+  IToF 6 5
+  FBox 25 6
+  CallDyn 21 22 3
+  Move 18 22
+  Move 19 23
+  Move 20 24
+  Move 21 25
+  Move 22 26
+  Move 23 27
+  Move 24 28
+  Move 25 29
+  RetN 18 8
+end
+function lexer.triviaFields 35 2 48 9 vv:v
+  const 0 str "trivia"
+  const 1 str "record"
+  const 2 str "source"
+  GetField 4 1 0
+  Move 3 4
+  Move 10 3
+  GetUpval 13 0
+  GetCell 14 13
+  Move 16 1
+  Move 17 2
+  CallDyn 14 15 2
+  Move 12 15
+  Move 11 12
+  CallMethod 1 9 2
+  Move 4 9
+  Move 5 10
+  Move 6 11
+  Move 7 12
+  Move 8 13
+  IUnbox 0 4
+  Move 18 5
+  Move 19 6
+  Move 20 7
+  Move 21 8
+  GetUpval 29 1
+  GetCell 30 29
+  GetIdxI 28 30 0
+  Move 27 28
+  TagCheckStr 27 27
+  Move 22 27
+  GetUpval 32 2
+  GetCell 33 32
+  GetField 38 3 2
+  Move 35 38
+  Move 36 18
+  IUnbox 1 18
+  IUnbox 2 19
+  IAdd 3 1 2
+  IK 4 1
+  ISub 5 3 4
+  IToF 6 5
+  FBox 37 6
+  CallDyn 33 34 3
+  Move 31 34
+  Move 23 31
+  Move 24 18
+  Move 25 20
+  Move 26 21
+  RetN 22 5
+end
+function lexer.triviaRecord 36 2 29 2 vv:v
+  const 0 str "triviaFields"
+  const 1 str "kind"
+  const 2 str "text"
+  const 3 str "offset"
+  const 4 str "line"
+  const 5 str "col"
+  GetUpval 9 0
+  GetCell 10 9
+  GetField 8 10 0
+  Move 12 1
+  Move 13 2
+  CallDyn 8 11 2
+  Move 3 11
+  Move 4 12
+  Move 5 13
+  Move 6 14
+  Move 7 15
+  Move 14 3
+  Move 15 4
+  Move 16 5
+  Move 17 6
+  Move 18 7
+  NewTableN 19 0 5
+  SetField 19 1 14
+  SetField 19 2 15
+  SetField 19 3 16
+  SetField 19 4 17
+  SetField 19 5 18
+  Ret 19
+end
+function lexer.textOf 37 1 32 11 v:v
+  const 0 builtin ipairs
+  const 1 str "triviaCount"
+  const 2 str "triviaText"
+  const 3 str "text"
+  const 4 builtin table.concat
+  NewTableN 3 0 0
+  Move 2 3
+  K 6 0
+  Move 8 1
+  CallDyn 6 7 1
+  Move 3 7
+  Move 4 8
+  Move 5 9
+  Move 10 4
+  Move 11 5
+  CallDyn 3 9 2
+  JmpIfNot 9 31
+  Move 5 9
+  Move 13 9
+  Move 14 10
+  FK 1 1
+  FMov 0 1
+  GetField 15 14 1
+  FUnbox 2 15
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 14
+  GetUpval 18 0
+  GetCell 19 18
+  GetField 17 19 2
+  Move 21 14
+  FBox 22 0
+  CallDyn 17 20 2
+  Move 16 20
+  LenF 5 2
+  FToI 6 5
+  IK 7 1
+  IAdd 8 6 7
+  SetIdxI 2 8 16
+  FAdd 0 0 3
+  Jmp -16
+  GetField 15 14 3
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  SetIdxI 2 3 15
+  Jmp -35
+  K 5 4
+  Move 7 2
+  CallDyn 5 6 1
+  Move 3 6
+  Move 4 7
+  Move 5 8
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  Move 10 13
+  RetN 3 8
+end
+function lexer.quoteBacktickBody 38 1 20 2 v:v
+  const 0 str "(\092?)(.)"
+  const 1 str "gsub"
+  const 2 str "\034"
+  Move 5 1
+  K 8 0
+  Move 6 8
+  NewClosure 9 39 10 0
+  Move 7 9
+  CallMethod 1 4 3
+  Move 3 4
+  Move 2 3
+  K 4 2
+  K 6 2
+  Concat 5 2 6
+  Concat 3 4 5
+  Ret 3
+end
+function lexer.quoteBacktickBody.fn39 39 2 19 2 vv:v
+  const 0 str ""
+  const 1 str "`"
+  const 2 str "$"
+  const 3 str "\034"
+  const 4 str "\092\034"
+  const 5 str "\010"
+  const 6 str "\092n"
+  K 4 0
+  Ne 3 1 4
+  JmpIfNot 3 13
+  K 7 1
+  Eq 6 2 7
+  Move 5 6
+  JmpIf 5 3
+  K 9 2
+  Eq 8 2 9
+  Move 5 8
+  JmpIfNot 5 2
+  Ret 2
+  Jmp 0
+  Concat 5 1 2
+  Ret 5
+  Jmp 12
+  K 6 3
+  Eq 5 2 6
+  JmpIfNot 5 3
+  K 7 4
+  Ret 7
+  Jmp 6
+  K 8 5
+  Eq 7 2 8
+  JmpIfNot 7 3
+  K 9 6
+  Ret 9
+  Jmp 0
+  Ret 2
+end
+function lexer.stringValue 40 1 40 27 v:v
+  const 0 str "sub"
+  const 1 str "\034"
+  const 2 str "'"
+  const 3 str "`"
+  const 4 str "quoteBacktickBody"
+  const 5 builtin table.concat
+  Move 5 1
+  FK 0 1
+  FBox 6 0
+  FK 1 1
+  FBox 7 1
+  CallMethod 0 4 3
+  Move 3 4
+  Move 2 3
+  Nil 3
+  K 6 1
+  Eq 5 2 6
+  Move 4 5
+  JmpIf 4 3
+  K 8 2
+  Eq 7 2 8
+  Move 4 7
+  JmpIfNot 4 2
+  Move 3 1
+  Jmp 38
+  K 12 3
+  Eq 11 2 12
+  Move 10 11
+  JmpIfNot 10 6
+  LenF 0 1
+  FToI 1 0
+  IK 2 2
+  ICmpSLe 3 2 1
+  BoolFromI 13 3
+  Move 10 13
+  Move 9 10
+  JmpIfNot 9 9
+  Move 17 1
+  FK 4 1
+  FNeg 5 4
+  FBox 18 5
+  CallMethod 0 16 2
+  Move 15 16
+  K 19 3
+  Eq 14 15 19
+  Move 9 14
+  JmpIfNot 9 16
+  GetUpval 22 0
+  GetCell 23 22
+  GetField 21 23 4
+  Move 28 1
+  FK 6 2
+  FBox 29 6
+  FK 7 2
+  FNeg 8 7
+  FBox 30 8
+  CallMethod 0 27 3
+  Move 26 27
+  Move 25 26
+  CallDyn 21 24 1
+  Move 20 24
+  Move 3 20
+  Jmp 0
+  Nil 5
+  Eq 4 3 5
+  JmpIfNot 4 3
+  Nil 6
+  Ret 6
+  Jmp 0
+  Move 5 3
+  TagCheckStr 5 5
+  Move 4 5
+  LenF 1 4
+  FToI 0 1
+  GetUpval 6 1
+  GetCell 7 6
+  Move 9 4
+  FK 2 1
+  FBox 10 2
+  CallDyn 7 8 2
+  Move 5 8
+  IUnbox 1 5
+  IK 2 2
+  ICmpSLt 3 0 2
+  BoolFromI 7 3
+  Move 6 7
+  JmpIf 6 5
+  IToF 4 1
+  FBox 9 4
+  Nil 10
+  Eq 8 9 10
+  Move 6 8
+  Move 5 6
+  JmpIf 5 12
+  GetUpval 12 1
+  GetCell 13 12
+  Move 15 4
+  IToF 5 0
+  FBox 16 5
+  CallDyn 13 14 2
+  Move 11 14
+  FUnbox 6 11
+  IToF 7 1
+  FCmpNe 8 6 7
+  BoolFromI 17 8
+  Move 5 17
+  JmpIfNot 5 3
+  Nil 18
+  Ret 18
+  Jmp 0
+  NewTableN 6 0 0
+  Move 5 6
+  FK 2 2
+  FBox 6 2
+  FK 3 2
+  FBox 7 3
+  IUnbox 4 6
+  IUnbox 5 7
+  ICmpSLt 6 4 0
+  BoolFromI 6 6
+  JmpIfNot 6 102
+  GetUpval 8 1
+  GetCell 9 8
+  Move 11 4
+  IToF 8 4
+  FBox 12 8
+  CallDyn 9 10 2
+  Move 7 10
+  IUnbox 7 7
+  IToF 8 7
+  FK 9 92
+  FCmpEq 10 8 9
+  BoolFromI 7 10
+  JmpIfNot 7 63
+  ICmpSLt 11 5 4
+  BoolFromI 8 11
+  JmpIfNot 8 17
+  GetUpval 10 2
+  GetCell 11 10
+  Move 13 4
+  IToF 12 5
+  FBox 14 12
+  IK 13 1
+  ISub 14 4 13
+  IToF 15 14
+  FBox 15 15
+  CallDyn 11 12 3
+  Move 9 12
+  LenF 16 5
+  FToI 17 16
+  IK 18 1
+  IAdd 19 17 18
+  SetIdxI 5 19 9
+  Jmp 0
+  GetUpval 12 3
+  GetCell 13 12
+  Move 15 4
+  IToF 11 4
+  FBox 16 11
+  IToF 12 1
+  FBox 17 12
+  CallDyn 13 14 3
+  Move 8 14
+  Move 9 15
+  Move 10 16
+  Move 11 17
+  IUnbox 13 8
+  Move 18 9
+  Move 19 10
+  Move 20 11
+  Not 23 18
+  Move 22 23
+  JmpIf 22 3
+  Nil 25
+  Eq 24 20 25
+  Move 22 24
+  Move 21 22
+  JmpIf 21 3
+  ICmpSLt 14 0 13
+  BoolFromI 26 14
+  Move 21 26
+  JmpIfNot 21 3
+  Nil 27
+  Ret 27
+  Jmp 0
+  LenF 14 5
+  FToI 15 14
+  IK 16 1
+  IAdd 17 15 16
+  SetIdxI 5 17 20
+  IToF 14 13
+  FBox 21 14
+  IToF 15 13
+  FBox 22 15
+  IUnbox 4 21
+  IUnbox 5 22
+  Jmp 25
+  IToF 14 7
+  IToF 15 1
+  FCmpEq 16 14 15
+  BoolFromI 23 16
+  Move 22 23
+  JmpIf 22 5
+  IToF 17 7
+  FK 18 10
+  FCmpEq 19 17 18
+  BoolFromI 24 19
+  Move 22 24
+  Move 21 22
+  JmpIf 21 5
+  IToF 20 7
+  FK 21 13
+  FCmpEq 22 20 21
+  BoolFromI 25 22
+  Move 21 25
+  JmpIfNot 21 3
+  Nil 26
+  Ret 26
+  Jmp 3
+  IK 23 1
+  IAdd 24 4 23
+  IMov 4 24
+  Jmp -105
+  IToF 6 4
+  IToF 7 0
+  FCmpNe 8 6 7
+  BoolFromI 6 8
+  JmpIfNot 6 3
+  Nil 7
+  Ret 7
+  Jmp 0
+  ICmpSLt 6 5 0
+  BoolFromI 6 6
+  JmpIfNot 6 17
+  GetUpval 8 2
+  GetCell 9 8
+  Move 11 4
+  IToF 7 5
+  FBox 12 7
+  IK 8 1
+  ISub 9 0 8
+  IToF 10 9
+  FBox 13 10
+  CallDyn 9 10 3
+  Move 7 10
+  LenF 11 5
+  FToI 12 11
+  IK 13 1
+  IAdd 14 12 13
+  SetIdxI 5 14 7
+  Jmp 0
+  K 8 5
+  Move 10 5
+  CallDyn 8 9 1
+  Move 6 9
+  Move 7 10
+  Move 8 11
+  Move 9 12
+  Move 10 13
+  Move 11 14
+  Move 12 15
+  Move 13 16
+  RetN 6 8
+end
+function module:nupp.bench.lexbench 41 0 18 2 :v
+  const 0 str "nupp.compiler.syntax.lexer"
+  const 1 str "nupp.compiler.syntax.triviaarena"
+  const 2 str "nupp.compiler.syntax.triviaarena.table"
+  const 3 str "setup"
+  const 4 str "lex"
+  Require 3 0
+  Move 2 3
+  NewCell 1 2
+  Require 4 1
+  Move 3 4
+  NewCell 2 3
+  Require 5 2
+  Move 4 5
+  NewCell 3 4
+  NewTableN 5 0 0
+  Move 4 5
+  Move 7 2
+  Move 8 3
+  NewClosure 5 42 6 2
+  SetField 4 3 5
+  Move 7 1
+  NewClosure 5 43 6 1
+  SetField 4 4 5
+  Ret 4
+end
+function bench.setup 42 0 18 2 :v
+  const 0 str "install"
+  const 1 true 
+  GetUpval 3 0
+  GetCell 4 3
+  GetField 2 4 0
+  GetUpval 7 1
+  GetCell 8 7
+  Move 6 8
+  CallDyn 2 5 1
+  Move 1 5
+  K 1 1
+  Ret 1
+end
+function bench.lex 43 1 37 16 v:v
+  const 0 str "lex"
+  const 1 str "bench.nupp"
+  const 2 builtin ipairs
+  const 3 str "text"
+  const 4 str "line"
+  const 5 str "col"
+  GetUpval 5 0
+  GetCell 6 5
+  GetField 4 6 0
+  Move 8 1
+  K 10 1
+  Move 9 10
+  CallDyn 4 7 2
+  Move 2 7
+  Move 3 8
+  Move 11 2
+  Move 12 3
+  IK 1 0
+  IMov 0 1
+  K 16 2
+  Move 18 11
+  CallDyn 16 17 1
+  Move 13 17
+  Move 14 18
+  Move 15 19
+  Move 20 14
+  Move 21 15
+  CallDyn 13 19 2
+  JmpIfNot 19 21
+  Move 15 19
+  Move 23 19
+  Move 24 20
+  IToF 1 0
+  FK 2 31
+  FMul 3 1 2
+  GetField 25 24 3
+  LenF 4 25
+  FAdd 5 3 4
+  GetField 26 24 4
+  FUnbox 6 26
+  FK 7 7
+  FMul 8 6 7
+  FAdd 9 5 8
+  GetField 27 24 5
+  FUnbox 10 27
+  FAdd 11 9 10
+  FK 12 1000000007
+  FMod 13 11 12
+  FToI 0 13
+  Jmp -25
+  LenF 1 11
+  FBox 13 1
+  LenF 2 12
+  FBox 14 2
+  IToF 3 0
+  FBox 15 3
+  RetN 13 3
+end
+module nupp.compiler.syntax.triviaarena 0
+module nupp.compiler.syntax.triviaarena.table 5
+module nupp.compiler.syntax.lexer 9
+module nupp.bench.lexbench 41
+entry 41

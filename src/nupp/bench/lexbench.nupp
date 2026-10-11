@@ -1,0 +1,27 @@
+module nupp.bench.lexbench
+
+--- Runs the compiler's lexer on the prototype runtime: the table arena
+--- provider installed, then `lex` over a source text.
+local lexer = require("nupp.compiler.syntax.lexer")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
+local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
+
+local bench = {}
+
+function bench.setup(): boolean
+    triviaarena.install(tableProvider)
+    return true
+end
+
+--- Lexes `source` and returns the token count, the error count and a
+--- checksum of the token texts and positions.
+function bench.lex(source: string): (number, number, number)
+    local tokens, errors = lexer.lex(source, "bench.nupp")
+    local sum = 0
+    for i, tok in ipairs(tokens) do
+        sum = (sum * 31 + #tok.text + tok.line * 7 + tok.col) % 1000000007
+    end
+    return #tokens, #errors, sum
+end
+
+export = bench

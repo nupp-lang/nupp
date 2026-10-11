@@ -48,6 +48,19 @@ pub enum Op {
     NewBytes(u8, u8),
     /// A string from the first n bytes of a byte buffer.
     BytesToStr(u8, u8, u8),
+    Mod(u8, u8, u8),
+    Div(u8, u8, u8),
+    FMod(u8, u8, u8),
+    /// Return n values from consecutive registers starting at the first.
+    RetN(u8, u8),
+    /// Load the module named by constant k: its export value, running its chunk once.
+    Require(u8, u16),
+    /// Install a method value on a shape's descriptor by name (constant).
+    SetMethod(u32, u16, u8),
+    /// Load the module named by a string register.
+    RequireV(u8, u8),
+    /// A table with room for n array items and m named fields.
+    NewTableN(u8, u8, u8),
     ICmpNe(u8, u8, u8),
     /// 1 when the value register is neither nil nor false.
     Truthy(u8, u8),
@@ -204,6 +217,8 @@ pub struct Task {
     cur: usize,
     pub state: State,
     pub result: Value,
+    /// Every value the entry frame returned, when it returned more than one.
+    pub results: Vec<Value>,
 }
 
 impl Function {
@@ -238,6 +253,9 @@ pub struct Interp {
     /// Functions that run entirely as frame-record entries: entered compiled at
     /// pc 0, parked by returning the sentinel, resumed at their saved pc.
     pub resumable: std::collections::HashSet<u32>,
+    /// Module chunks by name, and the export value of each loaded one.
+    pub modules: std::collections::HashMap<String, u32>,
+    pub loaded: std::collections::HashMap<String, Value>,
     /// Frame-record entries by pc for each resumable function: a direct index
     /// where the loop-transfer table is a map.
     pub resume_entries: Vec<Vec<Option<Option<*const u8>>>>,
@@ -268,6 +286,7 @@ impl Roots for TaskRoots<'_> {
                 }
             }
             f(t.result);
+            for &v in &t.results { f(v); }
         }
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
@@ -293,14 +312,14 @@ impl crate::heap::Roots for NoRoots { fn each_root(&self, _f: &mut dyn FnMut(Val
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0, resumable: std::collections::HashSet::new(), resume_entries: Vec::new(), compiled_parks: 0 } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0, resumable: std::collections::HashSet::new(), resume_entries: Vec::new(), compiled_parks: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new() } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles, registered: &self.registered }; self.heap.intern(s, &r) }
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
         let f = &self.funcs[fid as usize];
         let words = f.frame_words();
-        let mut t = Task { stack: vec![0u64; words + 64], cur: 0, state: State::Runnable, result: Value::NIL };
+        let mut t = Task { stack: vec![0u64; words + 64], cur: 0, state: State::Runnable, result: Value::NIL, results: Vec::new() };
         t.stack[0] = fid as u64;
         t.stack[1] = NONE as u64;
         t.stack[2] = Value::NIL.0;
@@ -317,6 +336,62 @@ impl Interp {
     }
 
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
+    /// Writes call results into the window from `at`, nil when there are none.
+    #[inline]
+    fn deliver(&self, regs: *mut Value, at: usize, outs: &[Value]) {
+        unsafe { if outs.is_empty() { *regs.add(at) = Value::NIL; } for (i, v) in outs.iter().take(8).enumerate() { *regs.add(at + i) = *v; } }
+    }
+    /// Calls any callable value on a scratch task and returns every result:
+    /// the path for builtins that call back (gsub) and for module chunks.
+    pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
+        if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
+        let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
+            let p = callee.as_obj().unwrap_or_else(|| self.err(&format!("call_value of a non-function {:#x}", callee.0)));
+            unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => (*fid, callee), Body::Iter { .. } => return crate::builtins::iter_next(self, callee).to_vec(), other => self.err(&format!("call_value of a non-function object kind {}", match other { Body::Str { text, .. } => format!("string {text:?}"), Body::Table { .. } => "table".into(), Body::Record { shape, .. } => format!("record {shape}"), _ => "other".into() })) } }
+        };
+        let scratch = self.spawn(fid, args);
+        self.tasks[scratch].stack[2] = closure.0;
+        let outcome = self.run(scratch);
+        let outs = match outcome { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") };
+        self.tasks.truncate(scratch);
+        outs
+    }
+    /// The export value of a module, running its chunk the first time.
+    pub fn require(&mut self, name: &str) -> Value {
+        if let Some(v) = self.loaded.get(name) { return *v; }
+        let fid = *self.modules.get(name).unwrap_or_else(|| self.err(&format!("module '{name}' not in the image")));
+        let outs = self.call_value(Value::func(fid), &[]);
+        let v = outs.first().copied().unwrap_or(Value::NIL);
+        self.registered.push(v);
+        self.loaded.insert(name.to_string(), v);
+        v
+    }
+    pub fn array_len(&self, t: Value) -> usize { let p = t.as_obj().unwrap_or_else(|| self.err("length of a non-table")); unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), _ => self.err("length of a non-table") } } }
+    pub fn pop_array(&mut self, t: Value) { let p = t.as_obj().unwrap(); unsafe { if let Body::Table { array, .. } = &mut (*p.as_ptr()).body { while array.last() == Some(&Value::NIL) { array.pop(); } } (*p.as_ptr()).refresh(); } }
+    /// Every key of a table, array part first, for `pairs` and `next`.
+    pub fn table_keys(&self, t: Value) -> Vec<Value> { let p = t.as_obj().unwrap_or_else(|| self.err("pairs of a non-table")); unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { let mut keys: Vec<Value> = (1..=array.len()).filter(|&i| array[i - 1] != Value::NIL).map(|i| Value::num(i as f64)).collect(); keys.extend(hash.keys().copied()); keys } Body::Record { shape, slots } => { let names = self.heap.shapes[*shape as usize].names.clone(); names.into_iter().zip(slots.iter()).filter(|(_, v)| **v != Value::NIL).map(|(k, _)| k).collect() } _ => self.err("pairs of a non-table") } } }
+    pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value) -> Value { self.heap.new_iter(kind, obj, pattern, Vec::new(), roots!(self)) }
+    pub fn new_iter_keys(&mut self, kind: u8, obj: Value, keys: Vec<Value>) -> Value { self.heap.new_iter(kind, obj, Value::NIL, keys, roots!(self)) }
+    pub fn iter_state(&self, it: Value) -> (u8, Value, usize, usize) { let p = it.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Iter { kind, obj, pos, keys, .. } => (*kind, *obj, *pos, keys.len()), _ => self.err("not an iterator") } } }
+    pub fn iter_key(&self, it: Value, i: usize) -> Value { let p = it.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Iter { keys, .. } => keys[i], _ => self.err("not an iterator") } } }
+    pub fn iter_pattern(&self, it: Value) -> Value { let p = it.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Iter { pattern, .. } => *pattern, _ => self.err("not an iterator") } } }
+    pub fn iter_advance(&self, it: Value) { let p = it.as_obj().unwrap(); unsafe { if let Body::Iter { pos, .. } = &mut (*p.as_ptr()).body { *pos += 1; } } }
+    pub fn iter_set_pos(&self, it: Value, at: usize) { let p = it.as_obj().unwrap(); unsafe { if let Body::Iter { pos, .. } = &mut (*p.as_ptr()).body { *pos = at; } } }
+    /// Pops the frame delivering `n` values from the callee's window at `from`
+    /// (absolute) into the caller's result slots; true when the task finished.
+    fn pop_frame_n(&mut self, tid: usize, from: usize, n: usize) -> bool {
+        let t = &mut self.tasks[tid];
+        let s = t.cur;
+        let h1 = t.stack[s + 1];
+        let caller = (h1 & 0xffff_ffff) as u32;
+        let vals: Vec<Value> = (0..n).map(|i| Value(t.stack[from + i])).collect();
+        if caller == NONE { t.state = State::Done; t.result = vals.first().copied().unwrap_or(Value::NIL); t.results = vals; return true; }
+        let ret = (h1 >> 32) as usize;
+        for (i, v) in vals.iter().take(8).enumerate() { t.stack[ret + i] = v.0; }
+        if n == 0 { t.stack[ret] = Value::NIL.0; }
+        t.cur = caller as usize;
+        false
+    }
     /// A compiled activation parked: its pc is in the header; the park's key
     /// register is read from the window the entry spilled into.
     fn parked_in_compiled(&mut self, tid: usize, s: usize) -> Outcome {
@@ -382,6 +457,7 @@ impl Interp {
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         unsafe { match &(*p.as_ptr()).body {
             Body::Table { array, hash } => { if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= array.len() && n.fract() == 0.0 { return array[n as usize - 1]; } } *hash.get(&key).unwrap_or(&Value::NIL) }
+            Body::Record { shape, slots } => { let sh = &self.heap.shapes[*shape as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => slots[i], None => Value::NIL } }
             _ => self.err("index of a non-table"),
         } }
     }
@@ -473,8 +549,15 @@ impl Interp {
                     Op::Add(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::num(x.as_num() + y.as_num()) } else { self.arith(x, y, |p, q| p + q) } }
                     Op::Sub(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::num(x.as_num() - y.as_num()) } else { self.arith(x, y, |p, q| p - q) } }
                     Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = self.arith(x, y, |p, q| p * q) }
-                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("compare") } r!(d) = Value::boolean(x.as_num() < y.as_num()) }
-                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("compare") } r!(d) = Value::boolean(x.as_num() <= y.as_num()) }
+                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() < y.as_num()) } else { Value::boolean(self.bytes_of(x) < self.bytes_of(y)) } }
+                    Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("modulo of a non-number") } let (p, q) = (x.as_num(), y.as_num()); r!(d) = Value::num(p - (p / q).floor() * q) }
+                    Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("divide a non-number") } r!(d) = Value::num(x.as_num() / y.as_num()) }
+                    Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
+                    Op::RetN(start, n) => { if self.pop_frame_n(tid, base + start as usize, n as usize) { let v = self.tasks[tid].result; return Outcome::Done(v); } break; }
+                    Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
+                    Op::RequireV(d, r) => { let text = self.bytes_of(r!(r)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
+                    Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
+                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() <= y.as_num()) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) } }
                     Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(x == y) }
                     Op::Jmp(off) => {
                         pc = (pc as i64 + off as i64) as usize;
@@ -507,6 +590,7 @@ impl Interp {
                     Op::GetField(d, t, k) => self.op_get_field(&win, d, t, k),
                     Op::SetField(t, k, s) => self.op_set_field(&win, t, k, s),
                     Op::NewTable(d) => { let v = self.heap.new_table(roots!(self)); r!(d) = v; }
+                    Op::NewTableN(d, n, m) => { let v = self.heap.new_table_sized(n as usize, m as usize, roots!(self)); r!(d) = v; }
                     Op::NewRecord(d, shape) => { let v = self.heap.new_record(shape, roots!(self)); r!(d) = v; }
                     Op::Call(f, b, nargs) => {
                         if let Some(Some(entry)) = self.compiled.get(f as usize) {
@@ -529,12 +613,12 @@ impl Interp {
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
                     Op::Neg(d, a) => { let x = r!(a); if !x.is_num() { self.err("negate a non-number") } r!(d) = Value::num(-x.as_num()) }
                     Op::Len(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; r!(d) = Value::num(n as f64) }
-                    Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } r!(d) = v; }
+                    Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Record { shape: s, .. } => format!("record shape {s}"), Body::Table { .. } => "table".into(), Body::Str { .. } => "string".into(), _ => "other".into() } }, None => format!("non-object {:#x}", v.0) }; self.err(&format!("value is not an instance of record shape {shape}: {what}, in {} at pc {}", self.funcs[fid as usize].name, pc)) } r!(d) = v; }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.heap.new_closure(f, caps, roots!(self)); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.heap.new_cell(v, roots!(self)); r!(d) = c; }
-                    Op::GetCell(d, c) => { let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Cell { value } => *value, _ => self.err("not a cell") } }; }
+                    Op::GetCell(d, c) => { let cv = r!(c); let p = cv.as_obj().unwrap_or_else(|| self.err(&format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c))); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Cell { value } => *value, _ => self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } }; }
                     Op::SetCell(c, a) => { let v = r!(a); let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Cell { value } => *value = v, _ => self.err("not a cell") } } }
                     Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let p = clo.as_obj().unwrap_or_else(|| self.err("upvalue outside a closure")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Closure { captures, .. } => captures[i as usize], _ => self.err("not a closure") } }; }
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
@@ -684,8 +768,15 @@ impl Interp {
         
                         let callee = r!(fr);
                         if let Some(f) = callee.as_func() { self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter; }
-                        let p = callee.as_obj().unwrap_or_else(|| self.err("call of a non-function"));
-                        let f = unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => *fid, _ => self.err("call of a non-function") } };
+                        if let Some(id) = callee.as_builtin() {
+                            let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
+                            let outs = crate::builtins::call(self, id, &buf[..n]);
+                            self.deliver(regs, b as usize, outs.as_slice());
+                            return Flow::Next;
+                        }
+                        let p = callee.as_obj().unwrap_or_else(|| self.err(&format!("call of a non-function ({:#x}) in {} at pc {} register {}", callee.0, self.funcs[fid as usize].name, pc, fr)));
+                        if unsafe { matches!(&(*p.as_ptr()).body, Body::Iter { .. }) } { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+                        let f = unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => *fid, other => self.err(&format!("call of a non-function object ({}) in {} at pc {} register {}", match other { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Table { .. } => "table".into(), Body::Record { shape, .. } => format!("record {shape}"), Body::Cell { .. } => "cell".into(), _ => "other".into() }, self.funcs[fid as usize].name, pc, fr)) } };
                         // Dynamic calls pass values; a typed callee unboxes its float parameters on entry.
                         let (nv, nfp) = { let c = &self.funcs[f as usize]; (c.nv_params, c.nf_params) };
                         // A dynamic call carries every argument as a value; the
@@ -718,8 +809,23 @@ impl Interp {
                         let name = unsafe { *consts.add(k as usize) };
                         let recv = r!(b + 1);
                         let p = recv.as_obj().unwrap_or_else(|| self.err("method call on a non-object"));
-                        let fid = unsafe { match &(*p.as_ptr()).body { Body::Record { shape, .. } => *self.heap.shapes[*shape as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method")), _ => self.err("method call on a non-record") } };
-                        self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter;
+                        let is_str = unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. }) };
+                        if is_str {
+                            // A string's methods are the string library.
+                            let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
+                            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
+                            let mut buf = [Value::NIL; 8]; let n = (nargs as usize + 1).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
+                            let outs = crate::builtins::call(self, id, &buf[..n]);
+                            self.deliver(regs, b as usize, outs.as_slice());
+                            return Flow::Next;
+                        }
+                        let method = unsafe { match &(*p.as_ptr()).body { Body::Record { shape, .. } => *self.heap.shapes[*shape as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method")), _ => self.err("method call on a non-record") } };
+                        if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs + 1, pc); return Flow::Reenter; }
+                        let cp = method.as_obj().unwrap_or_else(|| self.err("method is not a function"));
+                        let fid = unsafe { match &(*cp.as_ptr()).body { Body::Closure { fid, .. } => *fid, _ => self.err("method is not a function") } };
+                        self.push_frame(tid, fid, base + b as usize, nargs + 1, pc);
+                        let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
+                        return Flow::Reenter;
                     
     }
     #[inline(never)]
@@ -732,18 +838,18 @@ impl Interp {
         let _ = (|| 0i64);
         
                         // The callee runs on a scratch task so an error unwinds only it.
-                        let callee = r!(b + 1).as_func().unwrap_or_else(|| self.err("pcall of a non-function"));
+                        let callee = r!(b + 1);
                         let args: Vec<Value> = (0..nargs as usize).map(|i| r!(b + 2 + i as u8)).collect();
-                        let scratch = self.spawn(callee, &args);
                         let hook = std::panic::take_hook();
                         std::panic::set_hook(Box::new(|_| {}));
-                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(scratch)));
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, &args)));
                         std::panic::set_hook(hook);
-                        self.tasks.truncate(scratch);
                         match outcome {
-                            Ok(Outcome::Done(v)) => { r!(b) = Value::TRUE; r!(b + 1) = v; }
-                            Ok(Outcome::Parked(_)) => self.err("pcall body parked"),
-                            Err(payload) => { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); let m = self.heap.intern(&msg, roots!(self)); r!(b) = Value::FALSE; r!(b + 1) = m; }
+                            Ok(outs) => { r!(b) = Value::TRUE; self.deliver(regs, b as usize + 1, &outs); }
+                            Err(payload) => {
+                                let v = if let Some(e) = payload.downcast_ref::<crate::builtins::LuaError>() { Value(e.0) } else { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); self.heap.intern(&msg, roots!(self)) };
+                                r!(b) = Value::FALSE; r!(b + 1) = v;
+                            }
                         }
                     
     }
