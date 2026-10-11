@@ -42,6 +42,13 @@ extern "C" fn rt_new_table() -> u64 { enter_helper!(); let v = ctx().new_table()
 extern "C" fn rt_set_slot(obj: u64, i: u64, v: u64) -> u64 { ctx().set_slot(Value(obj), i as usize, Value(v)); 0 }
 extern "C" fn rt_set_index(t: u64, k: u64, v: u64) -> u64 { enter_helper!(); ctx().set_index(Value(t), Value(k), Value(v)); leave_helper!(); 0 }
 extern "C" fn rt_concat(a: u64, b: u64) -> u64 { enter_helper!(); let v = ctx().concat(Value(a), Value(b)); leave_helper!(); v.0 }
+/// The slow path of dynamic arithmetic and comparison: reached only when an
+/// operand is not a number, which this prototype treats as an error.
+extern "C" fn rt_arith_slow(a: u64, b: u64, op: u64) -> u64 {
+    let (x, y) = (Value(a), Value(b));
+    if x.is_num() && y.is_num() { return Value::num(match op { 0 => x.as_num() + y.as_num(), 1 => x.as_num() - y.as_num(), _ => x.as_num() * y.as_num() }).0; }
+    panic!("runtime error: arithmetic on a non-number");
+}
 
 type LlvmMapFn = unsafe extern "C" fn(*mut f64, *const f64, f64, f64, u64, u64);
 type LlvmDotFn = unsafe extern "C" fn(*const f64, *const f64, u64, u64) -> f64;
@@ -144,6 +151,107 @@ fn image_mode(it: &mut Interp, path: &str) {
     }
 }
 
+/// Handlers written in Nupp against the Rust interpreter: the same untyped
+/// loop run four ways. `sum` is the subject, an untyped register program.
+fn handlers_mode(it: &mut Interp, path: &str) {
+    use Op::*;
+    let text = std::fs::read_to_string(path).expect("image");
+    let entry = image::load(it, &text).unwrap_or_else(|e| panic!("load: {e}"));
+    CTX.store(it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3)]);
+    it.compiled = vec![None; it.funcs.len()];
+    let mut progress = true;
+    while progress {
+        progress = false;
+        for fid in 0..it.funcs.len() {
+            if it.compiled[fid].is_some() { continue; }
+            let f = it.funcs[fid].clone();
+            match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.compiled[fid] = Some(ptr); progress = true; eprintln!("compiled\t{}", f.name); } Err(e) => eprintln!("refused\t{}\t{e}", f.name) }
+        }
+    }
+    let id = |it: &Interp, n: &str| it.funcs.iter().position(|f| f.name == n).unwrap_or_else(|| panic!("no function {n}")) as u32;
+    let (h_add, h_sub, h_lt) = (id(it, "addAny"), id(it, "subAny"), id(it, "ltAny"));
+    // sum(n): i = 0; s = 0; while i < n: s = s + i; i = i + 1; return s.
+    let sum = func("sum", 1, 8, vec![Value::num(1.0), Value::num(0.0)], vec![K(5, 0), K(2, 1), K(3, 1), Lt(4, 2, 1), JmpIfNot(4, 3), Add(3, 3, 2), Add(2, 2, 5), Jmp(-5), Ret(3)]);
+    let sum_id = it.funcs.len() as u32;
+    it.funcs.push(sum.clone()); it.compiled.push(None);
+    let direct = j.try_compile(&sum, u32::MAX).expect("direct lowering");
+    let tpl = template(&sum, h_add, h_sub, h_lt);
+    if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in tpl.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
+    let templated = j.try_compile(&tpl, u32::MAX).expect("template lowering");
+    for (n, us) in &j.compile_micros { eprintln!("compile\t{n}\t{us} us"); }
+    let main_ptr = it.compiled[entry as usize].expect("main compiled");
+    let as_fn = |p: *const u8| -> extern "C" fn(u64) -> u64 { unsafe { std::mem::transmute(p) } };
+    let (direct_fn, tpl_fn, main_fn) = (as_fn(direct), as_fn(templated), as_fn(main_ptr));
+    let n = std::env::var("N").ok().and_then(|s| s.parse().ok()).unwrap_or(1_000_000.0f64);
+    let want = n * (n - 1.0) / 2.0;
+    let arg = Value::num(n);
+    assert_eq!(run_to_end(it, sum_id, &[arg]).as_num(), want, "rust interpreter");
+    assert_eq!(Value(direct_fn(arg.0)).as_num(), want, "direct lowering");
+    assert_eq!(Value(tpl_fn(arg.0)).as_num(), want, "template");
+    assert_eq!(Value(main_fn(arg.0)).as_num(), want, "nupp interpreter compiled");
+    let saved = std::mem::replace(&mut it.compiled, vec![None; it.funcs.len()]);
+    assert_eq!(run_to_end(it, entry, &[arg]).as_num(), want, "nupp interpreter interpreted");
+    it.compiled = saved;
+    eprintln!("PASS handlers: all four agree on {want}");
+    let with_interp_of_interp = std::env::var("INTERP_OF_INTERP").is_ok();
+    let mut runners: Vec<(&str, Box<dyn FnMut(&mut Interp) -> f64>)> = vec![
+        ("rust-interp", Box::new(move |it| run_to_end(it, sum_id, &[arg]).as_num())),
+        ("nupp-interp-cranelift", Box::new(move |_| Value(main_fn(arg.0)).as_num())),
+        ("handlers-inlined", Box::new(move |_| Value(tpl_fn(arg.0)).as_num())),
+        ("direct-lowering", Box::new(move |_| Value(direct_fn(arg.0)).as_num())),
+    ];
+    if with_interp_of_interp { runners.push(("nupp-interp-on-rust-interp", Box::new(move |it| { let saved = std::mem::replace(&mut it.compiled, vec![None; it.funcs.len()]); let v = run_to_end(it, entry, &[arg]).as_num(); it.compiled = saved; v }))); }
+    let seconds = 0.05; let rounds = 9;
+    let mut calls = Vec::new();
+    let mut sink = 0.0;
+    for (_, r) in runners.iter_mut() {
+        let mut count = 1usize;
+        loop { let s = cpu_now(); for _ in 0..count { sink += black_box(r(it)); } let e = cpu_now() - s; if e >= seconds { break; } count = (count * 2).max((count as f64 * seconds / e.max(1e-7)).ceil() as usize); }
+        calls.push(count);
+    }
+    let mut samples: Vec<Vec<f64>> = vec![Vec::new(); runners.len()];
+    for round in 0..rounds { for k in 0..runners.len() { let idx = (k + round) % runners.len(); let s = cpu_now(); for _ in 0..calls[idx] { sink += black_box((runners[idx].1)(it)); } samples[idx].push((cpu_now() - s) / calls[idx] as f64); } }
+    let med = |v: &mut Vec<f64>| { v.sort_by(|a, b| a.partial_cmp(b).unwrap()); v[v.len() / 2] };
+    let m: Vec<f64> = samples.iter_mut().map(med).collect();
+    for (i, (name, _)) in runners.iter().enumerate() { println!("{name}\t{:.3} ms per call\t{:.2} ns per iteration", m[i] * 1e3, m[i] / n * 1e9); }
+    black_box(sink);
+}
+
+/// The template JIT: every dynamic opcode of `subject` becomes a typed call to
+/// its handler, operands moved into a scratch window above the subject's
+/// registers; branches are copied and retargeted. The JIT then inlines the
+/// handlers, so the result is the handler bodies stitched in program order.
+fn template(subject: &Function, h_add: u32, h_sub: u32, h_lt: u32) -> Function {
+    use Op::*;
+    let base = subject.nregs;
+    let mut code: Vec<Op> = Vec::new();
+    let mut at: Vec<usize> = Vec::new();
+    for op in &subject.code {
+        at.push(code.len());
+        match *op {
+            Add(d, a, b) | Sub(d, a, b) | Lt(d, a, b) => {
+                let h = match *op { Add(..) => h_add, Sub(..) => h_sub, _ => h_lt };
+                code.push(Move(base + 1, a)); code.push(Move(base + 2, b)); code.push(CallT(h, base, 0, 2)); code.push(Move(d, base));
+            }
+            other => code.push(other),
+        }
+    }
+    at.push(code.len());
+    for (i, op) in subject.code.iter().enumerate() {
+        let retarget = |off: i32| -> i32 { let target = at[(i as i64 + 1 + off as i64) as usize]; (target as i64 - (at[i] as i64 + 1)) as i32 };
+        match *op {
+            Jmp(off) => code[at[i]] = Jmp(retarget(off)),
+            JmpIfNot(c, off) => code[at[i]] = JmpIfNot(c, retarget(off)),
+            JmpIf(c, off) => code[at[i]] = JmpIf(c, retarget(off)),
+            _ => {}
+        }
+    }
+    let mut f = func("sum.template", subject.nparams, base + 3, subject.consts.clone(), code);
+    f.nfreg = 2;
+    f
+}
+
 fn cpu_now() -> f64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
@@ -151,7 +259,7 @@ fn cpu_now() -> f64 {
 }
 
 fn func(name: &'static str, nparams: u8, nregs: u8, consts: Vec<Value>, code: Vec<Op>) -> Function {
-    Function { name, sig: vec![b'v'; nparams as usize], ret: b'v', nv_params: nparams, nf_params: 0, code, consts, nparams, nregs, nireg: 8, nfreg: 8, nvreg: 8 }
+    Function { name, sig: vec![b'v'; nparams as usize], ret: b'v', nv_params: nparams, nf_params: 0, code, consts, nparams, nregs, nireg: 8, nfreg: 8, nvreg: 8, jump_tables: Vec::new() }
 }
 
 const FIB: u32 = 0;
@@ -228,6 +336,7 @@ fn main() {
     let point = build(&mut it);
     let x = it.intern("x");
     if mode == "image" { image_mode(&mut it, &args[2]); return; }
+    if mode == "handlers" { handlers_mode(&mut it, &args[2]); return; }
     if mode == "run-image" {
         let text = std::fs::read_to_string(&args[2]).expect("image");
         let entry = image::load(&mut it, &text).unwrap_or_else(|e| panic!("load: {e}"));

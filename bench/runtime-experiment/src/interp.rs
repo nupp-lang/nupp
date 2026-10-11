@@ -20,6 +20,8 @@ pub enum Op {
     Jmp(i32),
     JmpIf(u8, i32),
     JmpIfNot(u8, i32),
+    /// Dense dispatch: integer register indexes jump table `t`; out of range takes its default.
+    Switch(u8, u16),
     /// Call function `fid` with arguments at base+1.., result into `base`.
     Call(u32, u8, u8),
     /// Typed call: value arguments at base+1.., float arguments in the float
@@ -140,6 +142,8 @@ pub struct Function {
     pub nireg: u8,
     pub nfreg: u8,
     pub nvreg: u8,
+    /// Jump tables for `Switch`: (default offset, offsets by index), relative to the next op.
+    pub jump_tables: Vec<(i32, Vec<i32>)>,
 }
 
 #[derive(Clone, Copy)]
@@ -220,7 +224,11 @@ impl Interp {
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
         let f = &self.funcs[fid as usize];
         let mut t = Task { regs: vec![Value::NIL; f.nregs as usize + 1], iregs: vec![0; f.nireg as usize], fregs: vec![0.0; f.nfreg as usize], vregs: vec![[0.0; 2]; f.nvreg as usize], frames: Vec::new(), state: State::Runnable, result: Value::NIL };
-        for (i, &a) in args.iter().enumerate() { t.regs[i + 1] = a; }
+        // Entry arguments follow the typed convention: float parameters land in
+        // the float window, the rest in value registers, each in declaration order.
+        let typed = f.sig.len() == f.nparams as usize;
+        let (mut vi, mut fi) = (0usize, 0usize);
+        for (i, &a) in args.iter().enumerate() { if typed && f.sig[i] == b'f' { t.fregs[fi] = a.as_num(); fi += 1; } else { vi += 1; t.regs[vi] = a; } }
         t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0, ret_f: 0, ret_is_f: false, closure: Value::NIL });
         self.tasks.push(t);
         self.tasks.len() - 1
@@ -406,6 +414,12 @@ impl Interp {
                     Op::FCmpLt(d, a, b) => ir!(d) = (fr!(a) < fr!(b)) as i64,
                     Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
                     Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
+                    Op::Switch(r, t) => {
+                        let i = ir!(r);
+                        let off = { let (def, tbl) = &self.funcs[fid as usize].jump_tables[t as usize]; if i >= 0 && (i as usize) < tbl.len() { tbl[i as usize] } else { *def } };
+                        pc = (pc as i64 + off as i64) as usize;
+                        if off < 0 { self.back_edge(); }
+                    }
                     Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
                     Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
                     Op::VLoadM(d, s, i, off, active) => {
@@ -708,5 +722,5 @@ impl Interp {
 }
 
 impl std::ops::Index<usize> for Function { type Output = Op; fn index(&self, i: usize) -> &Op { &self.code[i] } }
-impl Clone for Function { fn clone(&self) -> Self { Function { name: self.name, sig: self.sig.clone(), ret: self.ret, nv_params: self.nv_params, nf_params: self.nf_params, code: self.code.clone(), consts: self.consts.clone(), nparams: self.nparams, nregs: self.nregs, nireg: self.nireg, nfreg: self.nfreg, nvreg: self.nvreg } } }
+impl Clone for Function { fn clone(&self) -> Self { Function { name: self.name, sig: self.sig.clone(), ret: self.ret, nv_params: self.nv_params, nf_params: self.nf_params, code: self.code.clone(), consts: self.consts.clone(), nparams: self.nparams, nregs: self.nregs, nireg: self.nireg, nfreg: self.nfreg, nvreg: self.nvreg, jump_tables: self.jump_tables.clone() } } }
 pub fn storage_ptr(v: Value) -> Option<NonNull<crate::heap::Object>> { v.as_obj() }

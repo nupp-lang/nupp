@@ -6,7 +6,7 @@
 use crate::interp::{Function, Op};
 use crate::heap::{KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, MemFlagsData, Value};
+use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, JumpTableData, MemFlagsData, TrapCode, Value};
 use cranelift_codegen::inline::{Inline, InlineCommand};
 use std::borrow::Cow;
 use cranelift_codegen::settings::{self, Configurable};
@@ -111,7 +111,8 @@ impl Jit {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) => true,
+                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) => true,
+                Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Lt(..) | Op::Le(..) => self.helpers.contains_key("rt_arith_slow"),
                 Op::NewRecord(..) | Op::NewTable(..) | Op::SetSlot(..) | Op::SetIdx(..) | Op::SetIdxF(..) | Op::Concat(..) => self.helpers.contains_key("rt_new_record"),
                 _ => false,
             };
@@ -194,6 +195,7 @@ impl Jit {
             for (pc, op) in f.code.iter().enumerate() {
                 match *op {
                     Op::Jmp(off) | Op::JmpIfIZero(_, off) | Op::JmpIf(_, off) | Op::JmpIfNot(_, off) | Op::IJmpIfUle(_, _, off) | Op::IJmpIfUlt(_, _, off) => { starts.insert((pc as i64 + 1 + off as i64) as usize); starts.insert(pc + 1); }
+                    Op::Switch(_, t) => { let (def, tbl) = &f.jump_tables[t as usize]; for off in std::iter::once(def).chain(tbl.iter()) { starts.insert((pc as i64 + 1 + *off as i64) as usize); } starts.insert(pc + 1); }
                     _ => {}
                 }
             }
@@ -210,17 +212,24 @@ impl Jit {
             macro_rules! setv { ($i:expr, $v:expr) => { let v = $v; b.def_var(vvars[$i as usize], v) } }
             macro_rules! rv { ($i:expr) => { b.use_var(rvars[$i as usize]) } }
             let mut slots_cache: HashMap<u8, Value> = HashMap::new();
-            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; slots_cache.remove(&($i as u8)); b.def_var(rvars[$i as usize], v) } }
+            // The i8 condition behind a boxed boolean register, so a branch on it
+            // tests the comparison directly instead of the boxed word.
+            let mut cond_of: HashMap<u8, Value> = HashMap::new();
+            let no_canon = std::env::var("NO_CANON").is_ok();
+            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; slots_cache.remove(&($i as u8)); cond_of.remove(&($i as u8)); b.def_var(rvars[$i as usize], v) } }
             // The object behind a value register, and its payload pointer and
             // length, read from the fixed header; cached per register per block.
             macro_rules! obj_of { ($r:expr) => {{ let v = rv!($r); b.ins().band_imm(v, PAYLOAD) }} }
             macro_rules! slots_of { ($r:expr) => {{ let r = $r as u8; match slots_cache.get(&r) { Some(v) => *v, None => { let o = obj_of!(r); let v = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); slots_cache.insert(r, v); v } } }} }
-            macro_rules! box_f64 { ($v:expr) => {{ let v = $v; let bits = b.ins().bitcast(types::I64, cast, v); let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) }} }
+            // Both words are numbers: neither carries the quiet-NaN tag pattern.
+            macro_rules! is_num2 { ($p:expr, $q:expr) => {{ let mp = b.ins().band_imm($p, QNAN); let np = b.ins().icmp_imm(IntCC::NotEqual, mp, QNAN); let mq = b.ins().band_imm($q, QNAN); let nq = b.ins().icmp_imm(IntCC::NotEqual, mq, QNAN); b.ins().band(np, nq) }} }
+            macro_rules! box_f64 { ($v:expr) => {{ let v = $v; let bits = b.ins().bitcast(types::I64, cast, v); if no_canon { bits } else { let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) } }} }
             for (pc, op) in f.code.iter().enumerate() {
                 if let Some(&blk) = blocks.get(&pc) {
                     if !terminated { b.ins().jump(blk, &[]); }
                     b.switch_to_block(blk);
                     slots_cache.clear();
+                    cond_of.clear();
                     terminated = false;
                 }
                 if terminated { continue; }
@@ -243,6 +252,8 @@ impl Jit {
                     Op::Move(d, s) => { let v = rv!(s); setr!(d, v); }
                     Op::K(d, k) => { setr!(d, b.ins().iconst(types::I64, consts[k as usize] as i64)); }
                     Op::BoolFromI(d, x) => { let v = iv!(x); let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let c = b.ins().icmp_imm(IntCC::NotEqual, v, 0); setr!(d, b.ins().select(c, t, fa)); }
+                    Op::JmpIfNot(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, next, &[], target(off), &[]); terminated = true; }
+                    Op::JmpIf(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, target(off), &[], next, &[]); terminated = true; }
                     Op::JmpIfNot(c, off) => { let v = rv!(c); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let is_nil = b.ins().icmp(IntCC::Equal, v, nil); let is_false = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(is_nil, is_false); let next = blocks[&(pc + 1)]; b.ins().brif(falsy, target(off), &[], next, &[]); terminated = true; }
                     Op::JmpIf(c, off) => { let v = rv!(c); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let is_nil = b.ins().icmp(IntCC::Equal, v, nil); let is_false = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(is_nil, is_false); let next = blocks[&(pc + 1)]; b.ins().brif(falsy, next, &[], target(off), &[]); terminated = true; }
                     Op::GetSlotF(d, r, i) => { let slots = slots_of!(r); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setf!(d, b.ins().bitcast(types::F64, cast, v)); }
@@ -298,13 +309,38 @@ impl Jit {
                     Op::NewTable(d) => { let c = b.ins().call(helper_refs["rt_new_table"], &[]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
                     Op::SetSlot(r, i, x) => { let (obj, v) = (rv!(r), rv!(x)); let idx = b.ins().iconst(types::I64, i as i64); b.ins().call(helper_refs["rt_set_slot"], &[obj, idx, v]); }
                     Op::SetIdx(t, i, x) => { let (obj, k, v) = (rv!(t), rv!(i), rv!(x)); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
-                    Op::SetIdxF(t, i, x) => { let (obj, kf, v) = (rv!(t), fv!(i), rv!(x)); let k = box_f64!(kf); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
-                    Op::Concat(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().call(helper_refs["rt_concat"], &[p, q]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
-                    Op::NewRecord(d, shape) => { let sh = b.ins().iconst(types::I64, shape as i64); let c = b.ins().call(helper_refs["rt_new_record"], &[sh]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
-                    Op::NewTable(d) => { let c = b.ins().call(helper_refs["rt_new_table"], &[]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
-                    Op::SetSlot(r, i, x) => { let (obj, v) = (rv!(r), rv!(x)); let idx = b.ins().iconst(types::I64, i as i64); b.ins().call(helper_refs["rt_set_slot"], &[obj, idx, v]); }
-                    Op::SetIdx(t, i, x) => { let (obj, k, v) = (rv!(t), rv!(i), rv!(x)); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
-                    Op::SetIdxF(t, i, x) => { let (obj, kf, v) = (rv!(t), fv!(i), rv!(x)); let k = box_f64!(kf); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
+                    Op::SetIdxF(t, i, x) => {
+                        // Inline array-part write of a number: a table, an integral
+                        // index in 1..=len, and a value that is not an object, so no
+                        // barrier is due; anything else goes through the helper.
+                        let (obj, kf, v) = (rv!(t), fv!(i), rv!(x));
+                        let o = obj_of!(t);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND);
+                        let is_table = b.ins().icmp_imm(IntCC::Equal, kind, KIND_TABLE as i64);
+                        let ki = b.ins().fcvt_to_sint_sat(types::I64, kf);
+                        let back = b.ins().fcvt_from_sint(types::F64, ki);
+                        let integral = b.ins().fcmp(FloatCC::Equal, back, kf);
+                        let len = b.ins().load(types::I64, flags, o, OFF_AUX_LEN);
+                        let idx0 = b.ins().iadd_imm(ki, -1);
+                        let in_range = b.ins().icmp(IntCC::UnsignedLessThan, idx0, len);
+                        let vm = b.ins().band_imm(v, QNAN); let v_num = b.ins().icmp_imm(IntCC::NotEqual, vm, QNAN);
+                        let c1 = b.ins().band(is_table, integral); let c2 = b.ins().band(in_range, v_num); let fast = b.ins().band(c1, c2);
+                        let fast_b = b.create_block(); let slow_b = b.create_block(); let join = b.create_block();
+                        b.set_cold_block(slow_b);
+                        b.ins().brif(fast, fast_b, &[], slow_b, &[]);
+                        b.switch_to_block(fast_b); b.seal_block(fast_b);
+                        let arr = b.ins().load(types::I64, flags, o, OFF_AUX_PTR);
+                        let off = b.ins().imul_imm(idx0, 8);
+                        let addr = b.ins().iadd(arr, off);
+                        b.ins().store(flags, v, addr, 0);
+                        b.ins().jump(join, &[]);
+                        b.switch_to_block(slow_b); b.seal_block(slow_b);
+                        let k = box_f64!(kf);
+                        b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]);
+                        b.ins().jump(join, &[]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        slots_cache.clear(); cond_of.clear();
+                    }
                     Op::Concat(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().call(helper_refs["rt_concat"], &[p, q]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
                     Op::FAdd(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fadd(p, q)); }
                     Op::FSub(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fsub(p, q)); }
@@ -317,6 +353,79 @@ impl Jit {
                     Op::IAnd(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().band(p, q)); }
                     Op::JmpIfIZero(c, off) => { let v = iv!(c); let next = blocks[&(pc + 1)]; b.ins().brif(v, next, &[], target(off), &[]); terminated = true; }
                     Op::Jmp(off) => { b.ins().jump(target(off), &[]); terminated = true; }
+                    Op::Switch(r, t) => {
+                        // A jump table: negative and oversized indexes clamp onto the default.
+                        let idx = iv!(r);
+                        let zero = b.ins().iconst(types::I64, 0);
+                        let big = b.ins().iconst(types::I64, i32::MAX as i64);
+                        let nonneg = b.ins().smax(idx, zero);
+                        let clamped = b.ins().umin(nonneg, big);
+                        let idx32 = b.ins().ireduce(types::I32, clamped);
+                        let (def, tbl) = &f.jump_tables[t as usize];
+                        let def_call = b.func.dfg.block_call(target(*def), &[]);
+                        let calls: Vec<_> = tbl.iter().map(|&o| b.func.dfg.block_call(target(o), &[])).collect();
+                        let jt = b.create_jump_table(JumpTableData::new(def_call, &calls));
+                        b.ins().br_table(idx32, jt);
+                        terminated = true;
+                    }
+                    Op::Add(d, x, y) | Op::Sub(d, x, y) | Op::Mul(d, x, y) => {
+                        // The dynamic arithmetic of the untyped tier: two numbers add
+                        // inline, anything else goes to the runtime.
+                        let (p, q) = (rv!(x), rv!(y));
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I64);
+                        b.set_cold_block(slow);
+                        let both = is_num2!(p, q);
+                        b.ins().brif(both, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
+                        let r = match *op { Op::Add(..) => b.ins().fadd(fp, fq), Op::Sub(..) => b.ins().fsub(fp, fq), _ => b.ins().fmul(fp, fq) };
+                        let boxed = box_f64!(r);
+                        b.ins().jump(join, &[boxed.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let code = b.ins().iconst(types::I64, match *op { Op::Add(..) => 0, Op::Sub(..) => 1, _ => 2 });
+                        let c = b.ins().call(helper_refs["rt_arith_slow"], &[p, q, code]);
+                        let sv = b.inst_results(c)[0];
+                        b.ins().jump(join, &[sv.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        slots_cache.clear();
+                        setr!(d, b.block_params(join)[0]);
+                    }
+                    Op::Lt(d, x, y) | Op::Le(d, x, y) => {
+                        let (p, q) = (rv!(x), rv!(y));
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I8);
+                        b.set_cold_block(slow);
+                        let both = is_num2!(p, q);
+                        b.ins().brif(both, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
+                        let c = b.ins().fcmp(if matches!(*op, Op::Lt(..)) { FloatCC::LessThan } else { FloatCC::LessThanOrEqual }, fp, fq);
+                        b.ins().jump(join, &[c.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let code = b.ins().iconst(types::I64, if matches!(*op, Op::Lt(..)) { 0 } else { 1 });
+                        let c = b.ins().call(helper_refs["rt_arith_slow"], &[p, q, code]);
+                        let _ = c;
+                        let tr = b.ins().iconst(types::I8, 1);
+                        b.ins().jump(join, &[tr.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        slots_cache.clear();
+                        let cv = b.block_params(join)[0];
+                        let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64);
+                        setr!(d, b.ins().select(cv, t, fa));
+                        cond_of.insert(d, cv);
+                    }
+                    Op::Eq(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().icmp(IntCC::Equal, p, q); let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); setr!(d, b.ins().select(c, t, fa)); }
+                    Op::TagCheckNum(d, x) => {
+                        let v = rv!(x);
+                        let masked = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, masked, QNAN);
+                        let cont = b.create_block(); let bad = b.create_block(); b.set_cold_block(bad);
+                        b.ins().brif(ok, cont, &[], bad, &[]);
+                        b.switch_to_block(bad); b.seal_block(bad); b.ins().trap(TrapCode::unwrap_user(1));
+                        b.switch_to_block(cont); b.seal_block(cont);
+                        slots_cache.clear();
+                        setr!(d, v);
+                    }
                     Op::StorageLen(d, s) => { let (_, len) = ptrs[&s]; seti!(d, len); }
                     Op::FLoad(d, s, i) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); setf!(d, b.ins().load(types::F64, flags, a, 0)); }
                     Op::FStore(s, i, x) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); let v = fv!(x); b.ins().store(flags, v, a, 0); }

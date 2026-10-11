@@ -465,3 +465,93 @@ their first loop headers after fifty back-edges:
 The transferred activation allocates in compiled code with stack maps
 live, and the stress and interleaved runs pass with transfers happening
 inside them.
+
+## Handlers in Nupp, and a jump-table switch
+
+Date: 2026-10-11. The question: could the interpreter be written in Nupp
+instead of Rust, would it be faster, and does having the opcode handlers in
+Nupp make a JIT easier. Sources: `emit/handlers.nupp` (three handlers, an
+interpreter loop, a program), `src/main.rs` `handlers_mode` and `template`,
+the `Switch` opcode in `interp.rs`, `jit.rs` and `image.rs`, and `switch`,
+`do` and `yield` in `emit/emit.lua`. Reference: `lua/sum.lua`.
+
+The subject is one untyped register program, `sum(n)`: `i = 0; s = 0;
+while i < n do s = s + i; i = i + 1 end`, five instructions per iteration.
+It is run five ways, all agreeing on the result:
+
+- **rust-interp**: the prototype's Rust interpreter, the subject as its
+  own `Op` list.
+- **nupp-interp-cranelift**: an interpreter written in Nupp (`run` in
+  `handlers.nupp`: a flat code array, an `any` register array, dispatch by
+  `switch`), compiled through the image pipeline to Cranelift, running the
+  same program encoded as data.
+- **handlers-inlined**: a template JIT. Each dynamic opcode of the subject
+  becomes a typed call to its Nupp handler (`addAny`, `subAny`, `ltAny`);
+  the JIT inlines the handler bodies, so the compiled function is the
+  handlers stitched in program order with the subject's registers as SSA
+  values.
+- **direct-lowering**: the subject compiled by the JIT's own hand-written
+  lowering of `Add`, `Lt` and the branches, added for this comparison.
+- **nupp-interp-on-rust-interp**: the Nupp interpreter interpreted, for
+  the record only.
+
+| per iteration, medians of nine rotated rounds, n = 1,000,000 | |
+| --- | ---: |
+| LuaJIT trace | 1.11 ns |
+| PUC Lua 5.5 | 3.09 ns |
+| direct-lowering | 3.46 ns |
+| handlers-inlined | 3.48 ns |
+| rust-interp | 4.18 ns |
+| LuaJIT interpreter | 5.02 ns |
+| nupp-interp-cranelift, jump table | 26.1 ns |
+| nupp-interp-cranelift, equality chain | 34.7 ns |
+| nupp-interp-on-rust-interp | 230 ns |
+
+What it says:
+
+- **Handler inlining produces the hand-written lowering.** The template
+  and the direct lowering are the same code within noise, because the
+  inlined handler bodies are the same tag checks, unboxes and float ops the
+  lowering emits by hand. One definition of each opcode's semantics, in
+  Nupp, serves the interpreter and the JIT. That was the claim to test, and
+  it holds.
+- **A baseline JIT from handlers does not beat the interpreter on this
+  loop.** Both compiled forms sit at the interpreter's speed because the
+  loop-carried values stay boxed: each iteration moves `s` and `i` from
+  integer to float registers and back, with tag checks and a NaN
+  canonicalisation on each move, a chain of about ten cycles per value.
+  The interpreter pays the same boxing and its five-way dispatch is
+  predicted perfectly, so removing dispatch removes little. Turning off the
+  stack-map spills (`NO_STACKMAPS`) and the canonicalisation (`NO_CANON`)
+  moved nothing: 3.0 to 3.5 ns either way. What LuaJIT's trace does
+  differently is keep `s` and `i` unboxed in float registers across the
+  back-edge, which is type speculation. For typed Nupp the typed tier does
+  the same without speculating; for `.lua` and `any` code nothing short of
+  speculation reaches it, and that is a JIT design question independent of
+  which language the handlers are written in.
+- **The interpreter in Nupp is 6x slower than the one in Rust, and the
+  cause is the lowering, not the language.** Its loop disassembles to 895
+  instructions with 130 loads, 19 float-to-int and 18 int-to-float
+  conversions: the emitter types `integer` locals as floats, so `code[pc]`
+  and every register access converts the index, checks the table kind and
+  the bounds, and loads through the header. A Rust interpreter reads
+  `*code.add(pc)`. The typed tier that would close this (int64 registers,
+  storage arrays with verified bounds) is what the kernel experiment
+  already showed matching LLVM; it is not in this emitter. So the answer to
+  "faster" is: not shown, and not expected to exceed Rust; the answer to
+  "possible" is yes, as a program on the Rust core with its subject values
+  as host values, once the typed lowering covers what an interpreter uses.
+- **The jump-table switch is worth 25% on an eight-way dispatch** against
+  the equality chain in source order (26.1 against 34.7 ns), with the hot
+  cases three to five compares deep in the chain. `Switch` is one opcode:
+  an integer register and a table of offsets with a default; the JIT lowers
+  it to `br_table` with negative and oversized indexes clamped onto the
+  default. The emitter takes a switch whose cases are all small
+  non-negative integer literals to it, and anything else to the chain.
+
+Two lowering items were added on the way and stay: a comparison remembers
+its i8 condition so a branch on the boxed boolean tests the comparison
+directly (`cond_of`), and an array-part store of a non-object value is
+inline, since no barrier is due for a number. Dynamic `Add`, `Sub`, `Mul`,
+`Lt`, `Le`, `Eq` and `TagCheckNum` now lower, with the non-number path in
+a cold block calling the runtime.

@@ -1,0 +1,895 @@
+==== run (3244 bytes)
+  pacibsp
+  unwind Aarch64SetPointerAuth { return_addresses: true }
+  stp fp, lr, [sp, #-16]!
+  unwind PushFrameRegs { offset_upward_to_caller_sp: 16 }
+  mov fp, sp
+  unwind DefineNewFrame { offset_upward_to_caller_sp: 16, offset_downward_to_clobbers: 32 }
+  stp x21, x22, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 16, reg: p21i }
+  unwind SaveReg { clobber_offset: 24, reg: p22i }
+  stp x19, x20, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 0, reg: p19i }
+  unwind SaveReg { clobber_offset: 8, reg: p20i }
+  sub sp, sp, #48
+  unwind StackAlloc { size: 48 }
+block0:
+  fmov d4, #1
+  str q4, [sp, #24]
+  mov x3, x0
+  b label1
+block1:
+  str x3, [sp]
+  str x1, [sp, #8]
+  b label2
+block2:
+  ldr x0, [sp]
+  and x1, x0, #281474976710655
+  ldrb w3, [x1]
+  ldr x2, [x1, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  ldr q4, [sp, #24]
+  fcvtzs x4, d4
+  scvtf d0, x4
+  fcmp d0, d4
+  cset x5, eq
+  and w5, w3, w5
+  sub x3, x4, #1
+  subs xzr, x3, x2
+  cset x2, lo
+  and w2, w5, w2
+  ands wzr, w2, #255
+  b.ne label4 ; b label3
+block4:
+  str q4, [sp, #24]
+  ldr x0, [x1, #16]
+  ldr x0, [x0, x3, LSL #3]
+  mov x21, x0
+  b label5
+block5:
+  ldr x0, [sp]
+  and x0, x0, #281474976710655
+  ldrb w2, [x0]
+  ldr x1, [x0, #24]
+  uxtb w2, w2
+  subs wzr, w2, #2
+  cset x2, eq
+  fmov d0, #1
+  ldr q4, [sp, #24]
+  fadd d0, d4, d0
+  fcvtzs x3, d0
+  scvtf d1, x3
+  fcmp d1, d0
+  cset x4, eq
+  and w4, w2, w4
+  sub x2, x3, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w4, w1
+  ands wzr, w1, #255
+  b.ne label7 ; b label6
+block7:
+  ldr x0, [x0, #16]
+  ldr x0, [x0, x2, LSL #3]
+  mov x19, x0
+  b label8
+block8:
+  ldr x0, [sp]
+  and x0, x0, #281474976710655
+  ldrb w2, [x0]
+  ldr x1, [x0, #24]
+  uxtb w2, w2
+  subs wzr, w2, #2
+  cset x2, eq
+  fmov d0, #2
+  ldr q4, [sp, #24]
+  fadd d0, d4, d0
+  fcvtzs x3, d0
+  scvtf d1, x3
+  fcmp d1, d0
+  cset x4, eq
+  and w4, w2, w4
+  sub x2, x3, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w4, w1
+  ands wzr, w1, #255
+  b.ne label10 ; b label9
+block10:
+  ldr x0, [x0, #16]
+  ldr x0, [x0, x2, LSL #3]
+  mov x22, x0
+  b label11
+block11:
+  ldr x0, [sp]
+  and x0, x0, #281474976710655
+  ldrb w2, [x0]
+  ldr x1, [x0, #24]
+  uxtb w2, w2
+  subs wzr, w2, #2
+  cset x2, eq
+  fmov d0, #3
+  ldr q4, [sp, #24]
+  fadd d0, d4, d0
+  fcvtzs x3, d0
+  scvtf d1, x3
+  fcmp d1, d0
+  cset x4, eq
+  and w4, w2, w4
+  sub x2, x3, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w4, w1
+  ands wzr, w1, #255
+  b.ne label13 ; b label12
+block13:
+  ldr x5, [x0, #16]
+  ldr x20, [x5, x2, LSL #3]
+  mov x0, x21
+  b label14
+block14:
+  fmov d6, x0
+  fcvtzs x6, d6
+  movz x7, #0
+  subs xzr, x6, x7
+  csel x7, x6, x7, gt
+  orr x8, xzr, #2147483647
+  subs xzr, x7, x8
+  csel x8, x7, x8, lo
+  emit_island 64
+  subs wzr, w8, #8
+  b.hs label86 ; csel x10, xzr, x8, hs ; csdb ; adr x9, pc+16 ; ldrsw x10, [x9, x10, uxtw #2] ; add x9, x9, x10 ; br x9 ; jt_entries [MachLabel(81), MachLabel(73), MachLabel(58), MachLabel(43), MachLabel(28), MachLabel(21), MachLabel(20), MachLabel(15)]
+block15:
+  ldr x9, [sp, #8]
+  and x9, x9, #281474976710655
+  ldrb w11, [x9]
+  ldr x10, [x9, #24]
+  uxtb w8, w11
+  subs wzr, w8, #2
+  cset x11, eq
+  fmov d16, x19
+  fcvtzs x12, d16
+  scvtf d17, x12
+  fcmp d17, d16
+  cset x13, eq
+  and w13, w11, w13
+  sub x11, x12, #1
+  subs xzr, x11, x10
+  cset x12, lo
+  and w12, w13, w12
+  ands wzr, w12, #255
+  b.ne label17 ; b label16
+block17:
+  ldr x0, [x9, #16]
+  ldr x0, [x0, x11, LSL #3]
+  b label18
+block18:
+  movz x1, #32760, LSL #48
+  and x2, x0, #9221120237041090560
+  subs xzr, x2, x1
+  b.eq #trap=user1
+  b label19
+block19:
+  fmov d0, x0
+  add sp, sp, #48
+  ldp x19, x20, [sp], #16
+  ldp x21, x22, [sp], #16
+  ldp fp, lr, [sp], #16
+  retabsp
+block20:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d4, x19
+  str q4, [sp, #24]
+  b label87
+block21:
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w2, [x0]
+  ldr x1, [x0, #24]
+  uxtb w2, w2
+  subs wzr, w2, #2
+  cset x2, eq
+  fmov d23, x19
+  fcvtzs x3, d23
+  scvtf d24, x3
+  fcmp d24, d23
+  cset x4, eq
+  and w4, w2, w4
+  sub x2, x3, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w4, w1
+  ands wzr, w1, #255
+  b.ne label23 ; b label22
+block23:
+  ldr x0, [x0, #16]
+  ldr x0, [x0, x2, LSL #3]
+  b label24
+block24:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  movz x2, #32761, LSL #48
+  subs xzr, x0, x2
+  cset x2, eq
+  movz x4, #32762, LSL #48
+  subs xzr, x0, x4
+  cset x0, eq
+  orr w0, w2, w0
+  ands wzr, w0, #255
+  b.ne label26 ; b label25
+block25:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d0, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d0
+  str q4, [sp, #24]
+  b label27
+block26:
+  mov x2, x22
+  fmov d4, x2
+  str q4, [sp, #24]
+  b label27
+block27:
+  b label87
+block28:
+  mov x2, x22
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w3, [x0]
+  ldr x1, [x0, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x2
+  fcvtzs x2, d0
+  scvtf d1, x2
+  fcmp d1, d0
+  cset x4, eq
+  and w3, w3, w4
+  sub x2, x2, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w3, w1
+  ands wzr, w1, #255
+  b.ne label30 ; b label29
+block30:
+  ldr x0, [x0, #16]
+  ldr x0, [x0, x2, LSL #3]
+  b label31
+block31:
+  str x0, [sp, #16]
+  ldr x0, [sp, #8]
+  and x1, x0, #281474976710655
+  ldrb w3, [x1]
+  ldr x2, [x1, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x20
+  fcvtzs x4, d0
+  scvtf d1, x4
+  fcmp d1, d0
+  cset x5, eq
+  and w5, w3, w5
+  sub x3, x4, #1
+  subs xzr, x3, x2
+  cset x2, lo
+  and w2, w5, w2
+  ands wzr, w2, #255
+  b.ne label33 ; b label32
+block33:
+  ldr x0, [x1, #16]
+  ldr x0, [x0, x3, LSL #3]
+  b label34
+block34:
+  ldr x1, [sp, #16]
+  b label35
+block35:
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  b.eq #trap=user1
+  b label36
+block36:
+  movz x2, #32760, LSL #48
+  and x3, x0, #9221120237041090560
+  subs xzr, x3, x2
+  b.eq #trap=user1
+  b label37
+block37:
+  b label38
+block38:
+  ldr x2, [sp, #8]
+  and x4, x2, #281474976710655
+  ldrb w3, [x4]
+  ldr x2, [x4, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x19
+  fcvtzs x6, d0
+  scvtf d1, x6
+  fcmp d1, d0
+  cset x5, eq
+  and w5, w3, w5
+  sub x3, x6, #1
+  subs xzr, x3, x2
+  cset x6, lo
+  fmov d2, x1
+  fmov d3, x0
+  movz x2, #32763, LSL #48
+  movz x7, #32762, LSL #48
+  fcmp d2, d3
+  csel x2, x2, x7, mi
+  movz x7, #32760, LSL #48
+  and x8, x2, #9221120237041090560
+  subs xzr, x8, x7
+  cset x7, ne
+  and w6, w6, w7
+  and w5, w5, w6
+  ands wzr, w5, #255
+  b.ne label40 ; b label39
+block40:
+  ldr x8, [x4, #16]
+  str x2, [x8, x3, LSL #3]
+  b label41
+block41:
+  b label42
+block42:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d16, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d16
+  str q4, [sp, #24]
+  b label87
+block43:
+  mov x2, x22
+  ldr x12, [sp, #8]
+  and x12, x12, #281474976710655
+  ldrb w14, [x12]
+  ldr x13, [x12, #24]
+  uxtb w11, w14
+  subs wzr, w11, #2
+  cset x14, eq
+  fmov d16, x2
+  fcvtzs x15, d16
+  scvtf d17, x15
+  fcmp d17, d16
+  cset x0, eq
+  and w0, w14, w0
+  sub x14, x15, #1
+  subs xzr, x14, x13
+  cset x15, lo
+  and w15, w0, w15
+  ands wzr, w15, #255
+  b.ne label45 ; b label44
+block45:
+  ldr x0, [x12, #16]
+  ldr x0, [x0, x14, LSL #3]
+  b label46
+block46:
+  str x0, [sp, #16]
+  ldr x0, [sp, #8]
+  and x1, x0, #281474976710655
+  ldrb w3, [x1]
+  ldr x2, [x1, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d22, x20
+  fcvtzs x4, d22
+  scvtf d23, x4
+  fcmp d23, d22
+  cset x5, eq
+  and w5, w3, w5
+  sub x3, x4, #1
+  subs xzr, x3, x2
+  cset x2, lo
+  and w2, w5, w2
+  ands wzr, w2, #255
+  b.ne label48 ; b label47
+block48:
+  ldr x0, [x1, #16]
+  ldr x0, [x0, x3, LSL #3]
+  b label49
+block49:
+  ldr x2, [sp, #16]
+  b label50
+block50:
+  movz x1, #32760, LSL #48
+  and x3, x2, #9221120237041090560
+  subs xzr, x3, x1
+  b.eq #trap=user1
+  b label51
+block51:
+  movz x1, #32760, LSL #48
+  and x3, x0, #9221120237041090560
+  subs xzr, x3, x1
+  b.eq #trap=user1
+  b label52
+block52:
+  b label53
+block53:
+  ldr x1, [sp, #8]
+  and x1, x1, #281474976710655
+  ldrb w3, [x1]
+  ldr x5, [x1, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x19
+  fcvtzs x6, d0
+  scvtf d1, x6
+  fcmp d1, d0
+  cset x4, eq
+  and w4, w3, w4
+  sub x3, x6, #1
+  subs xzr, x3, x5
+  cset x5, lo
+  fmov d1, x2
+  fmov d2, x0
+  fsub d1, d1, d2
+  mov x2, v1.d[0]
+  movz x0, #32760, LSL #48
+  and x6, x2, #9221120237041090560
+  subs xzr, x6, x0
+  csel x2, x0, x2, eq
+  and x6, x2, #9221120237041090560
+  subs xzr, x6, x0
+  cset x0, ne
+  and w0, w5, w0
+  and w0, w4, w0
+  ands wzr, w0, #255
+  b.ne label55 ; b label54
+block55:
+  ldr x0, [x1, #16]
+  str x2, [x0, x3, LSL #3]
+  b label56
+block56:
+  b label57
+block57:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d0, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d0
+  str q4, [sp, #24]
+  b label87
+block58:
+  mov x2, x22
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w3, [x0]
+  ldr x1, [x0, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x2
+  fcvtzs x2, d0
+  scvtf d1, x2
+  fcmp d1, d0
+  cset x4, eq
+  and w3, w3, w4
+  sub x2, x2, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w3, w1
+  ands wzr, w1, #255
+  b.ne label60 ; b label59
+block60:
+  ldr x0, [x0, #16]
+  ldr x0, [x0, x2, LSL #3]
+  b label61
+block61:
+  str x0, [sp, #16]
+  ldr x0, [sp, #8]
+  and x1, x0, #281474976710655
+  ldrb w3, [x1]
+  ldr x2, [x1, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d0, x20
+  fcvtzs x4, d0
+  scvtf d1, x4
+  fcmp d1, d0
+  cset x5, eq
+  and w5, w3, w5
+  sub x3, x4, #1
+  subs xzr, x3, x2
+  cset x2, lo
+  and w2, w5, w2
+  ands wzr, w2, #255
+  b.ne label63 ; b label62
+block63:
+  ldr x4, [x1, #16]
+  ldr x0, [x4, x3, LSL #3]
+  b label64
+block64:
+  ldr x4, [sp, #16]
+  b label65
+block65:
+  movz x5, #32760, LSL #48
+  and x6, x4, #9221120237041090560
+  subs xzr, x6, x5
+  b.eq #trap=user1
+  b label66
+block66:
+  movz x8, #32760, LSL #48
+  and x9, x0, #9221120237041090560
+  subs xzr, x9, x8
+  b.eq #trap=user1
+  b label67
+block67:
+  b label68
+block68:
+  ldr x12, [sp, #8]
+  and x12, x12, #281474976710655
+  ldrb w14, [x12]
+  ldr x13, [x12, #24]
+  uxtb w11, w14
+  subs wzr, w11, #2
+  cset x14, eq
+  fmov d16, x19
+  fcvtzs x1, d16
+  scvtf d17, x1
+  fcmp d17, d16
+  cset x15, eq
+  and w15, w14, w15
+  sub x14, x1, #1
+  subs xzr, x14, x13
+  cset x1, lo
+  fmov d17, x4
+  fmov d18, x0
+  fadd d17, d17, d18
+  mov x2, v17.d[0]
+  movz x0, #32760, LSL #48
+  and x3, x2, #9221120237041090560
+  subs xzr, x3, x0
+  csel x2, x0, x2, eq
+  and x3, x2, #9221120237041090560
+  subs xzr, x3, x0
+  cset x0, ne
+  and w0, w1, w0
+  and w0, w15, w0
+  ands wzr, w0, #255
+  b.ne label70 ; b label69
+block70:
+  ldr x0, [x12, #16]
+  str x2, [x0, x14, LSL #3]
+  b label71
+block71:
+  b label72
+block72:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d24, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d24
+  str q4, [sp, #24]
+  b label87
+block73:
+  mov x2, x22
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w3, [x0]
+  ldr x1, [x0, #24]
+  uxtb w3, w3
+  subs wzr, w3, #2
+  cset x3, eq
+  fmov d26, x2
+  fcvtzs x2, d26
+  scvtf d27, x2
+  fcmp d27, d26
+  cset x4, eq
+  and w3, w3, w4
+  sub x2, x2, #1
+  subs xzr, x2, x1
+  cset x1, lo
+  and w1, w3, w1
+  ands wzr, w1, #255
+  b.ne label75 ; b label74
+block75:
+  ldr x0, [x0, #16]
+  ldr x2, [x0, x2, LSL #3]
+  b label76
+block76:
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w1, [x0]
+  ldr x3, [x0, #24]
+  uxtb w1, w1
+  subs wzr, w1, #2
+  cset x1, eq
+  fmov d0, x19
+  fcvtzs x5, d0
+  scvtf d1, x5
+  fcmp d1, d0
+  cset x4, eq
+  and w4, w1, w4
+  sub x1, x5, #1
+  subs xzr, x1, x3
+  cset x3, lo
+  movz x5, #32760, LSL #48
+  and x6, x2, #9221120237041090560
+  subs xzr, x6, x5
+  cset x5, ne
+  and w3, w3, w5
+  and w3, w4, w3
+  ands wzr, w3, #255
+  b.ne label78 ; b label77
+block78:
+  ldr x0, [x0, #16]
+  str x2, [x0, x1, LSL #3]
+  b label79
+block79:
+  b label80
+block80:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d0, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d0
+  str q4, [sp, #24]
+  b label87
+block81:
+  mov x2, x22
+  ldr x0, [sp, #8]
+  and x0, x0, #281474976710655
+  ldrb w1, [x0]
+  ldr x4, [x0, #24]
+  uxtb w1, w1
+  subs wzr, w1, #2
+  cset x1, eq
+  fmov d0, x19
+  fcvtzs x5, d0
+  scvtf d1, x5
+  fcmp d1, d0
+  cset x3, eq
+  and w3, w1, w3
+  sub x1, x5, #1
+  subs xzr, x1, x4
+  cset x4, lo
+  fmov d1, x2
+  mov x2, v1.d[0]
+  movz x5, #32760, LSL #48
+  and x6, x2, #9221120237041090560
+  subs xzr, x6, x5
+  csel x2, x5, x2, eq
+  and x6, x2, #9221120237041090560
+  subs xzr, x6, x5
+  cset x5, ne
+  and w4, w4, w5
+  and w3, w3, w4
+  ands wzr, w3, #255
+  b.ne label83 ; b label82
+block83:
+  ldr x0, [x0, #16]
+  str x2, [x0, x1, LSL #3]
+  b label84
+block84:
+  b label85
+block85:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d0, #4
+  ldr q4, [sp, #24]
+  fadd d4, d4, d0
+  str q4, [sp, #24]
+  b label87
+block86:
+  ldr x3, [sp]
+  ldr x1, [sp, #8]
+  fmov d4, #-1
+  str q4, [sp, #24]
+  b label87
+block87:
+  b label1
+block3:
+  mov x1, v4.d[0]
+  str q4, [sp, #24]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  mov x21, x0
+  b label5
+block6:
+  ldr x0, [sp]
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  mov x19, x0
+  b label8
+block9:
+  ldr x0, [sp]
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  mov x22, x0
+  b label11
+block12:
+  ldr x0, [sp]
+  mov x3, v0.d[0]
+  movz x4, #32760, LSL #48
+  and x5, x3, #9221120237041090560
+  subs xzr, x5, x4
+  csel x1, x4, x3, eq
+  load_ext_name_far x4, User(userextname2)+0
+  blr x4
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  mov x20, x0
+  mov x0, x21
+  b label14
+block16:
+  ldr x0, [sp, #8]
+  mov x14, v16.d[0]
+  movz x15, #32760, LSL #48
+  and x1, x14, #9221120237041090560
+  subs xzr, x1, x15
+  csel x1, x15, x14, eq
+  load_ext_name_far x15, User(userextname2)+0
+  blr x15
+  b label18
+block22:
+  ldr x0, [sp, #8]
+  mov x1, v23.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label24
+block29:
+  ldr x0, [sp, #8]
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label31
+block32:
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8, 16})], sp_to_sized_stack_slots: None }
+  b label34
+block39:
+  ldr x0, [sp, #8]
+  mov x6, v0.d[0]
+  movz x7, #32760, LSL #48
+  and x8, x6, #9221120237041090560
+  subs xzr, x8, x7
+  csel x1, x7, x6, eq
+  load_ext_name_far x7, User(userextname5)+0
+  blr x7
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label41
+block44:
+  ldr x0, [sp, #8]
+  mov x1, v16.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label46
+block47:
+  mov x1, v22.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8, 16})], sp_to_sized_stack_slots: None }
+  b label49
+block54:
+  ldr x0, [sp, #8]
+  mov x1, v0.d[0]
+  movz x3, #32760, LSL #48
+  and x4, x1, #9221120237041090560
+  subs xzr, x4, x3
+  csel x1, x3, x1, eq
+  load_ext_name_far x3, User(userextname5)+0
+  blr x3
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label56
+block59:
+  ldr x0, [sp, #8]
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label61
+block62:
+  mov x1, v0.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8, 16})], sp_to_sized_stack_slots: None }
+  b label64
+block69:
+  ldr x0, [sp, #8]
+  mov x1, v16.d[0]
+  movz x3, #32760, LSL #48
+  and x4, x1, #9221120237041090560
+  subs xzr, x4, x3
+  csel x1, x3, x1, eq
+  load_ext_name_far x3, User(userextname5)+0
+  blr x3
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label71
+block74:
+  ldr x0, [sp, #8]
+  mov x1, v26.d[0]
+  movz x2, #32760, LSL #48
+  and x3, x1, #9221120237041090560
+  subs xzr, x3, x2
+  csel x1, x2, x1, eq
+  load_ext_name_far x2, User(userextname2)+0
+  blr x2
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  mov x2, x0
+  b label76
+block77:
+  ldr x0, [sp, #8]
+  mov x1, v0.d[0]
+  movz x3, #32760, LSL #48
+  and x4, x1, #9221120237041090560
+  subs xzr, x4, x3
+  csel x1, x3, x1, eq
+  load_ext_name_far x3, User(userextname5)+0
+  blr x3
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label79
+block82:
+  ldr x0, [sp, #8]
+  mov x1, v0.d[0]
+  movz x3, #32760, LSL #48
+  and x4, x1, #9221120237041090560
+  subs xzr, x4, x3
+  csel x1, x3, x1, eq
+  load_ext_name_far x3, User(userextname5)+0
+  blr x3
+  ; UserStackMap { by_type: [(types::I64, CompoundBitSet {0, 8})], sp_to_sized_stack_slots: None }
+  b label84
+
+compiled	run
+==== main (4856 bytes)

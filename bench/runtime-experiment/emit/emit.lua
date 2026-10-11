@@ -108,7 +108,7 @@ function Fn:here() return #self.code end
 function Fn:offset(from, to) return to - from end  -- relative to the op after `from`
 
 local function tokText(tok) return tok.value ~= nil and tok.value or tok.text end
-markCaptures, defineFunction, signatureOf = nil, nil, nil
+markCaptures, defineFunction, signatureOf, emitSwitch, emitDo = nil, nil, nil, nil, nil
 
 local function isNumeric(t)
     local tag = tyTag(t)
@@ -247,6 +247,8 @@ expr = function(f, node, dst, want)
             local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
         end
     end
+    if k == "switchExpr" then return emitSwitch(f, node, dst, want) end
+    if k == "doExpr" then return emitDo(f, node, dst, want) end
     -- Everything else lands in a value register.
     dst = (want ~= "f" and dst) or nil
     dst = dst or f:reg()
@@ -470,6 +472,10 @@ local function stmt(f, node)
         local back = f:op("Jmp", 0); f:patch(back, "Jmp", f:offset(back, top))
         f:patch(branch, "JmpIfIZero", c, f:offset(branch, f:here()))
         f:pop()
+    elseif k == "yieldStmt" then
+        local y = assert(f.yields and f.yields[#f.yields], "yield outside a do expression")
+        exprAs(f, node.value, y.class, y.dst)
+        y.exits[#y.exits + 1] = f:op("Jmp", 0)
     elseif k == "localFuncStmt" or k == "recordDecl" then
         -- Declared ahead of time; nothing to do inline.
     else
@@ -482,6 +488,80 @@ block = function(f, node)
     f:push()
     for _, s in ipairs(node.stats or node.body and node.body.stats or {}) do stmt(f, s) end
     f:pop()
+end
+
+-- Switch and do expressions ------------------------------------------------
+local function armClass(want) return want == "f" and "f" or "v" end
+
+-- A do expression: its block runs with a yield target; every yield lands the
+-- value in the target register and jumps to the end of the block.
+function emitDo(f, node, dst, want)
+    local class = armClass(want)
+    dst = dst or (class == "f" and f:freg() or f:reg())
+    f.yields = f.yields or {}
+    f.yields[#f.yields + 1] = {dst = dst, class = class, exits = {}}
+    block(f, node.body)
+    local y = table.remove(f.yields)
+    for _, e in ipairs(y.exits) do f:patch(e, "Jmp", f:offset(e, f:here())) end
+    return dst, class
+end
+
+local function staticInt(v)
+    if v.kind == "paren" then return staticInt(v.expr) end
+    if v.kind ~= "number" then return nil end
+    local n = tonumber(tokText(v.token))
+    if n and n >= 0 and n < 256 and n == math.floor(n) then return n end
+end
+
+-- A switch over small non-negative integer literals is one `Switch` through a
+-- jump table; anything else is an equality chain in source order.
+function emitSwitch(f, node, dst, want)
+    local class = armClass(want)
+    dst = dst or (class == "f" and f:freg() or f:reg())
+    -- SWITCH_CHAIN=1 forces the equality chain, to measure the jump table against it.
+    local dense = isNumeric(node.selector.inferredType) and not os.getenv("SWITCH_CHAIN")
+    local maxv = -1
+    for _, a in ipairs(node.cases) do
+        if a.patternKind ~= "static" or a.guard then dense = false end
+        for _, v in ipairs(a.values) do local n = staticInt(v); if n then maxv = math.max(maxv, n) else dense = false end end
+    end
+    local exits = {}
+    local function arm(e) exprAs(f, e, class, dst); exits[#exits + 1] = f:op("Jmp", 0) end
+    if dense then
+        local sel = exprAs(f, node.selector, "f")
+        local i = f:freg(); f:op("FToI", i, sel)
+        f.tables = f.tables or {}
+        local t = #f.tables; f.tables[t + 1] = {default = 0, offsets = {}}
+        local at = f:op("Switch", i, t)
+        local targets = {}
+        for _, a in ipairs(node.cases) do
+            local start = f:here()
+            for _, v in ipairs(a.values) do targets[staticInt(v)] = start end
+            arm(a.expr)
+        end
+        local elseStart = f:here()
+        if node.elseCase then arm(node.elseCase.expr) end
+        local tbl = f.tables[t + 1]
+        tbl.default = f:offset(at, elseStart)
+        for n = 0, maxv do tbl.offsets[n + 1] = f:offset(at, targets[n] or elseStart) end
+    else
+        local sel = exprAs(f, node.selector, "v")
+        for _, a in ipairs(node.cases) do
+            assert(a.patternKind == "static" and not a.guard, "switch arm kind")
+            local tests = {}
+            for _, v in ipairs(a.values) do
+                local vr = exprAs(f, v, "v"); local c = f:reg(); f:op("Eq", c, sel, vr)
+                tests[#tests + 1] = {f:op("JmpIf", c, 0), c}
+            end
+            local skip = f:op("Jmp", 0)
+            for _, tst in ipairs(tests) do f:patch(tst[1], "JmpIf", tst[2], f:offset(tst[1], f:here())) end
+            arm(a.expr)
+            f:patch(skip, "Jmp", f:offset(skip, f:here()))
+        end
+        if node.elseCase then arm(node.elseCase.expr) end
+    end
+    for _, e in ipairs(exits) do f:patch(e, "Jmp", f:offset(e, f:here())) end
+    return dst, class
 end
 
 -- Capture analysis: every name used inside a nested function body is a
@@ -582,6 +662,7 @@ for _, f in ipairs(functions) do
         if c.kind == "str" then emit(("  const %d str %s"):format(i - 1, q(c.value))) else emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value))) end
     end
     for _, op in ipairs(f.code) do emit("  " .. table.concat(op, " ")) end
+    for ti, t in ipairs(f.tables or {}) do emit("  table " .. (ti - 1) .. " " .. t.default .. " " .. table.concat(t.offsets, " ")) end
     emit("end")
 end
 emit("entry " .. (funcByName.main and funcByName.main.id or 0))

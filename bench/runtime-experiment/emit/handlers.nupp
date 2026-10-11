@@ -1,0 +1,82 @@
+--- Opcode handlers for an untyped register machine, written in Nupp: the
+--- semantics of each dynamic operation defined once, used by the interpreter
+--- loop below and inlined by the template JIT.
+local function addAny(a: any, b: any): any
+    return (a as number) + (b as number)
+end
+
+local function subAny(a: any, b: any): any
+    return (a as number) - (b as number)
+end
+
+local function ltAny(a: any, b: any): boolean
+    return (a as number) < (b as number)
+end
+
+--- The interpreter loop: a flat code array of quads (op a b c), registers in
+--- an `any` array, dispatch through a jump-table switch.
+local function run(code: {integer}, regs: {any}): number
+    local pc: integer = 1
+    while true do
+        local op: integer = code[pc]
+        local a: integer = code[pc + 1]
+        local b: integer = code[pc + 2]
+        local c: integer = code[pc + 3]
+        local next: integer = switch op do
+            case 0 -> do
+                regs[a] = b
+                yield pc + 4
+            end
+            case 1 -> do
+                regs[a] = regs[b]
+                yield pc + 4
+            end
+            case 2 -> do
+                regs[a] = addAny(regs[b], regs[c])
+                yield pc + 4
+            end
+            case 3 -> do
+                regs[a] = subAny(regs[b], regs[c])
+                yield pc + 4
+            end
+            case 4 -> do
+                regs[a] = ltAny(regs[b], regs[c])
+                yield pc + 4
+            end
+            case 5 -> do
+                if regs[a] then
+                    yield pc + 4
+                end
+                yield b
+            end
+            case 6 -> a
+            case 7 -> do
+                return regs[a] as number
+            end
+            else -> -1
+        end
+        pc = next
+    end
+    return -1
+end
+
+--- sum(n): i = 0; s = 0; while i < n do s = s + i; i = i + 1 end; return s,
+--- as the register program r1 = n, r2 = i, r3 = s, r4 = flag, r5 = 1.
+local function main(n: number): number
+    local code: {integer} = {
+        0, 5, 1, 0,
+        0, 2, 0, 0,
+        0, 3, 0, 0,
+        4, 4, 2, 1,
+        5, 4, 33, 0,
+        2, 3, 3, 2,
+        2, 2, 2, 5,
+        6, 13, 0, 0,
+        7, 3, 0, 0,
+    }
+    local regs: {any} = {}
+    regs[1] = n
+    return run(code, regs)
+end
+
+return {main = main}

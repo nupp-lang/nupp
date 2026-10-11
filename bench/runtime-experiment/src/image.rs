@@ -33,7 +33,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let (sig, ret) = parts.get(6).and_then(|s| s.split_once(':')).map(|(a, b)| (a.bytes().collect::<Vec<u8>>(), b.as_bytes()[0])).unwrap_or((Vec::new(), b'v'));
                 let nfp = sig.iter().filter(|&&c| c == b'f').count() as u8;
                 let nvp = sig.len() as u8 - nfp;
-                cur = Some(Function { name, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp });
+                cur = Some(Function { name, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new() });
             }
             "const" => {
                 let f = cur.as_mut().unwrap();
@@ -50,6 +50,12 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
             }
             "end" => { funcs.push(cur.take().unwrap()); }
             "entry" => { entry = base + parts[1].parse::<u32>().unwrap(); }
+            "table" => {
+                let f = cur.as_mut().ok_or(format!("line {ln}: table outside a function"))?;
+                let def: i32 = parts[2].parse().map_err(|_| format!("line {ln}: table default"))?;
+                let offs: Vec<i32> = parts[3..].iter().map(|s| s.parse().unwrap()).collect();
+                f.jump_tables.push((def, offs));
+            }
             "entry2" => { it.entry2 = Some(base + parts[1].parse::<u32>().unwrap()); }
             name => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
@@ -69,7 +75,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                     "FK" => Op::FK(a(1) as u8, parts[2].parse().unwrap()), "FMov" => Op::FMov(a(1) as u8, a(2) as u8), "FUnbox" => Op::FUnbox(a(1) as u8, a(2) as u8), "FBox" => Op::FBox(a(1) as u8, a(2) as u8),
                     "FAdd" => Op::FAdd(a(1) as u8, a(2) as u8, a(3) as u8), "FSub" => Op::FSub(a(1) as u8, a(2) as u8, a(3) as u8), "FMul" => Op::FMul(a(1) as u8, a(2) as u8, a(3) as u8), "FDiv" => Op::FDiv(a(1) as u8, a(2) as u8, a(3) as u8), "FNeg" => Op::FNeg(a(1) as u8, a(2) as u8),
                     "FCmpLt" => Op::FCmpLt(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpLe" => Op::FCmpLe(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpEq" => Op::FCmpEq(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpNe" => Op::FCmpNe(a(1) as u8, a(2) as u8, a(3) as u8),
-                    "JmpIfIZero" => Op::JmpIfIZero(a(1) as u8, a(2) as i32), "BoolFromI" => Op::BoolFromI(a(1) as u8, a(2) as u8), "FRet" => Op::FRet(a(1) as u8),
+                    "JmpIfIZero" => Op::JmpIfIZero(a(1) as u8, a(2) as i32), "FToI" => Op::FToI(a(1) as u8, a(2) as u8), "Switch" => Op::Switch(a(1) as u8, a(2) as u16), "BoolFromI" => Op::BoolFromI(a(1) as u8, a(2) as u8), "FRet" => Op::FRet(a(1) as u8),
                     "GetSlotF" => Op::GetSlotF(a(1) as u8, a(2) as u8, a(3) as u16), "SetSlotF" => Op::SetSlotF(a(1) as u8, a(2) as u16, a(3) as u8), "LenF" => Op::LenF(a(1) as u8, a(2) as u8), "GetIdxF" => Op::GetIdxF(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdxF" => Op::SetIdxF(a(1) as u8, a(2) as u8, a(3) as u8),
                     "NewClosure" => Op::NewClosure(a(1) as u8, base + a(2) as u32, a(3) as u8, a(4) as u8), "NewCell" => Op::NewCell(a(1) as u8, a(2) as u8), "GetCell" => Op::GetCell(a(1) as u8, a(2) as u8), "SetCell" => Op::SetCell(a(1) as u8, a(2) as u8), "GetUpval" => Op::GetUpval(a(1) as u8, a(2) as u8),
                     other => return Err(format!("line {ln}: unknown opcode {other}")),
