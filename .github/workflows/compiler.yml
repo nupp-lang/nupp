@@ -206,15 +206,14 @@ jobs:
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
 
   # Formatting, the checker, and every suite a Nupp worker can share a process
-  # with: about a hundred suites in well under a minute. Placed ahead of the
-  # platform jobs so the failures that need no platform are reported before any
-  # platform is provisioned.
+  # with. Run these before the platform jobs so failures appear before platform
+  # provisioning.
   fast-checks:
     name: Fast checks
     needs: classify
     if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
