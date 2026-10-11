@@ -79,3 +79,64 @@ and the bounds fragment of the verifier (Wasm validation replaces the
 class checks). What it would add: a Wasm emitter from the typed bytecode
 or the checked tree, a Lua object model over GC structs and arrays, and a
 suspension lowering in the compiler.
+
+## Second half: tables, strings, suspension
+
+Same day. `wat/tables.wat` is a Lua table on Wasm GC: open addressing
+over two GC arrays (keys as `eqref`, values as `anyref`), string keys
+interned through a second open-addressed table so equality is `ref.eq`,
+the hash carried in the string struct, growth at half load. Numbers stay
+boxed `f64` structs. `wat/statemachine.wat` is suspension the way a
+compiler would lower it without stack switching: a suspendable function
+is a state machine over a heap frame, a park is a return, a resume a call;
+one level, and three nested suspendable frames per park.
+
+| 5M field updates by name (`churn`) | ms |
+| --- | ---: |
+| LuaJIT trace | 2.6 |
+| PUC Lua 5.5 | 31 |
+| LuaJIT interpreter | 31 |
+| Wasm GC, copying collector, 256 MB initial heap | 49 |
+| prototype interpreter | 51 |
+| Wasm GC, copying collector, default heap | 84 |
+| Wasm GC, null collector (no collection) | 42 |
+
+The table itself is fine: the same loop with `i31` values and no
+allocation is 5.2 ns per iteration against PUC's 6 for the whole
+operation. What the default configuration pays is the collector, and the
+isolation is clean: allocating a box and storing it into an existing
+array costs 64 ns per store under the copying collector with the default
+heap, 2.8 ns with a 256 MB initial heap, 3.3 ns under the null collector.
+wasmtime's copying collector is a semispace without generations: every
+collection copies the live set, so cost per allocation is the live set
+divided by the space between collections, and the default heap is small.
+The same shows in interning: finding an existing string among 100,000
+costs 108 ns at the default size and 22 ns at 256 MB (LuaJIT's trace 39
+to 46, PUC 120). Making new strings: 26 to 61 ns against PUC's 155 and
+LuaJIT's 105.
+
+| suspension, per park and resume | ns |
+| --- | ---: |
+| state machine, one frame | 0.9 |
+| state machine, three nested frames | 3.9 |
+| prototype runtime, heap frame stack switch | 10 |
+| stack-switching proposal | refused on arm64 |
+
+Where that leaves the gate:
+
+- **Calls and records**: inside the price with margin (first half).
+- **Tables**: inside the price only with the heap tuned (1.6x PUC at
+  256 MB), outside it at the default (2.7x). The dependence is on
+  wasmtime's collector policy, which its documentation says may change,
+  and a non-generational semispace will always charge mutation-heavy code
+  with a large live set. The compiler's own heap is that case.
+- **Strings**: fine.
+- **Suspension**: faster than the prototype's primitive, but only as a
+  compiler lowering: every function that can park compiles to a state
+  machine, so the checker has to know which can (an effect on the
+  signature), or every function is compiled twice. Nothing on the native
+  stack can be kept, which is the same constraint the plan already has
+  for its own runtime, met a different way.
+- **Not measured**: metatables and dynamic dispatch, `pcall` through the
+  exceptions proposal, the vector family, the typed kernels (expected to
+  tie), the browser.

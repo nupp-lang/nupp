@@ -20,6 +20,7 @@ fn main() -> Result<()> {
     let mut config = Config::new();
     config.wasm_gc(true).wasm_function_references(true).wasm_exceptions(true).wasm_tail_call(true).collector(collector);
     config.cranelift_opt_level(OptLevel::Speed);
+    if let Some(mb) = std::env::var("GC_HEAP_MB").ok().and_then(|s| s.parse::<u64>().ok()) { config.gc_heap_initial_size(mb << 20); config.gc_heap_reservation((mb * 2) << 20); }
     // Stack switching is tried on its own engine, so a refusal costs nothing else.
     let park_engine = { let mut c = config.clone(); c.wasm_stack_switching(true); Engine::new(&c) };
     let park_ok = park_engine.is_ok();
@@ -41,6 +42,48 @@ fn main() -> Result<()> {
             let n: f64 = std::env::var("CHURN_N").ok().and_then(|s| s.parse().ok()).unwrap_or(5_000_000.0);
             let m = timed("typed\tchurn-alloc", n, || churn.call(&mut store, n).unwrap());
             println!("typed\talloc-drop\t{:.1} ns per object", m / n * 1e9);
+        }
+    }
+    {
+        let module = load(&engine, "tables.wat")?;
+        let mut store = Store::new(&engine, ());
+        let instance = Instance::new(&mut store, &module, &[])?;
+        let churn = instance.get_typed_func::<f64, f64>(&mut store, "churn")?;
+        let n = 5_000_000.0;
+        timed("tables\tchurn5m", n * (n + 1.0) / 2.0, || churn.call(&mut store, n).unwrap());
+        let intern = instance.get_typed_func::<i32, i32>(&mut store, "intern")?;
+        let interned = instance.get_typed_func::<(), i32>(&mut store, "interned")?;
+        let n = 100_000i32;
+        let s = cpu_now(); let a = intern.call(&mut store, n)?; let miss = cpu_now() - s;
+        assert_eq!(interned.call(&mut store, ())?, n + 1, "distinct strings");
+        let probes = instance.get_typed_func::<(), i32>(&mut store, "probes")?;
+        let miss_probes = probes.call(&mut store, ())?;
+        let mut hits = Vec::new();
+        for _ in 0..5 { let s = cpu_now(); let b = intern.call(&mut store, n)?; hits.push(cpu_now() - s); assert_eq!(a, b); }
+        let hit_probes = probes.call(&mut store, ())? / 5;
+        println!("tables\tprobes per lookup\tnew {:.2}\texisting {:.2}", miss_probes as f64 / n as f64, hit_probes as f64 / n as f64);
+        assert_eq!(interned.call(&mut store, ())?, n + 1, "no duplicates");
+        println!("tables\tintern 100k new strings\t{:.1} ns per string", miss / n as f64 * 1e9);
+        println!("tables\tintern 100k existing strings\t{:.1} ns per string", median(hits) / n as f64 * 1e9);
+        { let f = instance.get_typed_func::<i32, i32>(&mut store, "churn_i31")?; let n = 20_000i32; let mut samples = Vec::new(); for _ in 0..5 { let s = cpu_now(); let r = f.call(&mut store, n)?; samples.push(cpu_now() - s); assert_eq!(r, n * (n + 1) / 2); } println!("tables\tchurn_i31 (no allocation)\t{:.2} ns per iteration", median(samples) / n as f64 * 1e9); }
+        for (name, want) in [("refstore", 8), ("numstore", 9_999_999), ("alloc_store", 9_999_999)] {
+            let f = instance.get_typed_func::<i32, i32>(&mut store, name)?;
+            let n = 10_000_000i32;
+            let mut samples = Vec::new();
+            for _ in 0..5 { let s = cpu_now(); let r = f.call(&mut store, n)?; samples.push(cpu_now() - s); assert_eq!(r, want); }
+            println!("tables\t{name}\t{:.2} ns per store", median(samples) / n as f64 * 1e9);
+        }
+    }
+    {
+        let module = load(&engine, "statemachine.wat")?;
+        let mut store = Store::new(&engine, ());
+        let instance = Instance::new(&mut store, &module, &[])?;
+        for name in ["park1", "park3"] {
+            let f = instance.get_typed_func::<i64, i64>(&mut store, name)?;
+            let n = 10_000_000i64;
+            let mut samples = Vec::new();
+            for _ in 0..5 { let s = cpu_now(); let r = f.call(&mut store, n)?; samples.push(cpu_now() - s); assert_eq!(r, n * (n - 1) / 2); }
+            println!("statemachine\t{name}\t{:.1} ns per park and resume", median(samples) / n as f64 * 1e9);
         }
     }
     {
