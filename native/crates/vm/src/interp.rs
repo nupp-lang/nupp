@@ -88,6 +88,11 @@ pub enum Op {
     /// `string.byte(s, i)` with one result: the byte as a number, or nil out
     /// of range. (destination, string register, integer index register)
     StrByte(u8, u8, u8),
+    /// `a ^ b` and `a // b` on values.
+    Pow(u8, u8, u8),
+    IDiv(u8, u8, u8),
+    IXor(u8, u8, u8),
+    INot(u8, u8),
     Ret(u8),
     RetNil,
     NewTable(u8),
@@ -114,6 +119,12 @@ pub enum Op {
     TagCheckRec(u8, u8, u32),
     TagCheckNum(u8, u8),
     TagCheckStr(u8, u8),
+    /// Whether a value is a record of the shape: `x is R`, a boolean.
+    IsRec(u8, u8, u32),
+    /// The frame's first `n` surplus arguments into `dst..`, nil-filled.
+    VarargN(u8, u8),
+    /// A table of the frame's surplus arguments: `{...}`.
+    VarargTable(u8),
     /// New closure over function `fid` capturing n values from base..
     NewClosure(u8, u32, u8, u8),
     NewCell(u8, u8),
@@ -692,6 +703,21 @@ impl Interp {
         self.resume_with(tid, &outs);
         self.close_scope(scope);
     }
+    /// The global tables the compiler's modules reach for (`bit`, `os`, `io`,
+    /// `package`, `_G`), served by `require` as runtime-provided modules.
+    pub fn install_globals(&mut self) {
+        let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
+        let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
+        let os = table_of(self, &["os.getenv", "os.clock", "os.time"]);
+        let io = table_of(self, &["io.write"]);
+        let package = self.new_table(); self.registered.push(package);
+        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
+        let g = self.new_table(); self.registered.push(g);
+        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package)] { let k = self.intern(name); self.set_index(g, k, t); }
+        for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
+        let k = self.intern("_G"); self.set_index(g, k, g);
+        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("_G", g)] { self.loaded.insert(name.to_string(), t); }
+    }
     /// The host table a module gets from `require`: one builtin per service.
     pub fn host_table(&mut self) -> Value {
         let t = self.new_table(); self.registered.push(t);
@@ -799,6 +825,7 @@ impl Interp {
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { hdr!(self, rec, "not a record").slots()[i] }
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { (*p.as_ptr()).slots_mut()[i] = v; } }
     pub fn set_cell(&mut self, c: Value, v: Value) { let p = c.as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { if (*p.as_ptr()).kind != KIND_CELL { self.err("not a cell") } (*p.as_ptr()).slots_mut()[0] = v; } }
+    pub fn is_rec(&self, v: Value, shape: u32) -> bool { v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false) }
     pub fn tagcheck_rec(&self, v: Value, shape: u32) { let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } }
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
     pub fn array_get(&self, t: Value, i: usize) -> Value { hdr!(self, t, "not a table").table_ref().array[i] }
@@ -931,6 +958,10 @@ impl Interp {
                     Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = self.arith(x, y, |p, q| p * q) }
                     Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() < y.as_num()) } else { Value::boolean(self.bytes_of(x) < self.bytes_of(y)) } }
                     Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() <= y.as_num()) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) } }
+                    Op::Pow(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("power of a non-number") } r!(d) = Value::num(x.as_num().powf(y.as_num())) }
+                    Op::IDiv(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("floor division of a non-number") } r!(d) = Value::num((x.as_num() / y.as_num()).floor()) }
+                    Op::IXor(d, a, b) => ir!(d) = ir!(a) ^ ir!(b),
+                    Op::INot(d, a) => ir!(d) = !ir!(a),
                     Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("modulo of a non-number") } let (p, q) = (x.as_num(), y.as_num()); r!(d) = Value::num(p - (p / q).floor() * q) }
                     Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("divide a non-number") } r!(d) = Value::num(x.as_num() / y.as_num()) }
                     Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
@@ -978,6 +1009,9 @@ impl Interp {
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !self.is_stringish(v) { self.err("value is not a string") } r!(d) = v; }
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
+                    Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
+                    Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
+                    Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }
                     Op::GetCell(d, c) => { let cv = r!(c); let h = hdr!(self, cv, &format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c)); if h.kind != KIND_CELL { self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } r!(d) = h.slots()[0]; }
                     Op::SetCell(c, a) => { let v = r!(a); let cv = r!(c); self.set_cell(cv, v); }
                     Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let h = hdr!(self, clo, "upvalue outside a closure"); if h.kind != KIND_CLOSURE { self.err("not a closure") } r!(d) = h.slots()[i as usize]; }
@@ -1278,6 +1312,10 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::CallDyn(..) => "CallDyn",
         Op::CallK(..) => "CallK",
         Op::StrByte(..) => "StrByte",
+        Op::Pow(..) => "Pow",
+        Op::IDiv(..) => "IDiv",
+        Op::IXor(..) => "IXor",
+        Op::INot(..) => "INot",
         Op::Ret(..) => "Ret",
         Op::RetNil => "RetNil",
         Op::NewTable(..) => "NewTable",
@@ -1300,6 +1338,9 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::TagCheckRec(..) => "TagCheckRec",
         Op::TagCheckNum(..) => "TagCheckNum",
         Op::TagCheckStr(..) => "TagCheckStr",
+        Op::IsRec(..) => "IsRec",
+        Op::VarargN(..) => "VarargN",
+        Op::VarargTable(..) => "VarargTable",
         Op::NewClosure(..) => "NewClosure",
         Op::NewCell(..) => "NewCell",
         Op::GetCell(..) => "GetCell",

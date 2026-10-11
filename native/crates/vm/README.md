@@ -157,3 +157,48 @@ held a stale word instead of nil, and the parser took a type path on it; a
 `return f()` returned eight registers rather than what `f` returned; image
 string constants with bytes outside ASCII were written raw; a field named
 `method` collided with the image's method entries.
+
+**Coverage (2026-10-11).** The next gate is the compiler and the library,
+then self-hosting, so the emitter was run over the checker's whole module
+graph (`EMIT_SURVEY=1`, which emits every function under `pcall` and
+tallies what refused): 2,473 functions across the modules `nupp.compiler.check`
+reaches, and every one emits. What it took, in the order the survey turned
+them up:
+
+- The capture analysis walked every named key of a node, and the checker
+  hangs `definition` links there: a name's declaration, possibly in another
+  module. The walk followed those into other functions' bodies first, so
+  the shared `seen` set skipped them when their own function was analysed,
+  and a method's use of a module local was never recorded. The CST keeps
+  every syntax child in a node's array part, so the walks now read only that.
+- `self` is a parameter only in the colon form; elsewhere it is whatever
+  local the name reaches (`local self = {}` with `function self.fix()`).
+- Exports follow the Lua backend's model: a declared module's value is an
+  exports table, `export = v` replaces it, `export <decl>` adds the names,
+  and an exported bare `function f` is a local of the chunk from its first
+  instruction. Not yet done: registering the table before the body runs,
+  which the Lua backend does for require cycles.
+- Ownership intrinsics (`borrow`, `borrowFrom`, `adopt`, `release`,
+  `region`, `drop`, `partition`) are identities at run time, as in the Lua
+  backend; there is no cleanup runtime here yet.
+- `x is T` as the backend decides it: settled statically, a nil test, a
+  `type()` comparison, or a record shape test (`IsRec`, a boolean form of
+  `TagCheckRec`; a union of records tests each in order).
+- `..` chains fold left into one accumulator rather than nesting right with
+  a register per operand; compound assignment; captured `for` variables get
+  a cell per iteration; `do ... yield v end` expressions.
+- Varargs outside a call's last argument: `VarargN` copies the frame's
+  surplus into registers (`local a, b = ...`, `f(..., x)`), `VarargTable`
+  builds `{...}`. The typed tier refuses vararg functions, which have no
+  window onto the interpreter frame; the parser image has one.
+- Register pressure: `checkMod.check` declares 242 locals and
+  `gen.generate` 200. A function with more declarations than the budget
+  (120) keeps a spill table in one register, and locals declared past the
+  budget live there under a per-declaration key, cells included; reads and
+  writes are field accesses. Only `local`, `local function` and record
+  values spill; parameters and loop variables stay in registers.
+
+The parser's three inputs and `jitbench` agree with LuaJIT on every tier
+and collector mode after all of it, at the same times as above. The survey
+proves emission, not execution: running the checker on the VM is the next
+step, and needs the host services it reads files and environment through.

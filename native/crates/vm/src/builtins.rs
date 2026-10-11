@@ -11,6 +11,7 @@ pub const NAMES: &[&str] = &[
     "table.concat", "table.insert", "table.remove", "table.unpack",
     "math.floor", "math.min", "math.max", "math.abs", "math.huge",
     "pcall", "pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable", "unpack",
+    "bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "os.getenv", "os.clock", "os.time", "io.write", "loadstring", "require",
 ];
 
 pub static STATS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -278,6 +279,21 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
         N_35 => outs![arg(args, 0)],
         N_36 => outs![Value::NIL],
+        // The bit library: 32-bit two's complement, as LuaJIT's.
+        38 => { let mut r: i32 = -1; for a in args { r &= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
+        39 => { let mut r: i32 = 0; for a in args { r |= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
+        40 => { let mut r: i32 = 0; for a in args { r ^= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
+        41 => outs![Value::num(!(arg(args, 0).as_num() as i64 as i32) as f64)],
+        42 => outs![Value::num(((arg(args, 0).as_num() as i64 as i32).wrapping_shl(arg(args, 1).as_num() as u32)) as f64)],
+        43 => outs![Value::num(((arg(args, 0).as_num() as i64 as u32).wrapping_shr(arg(args, 1).as_num() as u32) as i32) as f64)],
+        44 => outs![Value::num(((arg(args, 0).as_num() as i64 as i32).wrapping_shr(arg(args, 1).as_num() as u32)) as f64)],
+        45 => outs![Value::num((arg(args, 0).as_num() as i64 as i32) as f64)],
+        46 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); match std::env::var(&name) { Ok(v) => outs![it.heap_new_string(&v)], Err(_) => outs![Value::NIL] } }
+        47 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t)] }
+        48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t.floor())] }
+        49 => { use std::io::Write; let mut o = std::io::stdout(); for a in args { o.write_all(&bytes_of(it, *a)).unwrap(); } Outs::new() }
+        50 => it.err("loadstring: no Lua evaluation on this runtime"),
+        51 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); outs![it.require(&name)] }
         other => panic!("runtime error: builtin {} not implemented", NAMES[other as usize]),
     }
 }

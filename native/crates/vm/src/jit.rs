@@ -91,10 +91,10 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
         ("j_call_dyn", j_call_dyn as *const u8, 3), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
-        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
+        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_is_rec", j_is_rec as *const u8, 2), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
         ("j_new_table_sized", j_new_table_sized as *const u8, 2), ("j_ret_extra", j_ret_extra as *const u8, 2), ("j_pcall", j_pcall as *const u8, 2), ("j_new_bytes", j_new_bytes as *const u8, 1), ("j_bytes_to_str", j_bytes_to_str as *const u8, 2),
         ("j_new_buffer", j_new_buffer as *const u8, 0), ("j_buf_append", j_buf_append as *const u8, 2), ("j_buf_append_sub", j_buf_append_sub as *const u8, 4), ("j_substring", j_substring as *const u8, 3), ("j_buf_finish", j_buf_finish as *const u8, 1),
-        ("j_str_byte", j_str_byte as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
+        ("j_str_byte", j_str_byte as *const u8, 2), ("j_pow", j_pow as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
     ]
 }
 
@@ -123,10 +123,13 @@ impl Jit {
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
     pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
+        // A vararg function keeps its surplus arguments in the interpreter's
+        // frame, which compiled code has no window onto.
+        if f.vararg { return Err("vararg".to_string()); }
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::Park(..) | Op::Checkpoint => false,
+                Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => false,
                 _ => true,
             };
             if !ok { return Err(format!("{:?}", op)); }
@@ -398,6 +401,10 @@ impl Jit {
                     Op::ICmpEq(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::Equal, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::ICmpNe(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::NotEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::ICmpSLt(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::SignedLessThan, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
+                    Op::IXor(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().bxor(p, q)); }
+                    Op::INot(d, x) => { let p = iv!(x); seti!(d, b.ins().bnot(p)); }
+                    Op::Pow(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = hcall!("j_pow", &[p, q]); setr!(d, b.inst_results(c)[0]); }
+                    Op::IDiv(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let both = is_num2!(p, q); checked!(both); let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q)); let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); setr!(d, box_f64!(fl)); }
                     Op::ICmpSLe(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::SignedLessThanOrEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::Nil(d) => { setr!(d, b.ins().iconst(types::I64, NIL)); }
                     Op::BytesLen(d, s) => { let (_, len) = bytes_of!(s); seti!(d, len); }
@@ -582,6 +589,7 @@ impl Jit {
                         setr!(d, box_f64!(r));
                     }
                     Op::TagCheckStr(d, a) => { let v = rv!(a); hcall!("j_tagcheck_str", &[v]); setr!(d, v); }
+                    Op::IsRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); let c = hcall!("j_is_rec", &[v, s]); setr!(d, b.inst_results(c)[0]); }
                     Op::TagCheckRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); hcall!("j_tagcheck_rec", &[v, s]); setr!(d, v); }
                     Op::TagCheckNum(d, x) => { let v = rv!(x); let masked = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, masked, QNAN); checked!(ok); setr!(d, v); }
                     Op::RetN(start, n) => {
@@ -748,7 +756,7 @@ impl Jit {
                     Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); terminated = true; }
                     Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); b.ins().return_(&[r]); terminated = true; }
                     Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
-                    Op::Park(..) | Op::Checkpoint => unreachable!(),
+                    Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
             if !terminated { if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
@@ -826,6 +834,7 @@ extern "C" fn j_set_field(t: u64, name: u64, v: u64) -> u64 { let it = ctx(); it
 extern "C" fn j_new_cell(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_cell_impl(v))).0 }
 extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_cell_impl(c, v))).0 }
 extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
+extern "C" fn j_is_rec(v: u64, shape: u64) -> u64 { V::boolean(ctx().is_rec(V(v), shape as u32)).0 }
 extern "C" fn j_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_rec_impl(v, shape))).0 }
 extern "C" fn j_tagcheck_str(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_str_impl(v))).0 }
 extern "C" fn j_ret_extra(argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_ret_extra_impl(argv, n))).0 }
@@ -956,6 +965,8 @@ fn j_buf_append_sub_impl(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx
 fn j_substring_impl(s: u64, i: u64, j: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = it.sub_bytes(V(s), i as i64, j as i64).to_vec(); let v = it.string_of(&t); leave_helper!(_hp); v.0 }
 fn j_buf_finish_impl(buf: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().buf_finish(V(buf)); leave_helper!(_hp); v.0 }
 fn j_str_byte_impl(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(V(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { V::num(bytes[i as usize - 1] as f64).0 } else { V::NIL.0 } }
+fn j_pow_impl(a: u64, b: u64) -> u64 { let it = ctx(); let (x, y) = (V(a), V(b)); if !(x.is_num() && y.is_num()) { it.err("power of a non-number") } V::num(x.as_num().powf(y.as_num())).0 }
+extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }
 fn j_eq_slow_impl(a: u64, b: u64) -> u64 { ctx().values_equal(V(a), V(b)) as u64 }
 fn j_require_impl(name: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let text = String::from_utf8_lossy(it.bytes_of(V(name))).into_owned(); let v = it.require(&text); leave_helper!(_hp); v.0 }
 fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().heap.shapes[shape as usize].methods.insert(V(name), V(f)); 0 }

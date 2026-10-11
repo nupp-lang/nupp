@@ -157,7 +157,8 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     use C::*;
     let r = |list: &[(C, u8)]| (list.to_vec(), Vec::new());
     match *op {
-        K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) => r(&[(V, d)]),
+        K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) | VarargTable(d) => r(&[(V, d)]),
+        VarargN(d, n) => { let mut l = Vec::new(); for i in 0..n { if let Some(rg) = d.checked_add(i) { l.push((V, rg)); } } (l, Vec::new()) }
         Move(d, s) | Not(d, s) | Neg(d, s) | Len(d, s) | TagCheckNum(d, s) | TagCheckStr(d, s) | NewCell(d, s) | GetCell(d, s) | SetCell(d, s) | BufAppend(d, s) | BufFinish(d, s) => r(&[(V, d), (V, s)]),
         Add(d, a, b) | Sub(d, a, b) | Mul(d, a, b) | Lt(d, a, b) | Le(d, a, b) | Eq(d, a, b) | Ne(d, a, b) | Concat(d, a, b) | GetIdx(d, a, b) | SetIdx(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         CallDyn(fr, base, nargs) => { let n = (nargs & 127) as usize; let mut l = vec![(V, fr), (V, base)]; for i in 1..=n { if let Some(rg) = base.checked_add(i as u8) { l.push((V, rg)); } } (l, Vec::new()) }
@@ -172,6 +173,9 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         IBswap32(d, a) | IMaskU32(d, a) | IMov(d, a) => r(&[(I, d), (I, a)]),
         LoadU8(d, s, i) | LoadU8K(d, s, i) | LoadU32W(d, s, i) => r(&[(I, d), (V, s), (I, i)]),
         StrByte(d, s, i) => r(&[(V, d), (V, s), (I, i)]),
+        Pow(d, a, b) | IDiv(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
+        IXor(d, a, b) => r(&[(I, d), (I, a), (I, b)]),
+        INot(d, a) => r(&[(I, d), (I, a)]),
         StoreU8(s, i, v) | StoreU32(s, i, v) => r(&[(V, s), (I, i), (I, v)]),
         NewBytes(d, n) => r(&[(V, d), (I, n)]),
         BytesToStr(d, s, n) => r(&[(V, d), (V, s), (I, n)]),
@@ -184,7 +188,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         NewRecord(d, _) => r(&[(V, d)]),
         GetSlot(d, o, _) => r(&[(V, d), (V, o)]),
         SetSlot(o, _, v) => r(&[(V, o), (V, v)]),
-        TagCheckRec(d, v, _) => r(&[(V, d), (V, v)]),
+        TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
         FBox(d, f) => r(&[(V, d), (F, f)]),

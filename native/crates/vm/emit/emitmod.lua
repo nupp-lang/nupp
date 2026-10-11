@@ -13,6 +13,7 @@ local env = envMod.new(root)
 
 local out = {}
 local assignedNames = {}
+SURVEY = {}
 local function emit(s) out[#out + 1] = s end
 local function tokText(tok) return tok.value ~= nil and tok.value or tok.text end
 local function tyTag(t) return type(t) == "table" and t.tag or "?" end
@@ -66,6 +67,8 @@ local function structShape(ty)
     return shape
 end
 local function shapeOf(ty)
+    -- An ownership qualifier wraps the type it qualifies.
+    while type(ty) == "table" and (ty.tag == "borrowed" or ty.tag == "affine" or ty.tag == "owned") and ty.inner do ty = ty.inner end
     if tyTag(ty) == "nominal" then return shapes[ty.name] or shapes[(ty.name or ""):match("([%w_]+)$") or ""] end
 end
 
@@ -99,7 +102,19 @@ function Fn:reg() local r = self.nregs; self.nregs = r + 1; self.maxRegs = math.
 function Fn:freg() local r = self.nfregs; self.nfregs = r + 1; self.maxFregs = math.max(self.maxFregs or 0, self.nfregs); if r > 250 then error("float register pressure in " .. self.name) end; return r end
 -- Declared registers persist; temporaries are reclaimed after each statement
 -- down to the highest declared register (`declTop`, `fdeclTop`).
-function Fn:declare(name, class)
+-- Locals of a function with more of them than registers: past the budget,
+-- a spillable local (`local`, `local function`, a record's value) lives
+-- in a table the frame keeps in one register, under a key unique to its
+-- declaration. Reads and writes become field accesses; a captured one
+-- holds its cell there.
+local SPILL_AT = 120
+function Fn:declare(name, class, spillable)
+    if spillable and self.spillReg and class == "v" and (self.declTop or 0) >= SPILL_AT then
+        self.spillCount = (self.spillCount or 0) + 1
+        local key = name .. "#" .. self.spillCount
+        self.scopes[#self.scopes][name] = {class = "v", cell = self.captured[name] or nil, spill = key}
+        return nil, self.captured[name] or nil, key
+    end
     if self.captured[name] then
         local r = self:reg()
         self.declTop = math.max(self.declTop or 0, r + 1)
@@ -112,8 +127,15 @@ function Fn:declare(name, class)
     return r
 end
 function Fn:lookup(name)
-    for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class, r.cell end end
+    for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class, r.cell, r.spill end end
 end
+-- A spilled local's value (its cell, when captured) into a fresh register.
+function Fn:loadSpill(key, dst)
+    dst = dst or self:reg()
+    self:op("GetField", dst, self.spillReg, self:const("str", key))
+    return dst
+end
+function Fn:storeSpill(key, src) self:op("SetField", self.spillReg, self:const("str", key), src) end
 -- The function id a name is bound to, when it names a `local function` the
 -- module never assigns to: the call can then name its callee.
 -- The scope entry a name resolves to, through the enclosing functions.
@@ -140,9 +162,12 @@ end
 function Fn:upvalue(name)
     if self.upvalIndex[name] then return self.upvalIndex[name] end
     if not self.parent then return nil end
-    local preg, _, pcell = self.parent:lookup(name)
+    local preg, _, pcell, pspill = self.parent:lookup(name)
     local source
-    if preg then
+    if pspill then
+        assert(pcell, "captured spilled local " .. name .. " is not a cell in " .. self.parent.name)
+        source = {kind = "spill", key = pspill}
+    elseif preg then
         assert(pcell, "captured local " .. name .. " is not a cell in " .. self.parent.name)
         source = {kind = "local", reg = preg}
     else
@@ -163,7 +188,10 @@ function Fn:offset(from, to) return to - from end
 
 local BUILTINS = {}
 for _, n in ipairs({"pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable", "unpack"}) do BUILTINS[n] = true end
-local LIBS = {string = true, table = true, math = true}
+local LIBS = {string = true, table = true, math = true, bit = true, os = true, io = true}
+local BITOPS = {["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor", ["<<"] = "IShl", [">>"] = "IShrU"}
+-- Global tables the runtime provides as modules.
+local GLOBAL_MODULES = {_G = true, package = true, os = true, io = true, bit = true}
 
 local function isNumeric(t)
     local tag = tyTag(t)
@@ -203,7 +231,8 @@ local function coerce(f, reg, class, want, dst)
     return dst
 end
 
-local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure
+local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill
+local nuppChain, modulePathOf, queueModule
 -- Expression kinds that write their destination only after every read of
 -- their operands, so the destination may be a register the operands name.
 -- A table constructor writes first and then reads its fields; `and`, `or`
@@ -218,6 +247,25 @@ local function exprAs(f, node, want, dst)
     local pass = (want == "v" and dst and dstSafe(node)) and dst or nil
     local r, c = expr(f, node, pass, want)
     return coerce(f, r, c, want, dst)
+end
+-- Whether `node` is a dotted chain rooted at the global `nupp` namespace;
+-- answers the longest prefix that names a module and the parts after it.
+-- The module is queued for compilation.
+nuppChain = function(f, node)
+    local parts = {}
+    local n = node
+    while n.kind == "dotIndex" do table.insert(parts, 1, tokText(n.name)); n = n.obj end
+    if n.kind ~= "name" or tokText(n.token) ~= "nupp" or f:binding("nupp") then return nil end
+    for i = #parts, 0, -1 do
+        local name = "nupp" .. (i > 0 and ("." .. table.concat(parts, ".", 1, i)) or "")
+        if modulePathOf(name) then
+            local rest = {}
+            for j = i + 1, #parts do rest[#rest + 1] = parts[j] end
+            queueModule(name)
+            return name, rest
+        end
+    end
+    return nil
 end
 -- Emits a condition and the branch taken when it is false: a typed
 -- comparison branches on its integer register, anything else on its value.
@@ -247,6 +295,42 @@ local function valueDomain(f, node)
     if k == "binop" then return valueDomain(f, node.lhs) and valueDomain(f, node.rhs) end
     if k == "unop" then return valueDomain(f, node.operand) end
     return false
+end
+
+local IS_TYPE = {string = "string", number = "number", boolean = "boolean", table = "table", thread = "thread", userdata = "userdata", integer = "number", float = "number", ["function"] = "function"}
+-- `x is T`, as the Lua backend decides it: settled by the checker, a nil
+-- test, or a `type()` comparison for a primitive.
+emitIs = function(f, node, dst)
+    dst = dst or f:reg()
+    local t = node.type
+    local function typeTest(prim)
+        local call = {kind = "call", obj = {kind = "name", token = {text = "type"}, inferredType = {tag = "any"}}, args = {exprs = {node.expr}}, inferredType = {tag = "string"}}
+        local tv = exprAs(f, call, "v")
+        local kv = f:reg(); f:op("K", kv, f:const("str", prim))
+        f:op("Eq", dst, tv, kv)
+    end
+    if node.provenStatically then
+        if node.provenNeedsNil then local v = exprAs(f, node.expr, "v"); local n = f:reg(); f:op("Nil", n); f:op("Ne", dst, v, n)
+        else f:op("K", dst, f:const("true", "")) end
+    elseif node.refutedStatically then f:op("K", dst, f:const("false", ""))
+    elseif t.kind == "tname" and t.base.kind == "nil" then local v = exprAs(f, node.expr, "v"); local n = f:reg(); f:op("Nil", n); f:op("Eq", dst, v, n)
+    elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then typeTest(IS_TYPE[t.base.text])
+    elseif t.primitiveTest then typeTest(t.primitiveTest)
+    elseif t.kind == "tfunc" then typeTest("function")
+    elseif t.recordName and shapes[t.recordName] then
+        local v = exprAs(f, node.expr, "v"); f:op("IsRec", dst, v, shapes[t.recordName].id)
+    elseif t.recordNames then
+        -- One of several records: the subject is read once, tested in order.
+        local v = exprAs(f, node.expr, "v")
+        local exits = {}
+        for i, rn in ipairs(t.recordNames) do
+            assert(shapes[rn], "is-test against unknown record " .. tostring(rn))
+            f:op("IsRec", dst, v, shapes[rn].id)
+            if i < #t.recordNames then exits[#exits + 1] = f:op("JmpIf", dst, 0) end
+        end
+        for _, at in ipairs(exits) do f:patch(at, "JmpIf", dst, f:offset(at, f:here())) end
+    else error("is-test against " .. tostring(t.kind) .. " is not in this emitter") end
+    return dst, "v"
 end
 
 -- A call with results landing at `dst..`: eight registers are reserved above
@@ -299,6 +383,27 @@ local function emitStrByte(f, node, dst, nres)
 end
 local function emitCall(f, node, dst, nres)
     nres = nres or 1
+    if node.ownershipIntrinsic then
+        -- The checker's ownership helpers are identities at run time here:
+        -- no cleanup runtime is in this emitter yet.
+        local oi = node.ownershipIntrinsic
+        local args = node.args and node.args.exprs or {}
+        local src = oi == "region" and args[2] or args[1]
+        if oi == "adopt" or oi == "release" or oi == "borrow" or oi == "borrowFrom" or oi == "region" or oi == "drop" then
+            if src then exprAs(f, src, "v", dst) else f:op("Nil", dst) end
+            for i = 1, nres - 1 do f:op("Nil", dst + i) end
+            return
+        end
+        if oi == "partition" then
+            -- Its value is the pair it was handed: the second and third arguments.
+            while f.nregs < dst + math.max(nres, 2) do f:reg() end
+            if args[2] then exprAs(f, args[2], "v", dst) else f:op("Nil", dst) end
+            if nres >= 2 then if args[3] then exprAs(f, args[3], "v", dst + 1) else f:op("Nil", dst + 1) end end
+            for i = 2, nres - 1 do f:op("Nil", dst + i) end
+            return
+        end
+        error("ownership intrinsic " .. tostring(oi) .. " is not in this emitter")
+    end
     local callee = node.obj
     if callee.kind == "name" then
         local bnd = f:binding(tokText(callee.token))
@@ -390,6 +495,20 @@ expr = function(f, node, dst, want)
             local d = f:freg(); f:op(map[op], d, a, b); return d, "f"
         end
     end
+    if k == "binop" and tokText(node.op) == "//" then
+        local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
+        dst = (want ~= "f" and want ~= "i" and dst) or f:reg(); f:op("IDiv", dst, a, b); return dst, "v"
+    end
+    if k == "binop" and tokText(node.op) == "^" then
+        local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
+        dst = (want ~= "f" and want ~= "i" and dst) or f:reg(); f:op("Pow", dst, a, b); return dst, "v"
+    end
+    if k == "binop" and BITOPS[tokText(node.op)] then
+        local a = exprAs(f, node.lhs, "i"); local b = exprAs(f, node.rhs, "i"); local d = f:freg(); f:op(BITOPS[tokText(node.op)], d, a, b); return d, "i"
+    end
+    if k == "unop" and tokText(node.op) == "~" then
+        local a = exprAs(f, node.operand, "i"); local d = f:freg(); f:op("INot", d, a); return d, "i"
+    end
     if numeric and k == "unop" and tokText(node.op) == "-" then
         local a = exprAs(f, node.operand, "f"); local d = f:freg(); f:op("FNeg", d, a); return d, "f"
     end
@@ -397,10 +516,17 @@ expr = function(f, node, dst, want)
         if want ~= "f" and want ~= "i" then local a = exprAs(f, node.operand, "v"); dst = dst or f:reg(); f:op("Len", dst, a); return dst, "v" end
         local a = exprAs(f, node.operand, "v"); local d = f:freg(); f:op("LenF", d, a); return d, "f"
     end
-    if k == "vararg" then error("... outside a call's last argument is not in this emitter") end
+    if k == "vararg" then dst = dst or f:reg(); f:op("VarargN", dst, 1); return dst, "v" end
+    if k == "isExpr" then return emitIs(f, node, dst) end
     if k == "name" then
         local name = tokText(node.token)
-        local r, c, cell = f:lookup(name)
+        local r, c, cell, spill = f:lookup(name)
+        if spill then
+            local d = f:loadSpill(spill)
+            if cell then f:op("GetCell", d, d) end
+            if numeric and want == "f" then local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f" end
+            return d, "v"
+        end
         if r and cell then
             local d = f:reg(); f:op("GetCell", d, r)
             if numeric and want == "f" then local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f" end
@@ -443,7 +569,17 @@ expr = function(f, node, dst, want)
             local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
         end
     end
-    if k == "switchExpr" or k == "doExpr" then error("switch and do expressions are not in this emitter") end
+    if k == "doExpr" then
+        -- A block whose `yield v` statements each end it with a value.
+        dst = dst or f:reg()
+        f.yields = f.yields or {}
+        f.yields[#f.yields + 1] = {dst = dst, exits = {}}
+        block(f, node.body)
+        local y = table.remove(f.yields)
+        for _, at in ipairs(y.exits) do f:patch(at, "Jmp", f:offset(at, f:here())) end
+        return dst, "v"
+    end
+    if k == "switchExpr" then error("switch expressions are not in this emitter") end
     -- Everything else lands in a value register.
     dst = (want ~= "f" and want ~= "i" and dst) or nil
     dst = dst or f:reg()
@@ -462,6 +598,9 @@ expr = function(f, node, dst, want)
         local name = tokText(node.token)
         if BUILTINS[name] then f:op("K", dst, f:const("builtin", name))
         elseif name == "pcall" then f:op("K", dst, f:const("builtin", "pcall"))
+        elseif GLOBAL_MODULES[name] then f:op("Require", dst, f:const("str", name))
+        elseif name == "loadstring" or name == "load" then f:op("K", dst, f:const("builtin", "loadstring"))
+        elseif name == "require" then f:op("K", dst, f:const("builtin", "require"))
         else error("unresolved name " .. name .. " in " .. f.name) end
     elseif k == "binop" then
         local op = tokText(node.op)
@@ -476,6 +615,20 @@ expr = function(f, node, dst, want)
             local branch = f:op("JmpIf", c, 0)
             exprAs(f, node.rhs, "v", dst)
             f:patch(branch, "JmpIf", c, f:offset(branch, f:here()))
+        elseif op == ".." then
+            -- A chain `a .. b .. c ..` is one accumulator and one operand at a
+            -- time: string concatenation associates, and nesting it right as
+            -- the grammar does would hold a register per operand.
+            local parts = {}
+            local function flatten(n) if n.kind == "binop" and tokText(n.op) == ".." then flatten(n.lhs); flatten(n.rhs) else parts[#parts + 1] = n end end
+            flatten(node)
+            local mark = f.nregs
+            exprAs(f, parts[1], "v", dst)
+            for i = 2, #parts do
+                f.nregs = math.max(mark, f.declTop or 0)
+                local b = exprAs(f, parts[i], "v")
+                f:op("Concat", dst, dst, b)
+            end
         else
             local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
             local map = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["/"] = "Div", ["%"] = "Mod", ["<"] = "Lt", ["<="] = "Le", ["=="] = "Eq", [".."] = "Concat", ["~="] = "Ne", [">"] = "Gt", [">="] = "Ge"}
@@ -494,6 +647,12 @@ expr = function(f, node, dst, want)
         f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
         exprAs(f, node.ifFalse, "v", dst)
         f:patch(skip, "Jmp", f:offset(skip, f:here()))
+    elseif k == "dotIndex" and nuppChain(f, node) then
+        -- `nupp.a.b.c` on the global namespace: the longest prefix that is a
+        -- module is required (and compiled), the rest read as fields.
+        local modName, rest = nuppChain(f, node)
+        f:op("Require", dst, f:const("str", modName))
+        for _, part in ipairs(rest) do local t = f:reg(); f:op("GetField", t, dst, f:const("str", part)); f:op("Move", dst, t) end
     elseif k == "dotIndex" then
         local fname = tokText(node.name)
         if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:lookup(tokText(node.obj.token)) then
@@ -513,7 +672,14 @@ expr = function(f, node, dst, want)
         emitCall(f, node, dst)
     elseif k == "newExpr" then
         local call = node.call
-        local shape = assert(shapeOf(node.inferredType), "new of unknown record")
+        local shape = shapeOf(node.inferredType)
+        if not shape then
+            local t = node.inferredType
+            local keys = {}
+            if type(t) == "table" then for k, v in pairs(t) do keys[#keys + 1] = k .. "=" .. (type(v) == "table" and ("{" .. tostring(v.tag) .. ":" .. tostring(v.name) .. "}") or tostring(v)) end end
+            table.sort(keys)
+            error("new of unknown record " .. tostring(type(t) == "table" and t.name or tyTag(t)) .. " [" .. table.concat(keys, " ") .. "]")
+        end
         f:op("NewRecord", dst, shape.id)
         for _, a in ipairs(call.args.exprs or {}) do
             assert(a.kind == "namedArg", "new with positional arguments")
@@ -538,9 +704,14 @@ expr = function(f, node, dst, want)
                 return dst, "v"
             end
         end
+        if items == 1 and named == 0 and node.fields[1].value and node.fields[1].value.kind == "vararg" then f:op("VarargTable", dst); return dst, "v" end
         f:op("NewTableN", dst, math.min(items, 255), math.min(named, 255))
         local n = 0
+        -- Each field's temporaries die with it: a constructor with hundreds
+        -- of entries must not hold a register per entry.
+        local fieldMark = f.nregs
         for _, field in ipairs(node.fields) do
+            f.nregs = math.max(fieldMark, f.declTop or 0)
             if field.kind == "fieldNamed" then
                 local v = exprAs(f, field.value, "v")
                 f:op("SetField", dst, f:const("str", tokText(field.name)), v)
@@ -588,7 +759,7 @@ emitClosure = function(f, funcbody, dst, name, implicitSelf)
     local base = f:reg()
     while f.nregs < base + #inner.upvals + 1 do f:reg() end
     for i, u in ipairs(inner.upvals) do
-        if u.kind == "local" then f:op("Move", base + i, u.reg) else f:op("Move", base + i, f:upvalReg(u.index)) end
+        if u.kind == "local" then f:op("Move", base + i, u.reg) elseif u.kind == "spill" then f:loadSpill(u.key, base + i) else f:op("Move", base + i, f:upvalReg(u.index)) end
     end
     f:op("NewClosure", dst, inner.id, base, #inner.upvals)
     return inner
@@ -603,15 +774,47 @@ local function exprsInto(f, exprs, count, base)
             emitCall(f, e, base + i - 1, count - i + 1)
             return
         end
+        if i == #exprs and i < count and e.kind == "vararg" then f:op("VarargN", base + i - 1, count - i + 1); return end
         if i <= count then exprAs(f, e, "v", base + i - 1) else expr(f, e, nil, "v") end
     end
     for i = #exprs + 1, count do f:op("Nil", base + i - 1) end
 end
 
+-- The names an `export <decl>` publishes, as the Lua backend chooses them.
+local function exportedNames(stat)
+    local names = {}
+    if stat.kind == "localFuncStmt" then names[1] = stat.name and tokText(stat.name)
+    elseif stat.kind == "funcStmt" then
+        local fname = stat.name
+        local dotted = false
+        for _, child in ipairs(fname or {}) do if type(child) == "table" and child.kind == "name" and child ~= fname.base and child ~= fname.method then dotted = true end end
+        if fname and fname.base and not fname.method and not dotted then names[1] = tokText(fname.base) end
+    elseif stat.kind == "localStmt" then for _, t in ipairs(stat.names or {}) do names[#names + 1] = tokText(t) end
+    elseif stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct") then names[1] = stat.name and tokText(stat.name) end
+    return names
+end
+-- The bare function names a declared module exports: locals of the chunk
+-- from its first instruction, so a closure defined earlier can reach them.
+local function exportedFunctionNames(rootBlock)
+    local names = {}
+    for _, st in ipairs(rootBlock.stats or {}) do
+        if st.kind == "exportStmt" and st.stat then
+            local stat = st.stat
+            while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+            if stat and stat.kind == "funcStmt" and not (stat.comptimeFunction or stat.comptimeTok) then
+                for _, name in ipairs(exportedNames(stat)) do names[#names + 1] = name end
+            end
+        end
+    end
+    return names
+end
+
 local function assignTo(f, target, valueReg)
     if target.kind == "name" then
-        local r, c, cell = f:lookup(tokText(target.token))
-        if r and cell then f:op("SetCell", r, valueReg)
+        local r, c, cell, spill = f:lookup(tokText(target.token))
+        if spill then
+            if cell then local t = f:loadSpill(spill); f:op("SetCell", t, valueReg) else f:storeSpill(spill, valueReg) end
+        elseif r and cell then f:op("SetCell", r, valueReg)
         elseif r then coerce(f, valueReg, "v", c, r)
         else
             local ui = assert(f:upvalue(tokText(target.token)), "assign to unknown name " .. tokText(target.token))
@@ -656,8 +859,13 @@ stmt = function(f, node)
         if #names == 1 and #exprs <= 1 then
             local d = declared[1]
             local value = exprs[1]
-            local r, cell = f:declare(d.name, d.class)
-            if cell then
+            local r, cell, spill = f:declare(d.name, d.class, true)
+            if spill then
+                local v = f:reg()
+                if value then exprAs(f, value, "v", v) else f:op("Nil", v) end
+                if cell then local c = f:reg(); f:op("NewCell", c, v); v = c end
+                f:storeSpill(spill, v)
+            elseif cell then
                 local v = f:reg()
                 if value then exprAs(f, value, "v", v) else f:op("Nil", v) end
                 f:op("NewCell", r, v)
@@ -669,8 +877,12 @@ stmt = function(f, node)
         local base = f.nregs
         exprsInto(f, exprs, #names, base)
         for i, d in ipairs(declared) do
-            local r, cell = f:declare(d.name, d.class)
-            if cell then f:op("NewCell", r, base + i - 1) else coerce(f, base + i - 1, "v", d.class, r) end
+            local r, cell, spill = f:declare(d.name, d.class, true)
+            if spill then
+                local v = base + i - 1
+                if cell then local c = f:reg(); f:op("NewCell", c, v); v = c end
+                f:storeSpill(spill, v)
+            elseif cell then f:op("NewCell", r, base + i - 1) else coerce(f, base + i - 1, "v", d.class, r) end
         end
         markLibraryLocals(f, names, exprs)
     elseif k == "assignStmt" then
@@ -688,6 +900,27 @@ stmt = function(f, node)
         local base = f.nregs
         exprsInto(f, exprs, #targets, base)
         for i, target in ipairs(targets) do assignTo(f, target, base + i - 1) end
+    elseif k == "yieldStmt" then
+        local y = assert(f.yields and f.yields[#f.yields], "yield outside a do expression")
+        exprAs(f, node.value, "v", y.dst)
+        y.exits[#y.exits + 1] = f:op("Jmp", 0)
+    elseif k == "compoundAssign" then
+        -- `x op= e` is `x = x op e`; the target's own subexpressions are
+        -- evaluated twice, as they are side-effect free in practice.
+        local opText = tokText(node.op):sub(1, -2)
+        local bin = {kind = "binop", lhs = node.target, rhs = node.value, op = {text = opText}, inferredType = node.target.inferredType}
+        local target = node.target
+        if target.kind == "name" then
+            local r, c, cell = f:lookup(tokText(target.token))
+            if r and not cell then exprAs(f, bin, c, r); return end
+        end
+        local v = exprAs(f, bin, "v")
+        assignTo(f, target, v)
+    elseif k == "doStmt" then
+        block(f, node.body or node)
+    elseif k == "pragmaStmt" then
+        -- The pragma is compile-time only; the statement it annotates runs.
+        if node.stat then stmt(f, node.stat) end
     elseif k == "callStmt" then
         expr(f, node.expr, nil, "v")
     elseif k == "returnStmt" then
@@ -712,7 +945,22 @@ stmt = function(f, node)
             end
         end
     elseif k == "exportStmt" then
-        if node.value then local r = exprAs(f, node.value, "v"); f:op("Ret", r) elseif node.stat then stmt(f, node.stat) end
+        -- The Lua backend's model: a declared module's value is its exports
+        -- table, `export = v` replaces it, and `export <decl>` adds the
+        -- declared names to it as they are defined.
+        if node.value then
+            if f.exportsReg then exprAs(f, node.value, "v", f.exportsReg) else local r = exprAs(f, node.value, "v"); f:op("Ret", r) end
+        elseif node.stat then
+            stmt(f, node.stat)
+            local stat = node.stat
+            while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+            if stat and f.exportsReg and not (stat.comptimeFunction or stat.comptimeTok or stat.isAnnotationDefinition) then
+                for _, name in ipairs(exportedNames(stat)) do
+                    local r = exprAs(f, {kind = "name", token = {text = name}, inferredType = {tag = "any"}}, "v")
+                    f:op("SetField", f.exportsReg, f:const("str", name), r)
+                end
+            end
+        end
     elseif k == "ifStmt" then
         local exits = {}
         -- A condition's temporaries die at its branch: the body starts from
@@ -749,9 +997,11 @@ stmt = function(f, node)
         loopEnd(f)
     elseif k == "fornumStmt" then
         f:push()
-        local var = f:declare(tokText(node.var), "f")
-        local varCell = f.captured[tokText(node.var)]
-        assert(not varCell, "captured loop variable")
+        local varName = tokText(node.var)
+        local varCell = f.captured[varName]
+        -- A captured loop variable is a fresh cell each round, holding the
+        -- counter's value; the counter itself stays a float register.
+        local var = f:declare(varCell and "\0for" or varName, "f")
         exprAs(f, node.start, "f", var)
         local limit = exprAs(f, node.stop, "f")
         local step = f:freg(); if node.step then exprAs(f, node.step, "f", step) else f:op("FK", step, 1) end
@@ -759,7 +1009,9 @@ stmt = function(f, node)
         local c = f:freg(); f:op("FCmpLe", c, var, limit)
         local branch = f:op("JmpIfIZero", c, 0)
         loopBegin(f)
+        if varCell then f:push(); local boxed = f:reg(); f:op("FBox", boxed, var); local cr = f:declare(varName, "v"); f:op("NewCell", cr, boxed) end
         block(f, node.body)
+        if varCell then f:pop() end
         f:op("FAdd", var, var, step)
         local back = f:op("Jmp", 0); f:patch(back, "Jmp", f:offset(back, top))
         f:patch(branch, "JmpIfIZero", c, f:offset(branch, f:here()))
@@ -798,9 +1050,17 @@ stmt = function(f, node)
     elseif k == "localFuncStmt" then
         -- `local function f`: f is in scope in its own body, through its cell.
         local name = tokText(node.name)
-        local r, cell = f:declare(name, "v")
+        local r, cell, spill = f:declare(name, "v", true)
         local inner
-        if cell then
+        if spill then
+            local c = f:reg()
+            if cell then
+                local nilReg = f:reg(); f:op("Nil", nilReg); local cellReg = f:reg(); f:op("NewCell", cellReg, nilReg); f:storeSpill(spill, cellReg)
+                inner = emitClosure(f, node.body, c, name); f:op("SetCell", cellReg, c)
+            else
+                inner = emitClosure(f, node.body, c, name); f:storeSpill(spill, c)
+            end
+        elseif cell then
             f:op("Nil", r + 0) -- placeholder; the cell is made below
             local nilReg = f:reg(); f:op("Nil", nilReg); f:op("NewCell", r, nilReg)
             local c = f:reg(); inner = emitClosure(f, node.body, c, name); f:op("SetCell", r, c)
@@ -820,14 +1080,31 @@ stmt = function(f, node)
             local member = tokText(fname.method)
             local c = f:reg(); emitClosure(f, node.body, c, baseName .. ":" .. member, true)
             f:op("SetMethod", shapes[baseName].id, f:const("str", member), c)
+        elseif #parts == 0 and not fname.method then
+            -- `function name() end`: an assignment to the name.
+            local c = f:reg(); emitClosure(f, node.body, c, baseName)
+            assignTo(f, {kind = "name", token = fname.base}, c)
         else
-            assert(#parts == 1 and not fname.method, "function name shape " .. baseName .. " parts " .. #parts)
-            local c = f:reg(); emitClosure(f, node.body, c, baseName .. "." .. parts[1])
+            -- `function a.b.c()` or `function a.b:m()`: walk the path, store at its end.
+            local c = f:reg()
+            local method = fname.method and tokText(fname.method)
+            local label = baseName .. "." .. table.concat(parts, ".") .. (method and (":" .. method) or "")
+            emitClosure(f, node.body, c, label, method ~= nil)
             local o = exprAs(f, {kind = "name", token = fname.base, inferredType = {tag = "any"}}, "v")
-            f:op("SetField", o, f:const("str", parts[1]), c)
+            local last = method or parts[#parts]
+            local upto = method and #parts or #parts - 1
+            for i = 1, upto do local t = f:reg(); f:op("GetField", t, o, f:const("str", parts[i])); o = t end
+            f:op("SetField", o, f:const("str", last), c)
         end
     elseif k == "recordDecl" then
         local shape = declareShape(node)
+        -- The record's name is also a value: the table its static members live
+        -- on (`R.new`, `R.SCHEMA`), what `function R.f()` and `export record R` see.
+        if node.name then
+            local r, cell, spill = f:declare(tokText(node.name), "v", true)
+            if spill then local t = f:reg(); f:op("NewTableN", t, 0, 0); if cell then local c = f:reg(); f:op("NewCell", c, t); t = c end; f:storeSpill(spill, t)
+            elseif cell then local t = f:reg(); f:op("NewTableN", t, 0, 0); f:op("NewCell", r, t) else f:op("NewTableN", r, 0, 0) end
+        end
         if not shape then return end
         for _, entry in ipairs(node.entries) do
             if entry.kind == "inlineMethod" then
@@ -857,15 +1134,124 @@ block = function(f, node)
     f:pop()
 end
 
-local SKIP = {parent = true, inferredType = true, resolvedType = true, signatureType = true, selectedDefinition = true, methodEntry = true, token = true}
+-- The CST keeps every syntax child in a node's array part (`cst.add`), and
+-- the checker hangs its facts off named keys: `definition` links a name to
+-- its declaration, possibly in another module. A walk over the named keys
+-- would follow those into other functions, so the walks here read the
+-- array part only.
 local function walkSyntax(node, seen, visit)
     if type(node) ~= "table" or seen[node] then return end
     seen[node] = true
     if visit(node) == false then return end
-    for key, v in pairs(node) do if not SKIP[key] and type(v) == "table" then walkSyntax(v, seen, visit) end end
+    for _, v in ipairs(node) do if type(v) == "table" then walkSyntax(v, seen, visit) end end
 end
--- The names a nested function declares for itself: parameters, locals,
--- local functions and loop variables, anywhere in its body.
+-- Capture analysis, scope-aware: one pass over a module resolves every
+-- name read inside a nested function to the innermost enclosing
+-- declaration, and marks that declaration's function as capturing the
+-- name (so it becomes a cell there). A function that declares `members`
+-- in one block and reads an outer `members` in another no longer confuses
+-- the two. Names that resolve to nothing are globals or module names.
+local capturedOf = setmetatable({}, {__mode = "k"})
+local FUNCTION_KINDS = {funcExpr = true, localFuncStmt = true, funcStmt = true, inlineMethod = true}
+local analyzeFunction
+-- `chain` is a list of scopes, innermost last; each scope maps a name to the
+-- function body node that declared it.
+local function lookupChain(chain, name)
+    for i = #chain, 1, -1 do local owner = chain[i][name]; if owner then return owner end end
+    return nil
+end
+local function noteUse(chain, name, here)
+    local owner = lookupChain(chain, name)
+    if owner and owner ~= here then capturedOf[owner] = capturedOf[owner] or {}; capturedOf[owner][name] = true end
+end
+local analyzeExpr, analyzeBlock, analyzeStmt
+-- Expressions: names and nested functions, through any node shape.
+analyzeExpr = function(node, chain, here, seen)
+    if type(node) ~= "table" or seen[node] then return end
+    seen[node] = true
+    if node.kind == "name" and node.token then noteUse(chain, tokText(node.token), here); return end
+    if node.kind == "funcExpr" then analyzeFunction(node.body, chain, seen); return end
+    if node.kind == "vararg" then noteUse(chain, "...", here); return end
+    for _, v in ipairs(node) do if type(v) == "table" then analyzeExpr(v, chain, here, seen) end end
+end
+analyzeBlock = function(block, chain, here, seen)
+    chain[#chain + 1] = {}
+    for _, st in ipairs(block and (block.stats or block) or {}) do if type(st) == "table" then analyzeStmt(st, chain, here, seen) end end
+    chain[#chain] = nil
+end
+analyzeStmt = function(st, chain, here, seen)
+    local k = st.kind
+    local scope = chain[#chain]
+    if k == "localStmt" then
+        for _, e in ipairs(st.exprs or {}) do analyzeExpr(e, chain, here, seen) end
+        for _, t in ipairs(st.names or {}) do scope[tokText(t)] = here end
+    elseif k == "localFuncStmt" then
+        scope[tokText(st.name)] = here
+        analyzeFunction(st.body, chain, seen)
+    elseif k == "funcStmt" then
+        if st.name and st.name.base then noteUse(chain, tokText(st.name.base), here) end
+        analyzeFunction(st.body, chain, seen, st.name and st.name.method ~= nil)
+    elseif k == "compoundAssign" then
+        analyzeExpr(st.target, chain, here, seen); analyzeExpr(st.value, chain, here, seen)
+    elseif k == "recordDecl" then
+        if st.name then scope[tokText(st.name)] = here end
+        for _, entry in ipairs(st.entries or {}) do
+            if entry.kind == "inlineMethod" then analyzeFunction(entry.body, chain, seen)
+            else analyzeExpr(entry, chain, here, seen) end
+        end
+    elseif k == "ifStmt" then
+        for _, clause in ipairs(st.clauses or {}) do analyzeExpr(clause.cond, chain, here, seen); analyzeBlock(clause.body, chain, here, seen) end
+        if st.elseClause then analyzeBlock(st.elseClause.body or st.elseClause, chain, here, seen) end
+    elseif k == "whileStmt" then
+        analyzeExpr(st.cond, chain, here, seen); analyzeBlock(st.body, chain, here, seen)
+    elseif k == "repeatStmt" then
+        chain[#chain + 1] = {}
+        for _, s2 in ipairs(st.body and st.body.stats or {}) do analyzeStmt(s2, chain, here, seen) end
+        analyzeExpr(st.cond, chain, here, seen)
+        chain[#chain] = nil
+    elseif k == "fornumStmt" then
+        analyzeExpr(st.start, chain, here, seen); analyzeExpr(st.stop, chain, here, seen); if st.step then analyzeExpr(st.step, chain, here, seen) end
+        chain[#chain + 1] = {[tokText(st.var)] = here}
+        analyzeBlock(st.body, chain, here, seen)
+        chain[#chain] = nil
+    elseif k == "forinStmt" then
+        for _, e in ipairs(st.exprs or {}) do analyzeExpr(e, chain, here, seen) end
+        chain[#chain + 1] = {}
+        for _, t in ipairs(st.names or {}) do chain[#chain][tokText(t)] = here end
+        analyzeBlock(st.body, chain, here, seen)
+        chain[#chain] = nil
+    elseif k == "doStmt" then
+        analyzeBlock(st.body or st, chain, here, seen)
+    elseif k == "pragmaStmt" then
+        if st.stat then analyzeStmt(st.stat, chain, here, seen) end
+    elseif k == "exportStmt" then
+        if st.stat then analyzeStmt(st.stat, chain, here, seen) end
+        if st.value then analyzeExpr(st.value, chain, here, seen) end
+    else
+        -- Assignments, calls, returns and the rest: expressions only.
+        for _, v in ipairs(st) do if type(v) == "table" then analyzeExpr(v, chain, here, seen) end end
+    end
+end
+-- `implicitSelf` is the colon form, `function a:m()`: only there is `self`
+-- a parameter rather than whatever enclosing local the name reaches.
+analyzeFunction = function(funcbody, chain, seen, implicitSelf, predeclared)
+    local here = funcbody
+    chain[#chain + 1] = {}
+    for _, p in ipairs(funcbody.params or {}) do if p.name then chain[#chain][tokText(p.name)] = here end end
+    if implicitSelf then chain[#chain]["self"] = here end
+    chain[#chain]["..."] = here
+    for _, name in ipairs(predeclared or {}) do chain[#chain][name] = here end
+    analyzeBlock(funcbody.body, chain, here, seen)
+    chain[#chain] = nil
+end
+-- Run once per module over its root block; `markCaptures` then reads the result.
+local function analyzeModule(rootBlock, predeclared)
+    local root = {body = rootBlock, params = {}}
+    analyzeFunction(root, {}, {}, false, predeclared)
+    return root
+end
+-- The free names of a nested function, kept for the upvalue register
+-- allocation at function entry (an over-approximation is harmless there).
 local function declaredNames(funcbody, out)
     for _, p in ipairs(funcbody.params or {}) do if p.name then out[tokText(p.name)] = true end end
     out["..."] = true
@@ -876,9 +1262,6 @@ local function declaredNames(funcbody, out)
         elseif n.kind == "forinStmt" then for _, t in ipairs(n.names) do out[tokText(t)] = true end end
     end)
 end
--- The free names of a nested function: referenced anywhere in it and not
--- declared by it. A name it declares after an outer use is mistaken for its
--- own, which the cell assertion at emit time catches rather than miscompiles.
 local function collectFree(funcbody, out)
     local declared = {}
     declaredNames(funcbody, declared)
@@ -887,17 +1270,30 @@ local function collectFree(funcbody, out)
         if n.kind == "funcname" and n.base and not declared[tokText(n.base)] then out[tokText(n.base)] = true end
     end)
 end
--- A local of this function is a cell when some nested function refers to it
--- freely; the analysis is scope-blind within this function, so a local that
--- shares a name with a captured one is a cell too.
-markCaptures = function(f, funcbody)
-    walkSyntax(funcbody.body or funcbody, {}, function(n)
-        if n ~= funcbody and (n.kind == "funcExpr" or n.kind == "localFuncStmt" or n.kind == "funcStmt" or n.kind == "inlineMethod") then
-            collectFree(n.body, f.captured)
-            if n.kind == "localFuncStmt" then f.captured[tokText(n.name)] = true end
-            return false
-        end
+-- How many locals a body declares, nested functions included (an
+-- over-count only costs a register in a function that did not need it).
+local function declarationCount(body)
+    local n = 0
+    walkSyntax(body, {}, function(node)
+        if node.kind == "localStmt" then n = n + #(node.names or {})
+        elseif node.kind == "localFuncStmt" or node.kind == "recordDecl" or node.kind == "fornumStmt" then n = n + 1
+        elseif node.kind == "forinStmt" then n = n + #(node.names or {}) end
     end)
+    return n
+end
+-- A function with more declarations than the budget gets its spill table
+-- at entry, so every spilled local below sees it.
+openSpill = function(f, body)
+    if declarationCount(body) > SPILL_AT then
+        f.spillReg = f:declare("\0spill", "v")
+        f:op("NewTableN", f.spillReg, 0, 0)
+    end
+end
+-- A local of this function is a cell when the analysis saw a nested
+-- function read it: exact per declaration site, by name per function.
+markCaptures = function(f, funcbody)
+    local set = capturedOf[funcbody]
+    if set then for name in pairs(set) do f.captured[name] = true end end
 end
 
 defineFunction = function(f, funcbody)
@@ -916,6 +1312,7 @@ defineFunction = function(f, funcbody)
     -- The surplus arguments stay in the frame; `...` is spread only in a call.
     if varargParam then assert(not varargParam.name, "a named vararg is not in this emitter") end
     for _, cp in ipairs(cellParams) do local cellReg = f:declare(cp[1]); f:op("NewCell", cellReg, cp[2]) end
+    openSpill(f, funcbody.body)
     -- Every capture the body may read gets its register now, below the
     -- locals, so no scope's end reclaims it: the free names, over-approximated
     -- by `collectFree`, that resolve to upvalues.
@@ -926,7 +1323,21 @@ defineFunction = function(f, funcbody)
         table.sort(names)
         for _, name in ipairs(names) do local ui = f:upvalue(name); if ui then f:upvalReg(ui) end end
     end
-    block(f, funcbody.body)
+    -- EMIT_SURVEY=1 keeps going past a construct the emitter lacks: the body
+    -- becomes a stub and the failure is tallied, so one run over a module
+    -- graph lists everything it would need.
+    if os.getenv("EMIT_SURVEY") then
+        local ok, err = pcall(block, f, funcbody.body)
+        if not ok then
+            local key = tostring(err):gsub("^.-:%d+: ", ""):gsub(" in [%w%.:_]+$", ""):gsub("line %d+", "line N"):gsub("declTop %d+", "")
+            SURVEY[key] = (SURVEY[key] or 0) + 1
+            SURVEY_EXAMPLE = SURVEY_EXAMPLE or {}; SURVEY_EXAMPLE[key] = SURVEY_EXAMPLE[key] or (f.name .. " :: " .. tostring(err):gsub("^.-:%d+: ", ""))
+            f.code = {}; f.scopes = {{}}
+            f:op("RetNil")
+        end
+    else
+        block(f, funcbody.body)
+    end
     local last = f.code[#f.code]
     if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then f:op("RetNil") end
     -- Branch offsets are relative to the next instruction, so a prefix moves nothing.
@@ -938,7 +1349,11 @@ end
 
 -- Modules ----------------------------------------------------------------------
 local modules, moduleOrder = {}, {}
-local function modulePath(name)
+local modulePath
+modulePathOf = function(name) return modulePath(name) end
+local pendingModules = {}
+queueModule = function(name) pendingModules[#pendingModules + 1] = name end
+modulePath = function(name)
     local rel = name:gsub("%.", "/")
     for _, cand in ipairs({root .. "/src/" .. rel .. "/init.nupp", root .. "/src/" .. rel .. ".nupp", root .. "/" .. rel .. ".nupp", rel .. ".nupp"}) do
         local fh = io.open(cand, "r")
@@ -969,24 +1384,43 @@ local function compileModule(name, path)
         if depPath then compileModule(dep, depPath) else io.stderr:write("module ", dep, " not found (left to the runtime)\n") end
     end
     for _, s in ipairs(stats) do if s.kind == "recordDecl" then declareShape(s) elseif s.kind == "exportStmt" and s.stat and s.stat.kind == "recordDecl" then declareShape(s.stat) end end
+    -- Records declared inside functions get their shapes now too, so a
+    -- constructor in a closure defined before the declaration finds them.
+    walkSyntax(rootNode, {}, function(n) if n.kind == "recordDecl" then declareShape(n) end end)
     local chunk = newFn("module:" .. name, nil)
     chunk.sig, chunk.ret, chunk.nparams = {}, "v", 0
+    local declaredModule = false
+    for _, s in ipairs(stats) do if s.kind == "moduleStmt" then declaredModule = true end end
+    local exportedFns = declaredModule and exportedFunctionNames(rootNode.blocks[1]) or {}
+    local rootBody = analyzeModule(rootNode.blocks[1], exportedFns)
     -- Names the module assigns to anywhere, by name: a `local function` not
     -- among them keeps its closure for the module's life.
     assignedNames = {}
     walkSyntax(rootNode.blocks[1], {}, function(n)
         if n.kind == "assignStmt" then for _, t in ipairs(n.targets) do if t.kind == "name" then assignedNames[tokText(t.token)] = true end end end
     end)
-    markCaptures(chunk, {body = rootNode.blocks[1]})
-    block(chunk, rootNode.blocks[1])
+    markCaptures(chunk, rootBody)
+    openSpill(chunk, rootNode.blocks[1])
+    if declaredModule then
+        chunk.exportsReg = chunk:declare("\0exports", "v")
+        chunk:op("NewTableN", chunk.exportsReg, 0, 0)
+        for _, fname in ipairs(exportedFns) do
+            local r, cell = chunk:declare(fname, "v")
+            if cell then local t = chunk:reg(); chunk:op("Nil", t); chunk:op("NewCell", r, t); chunk.nregs = chunk.nregs - 1 else chunk:op("Nil", r) end
+        end
+    end
+    if os.getenv("EMIT_SURVEY") then local ok, err = pcall(block, chunk, rootNode.blocks[1]); if not ok then local key = tostring(err):gsub("^.-:%d+: ", ""):gsub(" in [%w%.:_]+$", ""):gsub("line %d+", "line N"):gsub("declTop %d+", ""); SURVEY[key] = (SURVEY[key] or 0) + 1; SURVEY_EXAMPLE = SURVEY_EXAMPLE or {}; SURVEY_EXAMPLE[key] = SURVEY_EXAMPLE[key] or (chunk.name .. " :: " .. tostring(err):gsub("^.-:%d+: ", "")); chunk.code = {}; chunk:op("RetNil") end else block(chunk, rootNode.blocks[1]) end
     local last = chunk.code[#chunk.code]
-    if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then chunk:op("RetNil") end
+    if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then
+        if chunk.exportsReg then chunk:op("Ret", chunk.exportsReg) else chunk:op("RetNil") end
+    end
     modules[name] = chunk
     moduleOrder[#moduleOrder + 1] = name
 end
 
 for i = 3, #arg do local p = assert(modulePath(arg[i]), "extra module " .. arg[i]); compileModule(arg[i], p) end
 compileModule(entryName, assert(modulePath(entryName), "entry module " .. entryName))
+while #pendingModules > 0 do local name = table.remove(pendingModules, 1); if not modules[name] then local p = modulePath(name); if p then compileModule(name, p) end end end
 
 -- Output -------------------------------------------------------------------
 -- Every byte outside printable ASCII is escaped, so an image is ASCII text
@@ -1010,3 +1444,4 @@ end
 for _, name in ipairs(moduleOrder) do emit("module " .. name .. " " .. modules[name].id) end
 emit("entry " .. modules[entryName].id)
 io.write(table.concat(out, "\n"), "\n")
+if os.getenv("EMIT_SURVEY") then local rows = {}; for k, n in pairs(SURVEY) do rows[#rows + 1] = {k, n} end; table.sort(rows, function(a, b) return a[2] > b[2] end); io.stderr:write("survey: ", #functions, " functions, ", #rows, " failure kinds\n"); for _, r in ipairs(rows) do io.stderr:write(string.format("  %5d  %s\n         e.g. %s\n", r[2], r[1], tostring(SURVEY_EXAMPLE and SURVEY_EXAMPLE[r[1]]))) end end
