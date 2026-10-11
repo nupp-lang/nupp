@@ -1,0 +1,339 @@
+//! Values, objects, shapes and the collector.
+//!
+//! NaN-boxed values: a double is itself; anything else lives in the quiet-NaN
+//! space with a tag in bits 48..50 and a payload below. Heap objects are raw
+//! pointers in that payload. The collector is a precise, incremental,
+//! non-moving tri-colour mark-sweep with an insertion barrier, driven by
+//! allocation debt at safepoints, with a stress mode that runs a whole cycle at
+//! every allocation and an oracle that recomputes reachability from the roots
+//! and compares it with what survived.
+
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// Keys are value bits, interned strings by pointer, so a multiply-shift mix
+/// is all a table needs.
+#[derive(Default)]
+pub struct BitsHasher(u64);
+impl Hasher for BitsHasher {
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, bytes: &[u8]) { for &b in bytes { self.0 = (self.0 ^ b as u64).wrapping_mul(0x9E3779B97F4A7C15); } }
+    fn write_u64(&mut self, v: u64) { let x = v.wrapping_mul(0x9E3779B97F4A7C15); self.0 = x ^ (x >> 29); }
+}
+pub type ValueMap = HashMap<Value, Value, BuildHasherDefault<BitsHasher>>;
+use std::ptr::NonNull;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub struct Value(pub u64);
+
+const QNAN: u64 = 0x7ff8_0000_0000_0000;
+const TAG_SHIFT: u64 = 48;
+const TAG_MASK: u64 = 0x7 << TAG_SHIFT;
+const PAYLOAD: u64 = (1 << 48) - 1;
+const T_NIL: u64 = 1 << TAG_SHIFT;
+const T_FALSE: u64 = 2 << TAG_SHIFT;
+const T_TRUE: u64 = 3 << TAG_SHIFT;
+const T_FUNC: u64 = 4 << TAG_SHIFT;
+const T_OBJ: u64 = 5 << TAG_SHIFT;
+
+impl std::hash::Hash for Value { fn hash<H: Hasher>(&self, h: &mut H) { h.write_u64(self.0) } }
+
+impl Value {
+    pub const NIL: Value = Value(QNAN | T_NIL);
+    pub const FALSE: Value = Value(QNAN | T_FALSE);
+    pub const TRUE: Value = Value(QNAN | T_TRUE);
+    pub fn num(x: f64) -> Value {
+        let b = x.to_bits();
+        // A real NaN is canonicalised so it never aliases a tag.
+        if b & QNAN == QNAN { Value(QNAN) } else { Value(b) }
+    }
+    pub fn boolean(b: bool) -> Value { if b { Value::TRUE } else { Value::FALSE } }
+    pub fn func(id: u32) -> Value { Value(QNAN | T_FUNC | id as u64) }
+    pub fn obj(p: NonNull<Object>) -> Value { Value(QNAN | T_OBJ | (p.as_ptr() as u64 & PAYLOAD)) }
+    pub fn is_num(self) -> bool { self.0 & QNAN != QNAN || self.0 == QNAN }
+    pub fn as_num(self) -> f64 { f64::from_bits(self.0) }
+    pub fn is_nil(self) -> bool { self == Value::NIL }
+    pub fn truthy(self) -> bool { self != Value::NIL && self != Value::FALSE }
+    pub fn as_func(self) -> Option<u32> { if !self.is_num() && self.0 & TAG_MASK == T_FUNC { Some((self.0 & PAYLOAD) as u32) } else { None } }
+    pub fn as_obj(self) -> Option<NonNull<Object>> {
+        if !self.is_num() && self.0 & TAG_MASK == T_OBJ { NonNull::new((self.0 & PAYLOAD) as *mut Object) } else { None }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Color { White, Gray, Black }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
+
+pub struct Shape {
+    pub names: Vec<Value>, // interned strings
+    pub types: Vec<SlotTy>,
+}
+
+pub enum Body {
+    Str { text: Box<str>, hash: u64 },
+    Table { array: Vec<Value>, hash: ValueMap },
+    Record { shape: u32, slots: Vec<Value> },
+    /// Owned numeric storage a typed span borrows: the non-moving space.
+    Storage { data: Vec<f64> },
+    Freed,
+}
+
+pub struct Object {
+    pub color: Color,
+    pub bytes: usize,
+    pub body: Body,
+}
+
+impl Object {
+    pub fn str_text(&self) -> &str { if let Body::Str { text, .. } = &self.body { text } else { panic!("not a string") } }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Phase { Idle, Marking, Sweeping }
+
+pub struct Heap {
+    objects: Vec<NonNull<Object>>,
+    gray: Vec<NonNull<Object>>,
+    phase: Phase,
+    sweep_index: usize,
+    debt: usize,
+    threshold: usize,
+    pub live_bytes: usize,
+    pub stress: bool,
+    /// One small collector step at every allocation, so the mutator interleaves
+    /// with marking at the finest grain; the oracle runs at every cycle end.
+    pub stress_steps: bool,
+    pub oracle: bool,
+    pub quarantine: bool,
+    pub shapes: Vec<Shape>,
+    interned: HashMap<Box<str>, NonNull<Object>>,
+    pub stats: Stats,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barrier_grays: u64, pub steps: u64 }
+
+/// Who can enumerate the roots: every task's registers, globals, handle scopes.
+pub trait Roots { fn each_root(&self, f: &mut dyn FnMut(Value)); }
+
+impl Heap {
+    pub fn new() -> Heap {
+        Heap { objects: Vec::new(), gray: Vec::new(), phase: Phase::Idle, sweep_index: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: false, stress_steps: false, oracle: false, quarantine: std::env::var("GC_QUARANTINE").is_ok(), shapes: Vec::new(), interned: HashMap::new(), stats: Stats::default() }
+    }
+
+    pub fn shape(&mut self, names: &[Value], types: &[SlotTy]) -> u32 {
+        self.shapes.push(Shape { names: names.to_vec(), types: types.to_vec() });
+        (self.shapes.len() - 1) as u32
+    }
+
+    fn alloc_raw(&mut self, body: Body, bytes: usize) -> NonNull<Object> {
+        // New objects are allocated black while a cycle is in progress, so a
+        // cycle never frees what it did not scan and a sweep in progress never
+        // frees what was allocated after marking ended. The sweep whitens
+        // them as it passes; white otherwise, as the next cycle will see them.
+        let color = if self.phase != Phase::Idle { Color::Black } else { Color::White };
+        let p = NonNull::new(Box::into_raw(Box::new(Object { color, bytes, body }))).unwrap();
+        self.objects.push(p);
+        self.live_bytes += bytes;
+        self.debt += bytes;
+        self.stats.allocated += 1;
+        p
+    }
+
+    /// Allocation is a safepoint: the collector may run here, so every value
+    /// the caller still needs must be reachable from the roots at this point.
+    pub fn alloc(&mut self, body: Body, bytes: usize, roots: &dyn Roots) -> NonNull<Object> {
+        self.safepoint(roots);
+        self.alloc_raw(body, bytes)
+    }
+
+    pub fn intern(&mut self, s: &str, roots: &dyn Roots) -> Value {
+        if let Some(p) = self.interned.get(s) { return Value::obj(*p); }
+        let hash = { let mut h: u64 = 0xcbf29ce484222325; for b in s.bytes() { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } h };
+        let p = self.alloc(Body::Str { text: s.into(), hash }, 32 + s.len(), roots);
+        self.interned.insert(s.into(), p);
+        Value::obj(p)
+    }
+
+    pub fn new_table(&mut self, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Table { array: Vec::new(), hash: ValueMap::default() }, 64, roots)) }
+    pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
+        let n = self.shapes[shape as usize].names.len();
+        Value::obj(self.alloc(Body::Record { shape, slots: vec![Value::NIL; n] }, 24 + 8 * n, roots))
+    }
+    pub fn new_storage(&mut self, n: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Storage { data: vec![0.0; n] }, 24 + 8 * n, roots)) }
+
+    /// The insertion barrier: storing a white child into a black parent while
+    /// marking greys the child. Every heap store goes through here.
+    #[inline]
+    pub fn barrier(&mut self, parent: NonNull<Object>, child: Value) {
+        if self.phase != Phase::Marking { return; }
+        if let Some(c) = child.as_obj() {
+            unsafe {
+                if (*parent.as_ptr()).color == Color::Black && (*c.as_ptr()).color == Color::White {
+                    (*c.as_ptr()).color = Color::Gray;
+                    self.gray.push(c);
+                    self.stats.barrier_grays += 1;
+                }
+            }
+        }
+    }
+
+    /// Where collection may run. Pays allocation debt with marking or sweeping
+    /// work; under stress, runs a whole cycle every time.
+    pub fn safepoint(&mut self, roots: &dyn Roots) {
+        if self.stress {
+            self.full_cycle(roots);
+            if self.oracle { self.check_oracle(roots); }
+            return;
+        }
+        if self.stress_steps {
+            if self.phase == Phase::Idle { self.start(roots); }
+            self.step(2, roots);
+            if self.phase == Phase::Idle && self.oracle {
+                // An interleaved cycle may leave floating garbage: objects
+                // allocated black during the cycle that died before the sweep.
+                // Safety is exact at this point; completeness is checked after
+                // an atomic cycle, which nothing can float past.
+                self.check_oracle_with(roots, false);
+                self.full_cycle(roots);
+                self.check_oracle_with(roots, true);
+            }
+            return;
+        }
+        if self.phase == Phase::Idle {
+            if self.debt < self.threshold { return; }
+            self.start(roots);
+        }
+        let budget = (self.debt / 64).max(256);
+        self.step(budget, roots);
+        self.debt = 0;
+    }
+
+    fn start(&mut self, roots: &dyn Roots) {
+        self.phase = Phase::Marking;
+        self.stats.cycles += 1;
+        self.mark_roots(roots);
+    }
+
+    fn mark_roots(&mut self, roots: &dyn Roots) {
+        let gray = &mut self.gray;
+        roots.each_root(&mut |v| {
+            if let Some(p) = v.as_obj() {
+                unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } }
+            }
+        });
+        for s in &self.shapes { for &n in &s.names { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
+    }
+
+    fn scan(&mut self, p: NonNull<Object>) {
+        let gray = &mut self.gray;
+        let mut push = |v: Value| { if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == Color::White { (*c.as_ptr()).color = Color::Gray; gray.push(c); } } } };
+        unsafe {
+            match &(*p.as_ptr()).body {
+                Body::Table { array, hash } => { for &v in array { push(v); } for (&k, &v) in hash { push(k); push(v); } }
+                Body::Record { slots, .. } => { for &v in slots { push(v); } }
+                Body::Str { .. } | Body::Storage { .. } | Body::Freed => {}
+            }
+            (*p.as_ptr()).color = Color::Black;
+        }
+    }
+
+    /// One increment of work. Marking drains grey objects; when none remain the
+    /// roots are rescanned once (registers are not heap objects and carry no
+    /// barrier) and, if still none, sweeping begins. Sweeping frees white
+    /// objects and whitens black ones in slices.
+    fn step(&mut self, mut budget: usize, roots: &dyn Roots) {
+        self.stats.steps += 1;
+        loop {
+            match self.phase {
+                Phase::Marking => {
+                    while budget > 0 { match self.gray.pop() { Some(p) => { self.scan(p); budget -= 1; } None => break } }
+                    if budget == 0 { return; }
+                    self.mark_roots(roots);
+                    if !self.gray.is_empty() { continue; }
+                    self.phase = Phase::Sweeping;
+                    self.sweep_index = 0;
+                }
+                Phase::Sweeping => {
+                    let mut end = (self.sweep_index + budget * 4).min(self.objects.len());
+                    let mut i = self.sweep_index;
+                    while i < end {
+                        let p = self.objects[i];
+                        let color = unsafe { (*p.as_ptr()).color };
+                        if color == Color::White {
+                            self.free(p);
+                            self.objects.swap_remove(i);
+                            end = end.min(self.objects.len());
+                        } else {
+                            unsafe { (*p.as_ptr()).color = Color::White; }
+                            i += 1;
+                        }
+                    }
+                    self.sweep_index = i;
+                    if i >= self.objects.len() { self.phase = Phase::Idle; self.threshold = (self.live_bytes * 2).max(1 << 20); }
+                    return;
+                }
+                Phase::Idle => return,
+            }
+        }
+    }
+
+    fn free(&mut self, p: NonNull<Object>) {
+        unsafe {
+            let o = &mut *p.as_ptr();
+            self.live_bytes -= o.bytes;
+            self.stats.freed += 1;
+            if let Body::Str { text, .. } = &o.body { self.interned.remove(&**text); }
+            if self.stress || self.quarantine {
+                // Under stress nothing is deallocated, so a dangling pointer is
+                // detectable by the oracle instead of being undefined behaviour.
+                o.body = Body::Freed;
+                o.color = Color::White;
+            } else {
+                drop(Box::from_raw(p.as_ptr()));
+            }
+        }
+    }
+
+    pub fn full_cycle(&mut self, roots: &dyn Roots) {
+        if self.phase == Phase::Idle { self.start(roots); }
+        while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
+        self.debt = 0;
+    }
+
+    /// Recompute reachability from the roots non-incrementally and assert that
+    /// it agrees with the collector: every reachable object survived, and no
+    /// survivor is unreachable.
+    pub fn check_oracle(&self, roots: &dyn Roots) { self.check_oracle_with(roots, true) }
+
+    pub fn check_oracle_with(&self, roots: &dyn Roots, exact: bool) {
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut stack: Vec<NonNull<Object>> = Vec::new();
+        let mut visit = |v: Value, stack: &mut Vec<NonNull<Object>>| { if let Some(p) = v.as_obj() { stack.push(p); } };
+        roots.each_root(&mut |v| visit(v, &mut stack));
+        for s in &self.shapes { for &n in &s.names { visit(n, &mut stack); } }
+        while let Some(p) = stack.pop() {
+            if !seen.insert(p.as_ptr() as usize) { continue; }
+            unsafe {
+                match &(*p.as_ptr()).body {
+                    Body::Freed => panic!("oracle: a reachable object was freed"),
+                    Body::Table { array, hash } => { for &v in array { visit(v, &mut stack); } for (&k, &v) in hash { visit(k, &mut stack); visit(v, &mut stack); } }
+                    Body::Record { slots, .. } => { for &v in slots { visit(v, &mut stack); } }
+                    _ => {}
+                }
+            }
+        }
+        let survivors: Vec<usize> = self.objects.iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed) }).map(|p| p.as_ptr() as usize).collect();
+        let set: std::collections::HashSet<usize> = survivors.iter().copied().collect();
+        for s in &seen { assert!(set.contains(s), "oracle: a reachable object is missing from the heap"); }
+        if exact {
+            for s in &survivors { assert!(seen.contains(s), "oracle: an unreachable object survived"); }
+            assert_eq!(seen.len(), survivors.len(), "oracle: reachable and surviving sets differ");
+        }
+    }
+
+    pub fn object_count(&self) -> usize { self.objects.len() }
+}
