@@ -517,8 +517,8 @@ return decodeDynamic("ready")
 ```
 
 That dispatcher exists because the program asked for a dynamic facade. Typed
-method calls do not pay for it. See [Gradual
-typing](../gradual-typing.md) for the rest of what crosses that boundary.
+method calls do not pay for it. See [Escape hatches](index.md#escape-hatches)
+for the rest of what crosses that boundary.
 
 ## FAQ
 

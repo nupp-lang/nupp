@@ -15,10 +15,10 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 -- an ordinary table.
 local function diagnose(body)
    local env = envMod.new(HERE)
-   local result = parser.parse(body .. "\nreturn m\n", "test.g.nupp")
+   local result = parser.parse(body .. "\nreturn m\n", "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
    local errors = {}
-   for _, diag in ipairs(check.check(result, "test.g.nupp", env)) do
+   for _, diag in ipairs(check.check(result, "test.nupp", env)) do
       if diag.severity ~= "warning" then errors[#errors + 1] = diag end
    end
    return errors

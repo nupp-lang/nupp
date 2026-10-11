@@ -5,11 +5,14 @@ local check = require("fragment")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 
--- Runs the checker; returns the list of "CODE:line" strings.
+-- Runs the checker; returns the list of "CODE:line" strings. The snippets are
+-- checked with no environment, so even the builtins they call are unknown names;
+-- they are checked without the strict rules a project file is held to, which
+-- would otherwise report every `print` and every typed local left unassigned.
 local function checkedDiags(src, env)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or ""))
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env, {strict = false})
     local out = {}
     for j, d in ipairs(diags) do
         out[j] = d.code .. ":" .. d.line
@@ -771,9 +774,9 @@ function M.assertRemovesFalseFromItsResult()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local result = parser.parse(
         table.concat({"local impossible: never = assert(false)", "return impossible",}, "\n"),
-        "test.g.nupp"
+        "test.nupp"
     )
-    local diags = check.check(result, "test.g.nupp", envMod.new(here .. "/.."))
+    local diags = check.check(result, "test.nupp", envMod.new(here .. "/.."))
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
@@ -1054,11 +1057,11 @@ function M.propertyAnnotationsAreStableAcrossRepeatedChecks()
             {"local interface Surface", "   @readonly value: string", "   @writeonly [string]: number", "end",},
             "\n"
         ),
-        "repeated.g.nupp"
+        "repeated.nupp"
     )
     testAssert.equal(#result.errors, 0, "property annotation syntax")
     for pass = 1, 2 do
-        local diags = check.check(result, "repeated.g.nupp")
+        local diags = check.check(result, "repeated.nupp")
         testAssert.equal(#diags, 0, ("check %d over the same parsed tree"):format(pass))
     end
 end
@@ -1447,8 +1450,8 @@ function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
         "end",
         "print((new A()):make())",
     }, "\n"))
-    -- An unknown name: NUPP2105 under the strict floor, and in this gradual file a
-    -- construction with no known callable.
+    -- An unknown name: NUPP2105 when checked strictly, and in this unchecked
+    -- snippet a construction with no known callable.
     assert(got:find("NUPP2105:2", 1, true) or got:find("NUPP2006:2", 1, true), got)
     assert(not got:find(":6", 1, true), "B names itself in its own method: " .. got)
 end
@@ -2078,10 +2081,14 @@ function M.tableArgumentIsGradualEvidence()
     )
 end
 
-function M.gradualDefaults()
-    -- unannotated and unknown things check silently
-    assertClean("print(unknown_global.deep.chain(1, 2))")
-    assertClean("local x = some_global\nx = 5\nx = 'string'")
+function M.inferenceDefaults()
+    -- a .nupp file reports a name nothing declares, however it is used
+    local result = parser.parse("local x = some_global\nx = 5", "test.nupp")
+    local codes = {}
+    for j, d in ipairs(check.check(result, "test.nupp")) do
+        codes[j] = d.code .. ":" .. d.line
+    end
+    testAssert.equal(table.concat(codes, " "), "NUPP2105:1", "an unknown name is reported")
     -- inferred table literals stay open (module-table idiom);
     -- annotated shapes are closed
     assertClean("local M = {a = 1}\nM.b = 2\nlocal x = M.b")
@@ -2140,8 +2147,8 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
         "end",
         "return mask",
     }, "\n")
-    local result = parser.parse(source, "test.g.nupp")
-    local diags = check.check(result, "test.g.nupp", env)
+    local result = parser.parse(source, "test.nupp")
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local identities = {}
     local function walk(node)
@@ -2743,24 +2750,17 @@ function M.anUndeclaredResultTailRendersAsAny()
     )
 end
 
--- Untyped exports of a declared module are the strict floor's second rule, so a
--- `.g.nupp` asking for the typed syntax without the floor reports neither, and
--- the same file held to the floor reports both.
-function M.untypedExportsAreTheStrictFloorsRule()
+-- Exports of a declared module must be typed, so a `.nupp` file leaving a
+-- parameter and a result unannotated reports both.
+function M.untypedExportsAreReported()
     local source = table.concat({"module models", "", "export function double(n)", "    return n * 2", "end",}, "\n")
-    local gradual = parser.parse(source, "models.g.nupp")
-    testAssert.equal(#gradual.errors, 0, "syntax errors")
+    local result = parser.parse(source, "models.nupp")
+    testAssert.equal(#result.errors, 0, "syntax errors")
     local codes = {}
-    for j, d in ipairs(check.check(gradual, "models.g.nupp")) do
+    for j, d in ipairs(check.check(result, "models.nupp")) do
         codes[j] = d.code .. ":" .. d.line
     end
-    testAssert.equal(table.concat(codes, " "), "", "a gradual file holds no floor")
-    local strict = parser.parse(source, "models.nupp")
-    codes = {}
-    for j, d in ipairs(check.check(strict, "models.nupp")) do
-        codes[j] = d.code .. ":" .. d.line
-    end
-    testAssert.equal(table.concat(codes, " "), "NUPP2106:3 NUPP2106:3", "a strict file reports both")
+    testAssert.equal(table.concat(codes, " "), "NUPP2106:3 NUPP2106:3", "a .nupp file reports both")
 end
 
 function M.constructionWidensAnInferredLiteral()

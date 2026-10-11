@@ -664,15 +664,13 @@ end
 --- Opens the query graph a build checks through.
 ---
 --- Separate from the build so the phases that run before it can check through the
---- same graph. `strict` holds every file to the strict floor whatever it is named;
---- nil lets each file's extension decide.
+--- same graph.
 local function openSession(
     root: string,
     outDir: string,
     config: Config,
     target: Target,
     dependencies: {[string]: DependencyRecord},
-    strict: boolean?,
     reporter: Reporter?,
     projectNominals: {[string]: any}?,
     isolated: boolean?,
@@ -744,7 +742,6 @@ local function openSession(
 
     local inc = incremental.new(root, {
         config = envConfig,
-        strict = strict,
         nativeCompilerServices = true,
         typeRoots = rocks and rocks.typeRoots or {},
         ambientTypeRoots = ambientTypeRoots,
@@ -770,7 +767,7 @@ local function openSession(
         -- over a vendored library, and that library is plain Lua the compiler carries
         -- rather than Nupp it compiles. Staging it is what puts it on the ordinary
         -- path: linked like any dependency, carried into the artifact like any module.
-        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp", ".d.nupp", ".lua"}) do
+        for _, suffix in ipairs({".nupp", "/init.nupp", ".d.nupp", ".lua"}) do
             resource = "/" .. name:gsub("%.", "/") .. suffix
             source = carried.source(resource)
             if source ~= nil then
@@ -788,9 +785,7 @@ local function openSession(
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
         end
-        local suffix = resource:match("/init%.g%.nupp$") and "/init.g.nupp"
-            or resource:match("/init%.nupp$") and "/init.nupp"
-            or resource:match("%.g%.nupp$") and ".g.nupp"
+        local suffix = resource:match("/init%.nupp$") and "/init.nupp"
             or resource:match("%.d%.nupp$") and ".d.nupp"
             or resource:match("%.lua$") and ".lua"
             or ".nupp"
@@ -1114,7 +1109,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
     return {record = record, code = code, said = mine, generated = generated, generateMs = generateMs,}
 end
 
-local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
+local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, stats: modules.Stats?, diagnostics: {
     any
 }?, checkState: Value?,
 
@@ -1146,7 +1141,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- rather than two that could drift.
     session: modules.Session?): modules.Result?, string?
     local report = reporter or progress.new("never")
-    local opened = session or openSession(root, outDir, config, target, newState.dependencies, strict, reporter)
+    local opened = session or openSession(root, outDir, config, target, newState.dependencies, reporter)
     local inc = opened.inc
     local checkMs = opened.checkMs
 
@@ -1513,7 +1508,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             outDir = outDir,
             config = config,
             target = target,
-            strict = strict,
             state = newState,
             staged = opened.staged,
             reporter = report,

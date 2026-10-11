@@ -24,40 +24,37 @@ end
 print(scale(new Point(x = 3, y = 4), 2).x)
 ```
 
-## Typing one file at a time
+## Lua beside Nupp
 
 Your Lua already builds. A `.lua` file is required, compiled, and run
-unchanged, and nothing in it has to be annotated for that to keep working.
-`nupp migrate` converts recognized annotations into a `.g.nupp` file when a
-project wants an automated first step.
+unchanged, and nothing in it has to be annotated for that to keep working. Its
+LuaCATS and EmmyLua comments are imported as checker facts, and `nupp migrate`
+converts them into a `.nupp` file when a module is ready to move.
 
-What a file is called says which floor it is held to. A `.nupp` file is checked
-strictly: unknown variables are errors, and nothing untyped crosses a module
-boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
-available with that floor still down, so annotations go in one at a time.
-
-```nupp
--- models.g.nupp: the typed syntax, no floor yet
+```lua
+-- models.lua
+---@param p Point
+---@param k number
+---@return Point
 local function scale(p, k)
     return {x = p.x * k, y = p.y * k}
 end
 ```
 
-The same function, once it is ready to hold the floor:
+A `.nupp` file is checked: unknown variables are errors, and nothing untyped
+crosses a module boundary.
 
-```nupp
+```nupp:fragment
 -- models.nupp
 local function scale(p: Point, k: number): Point
     return new Point(x = p.x * k, y = p.y * k)
 end
 ```
 
-The marker is not part of the module's name, so `require("models")` finds the
-file either way and nothing that depends on it changes when it moves.
-`nupp check --strict` holds every file to the floor whatever it is called, which
-is how to see what a rename would cost before making it. See [gradual
-typing](../learn/language/gradual-typing.md#renaming-is-the-migration) for the four
-extensions and what each floor adds.
+The extension is not part of the module's name, so `require("models")` finds
+the file either way and nothing that depends on it changes when it moves. See
+[file types](../learn/language/file-types.md) for the three extensions and what
+each holds.
 
 What an annotation buys is the ordinary list of misspelled fields, wrong
 argument types, missing returns, and unhandled union members, each reported with
@@ -206,8 +203,8 @@ rewrites, and how to turn one off to bisect a miscompile.
 :::
 
 The type system has deliberate holes, and they are written down rather than
-implied: `as` is unchecked, `table` is gradual in both
-directions, and a declared `is` edge is trusted instead of proved. Each buys
+implied: `as` is unchecked, `table` is compatible with every
+table shape in both directions, and a declared `is` edge is trusted instead of proved. Each buys
 compatibility with how Lua is actually written. See [deliberate
 unsoundness](../learn/language/types/index.md#deliberate-unsoundness) for what each
 hole admits.
@@ -217,7 +214,7 @@ hole admits.
 - [features.md](features.md) for the broader feature map
 - [installation.md](installation.md) for released binaries and package managers
 - [CONTRIBUTING.md](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md) for source-checkout requirements
-- [strictness.md](../learn/language/gradual-typing.md) for how an existing `.lua` file
-  becomes a checked one
+- [file-types.md](../learn/language/file-types.md) for how `.lua` and `.nupp`
+  files work together
 - [overview.md](../learn/language/types/index.md) for the type system as a whole
 :::

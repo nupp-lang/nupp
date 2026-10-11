@@ -9,10 +9,10 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
-    for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
+    for j, d in ipairs(check.check(result, "test.nupp", env)) do
         out[j] = d.code .. ":" .. d.line
     end
 
@@ -31,7 +31,7 @@ function M.literalUnionMembersAssignDirectly()
     testAssert.equal(diagsOf(COLOR .. "\nlocal c: Color = 'purple'"), "NUPP2001:2")
     -- the message names the offending value and the members it is not one of
     local result = parser.parse(COLOR .. "\nlocal c: Color = 'purple'", "t")
-    local d = check.check(result, "t.g.nupp", env)[1]
+    local d = check.check(result, "t.nupp", env)[1]
     assert(d.msg:find('"purple"', 1, true), "names the value: " .. d.msg)
     assert(d.msg:find('"blue"', 1, true), "names the members: " .. d.msg)
 end
@@ -104,19 +104,21 @@ function M.interfacesAcceptPlainShapes()
     )
 end
 
-function M.strictModeReportsUnknownNames()
+function M.unknownNamesAreReported()
     local src = "print(undefinedThing)\nlocal x = 1\nprint(x)"
-    -- gradual by default: unknown names are `any` and check silently
-    assertClean(src)
-    -- under --strict they are errors, while known names stay quiet
-    local result = parser.parse(src, "test.g.nupp")
-    local diags = check.check(result, "test.g.nupp", env, {strict = true})
+    -- an unknown name is an error, while known names stay quiet
+    local result = parser.parse(src, "test.nupp")
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 1, "one unknown name")
     testAssert.equal(diags[1].code, "NUPP2105")
     assert(diags[1].msg:find("undefinedThing", 1, true), "names the variable: " .. diags[1].msg)
+    -- plain Lua is not held to it: an unknown name there is a global read
+    local lua = parser.parse(src, "test.lua")
+    local luaDiags = check.check(lua, "test.lua", env)
+    testAssert.equal(#luaDiags, 0, "plain Lua reads unknown names silently: " .. (luaDiags[1] and luaDiags[1].msg or ""))
 end
 
-function M.strictModeAcceptsDeclaredAndStdlibNames()
+function M.declaredAndStdlibNamesAreKnown()
     local result = parser.parse(
         table.concat(
             {
@@ -128,7 +130,7 @@ function M.strictModeAcceptsDeclaredAndStdlibNames()
         ),
         "test"
     )
-    local diags = check.check(result, "test.g.nupp", env, {strict = true})
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, "declared locals and the stdlib are known: " .. (diags[1] and diags[1].msg or ""))
 end
 
@@ -154,7 +156,7 @@ function M.differentArgumentsAreDifferentTypes()
     )
     -- and the message distinguishes them
     local result = parser.parse(BOX .. "\nlocal n: Box<number> = new Box(value = 0)\nlocal s: Box<string> = n", "t")
-    local d = check.check(result, "t.g.nupp", env)[1]
+    local d = check.check(result, "t.nupp", env)[1]
     assert(d.msg:find("Box<number>", 1, true), "renders arguments: " .. d.msg)
 end
 

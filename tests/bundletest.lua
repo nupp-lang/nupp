@@ -161,19 +161,19 @@ function M.aComponentInstallsBeforeItsEntryRuns()
     local dir = tempProject({
         ["nupp.lua"] = COMPONENT_MANIFEST,
         [
-            "src/app/main.g.nupp"
+            "src/app/main.nupp"
         ] = [[
 local log = require("nupp.log")
 local json = require("nupp.codec.json")
-assert(component_started == nil)
+assert(_G.component_started == nil)
 log.info("starting component")
-component_json = json.encode({answer = 42})
-component_exact = json.encode({value = json.numberToken("18446744073709551615")})
-component_started = true
+_G.component_json = json.encode({answer = 42})
+_G.component_exact = json.encode({value = json.numberToken("18446744073709551615")})
+_G.component_started = true
 return true
 ]],
         [
-            "src/game.g.nupp"
+            "src/game.nupp"
         ] = [[
 local game = {}
 function game.answer(value: integer): integer
@@ -1452,8 +1452,8 @@ end
 function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
     local dir = tempProject({
         ["nupp.lua"] = MANIFEST,
-        ["src/app/main.g.nupp"] = MAIN,
-        ["src/app/greet.g.nupp"] = GREET,
+        ["src/app/main.nupp"] = MAIN,
+        ["src/app/greet.nupp"] = GREET,
         ["src/app/data/note.txt"] = "carried along\n",
         ["src/app/data/second.txt"] = "and another\n",
     })
@@ -1601,7 +1601,7 @@ return {
 ]]
 
 local ROCK_MAIN = [[
-local tiny = require("tinyrock")
+local tiny = require("tinyrock") as {answer: integer}
 print("answer " .. tostring(tiny.answer))
 ]]
 
@@ -1617,7 +1617,7 @@ build = { type = "builtin", modules = { tinyrock = "tinyrock.lua" } }
 function M.aBundleCarriesTheRockModulesItWasToldTo()
     local dir = tempProject({
         ["nupp.lua"] = ROCK_MANIFEST,
-        ["src/app/main.g.nupp"] = ROCK_MAIN,
+        ["src/app/main.nupp"] = ROCK_MAIN,
         ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
         ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
     })
@@ -1739,7 +1739,7 @@ return true
 ]],
     })
     local where = " (checked in " .. dir .. ")"
-    local report = run(dir, "'" .. NUPP .. "' check --strict")
+    local report = run(dir, "'" .. NUPP .. "' check")
 
     assert(diagnosed(report, "typed.nupp", "NUPP2001"), "the std surface is typed, not any" .. where .. ": " .. report)
     assert(

@@ -3,10 +3,10 @@ module nupp.compiler.check
 --[[
 The checker: the walk, and the run it happens in.
 
-A gradual type checker over the CST. Anything unannotated or unresolvable is
-`any` and checks silently, so an untyped LuaJIT program is a valid Nupp program
-that reports nothing; annotations are what turn checking on, one declaration at
-a time.
+A type checker over the CST. What is not annotated is inferred, and a module's
+exports are written down, so nothing untyped crosses a module boundary. A plain
+`.lua` file is the exception: it is checked for what it can be, and a name it does
+not declare types as `any`.
 
 This module holds the run, meaning the scopes, the diagnostics and the per-file state, and
 the statement walk that drives everything else. The questions the walk asks are
@@ -213,23 +213,21 @@ end
 -- recursive project declarations.
 
 ----------------------------------------------------------------------------
--- The strict floor
+-- Strict checking
 ----------------------------------------------------------------------------
 
---- Whether a file is held to the strict floor when nothing said otherwise.
+--- Whether a file is checked strictly when its caller did not say.
 ---
---- The extension is the answer, so a file says what it wants where anyone reading it
---- will see it. `.g.nupp` asks for the gradual layer. A plain `.lua` file is plain Lua
---- and was never making a claim. A `.d.nupp` describes an interface somebody else
---- implements, and `any` is frequently the type it really has -- `string.buffer`'s
---- `encode(v: any): string` really does take any Lua value, and no annotation this
---- project writes changes what LuaJIT accepts. Everything else is ordinary Nupp.
---- `--strict` overrides all of it by passing the answer in.
+--- Every Nupp source file is. A plain `.lua` file is plain Lua and was never making a
+--- claim: a name it does not declare may be a global somebody else set. A `.d.nupp`
+--- describes an interface somebody else implements, and `any` is frequently the type
+--- it really has -- `string.buffer`'s `encode(v: any): string` really does take any
+--- Lua value, and no annotation this project writes changes what LuaJIT accepts.
 function checkMod.strictByDefault(filename: string?): boolean
     if not filename then
         return true
     end
-    return not (filename:match("%.g%.nupp$") or filename:match("%.d%.nupp$") or filename:match("%.lua$"))
+    return not (filename:match("%.d%.nupp$") or filename:match("%.lua$"))
 end
 
 --- Every node the typed layer is written with: the type productions themselves, the
@@ -268,7 +266,7 @@ local TYPED_LAYER: {
 ---
 --- A `.lua` file is Lua: this toolchain will require, build and run one, and that is
 --- the whole promise. An annotation written there reads as a claim the file does not
---- make -- the extension already settled that it is checked gradually, so the
+--- make -- the extension already settled that it is plain Lua, so the
 --- annotation governs nothing, and the next person to read it has to work out that it
 --- never did. Better to say so where it was written.
 ---
@@ -2816,9 +2814,7 @@ function checkMod.check(
                 c.diag("NUPP1002", stat.name, "an exported function name cannot be qualified")
                 return
             end
-            -- The strict floor's second rule: nothing untyped crosses a module
-            -- boundary. A `.g.nupp` asked for the typed syntax without the floor, so
-            -- its untyped export is an `any` boundary the way a `.lua` module's is.
+            -- Nothing untyped crosses a module boundary.
             if c.opts.strict then
                 for _, parameter in ipairs(stat.body and stat.body.params or {}) do
                     if parameter.name and not parameter.type and not parameter.vararg then

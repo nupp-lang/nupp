@@ -397,7 +397,7 @@ end
 ]],
             ["src/watched.nupp"] = watched("return 1"),
             [
-                "main.g.nupp"
+                "main.nupp"
             ] = table.concat(
                 {
                     "local watched = require('watched')",
@@ -422,7 +422,7 @@ end
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"
             local command = (
-                "cd '%s' && '%s/bin/nupp' run --watch main.g.nupp " .. "> '%s' 2> '%s'"
+                "cd '%s' && '%s/bin/nupp' run --watch main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
@@ -463,7 +463,7 @@ return function(path, text)
 end
 ]],
             [
-                "main.g.nupp"
+                "main.nupp"
             ] = table.concat(
                 {
                     "local api = cheader('api.h')",
@@ -483,7 +483,7 @@ end
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"
             local command = (
-                "cd '%s' && '%s/bin/nupp' run --watch main.g.nupp " .. "> '%s' 2> '%s'"
+                "cd '%s' && '%s/bin/nupp' run --watch main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
@@ -522,7 +522,7 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             )
             writeFile(dir .. "/nupp.lua", ("return { hotreload = { libraries = { mini = %q } } }\n"):format(current))
             writeFile(
-                dir .. "/main.g.nupp",
+                dir .. "/main.nupp",
                 table.concat(
                     {
                         "cdef function hot_native_value(): int32 from 'mini'",
@@ -539,7 +539,7 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"
             local command = (
-                "cd '%s' && '%s/bin/nupp' run --watch main.g.nupp " .. "> '%s' 2> '%s'"
+                "cd '%s' && '%s/bin/nupp' run --watch main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)

@@ -167,10 +167,10 @@ that page:
 | Constrained types | [constrained.md](../learn/language/types/constrained.md) | `NUPP2001`, `NUPP2013`, `NUPP2422` |
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
+| File types | [file-types.md](../learn/language/file-types.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
 | Files | [](nupp.io.files) | `NUPP2701` |
 | Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
 | Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122`, `NUPP2146`, `NUPP2148` |
-| Gradual typing | [strictness.md](../learn/language/gradual-typing.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |
 | Interfaces | [interfaces.md](../learn/language/types/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
 | Intersections and overloads | [intersections.md](../learn/language/types/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
@@ -304,7 +304,7 @@ different project.
 
 ## Agent workflow
 
-1. Run `nupp check --json --strict`, and read `ok` first.
+1. Run `nupp check --json`, and read `ok` first.
 2. Apply a complete fix from `diagnostics[].fixes` when its title matches the
    intended repair. Never take individual edits out of one.
 3. Read `docs` on a diagnostic, or run `nupp explain <code> --json`, when the

@@ -17,9 +17,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local sharedEnv = envMod.new(HERE .. "/..")
 
 local function compile(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors" .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
-    local diags = check.check(result, "test.g.nupp", sharedEnv)
+    local diags = check.check(result, "test.nupp", sharedEnv)
     local code, genDiags = gen.generate(result, "test")
 
     return code, diags, genDiags
@@ -154,7 +154,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "   end",
             "   nupp.drop(writer)",
             "end",
-            "local offsetFirst, offsetLast: int32, int32",
+            "local offsetFirst: int32, offsetLast: int32",
             "do",
             "   local transformed = spans.fromCarray(output, 6)",
             "   offsetFirst, offsetLast = transformed[2], transformed[6]",
@@ -175,7 +175,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "   counted_pointer_independent(independentOutput, independentInput)",
             "   nupp.drop(independentOutput)",
             "end",
-            "local outputCount, inputCount, inputFirst: int32, int32, int32",
+            "local outputCount: int32, inputCount: int32, inputFirst: int32",
             "do",
             "   local independent = spans.fromCarray(output, 3)",
             "   outputCount, inputCount, inputFirst = independent[1], independent[2], independent[3]",

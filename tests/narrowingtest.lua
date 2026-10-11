@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local assertions = require("helpers.assertions")
 -- Narrowing through paths, discriminated unions, literal types, and the
--- strict-mode module boundary.
+-- typed module boundary.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -14,10 +14,10 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src, opts)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
-    for j, d in ipairs(check.check(result, "test.g.nupp", env, opts)) do
+    for j, d in ipairs(check.check(result, "test.nupp", env, opts)) do
         out[j] = d.code .. ":" .. d.line
     end
 
@@ -307,7 +307,6 @@ function M.aForwardGotoCarriesItsFactsToTheLabel()
 end
 
 function M.anEarlyExitCarriesWhatItLeftUnassigned()
-    local strict = {strict = true}
     testAssert.equal(
         diagsOf(
             table.concat(
@@ -324,8 +323,7 @@ function M.anEarlyExitCarriesWhatItLeftUnassigned()
                     "return run",
                 },
                 "\n"
-            ),
-            strict
+            )
         ),
         "NUPP2207:8"
     )
@@ -346,8 +344,7 @@ function M.anEarlyExitCarriesWhatItLeftUnassigned()
                     "return run",
                 },
                 "\n"
-            ),
-            strict
+            )
         ),
         "NUPP2207:9"
     )
@@ -368,28 +365,24 @@ function M.anEarlyExitCarriesWhatItLeftUnassigned()
                 "return run",
             },
             "\n"
-        ),
-        strict
+        )
     )
 end
 
 function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
-    local strict = {strict = true}
-    -- Declared without a value, a strict local is read as nil until it is assigned.
-    testAssert.equal(diagsOf("local x: string\nprint(x:upper())", strict), "NUPP2207:2")
-    testAssert.equal(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())", strict), "NUPP2207:5")
-    testAssert.equal(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)", strict), "NUPP2207:5")
-    testAssert.equal(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)", strict), "NUPP2207:5")
+    -- Declared without a value, a typed local is read as nil until it is assigned.
+    testAssert.equal(diagsOf("local x: string\nprint(x:upper())"), "NUPP2207:2")
+    testAssert.equal(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())"), "NUPP2207:5")
+    testAssert.equal(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
+    testAssert.equal(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
     -- Every path assigning it is what makes it hold a value.
-    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)", strict)
-    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)", strict)
-    assertClean("local x: string\nrepeat\n    x = 'a'\nuntil true\nprint(#x)", strict)
+    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)")
+    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)")
+    assertClean("local x: string\nrepeat\n    x = 'a'\nuntil true\nprint(#x)")
     -- An optional annotation admits the nil the declaration leaves there.
-    assertClean("local x: string?\nprint(x)", strict)
+    assertClean("local x: string?\nprint(x)")
     -- A closure may run after the assignment, so its read is not known to come first.
-    assertClean("local x: string\nlocal function f(): string\n    return x\nend\nx = 'a'\nprint(f())", strict)
-    -- Gradual code keeps `local x: T` as the declaration it always was.
-    assertClean("local x: string\nprint(#x)")
+    assertClean("local x: string\nlocal function f(): string\n    return x\nend\nx = 'a'\nprint(f())")
 end
 
 function M.nilChecksNarrowThroughFieldPaths()
@@ -445,7 +438,7 @@ function M.assignmentForgetsWhatWasNarrowed()
     )
 end
 
-local SHAPE = "local s: {tag: 'circle', r: number} | {tag: 'rect', w: number}"
+local SHAPE = "local s: {tag: 'circle', r: number} | {tag: 'rect', w: number} = nil as any"
 
 function M.literalTypesAreWritableInAnnotations()
     assertClean("local t: 'circle' = 'circle'")
@@ -487,7 +480,7 @@ function M.numberLiteralsCarryTheirValue()
     assertClean("local f: number = 1 / 2")
 end
 
-function M.strictModeRequiresTypedExports()
+function M.aModuleRequiresTypedExports()
     local src = table.concat(
         {
             "local function typed(n: number): number",
@@ -500,15 +493,13 @@ function M.strictModeRequiresTypedExports()
         },
         "\n"
     )
-    assertClean(src)
-    testAssert.equal(diagsOf(src, {strict = true}), "NUPP2106:7")
+    testAssert.equal(diagsOf(src), "NUPP2106:7")
     -- a fully annotated boundary passes
     assertClean(
         table.concat(
             {"local function typed(n: number): number", "    return n", "end", "return {typed = typed}",},
             "\n"
-        ),
-        {strict = true}
+        )
     )
 end
 
@@ -576,7 +567,7 @@ function M.noreturnHelperGuardsLikeError()
                 "local function fail(msg: string)",
                 "    error(msg)",
                 "end",
-                "local function use(x: string?)",
+                "local function use(x: string?): nil",
                 "    if not x then fail('no x') end",
                 "    print(#x)",
                 "end",
@@ -596,7 +587,7 @@ function M.noreturnHelperGuardsLikeError()
                 "        error(msg)",
                 "    end",
                 "end",
-                "local function use(x: string?)",
+                "local function use(x: string?): nil",
                 "    if not x then fail('no x') end",
                 "    print(#x)",
                 "end",
@@ -617,7 +608,7 @@ function M.noreturnIsNotInferredWhenAPathReturns()
                     "    if msg == '' then return 0 end",
                     "    error(msg)",
                     "end",
-                    "local function use(x: string?)",
+                    "local function use(x: string?): nil",
                     "    if not x then maybe('no x') end",
                     "    print(#x)",
                     "end",
@@ -640,7 +631,7 @@ function M.declaredNeverReturn()
                 "    print(code)",
                 "    error('bail')",
                 "end",
-                "local function use(x: string?)",
+                "local function use(x: string?): nil",
                 "    if x == nil then bail(1) end",
                 "    print(#x)",
                 "end",
@@ -862,7 +853,7 @@ function M.aClosureDoesNotKeepANarrowingOfALocalAssignedLater()
         diagsOf(
             table.concat(
                 {
-                    "local function outer()",
+                    "local function outer(): nil",
                     "    local cbs: {function()} = {}",
                     "    local x: string? = 'hi'",
                     "    if x ~= nil then",
@@ -884,7 +875,7 @@ function M.aClosureDoesNotKeepANarrowingOfALocalAssignedLater()
     assertClean(
         table.concat(
             {
-                "local function outer()",
+                "local function outer(): nil",
                 "    local cbs: {function()} = {}",
                 "    local x: string? = 'hi'",
                 "    if x ~= nil then",
@@ -1035,7 +1026,7 @@ function M.aLongCalleeChainReachesItsFinalWrite()
         end
         lines[#lines + 1] = "end"
     end
-    local result = parser.parse(table.concat(lines, "\n"), "test.g.nupp")
+    local result = parser.parse(table.concat(lines, "\n"), "test.nupp")
     testAssert.equal(#result.errors, 0, "long call chain parses")
     local summaries = mutation.prescan(result.root)
     testAssert.equal(summaries.byKey.f1.captured.x, true, "the first callee reaches the final write")
@@ -1054,10 +1045,10 @@ end
 
 return wrapper
 ]],
-        "test.g.nupp"
+        "test.nupp"
     )
     testAssert.equal(#result.errors, 0, "safe-call fixture parses")
-    local diags = check.check(result, "test.g.nupp", env, {})
+    local diags = check.check(result, "test.nupp", env, {})
     testAssert.equal(#diags, 0, "safe-call fixture checks")
     local queries = analysis.queries(result.analysis)
     local wrapper = result.root.blocks[1].stats[2].effectInfo

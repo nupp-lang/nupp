@@ -17,10 +17,6 @@ local compile = {}
 
 --- What the compiler was asked for.
 record compile.Settings
-    --- Whether strict checker rules are errors. Nil lets the manifest decide, which is
-    --- not the same as false.
-    strict: boolean?
-
     compat: string?
 
     --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
@@ -97,7 +93,6 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 --- options, so every one of them reads them the same way.
 function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
     return new compile.Settings(
-        strict = values.strict,
         compat = values.compat,
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
@@ -321,11 +316,7 @@ function compile.module(
         return nil, "syntax errors"
     end
     local check = require("nupp.compiler.check")
-    local diags = check.check(result, path, env, {
-        strict = settings.strict,
-        compat = settings.compat,
-        moduleName = moduleName,
-    })
+    local diags = check.check(result, path, env, {compat = settings.compat, moduleName = moduleName,})
     if settings.materializations then
         local observations = require(
             "nupp.compiler.comptime.materialize.observe"

@@ -54,7 +54,7 @@ Every lint has a name and a stable code.
 | `discarded-result` | `NUPP2508` | suspicious | warning |
 | `reifiable-record` | `NUPP2509` | performance | off |
 | `else-if` | `NUPP2510` | style | warning |
-| `gradual-projection` | `NUPP2511` | suspicious | warning |
+| `erased-projection` | `NUPP2511` | suspicious | warning |
 | `positional-record-construction` | `NUPP2512` | style | warning |
 | `deprecated` | `NUPP2513` | suspicious | warning |
 | `jit-boundary` | `NUPP2514` | suspicious | warning |
@@ -460,17 +460,17 @@ local read out of a parameter is not scratch. See
 propagation those answers come from.
 :::
 
-### `gradual-projection`
+### `erased-projection`
 
 A projection whose head inference never worked out is checked as `any`, and the
 lint reports the erasure once per call and member:
 
 ```nupp:fragment
-local erased = collect(nil as any) -- warning: gradual-projection
+local erased = collect(nil as any) -- warning: erased-projection
 ```
 
 An answer somebody wrote as `any` is a different thing and does not report. See
-[associated-types.md](../learn/language/types/associated-types.md#gradual-projections)
+[associated-types.md](../learn/language/types/associated-types.md#erased-projections)
 for what a projection is and when its head settles.
 
 ### `reifiable-record`

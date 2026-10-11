@@ -26,9 +26,9 @@ local sharedEnv = envMod.new(HERE)
 -- `require` in it resolves to `tests/fixtures`.
 local function moduleTypeOf(src, name)
     local env = sharedEnv
-    local result = parser.parse(src, (name or "test") .. ".g.nupp")
+    local result = parser.parse(src, (name or "test") .. ".nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags, moduleType, exports = check.check(result, (name or "test") .. ".g.nupp", env)
+    local diags, moduleType, exports = check.check(result, (name or "test") .. ".nupp", env)
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
             error(("unexpected %s: %s"):format(diag.code, diag.msg), 2)
@@ -133,7 +133,7 @@ end
 
 function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
     -- A body inference could not get through. Not the bodyless case, which is below.
-    local moduleType = moduleTypeOf("local M = {}\nfunction M.f(): nil\n    someUnknownGlobal()\nend\nreturn M")
+    local moduleType = moduleTypeOf("local M = {}\nlocal opaque: any = nil\nfunction M.f(): nil\n    opaque()\nend\nreturn M")
     local t = fieldType(moduleType, "f")
     assert(t ~= nil, "the export is present")
     testAssert.equal(t.noYield, nil, "an unreadable body may suspend")
@@ -363,7 +363,7 @@ function M.reExportingPreservesAnImportedGuarantee()
     -- "no answer here" as "may yield" erased a fact the type had already carried across
     -- a boundary -- the exact opposite of conservative, and a direct contradiction of
     -- the effect travelling with type identity.
-    local facade = moduleTypeOf(io.open(HERE .. "/fixtures/effectsfacade.g.nupp"):read("*a"), "fixtures/effectsfacade")
+    local facade = moduleTypeOf(io.open(HERE .. "/fixtures/effectsfacade.nupp"):read("*a"), "fixtures/effectsfacade")
     local safe = fieldType(facade, "safe")
     assert(safe ~= nil and safe.tag == "func", "the re-export is callable")
     testAssert.equal(safe.noYield, true, "a guarantee survives being handed on")
@@ -465,7 +465,7 @@ local function withProject(depSource, run)
         f:close()
     end
 
-    local depPath, mainPath = dir .. "/dep.g.nupp", dir .. "/main.g.nupp"
+    local depPath, mainPath = dir .. "/dep.nupp", dir .. "/main.nupp"
     write(depPath, depSource)
     write(mainPath, table.concat({"local dep = require('dep')", "local f = dep.waiter", "return f",}, "\n"))
     local inc = incremental.new(dir)
@@ -526,7 +526,7 @@ function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
         f:close()
     end
 
-    local depPath, mainPath = dir .. "/dep.g.nupp", dir .. "/main.g.nupp"
+    local depPath, mainPath = dir .. "/dep.nupp", dir .. "/main.nupp"
     write(depPath, QUIET_METHOD)
     write(
         mainPath,

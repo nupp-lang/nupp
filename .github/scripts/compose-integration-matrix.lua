@@ -16,13 +16,15 @@ local platforms = {
     },
     {
         variable = "SELECTED_MACOS",
-        -- A cold Rust and toolchain rebuild plus the broad suite runs about 125
-        -- minutes on this three-core runner.
-        entry = {name = "macOS arm64", os = "macos-15", timeout = 150, artifact = "macos-arm64"},
+        -- The Rust-native gate and broad suite need room for cold checks on
+        -- a three-core runner.
+        entry = {name = "macOS arm64", os = "macos-15", timeout = 240, artifact = "macos-arm64"},
     },
     {
         variable = "SELECTED_WINDOWS",
-        entry = {name = "Windows x64", os = "windows-2022", timeout = 120, artifact = "windows-x64"},
+        -- A cold Rust-native artifact gate and broad suite exceeded 180
+        -- minutes; keep the timeout above both stages.
+        entry = {name = "Windows x64", os = "windows-2022", timeout = 240, artifact = "windows-x64"},
     },
 }
 

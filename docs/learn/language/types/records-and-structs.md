@@ -186,7 +186,7 @@ The declaring module may construct, read, and write it; another checked module
 sees the nominal type and its public operations but cannot access or initialize
 the field. Privacy applies through generic instantiation and module summaries.
 It is a checked-language abstraction boundary, not a runtime sandbox against
-generated Lua or explicit gradual interop.
+generated Lua or explicit `any` interop.
 
 Records alone support private fields, and the checker says so anywhere else.
 Structs expose C layout and interfaces declare public contracts, so both reject

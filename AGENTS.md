@@ -132,10 +132,9 @@ whenever output is not a terminal, so piped output never carries escapes.
   it is not.
 - `./bin/nupp reference --for CODE` prints whichever sections explain a
   diagnostic code, which is what you have when a check reports one.
-- `./bin/nupp check [FILE...]` type-checks source. A `.nupp` file is checked
-  strictly; `.g.nupp` opts a file out of the strict floor without giving up the
-  typed syntax, and `.lua` is plain Lua the typed layer is refused in.
-  `--strict` holds every file to the floor whatever it is called.
+- `./bin/nupp check [FILE...]` type-checks source. In a `.nupp` file unknown
+  variables and untyped exports are errors; `.lua` is plain Lua the typed layer
+  is refused in.
 - `./bin/nupp check --json [FILE...]` returns structured diagnostics and
   available fixes. Read `help` and `related` before editing, and apply a whole
   titled fix rather than selecting individual edits from it.

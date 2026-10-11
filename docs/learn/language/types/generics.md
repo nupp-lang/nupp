@@ -162,7 +162,7 @@ relation. Violating one is reported at the instantiation:
 NUPP2116: type argument integer for T: integer is not a Named
 ```
 
-An `any` argument skips the bound check, which is what keeps a gradual value
+An `any` argument skips the bound check, which is what keeps an unchecked value
 usable in a bounded position. An interface named as a bound may carry a
 [refinement](refinements.md), which is the test `is` against that interface
 runs.
@@ -200,7 +200,7 @@ Unification makes four decisions a partly inferred call depends on:
 
 - **A binder appearing twice unions the two arguments** rather than failing or
   picking the more specific one.
-- **An `any` argument does not bind a parameter.** It is gradual evidence, so a
+- **An `any` argument does not bind a parameter.** It opts out of checking, so a
   result using that parameter is `any` deliberately.
 - **A destination can answer an otherwise open result parameter.** In
   `local value: string = make()`, the destination supplies `string`. An

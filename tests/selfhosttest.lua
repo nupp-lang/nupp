@@ -11,7 +11,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function parse(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     return result
 end
@@ -29,7 +29,7 @@ end
 -- table, a struct's ctype), so it runs after checking, as in a real build.
 local function generate(src)
     local result = parse(src)
-    check.check(result, "test.g.nupp", env)
+    check.check(result, "test.nupp", env)
     local code, diags = gen.generate(result, "test")
     testAssert.equal(#diags, 0, "gen diagnostics: " .. (diags[1] and diags[1].msg or ""))
 
@@ -912,7 +912,7 @@ local step: Store.Step = Bag.step()
 return step(7)
 ]]
     )
-    local diags = check.check(result, "test.g.nupp", localEnv)
+    local diags = check.check(result, "test.nupp", localEnv)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
     testAssert.equal(table.concat(attempted, ", "), "", "a lexical type never becomes a module dependency")
 end
@@ -931,8 +931,8 @@ function M.missingNestedTypesDoNotFallThroughToModules()
         {localSource, "Store.Missing.Step"},
         {tableSource, "box.Store.Missing"},
     }) do
-        local result = parse(case[1] .. "local value: " .. case[2] .. "\nreturn value\n")
-        local diags = check.check(result, "test.g.nupp", localEnv)
+        local result = parse(case[1] .. "local value: " .. case[2] .. "\n")
+        local diags = check.check(result, "test.nupp", localEnv)
         testAssert.equal(#diags, 1, case[2])
         testAssert.equal(diags[1].code, "NUPP2101", case[2])
         assert(diags[1].msg:find("unknown nested type", 1, true), diags[1].msg)
@@ -1134,8 +1134,7 @@ function M.localFunctionsRemainFlowSensitive()
                     "return {first, second}",
                 },
                 "\n"
-            ),
-            {strict = true}
+            )
         ),
         "NUPP2105"
     )

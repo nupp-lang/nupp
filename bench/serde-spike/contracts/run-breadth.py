@@ -45,7 +45,7 @@ for report in reports:
         row = rows.setdefault((report['provider'], case['name']), {'forkMediansNs': [], 'luaHeapBytesPerValue': []})
         row['forkMediansNs'].append(statistics.median(case['secondsPerValue']) * 1e9)
         row['luaHeapBytesPerValue'].append(case['luaHeapBytesPerValue'])
-files = [here / 'src/contract/breadth.g.nupp', here / 'breadth.lua', Path(__file__)] + list((root / 'src/nupp/serde').glob('*'))
+files = [here / 'src/contract/breadth.nupp', here / 'breadth.lua', Path(__file__)] + list((root / 'src/nupp/serde').glob('*'))
 summary = {'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
     'workingTree': True, 'host': platform.platform(), 'forks': args.forks, 'samplesPerFork': args.samples,
     'note': 'Current implementation costs; no supported old-API baseline for these model and document paths.',

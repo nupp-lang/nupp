@@ -797,18 +797,16 @@ local function scaffoldAndVerify(name, project, expectedOutput, prepare)
     local ok, out = shell(quoted .. NUPP .. " check")
     assert(ok, scaffolded .. " does not check:\n" .. out)
     -- A template is what somebody's first project looks like, so it is held to the
-    -- strict floor and to the one formatted spelling, and warns about nothing.
+    -- one formatted spelling, and warns about nothing.
     assert(not out:find("warning", 1, true), scaffolded .. " checks with warnings:\n" .. out)
-    ok, out = shell(quoted .. NUPP .. " check --strict")
-    assert(ok, scaffolded .. " does not check under --strict:\n" .. out)
     ok, out = shell(quoted .. NUPP .. " fmt --check")
     assert(ok, scaffolded .. " is not formatted:\n" .. out)
     ok, out = shell(quoted .. NUPP .. " build")
     assert(ok, scaffolded .. " does not build:\n" .. out)
     -- A build stages the compiler's runtime sources for a portable target, and the
-    -- project's strict floor is not theirs to meet.
-    ok, out = shell(quoted .. NUPP .. " check --strict")
-    assert(ok, scaffolded .. " does not check under --strict once built:\n" .. out)
+    -- project's checking must not reach them.
+    ok, out = shell(quoted .. NUPP .. " check")
+    assert(ok, scaffolded .. " does not check once built:\n" .. out)
     ok, out = shell(quoted .. NUPP .. " test")
     assert(ok, scaffolded .. " does not pass its own tests:\n" .. out)
     if expectedOutput then

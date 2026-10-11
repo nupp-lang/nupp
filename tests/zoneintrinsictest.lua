@@ -13,9 +13,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(source)
-   local parsed = parser.parse(source, "zone_intrinsic_test.g.nupp")
+   local parsed = parser.parse(source, "zone_intrinsic_test.nupp")
    testAssert.equal(#parsed.errors, 0, "syntax errors")
-   local diagnostics = check.check(parsed, "zone_intrinsic_test.g.nupp", env)
+   local diagnostics = check.check(parsed, "zone_intrinsic_test.nupp", env)
    local code, generated = gen.generate(parsed, "zone_intrinsic_test")
    for _, diagnostic in ipairs(generated) do diagnostics[#diagnostics + 1] = diagnostic end
    return code, diagnostics

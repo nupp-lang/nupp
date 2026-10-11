@@ -297,9 +297,9 @@ function M.enumMembersAreExported()
     local file = dir .. "/probe.nupp"
     local diags = diagnosticsAt(file, "local h = cheader('modes.h')\nlocal rc: int32 = h.nupp_mode_set(h.NUPP_MODE_ON)")
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-    local result = parser.parse("local h = cheader('modes.h')\nreturn h.NUPP_MODE_ON", dir .. "/probe.g.nupp")
-    check.check(result, dir .. "/probe.g.nupp", env)
-    local chunk = assert(loadstring(gen.generate(result, dir .. "/probe.g.nupp"), "@modes"))
+    local result = parser.parse("local h = cheader('modes.h')\nreturn h.NUPP_MODE_ON", dir .. "/probe.nupp")
+    check.check(result, dir .. "/probe.nupp", env)
+    local chunk = assert(loadstring(gen.generate(result, dir .. "/probe.nupp"), "@modes"))
     testAssert.equal(chunk(), 2, "the namespace answers the constant")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -318,14 +318,14 @@ end
 
 -- Generated code as the FFI would run it, with `ffi` replaced by `fake`.
 local function runWithFfi(src, fake)
-    local file = HERE .. "/p.g.nupp"
+    local file = HERE .. "/p.nupp"
     local result = parser.parse(src, file)
     testAssert.equal(#result.errors, 0, "parses")
     check.check(result, file, env)
     local code, diags = gen.generate(result, file)
     testAssert.equal(#diags, 0, "generates")
     local replaced = code:gsub('require%("ffi"%)', "__fakeFfi", 1)
-    local chunk = assert(loadstring(replaced, "@p.g.nupp"))
+    local chunk = assert(loadstring(replaced, "@p.nupp"))
     setfenv(chunk, setmetatable({__fakeFfi = fake}, {__index = _G}))
     return code, pcall(chunk)
 end

@@ -75,7 +75,7 @@ local function wrong(shape: Circle): boolean
 end
 ```
 
-Only what can be settled counts. A gradual type, a type parameter, and a
+Only what can be settled counts. `any`, a type parameter, and a
 structural fit the checker could not decide all leave the test alone, and `as`
 remains the way to say a value is something its declaration does not admit.
 
@@ -197,7 +197,7 @@ the literal is made, since the literal may run after that assignment.
 `any` never narrows, because it is already compatible with everything. Reach
 for a [predicate function](#predicate-functions) or an `as` cast where you know
 more than the annotation does. See
-[overview.md](index.md#gradual-escape-hatches) for what `any` gives up.
+[overview.md](index.md#escape-hatches) for what `any` gives up.
 
 ### Falsy `and`
 
@@ -389,7 +389,7 @@ proves.
 
 No. A narrowed type is a fact the checker carries and erases, so the branch
 lowers to the Lua you wrote. See
-[strictness.md](../gradual-typing.md#constructs-that-arent-erased) for the
+[file-types.md](../file-types.md#constructs-that-arent-erased) for the
 two things that do survive.
 
 ::: seealso

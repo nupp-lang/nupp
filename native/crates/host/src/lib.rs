@@ -105,7 +105,6 @@ struct ReloadState {
 /// One argument on the way to a session opener, owned until the call is made.
 enum ReloadArgument {
     Nil,
-    Boolean(bool),
     Bytes(Vec<u8>),
 }
 
@@ -556,7 +555,6 @@ impl HostRuntime {
         compiler: Option<&str>,
         root: Option<&str>,
         entry: &str,
-        strict: bool,
     ) -> Result<Reload, HostError> {
         self.reload_session(
             compiler,
@@ -564,7 +562,6 @@ impl HostRuntime {
             &[
                 ReloadArgument::Bytes(entry.as_bytes().to_vec()),
                 ReloadArgument::name(root),
-                ReloadArgument::Boolean(strict),
             ],
         )
     }
@@ -579,12 +576,11 @@ impl HostRuntime {
         &self,
         compiler: Option<&str>,
         root: Option<&str>,
-        strict: bool,
     ) -> Result<Reload, HostError> {
         self.reload_session(
             compiler,
             c"attach",
-            &[ReloadArgument::name(root), ReloadArgument::Boolean(strict)],
+            &[ReloadArgument::name(root)],
         )
     }
 
@@ -627,7 +623,6 @@ impl HostRuntime {
             .iter()
             .map(|argument| match argument {
                 ReloadArgument::Nil => LuaArgument::Nil,
-                ReloadArgument::Boolean(value) => LuaArgument::Boolean(*value),
                 ReloadArgument::Bytes(value) => LuaArgument::Bytes(value),
             })
             .collect::<Vec<_>>();
@@ -1217,7 +1212,7 @@ end
     fn a_reload_session_and_native_workers_exclude_each_other() {
         let mut runtime = HostRuntime::owned(true, None).unwrap();
         runtime.run_buffer(STUB_SESSION, "=stub", &[]).unwrap();
-        let reload = runtime.reload_open(None, None, "app.main", false).unwrap();
+        let reload = runtime.reload_open(None, None, "app.main").unwrap();
 
         // A worker runs the payload it was spawned from, so enabling one under
         // an open session would leave part of the process on a generation the
@@ -1233,7 +1228,7 @@ end
         runtime.reload_close(reload, true).unwrap();
         runtime.enable_workers(b"return nil").unwrap();
         let refused = runtime
-            .reload_open(None, None, "app.main", false)
+            .reload_open(None, None, "app.main")
             .unwrap_err();
         assert!(
             refused.to_string().contains("commits into one state"),
@@ -1253,7 +1248,7 @@ end
         let mut attached = unsafe { HostRuntime::attach(state, false) }.unwrap();
         attached.run_buffer(STUB_SESSION, "=stub", &[]).unwrap();
         let refused = attached
-            .reload_attach(None, None, false)
+            .reload_attach(None, None)
             .unwrap_err()
             .to_string();
         assert!(refused.contains("commits into one state"), "{refused}");

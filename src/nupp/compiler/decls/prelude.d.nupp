@@ -242,7 +242,7 @@ local nupp: {
     --- declarations. Every member is an ordinary checked compile-time value; none has
     --- a runtime representation.
     types: {
-        --- The gradual type; compatible with everything, checked at neither end.
+        --- The dynamic type; compatible with everything, checked at neither end.
         @readonly any: @comptime type,
 
         --- The top type; everything fits it, it fits nothing else.
@@ -266,8 +266,8 @@ local nupp: {
         --- A number known to be integral.
         @readonly integer: @comptime type,
 
-        --- Any table shape, gradual in both directions, spelled `table_` because
-        --- `table` names the standard library namespace.
+        --- Any table shape, compatible with every table type in both directions,
+        --- spelled `table_` because `table` names the standard library namespace.
         @readonly table_: @comptime type,
 
         --- A coroutine.

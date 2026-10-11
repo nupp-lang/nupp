@@ -1,4 +1,4 @@
-export const DEFAULT_OPTIONS = Object.freeze({strict: true, optimize: true});
+export const DEFAULT_OPTIONS = Object.freeze({optimize: true});
 function record(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -6,7 +6,7 @@ export function restoreOptions(params = {}, saved = {}) {
   params = record(params);
   saved = record(saved);
   const options = {...DEFAULT_OPTIONS};
-  for (const key of ['strict', 'optimize']) {
+  for (const key of ['optimize']) {
     if (typeof saved[key] === 'boolean') options[key] = saved[key];
     if (params[key] !== undefined) options[key] = params[key] === '1';
   }
@@ -21,7 +21,7 @@ export function sourceFragment(source, options = DEFAULT_OPTIONS) {
   // Defaults are explicit so the recipient's saved preferences cannot change
   // the program's behavior. Empty compat also clears a saved compatibility mode.
   return '#source=' + encodeURIComponent(source) +
-    `&strict=${restored.strict ? '1' : '0'}&optimize=${restored.optimize ? '1' : '0'}` +
+    `&optimize=${restored.optimize ? '1' : '0'}` +
     `&compat=${restored.compat || ''}`;
 }
 export function storedOptions() {

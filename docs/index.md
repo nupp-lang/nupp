@@ -35,8 +35,8 @@ These examples run on LuaJIT in your browser.
 
 ## Checked Lua
 
-`.lua`, `.g.nupp`, and `.nupp` provide plain, gradual, and strict source
-boundaries. Records, structs, interfaces, unions, refinements, generics, and
+`.nupp` source is checked, and plain `.lua` files sit beside it under one
+module resolver. Records, structs, interfaces, unions, refinements, generics, and
 narrowing add contracts where a module needs them.
 
 ```nupp

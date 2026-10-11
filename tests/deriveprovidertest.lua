@@ -21,8 +21,8 @@ local M = {}
 -- replaced rather than less: a status says the batch failed, a file says which
 -- fixture failed and how.
 --
--- Two batches, because the answer they want is opposite. One is held to the
--- strict floor and must be clean; the other must be refused, which is what each
+-- Two batches, because the answer they want is opposite. One must check
+-- clean; the other must be refused, which is what each
 -- of its assertions is about, so a shared status would mean nothing there.
 local function checkedTogether(flags, paths)
     local answered = nil
@@ -84,7 +84,7 @@ local STRICT_BATCH = {
 }
 local REFUSED_BATCH = {REFUSED.unsupported, REFUSED.provider, REFUSED.immutable}
 
-local strictly = checkedTogether({"--strict"}, STRICT_BATCH)
+local strictly = checkedTogether({}, STRICT_BATCH)
 local refusals = checkedTogether({}, REFUSED_BATCH)
 
 --- The strict batch reported nothing about this fixture.
@@ -237,7 +237,7 @@ function M.runsAProviderNamingItsOwnModuleFromOutsideTheProject()
     file:close()
     local path = home .. "/main.nupp"
     local nupp = NUPP:sub(1, 1) == "/" and NUPP or (assert(os.getenv("PWD")) .. "/" .. NUPP)
-    local checked, checkOutput = process.capture({nupp, "check", "--strict", path}, {cwd = elsewhere})
+    local checked, checkOutput = process.capture({nupp, "check", path}, {cwd = elsewhere})
     local status, output = process.capture({nupp, "run", path}, {cwd = elsewhere})
     os.execute("rm -rf '" .. home .. "' '" .. elsewhere .. "'")
     assert(checked == 0, "the example checks from outside its directory:\n" .. checkOutput)

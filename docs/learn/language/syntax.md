@@ -160,14 +160,14 @@ exact Lua strings.
 local function usage(): string
     return dedent [[
         nupp check [FILE...]
-          --strict   hold every file to the strict floor
+          --json     print diagnostics as JSON
         ]]
 end
 ```
 
 ```text [usage()]
 nupp check [FILE...]
-  --strict   hold every file to the strict floor
+  --json     print diagnostics as JSON
 ```
 
 ### Const tables
@@ -194,9 +194,8 @@ remains shallow: inner fields stay mutable unless they are themselves declared
 
 ## Level 1: typed layer
 
-Level 1 is what a `.nupp` or `.g.nupp` file adds, and a `.lua` file may not
-use it. See [File extensions](gradual-typing.md#file-extensions) for what each
-extension turns on.
+Level 1 is what a `.nupp` file adds, and a `.lua` file may not use it. See
+[File extensions](file-types.md#file-extensions) for what each extension holds.
 
 ### Annotations and aliases
 
@@ -581,5 +580,5 @@ read as Lua.
 
 No. Generated code never changes the line count, so a runtime error names the
 line you wrote. See [Lowered syntax](#lowered-syntax) for the constructs that
-still produce code, and [constructs that aren't erased](gradual-typing.md#constructs-that-arent-erased)
+still produce code, and [constructs that aren't erased](file-types.md#constructs-that-arent-erased)
 for the two that leave a runtime trace.

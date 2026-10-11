@@ -148,7 +148,7 @@ function imports.new(environment: any?, enabled: boolean?): any
         -- Checking owns and annotates a separate tree. Generated declarations and
         -- synthetic lowering nodes must never become the formatter's input.
         local checked = parser.parse(source, filename)
-        check.check(checked, filename or "format.g.nupp", env)
+        check.check(checked, filename or "format.nupp", env)
         local uses: {Use} = {}
         local covered = {}
         local shadowedRequire = false

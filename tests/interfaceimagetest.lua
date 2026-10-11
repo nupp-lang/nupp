@@ -489,9 +489,9 @@ function M.keepsTransportStateOutOfThePublicDescriptor()
     local env = envMod.new(HERE .. "/..")
 
     local function compile(source)
-        local parsed = parser.parse(source, "model.g.nupp")
+        local parsed = parser.parse(source, "model.nupp")
         testAssert.equal(#parsed.errors, 0, "syntax errors")
-        local diagnostics = check.check(parsed, "model.g.nupp", env)
+        local diagnostics = check.check(parsed, "model.nupp", env)
         testAssert.equal(#diagnostics, 0, "diagnostics")
         local code = gen.generate(parsed, "model")
         local stat = parsed.root.blocks[1].stats[1]

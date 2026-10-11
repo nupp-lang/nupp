@@ -13,9 +13,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function runs(src, label)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
             error(("%s: %s: %s\n%s"):format(label, diag.code, diag.msg, src), 2)
@@ -37,10 +37,10 @@ local function runs(src, label)
 end
 
 local function diagnostics(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local out = {}
-    for _, diag in ipairs(check.check(result, "test.g.nupp", env)) do
+    for _, diag in ipairs(check.check(result, "test.nupp", env)) do
         if diag.severity == "error" then
             out[#out + 1] = diag.code .. ":" .. diag.line
         end

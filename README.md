@@ -57,8 +57,7 @@ source checkout is documented separately in
 
 ## Language and runtime
 
-- `.lua`, `.g.nupp`, and `.nupp` provide plain, gradual, and strict source
-  boundaries under one module resolver.
+- Checked `.nupp` source and plain `.lua` files share one module resolver.
 - Records, structs, interfaces, unions, refinements, generics, and narrowing
   add checked structure. Native LuaJIT targets represent structs as FFI cdata;
   portable targets select a checked table representation.

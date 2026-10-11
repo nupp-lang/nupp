@@ -620,7 +620,7 @@ function migrate.plan(source: string, path: string, dialect: string?): (migrate.
     end
     collectNode(parsed.root, edits)
     collectSemantic(parsed.root, edits)
-    local destination = path:gsub("%.lua$", ".g.nupp")
+    local destination = path:gsub("%.lua$", ".nupp")
 
     return new migrate.Plan(
         source = path,

@@ -18,7 +18,7 @@
 // fields hold.
 //
 // The application's traffic arrives once a frame as binary records in a read
-// lease (the format is `src/nupp/runtime/browser/hostwire.g.nupp`'s), and the
+// lease (the format is `src/nupp/runtime/browser/hostwire.nupp`'s), and the
 // page answers into the writable inbox the same frame lends, at the end of the
 // frame, with whatever answers and messages are ready by then.
 

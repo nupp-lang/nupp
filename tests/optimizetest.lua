@@ -12,7 +12,7 @@ local env = envMod.new(HERE .. "/..")
 local function runOptimizer(result, options)
     local selected = {
         level = options and options.level or 0,
-        filename = options and options.filename or "test.g.nupp",
+        filename = options and options.filename or "test.nupp",
         disabled = options and options.disabled or {},
         constSelection = options and options.constSelection or nil,
     }
@@ -23,9 +23,9 @@ end
 -- Optimize at `level`, then generate. The effect-based passes consume definition
 -- and type facts left by checking; presizing remains syntax-only.
 local function compile(src, level, coverage)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diagnostics = check.check(result, "test.g.nupp", env)
+    local diagnostics = check.check(result, "test.nupp", env)
     local remarks = runOptimizer(result, {level = level or 2})
     local code, diags = gen.generate(result, "test", coverage)
     testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
@@ -120,9 +120,9 @@ local function executeAt(src, level, filename, normalize)
 end
 
 -- Requires `-O0` and `-O2` to print the same thing, and returns the transcript.
--- `filename` picks the floor: a `.g.nupp` name is gradual, a `.nupp` name strict.
+-- `filename` names the chunk, which is what an error in the transcript quotes.
 local function assertAgrees(src, filename, normalize)
-    filename = filename or "differential.g.nupp"
+    filename = filename or "differential.nupp"
     local plain = executeAt(src, 0, filename, normalize)
     local optimized = executeAt(src, 2, filename, normalize)
     if plain ~= optimized then
@@ -147,7 +147,7 @@ function M.generatedProgramsAgreeAcrossLevels()
     local avoid = {}
     for seed = 1, 40 do
         local src = table.concat(programs.build(seed, avoid), "\n") .. "\n"
-        local ok, failure = pcall(assertAgrees, src, "generated.g.nupp", true)
+        local ok, failure = pcall(assertAgrees, src, "generated.nupp", true)
         if not ok then
             error(("seed %d: %s"):format(seed, failure), 0)
         end
@@ -228,7 +228,7 @@ function M.constructorFieldsKeepValueOrderAndLines()
 end
 
 function M.coverageKeepsPresizedWritesAsStatements()
-    local code = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t", 2, {path = "test.g.nupp"})
+    local code = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t", 2, {path = "test.nupp"})
     assert(code:match("__nuppNew%s*%(%s*0%s*,%s*2%s*%)") ~= nil, "coverage keeps the sized constructor: " .. code)
     assert(code:match("t%s*%.%s*a%s*=%s*1") ~= nil, "coverage keeps the first assignment: " .. code)
     assert(code:match("t%s*%.%s*b%s*=%s*2") ~= nil, "coverage keeps the second assignment: " .. code)
@@ -308,13 +308,13 @@ function M.aDisabledPassDoesNothing()
 end
 
 function M.optimizerOptionOwnsRemarkFilenames()
-    local result = parser.parse("local t = {}\nt.a = 1\nt.b = 2\nreturn t", "parsed.g.nupp")
-    check.check(result, "checked.g.nupp", env)
-    result.filename = "incidental.g.nupp"
-    local remarks = runOptimizer(result, {level = 1, filename = "selected.g.nupp"})
+    local result = parser.parse("local t = {}\nt.a = 1\nt.b = 2\nreturn t", "parsed.nupp")
+    check.check(result, "checked.nupp", env)
+    result.filename = "incidental.nupp"
+    local remarks = runOptimizer(result, {level = 1, filename = "selected.nupp"})
     assert(#remarks > 0, "the fixture emits an optimizer remark")
     for _, entry in ipairs(remarks) do
-        testAssert.equal(entry.filename, "selected.g.nupp", "the option owns remark attribution")
+        testAssert.equal(entry.filename, "selected.nupp", "the option owns remark attribution")
     end
 end
 
@@ -469,7 +469,7 @@ function M.propagatesNestedConstFieldsAcrossARequiredModule()
         "test"
     )
     testAssert.equal(#result.errors, 0, "consumer parses")
-    local diags = check.check(result, "test.g.nupp", requiredEnv)
+    local diags = check.check(result, "test.nupp", requiredEnv)
     testAssert.equal(#diags, 0, "consumer checks")
     runOptimizer(result, {level = 1})
     local code, generatedDiags = gen.generate(result, "test")
@@ -481,9 +481,9 @@ function M.requiresEveryImportedPathEdgeToBeConst()
     local requiredEnv = envMod.new(HERE)
 
     local function generated(src)
-        local result = parser.parse(src, "test.g.nupp")
+        local result = parser.parse(src, "test.nupp")
         testAssert.equal(#result.errors, 0, "consumer parses")
-        local diags = check.check(result, "test.g.nupp", requiredEnv)
+        local diags = check.check(result, "test.nupp", requiredEnv)
         testAssert.equal(#diags, 0, "consumer checks")
         runOptimizer(result, {level = 1})
         local code, generatedDiags = gen.generate(result, "test")
@@ -514,7 +514,7 @@ function M.bindsRepeatedImmutableDottedCallees()
         "test"
     )
     testAssert.equal(#result.errors, 0, "consumer parses")
-    local diags = check.check(result, "test.g.nupp", requiredEnv)
+    local diags = check.check(result, "test.nupp", requiredEnv)
     testAssert.equal(#diags, 0, "consumer checks")
     local remarks = runOptimizer(result, {level = 1})
     local code, generatedDiags = gen.generate(result, "test")
@@ -542,9 +542,9 @@ function M.leavesSingleOrMutableDottedCalleesAlone()
     local requiredEnv = envMod.new(HERE)
 
     local function generated(src)
-        local result = parser.parse(src, "test.g.nupp")
+        local result = parser.parse(src, "test.nupp")
         testAssert.equal(#result.errors, 0, "consumer parses")
-        check.check(result, "test.g.nupp", requiredEnv)
+        check.check(result, "test.nupp", requiredEnv)
         runOptimizer(result, {level = 1})
 
         return gen.generate(result, "test")
@@ -575,7 +575,7 @@ function M.leavesStaticCalleesAloneAcrossGotoScopes()
         "test"
     )
     testAssert.equal(#result.errors, 0, "goto consumer parses")
-    check.check(result, "test.g.nupp", requiredEnv)
+    check.check(result, "test.nupp", requiredEnv)
     runOptimizer(result, {level = 1})
     local code = gen.generate(result, "test")
     testAssert.equal(code:find("__nupp_call_", 1, true), nil, "a generated local must not change goto scope")
@@ -595,7 +595,7 @@ function M.staticCallableNamesDoNotCollideWithSourceNames()
         ),
         "test"
     )
-    check.check(result, "test.g.nupp", requiredEnv)
+    check.check(result, "test.nupp", requiredEnv)
     runOptimizer(result, {level = 1})
     local code = gen.generate(result, "test")
     assert(code:find("const __nupp_call_2=", 1, true) ~= nil, "generated names skip user identifiers: " .. code)
@@ -607,7 +607,7 @@ function M.aDisabledStaticCallablePassDoesNothing()
         table.concat({"const Foo = require('fixtures.consts')", "Foo.api.ping(1)", "Foo.api.ping(2)",}, "\n"),
         "test"
     )
-    check.check(result, "test.g.nupp", requiredEnv)
+    check.check(result, "test.nupp", requiredEnv)
     runOptimizer(result, {level = 1, disabled = {["OPT-4"] = true}})
     local code = gen.generate(result, "test")
     testAssert.equal(code:find("__nupp_call_", 1, true), nil, "-Zno-opt=OPT-4 preserves dotted calls")
@@ -862,8 +862,8 @@ return value * 4
     assert(code:find("return 20", 1, true) ~= nil, "the inlined result reaches its uses: " .. code)
     testAssert.equal(run(source), 20)
     for _, disabled in ipairs({{["OPT-3"] = true}, {["OPT-7"] = true}}) do
-        local result = parser.parse(source, "test.g.nupp")
-        check.check(result, "test.g.nupp", env)
+        local result = parser.parse(source, "test.nupp")
+        check.check(result, "test.nupp", env)
         runOptimizer(result, {level = 1, disabled = disabled})
         local kept = gen.generate(result, "test")
         testAssert.equal(kept:find("return 20", 1, true), nil, "both passes are required")
@@ -888,8 +888,8 @@ local function choose(flag: boolean): number
 end
 return choose(true), 1 == 2, select('#', true and choose(false))
 ]]
-    local result = parser.parse(source, "test.g.nupp")
-    check.check(result, "test.g.nupp", env)
+    local result = parser.parse(source, "test.nupp")
+    check.check(result, "test.nupp", env)
     runOptimizer(result, {level = 1})
     local code, diagnostics = gen.generate(result, "test")
     testAssert.equal(#diagnostics, 0, "generates")
@@ -944,7 +944,7 @@ end
 return total
 ]]
     testAssert.equal(run(source), 4, "nested emitted blocks preserve continue and break")
-    local code = compile(source, 1, {path = "folded-branches.g.nupp"})
+    local code = compile(source, 1, {path = "folded-branches.nupp"})
     testAssert.equal(assert(loadstring(code))(), 4, "coverage observes the retained conditions")
     testAssert.equal(code:find("unreachable", 1, true), nil)
 end
@@ -969,8 +969,8 @@ local function choose(flag: boolean)
 end
 return choose
 ]]
-    local result = parser.parse(source, "test.g.nupp")
-    check.check(result, "test.g.nupp", env)
+    local result = parser.parse(source, "test.nupp")
+    check.check(result, "test.nupp", env)
     runOptimizer(result, {level = 1})
     local tables = 0
     for _, site in ipairs(optimize.allocationSites(result)) do
@@ -1325,7 +1325,7 @@ end
 
 -- The remarks one pass made on `src` at `-O2`.
 local function remarksOf(src, filename, code)
-    filename = filename or "test.g.nupp"
+    filename = filename or "test.nupp"
     local result = parser.parse(src, filename)
     check.check(result, filename, env)
     local found = {}
@@ -1343,20 +1343,20 @@ end
 function M.numericIpairsDeclinesALiteralThatMayHoldAHoleOrExpand()
     local loop = "    local n = 0\n    for i, v in ipairs(t) do n = n + i end\n    return n\nend\n"
     local cases = {
-        {"local function f(...)\n    local t = {...}\n" .. loop .. "print(f('p', 'q', 'r'))", "test.g.nupp"},
-        {"local function f()\n    local t = {1, nil, 3}\n" .. loop .. "print(f())", "test.g.nupp"},
-        {"local function f(a, b, c)\n    local t = {a, b, c}\n" .. loop .. "print(f(1, nil, 3))", "test.g.nupp"},
+        {"local function f(...)\n    local t = {...}\n" .. loop .. "print(f('p', 'q', 'r'))", "test.nupp"},
+        {"local function f()\n    local t = {1, nil, 3}\n" .. loop .. "print(f())", "test.nupp"},
+        {"local function f(a, b, c)\n    local t = {a, b, c}\n" .. loop .. "print(f(1, nil, 3))", "test.nupp"},
         {
             "local function two() return 'a', 'b' end\nlocal function f()\n    local t = {'x', two()}\n"
             .. loop
             .. "print(f())",
-            "test.g.nupp",
+            "test.nupp",
         },
         {
             "local function none() return nil end\nlocal function f()\n    local t = {1, none(), 3}\n"
             .. loop
             .. "print(f())",
-            "test.g.nupp",
+            "test.nupp",
         },
         {
             "local function count(a: integer?, b: integer?, c: integer?): integer\n"
@@ -1930,11 +1930,11 @@ function M.monomorphizesAClosedConstApplication()
 end
 
 function M.usesASuppliedWholeDeliverableConstSelection()
-    local result = parser.parse(CONST_ACCUMULATE, "test.g.nupp")
+    local result = parser.parse(CONST_ACCUMULATE, "test.nupp")
     testAssert.equal(#result.errors, 0, "const selection fixture parses")
-    local diagnostics = check.check(result, "test.g.nupp", env)
+    local diagnostics = check.check(result, "test.nupp", env)
     testAssert.equal(#diagnostics, 0, "const selection fixture checks")
-    local plans = constspecialize.collect(result, "test.g.nupp")
+    local plans = constspecialize.collect(result, "test.nupp")
     local accepted, declined = constspecialize.select(plans)
     local remarks, specializedBodies = runOptimizer(result, {
         level = 2,
@@ -1947,7 +1947,7 @@ function M.usesASuppliedWholeDeliverableConstSelection()
         code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
         "the supplied selection is consumed: " .. code
     )
-    testAssert.equal(remarks[1].filename, "test.g.nupp", "selection and remarks share the option filename")
+    testAssert.equal(remarks[1].filename, "test.nupp", "selection and remarks share the option filename")
 end
 
 function M.constSpecializationOmitsItsCarrierAndUnrollsItsLoop()
@@ -2353,8 +2353,8 @@ end
 -- is spelled `\n`, or everything after it on that source line moves down one.
 function M.foldedStringsKeepLineIdentity()
     testAssert.equal(
-        assertAgrees("local x2 = #((\"x\\ny\" .. (x1)) .. tostring((x1)))"),
-        "ERROR differential.g.nupp:1: attempt to concatenate global 'x1' (a nil value)"
+        assertAgrees("local x2 = #((\"x\\ny\" .. (rawget(_G, \"x1\"))) .. tostring((rawget(_G, \"x1\"))))"),
+        "ERROR differential.nupp:1: attempt to concatenate a nil value"
     )
     local code = compile("local s = \"a\\nb\" .. \"c\"\nlocal t = s .. nothing\nreturn s")
     testAssert.equal(code:find("\\\n"), nil, "no quoted newline spans two generated lines: " .. code)

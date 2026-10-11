@@ -105,8 +105,8 @@ local CAPTURING = table.concat(
 )
 
 function M.theListingShowsSourceAgainstTheInstructionsItProduced()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out, code = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out, code = run(dir, "demo.nupp")
     test.equal(code, 0, out)
     assert(out:find("%d+ |%s+for i = 1, #values do"), "source lines are shown:\n" .. out)
     assert(out:find("FORI", 1, true) and out:find("FORL", 1, true), "the loop's bytecode is shown:\n" .. out)
@@ -120,8 +120,8 @@ end
 -- again under the function it opened -- and a line that compiled to nothing is
 -- visibly a row with nothing beside it.
 function M.theListingIsTheFileBesideWhatItCompiledTo()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out, code = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out, code = run(dir, "demo.nupp")
     test.equal(code, 0, out)
     local seen = {}
     for line in out:gmatch("[^\n]+") do
@@ -144,8 +144,8 @@ end
 -- came from, and nesting a body under the line that declares it, is what makes
 -- the listing something you can read beside the file.
 function M.echoedSourceLinesOnlyEverMoveForward()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out, code = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out, code = run(dir, "demo.nupp")
     test.equal(code, 0, out)
     local seen, previous = 0, 0
     for line in out:gmatch("[^\n]+") do
@@ -162,8 +162,8 @@ end
 -- A function's instructions sit under its own line rather than wherever the
 -- bytecode happened to put them.
 function M.instructionsSitUnderTheLineTheyCameFrom()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out = run(dir, "demo.nupp")
     local body = assert(rowsFor(out, "for i = 1, #values do"), "the loop header's own instructions:\n" .. out)
     assert(body:find("FORI", 1, true), "the loop opens beside the line that writes it:\n" .. body)
 end
@@ -172,8 +172,8 @@ end
 -- a listing that showed them put the runtime's file handling above everything
 -- the reader wrote.
 function M.functionsTheRuntimePreambleBuiltAreFoldedWithIt()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local folded = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local folded = run(dir, "demo.nupp")
     assert(
         folded:match("instructions of runtime preamble, in %d+ function"),
         "the folded preamble counts the functions it built:\n" .. folded
@@ -183,27 +183,27 @@ function M.functionsTheRuntimePreambleBuiltAreFoldedWithIt()
         "a preamble function's own instructions stay folded:\n" .. folded
     )
 
-    local shown = run(dir, "--prologue demo.g.nupp")
+    local shown = run(dir, "--prologue demo.nupp")
     assert(shown:find("could not be closed", 1, true), "--prologue shows the functions the preamble built:\n" .. shown)
 end
 
 -- The generated runtime preamble all lands on line 1, so a listing that showed it would
 -- bury the file under something nobody wrote.
 function M.theRuntimePreambleIsFoldedUnlessAskedFor()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local folded = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local folded = run(dir, "demo.nupp")
     assert(folded:find("instructions of runtime preamble", 1, true), "the preamble is folded by default:\n" .. folded)
     assert(not folded:find("rawset", 1, true), "folded output still names the preamble")
 
-    local shown = run(dir, "--prologue demo.g.nupp")
+    local shown = run(dir, "--prologue demo.nupp")
     assert(not shown:find("instructions of runtime preamble", 1, true), "--prologue stops folding:\n" .. shown)
     assert(shown:find("rawset", 1, true), "--prologue shows the preamble:\n" .. shown)
 end
 
 function M.authoredCodeOnLineOneIsNotFoldedWithThePreamble()
     local source = "local answer = tonumber('42')\nreturn answer\n"
-    local dir = project{["line-one.g.nupp"] = source}
-    local out, code = run(dir, "line-one.g.nupp")
+    local dir = project{["line-one.nupp"] = source}
+    local out, code = run(dir, "line-one.nupp")
     test.equal(code, 0, out)
     assert(
         out:find("1 | local answer = tonumber('42')", 1, true),
@@ -221,8 +221,8 @@ function M.declaredModulesFoldTheirPreambleInsideTheLoader()
         {"module declared", "export function answer(): integer", "    return 42", "end", "",},
         "\n"
     )
-    local dir = project{["declared.g.nupp"] = source}
-    local out, code = run(dir, "declared.g.nupp")
+    local dir = project{["declared.nupp"] = source}
+    local out, code = run(dir, "declared.nupp")
     test.equal(code, 0, out)
     assert(out:find("instructions of runtime preamble", 1, true), "the declared module's preamble is folded:\n" .. out)
     assert(out:find("3 |     return 42", 1, true), "the declared module's authored source remains visible:\n" .. out)
@@ -232,16 +232,16 @@ end
 -- an indexed multiply-accumulate over a declared `{number}` is three instructions with
 -- no call, no check and no boxing among them.
 function M.declaredTypesLeaveNothingBehindInTheLoop()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out = run(dir, "demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out = run(dir, "demo.nupp")
     local body = assert(rowsFor(out, "total = total %+ values%[i%] %* by"), "the loop body's instructions:\n" .. out)
     assert(body:find("MULVV", 1, true) and body:find("ADDVV", 1, true), "the arithmetic is register ops:\n" .. body)
     assert(not body:find("CALL", 1, true), "the loop body calls nothing:\n" .. body)
 end
 
 function M.checkReportsALoopThatCannotCompileAndFailsForIt()
-    local dir = project{["bad.g.nupp"] = CAPTURING}
-    local out, code = run(dir, "--check bad.g.nupp")
+    local dir = project{["bad.nupp"] = CAPTURING}
+    local out, code = run(dir, "--check bad.nupp")
     test.equal(code, 1, "a loop that cannot compile must fail --check:\n" .. out)
     assert(
         out:find("this loop never compiles: LuaJIT has no recorder for constructing a function", 1, true),
@@ -258,7 +258,7 @@ end
 function M.aFunctionBuiltOnceBehindAGuardIsAdvisory()
     local dir = project{
         [
-            "guarded.g.nupp"
+            "guarded.nupp"
         ] = table.concat(
             {
                 "cdef function free(takes value: voidptr)",
@@ -276,7 +276,7 @@ function M.aFunctionBuiltOnceBehindAGuardIsAdvisory()
             "\n"
         ) .. "\n"
     }
-    local out, code = run(dir, "--check guarded.g.nupp")
+    local out, code = run(dir, "--check guarded.nupp")
     assert(code == 0, "a guarded, reused function is not a loop that cannot compile:\n" .. out)
     assert(out:find("may%-reach"), "the blocker path remains visible without claiming the whole loop fails:\n" .. out)
 end
@@ -284,7 +284,7 @@ end
 function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
     local dir = project{
         [
-            "captured.g.nupp"
+            "captured.nupp"
         ] = table.concat(
             {
                 "cdef function free(takes value: voidptr)",
@@ -310,7 +310,7 @@ function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
             "\n"
         ) .. "\n"
     }
-    local out, code = run(dir, "--check captured.g.nupp")
+    local out, code = run(dir, "--check captured.nupp")
     assert(code == 0, "cleanup captures must not leave either enclosing loop unrecordable:\n" .. out)
     assert(out:find("may%-reach"), "the guarded construction remains visible as an advisory path:\n" .. out)
     assert(not out:find("never compiles", 1, true), "neither loop retains a must-reach function construction:\n" .. out)
@@ -319,7 +319,7 @@ end
 function M.multiOwnerLoopsReuseTheirCleanupBody()
     local dir = project{
         [
-            "multiowner.g.nupp"
+            "multiowner.nupp"
         ] = [[
 cdef function free(takes value: voidptr)
 cdef function malloc(size: uint64): voidptr
@@ -333,14 +333,14 @@ for i = 1, 3000 do
 end
 ]]
     }
-    local out, code = run(dir, "--check multiowner.g.nupp")
+    local out, code = run(dir, "--check multiowner.nupp")
     assert(code == 0, "multiple owners must not construct a cleanup body each iteration:\n" .. out)
     assert(not out:find("never compiles", 1, true), out)
 end
 
 function M.checkPassesWhenEveryLoopCanCompile()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out, code = run(dir, "--check demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out, code = run(dir, "--check demo.nupp")
     test.equal(code, 0, out)
     assert(not out:find("never compiles", 1, true), "nothing is marked:\n" .. out)
 end
@@ -363,8 +363,8 @@ function M.switchInsideAHotLoopBuildsNoFunction()
         },
         "\n"
     )
-    local dir = project{["switch.g.nupp"] = source}
-    local out, code = run(dir, "--check switch.g.nupp")
+    local dir = project{["switch.nupp"] = source}
+    local out, code = run(dir, "--check switch.nupp")
     test.equal(code, 0, out)
     assert(not out:find("FNEW", 1, true), "switch lowering must not build an arm function:\n" .. out)
     assert(not out:find("never compiles", 1, true), "the switch loop remains trace-recordable:\n" .. out)
@@ -389,19 +389,19 @@ function M.mappedSwitchAllocatesNothingInsideItsHotLoop()
         },
         "\n"
     )
-    local dir = project{["switch-map.g.nupp"] = source}
-    local out, code = run(dir, "--check switch-map.g.nupp")
+    local dir = project{["switch-map.nupp"] = source}
+    local out, code = run(dir, "--check switch-map.nupp")
     test.equal(code, 0, out)
     assert(out:find("TGETV", 1, true), "the dispatch is one indexed table read:\n" .. out)
     assert(not out:find("never compiles", 1, true), "the mapped switch loop remains trace-recordable:\n" .. out)
 end
 
 function M.jsonCarriesTheFindingAndItsCount()
-    local dir = project{["bad.g.nupp"] = CAPTURING}
-    local out, code = run(dir, "--format json bad.g.nupp")
+    local dir = project{["bad.nupp"] = CAPTURING}
+    local out, code = run(dir, "--format json bad.nupp")
     test.equal(code, 0, "json output alone does not fail; --check does\n" .. out)
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.file, "bad.g.nupp")
+    test.equal(decoded.file, "bad.nupp")
     assert(decoded.unrecordable >= 1, "the count is reported: " .. tostring(decoded.unrecordable))
     assert(decoded.blockers >= decoded.unrecordable, "all blocker paths are counted")
     assert(decoded.mustBlockers == decoded.unrecordable, "the CI count is must-reach")
@@ -434,7 +434,7 @@ end
 -- got -- which is what keeps the line numbering an editor maps against true of
 -- the coloured one as well.
 function M.colorRepaintsTheListingWithoutChangingIt()
-    local dir = project{["demo.g.nupp"] = SCALE}
+    local dir = project{["demo.nupp"] = SCALE}
 
     -- A run that had to build the compiler first says so on stderr, which this
     -- harness merges; that line belongs to neither listing.
@@ -442,11 +442,11 @@ function M.colorRepaintsTheListingWithoutChangingIt()
         return (text:gsub("nupp: [^\n]*\n", ""))
     end
 
-    local plain, code = run(dir, "demo.g.nupp")
+    local plain, code = run(dir, "demo.nupp")
     test.equal(code, 0, plain)
     assert(not plain:find("\27", 1, true), "a pipe gets no escapes:\n" .. plain)
 
-    local painted, paintedCode = run(dir, "--color demo.g.nupp")
+    local painted, paintedCode = run(dir, "--color demo.nupp")
     test.equal(paintedCode, 0, painted)
     assert(painted:find("\27", 1, true), "--color paints the listing:\n" .. painted)
     test.equal((listing(painted):gsub("\27%[[%d;]*m", "")), listing(plain))
@@ -457,8 +457,8 @@ end
 -- as one run, with one exception: the `;` hint, where an instruction names
 -- something the reader wrote.
 function M.colorHighlightsSourceAndMutesTheBytecode()
-    local dir = project{["demo.g.nupp"] = 'local greeting = "hi"\nprint(greeting)\n'}
-    local out = run(dir, "--color demo.g.nupp")
+    local dir = project{["demo.nupp"] = 'local greeting = "hi"\nprint(greeting)\n'}
+    local out = run(dir, "--color demo.nupp")
     assert(out:find("\27%[35mlocal\27%[0m"), "a source keyword is painted as one:\n" .. out)
     assert(out:find('\27%[32m"hi"\27%[0m'), "a source string is painted as one:\n" .. out)
     assert(out:find("\27%[90m[^\27]*GGET"), "the instruction is muted as one run:\n" .. out)
@@ -467,8 +467,8 @@ function M.colorHighlightsSourceAndMutesTheBytecode()
 end
 
 function M.colorMarksAVerdictWithItsSeverity()
-    local dir = project{["bad.g.nupp"] = CAPTURING}
-    local out, code = run(dir, "--color --check bad.g.nupp")
+    local dir = project{["bad.nupp"] = CAPTURING}
+    local out, code = run(dir, "--color --check bad.nupp")
     test.equal(code, 1, out)
     assert(
         out:find("\27%[31m  <%-%- this loop never compiles"),
@@ -477,8 +477,8 @@ function M.colorMarksAVerdictWithItsSeverity()
 end
 
 function M.colorIsRefusedWhenTheEnvironmentRefusesIt()
-    local dir = project{["demo.g.nupp"] = SCALE}
-    local out, code = run(dir, "--no-color demo.g.nupp")
+    local dir = project{["demo.nupp"] = SCALE}
+    local out, code = run(dir, "--no-color demo.nupp")
     test.equal(code, 0, out)
     assert(not out:find("\27", 1, true), "--no-color writes no escapes:\n" .. out)
 end
@@ -495,22 +495,22 @@ for i = 1, 3000 do
 end
 return total
 ]]
-    local dir = project{["block.g.nupp"] = source}
-    local out, code = run(dir, "--check block.g.nupp")
+    local dir = project{["block.nupp"] = source}
+    local out, code = run(dir, "--check block.nupp")
     test.equal(code, 0, out)
     assert(not out:find("FNEW", 1, true), out)
 end
 
 function M.bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls()
     local dir = project{
-        ["constructor.g.nupp"] = [[
+        ["constructor.nupp"] = [[
 local function make()
     return setmetatable({}, {})
 end
 return make()
 ]]
     }
-    local out, code = run(dir, "--json --check -O1 constructor.g.nupp")
+    local out, code = run(dir, "--json --check -O1 constructor.nupp")
     test.equal(code, 0, out)
     local report = require("testjson").decode(out)
     test.equal(report.optLevel, 1, "selected optimization tier")

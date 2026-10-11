@@ -16,7 +16,7 @@ local hotSession = require("nupp.tools.hotsession")
 local sharedEnv = envMod.new(".")
 
 local function checked(source, filename)
-    filename = filename or "hot.g.nupp"
+    filename = filename or "hot.nupp"
     local result = parser.parse(source, filename)
     testAssert.equal(#result.errors, 0, "hot source parses")
     local diagnostics = check.check(result, filename, sharedEnv)
@@ -31,7 +31,7 @@ end
 
 local function generate(source, mode, module)
     local result = checked(source)
-    local code, diagnostics, _, _, metadata = gen.generate(result, "hot.g.nupp", nil, {
+    local code, diagnostics, _, _, metadata = gen.generate(result, "hot.nupp", nil, {
         mode = mode,
         module = module or "hot",
         baseGeneration = mode == "patch" and hot.generation() or nil,
@@ -91,8 +91,8 @@ end
 
 function M.normalGenerationRemainsByteIdentical()
     local result = checked("local function f(n: integer): integer return n + 1 end\nreturn f")
-    local ordinary = assert(gen.generate(result, "ordinary.g.nupp"))
-    local explicit = assert(gen.generate(result, "ordinary.g.nupp", nil, nil))
+    local ordinary = assert(gen.generate(result, "ordinary.nupp"))
+    local explicit = assert(gen.generate(result, "ordinary.nupp", nil, nil))
     testAssert.equal(explicit, ordinary, "absent watch request changes normal output")
     assert(not ordinary:find("__nuppHot", 1, true), "normal output contains hot runtime")
 end
@@ -496,20 +496,20 @@ function M.tailTrampolinePreservesErrorAttribution()
         },
         "\n"
     )
-    local result = checked(source, "stack.g.nupp")
-    local ordinary = assert(gen.generate(result, "stack.g.nupp"))
-    local normalChunk = assert(loadstring(ordinary, "@stack.g.nupp"))
+    local result = checked(source, "stack.nupp")
+    local ordinary = assert(gen.generate(result, "stack.nupp"))
+    local normalChunk = assert(loadstring(ordinary, "@stack.nupp"))
     local normal = normalChunk()
     local normalOK, normalReason = pcall(normal)
     testAssert.equal(normalOK, false)
 
     hot.resetForTesting()
-    local watchCode, diagnostics, _, _, metadata = gen.generate(result, "stack.g.nupp", nil, {
+    local watchCode, diagnostics, _, _, metadata = gen.generate(result, "stack.nupp", nil, {
         mode = "initial",
         module = "stack",
     })
     testAssert.equal(#diagnostics, 0)
-    local watch = assert(loadstring(watchCode, "@stack.g.nupp"))()
+    local watch = assert(loadstring(watchCode, "@stack.nupp"))()
     hot.seal(metadata.module)
     local watchOK, watchReason = pcall(watch)
     testAssert.equal(watchOK, false)
@@ -529,8 +529,8 @@ function M.slotArrayMatchesTheNormalLocalBoundary()
 
     local boundary
     for count = 180, 200 do
-        local parsed = parser.parse(source(count), "locals.g.nupp")
-        local code, diagnostics = gen.generate(parsed, "locals.g.nupp")
+        local parsed = parser.parse(source(count), "locals.nupp")
+        local code, diagnostics = gen.generate(parsed, "locals.nupp")
         if #diagnostics == 0 and loadstring(code, "@normal-locals") then
             boundary = count
         else
@@ -539,9 +539,9 @@ function M.slotArrayMatchesTheNormalLocalBoundary()
     end
     assert(boundary, "normal generator has no accepted boundary fixture")
     for _, count in ipairs({boundary, boundary + 1}) do
-        local parsed = parser.parse(source(count), "locals.g.nupp")
-        local normal, normalDiagnostics = gen.generate(parsed, "locals.g.nupp")
-        local watch, watchDiagnostics = gen.generate(parsed, "locals.g.nupp", nil, {
+        local parsed = parser.parse(source(count), "locals.nupp")
+        local normal, normalDiagnostics = gen.generate(parsed, "locals.nupp")
+        local watch, watchDiagnostics = gen.generate(parsed, "locals.nupp", nil, {
             mode = "initial",
             module = "locals",
         })
@@ -1284,10 +1284,10 @@ end
 function M.mappedFfiLoadChangesOnlyWatchGeneration()
     local source = "local ffi = require('ffi')\nreturn ffi.load('mini')\n"
     local result = checked(source)
-    local ordinary = assert(gen.generate(result, "ffi-load.g.nupp"))
+    local ordinary = assert(gen.generate(result, "ffi-load.nupp"))
     local mapped = "/tmp/nupp-exact-mini-library"
     local watched = assert(
-        gen.generate(result, "ffi-load.g.nupp", nil, {
+        gen.generate(result, "ffi-load.nupp", nil, {
             mode = "initial",
             module = "ffi-load",
             libraries = {mini = mapped},

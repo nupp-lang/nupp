@@ -410,7 +410,7 @@ function M.aLengthAliasIsProvedByItsBindingRatherThanItsMetadata()
     -- string's length. A `Name` also carries that fact as metadata, and a
     -- verifier that read the metadata would believe a lowering that kept it on
     -- a name whose binding had changed.
-    local program = lowered(CURSOR_READ, "cursor.g.nupp")
+    local program = lowered(CURSOR_READ, "cursor.nupp")
     verify.program(program)
     local binding = find(program.body, function(statement)
         return statement.op == "let" and statement.name == "n"
@@ -431,7 +431,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     -- The `if` proves `cursor < #source` for its block. A loop inside that block
     -- which moves the cursor is bounded by that proof on its first pass only,
     -- so the read under it has no proof at all.
-    local program = lowered(CURSOR_READ, "cursor.g.nupp")
+    local program = lowered(CURSOR_READ, "cursor.nupp")
     local branch = find(program.body, function(statement)
         return statement.op == "if"
     end)
@@ -601,7 +601,7 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     -- `cursor < #cps and cps[cursor + 1] > 0xF` reads under the comparison
     -- the left side makes. The right side is the only place that bound holds,
     -- and only the exact shape -- `and`, `<`, the same span -- makes it.
-    local program = lowered(AND_TAIL, "tail.g.nupp")
+    local program = lowered(AND_TAIL, "tail.nupp")
     verify.program(program)
     local loop = find(program.body, function(statement)
         return statement.op == "while"
@@ -678,7 +678,7 @@ local function copy(borrows input: span.Span<uint8>, exclusive output: span.Writ
 end
 return {copy = copy}
 ]]
-    local program = lowered(source, "derived.g.nupp")
+    local program = lowered(source, "derived.nupp")
     verify.program(program)
     local loop = find(program.body, function(statement)
         return statement.op == "while"
@@ -706,10 +706,10 @@ return {copy = copy}
     verify.program(program)
 
     local reverse = source:gsub("cursor %+ 3 %* lanes <= #input", "#input >= cursor + 3 * lanes", 1)
-    verify.program(lowered(reverse, "reverse-derived.g.nupp"))
+    verify.program(lowered(reverse, "reverse-derived.nupp"))
 
     local mutable = source:gsub("local lanes = s.lanes", "local lanes: uint32 = s.lanes\n    lanes = s.lanes", 1)
-    local unproved = lowered(mutable, "mutable-lanes.g.nupp")
+    local unproved = lowered(mutable, "mutable-lanes.nupp")
     verify.program(unproved)
     local changedLoop = find(unproved.body, function(statement)
         return statement.op == "while"
@@ -725,7 +725,7 @@ function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
     -- access at `cursor + 1` drop its checks. The verifier reproves it from
     -- the loop condition: the same cursor, the same span, the same species
     -- -- and the cursor still where the guard left it.
-    local program = lowered(VECTOR_MAP, "map.g.nupp")
+    local program = lowered(VECTOR_MAP, "map.nupp")
     verify.program(program)
     local loop = find(program.body, function(statement)
         return statement.op == "while"
@@ -808,7 +808,7 @@ end
 function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     -- The proof is about `cursor`; a read that names the cursor and then reads
     -- at some other uint32 would be proved by a fact about a different value.
-    local program = lowered(CURSOR_READ, "cursor.g.nupp")
+    local program = lowered(CURSOR_READ, "cursor.nupp")
     local branch = find(program.body, function(statement)
         return statement.op == "if"
     end)
@@ -1161,9 +1161,9 @@ function M.generatedBuilderWrappersEstablishFloatResults()
             "\n"
         ) .. "\nreturn identity\n"
         for _, wrapper in ipairs({source, wasm.replacement(program, {"test.wasm"}) .. "\nreturn identity\n"}) do
-            local tree = parser.parse(wrapper, "float-wrapper.g.nupp")
+            local tree = parser.parse(wrapper, "float-wrapper.nupp")
             assert(#tree.errors == 0)
-            for _, problem in ipairs(compilerCheck.check(tree, "float-wrapper.g.nupp", environment)) do
+            for _, problem in ipairs(compilerCheck.check(tree, "float-wrapper.nupp", environment)) do
                 assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
             end
         end
@@ -1732,7 +1732,7 @@ function M.aWholeVectorGuardAgainstAProvedLastBoundsEverySpanItIsProvedAgainst()
     -- from a block kernel's proven loop grafted into a map kernel's body.
     local program = lowered(LAST_MAP, "last-map.nupp")
     verify.program(program)
-    local vector = lowered(VECTOR_MAP, "map.g.nupp")
+    local vector = lowered(VECTOR_MAP, "map.nupp")
     local loop = assert(
         find(vector.body, function(statement)
             return statement.op == "while"
@@ -1942,7 +1942,7 @@ local function nodes(root, predicate, out, seen)
 end
 
 function M.aDisplacedCursorAccessIsHeldToTheRoomItsGuardProves()
-    local program = lowered(DISPLACED_TAIL, "tail.g.nupp")
+    local program = lowered(DISPLACED_TAIL, "tail.nupp")
     verify.program(program)
     local loop = find(program.body, function(statement)
         return statement.op == "while"
@@ -2019,7 +2019,7 @@ return {box3 = box3}
 ]]
 
 function M.aFactorRelationCarriesACursorsRoomOnlyAsFarAsItStates()
-    local program = lowered(FACTOR_WINDOW, "window.g.nupp")
+    local program = lowered(FACTOR_WINDOW, "window.nupp")
     verify.program(program)
     local terms = nodes(program.relations, function(node)
         return node.kind == "count" and node.name == "grey" and node.factor == 3

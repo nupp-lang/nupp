@@ -49,7 +49,7 @@ while at + 2 < #source and out + 3 < #output do
 end
 ```
 
-Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry, and refuses a call whose written span overlaps another span (`native spans overlap`): the checker proves disjointness at typed call sites, and the wrapper holds a plain Lua or gradual caller to the same promise. The private entry does not carry Lua values.
+Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry, and refuses a call whose written span overlaps another span (`native spans overlap`): the checker proves disjointness at typed call sites, and the wrapper holds a plain Lua or `any`-typed caller to the same promise. The private entry does not carry Lua values.
 
 Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. Integer arithmetic follows the operands: `+`, `-` and `*` between two values established at one of `int32`, `uint32`, `int64` or `uint64` are the wrapping operation of that width, so an `int32` carry plus a byte read is `nupp.math.i32.add` without the call, and a `uint32` cursor plus a literal is the `uint32` step; the [numeric semantics](numeric-semantics.md) chapter has the exact rule. The generated code preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.
 

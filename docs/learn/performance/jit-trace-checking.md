@@ -350,7 +350,7 @@ end
 ```
 
 ```bash
-nupp lsp trace-check --json src/dispatch.g.nupp 2 5
+nupp lsp trace-check --json src/dispatch.nupp 2 5
 ```
 
 ```json
@@ -377,7 +377,7 @@ optimization level. A capturing closure commonly produces both function
 construction (`FNEW`) and upvalue closing (`UCLO`) in the repeatable region:
 
 ```text
-$ nupp bc --check src/sum.g.nupp
+$ nupp bc --check src/sum.nupp
 nupp: 2 instructions in a loop that cannot compile
 ...
 0006  FNEW  6  0  <-- this loop never compiles: LuaJIT has no recorder for constructing a function [jit/loop-function-construction, must-reach]

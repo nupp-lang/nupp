@@ -391,7 +391,7 @@ function M.syntaxTreeSpansAreHalfOpen()
     local tree = require("nupp.tools.lsp.tree")
     local parsed = parser.parse(
         "local function inside(): integer\n   return 1\nend\nlocal outside = 2\n",
-        "tree.g.nupp"
+        "tree.nupp"
     )
     assert(#parsed.errors == 0, "tree fixture parses")
     local stat = parsed.root.blocks[1].stats[1]
@@ -402,7 +402,7 @@ function M.syntaxTreeSpansAreHalfOpen()
         assert(span.from ~= from or span.to ~= to, "the byte after a node is outside its selection span")
     end
 
-    parsed = parser.parse("local value = comptime do\n   return 1\nend\nlocal outside = 2\n", "tree.g.nupp")
+    parsed = parser.parse("local value = comptime do\n   return 1\nend\nlocal outside = 2\n", "tree.nupp")
     assert(#parsed.errors == 0, "comptime fixture parses")
     local comptime
     tree.walkNodes(parsed.root, function(node)
@@ -1140,12 +1140,15 @@ function M.republishesDependentDiagnostics()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local modelUri = fileUri(projectDir .. "/model.g.nupp")
-    local consumerUri = fileUri(projectDir .. "/consumer.g.nupp")
-    local consumer = table.concat(
-        {"local item: Shared = new Shared()", "local value: number = item.value", "return value",},
-        "\n"
-    )
+    local modelUri = fileUri(projectDir .. "/model.nupp")
+    local consumerUri = fileUri(projectDir .. "/consumer.nupp")
+    local consumer = table.concat({
+        "local function read(item: Shared): number",
+        "   local value: number = item.value",
+        "   return value",
+        "end",
+        "return read",
+    }, "\n")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3546,7 +3549,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
     writeInto(otherDir, "nupp.lua", 'return { include = { "src" } }\n')
     writeInto(
         otherDir,
-        "src/shared.g.nupp",
+        "src/shared.nupp",
         "local shared = {}\n\nrecord shared.Token\n   id: uint32\nend\n\n" .. "return shared\n"
     )
 
@@ -3588,7 +3591,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
     assert(last and #last == 0, "a module in the second folder resolves: " .. json.encode(last or json.NULL))
     local location = responseWithId(out, 10).result
     assert(
-        location and location.uri:match("shared%.g%.nupp$"),
+        location and location.uri:match("shared%.nupp$"),
         "and its declaration is navigable: " .. json.encode(location)
     )
     os.execute("rm -rf '" .. rootDir .. "' '" .. otherDir .. "'")
@@ -4837,12 +4840,10 @@ local function codeActionSession(projectDir, name, source, position, applyTitle)
     end
 
     local rewritten = applied(source, actionNamed(actions, applyTitle), uri)
-    -- The suffix goes before the extension, not after it: a file's layer is its
-    -- extension, so `x.g.nupp.applied` would be checked strictly and the rewrite
-    -- of a gradual file would be verified against rules it never claimed.
-    local gradual = path:match("%.g%.nupp$") ~= nil
-    local base = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
-    local appliedPath = base .. (gradual and ".applied.g.nupp" or ".applied.nupp")
+    -- The suffix goes before the extension, not after it: a file's kind is its
+    -- extension, so `x.nupp.applied` would not be checked as Nupp at all.
+    local base = path:gsub("%.nupp$", "")
+    local appliedPath = base .. ".applied.nupp"
     local appliedUri = fileUri(appliedPath)
     table.insert(messages, 3, {
         jsonrpc = "2.0",
@@ -5660,7 +5661,7 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
     os.execute("rm -rf '" .. projectDir .. "'")
     local result = responseWithId(out, 10).result
     assert(result and result.ok, "migration request failed")
-    assert(result.destinationUri:match("legacy%.g%.nupp$"))
+    assert(result.destinationUri:match("legacy%.nupp$"))
     assertContains(result.text, "local function keep(value: integer): integer", "unsaved Lua text was planned")
 end
 

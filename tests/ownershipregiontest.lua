@@ -6,9 +6,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
 
 local function compile(source, opts)
-    local result = parser.parse(source, "ownership-region.g.nupp")
+    local result = parser.parse(source, "ownership-region.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
-    local diagnostics = check.check(result, "ownership-region.g.nupp", envMod.new(HERE .. "/.."), opts)
+    local diagnostics = check.check(result, "ownership-region.nupp", envMod.new(HERE .. "/.."), opts)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(result, "ownershipregion")
     assert(#generation == 0, generation[1] and generation[1].msg)
@@ -331,7 +331,7 @@ function M.localTypeIdentitiesRemainPerInvocation()
     local code = compile(
         RESOURCE
         .. [[
-local function run(value: integer): (any, any)
+local function run(value: integer): (unknown, unknown)
     local record R
         id: integer
     end
@@ -376,7 +376,7 @@ function M.functionDeclarationsMutateTheirActualCapturedBinding()
             .. [[
 local setter: any
 local function change(): nil setter() end
-local function run(value: any): any
+local function run(value: unknown): unknown
     setter = function(): nil
         function value(): integer return 42 end
     end

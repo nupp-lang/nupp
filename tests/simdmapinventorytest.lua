@@ -82,9 +82,9 @@ function M.nativeMathIdentitiesCheckClean()
     local check = require("fragment")
     local env = require("nupp.compiler.project.env").new("tests")
     local source = "local functions = {\n    math.sinh,\n    math.cosh,\n    math.tanh,\n    math.atan2,\n}\nreturn functions"
-    local parsed = parser.parse(source, "maps-target.g.nupp")
+    local parsed = parser.parse(source, "maps-target.nupp")
     assert(#parsed.errors == 0)
-    assert(#check.check(parsed, "maps-target.g.nupp", env) == 0)
+    assert(#check.check(parsed, "maps-target.nupp", env) == 0)
 end
 
 return M

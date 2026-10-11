@@ -21,9 +21,9 @@ local sharedEnv = envMod.new(HERE)
 
 local function diagnose(src)
     local env = sharedEnv
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     local refusals = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2701" then
@@ -218,7 +218,7 @@ function M.resolvesTheSelectedOverload()
     -- one that runs, and the one whose guarantee is asked for.
     local src = table.concat(
         {
-            "local f: @nosuspend function(n: integer): (nil) & function(s: string): (nil)",
+            "local f: @nosuspend function(n: integer): (nil) & function(s: string): (nil) = nil as any",
             "@nosuspend do",
             "    f(1)",
             "    f('x')",
@@ -374,7 +374,7 @@ function M.aBodylessAnnotatedDeclarationIsAccepted()
     local refusals = diagnose(
         table.concat(
             {
-                "local host: {quiet: @nosuspend function(n: integer): integer}",
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
                 "@nosuspend do",
                 "    host.quiet(1)",
                 "end",
@@ -387,7 +387,7 @@ end
 
 function M.aBodylessUnannotatedDeclarationIsRefused()
     local refusals = diagnose(
-        table.concat({"local host: {loud: function(): nil}", "@nosuspend do", "    host.loud()", "end",}, "\n")
+        table.concat({"local host: {loud: function(): nil} = nil as any", "@nosuspend do", "    host.loud()", "end",}, "\n")
     )
     testAssert.equal(#refusals, 1, "silence is not a guarantee")
 end
@@ -396,7 +396,7 @@ function M.theModifierSurvivesAnAlias()
     local refusals = diagnose(
         table.concat(
             {
-                "local host: {quiet: @nosuspend function(n: integer): integer}",
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
                 "local f = host.quiet",
                 "@nosuspend do",
                 "    f(1)",
@@ -413,7 +413,7 @@ function M.aNoSuspendFunctionSatisfiesAnOrdinarySlot()
     local refusals, diags = diagnose(
         table.concat(
             {
-                "local host: {quiet: @nosuspend function(n: integer): integer}",
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
                 "local slot: function(n: integer): integer = host.quiet",
                 "return slot",
             },
@@ -433,7 +433,7 @@ function M.anOrdinaryFunctionDoesNotSatisfyANoSuspendSlot()
     local _, diags = diagnose(
         table.concat(
             {
-                "local host: {loud: function(n: integer): integer}",
+                "local host: {loud: function(n: integer): integer} = nil as any",
                 "local slot: @nosuspend function(n: integer): integer = host.loud",
                 "return slot",
             },

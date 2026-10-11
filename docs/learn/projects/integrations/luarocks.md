@@ -45,9 +45,9 @@ For a nested module, mirror the runtime name beneath `nupp/`:
 A declaration is the public contract, not another implementation. It holds the
 exported records, types, functions, ownership effects, and return table, and no
 function bodies. A rock may leave an internal Lua module undeclared; requiring
-it then has the usual gradual boundary, so its surface is `unknown` under
-strict checking. See [strictness.md](../../language/gradual-typing.md) for what each
-extension holds a file to, and [modules.md](../../language/modules.md) for what a
+it then has no declared surface, so a `.nupp` file sees it as `unknown`. See
+[file-types.md](../../language/file-types.md) for what each extension holds a
+file to, and [modules.md](../../language/modules.md) for what a
 module declares.
 
 ::: deepdive

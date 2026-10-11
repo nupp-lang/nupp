@@ -125,7 +125,7 @@ jit.off(run)
 return {run = run, counted = counted, literal = literal, vector = vector}
 ]=]
     return {
-        files = {["simdcounted.g.nupp"] = source},
+        files = {["simdcounted.nupp"] = source},
         entry = "simdcounted",
         probes = {simdcounted = {"counted", "literal", "vector"}},
         coverage = {

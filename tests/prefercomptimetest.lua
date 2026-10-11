@@ -9,11 +9,11 @@ local envMod = require("nupp.compiler.project.env")
 local sharedEnv = envMod.new(".")
 
 local function diagnostics(src, enabled)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
    local opts = enabled == false and {} or {lints = {["prefer-comptime"] = "warning"}}
    local found = {}
-   for _, diagnostic in ipairs(check.check(result, "test.g.nupp", sharedEnv, opts)) do
+   for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv, opts)) do
       assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
       if diagnostic.code == "NUPP2518" then found[#found + 1] = diagnostic end
    end
@@ -63,13 +63,13 @@ function M.offersAnApiPreservingComptimeFix()
    local rewritten = applyFix(TOTAL, at.fixes[1])
    assert(rewritten:find("function m.total%(%)"), rewritten)
    assert(rewritten:find("return comptime do", 1, true), rewritten)
-   local parsed = parser.parse(rewritten, "fixed.g.nupp")
+   local parsed = parser.parse(rewritten, "fixed.nupp")
    testAssert.equal(#parsed.errors, 0, "the fix parses")
-   for _, diagnostic in ipairs(check.check(parsed, "fixed.g.nupp", sharedEnv,
+   for _, diagnostic in ipairs(check.check(parsed, "fixed.nupp", sharedEnv,
       {lints = {["prefer-comptime"] = "warning"}})) do
       assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
    end
-   local generated, generationDiagnostics = gen.generate(parsed, "fixed.g.nupp")
+   local generated, generationDiagnostics = gen.generate(parsed, "fixed.nupp")
    testAssert.equal(#generationDiagnostics, 0, "the fix generates")
    assert(generated:find("return 140", 1, true), generated)
    testAssert.equal(#diagnostics(rewritten), 0, "the fixed source is no longer suggested")

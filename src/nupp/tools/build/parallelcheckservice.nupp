@@ -85,7 +85,6 @@ local function openContext(init: any): any
         init.config,
         init.target,
         init.state.dependencies,
-        init.strict,
         nil,
         context.nominals,
         true,

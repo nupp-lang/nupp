@@ -49,10 +49,6 @@ type project.BuildOptions = {
     compat: string?,
     host: string?,
 
-    --- Holds every file to the strict floor whatever its extension, as `--strict`
-    --- does. A file's extension decides otherwise; the manifest has no say.
-    strict: boolean?,
-
     --- Where to write, instead of the target's own directory.
     outDir: string?,
 
@@ -295,9 +291,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         say(opts, "NUPP0002", tostring(loadErr) .. "\n");
         return 1
     end
-    -- Absent rather than false: nil reaches the checker as "ask the file", which is
-    -- what the extension answers. Only --strict forces it for everything.
-    local strict = opts.strict
     local target, targetErr = targetConfig(config, opts.target)
     if not target then
         say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n");
@@ -410,7 +403,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     config._target = target
     config._platform = selectedPlatform
-    config._strict = strict and true or false
     -- The optimization level belongs to the build key. It reaches the config before the
     -- config is hashed, so changing -O invalidates every artifact built at the old
     -- level rather than mixing the two. An explicit -O always wins; a target may
@@ -579,7 +571,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     config._spiEntries = spiEntries
-    local session = modules.session(root, outDir, config, target, dependencies, strict, report)
+    local session = modules.session(root, outDir, config, target, dependencies, report)
     local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
     if not validSpi then
         say(opts, "NUPP0002", "nupp: " .. tostring(invalidSpi) .. "\n")
@@ -590,7 +582,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         say(opts, "NUPP0001", "nupp: " .. tostring(publishSpiError) .. "\n")
         return 1
     end
-    session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.g.nupp")), 2)
+    session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.nupp")), 2)
 
     if opts.checkOnly
         and (target.aot == "require" or target.aot == "require-wasm")
@@ -825,7 +817,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         oldState,
         newState,
         opts.checkOnly,
-        strict,
         opts.stats,
         opts.diagnostics,
         checkState,

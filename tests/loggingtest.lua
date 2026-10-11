@@ -10,9 +10,9 @@ local env = envMod.new(HERE .. "/..")
 
 -- Check, then generate under the module name a logged line should carry.
 local function compile(src, moduleName)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check diagnostics")
     result.moduleName = moduleName or "test"
     local code, generated = gen.generate(result, moduleName or "test")
@@ -22,10 +22,10 @@ local function compile(src, moduleName)
 end
 
 local function codesOf(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local out = {}
-    for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
+    for _, d in ipairs(check.check(result, "test.nupp", env)) do
         out[#out + 1] = d.code
     end
 

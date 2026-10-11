@@ -32,7 +32,7 @@ local function projectFiles(withErrors)
     local files = {
         ["nupp.lua"] = 'return {include = {"src"}}\n',
         [
-            "src/box.g.nupp"
+            "src/box.nupp"
         ] = [[
 local box = {}
 
@@ -47,7 +47,7 @@ end
 return box
 ]],
         [
-            "src/resource.g.nupp"
+            "src/resource.nupp"
         ] = [[
 local resource = {}
 
@@ -119,7 +119,7 @@ end
 return {value = value}
 ]],
         [
-            "src/cycle_a.g.nupp"
+            "src/cycle_a.nupp"
         ] = [[
 local cycleB = require("cycle_b")
 local cycleA = {}
@@ -135,7 +135,7 @@ end
 return cycleA
 ]],
         [
-            "src/cycle_b.g.nupp"
+            "src/cycle_b.nupp"
         ] = [[
 local cycleA = require("cycle_a")
 local cycleB = {}

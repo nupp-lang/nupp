@@ -92,15 +92,15 @@ local M = {}
 function M.ambiguousGlobalsCarryBothDeclarationLocations()
     withProject(
         {
-            ["src/a.g.nupp"] = "global record Shared end\n",
-            ["src/b.g.nupp"] = "global record Shared end\n",
-            ["src/use.g.nupp"] = "local value: Shared\n",
+            ["src/a.nupp"] = "global record Shared end\n",
+            ["src/b.nupp"] = "global record Shared end\n",
+            ["src/use.nupp"] = "local value: Shared\n",
         },
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2102")
             testAssert.equal(#(diags[1].related or {}), 2, "both conflicting declarations are related")
-            assert(diags[1].related[1].filename:match("[ab]%.g%.nupp$"), "related location names its file")
+            assert(diags[1].related[1].filename:match("[ab]%.nupp$"), "related location names its file")
             assert(diags[1].help:find("module tables", 1, true), "diagnostic gives a repair direction")
         end
     )
@@ -111,9 +111,9 @@ end
 -- quietly meaning something else here.
 function M.rejectsADeclarationWithNoVisibility()
     withProject(
-        {["src/model.g.nupp"] = "local model = {}\nrecord Loose\n    id: uint32\n" .. "end\nreturn model\n",},
+        {["src/model.nupp"] = "local model = {}\nrecord Loose\n    id: uint32\n" .. "end\nreturn model\n",},
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/model.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/model.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2119", "a declaration naming no visibility is refused")
             assert(
                 diags[1].msg:find("model.Loose", 1, true),
@@ -129,7 +129,7 @@ function M.aDeclarationOnAnotherTableStaysFilePrivate()
     withProject(
         {
             [
-                "src/model.g.nupp"
+                "src/model.nupp"
             ] = [[
 local model = {}
 local internal = {}
@@ -140,12 +140,12 @@ end
 
 return model
 ]],
-            ["src/use.g.nupp"] = "local model = require(\"model\")\n" .. "local hidden: model.Hidden\n",
+            ["src/use.nupp"] = "local model = require(\"model\")\n" .. "local hidden: model.Hidden\n",
         },
         function(dir)
             local env = projectEnv(dir)
-            testAssert.equal(#checkFile(env, dir .. "/src/model.g.nupp"), 0, "attaching to a file-local table is fine")
-            local diags = checkFile(env, dir .. "/src/use.g.nupp")
+            testAssert.equal(#checkFile(env, dir .. "/src/model.nupp"), 0, "attaching to a file-local table is fine")
+            local diags = checkFile(env, dir .. "/src/use.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "a declaration on another table is not a module member")
         end
     )
@@ -156,7 +156,7 @@ function M.recognizesAModuleReturnedThroughSetmetatable()
     withProject(
         {
             [
-                "src/model.g.nupp"
+                "src/model.nupp"
             ] = [[
 local model = {}
 
@@ -167,11 +167,11 @@ end
 return setmetatable(model, {})
 ]],
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = "local model = require(\"model\")\n" .. "local w: model.Wrapped = new model.Wrapped(id = 1)\n",
         },
         function(dir)
-            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "setmetatable(M, ...) still returns M")
+            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.nupp"), 0, "setmetatable(M, ...) still returns M")
         end
     )
 end
@@ -180,7 +180,7 @@ function M.linksExportedTypesAndModulesAcrossProject()
     withProject(
         {
             [
-                "src/model.g.nupp"
+                "src/model.nupp"
             ] = [[
 local model = {}
 
@@ -197,7 +197,7 @@ model.value = 42
 return model
 ]],
             [
-                "src/feature/use.g.nupp"
+                "src/feature/use.nupp"
             ] = [[
 local model = require("model")
 
@@ -207,7 +207,7 @@ local value: number = model.value
 ]],
         },
         function(dir)
-            local path = dir .. "/src/feature/use.g.nupp"
+            local path = dir .. "/src/feature/use.nupp"
             testAssert.equal(
                 #checkFile(projectEnv(dir), path),
                 0,
@@ -219,9 +219,9 @@ end
 
 function M.keepsLocalTypesFilePrivate()
     withProject(
-        {["src/model.g.nupp"] = "local type Secret = string\n", ["src/use.g.nupp"] = "local value: Secret\n",},
+        {["src/model.nupp"] = "local type Secret = string\n", ["src/use.nupp"] = "local value: Secret\n",},
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "local type visibility")
         end
     )
@@ -232,25 +232,25 @@ end
 function M.qualifiesProjectTypesByModule()
     withProject(
         {
-            ["src/a/shared.g.nupp"] = "local shared = {}\ntype shared.Item = string\n" .. "return shared\n",
-            ["src/b/shared.g.nupp"] = "local shared = {}\ntype shared.Item = number\n" .. "return shared\n",
-            ["src/main.g.nupp"] = [[
+            ["src/a/shared.nupp"] = "local shared = {}\ntype shared.Item = string\n" .. "return shared\n",
+            ["src/b/shared.nupp"] = "local shared = {}\ntype shared.Item = number\n" .. "return shared\n",
+            ["src/main.nupp"] = [[
 local left: a.shared.Item = "ok"
 local right: b.shared.Item = 1
 ]],
-            ["src/unqualified.g.nupp"] = "local value: Item\n",
+            ["src/unqualified.nupp"] = "local value: Item\n",
         },
         function(dir)
             local env = projectEnv(dir)
-            testAssert.equal(#checkFile(env, dir .. "/src/main.g.nupp"), 0, "qualified project types")
-            local diags = checkFile(env, dir .. "/src/unqualified.g.nupp")
+            testAssert.equal(#checkFile(env, dir .. "/src/main.nupp"), 0, "qualified project types")
+            local diags = checkFile(env, dir .. "/src/unqualified.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "an unqualified project type is simply unknown")
         end
     )
 end
 
 -- A module is reached by requiring it. Its basename is not a name in scope, so
--- adding src/mathutil.g.nupp cannot give a bare `mathutil` a meaning somewhere
+-- adding src/mathutil.nupp cannot give a bare `mathutil` a meaning somewhere
 -- else in the project. Using one without requiring it is a program that does
 -- not work, so a build refuses it rather than leaving it to run time; it is
 -- still reported once per name.
@@ -258,18 +258,17 @@ function M.refusesAModuleUsedWithoutRequiringIt()
     withProject(
         {
             [
-                "src/mathutil.g.nupp"
+                "src/mathutil.nupp"
             ] = "local mathutil = {}\n"
             .. "function mathutil.double(v: number): number return v * 2 end\n"
             .. "return mathutil\n",
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = "local a: number = mathutil.double(21)\n"
-            .. "local b: number = mathutil.double(1)\n"
-            .. "local c = neverHeardOf\n",
+            .. "local b: number = mathutil.double(1)\n",
         },
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
             testAssert.equal(#diags, 1, "reported once, not per use")
             testAssert.equal(diags[1].code, "NUPP2120", "a missing require is reported")
             testAssert.equal(diags[1].severity, "error", "a build refuses it rather than deferring the failure to run time")
@@ -282,42 +281,45 @@ function M.refusesAModuleUsedWithoutRequiringIt()
 end
 
 -- Advice is for a name nothing has bound. Once the require is written there is
--- nothing to say, and a file is never told to require itself.
+-- nothing to say, and a file is never told to require itself: its own name is
+-- just an unknown one.
 function M.givesNoRequireAdviceWhenThereIsNothingToFix()
     withProject(
         {
             [
-                "src/mathutil.g.nupp"
+                "src/mathutil.nupp"
             ] = "local mathutil = {}\n"
             .. "function mathutil.double(v: number): number return v * 2 end\n"
             .. "return mathutil\n",
             [
-                "src/fixed.g.nupp"
+                "src/fixed.nupp"
             ] = "local mathutil = require(\"mathutil\")\n" .. "local a: number = mathutil.double(21)\n",
-            ["src/selfref.g.nupp"] = "local m = {}\nlocal x = selfref\nreturn m\n",
+            ["src/selfref.nupp"] = "local m = {}\nlocal x = selfref\nreturn m\n",
         },
         function(dir)
             local env = projectEnv(dir)
-            testAssert.equal(#checkFile(env, dir .. "/src/fixed.g.nupp"), 0, "a written require leaves nothing to advise")
-            testAssert.equal(#checkFile(env, dir .. "/src/selfref.g.nupp"), 0, "a file is not told to require itself")
+            testAssert.equal(#checkFile(env, dir .. "/src/fixed.nupp"), 0, "a written require leaves nothing to advise")
+            local selfref = checkFile(env, dir .. "/src/selfref.nupp")
+            testAssert.equal(#selfref, 1, "a file is not told to require itself")
+            testAssert.equal(selfref[1].code, "NUPP2105", "its own name is an unknown name")
         end
     )
 end
 
 -- The advice replaces the vaguer report rather than joining it, and says
 -- nothing about names no project file answers to.
-function M.strictReportsUnknownNamesThatAreNotModules()
+function M.reportsUnknownNamesThatAreNotModules()
     withProject(
         {
-            ["src/mathutil.g.nupp"] = "local mathutil = {}\nreturn mathutil\n",
+            ["src/mathutil.nupp"] = "local mathutil = {}\nreturn mathutil\n",
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = "local a = mathutil.double(21)\n" .. "local b = mathutil.double(1)\n" .. "local c = neverHeardOf\n",
         },
         function(dir)
-            local path = dir .. "/src/use.g.nupp"
+            local path = dir .. "/src/use.nupp"
             local parsed = parser.parse(readFile(path), path)
-            local diags = check.check(parsed, path, projectEnv(dir), {strict = true})
+            local diags = check.check(parsed, path, projectEnv(dir))
             local codes = {}
             for j, d in ipairs(diags) do
                 codes[j] = d.code
@@ -334,11 +336,11 @@ end
 function M.linksGlobalTypesWithoutImports()
     withProject(
         {
-            ["src/globals.g.nupp"] = "global type ProjectId = uint32\n",
-            ["src/use.g.nupp"] = "local id: ProjectId = 9\n",
+            ["src/globals.nupp"] = "global type ProjectId = uint32\n",
+            ["src/use.nupp"] = "local id: ProjectId = 9\n",
         },
         function(dir)
-            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "global project type")
+            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.nupp"), 0, "global project type")
         end
     )
 end
@@ -347,7 +349,7 @@ function M.linksTypedAnnotationsAcrossProjectFiles()
     withProject(
         {
             [
-                "src/model/traits.g.nupp"
+                "src/model/traits.nupp"
             ] = [[
 @annotation(targets = {"record"})
 record documentation
@@ -355,7 +357,7 @@ record documentation
     text: string
 end
 ]],
-            ["src/model/user.g.nupp"] = [[
+            ["src/model/user.nupp"] = [[
 @documentation(text = "A user")
 local record User
     id: uint64
@@ -363,7 +365,7 @@ end
 ]],
         },
         function(dir)
-            local path = dir .. "/src/model/user.g.nupp"
+            local path = dir .. "/src/model/user.nupp"
             local env = projectEnv(dir)
             testAssert.equal(#checkFile(env, path), 0, "project annotation links must check")
             local formatEnv = projectEnv(dir)
@@ -382,25 +384,25 @@ end
 function M.rejectsAmbiguousProjectAnnotationNames()
     withProject(
         {
-            ["src/a/traits.g.nupp"] = [[
+            ["src/a/traits.nupp"] = [[
 @annotation(targets = {"record"})
 record label
     value: string
 end
 ]],
-            ["src/b/traits.g.nupp"] = [[
+            ["src/b/traits.nupp"] = [[
 @annotation(targets = {"record"})
 record label
     value: string
 end
 ]],
-            ["src/use.g.nupp"] = [[
+            ["src/use.nupp"] = [[
 @label(value = "ambiguous")
 record Item end
 ]],
         },
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
             testAssert.equal(diags[1] and diags[1].code, "NUPP2111", "ambiguous annotation name diagnostic")
             assert(diags[1].msg:find("ambiguous project annotation", 1, true), diags[1].msg)
         end
@@ -425,7 +427,7 @@ local origin: Origin = new Origin(5)
 print(doubled, point.x + point.y, origin.x)
 ]],
             [
-                "src/mathutil.g.nupp"
+                "src/mathutil.nupp"
             ] = [[
 local function double(value: number): number
     return value * 2
@@ -433,7 +435,7 @@ end
 return { double = double }
 ]],
             [
-                "src/geometry.g.nupp"
+                "src/geometry.nupp"
             ] = [[
 local geometry = {}
 
@@ -444,7 +446,7 @@ end
 
 return geometry
 ]],
-            ["src/globals.g.nupp"] = [[
+            ["src/globals.nupp"] = [[
 global struct Origin
     x: float
 end
@@ -480,7 +482,7 @@ local named: shapes.Named = new shapes.Named(label = "origin", at = shapes.origi
 print(p.x + p.y, named.label, named.at.x, p is shapes.Point)
 ]],
             [
-                "src/geom/shapes.g.nupp"
+                "src/geom/shapes.nupp"
             ] = [[
 local shapes = {}
 
@@ -529,7 +531,7 @@ do
 end
 ]],
             [
-                "src/res.g.nupp"
+                "src/res.nupp"
             ] = [[
 local res = {}
 
@@ -555,7 +557,7 @@ return res
         function(dir)
             local checkErrors = dir .. "/check-errors.txt"
             local checkCommand = (
-                "cd '%s' && '%s/bin/nupp' check --strict main.nupp " .. "> /dev/null 2> '%s'"
+                "cd '%s' && '%s/bin/nupp' check main.nupp " .. "> /dev/null 2> '%s'"
             ):format(dir, ROOT, checkErrors)
             testAssert.equal(os.execute(checkCommand), 0, "the initial check: " .. readFile(checkErrors))
 
@@ -593,7 +595,7 @@ local use = require("use")
 print(use.slurp("input.txt"), res.closed)
 ]],
             [
-                "src/res.g.nupp"
+                "src/res.nupp"
             ] = [[
 local res = {}
 res.closed = 0
@@ -619,7 +621,7 @@ end
 return res
 ]],
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = [[
 local res = require("res")
 
@@ -662,7 +664,7 @@ use.touch("input.txt")
 print(res.closed)
 ]],
             [
-                "src/res.g.nupp"
+                "src/res.nupp"
             ] = [[
 local res = {}
 res.closed = 0
@@ -688,13 +690,13 @@ end
 return res
 ]],
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = [[
 local res = require("res")
 
 local use = {}
 
-function use.touch(path: string)
+function use.touch(path: string): nil
     local file = res.open(path)
     nupp.drop(file)
 end
@@ -720,7 +722,7 @@ function M.aMisspelledCleanupIsReportedAtItsDeclaration()
     withProject(
         {
             [
-                "src/res.g.nupp"
+                "src/res.nupp"
             ] = [[
 local res = {}
 
@@ -734,14 +736,16 @@ return res
 ]],
         },
         function(dir)
-            local diags = checkFile(projectEnv(dir), dir .. "/src/res.g.nupp")
+            local diags = checkFile(projectEnv(dir), dir .. "/src/res.nupp")
             -- The terminal is a const function argument of the result type, so an
             -- undeclared name is caught resolving that argument, where it is written.
-            testAssert.equal(
-                diags[1] and diags[1].code,
-                "NUPP2131",
-                "an unresolvable cleanup is still caught where it is written"
-            )
+            local found
+            for _, d in ipairs(diags) do
+                if d.code == "NUPP2131" then
+                    found = d
+                end
+            end
+            testAssert.equal(found and found.line, 3, "an unresolvable cleanup is still caught where it is written")
         end
     )
 end
@@ -1197,7 +1201,7 @@ function M.aConstructorCrossesAModuleBoundary()
     withProject(
         {
             [
-                "src/model.g.nupp"
+                "src/model.nupp"
             ] = [[
 local model = {}
 
@@ -1218,7 +1222,7 @@ end
 return model
 ]],
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = [[
 local model = require("model")
 
@@ -1230,7 +1234,7 @@ return 0
         },
         function(dir)
             local env = projectEnv(dir)
-            local path = dir .. "/src/use.g.nupp"
+            local path = dir .. "/src/use.nupp"
             local parsed = parser.parse(readFile(path), path)
             testAssert.equal(#parsed.errors, 0, "the consumer parses")
             local diags = check.check(parsed, path, env)
@@ -1244,7 +1248,7 @@ return 0
             )
 
             -- and the wrong arguments are still the consumer's problem
-            local badPath = dir .. "/src/use.g.nupp"
+            local badPath = dir .. "/src/use.nupp"
             local bad = parser.parse(
                 'local model = require("model")\n' .. 'local a = new model.Account(1, 2)\n' .. "return a.balance\n",
                 badPath
@@ -1266,7 +1270,7 @@ function M.aDefaultBodyCrossesAModuleBoundary()
     withProject(
         {
             [
-                "src/greet.g.nupp"
+                "src/greet.nupp"
             ] = [[
 local greet = {}
 
@@ -1281,7 +1285,7 @@ end
 return greet
 ]],
             [
-                "src/use.g.nupp"
+                "src/use.nupp"
             ] = [[
 local greet = require("greet")
 
@@ -1294,7 +1298,7 @@ return Person
         },
         function(dir)
             local env = projectEnv(dir)
-            local path = dir .. "/src/use.g.nupp"
+            local path = dir .. "/src/use.nupp"
             local parsed = parser.parse(readFile(path), path)
             testAssert.equal(#parsed.errors, 0, "the implementor parses")
             local diags = check.check(parsed, path, env)
@@ -1314,7 +1318,7 @@ end
 -- paid for by the feature rather than by every interface.
 function M.anInterfaceWithoutDefaultsStaysErased()
     withProject(
-        {["src/shape.g.nupp"] = [[
+        {["src/shape.nupp"] = [[
 local shape = {}
 
 interface shape.Named
@@ -1324,7 +1328,7 @@ end
 return shape
 ]],},
         function(dir)
-            local path = dir .. "/src/shape.g.nupp"
+            local path = dir .. "/src/shape.nupp"
             local parsed = parser.parse(readFile(path), path)
             check.check(parsed, path, projectEnv(dir))
             local gen = require("nupp.compiler.lua.gen")

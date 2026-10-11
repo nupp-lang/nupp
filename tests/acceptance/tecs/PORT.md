@@ -9,7 +9,7 @@ evidence for what to build next.
 
 Run it from this directory:
 
-    nupp check --strict
+    nupp check
     nupp run run.nupp
 
 ## Status

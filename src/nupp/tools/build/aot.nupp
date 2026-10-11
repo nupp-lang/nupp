@@ -81,10 +81,10 @@ function aot.compilerResourceFingerprint(contentDigest: (function(string): strin
             paths[#paths + 1] = path
         end
     end
-    -- `re.g.nupp` is the one carried Nupp module outside `/nupp`; it can be an
+    -- `re.nupp` is the one carried Nupp module outside `/nupp`; it can be an
     -- ordinary imported dependency of a source the AOT checker reads.
-    if bundled.source("/re.g.nupp") ~= nil then
-        paths[#paths + 1] = "/re.g.nupp"
+    if bundled.source("/re.nupp") ~= nil then
+        paths[#paths + 1] = "/re.nupp"
     end
     table.sort(paths)
     local parts: {string} = {}

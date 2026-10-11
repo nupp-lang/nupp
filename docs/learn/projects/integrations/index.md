@@ -22,7 +22,7 @@ its integration has a reproducible example or template, rather than when it is
 only expected to work.
 
 ::: seealso
-- [Gradual typing](../../language/gradual-typing.md) for moving a Lua file into Nupp
+- [File types](../../language/file-types.md) for moving a Lua file into Nupp
   without changing how other modules load it
 - [LuaCATS](luacats.md) for the comments Nupp reads in ordinary `.lua` files
 - [Embedding Nupp](../embedding.md) when a C application owns the

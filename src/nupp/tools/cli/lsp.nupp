@@ -170,7 +170,7 @@ local SYMBOL = {
         associated = {
             type = "string",
             description = "For an associated type projection, what state it is in beside "
-            .. "the source form: what it resolves to, the bound it is opaque at, gradual, or cyclic.",
+            .. "the source form: what it resolves to, the bound it is opaque at, erased, or cyclic.",
         },
         detail = {type = "string"},
         documentation = {type = "string"},

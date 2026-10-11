@@ -269,11 +269,7 @@ local function resolveInventory()
         local matches = {}
         for _, unit in ipairs(manifest.units) do
             local sourceName = unit.source or ""
-            if endsWith(sourceName, "/" .. module .. ".simd128.ll")
-                or endsWith(sourceName, "/" .. module .. ".g.simd128.ll")
-                or sourceName == module .. ".simd128.ll"
-                or sourceName == module .. ".g.simd128.ll"
-            then
+            if endsWith(sourceName, "/" .. module .. ".simd128.ll") or sourceName == module .. ".simd128.ll" then
                 matches[#matches + 1] = unit
             end
         end

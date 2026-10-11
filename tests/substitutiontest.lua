@@ -15,9 +15,9 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagnostics(source)
     env.loaded = {}
-    local parsed = parser.parse(source, "test.g.nupp")
+    local parsed = parser.parse(source, "test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
-    return check.check(parsed, "test.g.nupp", env)
+    return check.check(parsed, "test.nupp", env)
 end
 
 local function codes(source)
@@ -405,7 +405,7 @@ function M.anExpectedLiteralInfersItsResults()
     )
     -- Nothing written where a callable is expected keeps its documented `any`.
     clean(
-        table.concat(
+        body .. table.concat(
             {
                 "local plain = function(x: integer) return tostring(x) end",
                 "local loose: {integer} = map({1, 2}, plain)",
@@ -442,10 +442,10 @@ function M.anUninferredResultParameterIsAnError()
     -- A binder written at the same place under another name, as an edit renaming it
     -- leaves it, is a different binder: the diagnostic below names T, not A.
     local renamed = body:gsub("<T>%(%): T", "<A>(): A")
-    local earlier = diagnostics(renamed .. "local value = make()\nreturn value\n")
+    local earlier = diagnostics(renamed .. "local value = make()\n")
     testAssert.equal(#earlier, 1, "one uninferred parameter")
     assert(earlier[1].msg:find("parameter A ", 1, true), earlier[1].msg)
-    local found = diagnostics(body .. "local value = make()\nreturn value\n")
+    local found = diagnostics(body .. "local value = make()\n")
     testAssert.equal(#found, 1, "one uninferred parameter")
     testAssert.equal(found[1].code, "NUPP2148")
     assert(found[1].msg:find("parameter T ", 1, true), "diagnostic names the parameter: " .. found[1].msg)
@@ -538,7 +538,7 @@ function M.anArgumentIsADestination()
     clean(body .. "local n: integer = flipped(make(), 1)\nreturn n\n")
     clean(body .. "local n: string? = only<string>(make())\nreturn n\n")
     -- a binder only this argument could answer leaves it as it was
-    reports(body .. "return only(make())\n", "NUPP2148")
+    reports(body .. "local value = only(make())\n", "NUPP2148")
     -- and a destination never overrides what the call was told
     reports(body .. "return take(make<string>())\n", "NUPP2006")
     -- overloads agree on the slot, or say nothing
@@ -572,7 +572,7 @@ function M.onlyResultBindersNeedInferenceEvidence()
     )
 end
 
-function M.gradualArgumentsAreInferenceEvidence()
+function M.anyArgumentsAreInferenceEvidence()
     local body = table.concat(
         {
             "local record Box<T>",
@@ -586,16 +586,12 @@ function M.gradualArgumentsAreInferenceEvidence()
             "local direct = identity(value)",
             "local nested = unwrap(value)",
             "local fromTable = first(loose)",
-            "return direct, nested, fromTable",
         },
         "\n"
     )
     clean(body)
     reports(
-        body:gsub(
-            "return direct, nested, fromTable",
-            "local function extra<T, U>(value: Box<T>): U error('not reached') end\nlocal missing = extra(value)\nreturn missing"
-        ),
+        body .. "\nlocal function extra<T, U>(value: Box<T>): U error('not reached') end\nlocal missing = extra(value)",
         "NUPP2148"
     )
 end
@@ -608,7 +604,6 @@ function M.typePackResultsNeedInferenceEvidence()
                 "   error('not reached')",
                 "end",
                 "local left, right = makePack()",
-                "return left, right",
             },
             "\n"
         ),
@@ -633,7 +628,7 @@ function M.genericMethodsNeedInferenceEvidence()
         {"local record Holder", "   function pick<T>(self): T? return nil end", "end", "local holder = new Holder()",},
         "\n"
     ) .. "\n"
-    reports(body .. "local value = holder:pick()\nreturn value\n", "NUPP2148")
+    reports(body .. "local value = holder:pick()\n", "NUPP2148")
     clean(body .. "local value: integer? = holder:pick<integer>()\nreturn value\n")
 end
 
@@ -647,7 +642,7 @@ function M.onlyTheWinningOverloadReportsUninferredResults()
         "\n"
     ) .. "\n"
     clean(body .. "local value: integer = pick('fixed')\nreturn value\n")
-    reports(body .. "local value = pick('generic')\nreturn value\n", "NUPP2148")
+    reports(body .. "local value = pick('generic')\n", "NUPP2148")
 end
 
 -- A callback returning some other type that satisfies the bound widens the binder
@@ -720,10 +715,10 @@ end
     local retained = {}
     local revisionEnv = envMod.new(HERE .. "/..")
     for index, source in ipairs(revisions) do
-        local parsed = parser.parse(source, "generic-bound-edit.g.nupp")
+        local parsed = parser.parse(source, "generic-bound-edit.nupp")
         retained[index] = parsed
         testAssert.equal(#parsed.errors, 0, "revision syntax")
-        local diagnostics = check.check(parsed, "generic-bound-edit.g.nupp", revisionEnv)
+        local diagnostics = check.check(parsed, "generic-bound-edit.nupp", revisionEnv)
         testAssert.equal(#diagnostics, 0, "revision " .. index .. ": " .. (diagnostics[1] and diagnostics[1].msg or ""))
     end
     testAssert.equal(#retained, 2, "both checked revisions remain live")

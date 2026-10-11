@@ -2,11 +2,15 @@ local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local function checked(source)
-    local result = parser.parse(source, "switch-test.g.nupp")
+    local result = parser.parse(source, "switch-test.nupp")
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
-    local diagnostics = check.check(result, "switch-test.g.nupp")
+    local diagnostics = check.check(result, "switch-test.nupp", env)
     return result, diagnostics
 end
 
@@ -22,8 +26,8 @@ end
 
 local function run(source)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or "switch source checks")
-    local code, lowering = gen.generate(result, "switch-test.g.nupp")
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
+    local code, lowering = gen.generate(result, "switch-test.nupp")
     testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
     local chunk, failure = loadstring(code, "@switch_test")
     if not chunk then
@@ -35,8 +39,8 @@ end
 
 local function generate(source, coverage)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or "switch source checks")
-    local code, lowering = gen.generate(result, "switch-test.g.nupp", coverage)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
+    local code, lowering = gen.generate(result, "switch-test.nupp", coverage)
     testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
 
     return code, result
@@ -44,8 +48,8 @@ end
 
 local function loweringCodes(source)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or "switch source checks before lowering")
-    local _, lowering = gen.generate(result, "switch-test.g.nupp")
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks before lowering")
+    local _, lowering = gen.generate(result, "switch-test.nupp")
     local codes = {}
     for _, diagnostic in ipairs(lowering) do
         codes[#codes + 1] = diagnostic.code
@@ -58,7 +62,7 @@ local M = {}
 
 -- `any` fits every case without any case covering it, so a switch over an `any`
 -- selector keeps its `else` and needs one, as the reference says of open types.
-function M.aGradualSelectorNeedsItsElse()
+function M.anAnySelectorNeedsItsElse()
     local record = "local record R\n    v: integer\nend\n"
     testAssert.equal(
         run(record .. table.concat({
@@ -77,7 +81,7 @@ function M.aGradualSelectorNeedsItsElse()
         "oneother"
     )
     testAssert.equal(
-        (diagnosticCodes(record .. "local function f(x: any): integer\n    return switch x do\n        case is R as r -> r.v\n    end\nend\nreturn f")),
+        (diagnosticCodes(record .. "local function f(x: any): integer\n    return switch x do\n        case is R as r -> r.v\n    end\nend")),
         "NUPP2140"
     )
 end
@@ -376,7 +380,7 @@ function M.coverageCountsTestsAndSelectedArmRegions()
         )
     )
     testAssert.equal(#diagnostics, 0)
-    local _, lowering, coverage = gen.generate(result, "switch-coverage.g.nupp", true)
+    local _, lowering, coverage = gen.generate(result, "switch-coverage.nupp", true)
     testAssert.equal(#lowering, 0)
     local branches, regions = 0, 0
     for _, site in ipairs(coverage.sites) do
@@ -720,11 +724,11 @@ end
 
 local function leanSwitch(source, expected, inspect)
     do
-        local result = parser.parse(source, "lean-switch.g.nupp")
+        local result = parser.parse(source, "lean-switch.nupp")
         testAssert.equal(#result.errors, 0, "lean switch parses")
-        local diagnostics = check.check(result, "lean-switch.g.nupp")
+        local diagnostics = check.check(result, "lean-switch.nupp", env)
         testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        local code, problems = gen.generate(result, "lean-switch.g.nupp")
+        local code, problems = gen.generate(result, "lean-switch.nupp")
         testAssert.equal(#problems, 0, problems[1] and problems[1].msg)
         local chunk, problem = loadstring(code)
         assert(chunk, tostring(problem) .. "\n" .. code)
@@ -1126,10 +1130,10 @@ function M.aTaskStatusSwitchNeedsNoElse()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
     local function diagnosticCodes(source)
-        local result = parser.parse(source, "switch-test.g.nupp")
+        local result = parser.parse(source, "switch-test.nupp")
         testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
         local codes = {}
-        for _, diagnostic in ipairs(check.check(result, "switch-test.g.nupp", env)) do
+        for _, diagnostic in ipairs(check.check(result, "switch-test.nupp", env)) do
             codes[#codes + 1] = diagnostic.code
         end
 

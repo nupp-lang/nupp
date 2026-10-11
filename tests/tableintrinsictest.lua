@@ -9,10 +9,10 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(src, level)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.g.nupp", env)
-    testAssert.equal(#diags, 0, "check diagnostics")
+    local diags = check.check(result, "test.nupp", env)
+    testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
     optimize.run(result, {level = level or 0})
     local code, generatedDiags = gen.generate(result, "test")
     testAssert.equal(#generatedDiags, 0, "generation diagnostics")
@@ -97,7 +97,7 @@ function M.leavesAShadowedTableAlone()
             "   clear = function() return 8 end,",
             "   clone = function() return 9 end,",
             "}",
-            "return table.new(), table.clear(), table.clone()",
+            "return table.new() as integer, table.clear() as integer, table.clone() as integer",
         },
         "\n"
     )
@@ -172,7 +172,7 @@ function M.cloneCarriesTheMetatableAcross()
         {
             "local base = setmetatable({}, {__index = function() return 'from base' end})",
             "local copy = table.clone(base)",
-            "return copy.absent, getmetatable(copy) == getmetatable(base)",
+            "return copy.absent as string, getmetatable(copy) == getmetatable(base)",
         },
         "\n"
     )

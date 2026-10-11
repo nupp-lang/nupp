@@ -14,7 +14,7 @@ luajit_dir=$(./scripts/toolchain luajit)
 
 test -s "$work/compiler.ljbc"
 test -s "$work/compiler-expected.json"
-./bin/nupp build --strict -O1 \
+./bin/nupp build -O1 \
   -o "$work/examples" editors/playground/src/examples/*.nupp
 
 echo "LuaJIT browser compiler and homepage examples passed"

@@ -5,7 +5,7 @@ order: 220
 # Primitive types
 
 A primitive is a builtin type name that resolves without a declaration. They
-cover Lua's own values, the gradual and sound ends of the lattice, and the C
+cover Lua's own values, the dynamic and sound ends of the lattice, and the C
 numeric tower.
 
 ```nupp:playground
@@ -21,7 +21,7 @@ These names, and only these, resolve as bare builtin types:
 
 | Name | Means |
 | --- | --- |
-| `any` | The gradual type; compatible with everything |
+| `any` | The dynamic type; compatible with everything |
 | `unknown` | The top type; everything fits it, it fits nothing else |
 | `never` | The bottom type; fits everything, nothing fits it |
 | `nil` | The nil singleton |
@@ -29,7 +29,7 @@ These names, and only these, resolve as bare builtin types:
 | `string` | A Lua string |
 | `number` | A LuaJIT double |
 | `integer` | A number known to be integral |
-| `table` | Any table shape; gradual in both directions |
+| `table` | Any table shape; compatible with each in both directions |
 | `thread` | A coroutine |
 | `userdata` | Userdata |
 | `float` | An established binary32 Lua number; widens to `number` |
@@ -53,8 +53,9 @@ removed `Borrowed` and `Pinned` wrapper names are unknown types.
 
 ## `unknown`, the top type
 
-`any` is the gradual opt-out: compatible with everything in both directions,
-silently, which is exactly right for code that has not been annotated yet.
+`any` is the opt-out from checking: compatible with everything in both
+directions, silently, which is exactly right for code that is deliberately
+unchecked.
 `unknown` is the sound alternative, for a value whose type genuinely is not
 known, such as a JSON decode, a `pcall` result, or reflection over an undeclared
 table:
@@ -488,8 +489,8 @@ site that needs a narrowing test or an `as`. That is the point of the swap, and
 it is also the cost of it.
 
 ::: seealso
-- [overview.md](index.md#gradual-escape-hatches) for how `any` and `as`
-  relate to the strict floor
+- [overview.md](index.md#escape-hatches) for how `any` and `as`
+  opt out of checking
 - [records.md](records-and-structs.md) for the nominal types built out of these
 - [narrowing.md](narrowing.md) for the tests that turn a union back into one
   member

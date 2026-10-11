@@ -423,7 +423,7 @@ function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
       "local rc: number = e.mini_status(e.MINI_BUSY)",
    }, "\n"), "consumer")
    assert(#result.errors == 0, "consumer must parse")
-   local diags = check.check(result, "consumer.g.nupp", env)
+   local diags = check.check(result, "consumer.nupp", env)
    assert(#diags == 0, "consumer should check cleanly: "
       .. (diags[1] and diags[1].msg or ""))
 
@@ -647,10 +647,10 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
       exported[#exported + 1] = renamed .. " = " .. renamed
    end
    local source = table.concat(blocks, "\n") .. "\nreturn { " .. table.concat(exported, ", ") .. " }\n"
-   local result = parser.parse(source, "layoutcc.g.nupp")
+   local result = parser.parse(source, "layoutcc.nupp")
    assert(#result.errors == 0, "renamed declarations parse: "
       .. (result.errors[1] and result.errors[1].msg or "") .. "\n" .. source)
-   local diags = check.check(result, "layoutcc.g.nupp")
+   local diags = check.check(result, "layoutcc.nupp")
    assert(#diags == 0, "renamed declarations check: " .. (diags[1] and diags[1].msg or ""))
    local code = gen.generate(result, "layoutcc")
    local types = assert(loadstring(code, "@layoutcc"))()
@@ -731,9 +731,9 @@ function M.consumerTypechecksAgainstImport()
 
    local function diagsOf(src)
       env.loaded = {}
-      local result = parser.parse(src, "consumer.g.nupp")
+      local result = parser.parse(src, "consumer.nupp")
       assert(#result.errors == 0, "consumer must parse")
-      local diags = check.check(result, "consumer.g.nupp", env)
+      local diags = check.check(result, "consumer.nupp", env)
       local out = {}
       for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
       return table.concat(out, " "), diags

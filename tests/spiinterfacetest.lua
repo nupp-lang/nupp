@@ -95,7 +95,7 @@ function M.bundledAliasesShareStagedNominalTypes()
     local declaration = assert(require("nupp.compiler.bundled").source("/nupp/text/internal/buffer.d.nupp"))
     local typePath = dir .. "/src/nupp/text/internal/buffer.d.nupp"
     assert(fs.writeFile(typePath, declaration))
-    local main = dir .. "/src/main.g.nupp"
+    local main = dir .. "/src/main.nupp"
     assert(
         fs.writeFile(
             main,
@@ -109,7 +109,7 @@ end
 local checked: function(exclusive out: Buffer, nullValue: any?): any = writer
 local provider: contracts.Provider = {newWriter = writer} as any
 local canonical: function(exclusive out: Buffer, nullValue: any?): any = provider.newWriter
-return checked, canonical
+print(checked, canonical)
 ]]
         )
     )

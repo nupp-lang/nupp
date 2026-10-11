@@ -16,7 +16,7 @@ local NUPP = HERE .. "/../bin/nupp"
 
 local M = {}
 
--- One build per strictness, not one per example.
+-- One build per project, not one per example.
 --
 -- The examples are three lines each and there are two hundred and fifty of
 -- them, so what the catalogue cost was never compiling them: it was starting a
@@ -26,12 +26,10 @@ local M = {}
 -- say the same thing -- a diagnostic names the file it came from, so an example
 -- is still read as exactly what the compiler reported about it and nothing else.
 --
--- Two projects rather than one, because `--strict` decides some of the answers
--- and is a property of the run rather than of a file. Both `wrong` and `right`
--- live in the same one: they are separate modules, and a module says nothing
--- about its neighbours.
+-- Both `wrong` and `right` live in the same one: they are separate modules, and
+-- a module says nothing about its neighbours.
 --
--- A third holds what AOT lowering refuses. Only a target whose `aot` policy
+-- A second holds what AOT lowering refuses. Only a target whose `aot` policy
 -- compiles `@aot` functions lowers them, so that project declares one, pinned to
 -- aarch64 so a feature tier has the same lanes wherever the suite runs. It is
 -- asked through `check`, which is the promise being kept: what a build of that
@@ -46,14 +44,14 @@ local function fileFor(index, which)
    return ("%s_%03d.nupp"):format(which, index)
 end
 
---- Every code the compiler reported for every example of one strictness, by the
+--- Every code the compiler reported for every example in one project, by the
 --- file the example was written to.
 ---
 --- Through `build` rather than `check`, because the generator reports too — the
 --- NUPP3 family is what a program that checks cleanly cannot be lowered to, so
 --- checking it would report nothing and the example would look wrong.
-local function reportedFor(strict, aot)
-   local key = aot and "aot" or strict and "strict" or "lax"
+local function reportedFor(aot)
+   local key = aot and "aot" or "plain"
    if reported[key] then return reported[key] end
    local dir = os.tmpname()
    os.remove(dir)
@@ -68,7 +66,7 @@ local function reportedFor(strict, aot)
    manifest:close()
    -- A missing require is visible only when the project really contains the
    -- module the unresolved name would bind.
-   local module = assert(io.open(dir .. "/mathutil.g.nupp", "wb"))
+   local module = assert(io.open(dir .. "/mathutil.nupp", "wb"))
    module:write("local mathutil = {}\n"
       .. "function mathutil.double(value: number): number return value * 2 end\n"
       .. "return mathutil\n")
@@ -76,8 +74,7 @@ local function reportedFor(strict, aot)
 
    local names = {}
    for index, entry in ipairs(explain.entries) do
-      if (entry.aot and true or false) == aot
-         and (aot or (entry.strict and true or false) == strict) then
+      if (entry.aot and true or false) == aot then
          for _, which in ipairs({"wrong", "right"}) do
             if entry[which] then
                local name = fileFor(index, which)
@@ -93,8 +90,8 @@ local function reportedFor(strict, aot)
    reported[key] = codes
    if #names == 0 then return codes end
 
-   local pipe = assert(io.popen(("cd '%s' && '%s' %s %s--json %s 2>/dev/null")
-      :format(dir, NUPP, aot and "check" or "build", strict and "--strict " or "", table.concat(names, " "))))
+   local pipe = assert(io.popen(("cd '%s' && '%s' %s --json %s 2>/dev/null")
+      :format(dir, NUPP, aot and "check" or "build", table.concat(names, " "))))
    local out = pipe:read("*a")
    pipe:close()
    local ok, decoded = pcall(json.decode, out)
@@ -109,11 +106,10 @@ local function reportedFor(strict, aot)
    return codes
 end
 
---- Every code the compiler reports for one example. A strict-only rule is asked
---- for strictly, and an AOT refusal of a target that lowers, since otherwise its
---- example would correctly report nothing.
+--- Every code the compiler reports for one example. An AOT refusal is asked of a
+--- target that lowers, since otherwise its example would correctly report nothing.
 local function codesFor(entry, index, which)
-   return reportedFor(entry.strict and true or false, entry.aot and true or false)[fileFor(index, which)] or {}
+   return reportedFor(entry.aot and true or false)[fileFor(index, which)] or {}
 end
 
 local function everyWrongExampleReportsTheCodeItIsFiledUnder()
@@ -160,7 +156,7 @@ function M.everyAotRefusalACheckReportsHasAWorkedExample()
    local pipe = assert(io.popen(("'%s' explain NUPP2906 --json 2>/dev/null"):format(NUPP)))
    local decoded = json.decode(pipe:read("*a"))
    pipe:close()
-   assert(decoded.aot == true and decoded.strict == false, "the command says which targets report it")
+   assert(decoded.aot == true, "the command says which targets report it")
 end
 
 function M.everyCodeResolvesThroughItsFamilyAtLeast()

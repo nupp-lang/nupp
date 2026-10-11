@@ -971,7 +971,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return "cyclic: " .. table.concat(reduced.cycle, " -> ")
         end
         if reduced.gradual and #reduced.gradual > 0 then
-            return "gradual"
+            return "erased"
         end
         if reduced.type.tag ~= "projection" then
             return "resolves to " .. T.tostring(reduced.type)

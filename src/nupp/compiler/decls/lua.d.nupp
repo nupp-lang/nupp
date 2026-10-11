@@ -210,7 +210,7 @@ local unpack: function<T>(t: const{T}, i: number?, j: number?): ...T
 ---
 --- A call through the unshadowed builtin with a literal name is resolved by the
 --- checker to the module's declared type, and one with a computed name returns
---- `unknown` in a strict file. The `any` declared here is what a gradual file
+--- `unknown` in a Nupp file. The `any` declared here is what a plain Lua file
 --- gets for a computed name, and what any call through a shadowing binding
 --- gets.
 ---

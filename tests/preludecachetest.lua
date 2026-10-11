@@ -46,10 +46,10 @@ end
 
 --- Every code the checker reports for one source in one environment.
 local function codes(env, source)
-    local parsed = parser.parse(source, "prelude-cache.g.nupp")
+    local parsed = parser.parse(source, "prelude-cache.nupp")
     test.equal(#parsed.errors, 0, "the sample parses")
     local out = {}
-    for _, diagnostic in ipairs(check.check(parsed, "prelude-cache.g.nupp", env)) do
+    for _, diagnostic in ipairs(check.check(parsed, "prelude-cache.nupp", env)) do
         out[#out + 1] = diagnostic.code
     end
 
@@ -159,12 +159,12 @@ end
 -- The point of writing it down: the next command, in the next process.
 function M.theNextCommandReadsWhatThisOneWrote()
     local dir = project()
-    local sample = assert(io.open(dir .. "/sample.g.nupp", "wb"))
+    local sample = assert(io.open(dir .. "/sample.nupp", "wb"))
     sample:write("local n = ('abc'):len()\nreturn n\n")
     sample:close()
 
     local function run()
-        local pipe = assert(io.popen(("cd '%s' && '%s/bin/nupp' check --json sample.g.nupp 2>&1"):format(dir, ROOT)))
+        local pipe = assert(io.popen(("cd '%s' && '%s/bin/nupp' check --json sample.nupp 2>&1"):format(dir, ROOT)))
         local out = pipe:read("*a")
         pipe:close()
         return out

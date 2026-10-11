@@ -316,7 +316,7 @@ RAW_INITIAL
                         '        for i = 1, n do\n'
                     )
                 end
-                files[module .. '.g.nupp'], probes[module] = generated, names
+                files[module .. '.nupp'], probes[module] = generated, names
                 modules[#modules + 1] = module
                 coverage[
                     #coverage + 1

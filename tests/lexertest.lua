@@ -391,4 +391,29 @@ function M.longBracketsNumeralsAndWhitespaceEdges()
     testAssert.equal(errorsOf("a\vb\fc"), "")
 end
 
+
+-- `stringValue` decodes escapes itself; it must agree with Lua, whose syntax
+-- they are, on every literal Lua accepts, and answer nil on every one it refuses.
+function M.stringValueAgreesWithLua()
+    local literals = {
+        [["plain"]], [['single']], [["a\nb\tc\\d\"e"]], [['it\'s']], [["\65\066\0677"]], [["\x41\x7A\xff"]],
+        [["\u{41}\u{E9}\u{20AC}\u{1F600}\u{10FFFF}"]], [["tab\z
+            continued"]], "\"line\\\ncontinued\"", "\"crlf\\\r\ncontinued\"", [["\1\12\123"]], [["\a\b\f\r\v"]],
+        [["\256"]], [["\xZZ"]], [["\u{110000}"]], [["\u{}"]], [["\q"]], [["unterminated]], [["\"]], [["raw
+newline"]], "", "\"", [["mismatch']], [[`a\`b\$c`]], [[`tick "quoted"`]],
+    }
+    for _, literal in ipairs(literals) do
+        -- A backtick literal is judged through the Lua literal the generator emits for it.
+        local lua = literal
+        if literal:sub(1, 1) == "`" and #literal >= 2 and literal:sub(-1) == "`" then lua = lexer.quoteBacktickBody(literal:sub(2, -2)) end
+        local chunk = loadstring("return " .. lua)
+        local want = nil
+        if chunk then
+            local ok, value = pcall(chunk)
+            if ok and type(value) == "string" then want = value end
+        end
+        testAssert.equal(lexer.stringValue(literal), want, "value of " .. literal)
+    end
+end
+
 return M

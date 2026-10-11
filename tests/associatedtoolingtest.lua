@@ -36,14 +36,14 @@ end
 -- reads a thousand source files to find nothing, and takes twenty-four seconds
 -- to say what it says in a third of one here.
 --
--- `.g.nupp` because these samples bind names they never use, which is a fragment
+-- `.nupp` because these samples bind names they never use, which is a fragment
 -- rather than a program and not what the strict floor is for.
 local function project(source)
    local dir = os.tmpname()
    os.remove(dir)
    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
    write(dir .. "/nupp.lua", 'return {include = {"."}}\n')
-   write(dir .. "/sample.g.nupp", source)
+   write(dir .. "/sample.nupp", source)
    return dir
 end
 
@@ -52,17 +52,17 @@ local function remove(dir)
 end
 
 local function definition(dir, line, column)
-   return run(("cd '%s' && '%s/bin/nupp' lsp definition --json sample.g.nupp %d %d")
+   return run(("cd '%s' && '%s/bin/nupp' lsp definition --json sample.nupp %d %d")
       :format(dir, ROOT, line, column))
 end
 
 local function rename(dir, line, column, to)
-   return run(("cd '%s' && '%s/bin/nupp' lsp rename sample.g.nupp %d %d %s")
+   return run(("cd '%s' && '%s/bin/nupp' lsp rename sample.nupp %d %d %s")
       :format(dir, ROOT, line, column, to))
 end
 
 local function inspect(dir, line, column)
-   return run(("cd '%s' && '%s/bin/nupp' lsp inspect --json sample.g.nupp %d %d")
+   return run(("cd '%s' && '%s/bin/nupp' lsp inspect --json sample.nupp %d %d")
       :format(dir, ROOT, line, column))
 end
 

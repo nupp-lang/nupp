@@ -43,11 +43,6 @@ local REPORT_SCHEMA = {
                     .. "rather than what is known about the code itself, which "
                     .. "is when the examples are absent."
                 },
-                strict = {
-                    type = "boolean",
-                    description = "True when the rule is only reported under "
-                    .. "--strict, or with strict = true in the manifest."
-                },
                 aot = {
                     type = "boolean",
                     description = "True when the rule is only reported for a build "
@@ -129,7 +124,6 @@ local function run(options: any): integer
             related = display.related,
             docs = display.docs,
             family = display.family,
-            strict = display.strict,
             aot = display.aot,
             class = display.class,
             repair = display.repair,
@@ -169,10 +163,6 @@ local function run(options: any): integer
     end
     if right then
         quote(ansi.severity(style, "help")("Does not:"), right)
-    end
-    if display.strict then
-        out[#out + 1] = ""
-        out[#out + 1] = style.faint("Reported only under --strict.")
     end
     if display.aot then
         out[#out + 1] = ""

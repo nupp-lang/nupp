@@ -7,7 +7,7 @@ portable_runtime=${1:-lua}
 native_runtime=${NUPP_LUAJIT:-"$($root/scripts/toolchain luajit)/bin/luajit"}
 
 (cd "$fixture" && ../../bin/nupp build --target native >/dev/null)
-(cd "$fixture" && ../../bin/nupp build --compat lua51 --strict -o build/lua51 src/main.nupp src/codec.nupp >/dev/null)
+(cd "$fixture" && ../../bin/nupp build --compat lua51 -o build/lua51 src/main.nupp src/codec.nupp >/dev/null)
 
 native=$(LUA_PATH="$fixture/build/luajit/?.lua;;" \
     "$native_runtime" "$fixture/build/luajit/main.lua")

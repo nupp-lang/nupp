@@ -45,11 +45,11 @@ local function jsonLines(path)
 end
 
 local function compile(source, level)
-    local parsed = parser.parse(source, "bench_test.g.nupp")
+    local parsed = parser.parse(source, "bench_test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    check.check(parsed, "bench_test.g.nupp", env)
+    check.check(parsed, "bench_test.nupp", env)
     if level then
-        optimize.run(parsed, {level = level, filename = "bench_test.g.nupp"})
+        optimize.run(parsed, {level = level, filename = "bench_test.nupp"})
     end
     local code = gen.generate(parsed, "bench_test")
 

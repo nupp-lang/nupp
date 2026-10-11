@@ -722,8 +722,8 @@ end
 
 function M.cliRunStillTakesItsOtherArgumentsAndTheProgramsOwn()
     local dir = tempProject()
-    local out, ok = run(dir, "run --strict --profile --profile-interval-ms 5 -- work.nupp 3")
-    assert(ok, "--strict, --profile and -- compose: " .. out)
+    local out, ok = run(dir, "run --profile --profile-interval-ms 5 -- work.nupp 3")
+    assert(ok, "--profile, its interval and -- compose: " .. out)
     assertMatch(out, "ran", "the program ran")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -808,9 +808,9 @@ function M.cliTraceExcludesTheWholeLazyCompilerWindow()
     end
 
     write(
-        "lazy.g.nupp",
+        "lazy.nupp",
         [[
-return function(n)
+return function(n: integer): number
    local sum=0
    for i=1,n do local function step() return i end sum=sum+step() end
    return sum
@@ -818,16 +818,16 @@ end
 ]]
     )
     write(
-        "work.g.nupp",
+        "work.nupp",
         [[
-local jit=require("jit")
+local jit: any=require("jit")
 jit.opt.start("hotloop=1")
 jit.flush()
 local run=require("lazy")
 for i=1,40 do run(100) end
 ]]
     )
-    local out, ok = run(dir, "run --jit-aborts=aborts.json --json work.g.nupp")
+    local out, ok = run(dir, "run --jit-aborts=aborts.json --json work.nupp")
     assert(ok, out)
     local report = require("testjson").decode(readFile(dir .. "/aborts.json"))
     assert(report.totalAborts > 0, "program aborts remain visible")
@@ -840,7 +840,7 @@ for i=1,40 do run(100) end
         local root, at = site.rootLocation.file, site.location.file
         assert(not root:find("nupp/compiler/", 1, true), "compiler root leaked: " .. root)
         assert(not at:find("nupp/compiler/", 1, true), "compiler abort leaked: " .. at)
-        dependencyAbort = dependencyAbort or at:find("lazy.g.nupp", 1, true)
+        dependencyAbort = dependencyAbort or at:find("lazy.nupp", 1, true)
         assert(site.class and site.blacklisted ~= nil and site.severity == nil, "the JSON speaks one severity vocabulary")
     end
     assert(dependencyAbort, "the dependency's program aborts survive lazy compiler filtering")
@@ -865,7 +865,7 @@ end
 
 function M.cliProfileJoinsMeasuredHeatToOptimizerRemarks()
     local dir = tempProject()
-    local file = assert(io.open(dir .. "/heat.g.nupp", "wb"))
+    local file = assert(io.open(dir .. "/heat.nupp", "wb"))
     local source = [[
 local total = 0
 local values: {number} = {1, 2, 3, 4}
@@ -877,7 +877,7 @@ print(total)
     source = source:gsub("80000000", sampleRepeats(80000000), 1)
     file:write(source)
     file:close()
-    local out, ok = run(dir, "run -O1 --profile --profile-interval-ms 1 --remarks --remarks-out --remarks-for heat.g.nupp heat.g.nupp")
+    local out, ok = run(dir, "run -O1 --profile --profile-interval-ms 1 --remarks --remarks-out --remarks-for heat.nupp heat.nupp")
     assert(ok, out)
     local document = require("testjson").decode(readFile(dir .. "/build/remarks.json"))
     assert(document.sampling and document.sampling.totalSamples > 0, "measurement metadata is retained")

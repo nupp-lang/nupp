@@ -1,5 +1,5 @@
 local testAssert = require("nupp.test")
--- Reified positions, and the gradual-projection lint.
+-- Reified positions, and the erased-projection lint.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -9,11 +9,11 @@ local env = envMod.new(HERE .. "/..")
 
 local function codes(source)
    env.loaded = {}
-   local parsed = parser.parse(source, "test.g.nupp")
+   local parsed = parser.parse(source, "test.nupp")
    testAssert.equal(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(parsed, "test.g.nupp", env)) do
+   for j, d in ipairs(check.check(parsed, "test.nupp", env)) do
       out[j] = d.code
    end
    return table.concat(out, " ")
@@ -98,7 +98,7 @@ function M.aCyclicProjectionInAReifiedPositionReportsOnce()
 end
 
 -- One warning per call and name, however many times it occurs across both packs.
-function M.aGradualCallWarnsOnce()
+function M.anErasedCallWarnsOnce()
    reports(src(
       "local interface Holds",
       "   associated type Item",
@@ -106,8 +106,7 @@ function M.aGradualCallWarnsOnce()
       "local function both<T is Holds>(a: T.Item, b: T.Item): T.Item",
       "   return a",
       "end",
-      "local erased = both(nil as any, nil as any)",
-      "return erased"), "NUPP2511")
+      "local erased = both(nil as any, nil as any)"), "NUPP2511")
 end
 
 -- An answer somebody wrote as `any` is not an erased projection.
@@ -122,8 +121,7 @@ function M.anAnswerWrittenAsAnyDoesNotWarn()
       "local function held<T is Holds>(x: T): T.Item",
       "   return nil as any",
       "end",
-      "local fine = held(new Untyped())",
-      "return fine"))
+      "local fine = held(new Untyped())"))
 end
 
 function M.theWarningCanBeSuppressed()
@@ -134,9 +132,8 @@ function M.theWarningCanBeSuppressed()
       "local function both<T is Holds>(a: T.Item, b: T.Item): T.Item",
       "   return a",
       "end",
-      "@allow('gradual-projection')",
-      "local quiet = both(nil as any, nil as any)",
-      "return quiet"))
+      "@allow('erased-projection')",
+      "local quiet = both(nil as any, nil as any)"))
 end
 
 -- The negative the lint exists for: a wrong result cannot pass in silence. It is

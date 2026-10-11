@@ -440,7 +440,7 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
 
     local preview, previewed = captureAt(dir, "migrate --dry-run legacy.lua")
     assert(previewed, "migration preview succeeds: " .. preview)
-    assert(exists(path) and not exists(dir .. "/legacy.g.nupp"), "--dry-run changes neither source nor destination")
+    assert(exists(path) and not exists(dir .. "/legacy.nupp"), "--dry-run changes neither source nor destination")
     local planned = captureJsonAt(dir, "migrate --dry-run --json legacy.lua")
     assert(planned:find('"dryRun":true', 1, true), "the JSON report says the run was a preview: " .. planned)
     local _, refused = captureStatusAt(dir, "migrate --check legacy.lua")
@@ -448,8 +448,8 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
 
     local output, migrated = captureAt(dir, "migrate legacy.lua")
     assert(migrated, "migration succeeds: " .. output)
-    assert(not exists(path) and exists(dir .. "/legacy.g.nupp"), "the checked destination replaces the source")
-    local result = assert(io.open(dir .. "/legacy.g.nupp", "rb")):read("*a")
+    assert(not exists(path) and exists(dir .. "/legacy.nupp"), "the checked destination replaces the source")
+    local result = assert(io.open(dir .. "/legacy.nupp", "rb")):read("*a")
     assert(
         result:find("local function keep(value: integer): integer", 1, true),
         "the written destination carries imported types"
@@ -511,15 +511,15 @@ function M.migrateDoesNotClaimFilesItNeverTouched()
         source:write(annotated)
         source:close()
     end
-    local occupied = assert(io.open(dir .. "/blocked.g.nupp", "wb"))
+    local occupied = assert(io.open(dir .. "/blocked.nupp", "wb"))
     occupied:write("return false\n")
     occupied:close()
 
     local output, code = captureStatusAt(dir, "migrate blocked.lua waiting.lua")
     assert(code ~= 0, "an occupied destination refuses the batch")
-    assert(output:find("blocked.g.nupp already exists", 1, true), "the planning failure is reported: " .. output)
+    assert(output:find("blocked.nupp already exists", 1, true), "the planning failure is reported: " .. output)
     assert(
-        not output:find("waiting.lua -> waiting.g.nupp", 1, true),
+        not output:find("waiting.lua -> waiting.nupp", 1, true),
         "an untouched later plan is not printed as a success: " .. output
     )
     local untouched = io.open(dir .. "/waiting.lua", "rb")
@@ -990,7 +990,10 @@ function M.jsonPositionsAreResolvedThroughALineIndex()
     os.remove(path)
 end
 
-function M.checkNamedFilesKeepTheirExtensionStrictness()
+-- Every `.nupp` file is checked strictly, so an unknown name is reported whether
+-- the file is named or found through the manifest; a `.lua` file is plain Lua
+-- and is not. There is no flag that changes either.
+function M.checkHoldsNuppFilesButNotLuaToTheStrictRules()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
@@ -1010,7 +1013,7 @@ function M.checkNamedFilesKeepTheirExtensionStrictness()
         for _, diagnostic in ipairs(report.diagnostics) do
             found = found or diagnostic.code == "NUPP2105"
         end
-        assert(found == expected, command .. " must respect the strict floor: " .. output)
+        assert(found == expected, command .. " reports the unknown name only in .nupp: " .. output)
         assert(report.ok == not expected, command .. ": " .. output)
     end
 
@@ -1018,17 +1021,20 @@ function M.checkNamedFilesKeepTheirExtensionStrictness()
         if manifest then
             write("nupp.lua", 'return {include = {"."}}')
         end
-        for _, extension in ipairs({".nupp", ".g.nupp", ".nupp", ".lua"}) do
+        for _, extension in ipairs({".nupp", ".lua"}) do
             local name = "probe" .. extension
             write(name, "return missingForStrictCheck\n")
             unknown("check --json " .. name, extension == ".nupp")
-            unknown("check --json --strict " .. name, true)
             if manifest and extension ~= ".lua" then
-                unknown("check --json", extension == ".nupp")
+                unknown("check --json", true)
             end
             os.remove(dir .. "/" .. name)
         end
     end
+    write("probe.nupp", "return 1\n")
+    local output, code = captureStatusAt(dir, "check --strict probe.nupp")
+    assert(code == 2, "--strict is gone: " .. output)
+    assert(output:find("unknown option --strict", 1, true), output)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1078,7 +1084,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-    local source = assert(io.open(dir .. "/surface.g.nupp", "wb"))
+    local source = assert(io.open(dir .. "/surface.nupp", "wb"))
     source:write(
         table.concat(
             {
@@ -1113,7 +1119,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     )
     source:close()
 
-    local report = json.decode(captureJson(("ownership-audit --json '%s/surface.g.nupp'"):format(dir)))
+    local report = json.decode(captureJson(("ownership-audit --json '%s/surface.nupp'"):format(dir)))
     assert(#report.foreign == 2, "both foreign declarations are reported")
     assert(report.foreign[1].name == "lookup", "the trusted function is named")
     assert(report.foreign[1].parameters[1].contract == "borrows", "the pointer parameter contract survives checking")
@@ -1137,7 +1143,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     assert(report.regions == nil, "automatic regions remain opt-in")
 
     local regions = json.decode(
-        captureJson(("ownership-audit --json --regions '%s/surface.g.nupp'"):format(dir))
+        captureJson(("ownership-audit --json --regions '%s/surface.nupp'"):format(dir))
     ).regions
     assert(#regions == 1 and regions[1].owners[1].name == "value", "automatic cleanup sites are enumerable")
     assert(
@@ -1160,7 +1166,7 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-    local source = assert(io.open(dir .. "/inline.g.nupp", "wb"))
+    local source = assert(io.open(dir .. "/inline.nupp", "wb"))
     source:write(
         table.concat(
             {
@@ -1178,7 +1184,7 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
     )
     source:close()
 
-    local report = json.decode(captureJson(("ownership-audit --json '%s/inline.g.nupp'"):format(dir)))
+    local report = json.decode(captureJson(("ownership-audit --json '%s/inline.nupp'"):format(dir)))
     assert(
         #report.foreign == 2 and report.foreign[2].name == "acquire",
         "an affine C result is a trusted ownership contract"
@@ -1337,7 +1343,7 @@ end
 -- src/, and one module it imports was not carried, so loading it failed, every export
 -- was dropped, and `@derive(cli.Arguments)` named no provider (ER-010).
 function M.theCliHeaderExampleChecksOutsideTheRepository()
-    local header = assert(io.open(HERE .. "/../src/nupp/cli/init.g.nupp", "rb")):read("*a")
+    local header = assert(io.open(HERE .. "/../src/nupp/cli/init.nupp", "rb")):read("*a")
     local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
     assert(example:find("@derive(cli.Arguments)", 1, true), "the example derives through its local require")
     local dir = os.tmpname()

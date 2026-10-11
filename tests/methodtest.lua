@@ -10,7 +10,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src, filename)
-    filename = filename or "test.g.nupp"
+    filename = filename or "test.nupp"
     local result = parser.parse(src, filename)
     testAssert.equal(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
@@ -24,9 +24,9 @@ end
 local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
 
 local function generate(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local code, genDiags = gen.generate(result, "test")
     testAssert.equal(#genDiags, 0, "gen diagnostics")
@@ -35,9 +35,9 @@ local function generate(src)
 end
 
 local function run(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local code, genDiags = gen.generate(result, "test")
     testAssert.equal(#genDiags, 0, "gen diagnostics")
@@ -574,7 +574,7 @@ function M.instancesAreRecognisedThroughTheirPrototype()
                     "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
                     "   instance.entity = entity",
                     "end",
-                    "local function newEvent<E is Event>(event: Type<E>)",
+                    "local function newEvent<E is Event>(event: Type<E>): nil",
                     "   local instanceMt = {__index = event}",
                     "   setmetatable(event, {__call = function(_self: E, ...: any): E",
                     "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
@@ -1814,7 +1814,7 @@ function M.aRecordsTableHasItsOwnTypeWitness()
         )
     )
     testAssert.equal(
-        diagsOf(foo .. table.concat({"", "local witness: Type<Foo> = Foo", "return witness.nosuch",}, "\n")),
+        diagsOf(foo .. table.concat({"", "local witness: Type<Foo> = Foo", "local missing = witness.nosuch",}, "\n")),
         "NUPP2004:8"
     )
     testAssert.equal(diagsOf(foo .. "\nlocal raw: table = {}\nsetmetatable(raw, Foo)"), "NUPP2006:8")
@@ -1963,8 +1963,8 @@ end
 function M.anOuterMethodIsToldToBindTheRecordsParameters()
     local box = table.concat({"local record Box<T>", "   default: T", "end", ""}, "\n")
     local src = box .. "function Box:get(value: T): T\n   return value\nend\nreturn Box"
-    local result = parser.parse(src, "test.g.nupp")
-    local diags = check.check(result, "test.g.nupp", env)
+    local result = parser.parse(src, "test.nupp")
+    local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 2, "both mentions of T are unknown")
     for _, d in ipairs(diags) do
         testAssert.equal(d.code, "NUPP2101")
@@ -1993,7 +1993,7 @@ function M.anOuterMethodIsToldToBindTheRecordsParameters()
     )
     -- a static one binds them on the function
     local static = box .. "function Box.make(value: T): T\n   return value\nend\nreturn Box"
-    local made = check.check(parser.parse(static, "test.g.nupp"), "test.g.nupp", env)
+    local made = check.check(parser.parse(static, "test.nupp"), "test.nupp", env)
     assert(made[1] and made[1].help:find("function Box.make<T>(...)", 1, true), tostring(made[1] and made[1].help))
 end
 
@@ -2033,7 +2033,7 @@ function M.anAnnotatedMetatableIsHeldToTheSameRules()
     testAssert.equal(
         diagsOf(
             i64 .. table.concat(
-                {"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}", "return mt",},
+                {"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}",},
                 "\n"
             )
         ),
@@ -2229,7 +2229,7 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
             event .. table.concat(
                 {
                     "",
-                    "local function newEvent<E is Event>(event: Type<E>)",
+                    "local function newEvent<E is Event>(event: Type<E>): nil",
                     "   setmetatable(event, {__call = 'not callable'})",
                     "end",
                     "return newEvent",
@@ -2243,7 +2243,7 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
         event .. table.concat(
             {
                 "",
-                "local function newEvent<E is Event>(event: Type<E>)",
+                "local function newEvent<E is Event>(event: Type<E>): nil",
                 "   local instanceMt = {__index = event}",
                 "   setmetatable(event, {__call = function(_self: E, ...: any): E",
                 "      return setmetatable({eventId = 7}, instanceMt) as E",
@@ -2325,11 +2325,11 @@ function M.aMethodIsNotAPositionalField()
             },
             "\n"
         ),
-        "test.g.nupp"
+        "test.nupp"
     )
     testAssert.equal(#result.errors, 0, "syntax errors")
     local found = nil
-    for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
+    for _, d in ipairs(check.check(result, "test.nupp", env)) do
         if d.code == "NUPP2202" then
             found = d
         end

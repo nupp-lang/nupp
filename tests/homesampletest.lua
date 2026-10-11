@@ -6,11 +6,8 @@
 -- which is the most expensive place to be wrong, since it is the first Nupp
 -- most readers ever see.
 --
--- A card is a fragment rather than a program, so each is checked as `.g.nupp`:
--- the strict floor would demand context a card deliberately leaves out, while
--- gradual checking still resolves every name the card does spell out. Warnings
--- are allowed for the same reason -- a card declares things to show the syntax
--- and is not obliged to use them.
+-- A card is a fragment rather than a program, so warnings are allowed -- a card
+-- declares things to show the syntax and is not obliged to use them.
 
 local json = require("testjson")
 local home = require("nupp.tools.doc.home")
@@ -60,7 +57,7 @@ end
 ---
 --- A card was checked in a project of its own, which meant a compiler start and
 --- a project graph per sample for a file that declares nothing. The samples
---- cannot collide -- each is a `.g.nupp` naming no module -- so one project
+--- cannot collide -- each is a `.nupp` naming no module -- so one project
 --- holding all of them answers the same question in one invocation.
 ---
 --- The file a diagnostic names is what says which card reported it, so the
@@ -74,7 +71,7 @@ local function diagnosticsByCard(cards)
     manifest:close()
     local names = {}
     for index, card in ipairs(cards) do
-        local name = ("sample%d.g.nupp"):format(index)
+        local name = ("sample%d.nupp"):format(index)
         names[index] = name
         local file = assert(io.open(dir .. "/" .. name, "wb"))
         file:write(card.code .. "\n")
@@ -94,7 +91,7 @@ local function diagnosticsByCard(cards)
     end
     for _, diagnostic in ipairs(decoded.diagnostics or {}) do
         local file = tostring(diagnostic.file or "")
-        local index = tonumber(file:match("sample(%d+)%.g%.nupp$"))
+        local index = tonumber(file:match("sample(%d+)%.nupp$"))
         assert(
             index,
             ("a diagnostic came from %q, which is no card's sample: %s"):format(file, diagnostic.message or "?")

@@ -79,10 +79,6 @@ local function section(
     end
     out[#out + 1] = entry.rule
     out[#out + 1] = ""
-    if entry.strict then
-        out[#out + 1] = "This applies only under `--strict`, or in a `.nupp` file."
-        out[#out + 1] = ""
-    end
     if entry.aot then
         out[
             #out + 1

@@ -10,8 +10,8 @@ There is one record per operation and `Expr` is their union, discriminated by
 `op`, the way the concrete syntax tree is discriminated by `kind`. A pass that
 dispatches on the tag is checked against the vocabulary rather than trusted with
 it, and a module boundary that took `any` instead would put every one of these
-rules back in the consumer's hands -- which `--strict` refuses outright, and is
-right to.
+rules back in the consumer's hands -- which the checker refuses at an exported
+boundary, and is right to.
 
 Numeric meaning is written down here rather than left to whatever a code
 generator does. Ordinary Nupp arithmetic is binary64; `float`, `int32` and

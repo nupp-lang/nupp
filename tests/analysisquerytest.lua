@@ -19,9 +19,9 @@ local sharedEnv = envMod.new(".")
 
 -- Parse, check, and hand back the query surface beside the tree.
 local function analysed(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
-   check.check(result, "test.g.nupp", sharedEnv, {})
+   check.check(result, "test.nupp", sharedEnv, {})
    local queries = analysis.queries(result.analysis)
    assert(queries, "the run produced no queries")
    return queries, result
@@ -174,8 +174,8 @@ put({}, "k", 1)
    testAssert.equal(known.summary.writes["p[*]"], true, "and it is written")
 
    local contracted = parser.parse(
-      '@effects(reads = {"v"}, writes = {"p[*]"}, shapes = {"p"})\n' .. src, "test.g.nupp")
-   local diags = check.check(contracted, "test.g.nupp", sharedEnv, {})
+      '@effects(reads = {"v"}, writes = {"p[*]"}, shapes = {"p"})\n' .. src, "test.nupp")
+   local diags = check.check(contracted, "test.nupp", sharedEnv, {})
    local found
    for _, diag in ipairs(diags) do
       if diag.code == "NUPP2112" then found = diag.msg end

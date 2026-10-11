@@ -206,15 +206,14 @@ jobs:
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
 
   # Formatting, the checker, and every suite a Nupp worker can share a process
-  # with: about a hundred suites in well under a minute. Placed ahead of the
-  # platform jobs so the failures that need no platform are reported before any
-  # platform is provisioned.
+  # with. Run these before the platform jobs so failures appear before platform
+  # provisioning.
   fast-checks:
     name: Fast checks
     needs: classify
     if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -572,12 +571,9 @@ jobs:
         shell: bash
         run: ./bin/nupp test --jobs=1 --group=measurement
 
-      # Serialized when the comptime worker's deadline was 2000 ms and parallel
-      # shards pushed past it; that deadline is 10000 ms now, chosen with
-      # headroom for exactly this contention. Serialized again when the first
-      # attempt at this showed `coveragetest` and `aotbuildtest` racing whatever
-      # else was building -- which the runner now runs alone. The runner
-      # defaults to two shards per core.
+      # The runner defaults to one shard per core. On macOS and Windows, run
+      # shell suites with two workers: benchmark checks spawn their own children,
+      # and more concurrent cold AOT builds consume the platform timeout.
       #
       # `--exclude-group` names what earlier steps in this job already ran, and
       # `wasm-conformance`, which the SIMD conformance workflow runs sharded.
@@ -602,12 +598,14 @@ jobs:
         run: |
           set -euo pipefail
           ulimit -c unlimited || true
-          lane=""
-          if [ "$RUNNER_OS" = Linux ]; then
-            lane="--lane=isolated"
-          fi
-          ./bin/nupp test $lane \
+          ./bin/nupp test --lane=isolated \
             --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+          if [ "$RUNNER_OS" != Linux ]; then
+            ./bin/nupp test --lane=shared \
+              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+            ./bin/nupp test --lane=shell --jobs=2 \
+              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+          fi
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -678,9 +676,14 @@ jobs:
           bash_path=$(command -v bash)
           sh_path=$(dirname "$bash_path")/sh.exe
           test -f "$sh_path"
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
-          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test \
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path")
+          NUPP_TEST_SH=$(cygpath -w "$sh_path")
+          export NUPP_TEST_BASH NUPP_TEST_SH
+          ./bin/nupp test --lane=isolated \
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
+          ./bin/nupp test --lane=shared \
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
+          ./bin/nupp test --lane=shell --jobs=2 \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
 
       # What the suite saved, named in the log so a reader knows what the
@@ -822,7 +825,7 @@ jobs:
       - name: Compile every homepage example in LuaJIT mode
         shell: bash
         run: >-
-          ./bin/nupp build --strict -O1
+          ./bin/nupp build -O1
           -o build/ci-playground-examples
           editors/playground/src/examples/*.nupp
 

@@ -3,9 +3,13 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local function parsed(source)
-    local result = parser.parse(source, "test.g.nupp")
+    local result = parser.parse(source, "test.nupp")
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
     return result
 end
@@ -13,7 +17,7 @@ end
 local function diagnostics(source)
     local result = parsed(source)
     local out = {}
-    for j, diagnostic in ipairs(check.check(result, "test.g.nupp")) do
+    for j, diagnostic in ipairs(check.check(result, "test.nupp", env)) do
         out[j] = diagnostic.code
     end
 
@@ -26,9 +30,9 @@ end
 
 local function run(source)
     local result = parsed(source)
-    local checked = check.check(result, "test.g.nupp")
+    local checked = check.check(result, "test.nupp", env)
     testAssert.equal(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
-    local code, problems = gen.generate(result, "test.g.nupp")
+    local code, problems = gen.generate(result, "test.nupp")
     testAssert.equal(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
     local chunk, problem = loadstring(code, "@argument_pluck_test")
     assert(chunk, tostring(problem) .. "\n" .. code)
@@ -881,7 +885,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         diagnostics(table.concat({"local function f(x: number, y: number): nil end", "f(y = 2, x = 1)",}, "\n")),
         "NUPP2125"
     )
-    testAssert.equal(diagnostics("unknown(x = 1)"), "NUPP2006")
+    testAssert.equal(diagnostics("local unknown: any = nil\nunknown(x = 1)"), "NUPP2006")
 end
 
 -- A construction fills fields rather than parameters, so there is nothing to

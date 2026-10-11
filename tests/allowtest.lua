@@ -22,13 +22,13 @@ local function withFragmentDefaults(lints)
 end
 
 local function checkOf(src, opts)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local merged = {}
    for key, value in pairs(opts or {}) do merged[key] = value end
    merged.lints = withFragmentDefaults(merged.lints)
-   return check.check(result, "test.g.nupp", env, merged)
+   return check.check(result, "test.nupp", env, merged)
 end
 
 local function diagsOf(src, opts)

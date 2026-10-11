@@ -23,10 +23,10 @@ local env = envMod.new(HERE .. "/..")
 -- Checks, then generates. Comptime runs during checking, so a diagnostic it produced is
 -- in the list this returns; nothing here optimizes, because comptime is semantics and
 -- must not need a level.
-local function compile(src, selectedEnv)
-    local result = parser.parse(src, "test.g.nupp")
+local function compile(src, selectedEnv, opts)
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", selectedEnv or env)
+    local diags = check.check(result, "test.nupp", selectedEnv or env, opts)
     local code, genDiags = gen.generate(result, "test")
     for _, one in ipairs(genDiags) do
         diags[#diags + 1] = one
@@ -50,8 +50,11 @@ local function runIn(src, selectedEnv)
     return chunk()
 end
 
+-- A refused block has no value to type, so a fixture returning it would also be
+-- told its module's value needs an annotation. That is a consequence of the
+-- refusal, not what these cases are about, so they check without the floor.
 local function errorsOf(src)
-    local _, diags = compile(src)
+    local _, diags = compile(src, nil, {strict = false})
     local codes = {}
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
@@ -86,7 +89,7 @@ local function firstLocalBinding(result)
 end
 
 local function evaluateTypeBlueprint(body)
-    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.g.nupp")
+    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.nupp")
     testAssert.equal(#result.errors, 0, "type blueprint source parses")
     local returned = result.root.blocks[1].stats[1]
     assert(returned.kind == "returnStmt")
@@ -106,7 +109,7 @@ local function evaluateTypeBlueprint(body)
 end
 
 local function typeBlueprintFailure(body)
-    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-failure-test.g.nupp")
+    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-failure-test.nupp")
     testAssert.equal(#result.errors, 0, "type blueprint source parses")
     local returned = result.root.blocks[1].stats[1]
     assert(returned.kind == "returnStmt")
@@ -302,7 +305,7 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
          return nupp.types.error("expected a literal format")
       end
    ]],
-        "type-error-test.g.nupp"
+        "type-error-test.nupp"
     )
     testAssert.equal(#result.errors, 0, "authored type error source parses")
     local returned = result.root.blocks[1].stats[1]
@@ -464,7 +467,8 @@ end
 local name: string = "n"
 return comptime do return nupp.offsetof(Value, name) end
 ]],
-        layoutEnv("x86_64-unknown-linux-gnu")
+        layoutEnv("x86_64-unknown-linux-gnu"),
+        {strict = false}
     )
     testAssert.equal(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
 end
@@ -481,10 +485,10 @@ function M.keepsAScalarComptimeLiteralOnAConstBinding()
         [[const banner = comptime do
     return "NUPP COMPILES THIS ONCE ========"
 end]],
-        "test.g.nupp"
+        "test.nupp"
     )
     testAssert.equal(#result.errors, 0, "const comptime source parses")
-    testAssert.equal(#check.check(result, "test.g.nupp", env), 0, "const comptime source checks")
+    testAssert.equal(#check.check(result, "test.nupp", env), 0, "const comptime source checks")
     local binding = firstLocalBinding(result)
     testAssert.equal(binding.tag, "literal", "const comptime binding keeps its literal type")
     testAssert.equal(binding.constant, "NUPP COMPILES THIS ONCE ========", "const comptime literal value")
@@ -513,9 +517,9 @@ end
 function M.widensComptimeArrayElements()
     local result = parser.parse([[const values = comptime do
     return {1, 2, 3}
-end]], "test.g.nupp")
+end]], "test.nupp")
     testAssert.equal(#result.errors, 0, "comptime array source parses")
-    testAssert.equal(#check.check(result, "test.g.nupp", env), 0, "comptime array source checks")
+    testAssert.equal(#check.check(result, "test.nupp", env), 0, "comptime array source checks")
     local binding = firstLocalBinding(result)
     testAssert.equal(T.tostring(binding), "{integer}", "comptime array elements widen")
 end
@@ -1146,7 +1150,7 @@ function M.spellsASparseTableOneWay()
     -- The array part runs to the first hole; everything past it is a keyed entry, so
     -- how the table was built does not change how it is written down.
     local src = [[
-const T = comptime do
+const T: {[integer]: string} = comptime do
     local out = {}
     out[1] = "a"
     out[2] = "b"

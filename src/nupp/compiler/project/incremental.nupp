@@ -214,8 +214,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
     opts.compilerServices = opts.compilerServices or hostServices
     local env = envMod.new(rootDir, opts)
-    -- Left nil when nothing forced it, so each file's extension decides.
-    local strict = opts.strict
     local traceInspection = opts.traceInspection == true
     local q = query.new()
     local activeModules = {}
@@ -784,10 +782,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             {__index = env}
         )
         -- A dependency owns the judgment of its declaration surface, and a staged
-        -- runtime source is the compiler's, not the project's. A consumer's `--strict`
-        -- must not reinterpret either. Spelled out rather than as `external and false
-        -- or strict`, which answers `strict` whenever `external` holds.
-        local fileStrict = strict
+        -- runtime source is the compiler's, not the project's. Neither is re-judged
+        -- here; nil leaves every other file to its extension.
+        local fileStrict: boolean? = nil
         if envMod.isDependencyTypePath(env, path) or envMod.isRuntimeSourcePath(env, path) then
             fileStrict = false
         end

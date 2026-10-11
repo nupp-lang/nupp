@@ -36,10 +36,6 @@ record explain.Entry
     --- The same program, corrected.
     right: string?
 
-    --- Whether the rule only applies under `--strict`. Worth knowing before wondering
-    --- why a program the reference calls wrong checks clean.
-    strict: boolean
-
     --- Whether the rule is only reported for a build target whose `aot` policy
     --- compiles `@aot` functions, which is every policy but `off`. A file checked
     --- on its own, or under `off`, is never lowered, so its `wrong` checks clean.
@@ -249,8 +245,7 @@ local ENTRIES: {any} = {
         summary = "The typed layer appears in a plain Lua file",
         rule = "A `.lua` file is Lua. The toolchain will require, build and run "
         .. "one unchanged, so typed Nupp syntax cannot be written into it. Rename "
-        .. "the file `.nupp` to mean it, or `.g.nupp` to keep the gradual layer "
-        .. "with typed syntax available. Type comments are separate: recognized "
+        .. "the file `.nupp` to mean it. Type comments are separate: recognized "
         .. "LuaCATS, EmmyLua, and typed LuaDoc comments are always imported.",
         related = {"NUPP2105", "NUPP2106"},
         docs = "docs/reference/diagnostics.md#nupp1006",
@@ -393,12 +388,11 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2106",
         summary = "An exported declaration needs a type annotation",
-        strict = true,
         rule = "What a module returns is its interface, and an interface is "
         .. "written down rather than inferred. A function attached to the "
-        .. "module table needs its parameter and result types. This is a "
-        .. "strict rule: it is reported only under --strict, or when the "
-        .. "manifest sets strict = true.",
+        .. "module table needs its parameter and result types, and a signature "
+        .. "mentioning `any` counts as unwritten. A `.d.nupp` file may write `any`, "
+        .. "since it describes code somebody else implements.",
         wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\n" .. "return m\n",
         right = "local m = {}\n\nfunction m.double(n: integer): integer\n" .. "    return n * 2\nend\n\nreturn m\n",
         related = {"NUPP2119"},
@@ -590,7 +584,7 @@ local ENTRIES: {any} = {
         .. "`__index` and `__newindex` are a table to defer to or a function "
         .. "to run, and everything else it knows is called.\n\n"
         .. "Only a literal is checked. What a function returns cannot be "
-        .. "seen from here, so a computed metatable stays gradual.",
+        .. "seen from here, so a computed metatable stays unchecked.",
         wrong = "local record I64\n    v: integer\n"
         .. "    metamethod __add: function(self: I64, other: I64): I64\n"
         .. "end\n\nlocal x = new I64(v = 1)\n"
@@ -633,7 +627,7 @@ local ENTRIES: {any} = {
         summary = "Several overloads accept a call",
         rule = "Overloads have no ranking or declaration-order tie breaker. A call "
         .. "must leave exactly one candidate; use distinguishable parameter packs "
-        .. "or narrow a gradual argument before calling.",
+        .. "or narrow an `any` argument before calling.",
         wrong = "local type F = function(integer): string & function(number): boolean\n"
         .. "local f: F = nil as any\nreturn f(1)\n",
         right = "local type F = function(integer): string & function(string): boolean\n"
@@ -867,7 +861,7 @@ local ENTRIES: {any} = {
         .. "to modules with the same first canonical namespace segment. An internal init.nupp "
         .. "restricts its descendants too. Import the package's public module instead. "
         .. "This applies to require, qualified values and qualified types; dynamic Lua loading "
-        .. "remains gradual and is not an access-control sandbox.",
+        .. "remains unchecked and is not an access-control sandbox.",
         docs = "docs/learn/language/modules.md#internal-modules",
     },
     {
@@ -906,7 +900,7 @@ local ENTRIES: {any} = {
         rule = "A test whose subject and its target share no value can only ever answer "
         .. "false, so the branch it guards is one no run reaches. It is refused where it "
         .. "is written rather than compiled. Only what can be settled for certain counts: "
-        .. "a gradual type, a type parameter, and a structural fit the checker could not "
+        .. "`any`, a type parameter, and a structural fit the checker could not "
         .. "decide all leave the test alone, and `as` remains the way to say the value is "
         .. "something its declaration does not admit. `is` sits at the comparison level, "
         .. "below unary `not`, so `not v is T` is `(not v) is T` -- a boolean tested for "
@@ -925,7 +919,7 @@ local ENTRIES: {any} = {
         summary = "A result type parameter cannot be inferred",
         rule = "A type or type-pack parameter used by a call's result needs evidence "
         .. "from an explicit type argument, an argument value, a destination type, "
-        .. "gradual input, or a declared default. Without any of those, substituting "
+        .. "an `any` input, or a declared default. Without any of those, substituting "
         .. "`any` would silently erase the result's type. A parameter absent from the "
         .. "result does not need evidence.",
         wrong = "local function make<T>(): T\n    error('not reached')\nend\n\n"
@@ -950,7 +944,7 @@ local ENTRIES: {any} = {
         .. "local function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\n"
         .. "local kept = held(new Lines())\n\nreturn kept\n",
         related = {"NUPP2134"},
-        docs = "docs/learn/language/types/associated-types.md#gradual-projections",
+        docs = "docs/learn/language/types/associated-types.md#erased-projections",
     },
     {
         code = "NUPP2133",
@@ -1338,7 +1332,7 @@ local ENTRIES: {any} = {
         rule = "`local v: Vec2` declares a binding and constructs nothing, "
         .. "so the binding holds nil until something assigns to it, "
         .. "and reading it before that indexes nil at run time rather than "
-        .. "yielding a value of the declared type. Strict code holds every "
+        .. "yielding a value of the declared type. The checker holds every "
         .. "annotation that does not admit nil to this, and a binding is "
         .. "assigned only once every path reaching the read assigned it: an "
         .. "assignment on one arm of an `if`, or inside a loop that may not "
@@ -1895,7 +1889,7 @@ ENTRIES[
 ] = {
     code = "NUPP2005",
     summary = "A call's callee has no callable type or `__call` contract",
-    rule = "A call needs a function type, an intersection with at least one function member, or a receiver whose type contracts for `__call`. `any` is exempt, since a gradual value's runtime shape is not yet known; anything else that is called is reported once, and its argument expressions are still checked so one mistake does not hide another.",
+    rule = "A call needs a function type, an intersection with at least one function member, or a receiver whose type contracts for `__call`. `any` is exempt, since it opts the value out of checking; anything else that is called is reported once, and its argument expressions are still checked so one mistake does not hide another.",
     wrong = "local count: integer = 5\nreturn count()\n",
     right = "local function callable(): integer\n    return 5\nend\nreturn callable()\n",
     related = {"NUPP2003", "NUPP2006"},
@@ -1951,10 +1945,9 @@ ENTRIES[
 ] = {
     code = "NUPP2105",
     summary = "A name is not any value the checker or project can account for",
-    rule = "An unknown name is gradual by default: it types as `any` and stays quiet, because it might resolve at runtime. Under `--strict`, or in any file the strict floor already applies to, an unknown name that is not a project module's basename is reported instead, with a spelling fix offered when a visible name is close enough to be the one meant.",
+    rule = "A name the checker cannot account for is reported unless it is a project module's basename, with a spelling fix offered when a visible name is close enough to be the one meant. A `.lua` file reports none, since an unknown name there may be a Lua global set at run time.",
     wrong = "local function shout(text: string): string\n    return txet .. \"!\"\nend\nreturn shout\n",
     right = "local function shout(text: string): string\n    return text .. \"!\"\nend\nreturn shout\n",
-    strict = true,
     related = {"NUPP2120", "NUPP2101"},
     docs = "docs/reference/diagnostics.md#nupp2105",
 }
@@ -2190,7 +2183,7 @@ ENTRIES[
 ] = {
     code = "NUPP2401",
     summary = "carray's arguments are not a struct type and an element count",
-    rule = "carray(T, n) allocates a zero-based C array of n elements of T. T must resolve to a reified struct type -- a record is a table with no C layout to array up -- and n must be a number, or the gradual `any`, usable as an element count.",
+    rule = "carray(T, n) allocates a zero-based C array of n elements of T. T must resolve to a reified struct type -- a record is a table with no C layout to array up -- and n must be a number, or `any`, usable as an element count.",
     wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal points = carray(Point, 4)\nreturn points\n",
     right = "local struct Point\n    x: float\n    y: float\nend\n\nlocal points = carray(Point, 4)\nreturn points\n",
     related = {"NUPP2402", "NUPP2201"},
@@ -2665,7 +2658,6 @@ function explain.lookup(code: string): explain.Entry?
             rule = entry.rule,
             wrong = entry.wrong,
             right = entry.right,
-            strict = entry.strict and true or false,
             aot = entry.aot and true or false,
             related = entry.related or {},
             docs = entry.docs,
@@ -2686,7 +2678,6 @@ function explain.lookup(code: string): explain.Entry?
         or family.rule,
         wrong = nil,
         right = nil,
-        strict = false,
         aot = false,
         related = {},
         docs = lint and "docs/reference/lints.md#" .. lint.name or family.docs,

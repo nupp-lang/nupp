@@ -66,10 +66,10 @@ targets = {
 }
 ```
 
-The target checks and packages every selected `.nupp`, `.g.nupp`, and `.lua`
-file. It also adds dependencies reached through a constant `require`, even
-when they sit outside the selected paths. Omitting `sources` retains the whole
-project source set.
+The target checks and packages every selected `.nupp` and `.lua` file. It
+also adds dependencies reached through a constant `require`, even when they sit
+outside the selected paths. Omitting `sources` retains the whole project
+source set.
 
 A computed `require(name)` cannot add a source during the build. Its eventual
 module must have been selected independently, or the built program reports an

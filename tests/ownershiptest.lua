@@ -9,9 +9,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function checked(source, opts)
-    local result = parser.parse(source, "ownership-test.g.nupp")
+    local result = parser.parse(source, "ownership-test.nupp")
     testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
-    local diags = check.check(result, "ownership-test.g.nupp", env, opts)
+    local diags = check.check(result, "ownership-test.nupp", env, opts)
     return result, diags
 end
 
@@ -3792,7 +3792,7 @@ function M.rawReconstructionRequiresUnsafe()
         RESOURCE .. table.concat(
             {
                 "",
-                "local raw: resource*",
+                "local raw = resource_create()",
                 "local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
                 "resource_free(value)",
             },
@@ -3804,7 +3804,7 @@ function M.rawReconstructionRequiresUnsafe()
         RESOURCE .. table.concat(
             {
                 "",
-                "local raw: resource*",
+                "local raw = resource_create()",
                 "@unsafe do",
                 "   local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
                 "   nupp.drop(value)",
@@ -3817,7 +3817,7 @@ function M.rawReconstructionRequiresUnsafe()
         codes(
             table.concat(
                 {
-                    "local raw: voidptr",
+                    "local raw: voidptr = nil as any",
                     "local function wrong(takes value: string): nil end",
                     "@unsafe do",
                     "   local value = @unsafe nupp.adopt<affine(voidptr, wrong)>(raw)",
@@ -3835,7 +3835,7 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
         RESOURCE .. table.concat(
             {
                 "",
-                "local raw: resource*",
+                "local raw = resource_create()",
                 "local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
                 "local restored = @unsafe nupp.release(value)",
                 "local again = @unsafe nupp.adopt<affine(resource*, resource_free)>(restored)",
@@ -3845,7 +3845,7 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
         )
     )
     testAssert.equal(
-        codes(RESOURCE .. "\nlocal raw: resource*\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
+        codes(RESOURCE .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
         "NUPP2604"
     )
 end
@@ -3901,8 +3901,7 @@ function M.bodyfulBorrowContractsNeedProvenanceProof()
             RESOURCE .. table.concat(
                 {
                     "",
-                    "local function fake(borrows source: resource*): resource* borrows (source)",
-                    "   local raw: resource*",
+                    "local function fake(borrows source: resource*, raw: resource*): resource* borrows (source)",
                     "   return raw",
                     "end",
                 },
@@ -4817,7 +4816,7 @@ function M.callbackPointersRequireUnsafe()
             "@unsafe do",
             "   local callback = function() end",
             "   local cb = ffi.cast<voidptr>(callback)",
-            "   local handle = pin(cb, callback)",
+            "   local handle = nupp.pin(cb, callback)",
             "end",
         },
         "\n"
@@ -6381,7 +6380,7 @@ function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
     local code, genDiags = gen.generate(result, "ownership-test")
     testAssert.equal(#genDiags, 0)
     assert(
-        code:find('["ownership-test.g.nupp#free"]=free', 1, true),
+        code:find('["ownership-test.nupp#free"]=free', 1, true),
         "the cleanup declaration did not publish its function: " .. code
     )
 
@@ -6552,7 +6551,7 @@ function M.taskHandlesRemainRootedInTheirScope()
                     "with scope = nupp.tasks.open() do",
                     "   escaped = scope:spawn(function(): integer return 1 end)",
                     "end",
-                    "return escaped",
+                    "print(escaped)",
                 },
                 "\n"
             )
@@ -8399,7 +8398,7 @@ function M.unsafeAnnotationKeepsOwnershipChecksAndOperandGrammar()
     local source = RESOURCE
         .. "\n"
         .. [[
-local raw: resource*
+local raw = resource_create()
 local owner = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)
 local released = @unsafe nupp.release(owner)
 local restored = @unsafe nupp.adopt<affine(resource*, resource_free)>(released)
@@ -8474,8 +8473,8 @@ return answer, returned, log
     for _, level in ipairs({0, 1, 2}) do
         local result, diags = checked(source)
         testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-        require("nupp.compiler.lua.optimize").run(result, {level = level, filename = 'test.g.nupp'})
-        local code, errors = gen.generate(result, "test.g.nupp")
+        require("nupp.compiler.lua.optimize").run(result, {level = level, filename = 'test.nupp'})
+        local code, errors = gen.generate(result, "test.nupp")
         testAssert.equal(#errors, 0, errors[1] and errors[1].msg)
         local chunk = assert(loadstring(code))
         local answer, returned, log = chunk()

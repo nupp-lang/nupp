@@ -206,7 +206,7 @@ end
 -- orchestration decides what every job is. The four self-contained SIMD
 -- workflow inputs above are the deliberate exception.
 function M.compatibilityCorpusSelectsItsStockInterpreterJob()
-    selects("tests/lua51-compat/src/main.g.nupp", {"linux-integration", "portable-compiler"})
+    selects("tests/lua51-compat/src/main.nupp", {"linux-integration", "portable-compiler"})
     selects("scripts/lua51-compat-corpus.sh", {"linux-integration", "portable-compiler"})
 end
 

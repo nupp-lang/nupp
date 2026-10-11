@@ -183,11 +183,11 @@ end
 --- `root` is the project the session compiles against. `run` leaves it out and gets
 --- the directory it was invoked from; an embedding host names the project it is
 --- watching, because the process it belongs to was not started there.
-function watch.open(path: string, strict: boolean?, root: string?): (watch.Session?, {any}?)
+function watch.open(path: string, root: string?): (watch.Session?, {any}?)
     local hotRuntime = require("nupp.runtime.hotreload")
-    -- Gradual, as it was in `run`: the session's results are unions the poll below
+    -- Untyped, as it was in `run`: the session's results are unions the poll below
     -- reads by the fields each kind carries.
-    local watchSession: any = require("nupp.tools.hotsession").new(root or ".", {strict = strict})
+    local watchSession: any = require("nupp.tools.hotsession").new(root or ".", {})
     local initialBuild = watchSession:initial({path})
     if initialBuild.kind ~= "initial" then
         return nil, initialBuild.diagnostics or {}

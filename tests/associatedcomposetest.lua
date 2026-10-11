@@ -14,10 +14,10 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagnose(source)
    env.loaded = {}
-   local parsed = parser.parse(source, "test.g.nupp")
+   local parsed = parser.parse(source, "test.nupp")
    testAssert.equal(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
-   return check.check(parsed, "test.g.nupp", env)
+   return check.check(parsed, "test.nupp", env)
 end
 
 local function codes(source)
@@ -95,7 +95,7 @@ end
 
 -- The erasure survives being consumed: `keyof` of a projection that lost its head
 -- is still an erasure, and the call is still checked as `any`.
-function M.aGradualProjectionConsumedByANeutralOperationStillWarns()
+function M.anErasedProjectionConsumedByANeutralOperationStillWarns()
    reports(src(
       "local interface Holds",
       "   associated type Item",
@@ -103,8 +103,7 @@ function M.aGradualProjectionConsumedByANeutralOperationStillWarns()
       "local function held<T is Holds>(x: T): keyof T.Item",
       "   return nil as any",
       "end",
-      "local erased = held(nil as any)",
-      "return erased"), "NUPP2511")
+      "local erased = held(nil as any)"), "NUPP2511")
 end
 
 -- Eager evaluation names the concrete type in the message itself, so nothing has to

@@ -7,7 +7,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local env = require("nupp.compiler.project.env")
 
 local function parsed(source)
-    local result = parser.parse(source, "test.g.nupp")
+    local result = parser.parse(source, "test.nupp")
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
     return result
 end
@@ -15,7 +15,7 @@ end
 local function diagnostics(source)
     local result = parsed(source)
     local out = {}
-    for index, diagnostic in ipairs(check.check(result, "test.g.nupp", env.new("."))) do
+    for index, diagnostic in ipairs(check.check(result, "test.nupp", env.new("."))) do
         out[index] = diagnostic.code
     end
 
@@ -24,9 +24,9 @@ end
 
 local function run(source)
     local result = parsed(source)
-    local checked = check.check(result, "test.g.nupp", env.new("."))
+    local checked = check.check(result, "test.nupp", env.new("."))
     testAssert.equal(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
-    local code, problems = gen.generate(result, "test.g.nupp")
+    local code, problems = gen.generate(result, "test.nupp")
     testAssert.equal(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
     local chunk, problem = loadstring(code, "@binding_pattern_test")
     assert(chunk, tostring(problem) .. "\n" .. code)
@@ -148,14 +148,14 @@ function M.formattingUsesReadableBraces()
 end
 
 function M.oldAndAliasedPlucksCarryWholeFixes()
-    local old = parser.parse("draw((x, y) = point)", "test.g.nupp")
+    local old = parser.parse("draw((x, y) = point)", "test.nupp")
     testAssert.equal(#old.errors, 1)
     testAssert.equal(old.errors[1].code, "NUPP1002")
     testAssert.equal(old.errors[1].fixes[1].title, "use a braced pluck")
     testAssert.equal(old.errors[1].fixes[1].edits[1].newText, "{")
     testAssert.equal(old.errors[1].fixes[1].edits[2].newText, "}")
 
-    local aliased = parser.parse("draw({y as color} = point)", "test.g.nupp")
+    local aliased = parser.parse("draw({y as color} = point)", "test.nupp")
     testAssert.equal(#aliased.errors, 1)
     testAssert.equal(aliased.errors[1].code, "NUPP1002")
     testAssert.equal(aliased.errors[1].fixes[1].title, "use a named argument")

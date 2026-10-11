@@ -33,9 +33,8 @@ table.
 
 The declared name must equal the module name derived from the file's configured
 include root. For example, `src/geom/shapes.nupp` declares `module geom.shapes`.
-The `.g` marker in `shapes.g.nupp` is not part of the name, and a final `/init`
-is erased. See [build.md](../projects/build.md) for where a project's include
-roots are configured.
+A final `/init` is erased. See [build.md](../projects/build.md) for where a
+project's include roots are configured.
 
 Only that canonical name may be used by static imports. This prevents one file
 from being initialized twice under different `package.loaded` keys. A `.d.nupp`
@@ -99,16 +98,15 @@ namespace, such as `app`, cannot statically require their internal modules or
 name their values or types through qualified paths (`NUPP2144`).
 
 An `internal` segment and an underscored module basename also mark a module
-internal. On `init.nupp` or `init.g.nupp`, `@!internal` applies to the namespace and every
+internal. On `init.nupp`, `@!internal` applies to the namespace and every
 module below it. Public modules can use and wrap their own internal modules;
 the implementation types of a public return value do not make the public
 import illegal.
 
 This is a checked API boundary. Dynamic or shadowed Lua `require` remains
-gradual; it is not an access-control sandbox.
+unchecked; it is not an access-control sandbox.
 
-A module with children lives in `name/init.nupp` (or `name/init.g.nupp` for
-gradual source). Keeping `name.nupp` beside
+A module with children lives in `name/init.nupp`. Keeping `name.nupp` beside
 `name/child.nupp` is rejected during project registration. A leaf module stays
 in a single named file until it acquires children.
 
@@ -128,10 +126,9 @@ end
 
 A literal call through the unshadowed builtin is a static dependency and is
 checked against the declared interface. A dynamic name is a boundary nothing
-declared: in a strict file what comes back is `unknown`, to be narrowed or
-cast before it is used, and in a gradual file it is `any`. A locally shadowed
-`require` is an ordinary call of a function declared to return `any`, whatever
-the file is.
+declared: what comes back is `unknown`, to be narrowed or cast before it is
+used. A locally shadowed `require` is an ordinary call of a function declared
+to return `any`.
 
 ### Naming a member from another file
 
@@ -346,7 +343,7 @@ export = shapes
 The value is evaluated once and becomes the module value itself, preserving
 table identity, mutable fields, and callable metatables. It adds no loader,
 proxy, field copy, or wrapper to exported calls, and it keeps ordinary Lua
-initialization, which makes it gradual across an active cycle.
+initialization, which leaves it unchecked across an active cycle.
 
 The two forms do not mix for anything that carries a runtime value. A module
 either exports its declarations, and the compiler builds the table, or it names
@@ -390,7 +387,7 @@ paths](#qualified-module-paths) for the code that generates.
 
 ::: seealso
 - [build.md](../projects/build.md) for include roots, targets, and the manifest
-- [strictness.md](gradual-typing.md#do-file-extensions-change-module-identity) for
-  what `.g.nupp` changes and what it does not
+- [file-types.md](file-types.md#do-file-extensions-change-module-identity) for
+  why moving a file between `.lua` and `.nupp` leaves its name alone
 - [lsp.md](../tooling/language-server.md) for the editor features listed above
 :::

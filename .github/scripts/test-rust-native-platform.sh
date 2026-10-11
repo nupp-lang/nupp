@@ -62,7 +62,9 @@ sdk=$(./scripts/toolchain host-library "$FEATURES")
 [ -f "$host" ]
 [ -f "$sdk/libnupp.a" ]
 [ -f "$sdk/link.json" ]
-grep -F '"features": "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
+# Checksums are part of the base host; toolchain normalization omits their
+# compatibility feature from the Cargo feature list recorded in link.json.
+grep -F '"features": "lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
     "$sdk/link.json" >/dev/null
 case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)

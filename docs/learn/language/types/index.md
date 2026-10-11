@@ -5,9 +5,9 @@ title: Type system
 
 # Type system
 
-Nupp is gradually typed: anything unannotated or unresolvable is `any` and
-checks silently, so an untyped LuaJIT program is already a valid Nupp program.
-An annotation is what turns checking on, one declaration at a time.
+Nupp checks what an initializer settles and what an annotation states. An
+unannotated parameter or result is `any` and checks silently, so an annotation
+is what turns checking on for a function, one declaration at a time.
 
 ```nupp:refused:playground
 local total = 1
@@ -28,7 +28,7 @@ The checker infers a type where an initializer settles it, and nowhere else.
 | Function result | No; the body's returns go unchecked |
 | Function literal where a callable is expected | Yes, its results, from its `return` statements |
 | Short-function body | Yes, one inferred result |
-| Unknown global | No; `any`, silently |
+| Unknown variable | No; reported as `NUPP2105` |
 
 A function with no result annotation is not checked against its `return`
 statements at all, and its calls produce `any`:
@@ -121,48 +121,27 @@ Widening is the price of the first rule on this page. `local i = 1` in ordinary
 Lua is a counter, not the number one, and a checker that read the initializer
 literally would report the second line of every loop anybody already wrote. The
 alternative was inferring the literal and asking for `local i: number = 1` at
-each site, which makes the annotation the default and gradual typing a slogan.
+each site, which makes the annotation the default for every local.
 Widening applies only where there is no annotation and no `const`, so both
 narrower readings stay one word away.
 :::
 
-## Strict floor
+## Typed module boundaries
 
-Strict adds two rules on top of what every file is checked for:
+Two rules apply to every `.nupp` file on top of everything else it is checked
+for:
 
 - An unknown variable is reported, for a name no project file answers to.
 - An exported declaration needs a type annotation, so nothing untyped crosses a
   module boundary.
 
-Everything else is checked identically either way. Which files hold that floor
-is decided by their extension, so a file says what it is where anyone reading
-it can see it:
+A `.lua` file is held to neither, since an unknown name there may be a global
+the program sets at run time. A `.d.nupp` file may write `any` where the
+interface it describes has it: LuaJIT's `string.buffer.encode(v: any): string`
+really does take any Lua value. See [File types](../file-types.md) for what
+each extension holds.
 
-| Extension | Floor | Means |
-| --- | --- | --- |
-| `.nupp` | strict | Ordinary Nupp. |
-| `.g.nupp` | gradual | The typed syntax, without the floor. |
-| `.d.nupp` | gradual | Describes an interface somebody else implements. |
-| `.lua` | gradual | Plain Lua, and the typed layer is refused there. |
-
-`.g.nupp` is the opt-out, and it is a whole file at a time on purpose: a
-per-declaration escape would be a second way to say `any`, which the language
-already has. The module name drops the marker, so `models.g.nupp` is the module
-`models` and `require("models")` finds it. A file can therefore change layer
-without anything that requires it noticing.
-
-`.d.nupp` is exempt because a declaration file describes foreign code. LuaJIT's
-`string.buffer.encode(v: any): string` really does take any Lua value, and no
-annotation written here changes what LuaJIT accepts.
-
-`--strict` overrides the lot, holding every file to the floor including the
-`.g.nupp` ones. That is the tool for finding out what adopting one would cost:
-
-```bash
-nupp check --strict
-```
-
-## Gradual escape hatches
+## Escape hatches
 
 `any` is compatible with everything in both directions, with one exception: a
 generic body's type parameter. A `T` stands for one unknown-but-fixed type
@@ -193,7 +172,7 @@ type](primitives.md#unknown-the-top-type) for more information.
 
 ## Deliberate unsoundness
 
-Some boundaries deliberately trust gradual or externally supplied information:
+Some boundaries deliberately trust unchecked or externally supplied information:
 
 ```nupp:refused
 local ints: {integer} = {1, 2}
@@ -205,7 +184,7 @@ Mutable arrays and tuples preserve their element types through aliases. A fresh
 array literal may take the type of its context; an existing array widens only
 through a read-only view.
 
-- **`table` is gradual in both directions.** Every table-shaped type is a
+- **`table` is compatible in both directions.** Every table-shaped type is a
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
@@ -270,11 +249,12 @@ that admits.
 Almost nothing. Annotations, aliases, interfaces, and `as` are erased, so
 generated Lua carries no type tags; `record`, `struct`, and interface default
 implementations emit the tables that ordinary Lua would have written by hand.
-See [strictness.md](../gradual-typing.md) for the two exceptions.
+See [constructs that aren't
+erased](../file-types.md#constructs-that-arent-erased) for the two exceptions.
 
 ::: seealso
-- [strictness.md](../gradual-typing.md) for the gradual typing model and
-  what adopting the strict floor costs
+- [file-types.md](../file-types.md) for which files are checked and how plain
+  Lua joins a project
 - [modules.md](../modules.md) for where a declaration lives and how
   another module sees it
 - [diagnostics.md](../../../reference/diagnostics.md) for the code behind every rule

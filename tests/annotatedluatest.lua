@@ -139,7 +139,7 @@ return module
 ]]
     local plan, problem = migrate.plan(source, "identity.lua", "auto")
     assert(plan, problem)
-    testAssert.equal(plan.destination, "identity.g.nupp")
+    testAssert.equal(plan.destination, "identity.nupp")
     assert(plan.text:find("local type Id = integer", 1, true), "alias was not emitted")
     assert(plan.text:find("function module.keep(value: Id): Id", 1, true), "function annotations were not migrated")
     local migrated = parser.parse(plan.text, plan.destination)

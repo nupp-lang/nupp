@@ -386,7 +386,7 @@ local function generateLanes(options)
             end
             local name = "simd_primitives_" .. ty .. "_" .. start
             local source, names, ops = moduleSource(ty, lanes)
-            files[name .. ".g.nupp"] = source
+            files[name .. ".nupp"] = source
             probes[name] = names
             modules[#modules + 1] = name
             local opNames = {}

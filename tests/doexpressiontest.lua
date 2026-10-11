@@ -3,11 +3,15 @@ local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
 local optimize = require("nupp.compiler.lua.optimize")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local function checked(source)
-    local tree = parser.parse(source, "do-expression.g.nupp")
+    local tree = parser.parse(source, "do-expression.nupp")
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
-    local diagnostics = check.check(tree, "do-expression.g.nupp")
+    local diagnostics = check.check(tree, "do-expression.nupp", env)
     return tree, diagnostics
 end
 
@@ -15,9 +19,9 @@ local function run(source, level)
     local tree, diagnostics = checked(source)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     if level then
-        optimize.run(tree, {level = level, filename = "do-expression.g.nupp"})
+        optimize.run(tree, {level = level, filename = "do-expression.nupp"})
     end
-    local code, errors = gen.generate(tree, "do-expression.g.nupp")
+    local code, errors = gen.generate(tree, "do-expression.nupp")
     assert(#errors == 0, (errors[1] and errors[1].msg or "") .. "\n" .. code)
     local fn, failure = loadstring(code)
     assert(fn, tostring(failure) .. "\n" .. code)
@@ -188,7 +192,7 @@ function M.scopesTypesAndMissingYields()
         local _, found = checked(source)
         assert(found[1] and found[1].code == "NUPP2141", source)
     end
-    local tree = parser.parse("local x = do local function bad() yield 1 end; yield 2 end", "test.g.nupp")
+    local tree = parser.parse("local x = do local function bad() yield 1 end; yield 2 end", "test.nupp")
     assert(#tree.errors > 0, "a function cannot yield to its lexical caller")
 end
 

@@ -296,9 +296,9 @@ can reach a catchable error path.
 
 Visible functions are inferred to a pessimistic fixed point, including their
 automatic cleanup. An exact direct export transports allocation, raising, path,
-escape, and return summaries under separate incremental fact keys. An unknown callback, method,
-gradual call, or uncontracted C function proves neither fact. Indexing a gradual
-value may raise, since nothing says whether it can be indexed or what its
+escape, and return summaries under separate incremental fact keys. An unknown
+callback, method, call through `any`, or uncontracted C function proves neither
+fact. Indexing an `any` value may raise, since nothing says whether it can be indexed or what its
 `__index` does, and `int64` or `uint64` arithmetic allocates, since LuaJIT boxes
 each result.
 

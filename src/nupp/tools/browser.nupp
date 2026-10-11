@@ -20,7 +20,6 @@ local capabilities = require("nupp.compiler.capabilities")
 local preludeImage = require("nupp.compiler.project.preludeimage")
 
 local type BrowserOptions = {
-    strict: boolean?,
     optimize: boolean?,
     compat: 'lua51'?
 }
@@ -121,7 +120,6 @@ function Session:checked(source: string, filename: string, options: BrowserOptio
         return result, result.errors
     end
     local diags = check.check(result, filename, self:environment(compatibility), {
-        strict = options and options.strict == true,
         compat = compatibility,
         _capabilityResolution = capabilityResolution(self.settings.compilerServices),
     })

@@ -8,7 +8,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function generate(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local code, diags = gen.generate(result, "test")
     -- These generate from a bare parse, where `gen.generate` documents a checked one. A
@@ -56,9 +56,9 @@ local function withFreshCoverage(run)
 end
 
 local function generateChecked(src)
-    local result = parser.parse(src, "prepared_worker.g.nupp")
+    local result = parser.parse(src, "prepared_worker.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in checked generator source")
-    local diagnostics = check.check(result, "prepared_worker.g.nupp", env)
+    local diagnostics = check.check(result, "prepared_worker.nupp", env)
     testAssert.equal(#diagnostics, 0, "check diagnostics for " .. src)
     local code, generated = gen.generate(result, "prepared_worker")
     testAssert.equal(#generated, 0, "generation diagnostics for " .. src)
@@ -93,7 +93,7 @@ local interface Small
     n: integer
     satisfies |self| -> 64 >= self.n
 end
-local function isSmall(value: any): boolean
+local function isSmall(value: unknown): boolean
     return value is Small
 end
 return isSmall
@@ -111,7 +111,7 @@ local interface Short
     name: string
     satisfies |self| -> #self.name <= 4
 end
-local function isShort(value: any): boolean
+local function isShort(value: unknown): boolean
     return value is Short
 end
 return isShort
@@ -129,7 +129,7 @@ local interface Bounded
     n: number
     satisfies |self| -> self.n >= -1_000 and self.n < 0x10
 end
-local function isBounded(value: any): boolean
+local function isBounded(value: unknown): boolean
     return value is Bounded
 end
 return isBounded
@@ -153,19 +153,19 @@ function M.targetFactsResolveTheHostFromTheEnvironment()
     end
     for _, environment in ipairs(environments) do
         local expectedHost = environment.host or "native"
-        local parsed = parser.parse("return true", "target-facts.g.nupp")
-        local diagnostics = check.check(parsed, "target-facts.g.nupp", environment.value, {
+        local parsed = parser.parse("return true", "target-facts.nupp")
+        local diagnostics = check.check(parsed, "target-facts.nupp", environment.value, {
             moduleName = "nupp.runtime.target",
         })
         testAssert.equal(#diagnostics, 0, "target fact checking")
-        local code, generated = gen.generate(parsed, "target-facts.g.nupp")
+        local code, generated = gen.generate(parsed, "target-facts.nupp")
         testAssert.equal(#generated, 0, "target fact generation")
         local facts = assert(loadstring(code))()
         testAssert.equal(facts.dialect, "luajit", "every artifact runs on LuaJIT")
         testAssert.equal(facts.host, expectedHost, "only an explicit host overrides the native default")
 
-        local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.g.nupp")
-        local admission = check.check(imported, "host-import.g.nupp", environment.value, {
+        local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.nupp")
+        local admission = check.check(imported, "host-import.nupp", environment.value, {
             moduleName = "nupp.fixture.host",
         })
         local rejected = false
@@ -993,9 +993,9 @@ end
 function M.sharedLanguageSemanticsSurviveLegacyRetirement()
     local fixtures = dofile(HERE .. "/fixtures/language-semantics.lua")
     for name, fixture in pairs(fixtures) do
-        local result = parser.parse(fixture.source, name .. ".g.nupp")
+        local result = parser.parse(fixture.source, name .. ".nupp")
         testAssert.equal(#result.errors, 0, name .. " parses")
-        local diagnostics = check.check(result, name .. ".g.nupp", env)
+        local diagnostics = check.check(result, name .. ".nupp", env)
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.msg)
         end
@@ -1015,9 +1015,9 @@ function M.sharedLanguageSemanticsSurviveLegacyRetirement()
 end
 
 -- Checks, generates and runs `src`, returning what it printed. `filename` picks the
--- floor: a `.g.nupp` name is gradual, a `.nupp` name strict.
+-- name the checked chunk carries.
 local function printed(src, filename)
-    filename = filename or "printed.g.nupp"
+    filename = filename or "printed.nupp"
     local result = parser.parse(src, filename)
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     for _, d in ipairs(check.check(result, filename, env)) do
@@ -1123,14 +1123,14 @@ end
 -- because every command that prints generated code stops at the same failure.
 function M.unloadableOutputIsReportedAtItsLine()
     local src = "local a = 1\nlocal b = 'x'\nreturn a, b"
-    local result = parser.parse(src, "broken.g.nupp")
+    local result = parser.parse(src, "broken.nupp")
     -- A string the lexer would never let through, so only the load check sees it.
     for _, token in ipairs(result.tokens) do
         if token.text == "'x'" then
             token.text = "'\\q'"
         end
     end
-    local _, diags = gen.generate(result, "broken.g.nupp")
+    local _, diags = gen.generate(result, "broken.nupp")
     testAssert.equal(#diags, 1, "one diagnostic")
     testAssert.equal(diags[1].code, "NUPP3005")
     testAssert.equal(diags[1].line, 2, "the line LuaJIT named")
@@ -1218,7 +1218,7 @@ end
 -- Checks and generates a declared module, runs it, and answers its exports with the
 -- generated text. The module's name is whatever its `module` line says.
 local function moduleExports(src, name)
-    local filename = name .. ".g.nupp"
+    local filename = name .. ".nupp"
     local result = parser.parse(src, filename)
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diagnostics = check.check(result, filename, env, {moduleName = name})
@@ -1321,9 +1321,9 @@ function M.tooManyUserLocalsAreReportedByCheck()
         lines[#lines + 1] = ("local v%d: integer = %d"):format(index, index)
     end
     lines[#lines + 1] = "export function sum(): integer return v0 + v200 end"
-    local result = parser.parse(table.concat(lines, "\n"), "genspilllocals.g.nupp")
+    local result = parser.parse(table.concat(lines, "\n"), "genspilllocals.nupp")
     local codes = {}
-    for _, d in ipairs(check.check(result, "genspilllocals.g.nupp", env, {moduleName = "genspilllocals"})) do
+    for _, d in ipairs(check.check(result, "genspilllocals.nupp", env, {moduleName = "genspilllocals"})) do
         codes[#codes + 1] = d.code .. ":" .. d.line
     end
     testAssert.equal(table.concat(codes, " "), "NUPP3005:203", "the 201st local is where the module stops fitting")

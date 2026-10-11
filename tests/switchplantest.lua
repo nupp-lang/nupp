@@ -2,6 +2,10 @@ local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local switchplan = require("nupp.compiler.lua.switchplan")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local M = {}
 
@@ -35,10 +39,10 @@ local function sourceFor(keys, kind, resultFor)
 end
 
 local function plan(source, coverage)
-   local result = parser.parse(source, "switch-plan-test.g.nupp")
+   local result = parser.parse(source, "switch-plan-test.nupp")
    testAssert.equal(#result.errors, 0, "planner source parses")
-   local diagnostics = check.check(result, "switch-plan-test.g.nupp")
-   testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or
+   local diagnostics = check.check(result, "switch-plan-test.nupp", env)
+   testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or
       "planner source checks")
    local node = assert(findSwitch(result.root), "switch node")
    return switchplan.regular(node, coverage), node

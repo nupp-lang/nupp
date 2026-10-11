@@ -28,7 +28,7 @@ end
 return users
 ```
 
-```nupp [users.g.nupp (Nupp view)]
+```nupp [users.nupp (Nupp view)]
 local users = {}
 
 local type UserId = integer
@@ -50,7 +50,7 @@ return users
 
 The Lua source remains the runtime source; the imported aliases, interfaces,
 parameters, results, local types, varargs, and overloads exist only while
-checking. Each example below pairs annotated Lua with a normalized `.g.nupp`
+checking. Each example below pairs annotated Lua with a normalized `.nupp`
 spelling of the facts Nupp derives from it. The Nupp view is not generated
 runtime code: it omits the now-redundant comments and arranges declarations for
 readability, where [migrate](#migration) preserves the comments when it writes
@@ -80,7 +80,7 @@ end
 return describe
 ```
 
-```nupp [describe.g.nupp (Nupp view)]
+```nupp [describe.nupp (Nupp view)]
 local function describe(
     status: "queued" | "running" | "done",
     tags: {string},
@@ -114,7 +114,7 @@ payload.name = name
 return payload, count
 ```
 
-```nupp:fragment [payload.g.nupp (Nupp view)]
+```nupp:fragment [payload.nupp (Nupp view)]
 local name: string, count: integer = "Ada", 1
 
 local payload = decode()
@@ -144,7 +144,7 @@ end
 return summarize
 ```
 
-```nupp [summarize.g.nupp (Nupp view)]
+```nupp [summarize.nupp (Nupp view)]
 local function summarize(prefix: string, ...: integer): string, integer
     return prefix, select("#", ...)
 end
@@ -175,7 +175,7 @@ end
 return normalize
 ```
 
-```nupp [normalize.g.nupp (Nupp view)]
+```nupp:fragment [normalize.nupp (Nupp view)]
 local legacy = require("legacy")
 
 local type Normalize = function(value: string): integer
@@ -209,7 +209,7 @@ end
 return greet
 ```
 
-```nupp [greet.g.nupp (Nupp view)]
+```nupp [greet.nupp (Nupp view)]
 local function greet(name: string): string
     return "Hello, " .. name
 end
@@ -254,7 +254,7 @@ end
 return keep
 ```
 
-```nupp [keep.g.nupp (recovered view)]
+```nupp:fragment [keep.nupp (recovered view)]
 local function keep(value: any): any
     return value
 end
@@ -264,12 +264,14 @@ return keep
 :::
 
 The generic comment remains in place for a later manual contract. Nupp does not
-invent one or weaken public capability checks.
+invent one or weaken public capability checks, so the recovered view, saved as
+`.nupp`, reports `NUPP2106`: an exported signature mentioning `any` counts as
+unannotated.
 
 ## Migration
 
 The `migrate` command dispatches by file extension, and for annotated `.lua` the
-destination is the same module at `.g.nupp`:
+destination is the same module at `.nupp`:
 
 ```bash
 nupp migrate --dry-run --json src/users.lua

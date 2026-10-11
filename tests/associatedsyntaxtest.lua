@@ -14,7 +14,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function parse(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    return result
 end
 
@@ -156,12 +156,12 @@ function M.formattingIsCanonicalAndIdempotent()
       "end",
       "return Reader",
    }, "\n") .. "\n"
-   local formatted, errors = fmt.format(ugly, "test.g.nupp")
+   local formatted, errors = fmt.format(ugly, "test.nupp")
    testAssert.equal(#errors, 0, "formatting reported: "
       .. (errors[1] and errors[1].msg or ""))
    assert(formatted:find("associated type Tag is Named = Label", 1, true),
       "not canonically spaced:\n" .. formatted)
-   local again = fmt.format(formatted, "test.g.nupp")
+   local again = fmt.format(formatted, "test.nupp")
    testAssert.equal(again, formatted, "formatting is not idempotent")
 end
 
@@ -170,11 +170,11 @@ end
 -- generates -- byte for byte, not merely equivalent.
 function M.associatedDeclarationsEraseCompletely()
    local function generate(src)
-      local result = parser.parse(src, "test.g.nupp")
+      local result = parser.parse(src, "test.nupp")
       testAssert.equal(#result.errors, 0, "syntax errors: "
          .. (result.errors[1] and result.errors[1].msg or ""))
       env.loaded = {}
-      check.check(result, "test.g.nupp", env)
+      check.check(result, "test.nupp", env)
       local code, genDiags = gen.generate(result, "test")
       testAssert.equal(#genDiags, 0, "gen diagnostics")
       return code

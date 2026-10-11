@@ -8,10 +8,10 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function compile(source)
-    local parsed = parser.parse(source, "fieldcodec_materialize_test.g.nupp")
+local function compile(source, opts)
+    local parsed = parser.parse(source, "fieldcodec_materialize_test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "fieldcodec_materialize_test.g.nupp", env)
+    local diagnostics = check.check(parsed, "fieldcodec_materialize_test.nupp", env, opts)
     local code, generated = gen.generate(parsed, "fieldcodec_materialize_test")
     for _, diagnostic in ipairs(generated) do
         diagnostics[#diagnostics + 1] = diagnostic
@@ -20,8 +20,11 @@ local function compile(source)
     return code, diagnostics
 end
 
+-- A refused block has no value to type, so a fixture returning it would also be
+-- told its module's value needs an annotation. That follows from the refusal and
+-- is not what these cases are about, so they check without the floor.
 local function errorsOf(source)
-    local _, diagnostics = compile(source)
+    local _, diagnostics = compile(source, {strict = false})
     local codes = {}
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
@@ -63,8 +66,8 @@ local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
 local decoded, problem = PositionCodec:decode(encoded)
 local invalid, invalidProblem = PositionCodec:decode(42 as any)
 return {
-    x = encoded["x"],
-    y = encoded["y"],
+    x = encoded["x"] as number,
+    y = encoded["y"] as number,
     fingerprint = PositionCodec.fingerprint,
     decodedX = decoded and decoded.x,
     decodeProblem = problem,
@@ -103,7 +106,7 @@ const Codec: nupp.reflect.FieldCodec<Point> = comptime do
     return keyed(nupp.reflect(Point))
 end
 local encoded = Codec:encode(new Point(x = 3, y = 4))
-return {x = encoded.x, y = encoded.y}
+return {x = encoded.x as number, y = encoded.y as number}
 ]]
     local encoded = run(src)
     testAssert.equal(encoded.x, 3, "the reflected helper selects x")
