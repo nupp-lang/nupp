@@ -530,6 +530,27 @@ fn main() {
         }
         return;
     }
+    if mode == "park-compiled" {
+        // Contract 6.2 as a lowering: the worker runs compiled from a frame-record
+        // entry, parks by spilling and returning the sentinel, and resumes at its
+        // saved pc through the same entry kind. Same scheduler as `park`.
+        CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        let jit_cell = std::rc::Rc::new(std::cell::RefCell::new(jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_arith_slow", rt_arith_slow as *const u8, 3)])));
+        let jc = jit_cell.clone();
+        it.osr_compile = Some(Box::new(move |f: &Function, pc: usize| { let mut j = jc.borrow_mut(); match j.compile_osr(f, pc) { Ok(p) => Some(p), Err(e) => { eprintln!("entry refused\t{}@{pc}: {e}", f.name); None } } }));
+        it.resumable.insert(WORKER);
+        it.compiled = vec![None; it.funcs.len()];
+        for _ in 0..3 {
+            let start = cpu_now();
+            let ts: Vec<usize> = (0..1000).map(|i| it.spawn(WORKER, &[Value::num(1000.0), Value::num(i as f64)])).collect();
+            let mut done = 0;
+            while done < ts.len() { for &t in &ts { if it.tasks[t].state == State::Runnable { match it.run(t) { Outcome::Done(v) => { assert_eq!(v.as_num(), 1000.0); done += 1; } Outcome::Parked(k) => { assert_eq!(k, it.reg(t, 2).0); it.resume(t); } } } } }
+            it.tasks.clear();
+            println!("park-compiled1000x1000\t{:.6}", cpu_now() - start);
+        }
+        eprintln!("compiled parks {} of {}", it.compiled_parks, it.parks);
+        return;
+    }
     if mode == "fibloop" { let it = &mut it; for _ in 0..60 { black_box(run_to_end(it, FIB, &[Value::num(30.0)]).as_num()); } return; }
     if mode == "paths" { paths_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "base64" { base64_mode(&mut it, &args[2], &args[3]); return; }

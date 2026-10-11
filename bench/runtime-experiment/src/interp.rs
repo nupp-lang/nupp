@@ -235,6 +235,13 @@ pub struct Interp {
     pub loop_counts: std::collections::HashMap<(u32, usize), u32>,
     pub osr_entries: std::collections::HashMap<(u32, usize), Option<*const u8>>,
     pub osr_compile: Option<Box<dyn FnMut(&Function, usize) -> Option<*const u8>>>,
+    /// Functions that run entirely as frame-record entries: entered compiled at
+    /// pc 0, parked by returning the sentinel, resumed at their saved pc.
+    pub resumable: std::collections::HashSet<u32>,
+    /// Frame-record entries by pc for each resumable function: a direct index
+    /// where the loop-transfer table is a map.
+    pub resume_entries: Vec<Vec<Option<Option<*const u8>>>>,
+    pub compiled_parks: u64,
     pub osr_threshold: u32,
     pub osr_transfers: u64,
 }
@@ -286,7 +293,7 @@ impl crate::heap::Roots for NoRoots { fn each_root(&self, _f: &mut dyn FnMut(Val
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0 } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0, resumable: std::collections::HashSet::new(), resume_entries: Vec::new(), compiled_parks: 0 } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles, registered: &self.registered }; self.heap.intern(s, &r) }
 
@@ -310,6 +317,18 @@ impl Interp {
     }
 
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
+    /// A compiled activation parked: its pc is in the header; the park's key
+    /// register is read from the window the entry spilled into.
+    fn parked_in_compiled(&mut self, tid: usize, s: usize) -> Outcome {
+        self.compiled_parks += 1;
+        self.parks += 1;
+        let t = &mut self.tasks[tid];
+        let h0 = t.stack[s];
+        let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
+        let key = match self.funcs[fid].code[pc - 1] { Op::Park(k) => t.stack[s + HDR + k as usize], _ => unreachable!("parked not at a park") };
+        t.state = State::Parked(key);
+        Outcome::Parked(key)
+    }
     /// Value register `i` of task `tid`'s top frame.
     pub fn reg(&self, tid: usize, i: usize) -> Value { let t = &self.tasks[tid]; Value(t.stack[t.cur + HDR + i]) }
     pub fn new_record(&mut self, shape: u32) -> Value { self.heap.new_record(shape, roots!(self)) }
@@ -419,6 +438,19 @@ impl Interp {
             let iregs: *mut i64 = unsafe { sp.add(ibase) as *mut i64 };
             let fregs: *mut f64 = unsafe { sp.add(fbase) as *mut f64 };
             let vregs: *mut [f64; 2] = unsafe { sp.add(vbase) as *mut [f64; 2] };
+            if self.resumable.contains(&fid) {
+                // The whole activation runs compiled, from pc 0 or from where it parked.
+                if self.resume_entries.len() <= fid as usize { self.resume_entries.resize(fid as usize + 1, Vec::new()); }
+                if self.resume_entries[fid as usize].len() < ncode + 1 { self.resume_entries[fid as usize].resize(ncode + 1, None); }
+                let entry = match self.resume_entries[fid as usize][pc] { Some(e) => e, None => { let f = self.funcs[fid as usize].clone(); let e = self.osr_compile.as_mut().and_then(|c| c(&f, pc)); self.resume_entries[fid as usize][pc] = Some(e); e } };
+                if let Some(entry) = entry {
+                    let f: extern "C" fn(u64, u64, u64, u64) -> u64 = unsafe { std::mem::transmute(entry) };
+                    let result = Value(f(regs as u64, fregs as u64, iregs as u64, unsafe { sp.add(s) } as u64));
+                    if result == Value::PARKED { return self.parked_in_compiled(tid, s); }
+                    if self.pop_frame(tid, result) { return Outcome::Done(result); }
+                    continue;
+                }
+            }
             let win = Win { regs, iregs, fregs, consts, base, ibase, fbase, vbase, fid };
             macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
             macro_rules! ir { ($i:expr) => { (*unsafe { &mut *iregs.add($i as usize) }) } }
@@ -452,9 +484,11 @@ impl Interp {
                                 if let Some(entry) = self.loop_trip(fid, pc) {
                                     // Transfer: the compiled header entry reads the windows,
                                     // runs the activation to its end and returns the result.
-                                    let f: extern "C" fn(u64, u64, u64) -> u64 = unsafe { std::mem::transmute(entry) };
+                                    let f: extern "C" fn(u64, u64, u64, u64) -> u64 = unsafe { std::mem::transmute(entry) };
                                     self.osr_transfers += 1;
-                                    let result = Value(f(regs as u64, fregs as u64, iregs as u64));
+                                    let hdr = unsafe { sp.add(s) } as u64;
+                                    let result = Value(f(regs as u64, fregs as u64, iregs as u64, hdr));
+                                    if result == Value::PARKED { return self.parked_in_compiled(tid, s); }
                                     if self.pop_frame(tid, result) { return Outcome::Done(result); }
                                     break;
                                 }

@@ -619,10 +619,10 @@ fn derives_from_cursor(code: &[Op], at: usize, idx: u8, cursor: u8) -> bool {
 // inside the image. Linear in code size; runs once per function at load.
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum C { V, I, F, X }
+pub enum C { V, I, F, X }
 
 /// The register operands of an opcode by class, and its branch offsets.
-fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
+pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     use Op::*;
     use C::*;
     let r = |list: &[(C, u8)]| (list.to_vec(), Vec::new());

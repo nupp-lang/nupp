@@ -43,6 +43,9 @@ impl Value {
     pub const NIL: Value = Value(QNAN | T_NIL);
     pub const FALSE: Value = Value(QNAN | T_FALSE);
     pub const TRUE: Value = Value(QNAN | T_TRUE);
+    /// What a resumable compiled entry returns when the activation parked:
+    /// its registers are in the frame record and its pc in the header.
+    pub const PARKED: Value = Value(QNAN | (6 << TAG_SHIFT));
     pub fn num(x: f64) -> Value {
         let b = x.to_bits();
         // A real NaN is canonicalised so it never aliases a tag.

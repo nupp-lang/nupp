@@ -775,3 +775,40 @@ decode and `match` per instruction, and that is the shape of a Rust
 on the price line. The row is not closed by layout; it is closed, if at
 all, by the dispatch design P3 chooses, which this prototype's loop is
 not (its handlers are to be Nupp, its loop language open).
+
+## Parking from compiled code, as a lowering
+
+Date: 2026-10-11. Contract 6.2 said a task with compiled frames parks by
+spilling live typed registers and switching native stacks, which needs a
+native stack per task and has no browser form. The Wasm gate found the
+other shape fast: a park is a spill and a return, a resume is a re-entry
+at the park's pc. The prototype already had the re-entry: the
+loop-header transfer entry takes the frame record's windows and loads
+every register before jumping to a pc. So `PARK` in a function compiled
+as a frame-record entry stores the registers the function names back
+into the windows, writes the pc after the park into the header word, and
+returns the `PARKED` sentinel; the interpreter marks the task parked on
+the key it reads from the spilled window, and a resume calls the entry
+for the saved pc. Mode `park-compiled`: the worker runs entirely
+compiled this way, from pc 0, under the same scheduler as `park`.
+
+| 1,000 tasks x 1,000 parks, per park and resume, medians of five interleaved | ns |
+| --- | ---: |
+| interpreter frames (`park`) | 9.0 |
+| compiled frames, spill and re-enter (`park-compiled`) | 12.5 |
+| state machines on Wasm GC, scheduler in Wasm | 4.2 |
+
+Three million compiled parks, every one resumed at its pc with its
+registers, under the loop-transfer tests still passing. The first cut
+was 24.5 ns: a hash lookup per resume for the entry, and a prologue and
+spill touching every register the function had. Entries are now indexed
+by pc per function, and only registers the function names are loaded or
+stored (an over-approximation of liveness that a verifier liveness pass
+would tighten). What remains over the interpreter's 9 ns is the entry
+call and the five registers the worker names.
+
+What this changes: 6.2 no longer needs native stacks. A compiled
+function that can park is compiled with its frame record, calls to
+functions the checker marks `suspends` go through a frame record rather
+than a direct typed call, and the browser's compiled tier, if it ever
+exists, parks the same way. No stack switching anywhere in the runtime.

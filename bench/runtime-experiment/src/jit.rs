@@ -111,7 +111,7 @@ impl Jit {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) | Op::ICmpNe(..) | Op::Truthy(..) => true,
+                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::Park(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) | Op::ICmpNe(..) | Op::Truthy(..) => true,
                 Op::NewBuffer(..) | Op::BufAppend(..) | Op::BufAppendSub(..) | Op::Substring(..) | Op::BufFinish(..) => self.helpers.contains_key("rt_new_buffer"),
                 Op::NewBytes(..) | Op::BytesToStr(..) => self.helpers.contains_key("rt_new_bytes"),
                 Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Lt(..) | Op::Le(..) => self.helpers.contains_key("rt_arith_slow"),
@@ -125,7 +125,9 @@ impl Jit {
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
         let ret_f = f.ret == b'f' && osr.is_none();
         let mut sig = self.module.make_signature();
-        if osr.is_some() { for _ in 0..3 { sig.params.push(AbiParam::new(types::I64)); } }
+        // A frame-record entry: value, float and integer windows, and the
+        // header word that holds the pc, so a park can record where it stopped.
+        if osr.is_some() { for _ in 0..4 { sig.params.push(AbiParam::new(types::I64)); } }
         else { for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); } }
         sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
         let name = match osr { Some(pc) => format!("{}@{pc}", f.name), None => f.name.to_string() };
@@ -141,6 +143,13 @@ impl Jit {
             let helper_refs: HashMap<&'static str, cranelift_codegen::ir::FuncRef> = self.helpers.iter().map(|(n, id)| (*n, self.module.declare_func_in_func(*id, b.func))).collect();
             let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = self.funcs.iter().map(|(k, (id, sg, r))| (*k, (self.module.declare_func_in_func(*id, b.func), sg.clone(), *r))).collect();
             let consts: Vec<u64> = f.consts.iter().map(|v| v.0).collect();
+            // The registers the function names, per class, in order.
+            let used: (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) = {
+                let mut sets = [BTreeSet::new(), BTreeSet::new(), BTreeSet::new(), BTreeSet::new()];
+                for op in &f.code { for (c, r) in crate::lower_ir::operands(op).0 { sets[match c { crate::lower_ir::C::V => 0, crate::lower_ir::C::I => 1, crate::lower_ir::C::F => 2, crate::lower_ir::C::X => 3 }].insert(r); } }
+                for p in 1..=f.nparams { sets[0].insert(p); }
+                (sets[0].iter().copied().collect(), sets[1].iter().copied().collect(), sets[2].iter().copied().collect(), sets[3].iter().copied().collect())
+            };
             let entry = b.create_block();
             b.append_block_params_for_function_params(entry);
             b.switch_to_block(entry);
@@ -165,11 +174,14 @@ impl Jit {
             // in its prologue, which matters once it is inlined into a loop.
             let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
             if let Some(header) = osr {
-                // Every register from the interpreter's windows, then the loop header.
+                // Every register the function names, from the interpreter's windows,
+                // then the entry block. Registers it never names stay at their
+                // defaults: a frame-record entry and a park touch only those.
                 let (rp, fp_, ip) = (params[0], params[1], params[2]);
-                for r in 0..rvars.len() { let v = b.ins().load(types::I64, flags, rp, (r * 8) as i32); b.def_var(rvars[r], v); }
-                for r in 0..fvars.len() { let v = b.ins().load(types::F64, flags, fp_, (r * 8) as i32); b.def_var(fvars[r], v); }
-                for r in 0..ivars.len() { let v = b.ins().load(types::I64, flags, ip, (r * 8) as i32); b.def_var(ivars[r], v); }
+                let _hdr = params[3];
+                for &r in &used.0 { let v = b.ins().load(types::I64, flags, rp, (r as usize * 8) as i32); b.def_var(rvars[r as usize], v); }
+                for &r in &used.2 { let v = b.ins().load(types::F64, flags, fp_, (r as usize * 8) as i32); b.def_var(fvars[r as usize], v); }
+                for &r in &used.1 { let v = b.ins().load(types::I64, flags, ip, (r as usize * 8) as i32); b.def_var(ivars[r as usize], v); }
                 for r in 1..=f.nparams as usize { if uses_storage { let p = b.use_var(rvars[r]); let c1 = b.ins().call(sp, &[p]); let ptr = b.inst_results(c1)[0]; let c2 = b.ins().call(sl, &[p]); let len = b.inst_results(c2)[0]; ptrs.insert(r as u8, (ptr, len)); vals.insert(r as u8, p); } }
                 let _ = header;
             }
@@ -460,6 +472,26 @@ impl Jit {
                         b.ins().jump(join, &[]);
                         b.switch_to_block(join); b.seal_block(join);
                         slots_cache.clear(); cond_of.clear();
+                    }
+                    Op::Park(_k) => {
+                        // Contract 6.2 as a lowering: every register goes back to
+                        // the frame record, the pc after the park into the header,
+                        // and the entry returns the parked sentinel. Resuming is this
+                        // function's frame-record entry at that pc. Only an entry
+                        // that took the frame record can park.
+                        if osr.is_none() { panic!("{}: park in a function compiled without its frame record", f.name); }
+                        let (rp, fp_, ip, hdr) = (params[0], params[1], params[2], params[3]);
+                        for &r in &used.0 { let v = b.use_var(rvars[r as usize]); b.ins().store(flags, v, rp, (r as usize * 8) as i32); }
+                        for &r in &used.2 { let v = b.use_var(fvars[r as usize]); b.ins().store(flags, v, fp_, (r as usize * 8) as i32); }
+                        for &r in &used.1 { let v = b.use_var(ivars[r as usize]); b.ins().store(flags, v, ip, (r as usize * 8) as i32); }
+                        let h = b.ins().load(types::I64, flags, hdr, 0);
+                        let low = b.ins().band_imm(h, 0xffff_ffff);
+                        let pcv = b.ins().iconst(types::I64, ((pc as u64 + 1) << 32) as i64);
+                        let nh = b.ins().bor(low, pcv);
+                        b.ins().store(flags, nh, hdr, 0);
+                        let parked = b.ins().iconst(types::I64, crate::heap::Value::PARKED.0 as i64);
+                        b.ins().return_(&[parked]);
+                        terminated = true;
                     }
                     Op::Switch(r, t) => {
                         // A jump table: negative and oversized indexes clamp onto the default.
