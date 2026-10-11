@@ -10,6 +10,8 @@ publish.workspace = true
 # interpreter, the image loader and verifier, and the host services on the
 # parking surface. No JIT here; that is P5.
 
+build = "build.rs"
+
 [lib]
 path = "src/lib.rs"
 
@@ -17,7 +19,15 @@ path = "src/lib.rs"
 name = "nupp-vm"
 path = "src/main.rs"
 
+[features]
+# Count executed opcodes by name (OP_STATS=1 at run time); off by default
+# because the check costs the dispatch loop a branch per opcode.
+opstats = []
+
 [dependencies]
+
+[build-dependencies]
+cc = "1"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "allow"

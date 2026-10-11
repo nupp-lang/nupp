@@ -1147,6 +1147,9 @@ dependencies = [
 [[package]]
 name = "nupp-vm"
 version = "0.1.0"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "objc2"

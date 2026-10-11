@@ -50,6 +50,10 @@ the image loader and verifier, and the host services on the parking surface.
 - **Roots** are every task's value windows down the caller chain, each
   frame's closure and vararg words, results, constant pools, handle scopes
   and registered handles; the heap walks shape names and methods itself.
+- **Snapshots are prepared for, not built.** `Heap::each_child` is the one
+  walk the marker and the oracle share and the serialiser will share; the
+  roots are enumerable through one trait; task stacks are plain words. The
+  serialiser and the restore path are P5 work.
 
 ## Running
 
@@ -67,19 +71,29 @@ the collector's verification modes. `TRACE_CALLS=1` prints every call.
 The compiler's lexer and parser run unmodified on it, as module graphs
 emitted from the checked tree, and agree with LuaJIT node for node:
 
-| source | nodes | nupp-vm | LuaJIT interpreter | LuaJIT JIT |
-| --- | ---: | ---: | ---: | ---: |
-| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 2.7 ms | 0.43 ms |
-| lexer.nupp, parse | 8,523 | 15.6 ms | 5.9 ms | 4.3 ms |
-| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 8.7 ms | 3.9 ms |
-| parser.nupp (156 KB), parse | 40,179 | 67 ms | 26.8 ms | 16.9 ms |
+| source | nodes | Rust loop | threaded core | LuaJIT interpreter | LuaJIT JIT |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 5.9 ms | 2.7 ms | 0.43 ms |
+| lexer.nupp, parse | 8,523 | 15.6 ms | 10.2 ms | 5.9 ms | 4.3 ms |
+| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 15.4 ms | 8.7 ms | 3.9 ms |
+| parser.nupp (156 KB), parse | 40,179 | 67 ms | 44.6 ms | 26.8 ms | 16.9 ms |
 
-Under stress with the oracle the lexer-source parse runs 19,428 full cycles
-and the parser-source parse survives interleaved marking with the oracle and
-quarantine. The interpreter is 2.5-3x LuaJIT's interpreter here, the same
-ratio the prototype measured before its dispatch work; threaded dispatch
-(contracts 5.2) is the next performance item, and the typed tier the one
-after.
+Under stress with the oracle the lexer-source parse runs 19,000-odd full
+cycles and the parser-source parse survives interleaved marking with the
+oracle and quarantine, on both dispatch loops.
+
+**Dispatch.** The Rust `match` loop spent 60% of the parse in dispatch at
+2.4 ns per opcode (27.9M opcodes for parser.nupp). The tail-call-threaded
+core in `csrc/dispatch.c` (contracts 5.2) handles the hot opcodes and the
+call and return path in C, with specialised helpers for field reads,
+indexed stores, builtin calls and allocation and a generic one-opcode
+fallback into the Rust interpreter for the rest (0.7% of opcodes). It
+takes the interpreter from 2.6x to 1.7x LuaJIT's interpreter. The profile
+on it is flat across handlers, led by `Move` (18% of opcodes), cell and
+upvalue reads (17%) and the box and unbox traffic between the value and
+typed register files; the next lever is the opcode count, which is the
+emitter's: move elimination, hoisting a captured local's cell read, and
+keeping typed locals in one register file.
 
 Bugs the parser found: a dynamic call to a closure copied `sig.len()`
 registers from the caller's window, so a parameter the call did not supply

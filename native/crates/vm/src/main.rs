@@ -52,6 +52,7 @@ fn main() {
     let t0 = cpu_now();
     image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
     let load_s = cpu_now() - t0;
+    it.prepare_threaded();
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
     let module = it.require(&args[3]);
     if let Some(name) = &setup { let k = it.intern(name); let sf = it.get_index(module, k); let t = it.spawn_closure(sf, &[]); drive(&mut it, &[t]); it.tasks.truncate(t); }
@@ -92,5 +93,6 @@ fn main() {
         let m = samples[samples.len() / 2];
         println!("median {:.3} ms over {repeat}\tmin {:.3} ms", m * 1e3, samples[0] * 1e3);
     }
-    let (ok, outcome) = (true, Outcome::Done(Value::NIL)); let _ = (ok, outcome);
+    if let Some(st) = it.op_stats.as_ref() { let mut rows: Vec<(&&str, &u64)> = st.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); let total: u64 = st.values().sum(); eprintln!("ops executed {total}"); for (n, c) in rows.iter().take(40) { eprintln!("  {n}\t{c}\t{:.1}%", **c as f64 * 100.0 / total as f64); } }
+    let _ = Outcome::Done(Value::NIL);
 }

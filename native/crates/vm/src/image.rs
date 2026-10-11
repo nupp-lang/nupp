@@ -42,7 +42,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let (sig, ret) = parts.get(6).and_then(|s| s.split_once(':')).map(|(a, b)| (a.bytes().collect::<Vec<u8>>(), b.as_bytes()[0])).unwrap_or((Vec::new(), b'v'));
                 let nfp = sig.iter().filter(|&&c| c == b'f').count() as u8;
                 let nvp = sig.len() as u8 - nfp;
-                cur = Some(Function { name, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg") });
+                cur = Some(Function { name, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), ins: Vec::new() });
             }
             "const" => {
                 let f = cur.as_mut().unwrap();

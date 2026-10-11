@@ -209,6 +209,8 @@ pub struct Function {
     /// Surplus arguments stay in the frame, just below the header (header
     /// word 3 carries their count); a trailing `...` in a call spreads them.
     pub vararg: bool,
+    /// The code as the threaded core reads it, encoded by `prepare_threaded`.
+    pub ins: Vec<crate::threaded::Ins>,
 }
 
 /// A frame is inline in the task's one stack of words: four header words,
@@ -246,10 +248,15 @@ pub struct Task {
     pub results: Vec<Value>,
 }
 
+impl Task {
+    pub fn cur(&self) -> usize { self.cur }
+    pub fn set_cur(&mut self, s: usize) { self.cur = s; }
+}
+
 impl Function {
     /// Words a frame of this function occupies: header, then each class window.
     #[inline] pub fn frame_words(&self) -> usize { HDR + self.nregs as usize + 1 + self.nireg as usize + self.nfreg as usize + 2 * self.nvreg as usize }
-    #[inline] fn off_i(&self) -> usize { HDR + self.nregs as usize + 1 }
+    #[inline] pub fn off_i(&self) -> usize { HDR + self.nregs as usize + 1 }
     #[inline] pub fn off_f(&self) -> usize { self.off_i() + self.nireg as usize }
     #[inline] fn off_v(&self) -> usize { self.off_f() + self.nfreg as usize }
 }
@@ -272,12 +279,18 @@ pub struct Interp {
     pub parks: u64,
     /// TRACE_CALLS=1 prints every call's callee.
     pub trace: bool,
+    /// OP_STATS=1 counts executed opcodes by name.
+    pub op_stats: Option<Box<std::collections::HashMap<&'static str, u64>>>,
     /// How many values the last call or return delivered, for a `return f()`
     /// that hands on exactly what `f` returned.
     pub last_nres: usize,
     /// Module chunks by name, and the export value of each loaded one.
     pub modules: std::collections::HashMap<String, u32>,
     pub loaded: std::collections::HashMap<String, Value>,
+    /// The threaded core's per-function and per-shape tables, and whether it runs tasks.
+    pub finfo: Vec<crate::threaded::FuncInfo>,
+    pub shape_info: Vec<crate::threaded::ShapeInfo>,
+    pub threaded: bool,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value] }
@@ -315,9 +328,12 @@ pub enum Outcome { Done(Value), Parked(u64) }
 /// The current activation's register windows and constants, as raw pointers,
 /// handed to the outlined opcode handlers.
 #[derive(Clone, Copy)]
-pub struct Win { regs: *mut Value, consts: *const Value, base: usize, fbase: usize, fid: u32 }
+pub struct Win { pub regs: *mut Value, pub iregs: *mut i64, pub fregs: *mut f64, pub vregs: *mut [f64; 2], pub consts: *const Value, pub code: *const Op, pub base: usize, pub fbase: usize, pub fid: u32 }
 /// What an outlined handler asks the dispatch loop to do next.
 pub enum Flow { Next, Reenter, Return(Outcome) }
+/// What one executed opcode asks of the loop: the next pc, a frame change
+/// (re-derive the windows), or the task's outcome.
+pub enum Step { Next(usize), Reenter, Return(Outcome) }
 
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered } } }
 
@@ -328,7 +344,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), last_nres: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new() } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), finfo: Vec::new(), shape_info: Vec::new(), threaded: false } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -660,7 +676,12 @@ impl Interp {
     /// Equality: identical words, or two string-like objects with the same bytes.
     pub fn values_equal(&self, x: Value, y: Value) -> bool {
         if x == y { return true; }
-        if self.is_stringish(x) && self.is_stringish(y) { return self.bytes_of(x) == self.bytes_of(y); }
+        if let (Some(p), Some(q)) = (x.as_obj(), y.as_obj()) {
+            let (a, b) = unsafe { (&*p.as_ptr(), &*q.as_ptr()) };
+            // Two interned strings with different words differ (1.3).
+            if a.flags & heap::F_INTERNED != 0 && b.flags & heap::F_INTERNED != 0 { return false; }
+            if a.is_stringish() && b.is_stringish() { return a.bytes() == b.bytes(); }
+        }
         false
     }
     /// A table key by content: a slice or an uninterned string is looked up
@@ -777,37 +798,61 @@ impl Interp {
 
     // ---- the dispatch loop -------------------------------------------------
 
-    /// Run task `tid` until it finishes or parks.
-    pub fn run(&mut self, tid: usize) -> Outcome {
+    /// Run task `tid` until it finishes or parks: on the threaded core when
+    /// it is built and enabled, else on the Rust loop.
+    pub fn run(&mut self, tid: usize) -> Outcome { if self.threaded { self.run_threaded(tid) } else { self.run_rust(tid) } }
+    /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
+    /// reference the threaded core's results are checked against.
+    pub fn run_rust(&mut self, tid: usize) -> Outcome {
         assert_eq!(self.tasks[tid].state, State::Runnable);
         loop {
-            let s = self.tasks[tid].cur;
-            let h0 = self.tasks[tid].stack[s];
-            let (fid, mut pc) = ((h0 & 0xffff_ffff) as u32, (h0 >> 32) as usize);
-            let func = &self.funcs[fid as usize];
-            let code: *const Op = func.code.as_ptr();
-            let ncode = func.code.len();
-            let consts: *const Value = func.consts.as_ptr();
-            let (base, ibase, fbase, vbase) = (s + HDR, s + func.off_i(), s + func.off_f(), s + func.off_v());
-            // The windows as raw pointers for the duration of this activation.
-            // Every op that can grow the stack (a call) leaves the inner loop,
-            // so the pointers are re-derived after it.
-            let sp: *mut u64 = self.tasks[tid].stack.as_mut_ptr();
-            let regs: *mut Value = unsafe { sp.add(base) as *mut Value };
-            let iregs: *mut i64 = unsafe { sp.add(ibase) as *mut i64 };
-            let fregs: *mut f64 = unsafe { sp.add(fbase) as *mut f64 };
-            let vregs: *mut [f64; 2] = unsafe { sp.add(vbase) as *mut [f64; 2] };
-            let win = Win { regs, consts, base, fbase, fid };
-            macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-            macro_rules! ir { ($i:expr) => { (*unsafe { &mut *iregs.add($i as usize) }) } }
-            macro_rules! fr { ($i:expr) => { (*unsafe { &mut *fregs.add($i as usize) }) } }
-            macro_rules! vr { ($i:expr) => { (*unsafe { &mut *vregs.add($i as usize) }) } }
-            macro_rules! rec { ($i:expr, $what:expr) => {{ let h = hdr!(self, r!($i), $what); if h.kind != KIND_RECORD { self.err($what) } h }} }
+            let (win, mut pc) = self.window(tid);
             loop {
-                debug_assert!(pc < ncode);
-                let op = unsafe { *code.add(pc) };
-                pc += 1;
-                match op {
+                match self.step(tid, &win, pc) {
+                    Step::Next(next) => pc = next,
+                    Step::Reenter => break,
+                    Step::Return(o) => return o,
+                }
+            }
+        }
+    }
+    /// The top frame's windows as raw pointers, and its pc. Every op that can
+    /// grow the stack (a call) ends the activation, so the pointers are
+    /// re-derived after it.
+    #[inline]
+    pub fn window(&mut self, tid: usize) -> (Win, usize) {
+        let s = self.tasks[tid].cur;
+        let h0 = self.tasks[tid].stack[s];
+        let (fid, pc) = ((h0 & 0xffff_ffff) as u32, (h0 >> 32) as usize);
+        let func = &self.funcs[fid as usize];
+        let consts: *const Value = func.consts.as_ptr();
+        let code: *const Op = func.code.as_ptr();
+        let (base, ibase, fbase, vbase) = (s + HDR, s + func.off_i(), s + func.off_f(), s + func.off_v());
+        let sp: *mut u64 = self.tasks[tid].stack.as_mut_ptr();
+        let regs: *mut Value = unsafe { sp.add(base) as *mut Value };
+        let iregs: *mut i64 = unsafe { sp.add(ibase) as *mut i64 };
+        let fregs: *mut f64 = unsafe { sp.add(fbase) as *mut f64 };
+        let vregs: *mut [f64; 2] = unsafe { sp.add(vbase) as *mut [f64; 2] };
+        (Win { regs, iregs, fregs, vregs, consts, code, base, fbase, fid }, pc)
+    }
+    /// Executes the opcode at `pc` of the activation `w` describes. Inlined
+    /// into every caller: the Rust loop keeps its single-function shape, and
+    /// the threaded core's slow path gets its own copy.
+    #[inline(always)]
+    pub fn step(&mut self, tid: usize, w: &Win, pc: usize) -> Step {
+        let win = *w;
+        let (regs, iregs, fregs, vregs, consts, code, base, fid) = (w.regs, w.iregs, w.fregs, w.vregs, w.consts, w.code, w.base, w.fid);
+        let mut pc = pc;
+        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
+        macro_rules! ir { ($i:expr) => { (*unsafe { &mut *iregs.add($i as usize) }) } }
+        macro_rules! fr { ($i:expr) => { (*unsafe { &mut *fregs.add($i as usize) }) } }
+        macro_rules! vr { ($i:expr) => { (*unsafe { &mut *vregs.add($i as usize) }) } }
+        macro_rules! rec { ($i:expr, $what:expr) => {{ let h = hdr!(self, r!($i), $what); if h.kind != KIND_RECORD { self.err($what) } h }} }
+        let op = unsafe { *code.add(pc) };
+        pc += 1;
+        #[cfg(feature = "opstats")]
+        if let Some(st) = self.op_stats.as_mut() { *st.entry(op_name(&op)).or_insert(0) += 1; }
+        match op {
                     Op::K(d, k) => r!(d) = unsafe { *consts.add(k as usize) },
                     Op::Move(d, s) => r!(d) = r!(s),
                     Op::Nil(d) => r!(d) = Value::NIL,
@@ -832,17 +877,17 @@ impl Interp {
                         pc = (pc as i64 + off as i64) as usize;
                         if off < 0 { self.back_edge(); }
                     }
-                    Op::RetN(start, n) => { let n = if n >= 128 { ((n & 127) as usize + self.last_nres).min(8) } else { n as usize }; if self.pop_frame_n(tid, base + start as usize, n) { let v = self.tasks[tid].result; return Outcome::Done(v); } break; }
-                    Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
-                    Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Outcome::Done(Value::NIL); } break; }
-                    Op::FRet(f) => { let v = Value::num(fr!(f)); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
+                    Op::RetN(start, n) => { let n = if n >= 128 { ((n & 127) as usize + self.last_nres).min(8) } else { n as usize }; if self.pop_frame_n(tid, base + start as usize, n) { let v = self.tasks[tid].result; return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
+                    Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
+                    Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Step::Return(Outcome::Done(Value::NIL)); } return Step::Reenter; }
+                    Op::FRet(f) => { let v = Value::num(fr!(f)); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
                     Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::RequireV(d, rg) => { let text = self.bytes_of(r!(rg)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
-                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); break; }
-                    Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
-                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match self.op_call_dyn(tid, &win, pc, frg, b, nargs) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
-                    Op::CallMethod(k, b, nargs) => match self.op_call_method(tid, &win, pc, k, b, nargs) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
+                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
+                    Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match self.op_call_dyn(tid, &win, pc, frg, b, nargs) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallMethod(k, b, nargs) => match self.op_call_method(tid, &win, pc, k, b, nargs) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::PCall(b, nargs) => self.op_pcall(&win, b, nargs),
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
@@ -876,7 +921,7 @@ impl Interp {
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
-                    Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Outcome::Parked(key); }
+                    Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
                     Op::Checkpoint => { self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,
                     Op::IAdd(d, a, b) => ir!(d) = ir!(a).wrapping_add(ir!(b)),
@@ -948,9 +993,8 @@ impl Interp {
                     Op::VStore(s, i, v, off) => { let idx = (ir!(i) + off as i64) as usize; let x = vr!(v); let st = self.storage(r!(s)); st[idx] = x[0]; st[idx + 1] = x[1]; }
                     Op::VFma(d, a, b, c) => { let (x, y, z) = (vr!(a), vr!(b), vr!(c)); vr!(d) = [x[0].mul_add(y[0], z[0]), x[1].mul_add(y[1], z[1])]; }
                     Op::VLane(d, v, l) => fr!(d) = vr!(v)[l as usize],
-                }
-            }
         }
+        Step::Next(pc)
     }
 
     // ---- outlined opcode handlers ----------------------------------------
@@ -1098,6 +1142,141 @@ impl Interp {
             }
             _ => self.err("field of a non-object"),
         }
+    }
+}
+
+
+/// The opcode's name, for statistics.
+pub fn op_name(op: &Op) -> &'static str {
+    match op {
+        Op::K(..) => "K",
+        Op::Move(..) => "Move",
+        Op::Nil(..) => "Nil",
+        Op::Add(..) => "Add",
+        Op::Sub(..) => "Sub",
+        Op::Mul(..) => "Mul",
+        Op::Lt(..) => "Lt",
+        Op::Le(..) => "Le",
+        Op::Eq(..) => "Eq",
+        Op::Jmp(..) => "Jmp",
+        Op::JmpIf(..) => "JmpIf",
+        Op::JmpIfNot(..) => "JmpIfNot",
+        Op::Switch(..) => "Switch",
+        Op::GetIdxI(..) => "GetIdxI",
+        Op::SetIdxI(..) => "SetIdxI",
+        Op::IUnbox(..) => "IUnbox",
+        Op::ICmpSLt(..) => "ICmpSLt",
+        Op::ICmpSLe(..) => "ICmpSLe",
+        Op::IShl(..) => "IShl",
+        Op::IShrU(..) => "IShrU",
+        Op::IOr(..) => "IOr",
+        Op::IBswap32(..) => "IBswap32",
+        Op::ICmpEq(..) => "ICmpEq",
+        Op::BytesLen(..) => "BytesLen",
+        Op::LoadU8(..) => "LoadU8",
+        Op::LoadU8K(..) => "LoadU8K",
+        Op::LoadU32W(..) => "LoadU32W",
+        Op::StoreU8(..) => "StoreU8",
+        Op::StoreU32(..) => "StoreU32",
+        Op::NewBytes(..) => "NewBytes",
+        Op::BytesToStr(..) => "BytesToStr",
+        Op::Mod(..) => "Mod",
+        Op::Div(..) => "Div",
+        Op::FMod(..) => "FMod",
+        Op::RetN(..) => "RetN",
+        Op::Require(..) => "Require",
+        Op::SetMethod(..) => "SetMethod",
+        Op::RequireV(..) => "RequireV",
+        Op::NewTableN(..) => "NewTableN",
+        Op::ICmpNe(..) => "ICmpNe",
+        Op::Truthy(..) => "Truthy",
+        Op::NewBuffer(..) => "NewBuffer",
+        Op::BufAppend(..) => "BufAppend",
+        Op::BufAppendSub(..) => "BufAppendSub",
+        Op::Substring(..) => "Substring",
+        Op::BufFinish(..) => "BufFinish",
+        Op::Call(..) => "Call",
+        Op::CallT(..) => "CallT",
+        Op::CallDyn(..) => "CallDyn",
+        Op::CallK(..) => "CallK",
+        Op::StrByte(..) => "StrByte",
+        Op::Ret(..) => "Ret",
+        Op::RetNil => "RetNil",
+        Op::NewTable(..) => "NewTable",
+        Op::GetIdx(..) => "GetIdx",
+        Op::SetIdx(..) => "SetIdx",
+        Op::GetField(..) => "GetField",
+        Op::SetField(..) => "SetField",
+        Op::NewRecord(..) => "NewRecord",
+        Op::GetSlot(..) => "GetSlot",
+        Op::SetSlot(..) => "SetSlot",
+        Op::Park(..) => "Park",
+        Op::Checkpoint => "Checkpoint",
+        Op::Ne(..) => "Ne",
+        Op::Concat(..) => "Concat",
+        Op::Not(..) => "Not",
+        Op::Neg(..) => "Neg",
+        Op::Len(..) => "Len",
+        Op::CallMethod(..) => "CallMethod",
+        Op::PCall(..) => "PCall",
+        Op::TagCheckRec(..) => "TagCheckRec",
+        Op::TagCheckNum(..) => "TagCheckNum",
+        Op::TagCheckStr(..) => "TagCheckStr",
+        Op::NewClosure(..) => "NewClosure",
+        Op::NewCell(..) => "NewCell",
+        Op::GetCell(..) => "GetCell",
+        Op::SetCell(..) => "SetCell",
+        Op::GetUpval(..) => "GetUpval",
+        Op::FBox(..) => "FBox",
+        Op::GetSlotF(..) => "GetSlotF",
+        Op::SetSlotF(..) => "SetSlotF",
+        Op::FDiv(..) => "FDiv",
+        Op::FNeg(..) => "FNeg",
+        Op::LenF(..) => "LenF",
+        Op::GetIdxF(..) => "GetIdxF",
+        Op::SetIdxF(..) => "SetIdxF",
+        Op::FCmpEq(..) => "FCmpEq",
+        Op::FCmpNe(..) => "FCmpNe",
+        Op::BoolFromI(..) => "BoolFromI",
+        Op::IK(..) => "IK",
+        Op::IAdd(..) => "IAdd",
+        Op::IAddK(..) => "IAddK",
+        Op::IJmpIfUle(..) => "IJmpIfUle",
+        Op::IJmpIfUlt(..) => "IJmpIfUlt",
+        Op::FK(..) => "FK",
+        Op::FUnbox(..) => "FUnbox",
+        Op::ISub(..) => "ISub",
+        Op::IMaskU32(..) => "IMaskU32",
+        Op::IToF(..) => "IToF",
+        Op::FToI(..) => "FToI",
+        Op::FSub(..) => "FSub",
+        Op::FMul(..) => "FMul",
+        Op::ICmpLe(..) => "ICmpLe",
+        Op::ICmpLt(..) => "ICmpLt",
+        Op::FCmpLe(..) => "FCmpLe",
+        Op::FCmpLt(..) => "FCmpLt",
+        Op::IAnd(..) => "IAnd",
+        Op::JmpIfIZero(..) => "JmpIfIZero",
+        Op::VAdd(..) => "VAdd",
+        Op::VMul(..) => "VMul",
+        Op::VLoadM(..) => "VLoadM",
+        Op::VStoreM(..) => "VStoreM",
+        Op::LoopFact(..) => "LoopFact",
+        Op::GuardLenLe(..) => "GuardLenLe",
+        Op::IMov(..) => "IMov",
+        Op::FMov(..) => "FMov",
+        Op::VMov(..) => "VMov",
+        Op::FAdd(..) => "FAdd",
+        Op::FFma(..) => "FFma",
+        Op::StorageLen(..) => "StorageLen",
+        Op::FLoad(..) => "FLoad",
+        Op::FStore(..) => "FStore",
+        Op::VSplat(..) => "VSplat",
+        Op::VLoad(..) => "VLoad",
+        Op::VStore(..) => "VStore",
+        Op::VFma(..) => "VFma",
+        Op::VLane(..) => "VLane",
+        Op::FRet(..) => "FRet",
     }
 }
 

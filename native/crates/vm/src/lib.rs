@@ -12,3 +12,4 @@ pub mod builtins;
 pub mod verify;
 pub mod image;
 pub mod host;
+pub mod threaded;
