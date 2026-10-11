@@ -84,6 +84,8 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
             }
         }
     }
+    let total = it.funcs.len() + funcs.len();
+    for (i, f) in funcs.iter().enumerate() { crate::lower_ir::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
     for f in funcs { it.funcs.push(f); }
     for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, base + fid); }
     Ok(entry)

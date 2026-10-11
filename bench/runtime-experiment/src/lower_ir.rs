@@ -611,3 +611,108 @@ fn derives_from_cursor(code: &[Op], at: usize, idx: u8, cursor: u8) -> bool {
     let one = |r: u8| matches!(def(code, i5, r), Some((_, Op::IK(_, 1))));
     (a == cursor && one(b)) || (b == cursor && one(a))
 }
+
+// ---------------------------------------------------------------------------
+// Operand classes (contracts 3.2): every operand names a class by its opcode;
+// each index must lie inside the function's count for that class, every
+// branch target inside the code, every constant inside the pool, every callee
+// inside the image. Linear in code size; runs once per function at load.
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum C { V, I, F, X }
+
+/// The register operands of an opcode by class, and its branch offsets.
+fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
+    use Op::*;
+    use C::*;
+    let r = |list: &[(C, u8)]| (list.to_vec(), Vec::new());
+    match *op {
+        K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) => r(&[(V, d)]),
+        Move(d, s) | Not(d, s) | Neg(d, s) | Len(d, s) | TagCheckNum(d, s) | TagCheckStr(d, s) | NewCell(d, s) | GetCell(d, s) | SetCell(d, s) | BufAppend(d, s) | BufFinish(d, s) => r(&[(V, d), (V, s)]),
+        Add(d, a, b) | Sub(d, a, b) | Mul(d, a, b) | Lt(d, a, b) | Le(d, a, b) | Eq(d, a, b) | Ne(d, a, b) | Concat(d, a, b) | GetIdx(d, a, b) | SetIdx(d, a, b) | CallDyn(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
+        JmpIf(c, off) | JmpIfNot(c, off) => (vec![(V, c)], vec![off]),
+        Jmp(off) => (Vec::new(), vec![off]),
+        Switch(i, _) => r(&[(I, i)]),
+        GetIdxI(d, t, i) => r(&[(V, d), (V, t), (I, i)]),
+        SetIdxI(t, i, v) => r(&[(V, t), (I, i), (V, v)]),
+        IUnbox(d, v) | Truthy(d, v) | BytesLen(d, v) | StorageLen(d, v) => r(&[(I, d), (V, v)]),
+        ICmpSLt(d, a, b) | ICmpSLe(d, a, b) | IShl(d, a, b) | IShrU(d, a, b) | IOr(d, a, b) | ICmpEq(d, a, b) | ICmpNe(d, a, b) | IAdd(d, a, b) | ISub(d, a, b) | ICmpLe(d, a, b) | ICmpLt(d, a, b) | IAnd(d, a, b) => r(&[(I, d), (I, a), (I, b)]),
+        IBswap32(d, a) | IMaskU32(d, a) | IMov(d, a) => r(&[(I, d), (I, a)]),
+        LoadU8(d, s, i) | LoadU8K(d, s, i) | LoadU32W(d, s, i) => r(&[(I, d), (V, s), (I, i)]),
+        StoreU8(s, i, v) | StoreU32(s, i, v) => r(&[(V, s), (I, i), (I, v)]),
+        NewBytes(d, n) => r(&[(V, d), (I, n)]),
+        BytesToStr(d, s, n) => r(&[(V, d), (V, s), (I, n)]),
+        BufAppendSub(b, s, i, j) => r(&[(V, b), (V, s), (I, i), (I, j)]),
+        Substring(d, s, i, j) => r(&[(V, d), (V, s), (I, i), (I, j)]),
+        Call(_, base, _) | CallT(_, base, _, _) | PCall(base, _) | CallMethod(_, base, _) => r(&[(V, base)]),
+        RetNil | Checkpoint | LoopFact(..) => r(&[]),
+        GetField(d, t, _) => r(&[(V, d), (V, t)]),
+        SetField(t, _, v) => r(&[(V, t), (V, v)]),
+        NewRecord(d, _) => r(&[(V, d)]),
+        GetSlot(d, o, _) => r(&[(V, d), (V, o)]),
+        SetSlot(o, _, v) => r(&[(V, o), (V, v)]),
+        TagCheckRec(d, v, _) => r(&[(V, d), (V, v)]),
+        NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
+        GetUpval(d, _) => r(&[(V, d)]),
+        FBox(d, f) => r(&[(V, d), (F, f)]),
+        GetSlotF(f, o, _) => r(&[(F, f), (V, o)]),
+        SetSlotF(o, _, f) => r(&[(V, o), (F, f)]),
+        FDiv(d, a, b) | FSub(d, a, b) | FMul(d, a, b) | FAdd(d, a, b) => r(&[(F, d), (F, a), (F, b)]),
+        FNeg(d, a) | FMov(d, a) => r(&[(F, d), (F, a)]),
+        LenF(f, v) | FUnbox(f, v) => r(&[(F, f), (V, v)]),
+        GetIdxF(d, t, i) => r(&[(V, d), (V, t), (F, i)]),
+        SetIdxF(t, i, v) => r(&[(V, t), (F, i), (V, v)]),
+        FCmpEq(d, a, b) | FCmpNe(d, a, b) | FCmpLe(d, a, b) | FCmpLt(d, a, b) => r(&[(I, d), (F, a), (F, b)]),
+        BoolFromI(d, i) => r(&[(V, d), (I, i)]),
+        IK(d, _) => r(&[(I, d)]),
+        IAddK(d, a, _) => r(&[(I, d), (I, a)]),
+        IJmpIfUle(a, b, off) | IJmpIfUlt(a, b, off) => (vec![(I, a), (I, b)], vec![off]),
+        FK(d, _) => r(&[(F, d)]),
+        IToF(f, i) => r(&[(F, f), (I, i)]),
+        FToI(i, f) => r(&[(I, i), (F, f)]),
+        JmpIfIZero(c, off) => (vec![(I, c)], vec![off]),
+        VAdd(d, a, b) | VMul(d, a, b) => r(&[(X, d), (X, a), (X, b)]),
+        VLoadM(d, s, i, _, m) => r(&[(X, d), (V, s), (I, i), (I, m)]),
+        VStoreM(s, i, v, _, m) => r(&[(V, s), (I, i), (X, v), (I, m)]),
+        GuardLenLe(a, b) => r(&[(I, a), (I, b)]),
+        VMov(d, a) => r(&[(X, d), (X, a)]),
+        FFma(d, a, b, c) => r(&[(F, d), (F, a), (F, b), (F, c)]),
+        FLoad(f, s, i) => r(&[(F, f), (V, s), (I, i)]),
+        FStore(s, i, f) => r(&[(V, s), (I, i), (F, f)]),
+        VSplat(d, f) => r(&[(X, d), (F, f)]),
+        VLoad(d, s, i, _) => r(&[(X, d), (V, s), (I, i)]),
+        VStore(s, i, v, _) => r(&[(V, s), (I, i), (X, v)]),
+        VFma(d, a, b, c) => r(&[(X, d), (X, a), (X, b), (X, c)]),
+        VLane(f, v, _) => r(&[(F, f), (X, v)]),
+        FRet(f) => r(&[(F, f)]),
+    }
+}
+
+/// Checks every operand of `f` against its register counts, every branch
+/// against its code, every constant against its pool and every callee
+/// against `nfuncs`.
+pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
+    let n = f.code.len();
+    for (pc, op) in f.code.iter().enumerate() {
+        let (regs, offs) = operands(op);
+        for (c, i) in regs {
+            let limit = match c { C::V => f.nregs as usize + 1, C::I => f.nireg as usize, C::F => f.nfreg as usize, C::X => f.nvreg as usize };
+            if i as usize >= limit { return Err(format!("pc {pc}: {op:?} names {c:?} register {i}, the function has {limit}")); }
+        }
+        for off in offs {
+            let t = pc as i64 + 1 + off as i64;
+            if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
+        }
+        match *op {
+            Op::K(_, k) if k as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {k} outside the pool of {}", f.consts.len())),
+            Op::Switch(_, t) => {
+                let (def, tbl) = f.jump_tables.get(t as usize).ok_or_else(|| format!("pc {pc}: jump table {t} does not exist"))?;
+                for off in std::iter::once(def).chain(tbl.iter()) { let tt = pc as i64 + 1 + *off as i64; if tt < 0 || tt > n as i64 { return Err(format!("pc {pc}: switch target {tt} outside the code")); } }
+            }
+            Op::Call(callee, ..) | Op::CallT(callee, ..) if callee as usize >= nfuncs => return Err(format!("pc {pc}: callee {callee} outside the image of {nfuncs}")),
+            Op::NewClosure(_, fid, ..) if fid as usize >= nfuncs => return Err(format!("pc {pc}: closure over function {fid} outside the image")),
+            _ => {}
+        }
+    }
+    Ok(())
+}

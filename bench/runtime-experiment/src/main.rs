@@ -276,6 +276,9 @@ fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {
     let itp: *mut Interp = it;
     let lowered = lower_ir::lower_with(f, &[], Box::new(move |s| unsafe { let v = (*itp).intern(s); (*itp).handles.push(v); v }));
     match lower_ir::verify(&lowered) { Ok(()) => eprintln!("verify\tnormalizeImpl\tok\t{} ops", lowered.code.len()), Err(e) => panic!("verify: {e}") }
+    lower_ir::verify_classes(&lowered, it.funcs.len() + 1).unwrap_or_else(|e| panic!("classes: {e}"));
+    // Negative controls: a register past the window, a branch past the code.
+    { let mut bad = lowered.clone(); bad.code[0] = Op::IK(250, 1); assert!(lower_ir::verify_classes(&bad, 1).is_err()); let mut bad = lowered.clone(); bad.code[0] = Op::Jmp(100_000); assert!(lower_ir::verify_classes(&bad, 1).is_err()); let mut bad = lowered.clone(); bad.code[0] = Op::K(1, 99); assert!(lower_ir::verify_classes(&bad, 1).is_err()); eprintln!("classes\tnormalizeImpl\tok, three tampered images rejected"); }
     if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in lowered.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
     let fid = it.funcs.len() as u32;
     it.funcs.push(lowered.clone());
@@ -353,7 +356,8 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
     eprintln!("proven lookups\t{}\tchecked byte reads\t{}", lowered.code.iter().filter(|o| matches!(o, Op::LoadU8K(..))).count(), lowered.code.iter().filter(|o| matches!(o, Op::LoadU8(..))).count());
     // Negative control: a proven lookup whose mask is not below the length must be rejected.
     { let mut bad = lowered.clone(); for op in bad.code.iter_mut() { if let Op::IK(d, 63) = *op { *op = Op::IK(d, 64); } } assert!(lower_ir::verify(&bad).is_err(), "a lookup masked at the length must be rejected"); }
-    let t = std::time::Instant::now(); let mut reps = 0; while t.elapsed().as_millis() < 200 { lower_ir::verify(&lowered).unwrap_or_else(|e| panic!("verify: {e}")); reps += 1; }
+    lower_ir::verify_classes(&lowered, it.funcs.len() + 1).unwrap_or_else(|e| panic!("classes: {e}"));
+    let t = std::time::Instant::now(); let mut reps = 0; while t.elapsed().as_millis() < 200 { lower_ir::verify(&lowered).unwrap_or_else(|e| panic!("verify: {e}")); lower_ir::verify_classes(&lowered, 1).unwrap(); reps += 1; }
     eprintln!("verify\tencodeAot\tok\t{} ops\t{:.1} us per verification", lowered.code.len(), t.elapsed().as_micros() as f64 / reps as f64);
     if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in lowered.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
     let fid = it.funcs.len() as u32;
