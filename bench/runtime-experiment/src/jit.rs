@@ -204,6 +204,7 @@ impl Jit {
                         let c1 = b.ins().band(is_table, integral);
                         let fast = b.ins().band(c1, in_range);
                         let fast_b = b.create_block(); let slow_b = b.create_block(); let join = b.create_block();
+                        b.set_cold_block(slow_b);
                         b.append_block_param(join, types::I64);
                         b.ins().brif(fast, fast_b, &[], slow_b, &[]);
                         b.switch_to_block(fast_b); b.seal_block(fast_b);

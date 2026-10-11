@@ -68,7 +68,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
                     "FAdd" => Op::FAdd(a(1) as u8, a(2) as u8, a(3) as u8), "FSub" => Op::FSub(a(1) as u8, a(2) as u8, a(3) as u8), "FMul" => Op::FMul(a(1) as u8, a(2) as u8, a(3) as u8), "FDiv" => Op::FDiv(a(1) as u8, a(2) as u8, a(3) as u8), "FNeg" => Op::FNeg(a(1) as u8, a(2) as u8),
                     "FCmpLt" => Op::FCmpLt(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpLe" => Op::FCmpLe(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpEq" => Op::FCmpEq(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpNe" => Op::FCmpNe(a(1) as u8, a(2) as u8, a(3) as u8),
                     "JmpIfIZero" => Op::JmpIfIZero(a(1) as u8, a(2) as i32), "BoolFromI" => Op::BoolFromI(a(1) as u8, a(2) as u8), "FRet" => Op::FRet(a(1) as u8),
-                    "GetSlotF" => Op::GetSlotF(a(1) as u8, a(2) as u8, a(3) as u16), "SetSlotF" => Op::SetSlotF(a(1) as u8, a(2) as u16, a(3) as u8), "LenF" => Op::LenF(a(1) as u8, a(2) as u8), "GetIdxF" => Op::GetIdxF(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "GetSlotF" => Op::GetSlotF(a(1) as u8, a(2) as u8, a(3) as u16), "SetSlotF" => Op::SetSlotF(a(1) as u8, a(2) as u16, a(3) as u8), "LenF" => Op::LenF(a(1) as u8, a(2) as u8), "GetIdxF" => Op::GetIdxF(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdxF" => Op::SetIdxF(a(1) as u8, a(2) as u8, a(3) as u8),
                     other => return Err(format!("line {ln}: unknown opcode {other}")),
                 };
                 f.code.push(op);

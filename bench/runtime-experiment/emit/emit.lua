@@ -250,8 +250,12 @@ expr = function(f, node, dst, want)
             f:op("GetField", dst, o, f:const("str", fname))
         end
     elseif k == "bracketIndex" then
-        local o = exprAs(f, node.obj, "v"); local i = exprAs(f, node.expr, "v")
-        f:op("GetIdx", dst, o, i)
+        local o = exprAs(f, node.obj, "v")
+        if isNumeric(node.expr.inferredType) then
+            local i = exprAs(f, node.expr, "f"); f:op("GetIdxF", dst, o, i)
+        else
+            local i = exprAs(f, node.expr, "v"); f:op("GetIdx", dst, o, i)
+        end
     elseif k == "call" then
         local callee = node.obj
         if callee.kind == "name" and tokText(callee.token) == "pcall" then
@@ -349,8 +353,12 @@ local function stmt(f, node)
                 else local v = exprAs(f, value, "v"); f:op("SetSlot", o, slot, v) end
             else local v = exprAs(f, value, "v"); f:op("SetField", o, f:const("str", tokText(target.name)), v) end
         elseif target.kind == "bracketIndex" then
-            local o = exprAs(f, target.obj, "v"); local i = exprAs(f, target.expr, "v"); local v = exprAs(f, value, "v")
-            f:op("SetIdx", o, i, v)
+            local o = exprAs(f, target.obj, "v"); local v = exprAs(f, value, "v")
+            if isNumeric(target.expr.inferredType) then
+                local i = exprAs(f, target.expr, "f"); f:op("SetIdxF", o, i, v)
+            else
+                local i = exprAs(f, target.expr, "v"); f:op("SetIdx", o, i, v)
+            end
         else error("assignment target " .. target.kind) end
     elseif k == "callStmt" then
         expr(f, node.expr, nil, "v")

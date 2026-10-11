@@ -61,6 +61,8 @@ pub enum Op {
     LenF(u8, u8),
     /// Table read with a float index into a value register.
     GetIdxF(u8, u8, u8),
+    /// Table write with a float index.
+    SetIdxF(u8, u8, u8),
     FCmpEq(u8, u8, u8),
     FCmpNe(u8, u8, u8),
     BoolFromI(u8, u8),
@@ -393,6 +395,15 @@ impl Interp {
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
                     Op::LenF(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; fr!(d) = n as f64; }
                     Op::GetIdxF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("index of a non-table")); let k = fr!(i); let v = unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { if k >= 1.0 && (k as usize) <= array.len() && k.fract() == 0.0 { array[k as usize - 1] } else { *hash.get(&Value::num(k)).unwrap_or(&Value::NIL) } } _ => self.err("index of a non-table") } }; r!(d) = v; }
+                    Op::SetIdxF(t, i, sv) => {
+                        let (tv, k, v) = (r!(t), fr!(i), r!(sv));
+                        let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
+                        self.heap.barrier(p, v);
+                        unsafe { match &mut (*p.as_ptr()).body {
+                            Body::Table { array, hash } => { if k >= 1.0 && k.fract() == 0.0 && (k as usize) <= array.len() + 1 { let n = k as usize; if n == array.len() + 1 { array.push(v) } else { array[n - 1] = v } } else { hash.insert(Value::num(k), v); } }
+                            _ => self.err("index of a non-table"),
+                        } (*p.as_ptr()).refresh(); }
+                    }
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),

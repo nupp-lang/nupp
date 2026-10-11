@@ -349,3 +349,25 @@ loop header, which Cranelift's variable-based SSA construction leaves in
 when values cross many small blocks. The index is still boxed before the
 array read because the emitter chose the value-index form; that and the
 spills are what remain.
+
+## The last two lowering items on the hot path
+
+Date: 2026-10-11. The emitter now keeps a numeric index in a float
+register through `GETIDXF`/`SETIDXF` instead of boxing it for the value
+form, and the JIT marks the array read's slow path, the only call in the
+loop, as a cold block.
+
+| `hot` per call | |
+| --- | ---: |
+| typed convention | 41-46 us |
+| unboxed index, cold slow path (three runs) | 38, 39, 45 us |
+| LuaJIT trace compiler | 47 us |
+
+The loop is now the inline array read, two unboxed slot loads, three float
+operations, and two spills: the accumulator and the index are stored and
+reloaded across the loop header because the slow path's call clobbers
+every float register under AAPCS64, and the allocator keeps values that
+are live across any call in the loop on the stack even when the call is
+cold. That is the same tax LuaJIT pays around calls on this ABI, and the
+way out is a slow path that does not look like a C call to the register
+allocator, which is a later refinement, not a contract.

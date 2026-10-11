@@ -17,7 +17,7 @@ function describe 1 1 7 2 v:v
   Concat 2 3 4
   Ret 2
 end
-function total 2 1 7 11 v:f
+function total 2 1 6 11 v:f
   FK 1 0
   FMov 0 1
   FK 3 1
@@ -25,15 +25,14 @@ function total 2 1 7 11 v:f
   LenF 4 1
   FK 5 1
   FCmpLe 6 2 4
-  JmpIfIZero 6 8
-  FBox 4 2
-  GetIdx 3 1 4
+  JmpIfIZero 6 7
+  GetIdxF 3 1 2
   Move 3 3
   CallT 0 2 7 1
   FAdd 8 0 7
   FMov 0 8
   FAdd 2 2 5
-  Jmp -10
+  Jmp -9
   FRet 0
   RetNil
 end
@@ -54,7 +53,7 @@ function safe 4 1 9 2 v:v
   Move 2 3
   Ret 2
 end
-function main 5 0 31 19 :f
+function main 5 0 28 19 :f
   const 0 str "p"
   const 1 true 
   const 2 str "p1!"
@@ -65,51 +64,48 @@ function main 5 0 31 19 :f
   FK 2 100
   FK 3 1
   FCmpLe 4 0 2
-  JmpIfIZero 4 13
-  FBox 3 0
-  NewRecord 4 0
-  SetSlotF 4 0 0
+  JmpIfIZero 4 12
+  NewRecord 3 0
+  SetSlotF 3 0 0
   FK 5 2
   FMul 6 0 5
-  SetSlotF 4 1 6
-  K 6 0
-  FBox 7 0
-  Concat 5 6 7
-  SetSlot 4 2 5
-  SetIdx 1 3 4
+  SetSlotF 3 1 6
+  K 5 0
+  FBox 6 0
+  Concat 4 5 6
+  SetSlot 3 2 4
+  SetIdxF 1 0 3
   FAdd 0 0 3
-  Jmp -15
-  Move 9 1
-  CallT 2 8 8 1
+  Jmp -14
+  Move 8 1
+  CallT 2 7 8 1
   FMov 7 8
-  NewTable 11
-  Move 10 11
+  NewTable 10
+  Move 9 10
+  K 11 1
   FK 10 1
-  FBox 15 10
-  GetIdx 14 1 15
+  GetIdxF 14 1 10
   Move 13 14
   CallT 1 12 9 1
-  K 16 1
-  SetIdx 10 12 16
+  SetIdx 9 12 11
   FK 11 5
-  FBox 17 11
+  FBox 15 11
   FK 13 2
-  FBox 23 13
-  GetIdx 22 1 23
-  Move 21 22
-  CallT 4 20 12 1
+  GetIdxF 20 1 13
   Move 19 20
-  JmpIfNot 19 4
-  Move 26 17
-  CallT 4 25 14 1
-  Not 24 25
-  Move 19 24
-  Move 18 19
-  JmpIfNot 18 3
-  K 28 2
-  GetIdx 27 10 28
-  Move 18 27
-  JmpIfNot 18 2
+  CallT 4 18 12 1
+  Move 17 18
+  JmpIfNot 17 4
+  Move 23 15
+  CallT 4 22 14 1
+  Not 21 22
+  Move 17 21
+  Move 16 17
+  JmpIfNot 16 3
+  K 25 2
+  GetIdx 24 9 25
+  Move 16 24
+  JmpIfNot 16 2
   FRet 7
   Jmp 0
   FK 15 1
@@ -117,7 +113,7 @@ function main 5 0 31 19 :f
   FRet 16
   RetNil
 end
-function hot 6 0 10 18 :f
+function hot 6 0 9 18 :f
   const 0 str "p"
   NewTable 2
   Move 1 2
@@ -126,18 +122,17 @@ function hot 6 0 10 18 :f
   FK 2 100
   FK 3 1
   FCmpLe 4 0 2
-  JmpIfIZero 4 11
-  FBox 3 0
-  NewRecord 4 0
-  SetSlotF 4 0 0
+  JmpIfIZero 4 10
+  NewRecord 3 0
+  SetSlotF 3 0 0
   FK 5 2
   FMul 6 0 5
-  SetSlotF 4 1 6
-  K 5 0
-  SetSlot 4 2 5
-  SetIdx 1 3 4
+  SetSlotF 3 1 6
+  K 4 0
+  SetSlot 3 2 4
+  SetIdxF 1 0 3
   FAdd 0 0 3
-  Jmp -13
+  Jmp -12
   FK 8 0
   FMov 7 8
   FK 10 1
@@ -146,8 +141,8 @@ function hot 6 0 10 18 :f
   FK 12 1
   FCmpLe 13 9 11
   JmpIfIZero 13 6
-  Move 7 1
-  CallT 2 6 14 1
+  Move 6 1
+  CallT 2 5 14 1
   FAdd 15 7 14
   FMov 7 15
   FAdd 9 9 12
