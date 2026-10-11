@@ -66,7 +66,7 @@ math.fmod = function(dividend, divisor)
     return result
 end
 local address = assert(tonumber(readFile("/proc/cmdline"):match("nupp.mailbox=(%d+)")))
-assert(address == 48 * 1024 * 1024 or address == 112 * 1024 * 1024)
+assert(address == 48 * 1024 * 1024 or address == 240 * 1024 * 1024)
 local fd = ffi.C.open("/dev/mem", 2)
 assert(fd >= 0, "cannot open guest physical mailbox")
 local memory = ffi.cast("uint8_t *", ffi.C.mmap(nil, 8 * 1024 * 1024, 3, 1, fd, address))
