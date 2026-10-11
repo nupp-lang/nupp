@@ -1,0 +1,47 @@
+module nupp.bench.host
+
+--- The host services of the prototype runtime, on its parking surface. The
+--- runtime installs this module itself, as one builtin per function; these
+--- bodies are the declaration only and never run there.
+local host = {}
+
+--- The file's text, or nil and the error.
+--- @raises string when called outside the prototype runtime
+function host.readFile(path: string): (string?, string?)
+    error("host service")
+end
+
+--- @raises string when called outside the prototype runtime
+function host.writeFile(path: string, text: string): (boolean?, string?)
+    error("host service")
+end
+
+--- Parks the task for `ms` milliseconds.
+--- @raises string when called outside the prototype runtime
+function host.sleep(ms: number): boolean
+    error("host service")
+end
+
+--- Runs a command to completion: its exit code and standard output.
+--- @raises string when called outside the prototype runtime
+function host.run(cmd: string, arg: string?): (number?, string?)
+    error("host service")
+end
+
+--- @raises string when called outside the prototype runtime
+function host.listDir(path: string): ({string}?, string?)
+    error("host service")
+end
+
+--- Seconds since the epoch; answers without parking.
+--- @raises string when called outside the prototype runtime
+function host.now(): number
+    error("host service")
+end
+
+--- @raises string when called outside the prototype runtime
+function host.getenv(name: string): string?
+    error("host service")
+end
+
+export = host

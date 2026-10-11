@@ -1,4 +1,5 @@
 mod heap;
+mod host;
 mod interp;
 mod builtins;
 mod threaded_jit;
@@ -616,6 +617,87 @@ fn main() {
             println!("park-compiled1000x1000\t{:.6}", cpu_now() - start);
         }
         eprintln!("compiled parks {} of {}", it.compiled_parks, it.parks);
+        return;
+    }
+    if mode == "host" {
+        // Host services on the parking surface: tasks read files, sleep and
+        // run commands through the host threads, parking between request and
+        // completion, and the scheduler resumes them with the results.
+        let text = std::fs::read_to_string(&args[2]).expect("image");
+        let _entry = image::load(&mut it, &text).unwrap_or_else(|e| panic!("load: {e}"));
+        let dir = args.get(3).cloned().unwrap_or("../../src/nupp".into());
+        let mut paths: Vec<String> = Vec::new();
+        fn walk(d: &std::path::Path, out: &mut Vec<String>) { if let Ok(rd) = std::fs::read_dir(d) { let mut es: Vec<_> = rd.flatten().collect(); es.sort_by_key(|e| e.path()); for e in es { let p = e.path(); if p.is_dir() { walk(&p, out); } else if p.extension().map(|x| x == "nupp").unwrap_or(false) { out.push(p.to_string_lossy().into_owned()); } } } }
+        walk(std::path::Path::new(&dir), &mut paths);
+        let limit: usize = std::env::var("HOST_FILES").ok().and_then(|s| s.parse().ok()).unwrap_or(400);
+        paths.truncate(limit);
+        let threads: usize = std::env::var("HOST_THREADS").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
+        it.host = Some(host::Host::start(threads));
+        let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht);
+        CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        it.compiled = vec![None; it.funcs.len()];
+        let bench = it.require("nupp.bench.hostbench");
+        let k = it.intern("readOne"); let read_one = it.get_index(bench, k);
+        let k = it.intern("readMany"); let read_many = it.get_index(bench, k);
+        let k = it.intern("sleepThen"); let sleep_then = it.get_index(bench, k);
+        let k = it.intern("probe"); let probe = it.get_index(bench, k);
+        let k = it.intern("pingMany"); let ping_many = it.get_index(bench, k);
+        // The scheduler: run what is runnable, deliver what has completed, and
+        // when nothing can run, wait on the host.
+        fn drive(it: &mut Interp, ts: &[usize]) {
+            loop {
+                let mut progressed = false;
+                for &t in ts { if it.tasks[t].state == State::Runnable { it.run(t); progressed = true; } }
+                while let Some((k, d)) = it.host.as_mut().unwrap().poll() { it.complete(k, d); progressed = true; }
+                if ts.iter().all(|&t| it.tasks[t].state == State::Done) { break; }
+                if !progressed { match it.host.as_mut().unwrap().wait() { Some((k, d)) => it.complete(k, d), None => panic!("every task parked and nothing outstanding") } }
+            }
+        }
+        // The immediate services, as a callback-free sanity check.
+        { let t = it.spawn_closure(probe, &[]); drive(&mut it, &[t]); let r = it.tasks[t].results.clone(); let home = r.get(1).filter(|v| v.as_obj().is_some()).map(|v| String::from_utf8_lossy(it.bytes_of(*v)).into_owned()).unwrap_or_default(); eprintln!("probe\tnow {:.0}\tHOME {home}", r[0].as_num()); }
+        // Baseline: the same files read by this thread with std::fs, no runtime.
+        // Twice, the second timed: the first pays the file cache's first touch.
+        let mut total_direct = 0usize; let mut direct = 0.0;
+        for round in 0..2 { total_direct = 0; let s = std::time::Instant::now(); for p in &paths { total_direct += std::fs::read_to_string(p).map(|t| t.len()).unwrap_or(0); } if round == 1 { direct = s.elapsed().as_secs_f64(); } }
+        // Sequential on the runtime: one task, every read a park and a resume.
+        let tbl = it.new_table(); it.registered.push(tbl);
+        for (i, p) in paths.iter().enumerate() { let s = it.heap_new_string(p.clone()); it.registered.push(s); it.set_index(tbl, Value::num((i + 1) as f64), s); }
+        let s = std::time::Instant::now();
+        let t = it.spawn_closure(read_many, &[tbl]); drive(&mut it, &[t]);
+        let sequential = s.elapsed().as_secs_f64();
+        let total_seq = it.tasks[t].result.as_num() as usize;
+        let parks_seq = it.parks;
+        // Concurrent: one task per file, the host threads overlapping the reads.
+        let s = std::time::Instant::now();
+        let ts: Vec<usize> = paths.iter().map(|p| { let s = it.heap_new_string(p.clone()); it.registered.push(s); it.spawn_closure(read_one, &[s]) }).collect();
+        drive(&mut it, &ts);
+        let concurrent = s.elapsed().as_secs_f64();
+        let total_conc: f64 = ts.iter().map(|&t| it.tasks[t].result.as_num()).sum();
+        assert_eq!(total_seq, total_direct, "runtime reads agree with std::fs");
+        assert_eq!(total_conc as usize, total_direct, "concurrent reads agree with std::fs");
+        let n = paths.len() as f64;
+        println!("host\tread {} files, {} bytes", paths.len(), total_direct);
+        println!("host\tstd::fs direct\t{:.3} ms\t{:.1} us per file", direct * 1e3, direct / n * 1e6);
+        println!("host\tone task, parked per read\t{:.3} ms\t{:.1} us per file\t{} parks", sequential * 1e3, sequential / n * 1e6, parks_seq);
+        println!("host\tone task per file, {threads} host threads\t{:.3} ms\t{:.1} us per file", concurrent * 1e3, concurrent / n * 1e6);
+        // The round trip alone: sleep(0) on one task, many times.
+        let pings = 20_000.0;
+        let s = std::time::Instant::now();
+        let t = it.spawn_closure(ping_many, &[Value::num(pings)]); drive(&mut it, &[t]);
+        let ping = s.elapsed().as_secs_f64();
+        assert_eq!(it.tasks[t].result.as_num(), pings);
+        println!("host\tempty round trip (sleep 0), one task\t{:.2} us per park-request-complete-resume", ping / pings * 1e6);
+        // Sleeps: the proof that parked tasks overlap. Sequential would be
+        // tasks x ms; with the pool it is about ms x ceil(tasks / threads).
+        let (sleepers, ms) = (16usize, 10.0f64);
+        let s = std::time::Instant::now();
+        let ts: Vec<usize> = (0..sleepers).map(|i| it.spawn_closure(sleep_then, &[Value::num(ms), Value::num(i as f64)])).collect();
+        drive(&mut it, &ts);
+        let slept = s.elapsed().as_secs_f64();
+        let sum: f64 = ts.iter().map(|&t| it.tasks[t].result.as_num()).sum();
+        assert_eq!(sum as usize, sleepers * (sleepers - 1) / 2, "every sleeper answered");
+        println!("host\t{sleepers} tasks sleeping {ms} ms each\t{:.1} ms wall\t(serial would be {:.0} ms)", slept * 1e3, sleepers as f64 * ms);
+        eprintln!("objects live {} allocated {}", it.heap.object_count(), it.heap.stats.allocated);
         return;
     }
     if mode == "lexer" {

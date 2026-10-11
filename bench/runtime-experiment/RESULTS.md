@@ -991,6 +991,65 @@ check` target of 1.25x LuaJIT wall time is met on this slice with room,
 and the typed signatures item is no longer the next thing the profile
 asks for; the allocator and the collector are.
 
+## Host services on the parking surface
+
+Date: 2026-10-11. Contracts 6.3 says host services are the parking
+surface: a runtime operation parks the task and the host's completion
+resumes it. The prototype now has that shape (`src/host.rs`, mode
+`host`): a pool of host threads over one request queue, requests as
+plain data (never a heap value), completions on a channel back, and the
+interpreter turning a completion into values on its own thread and
+writing them into the registers the call named. The services are
+builtins in a reserved id range: `readFile`, `writeFile`, `sleep`,
+`run`, `listDir` park; `now` and `getenv` answer at once. A call to a
+parking service from a frame that cannot park (compiled code without a
+frame record, or a native caller) is an error, as 6.2 and 6.4 require.
+The Nupp side is `nupp.bench.host`, a declaration module whose bodies
+never run (the runtime installs its own table under that name before
+the first `require`), and `nupp.bench.hostbench`, which reads files,
+sleeps and probes the clock through it. The scheduler is twenty lines:
+run what is runnable, deliver what has completed, and when nothing can
+run, block on the host.
+
+| 400 `.nupp` files, 8.76 MB, warm cache | ms | us per file |
+| --- | ---: | ---: |
+| `std::fs::read_to_string` on the main thread, no runtime | 3.8-4.0 | 9.5-9.9 |
+| one task, each read a park and a resume | 6.4-7.0 | 16.1-17.6 |
+| one task per file, four host threads | 2.8-3.0 | 7.0-7.6 |
+| one task per file, one host thread | 6.2 | 15.4 |
+
+| the round trip alone: `sleep(0)` on one task, 20,000 times | us |
+| --- | ---: |
+| four host threads | 6.9-7.1 |
+| one host thread | 3.6 |
+
+Sixteen tasks sleeping 10 ms each finish in 56 ms wall on four threads
+(four rounds of ten plus wake-up slop), against 160 ms serial: the parks
+overlap, and the scheduler never spins.
+
+What the numbers say. The park and resume themselves cost 9 ns
+(above); the 3.6-7 us round trip is the operating system handing a
+request to another thread and the completion back, twice through a
+channel, with four idle threads contending on one receiver costing the
+difference between the two rows. That is 400x the park, and it is the
+whole overhead of the surface: a sequential read pays it once per file
+and lands at 1.7x the direct read, a concurrent read hides it and beats
+the direct read. For the compiler's workload, a few hundred files per
+build, it is under a millisecond and nothing to design around. For a
+server workload it says the host crate should be a reactor (kqueue,
+epoll, io_uring) that completes many requests per wake-up rather than a
+thread per request, which is a host-crate decision the surface does not
+constrain: the task sees the same park and the same resume either way.
+Timers belong in the scheduler, not the pool: a sleeping request holds
+a host thread here, which the 16-sleeper row shows as four rounds.
+
+What this closes in P3: "the host services enumerated in P0, attached
+directly to the host crates, with the parking surface from the
+contract" has its mechanism measured; the enumerated set (files, time,
+process, system, path, uri, http, JSON, GPU) is a list of request kinds
+on this surface, and path and JSON are pure computation that never
+parks.
+
 ## Threaded dispatch: the call row closed
 
 Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the

@@ -1,0 +1,244 @@
+function module:nupp.bench.host 0 0 13 2 :v
+  const 0 str "readFile"
+  const 1 str "writeFile"
+  const 2 str "sleep"
+  const 3 str "run"
+  const 4 str "listDir"
+  const 5 str "now"
+  const 6 str "getenv"
+  NewTableN 2 0 0
+  Move 1 2
+  NewClosure 2 1 3 0
+  SetField 1 0 2
+  NewClosure 2 2 3 0
+  SetField 1 1 2
+  NewClosure 2 3 3 0
+  SetField 1 2 2
+  NewClosure 2 4 3 0
+  SetField 1 3 2
+  NewClosure 2 5 3 0
+  SetField 1 4 2
+  NewClosure 2 6 3 0
+  SetField 1 5 2
+  NewClosure 2 7 3 0
+  SetField 1 6 2
+  Ret 1
+end
+function host.readFile 1 1 16 2 v:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 3 0
+  K 6 1
+  Move 5 6
+  CallDyn 3 4 1
+  Move 2 4
+  RetNil
+end
+function host.writeFile 2 2 17 2 vv:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 4 0
+  K 7 1
+  Move 6 7
+  CallDyn 4 5 1
+  Move 3 5
+  RetNil
+end
+function host.sleep 3 1 16 2 v:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 3 0
+  K 6 1
+  Move 5 6
+  CallDyn 3 4 1
+  Move 2 4
+  RetNil
+end
+function host.run 4 2 17 2 vv:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 4 0
+  K 7 1
+  Move 6 7
+  CallDyn 4 5 1
+  Move 3 5
+  RetNil
+end
+function host.listDir 5 1 16 2 v:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 3 0
+  K 6 1
+  Move 5 6
+  CallDyn 3 4 1
+  Move 2 4
+  RetNil
+end
+function host.now 6 0 15 2 :v
+  const 0 builtin error
+  const 1 str "host service"
+  K 2 0
+  K 5 1
+  Move 4 5
+  CallDyn 2 3 1
+  Move 1 3
+  RetNil
+end
+function host.getenv 7 1 16 2 v:v
+  const 0 builtin error
+  const 1 str "host service"
+  K 3 0
+  K 6 1
+  Move 5 6
+  CallDyn 3 4 1
+  Move 2 4
+  RetNil
+end
+function module:nupp.bench.hostbench 8 0 15 2 :v
+  const 0 str "nupp.bench.host"
+  const 1 str "readOne"
+  const 2 str "readMany"
+  const 3 str "pingMany"
+  const 4 str "sleepThen"
+  const 5 str "probe"
+  Require 3 0
+  Move 2 3
+  NewCell 1 2
+  NewTableN 3 0 0
+  Move 2 3
+  Move 5 1
+  NewClosure 3 9 4 1
+  SetField 2 1 3
+  Move 5 1
+  NewClosure 3 10 4 1
+  SetField 2 2 3
+  Move 5 1
+  NewClosure 3 11 4 1
+  SetField 2 3 3
+  Move 5 1
+  NewClosure 3 12 4 1
+  SetField 2 4 3
+  Move 5 1
+  NewClosure 3 13 4 1
+  SetField 2 5 3
+  Ret 2
+end
+function bench.readOne 9 1 18 4 v:v
+  const 0 str "readFile"
+  GetUpval 5 0
+  GetCell 6 5
+  GetField 4 6 0
+  Move 8 1
+  CallDyn 4 7 1
+  Move 3 7
+  Move 2 3
+  Nil 4
+  Eq 3 2 4
+  JmpIfNot 3 5
+  FK 0 1
+  FNeg 1 0
+  FBox 5 1
+  Ret 5
+  Jmp 0
+  LenF 0 2
+  FBox 3 0
+  Ret 3
+end
+function bench.readMany 10 1 30 6 v:v
+  const 0 builtin ipairs
+  const 1 str "readFile"
+  IK 1 0
+  IMov 0 1
+  K 5 0
+  Move 7 1
+  CallDyn 5 6 1
+  Move 2 6
+  Move 3 7
+  Move 4 8
+  Move 9 3
+  Move 10 4
+  CallDyn 2 8 2
+  JmpIfNot 8 19
+  Move 4 8
+  Move 12 8
+  Move 13 9
+  GetUpval 17 0
+  GetCell 18 17
+  GetField 16 18 1
+  Move 20 13
+  CallDyn 16 19 1
+  Move 15 19
+  Move 14 15
+  Nil 16
+  Ne 15 14 16
+  JmpIfNot 15 5
+  IToF 1 0
+  LenF 2 14
+  FAdd 3 1 2
+  FToI 0 3
+  Jmp 0
+  Jmp -23
+  IToF 1 0
+  FBox 2 1
+  Ret 2
+end
+function bench.pingMany 11 1 18 9 v:v
+  const 0 str "sleep"
+  IK 1 0
+  IMov 0 1
+  IToF 1 0
+  FUnbox 2 1
+  FCmpLt 3 1 2
+  BoolFromI 2 3
+  JmpIfNot 2 12
+  GetUpval 5 0
+  GetCell 6 5
+  GetField 4 6 0
+  FK 4 0
+  FBox 8 4
+  CallDyn 4 7 1
+  Move 3 7
+  IToF 4 0
+  FK 5 1
+  FAdd 6 4 5
+  FToI 0 6
+  Jmp -17
+  IToF 1 0
+  FBox 2 1
+  Ret 2
+end
+function bench.sleepThen 12 2 18 2 vv:v
+  const 0 str "sleep"
+  GetUpval 5 0
+  GetCell 6 5
+  GetField 4 6 0
+  Move 8 1
+  CallDyn 4 7 1
+  Move 3 7
+  Ret 2
+end
+function bench.probe 13 0 18 3 :v
+  const 0 str "now"
+  const 1 str "getenv"
+  const 2 str "HOME"
+  GetUpval 3 0
+  GetCell 4 3
+  GetField 2 4 0
+  CallDyn 2 5 0
+  Move 1 5
+  FUnbox 0 1
+  GetUpval 4 0
+  GetCell 5 4
+  GetField 3 5 1
+  K 8 2
+  Move 7 8
+  CallDyn 3 6 1
+  Move 2 6
+  Move 1 2
+  FBox 2 0
+  Move 3 1
+  RetN 2 2
+end
+module nupp.bench.host 0
+module nupp.bench.hostbench 8
+entry 8

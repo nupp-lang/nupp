@@ -109,6 +109,9 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
+    // A host service reached from a frame that cannot park: compiled code
+    // without a frame record, or a native caller. Contracts 6.2 and 6.4.
+    if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }
     if STATS.load(std::sync::atomic::Ordering::Relaxed) { let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
     match id {
         N_0 => {

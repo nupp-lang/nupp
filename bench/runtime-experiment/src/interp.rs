@@ -225,6 +225,8 @@ pub struct Task {
     cur: usize,
     pub state: State,
     pub result: Value,
+    /// The register of the top frame a host completion is delivered to.
+    pub deliver_at: usize,
     /// Every value the entry frame returned, when it returned more than one.
     pub results: Vec<Value>,
 }
@@ -239,6 +241,10 @@ impl Function {
 
 pub struct Interp {
     pub heap: Heap,
+    /// The host services, once a mode has started them.
+    pub host: Option<crate::host::Host>,
+    /// Which task parked on which host request key.
+    pub host_waiters: std::collections::HashMap<u64, usize>,
     pub funcs: Vec<Function>,
     pub tasks: Vec<Task>,
     /// Handle scopes (contracts 4.7): values a native caller holds are roots
@@ -329,14 +335,14 @@ impl crate::heap::Roots for NoRoots { fn each_root(&self, _f: &mut dyn FnMut(Val
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0, resumable: std::collections::HashSet::new(), resume_entries: Vec::new(), compiled_parks: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), extra: [Value::NIL; 8], extra_n: 0 } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0, resumable: std::collections::HashSet::new(), resume_entries: Vec::new(), compiled_parks: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), extra: [Value::NIL; 8], extra_n: 0 } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles, registered: &self.registered, extra: &self.extra, extra_n: self.extra_n }; self.heap.intern(s, &r) }
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
         let f = &self.funcs[fid as usize];
         let words = f.frame_words();
-        let mut t = Task { stack: vec![0u64; words + 64], cur: 0, state: State::Runnable, result: Value::NIL, results: Vec::new() };
+        let mut t = Task { stack: vec![0u64; words + 64], cur: 0, state: State::Runnable, result: Value::NIL, deliver_at: 0, results: Vec::new() };
         t.stack[0] = fid as u64;
         t.stack[1] = NONE as u64;
         t.stack[2] = Value::NIL.0;
@@ -354,6 +360,74 @@ impl Interp {
     }
 
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
+    /// Spawns a task running a closure value: its function with the closure
+    /// in the frame header, so upvalues resolve.
+    pub fn spawn_closure(&mut self, callee: Value, args: &[Value]) -> usize {
+        let p = callee.as_obj().unwrap_or_else(|| self.err("spawn of a non-closure"));
+        let fid = unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => *fid, _ => self.err("spawn of a non-closure") } };
+        let tid = self.spawn(fid, args);
+        self.tasks[tid].stack[2] = callee.0;
+        tid
+    }
+    /// Resumes a task parked on a host request with the completion's values
+    /// in the registers the call named.
+    pub fn resume_with(&mut self, tid: usize, outs: &[Value]) {
+        let t = &mut self.tasks[tid];
+        let at = t.cur + HDR + t.deliver_at;
+        if outs.is_empty() { t.stack[at] = Value::NIL.0; }
+        for (i, v) in outs.iter().take(8).enumerate() { t.stack[at + i] = v.0; }
+        t.state = State::Runnable;
+    }
+    /// A host service by id: `Ok` with the results when it answers at once,
+    /// `Err(key)` when the request was submitted and the caller must park.
+    pub fn host_call(&mut self, id: u32, args: &[Value]) -> Result<crate::builtins::Outs, u64> {
+        use crate::host::{Req, HOST_BASE};
+        let k = (id - HOST_BASE) as usize;
+        let text = |it: &Interp, i: usize| -> String { args.get(i).map(|v| it.bytes_of(*v)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default() };
+        let num = |i: usize| -> f64 { args.get(i).map(|v| v.as_num()).unwrap_or(0.0) };
+        let mut outs = crate::builtins::Outs::new();
+        match k {
+            5 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs.push(Value::num(t)); return Ok(outs); }
+            6 => { let name = text(self, 0); match std::env::var(&name) { Ok(v) => { let s = self.heap_new_string(v); outs.push(s); } Err(_) => outs.push(Value::NIL) } return Ok(outs); }
+            _ => {}
+        }
+        let req = match k {
+            0 => Req::ReadFile(text(self, 0)),
+            1 => { let data = args.get(1).map(|v| self.bytes_of(*v).to_vec()).unwrap_or_default(); Req::WriteFile(text(self, 0), data) }
+            2 => Req::Sleep(num(0).max(0.0) as u64),
+            3 => { let n = args.len(); let argv: Vec<String> = (1..n).map(|i| text(self, i)).collect(); Req::Run(text(self, 0), argv) }
+            4 => Req::ListDir(text(self, 0)),
+            _ => self.err("unknown host service"),
+        };
+        let host = self.host.as_mut().unwrap_or_else(|| panic!("runtime error: host services not started"));
+        Err(host.submit(req))
+    }
+    /// Turns a completion into values and resumes the task that waited on it.
+    pub fn complete(&mut self, key: u64, done: crate::host::Done) {
+        use crate::host::Done;
+        let tid = self.host_waiters.remove(&key).expect("completion for no waiter");
+        let mut outs: Vec<Value> = Vec::new();
+        let mut push_err = |it: &mut Interp, outs: &mut Vec<Value>, e: String| { outs.push(Value::NIL); let s = it.heap_new_string(e); it.registered.push(s); outs.push(s); };
+        match done {
+            Done::Text(Ok(t)) => { let s = self.heap_new_string(t); self.registered.push(s); outs.push(s); }
+            Done::Text(Err(e)) => push_err(self, &mut outs, e),
+            Done::Unit(Ok(())) => outs.push(Value::TRUE),
+            Done::Unit(Err(e)) => push_err(self, &mut outs, e),
+            Done::Exit(Ok((code, out))) => { outs.push(Value::num(code as f64)); let s = self.heap_new_string(out); self.registered.push(s); outs.push(s); }
+            Done::Exit(Err(e)) => push_err(self, &mut outs, e),
+            Done::List(Ok(names)) => { let t = self.new_table(); self.registered.push(t); for (i, n) in names.iter().enumerate() { let s = self.heap_new_string(n.clone()); self.registered.push(s); self.set_index(t, Value::num((i + 1) as f64), s); } outs.push(t); }
+            Done::List(Err(e)) => push_err(self, &mut outs, e),
+        }
+        // The values are rooted in `registered` until the task holds them; the
+        // prototype trims that list at the end of the scheduler run.
+        self.resume_with(tid, &outs);
+    }
+    /// The host table a module gets from `require`: one builtin per service.
+    pub fn host_table(&mut self) -> Value {
+        let t = self.new_table(); self.registered.push(t);
+        for (i, name) in crate::host::HOST_NAMES.iter().enumerate() { let k = self.intern(name); self.set_index(t, k, Value::builtin(crate::host::HOST_BASE + i as u32)); }
+        t
+    }
     /// Writes call results into the window from `at`, nil when there are none.
     #[inline]
     fn deliver(&self, regs: *mut Value, at: usize, outs: &[Value]) {
@@ -863,6 +937,15 @@ impl Interp {
                         }
                         if let Some(id) = callee.as_builtin() {
                             let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
+                            if id >= crate::host::HOST_BASE {
+                                // A host service: an immediate one answers like a builtin;
+                                // a parking one submits its request, parks the task on the
+                                // key and is resumed with the completion at `b`.
+                                match self.host_call(id, &buf[..n]) {
+                                    Ok(outs) => { self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+                                    Err(key) => { let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); t.deliver_at = b as usize; self.host_waiters.insert(key, tid); self.parks += 1; return Flow::Return(Outcome::Parked(key)); }
+                                }
+                            }
                             let outs = crate::builtins::call(self, id, &buf[..n]);
                             self.deliver(regs, b as usize, outs.as_slice());
                             return Flow::Next;
