@@ -1,6 +1,7 @@
 mod heap;
 mod interp;
 mod builtins;
+mod threaded_jit;
 mod image;
 mod ir;
 mod jit;
@@ -607,6 +608,15 @@ fn main() {
         let mut stack = vec![0u64; 1 << 16];
         let nregs = f.nregs as u32;
         for _ in 0..5 { let s = cpu_now(); let r = unsafe { threaded_run(code.as_ptr(), consts.as_ptr(), nregs, stack.as_mut_ptr(), stack.len(), 30.0) }; let e = cpu_now() - s; assert_eq!(r, 832040.0); println!("fib30-threaded\t{:.6}", e); }
+        // The same handlers produced by the JIT under the tail calling convention.
+        let t = threaded_jit::build();
+        let jcode: Vec<threaded_jit::Ins> = code.iter().map(|i| threaded_jit::Ins { op: i.op, a: i.a, b: i.b, c: i.c, imm: i.imm, k: i.k }).collect();
+        for _ in 0..5 {
+            stack[0] = 0; stack[1] = 0xffff_ffff; stack[2] = 0; stack[3] = 0; stack[4 + 1] = Value::num(30.0).0;
+            let mut cx = threaded_jit::Ctx { code: jcode.as_ptr(), consts: consts.as_ptr(), stack: stack.as_mut_ptr(), cap: stack.len(), frame_words: 4 + nregs as u64 + 1, result: 0, dispatch: t.dispatch.as_ptr() };
+            let s = cpu_now(); let r = (t.entry)(&mut cx); let e = cpu_now() - s;
+            assert_eq!(Value(r).as_num(), 832040.0); println!("fib30-cranelift-threaded\t{:.6}", e);
+        }
         return;
     }
     if mode == "fibloop" { let it = &mut it; for _ in 0..60 { black_box(run_to_end(it, FIB, &[Value::num(30.0)]).as_num()); } return; }

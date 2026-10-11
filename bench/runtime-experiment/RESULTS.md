@@ -902,3 +902,26 @@ own JIT from the Nupp handlers, each handler a Cranelift function that
 ends by tail-calling the next handler through the opcode table, with no C
 in the path and no second dispatch mechanism for the browser to port.
 That is the P3 design; this measurement is its gate.
+
+### The threaded loop produced by the JIT
+
+Same day. The decision above claimed Cranelift can produce the threaded
+loop itself. `src/threaded_jit.rs` does it: the nine handlers as Cranelift
+functions under the `tail` calling convention, each loading the next
+instruction's opcode, indexing the dispatch table and ending in
+`return_call_indirect` with the pc, the window, the context and the frame
+as arguments; a plain entry function calls the first handler. Same
+instruction form and frames as the C core.
+
+| fib(30), three interleaved runs | ms |
+| --- | ---: |
+| C, `musttail` | 24.4-25.0 |
+| Cranelift, `tail` calling convention, `return_call_indirect` | 25.6-26.1 |
+| Rust `match` loop | 41.8-42.3 |
+| PUC Lua 5.5 | 20-22 |
+
+Within 5% of clang. So the runtime's interpreter can be built by its own
+JIT from the Nupp handlers, which settles the loop's language question
+the plan left open: there is no loop to write in any language, only
+handlers, and the skeleton that threads them is generated. The browser
+builds the same thing from the same handlers.
