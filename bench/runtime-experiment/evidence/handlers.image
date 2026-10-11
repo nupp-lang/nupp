@@ -33,116 +33,116 @@ function ltAny 2 2 8 5 vv:v
 end
 function run 3 2 30 48 vv:f
   const 0 true 
-  FK 1 1
-  FMov 0 1
+  IK 1 1
+  IMov 0 1
   K 3 0
   JmpIfNot 3 99
-  GetIdxF 4 1 0
-  FUnbox 3 4
-  FMov 2 3
-  FK 5 1
-  FAdd 6 0 5
-  GetIdxF 5 1 6
-  FUnbox 7 5
-  FMov 4 7
-  FK 9 2
-  FAdd 10 0 9
-  GetIdxF 6 1 10
-  FUnbox 11 6
-  FMov 8 11
-  FK 13 3
-  FAdd 14 0 13
-  GetIdxF 7 1 14
-  FUnbox 15 7
-  FMov 12 15
-  FToI 18 2
-  Switch 18 0
-  FBox 8 8
-  SetIdxF 2 4 8
-  FK 20 4
-  FAdd 21 0 20
-  FMov 19 21
+  GetIdxI 4 1 0
+  IUnbox 3 4
+  IMov 2 3
+  IK 5 1
+  IAdd 6 0 5
+  GetIdxI 5 1 6
+  IUnbox 7 5
+  IMov 4 7
+  IK 9 2
+  IAdd 10 0 9
+  GetIdxI 6 1 10
+  IUnbox 11 6
+  IMov 8 11
+  IK 13 3
+  IAdd 14 0 13
+  GetIdxI 7 1 14
+  IUnbox 15 7
+  IMov 12 15
+  Switch 2 0
+  IToF 19 8
+  FBox 8 19
+  SetIdxI 2 4 8
+  IK 20 4
+  IAdd 21 0 20
+  IMov 18 21
   Jmp 0
-  FMov 17 19
+  IMov 17 18
   Jmp 68
-  GetIdxF 9 2 8
-  SetIdxF 2 4 9
-  FK 23 4
-  FAdd 24 0 23
-  FMov 22 24
+  GetIdxI 9 2 8
+  SetIdxI 2 4 9
+  IK 23 4
+  IAdd 24 0 23
+  IMov 22 24
   Jmp 0
-  FMov 17 22
+  IMov 17 22
   Jmp 60
-  GetIdxF 13 2 8
+  GetIdxI 13 2 8
   Move 11 13
-  GetIdxF 14 2 12
+  GetIdxI 14 2 12
   Move 12 14
   CallT 0 10 26 2
-  SetIdxF 2 4 10
-  FK 27 4
-  FAdd 28 0 27
-  FMov 25 28
+  SetIdxI 2 4 10
+  IK 27 4
+  IAdd 28 0 27
+  IMov 25 28
   Jmp 0
-  FMov 17 25
+  IMov 17 25
   Jmp 48
-  GetIdxF 18 2 8
+  GetIdxI 18 2 8
   Move 16 18
-  GetIdxF 19 2 12
+  GetIdxI 19 2 12
   Move 17 19
   CallT 1 15 30 2
-  SetIdxF 2 4 15
-  FK 31 4
-  FAdd 32 0 31
-  FMov 29 32
+  SetIdxI 2 4 15
+  IK 31 4
+  IAdd 32 0 31
+  IMov 29 32
   Jmp 0
-  FMov 17 29
+  IMov 17 29
   Jmp 36
-  GetIdxF 23 2 8
+  GetIdxI 23 2 8
   Move 21 23
-  GetIdxF 24 2 12
+  GetIdxI 24 2 12
   Move 22 24
   CallT 2 20 34 2
-  SetIdxF 2 4 20
-  FK 35 4
-  FAdd 36 0 35
-  FMov 33 36
+  SetIdxI 2 4 20
+  IK 35 4
+  IAdd 36 0 35
+  IMov 33 36
   Jmp 0
-  FMov 17 33
+  IMov 17 33
   Jmp 24
-  GetIdxF 25 2 4
+  GetIdxI 25 2 4
   JmpIfNot 25 5
-  FK 38 4
-  FAdd 39 0 38
-  FMov 37 39
+  IK 38 4
+  IAdd 39 0 38
+  IMov 37 39
   Jmp 3
   Jmp 0
-  FMov 37 8
+  IMov 37 8
   Jmp 0
-  FMov 17 37
+  IMov 17 37
   Jmp 13
-  FMov 17 4
+  IMov 17 4
   Jmp 11
-  GetIdxF 27 2 4
+  GetIdxI 27 2 4
   Move 26 27
   TagCheckNum 26 26
   FUnbox 41 26
   FRet 41
-  FMov 17 40
+  IMov 17 40
   Jmp 4
   FK 42 1
   FNeg 43 42
-  FMov 17 43
+  FToI 17 43
   Jmp 0
-  FMov 16 17
-  FMov 0 16
+  IMov 16 17
+  IMov 0 16
   Jmp -101
   FK 44 1
   FNeg 45 44
   FRet 45
   RetNil
-  table 0 72 0 8 16 28 40 52 63 65
+  table 0 73 0 9 17 29 41 53 64 66
 end
-function main 4 1 83 41 f:f
+function main 4 1 99 49 f:f
   const 0 num 1
   const 1 num 2
   const 2 num 3
@@ -326,14 +326,46 @@ function main 4 1 83 41 f:f
   SetIdx 2 73 74
   Move 1 2
   NewTable 76
+  K 77 0
+  FK 37 0
+  FBox 78 37
+  SetIdx 76 77 78
+  K 79 1
+  FK 38 0
+  FBox 80 38
+  SetIdx 76 79 80
+  K 81 2
+  FK 39 0
+  FBox 82 39
+  SetIdx 76 81 82
+  K 83 3
+  FK 40 0
+  FBox 84 40
+  SetIdx 76 83 84
+  K 85 4
+  FK 41 0
+  FBox 86 41
+  SetIdx 76 85 86
+  K 87 5
+  FK 42 0
+  FBox 88 42
+  SetIdx 76 87 88
+  K 89 6
+  FK 43 0
+  FBox 90 43
+  SetIdx 76 89 90
+  K 91 7
+  FK 44 0
+  FBox 92 44
+  SetIdx 76 91 92
   Move 75 76
-  FBox 77 0
-  FK 37 1
-  SetIdxF 75 37 77
-  Move 79 1
-  Move 80 75
-  CallT 3 78 38 2
-  FRet 38
+  FBox 93 0
+  IK 45 1
+  SetIdxI 75 45 93
+  Move 95 1
+  Move 96 75
+  CallT 3 94 46 2
+  FRet 46
   RetNil
 end
 entry 4

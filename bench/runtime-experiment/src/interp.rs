@@ -22,6 +22,13 @@ pub enum Op {
     JmpIfNot(u8, i32),
     /// Dense dispatch: integer register indexes jump table `t`; out of range takes its default.
     Switch(u8, u16),
+    /// Table read and write with an integer-register index.
+    GetIdxI(u8, u8, u8),
+    SetIdxI(u8, u8, u8),
+    /// Unbox a number from a value register into an integer register.
+    IUnbox(u8, u8),
+    ICmpSLt(u8, u8, u8),
+    ICmpSLe(u8, u8, u8),
     /// Call function `fid` with arguments at base+1.., result into `base`.
     Call(u32, u8, u8),
     /// Typed call: value arguments at base+1.., float arguments in the float
@@ -242,6 +249,13 @@ impl Interp {
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Record { slots, .. } = &mut (*p.as_ptr()).body { slots[i] = v } } }
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { let p = rec.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => slots[i], _ => panic!("use after free or not a record") } } }
     pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Table { array, .. } = &mut (*p.as_ptr()).body { array.push(v) } (*p.as_ptr()).refresh(); } }
+    pub fn get_index(&self, tv: Value, key: Value) -> Value {
+        let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
+        unsafe { match &(*p.as_ptr()).body {
+            Body::Table { array, hash } => { if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= array.len() && n.fract() == 0.0 { return array[n as usize - 1]; } } *hash.get(&key).unwrap_or(&Value::NIL) }
+            _ => self.err("index of a non-table"),
+        } }
+    }
     pub fn set_index(&mut self, tv: Value, iv: Value, v: Value) {
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         self.heap.barrier(p, iv);
@@ -414,6 +428,11 @@ impl Interp {
                     Op::FCmpLt(d, a, b) => ir!(d) = (fr!(a) < fr!(b)) as i64,
                     Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
                     Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
+                    Op::GetIdxI(d, t, i) => { let key = Value::num(ir!(i) as f64); let tv = r!(t); r!(d) = self.get_index(tv, key); }
+                    Op::SetIdxI(t, i, s) => { let key = Value::num(ir!(i) as f64); let (tv, v) = (r!(t), r!(s)); self.set_index(tv, key, v); }
+                    Op::IUnbox(d, v) => ir!(d) = r!(v).as_num() as i64,
+                    Op::ICmpSLt(d, a, b) => ir!(d) = (ir!(a) < ir!(b)) as i64,
+                    Op::ICmpSLe(d, a, b) => ir!(d) = (ir!(a) <= ir!(b)) as i64,
                     Op::Switch(r, t) => {
                         let i = ir!(r);
                         let off = { let (def, tbl) = &self.funcs[fid as usize].jump_tables[t as usize]; if i >= 0 && (i as usize) < tbl.len() { tbl[i as usize] } else { *def } };

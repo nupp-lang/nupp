@@ -76,7 +76,7 @@ function Fn:declare(name, class)
         self.scopes[#self.scopes][name] = {reg = r, class = "v", cell = true}
         return r, true
     end
-    local r = class == "f" and self:freg() or self:reg()
+    local r = (class == "f" or class == "i") and self:freg() or self:reg()
     self.scopes[#self.scopes][name] = {reg = r, class = class or "v"}
     return r
 end
@@ -117,15 +117,42 @@ local function isNumeric(t)
     return false
 end
 
--- Move a value between classes: a float register boxes into a value register,
--- a value register of numeric type unboxes into a float register.
+local function isInteger(t)
+    local tag = tyTag(t)
+    if tag == "integer" then return true end
+    if tag == "literal" then return isInteger(t.base) end
+    return false
+end
+
+-- An expression that can live in an integer register: typed integer, or an
+-- integral literal.
+local function isIntegerish(n)
+    if n.kind == "paren" then return isIntegerish(n.expr) end
+    if n.kind == "number" then local text = tokText(n.token); local v = tonumber(text); return v == math.floor(v) and not text:find("[%.eE]") end
+    return isInteger(n.inferredType)
+end
+
+-- Move a value between classes: floats and integers box into a value
+-- register, a value register of numeric type unboxes, integers and floats
+-- convert.
 local function coerce(f, reg, class, want, dst)
     if class == want then
-        if dst and dst ~= reg then f:op(want == "f" and "FMov" or "Move", dst, reg) return dst end
+        if dst and dst ~= reg then f:op(want == "f" and "FMov" or want == "i" and "IMov" or "Move", dst, reg) return dst end
         return reg
     end
-    if want == "v" then dst = dst or f:reg(); f:op("FBox", dst, reg); return dst end
-    dst = dst or f:freg(); f:op("FUnbox", dst, reg); return dst
+    if want == "v" then
+        dst = dst or f:reg()
+        if class == "i" then local t = f:freg(); f:op("IToF", t, reg); f:op("FBox", dst, t) else f:op("FBox", dst, reg) end
+        return dst
+    end
+    if want == "f" then
+        dst = dst or f:freg()
+        if class == "i" then f:op("IToF", dst, reg) else f:op("FUnbox", dst, reg) end
+        return dst
+    end
+    dst = dst or f:freg()
+    if class == "f" then f:op("FToI", dst, reg) else f:op("IUnbox", dst, reg) end
+    return dst
 end
 
 -- Expressions: evaluate `node` into register `dst` (allocating when nil); returns the register.
@@ -188,9 +215,27 @@ expr = function(f, node, dst, want)
     local k = node.kind
     if k == "paren" then return expr(f, node.expr, dst, want) end
     local numeric = isNumeric(node.inferredType)
+    local integer = isInteger(node.inferredType)
     if k == "number" then
-        local fr = f:freg(); f:op("FK", fr, tonumber(tokText(node.token)))
+        local n = tonumber(tokText(node.token))
+        if want == "i" and isIntegerish(node) then local ir = f:freg(); f:op("IK", ir, string.format("%d", n)); return ir, "i" end
+        local fr = f:freg(); f:op("FK", fr, n)
         return fr, "f"
+    end
+    if k == "binop" and isIntegerish(node.lhs) and isIntegerish(node.rhs) then
+        local op = tokText(node.op)
+        local map = {["+"] = "IAdd", ["-"] = "ISub"}
+        if map[op] then
+            local a = exprAs(f, node.lhs, "i"); local bb = exprAs(f, node.rhs, "i")
+            local d = f:freg(); f:op(map[op], d, a, bb); return d, "i"
+        end
+        local cmp = {["<"] = "ICmpSLt", ["<="] = "ICmpSLe", [">"] = "ICmpSLt", [">="] = "ICmpSLe"}
+        if cmp[op] then
+            local a = exprAs(f, node.lhs, "i"); local bb = exprAs(f, node.rhs, "i")
+            local i = f:freg()
+            if op == ">" or op == ">=" then f:op(cmp[op], i, bb, a) else f:op(cmp[op], i, a, bb) end
+            local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
+        end
     end
     if numeric and k == "binop" then
         local op = tokText(node.op)
@@ -233,8 +278,10 @@ expr = function(f, node, dst, want)
     end
     if numeric and k == "bracketIndex" then
         -- A numeric element read from a value container unboxes after the read.
-        local o = exprAs(f, node.obj, "v"); local i = exprAs(f, node.expr, "f")
-        local d = f:reg(); f:op("GetIdxF", d, o, i)
+        local o = exprAs(f, node.obj, "v"); local d = f:reg()
+        if isIntegerish(node.expr) then local i = exprAs(f, node.expr, "i"); f:op("GetIdxI", d, o, i)
+        else local i = exprAs(f, node.expr, "f"); f:op("GetIdxF", d, o, i) end
+        if want == "i" and integer then local ir = f:freg(); f:op("IUnbox", ir, d); return ir, "i" end
         local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f"
     end
     if k == "binop" then
@@ -250,7 +297,7 @@ expr = function(f, node, dst, want)
     if k == "switchExpr" then return emitSwitch(f, node, dst, want) end
     if k == "doExpr" then return emitDo(f, node, dst, want) end
     -- Everything else lands in a value register.
-    dst = (want ~= "f" and dst) or nil
+    dst = (want ~= "f" and want ~= "i" and dst) or nil
     dst = dst or f:reg()
     if k == "number" then
         f:op("K", dst, f:const("num", tonumber(tokText(node.token))))
@@ -298,7 +345,9 @@ expr = function(f, node, dst, want)
         end
     elseif k == "bracketIndex" then
         local o = exprAs(f, node.obj, "v")
-        if isNumeric(node.expr.inferredType) then
+        if isIntegerish(node.expr) then
+            local i = exprAs(f, node.expr, "i"); f:op("GetIdxI", dst, o, i)
+        elseif isNumeric(node.expr.inferredType) then
             local i = exprAs(f, node.expr, "f"); f:op("GetIdxF", dst, o, i)
         else
             local i = exprAs(f, node.expr, "v"); f:op("GetIdx", dst, o, i)
@@ -393,13 +442,15 @@ local function stmt(f, node)
         local name = tokText(node.names[1])
         local value = node.exprs and node.exprs[1]
         local declared = node.types and node.types[1] and node.types[1].resolvedType
-        local class = (isNumeric(declared) or (not declared and value and isNumeric(value.inferredType))) and "f" or "v"
+        local class = "v"
+        if isInteger(declared) or (not declared and value and isInteger(value.inferredType)) then class = "i"
+        elseif isNumeric(declared) or (not declared and value and isNumeric(value.inferredType)) then class = "f" end
         local r, cell = f:declare(name, class)
         if cell then
             local v = f:reg()
             if value then exprAs(f, value, "v", v) else f:op("Nil", v) end
             f:op("NewCell", r, v)
-        elseif value then exprAs(f, value, class, r) elseif class == "v" then f:op("Nil", r) else f:op("FK", r, 0) end
+        elseif value then exprAs(f, value, class, r) elseif class == "v" then f:op("Nil", r) elseif class == "i" then f:op("IK", r, 0) else f:op("FK", r, 0) end
         mark = f.nregs
     elseif k == "assignStmt" then
         local target = node.targets[1]
@@ -425,7 +476,9 @@ local function stmt(f, node)
             else local v = exprAs(f, value, "v"); f:op("SetField", o, f:const("str", tokText(target.name)), v) end
         elseif target.kind == "bracketIndex" then
             local o = exprAs(f, target.obj, "v"); local v = exprAs(f, value, "v")
-            if isNumeric(target.expr.inferredType) then
+            if isIntegerish(target.expr) then
+                local i = exprAs(f, target.expr, "i"); f:op("SetIdxI", o, i, v)
+            elseif isNumeric(target.expr.inferredType) then
                 local i = exprAs(f, target.expr, "f"); f:op("SetIdxF", o, i, v)
             else
                 local i = exprAs(f, target.expr, "v"); f:op("SetIdx", o, i, v)
@@ -491,13 +544,14 @@ block = function(f, node)
 end
 
 -- Switch and do expressions ------------------------------------------------
-local function armClass(want) return want == "f" and "f" or "v" end
+local function armClass(want) return (want == "f" or want == "i") and want or "v" end
+local function allocClass(f, class) return (class == "f" or class == "i") and f:freg() or f:reg() end
 
 -- A do expression: its block runs with a yield target; every yield lands the
 -- value in the target register and jumps to the end of the block.
 function emitDo(f, node, dst, want)
     local class = armClass(want)
-    dst = dst or (class == "f" and f:freg() or f:reg())
+    dst = dst or allocClass(f, class)
     f.yields = f.yields or {}
     f.yields[#f.yields + 1] = {dst = dst, class = class, exits = {}}
     block(f, node.body)
@@ -517,7 +571,7 @@ end
 -- jump table; anything else is an equality chain in source order.
 function emitSwitch(f, node, dst, want)
     local class = armClass(want)
-    dst = dst or (class == "f" and f:freg() or f:reg())
+    dst = dst or allocClass(f, class)
     -- SWITCH_CHAIN=1 forces the equality chain, to measure the jump table against it.
     local dense = isNumeric(node.selector.inferredType) and not os.getenv("SWITCH_CHAIN")
     local maxv = -1
@@ -528,8 +582,8 @@ function emitSwitch(f, node, dst, want)
     local exits = {}
     local function arm(e) exprAs(f, e, class, dst); exits[#exits + 1] = f:op("Jmp", 0) end
     if dense then
-        local sel = exprAs(f, node.selector, "f")
-        local i = f:freg(); f:op("FToI", i, sel)
+        local sel, sc = expr(f, node.selector, nil, "i")
+        local i = coerce(f, sel, sc, "i")
         f.tables = f.tables or {}
         local t = #f.tables; f.tables[t + 1] = {default = 0, offsets = {}}
         local at = f:op("Switch", i, t)

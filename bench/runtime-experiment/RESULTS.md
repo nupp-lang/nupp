@@ -555,3 +555,44 @@ directly (`cond_of`), and an array-part store of a non-object value is
 inline, since no barrier is due for a number. Dynamic `Add`, `Sub`, `Mul`,
 `Lt`, `Le`, `Eq` and `TagCheckNum` now lower, with the non-number path in
 a cold block calling the runtime.
+
+### Making the Nupp interpreter faster
+
+Same day. Two changes to the emitter and the runtime, and one measurement
+flag, to see how much of the 6x was the lowering.
+
+**Integer registers.** `integer`-typed locals and integral literals now
+live in the integer class: `IK`, `IAdd`, `ISub`, signed compares, `IUnbox`
+from a boxed number, and `GETIDXI`/`SETIDXI`, table access by an integer
+register with no float round trip. The switch selector is used directly.
+The loop went from 26.1 to 18.9 ns per iteration (the register file is
+also allocated at its full size now, as an interpreter's would be; the
+earlier version grew it through the push path on the first write).
+
+**Unchecked table access**, `UNCHECKED_TABLES=1`: `GETIDXI`/`SETIDXI`
+lowered as a statically typed array with a proven bound would be, a load
+of the array pointer and the element, no kind or bounds check. This is a
+measurement of the floor, not a mode: a `{integer}` parameter cannot be
+anything but a table under contracts 2, and a fixed-size storage body
+gives the verifier the bound, so a typed interpreter written against
+storage arrays gets this code legitimately. The prototype emitter has no
+storage arrays, so the flag stands in.
+
+| nupp-interp-cranelift, per iteration | jump table | equality chain |
+| --- | ---: | ---: |
+| float-typed emitter (above) | 26.1 ns | 34.7 ns |
+| integer registers | 18.9 ns | 29.8 ns |
+| integer registers, unchecked tables | 7.4 ns | 16.8 ns |
+| the same without stack-map spills | 7.1 ns | |
+| Rust interpreter | 4.3 ns | |
+
+So the interpreter written in Nupp lands at 1.7x the Rust one once the
+typed tier gives it what it has for kernels, from 6x under the float
+emitter. The loop body is 259 instructions in that form, down from 895.
+What remains: 19 float-to-int conversions, because `{integer}` elements
+are boxed doubles and an integer storage would make them plain loads; 26
+GPR-to-FPR moves from boxing handler results; the array pointer reloaded
+per access, which storage, being unresizable, lets the lowering hoist. Each
+is a typed-tier item already on the plan, none is interpreter-specific. The
+jump table is worth 2.3x over the chain at the floor, where dispatch is a
+larger share.
