@@ -596,3 +596,59 @@ per access, which storage, being unresizable, lets the lowering hoist. Each
 is a typed-tier item already on the plan, none is interpreter-specific. The
 jump table is worth 2.3x over the chain at the floor, where dispatch is a
 larger share.
+
+## Base64 from the compiler's IR
+
+Date: 2026-10-11. The first of the P0 record's owed scalar baselines.
+`nupp aot --emit ir src/nupp/codec/base64.nupp` (`evidence/base64.ir`,
+the shipped word-at-a-time encoder, unmodified) is parsed, lowered to the
+typed bytecode, verified, interpreted and compiled by Cranelift. Mode:
+`runtime-experiment base64 evidence/base64.ir <base64.nupp>`.
+
+What the IR needed that the kernel slice did not: byte buffers as an
+object body (`Bytes`, the builder's scratch), checked byte and
+little-endian word loads and stores on strings and buffers, shifts, or,
+byte swap, equality, a value-class return, `elseif`, store statements, a
+builder that finishes into a string, constant-pool strings bound to the
+IR's `konst_N` names, and the `nupp.math.u32` helpers the IR lists
+without bodies, lowered by name. The lowering also had to reclaim scalar
+temporaries per statement: the encoder's expression trees ran the
+prototype's 8-bit operands past 255 and wrapped silently.
+
+Checked against a reference over every length 0 to 200 and at 1 KiB, 64
+KiB and 1 MiB, on both tiers; then under collector stress with the oracle
+and interleaved, since the compiled encoder allocates its scratch and its
+result with value registers live: 420 checks.
+
+**Bounds checks were the cost, and one proof removed it.** With every
+byte access checked the compiled encoder ran at 0.852, 0.546 and 0.520 ns
+per input byte at the three sizes. The sixteen alphabet lookups per
+twelve input bytes index a constant-pool string of length 64 by a value
+masked with 63. The lowering now emits those unchecked and the verifier
+re-derives the proof from the bytecode (constant-pool object, mask
+constant below the constant's length, neither register redefined;
+contracts 3.4b; a tampered mask of 64 is rejected). With that, the
+remaining fourteen checked word reads and stores per iteration cost
+nothing measurable (`UNCHECKED_BYTES=1` moves nothing), and neither does
+allocating the scratch per call (`REUSE_SCRATCH=1`).
+
+| ns per input byte | 1 KiB | 64 KiB | 1 MiB |
+| --- | ---: | ---: | ---: |
+| Cranelift, every access checked | 0.852 | 0.546 | 0.520 |
+| Cranelift, alphabet lookups proven | 0.521 | 0.392 | 0.387 |
+| LLVM, the same source, repository harness today (`const`) | 0.828 | 0.473 | 0.485 |
+| LLVM, the same source, as recorded in `bench/base64/results` | 0.742 | 0.352 | 0.353 |
+| C scalar, as recorded there | 0.592 | 0.260 | 0.251 |
+| interpreter | 18.0 | 12.9 | |
+
+Against the harness run today, on the same loaded machine
+(`evidence/base64-harness-2026-10-11.txt`), the Cranelift encoder is at
+0.63x, 0.83x and 0.80x of the LLVM entry's time; against the quieter
+recorded figures it is 0.70x, 1.11x and 1.10x. The two harnesses differ
+(thread CPU time and rotated rounds here, `os.clock` around the LuaJIT
+call there, which includes the FFI boundary and the Lua string build), so
+the honest statement is: inside the 1.3x price either way, and the
+difference between the two LLVM columns is the machine, not the code. What
+is left in the loop is the `u32` masking after each add and shift, which
+32-bit integer registers would remove, and the per-iteration reload of
+the two buffers' pointers and lengths at the loop header.
