@@ -117,6 +117,6 @@
     "src/nupp/tools/explain.nupp": "e40df1ad0f2c8d79cc9e238b50002bf63d8916bfd39d836605a8857ad624c335",
     "src/nupp/tools/migrate.nupp": "2604148193eac2f47e00927c4064b76cf17c2a0430107937227ca7c5adcb6825",
     "src/nupp/tools/reference.nupp": "5651b7ea5205b0907f7a59a750856a0b19c43fdcb53c53ff11a88096e7086da2",
-    "src/nupp/serde/identity.lua": "4f9403942aa8103c9cd0aa9e5e3c5e30a21be44127259675266ec1de69ce4f47"
+    "src/nupp/serde/internal/identity.lua": "4f9403942aa8103c9cd0aa9e5e3c5e30a21be44127259675266ec1de69ce4f47"
   }
 }

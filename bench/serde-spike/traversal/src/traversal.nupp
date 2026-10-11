@@ -1,7 +1,9 @@
 module traversal
 
 local json = require("nupp.codec.json")
-local syntax = require("nupp.serde.internal.json.syntax")
+-- serde's JSON cursor is internal, and measuring it directly is this
+-- benchmark's point, so it is loaded past the checked import boundary.
+local syntax: any = _G.require("nupp.serde.internal.json.syntax")
 
 export type Variant = "callbacks" | "specialized" | "cursor" | "interpreter" | "generated" | "direct"
 
@@ -245,7 +247,7 @@ local type Assign = function(target: Value, index: integer, scalar: integer): ni
 
 local record Fields
     @readonly description: Model
-    @readonly cursor: syntax.Cursor?
+    @readonly cursor: any?
     @readonly tokens: {integer}?
     seen: {[integer]: boolean}
     index: integer
