@@ -36,28 +36,83 @@ fn ctx() -> &'static mut Interp { unsafe { &mut *CTX.load(std::sync::atomic::Ord
 
 /// Records the caller chain's frame pointer so a collection inside this
 /// helper sees the compiled frames above it.
-macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; interp::HELPER_FP.store(fp, std::sync::atomic::Ordering::Relaxed); }} }
-macro_rules! leave_helper { () => { interp::HELPER_FP.store(0, std::sync::atomic::Ordering::Relaxed) } }
+/// Helpers nest: a helper that re-enters the interpreter, which enters
+/// compiled code, which calls a helper. Each records its frame pointer and
+/// restores the previous one on leaving, so a collection inside the outer
+/// helper after the inner returned still walks the outer compiled frames.
+macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; interp::HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed) }} }
+macro_rules! leave_helper { ($prev:expr) => { interp::HELPER_FP.store($prev, std::sync::atomic::Ordering::Relaxed) } }
 
-extern "C" fn rt_new_record(shape: u64) -> u64 { enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(); v.0 }
-extern "C" fn rt_new_table() -> u64 { enter_helper!(); let v = ctx().new_table(); leave_helper!(); v.0 }
+extern "C" fn rt_new_record(shape: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(_hp); v.0 }
+extern "C" fn rt_new_table() -> u64 { let _hp = enter_helper!(); let v = ctx().new_table(); leave_helper!(_hp); v.0 }
 extern "C" fn rt_set_slot(obj: u64, i: u64, v: u64) -> u64 { ctx().set_slot(Value(obj), i as usize, Value(v)); 0 }
-extern "C" fn rt_set_index(t: u64, k: u64, v: u64) -> u64 { enter_helper!(); ctx().set_index(Value(t), Value(k), Value(v)); leave_helper!(); 0 }
-extern "C" fn rt_concat(a: u64, b: u64) -> u64 { enter_helper!(); let v = ctx().concat(Value(a), Value(b)); leave_helper!(); v.0 }
+extern "C" fn rt_set_index(t: u64, k: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().set_index(Value(t), Value(k), Value(v)); leave_helper!(_hp); 0 }
+extern "C" fn rt_concat(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().concat(Value(a), Value(b)); leave_helper!(_hp); v.0 }
 /// REUSE_SCRATCH=1 hands back one buffer per size, as the compiler's kernel
 /// runtime does for a scratch it marks `reuses`; the measurement of what the
 /// per-call allocation and zeroing cost.
 static SCRATCH: std::sync::Mutex<Vec<(usize, u64)>> = std::sync::Mutex::new(Vec::new());
 extern "C" fn rt_new_bytes(n: u64) -> u64 {
-    if std::env::var("REUSE_SCRATCH").is_ok() { let mut s = SCRATCH.lock().unwrap(); if let Some((_, v)) = s.iter().find(|(k, _)| *k == n as usize) { return *v; } enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); ctx().register(v); s.push((n as usize, v.0)); return v.0; }
-    enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); v.0
+    if std::env::var("REUSE_SCRATCH").is_ok() { let mut s = SCRATCH.lock().unwrap(); if let Some((_, v)) = s.iter().find(|(k, _)| *k == n as usize) { return *v; } let _hp = enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(_hp); ctx().register(v); s.push((n as usize, v.0)); return v.0; }
+    let _hp = enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(_hp); v.0
 }
-extern "C" fn rt_new_buffer() -> u64 { enter_helper!(); let v = ctx().heap_new_buffer(); leave_helper!(); v.0 }
+/// A dynamic call from compiled code: the callee value, the arguments in a
+/// stack slot the helper roots for the call's duration, the first result
+/// returned and the rest left in `extra`.
+extern "C" fn rt_call_dyn(callee: u64, argv: *const u64, nargs: u64) -> u64 {
+    let _hp = enter_helper!();
+    let it = ctx();
+    // The arguments stay in the caller's stack slot; they are rooted through
+    // a handle scope for the call, and nothing is copied.
+    let args: &[Value] = unsafe { std::slice::from_raw_parts(argv as *const Value, nargs as usize) };
+    let scope = it.open_scope(); for &a in args { it.handles.push(a); } it.handles.push(Value(callee));
+    let outs = it.call_outs(Value(callee), args);
+    it.close_scope(scope);
+    let first = outs.first().copied().unwrap_or(Value::NIL);
+    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    leave_helper!(_hp);
+    first.0
+}
+/// A method call from compiled code: the receiver is argv[0].
+extern "C" fn rt_call_method(name: u64, argv: *const u64, nargs: u64) -> u64 {
+    let _hp = enter_helper!();
+    let it = ctx();
+    let args: &[Value] = unsafe { std::slice::from_raw_parts(argv as *const Value, nargs as usize) };
+    let scope = it.open_scope(); for &a in args { it.handles.push(a); }
+    let outs = it.call_method(Value(name), args);
+    it.close_scope(scope);
+    let first = outs.first().copied().unwrap_or(Value::NIL);
+    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    leave_helper!(_hp);
+    first.0
+}
+extern "C" fn rt_get_field(t: u64, name: u64) -> u64 { let it = ctx(); it.get_field(Value(t), Value(name)).0 }
+extern "C" fn rt_set_field(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().set_field(Value(t), Value(name), Value(v)); leave_helper!(_hp); 0 }
+extern "C" fn rt_new_cell(v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let scope = it.open_scope(); it.handles.push(Value(v)); let c = it.new_cell(Value(v)); it.close_scope(scope); leave_helper!(_hp); c.0 }
+extern "C" fn rt_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.set_cell(Value(c), Value(v)); 0 }
+extern "C" fn rt_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let caps: Vec<Value> = (0..n as usize).map(|i| Value(unsafe { *argv.add(i) })).collect(); let scope = it.open_scope(); for &c in &caps { it.handles.push(c); } let v = it.new_closure(fid as u32, caps); it.close_scope(scope); leave_helper!(_hp); v.0 }
+extern "C" fn rt_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.tagcheck_rec(Value(v), shape as u32); v }
+extern "C" fn rt_tagcheck_str(v: u64) -> u64 { let it = ctx(); if !Value(v).as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { it.err("value is not a string") } v }
+extern "C" fn rt_new_table_sized(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
+extern "C" fn rt_ret_extra(argv: *const u64, n: u64) -> u64 { let it = ctx(); it.extra_n = (n as usize).min(8); for i in 0..it.extra_n { it.extra[i] = Value(unsafe { *argv.add(i) }); } 0 }
+/// pcall from compiled code: ok flag returned, every value after it in `extra`.
+extern "C" fn rt_pcall(argv: *const u64, nargs: u64) -> u64 {
+    let _hp = enter_helper!();
+    let it = ctx();
+    let args: Vec<Value> = (0..nargs as usize).map(|i| Value(unsafe { *argv.add(i) })).collect();
+    let scope = it.open_scope(); for &a in &args { it.handles.push(a); }
+    let outs = it.pcall_values(args[0], &args[1..]);
+    it.close_scope(scope);
+    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    leave_helper!(_hp);
+    outs[0].0
+}
+extern "C" fn rt_new_buffer() -> u64 { let _hp = enter_helper!(); let v = ctx().heap_new_buffer(); leave_helper!(_hp); v.0 }
 extern "C" fn rt_buf_append(buf: u64, s: u64) -> u64 { let it = ctx(); let text = it.bytes_of(Value(s)).to_vec(); it.buf_append(Value(buf), &text); 0 }
 extern "C" fn rt_buf_append_sub(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); let text = it.sub_bytes(Value(s), i as i64, j as i64).to_vec(); it.buf_append(Value(buf), &text); 0 }
-extern "C" fn rt_substring(s: u64, i: u64, j: u64) -> u64 { enter_helper!(); let v = ctx().substring(Value(s), i as i64, j as i64); leave_helper!(); v.0 }
-extern "C" fn rt_buf_finish(buf: u64) -> u64 { enter_helper!(); let v = ctx().buf_finish(Value(buf)); leave_helper!(); v.0 }
-extern "C" fn rt_bytes_to_str(s: u64, n: u64) -> u64 { enter_helper!(); let v = ctx().bytes_to_str(Value(s), n as usize); leave_helper!(); v.0 }
+extern "C" fn rt_substring(s: u64, i: u64, j: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().substring(Value(s), i as i64, j as i64); leave_helper!(_hp); v.0 }
+extern "C" fn rt_buf_finish(buf: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().buf_finish(Value(buf)); leave_helper!(_hp); v.0 }
+extern "C" fn rt_bytes_to_str(s: u64, n: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().bytes_to_str(Value(s), n as usize); leave_helper!(_hp); v.0 }
 /// The slow path of dynamic arithmetic and comparison: reached only when an
 /// operand is not a number, which this prototype treats as an error.
 extern "C" fn rt_arith_slow(a: u64, b: u64, op: u64) -> u64 {
@@ -562,9 +617,27 @@ fn main() {
         let want: Vec<f64> = args.get(4).map(|s| s.split(',').map(|x| x.parse().unwrap()).collect()).unwrap_or_default();
         CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         it.compiled = vec![None; it.funcs.len()];
-        let bench = it.require("nupp.bench.lexbench");
+        if std::env::var("NO_JIT").is_err() {
+            // The typed tier: every function the JIT accepts, callees first by iteration.
+            let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1), ("rt_call_dyn", rt_call_dyn as *const u8, 3), ("rt_call_method", rt_call_method as *const u8, 3), ("rt_get_field", rt_get_field as *const u8, 2), ("rt_set_field", rt_set_field as *const u8, 3), ("rt_new_cell", rt_new_cell as *const u8, 1), ("rt_set_cell", rt_set_cell as *const u8, 2), ("rt_new_closure", rt_new_closure as *const u8, 3), ("rt_tagcheck_rec", rt_tagcheck_rec as *const u8, 2), ("rt_tagcheck_str", rt_tagcheck_str as *const u8, 1), ("rt_new_table_sized", rt_new_table_sized as *const u8, 2), ("rt_ret_extra", rt_ret_extra as *const u8, 2), ("rt_pcall", rt_pcall as *const u8, 2)]);
+            j.extra_addr = &it.extra as *const [Value; 8] as i64;
+            j.inline = false;
+            let (mut compiled, mut refused) = (0, Vec::new());
+            let limit: usize = std::env::var("JIT_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+            let skip: Vec<String> = std::env::var("JIT_SKIP").map(|s| s.split(',').map(|x| x.to_string()).collect()).unwrap_or_default();
+            for fid in 0..it.funcs.len() {
+                let f = it.funcs[fid].clone();
+                if f.name.starts_with("module:") || compiled >= limit || skip.iter().any(|n| n == f.name) { continue; }
+                match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.compiled[fid] = Some(ptr); compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
+            }
+            if std::env::var("JIT_LIST").is_ok() { for fid in 0..it.funcs.len() { if it.compiled[fid].is_some() { eprintln!("jit\t{}", it.funcs[fid].name); } } }
+            eprintln!("compiled {compiled} functions; refused {}: {}", refused.len(), refused.join(", "));
+            std::mem::forget(j);
+        }
+        let module = std::env::var("LEX_MODULE").unwrap_or("nupp.bench.lexbench".into());
+        let bench = it.require(&module);
         let k = it.intern("setup"); let setup = it.get_index(bench, k);
-        it.call_value(setup, &[]);
+        if setup != Value::NIL { it.call_value(setup, &[]); }
         let k = it.intern("lex"); let lex = it.get_index(bench, k);
         let src = it.heap_new_string(source_text.clone()); it.registered.push(src);
         let outs = it.call_value(lex, &[src]);

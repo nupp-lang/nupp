@@ -6,7 +6,7 @@
 use crate::interp::{Function, Op};
 use crate::heap::{KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, JumpTableData, MemFlagsData, TrapCode, Value};
+use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::inline::{Inline, InlineCommand};
 use std::borrow::Cow;
 use cranelift_codegen::settings::{self, Configurable};
@@ -53,7 +53,9 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
 }
 
 pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, Vec<u8>, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
-    bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)> }
+    bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)>,
+    /// Addresses compiled code reads directly: the closure it was entered with, and the extra-results array.
+    pub cur_closure_addr: i64, pub extra_addr: i64 }
 
 struct Inliner<'a> { bodies: &'a HashMap<FuncId, cranelift_codegen::ir::Function>, refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> }
 impl Inline for Inliner<'_> {
@@ -92,7 +94,7 @@ impl Jit {
         let storage_ptr = module.declare_function("rt_storage_ptr", Linkage::Import, &sig).unwrap();
         let storage_len = module.declare_function("rt_storage_len", Linkage::Import, &sig).unwrap();
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), bodies: HashMap::new(), inline: std::env::var("NO_INLINE").is_err(), compile_micros: Vec::new() }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), bodies: HashMap::new(), inline: std::env::var("NO_INLINE").is_err(), compile_micros: Vec::new(), cur_closure_addr: &crate::interp::CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0 }
     }
 
     pub fn compile(&mut self, f: &Function) -> *const u8 { self.try_compile(f, u32::MAX).unwrap() }
@@ -111,8 +113,9 @@ impl Jit {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) | Op::ICmpNe(..) | Op::Truthy(..) => true,
+                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) | Op::ICmpNe(..) | Op::Truthy(..) | Op::GetSlot(..) | Op::FMod(..) => true,
                 Op::NewBuffer(..) | Op::BufAppend(..) | Op::BufAppendSub(..) | Op::Substring(..) | Op::BufFinish(..) => self.helpers.contains_key("rt_new_buffer"),
+                Op::GetUpval(..) | Op::GetCell(..) | Op::SetCell(..) | Op::NewCell(..) | Op::NewClosure(..) | Op::CallDyn(..) | Op::CallMethod(..) | Op::GetField(..) | Op::SetField(..) | Op::Len(..) | Op::Not(..) | Op::Neg(..) | Op::Ne(..) | Op::Div(..) | Op::Mod(..) | Op::TagCheckStr(..) | Op::TagCheckRec(..) | Op::NewTableN(..) | Op::RetN(..) | Op::PCall(..) => self.helpers.contains_key("rt_call_dyn") && self.extra_addr != 0,
                 Op::NewBytes(..) | Op::BytesToStr(..) => self.helpers.contains_key("rt_new_bytes"),
                 Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Lt(..) | Op::Le(..) => self.helpers.contains_key("rt_arith_slow"),
                 // A park needs the frame record: only a frame-record entry may compile it.
@@ -175,6 +178,14 @@ impl Jit {
             // that access storage; a function without such opcodes pays nothing
             // in its prologue, which matters once it is inlined into a loop.
             let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
+            // The closure this activation runs: handed over in CUR_CLOSURE by
+            // whoever entered it, read once; a frame-record entry has it in the header.
+            let closure_var = b.declare_var(types::I64);
+            b.declare_var_needs_stack_map(closure_var);
+            { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
+            let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
+            let (cur_closure_addr, extra_addr) = (self.cur_closure_addr, self.extra_addr);
+            if uses_closure { if osr.is_some() { let h = params[3]; let c = b.ins().load(types::I64, flags, h, 16); b.def_var(closure_var, c); } else { let a = b.ins().iconst(types::I64, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); } }
             if let Some(header) = osr {
                 // Every register the function names, from the interpreter's windows,
                 // then the entry block. Registers it never names stay at their
@@ -283,6 +294,10 @@ impl Jit {
                     Op::JmpIfNot(c, off) => { let v = rv!(c); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let is_nil = b.ins().icmp(IntCC::Equal, v, nil); let is_false = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(is_nil, is_false); let next = blocks[&(pc + 1)]; b.ins().brif(falsy, target(off), &[], next, &[]); terminated = true; }
                     Op::JmpIf(c, off) => { let v = rv!(c); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let is_nil = b.ins().icmp(IntCC::Equal, v, nil); let is_false = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(is_nil, is_false); let next = blocks[&(pc + 1)]; b.ins().brif(falsy, next, &[], target(off), &[]); terminated = true; }
                     Op::GetSlotF(d, r, i) => { let slots = slots_of!(r); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setf!(d, b.ins().bitcast(types::F64, cast, v)); }
+                    // The verifier proved the receiver a record (TagCheckRec or a
+                    // typed parameter), as it did for GetSlotF: a plain load.
+                    Op::GetSlot(d, r, i) => { let slots = slots_of!(r); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setr!(d, v); }
+                    Op::FMod(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let qv = b.ins().fdiv(p, q); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, q); setf!(d, b.ins().fsub(p, m)); }
                     Op::SetSlotF(r, i, x) => { let slots = slots_of!(r); let v = fv!(x); let boxed = box_f64!(v); b.ins().store(flags, boxed, slots, (i as i32) * 8); }
                     Op::LenF(d, r) => { let o = obj_of!(r); let n = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); setf!(d, b.ins().fcvt_from_sint(types::F64, n)); }
                     Op::GetIdxF(d, t, i) | Op::GetIdx(d, t, i) => {
@@ -494,6 +509,75 @@ impl Jit {
                         let parked = b.ins().iconst(types::I64, crate::heap::Value::PARKED.0 as i64);
                         b.ins().return_(&[parked]);
                         terminated = true;
+                    }
+                    Op::GetUpval(d, i) => { let c = b.use_var(closure_var); let o = b.ins().band_imm(c, PAYLOAD); let caps = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, caps, (i as i32) * 8); setr!(d, v); }
+                    Op::GetCell(d, c) => { let o = obj_of!(c); let vp = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, vp, 0); setr!(d, v); }
+                    Op::SetCell(c, a) => {
+                        // A number needs no barrier; an object goes through the runtime.
+                        let v = rv!(a); let o = obj_of!(c);
+                        let m = b.ins().band_imm(v, QNAN); let is_n = b.ins().icmp_imm(IntCC::NotEqual, m, QNAN);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); b.set_cold_block(slow);
+                        b.ins().brif(is_n, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast); let vp = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); b.ins().store(flags, v, vp, 0); b.ins().jump(join, &[]);
+                        b.switch_to_block(slow); b.seal_block(slow); let cv = rv!(c); b.ins().call(helper_refs["rt_set_cell"], &[cv, v]); b.ins().jump(join, &[]);
+                        b.switch_to_block(join); b.seal_block(join); slots_cache.clear(); cond_of.clear();
+                    }
+                    Op::NewCell(d, a) => { let v = rv!(a); let c = b.ins().call(helper_refs["rt_new_cell"], &[v]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::NewClosure(d, fid_, base, n) => {
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (n as u32).max(1), 3));
+                        for i in 0..n { let v = rv!(base + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); }
+                        let addr = b.ins().stack_addr(types::I64, slot, 0); let fv = b.ins().iconst(types::I64, fid_ as i64); let nv = b.ins().iconst(types::I64, n as i64);
+                        let c = b.ins().call(helper_refs["rt_new_closure"], &[fv, addr, nv]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]);
+                    }
+                    Op::CallDyn(_, base, _) | Op::PCall(base, _) => {
+                        // Arguments through a stack slot the helper roots; the first
+                        // result returns, the rest are read back from `extra`.
+                        let (callee, argc) = match *op { Op::CallDyn(fr, _, n) => (Some(fr), n as usize), Op::PCall(_, n) => (None, n as usize + 1), _ => unreachable!() };
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3));
+                        for i in 0..argc { let v = rv!(base as usize + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); }
+                        let addr = b.ins().stack_addr(types::I64, slot, 0); let nv = b.ins().iconst(types::I64, argc as i64);
+                        let c = match callee { Some(fr) => { let cv = rv!(fr); b.ins().call(helper_refs["rt_call_dyn"], &[cv, addr, nv]) } None => b.ins().call(helper_refs["rt_pcall"], &[addr, nv]) };
+                        slots_cache.clear(); cond_of.clear(); bytes_cache.clear();
+                        setr!(base, b.inst_results(c)[0]);
+                        let ea = b.ins().iconst(types::I64, extra_addr);
+                        for i in 1..8usize { if base as usize + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base as usize + i, v); }
+                    }
+                    Op::CallMethod(k, base, nargs) => {
+                        let argc = nargs as usize; // the receiver is counted
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * argc as u32, 3));
+                        for i in 0..argc { let v = rv!(base as usize + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); }
+                        let addr = b.ins().stack_addr(types::I64, slot, 0); let nv = b.ins().iconst(types::I64, argc as i64); let name = b.ins().iconst(types::I64, consts[k as usize] as i64);
+                        let c = b.ins().call(helper_refs["rt_call_method"], &[name, addr, nv]);
+                        slots_cache.clear(); cond_of.clear(); bytes_cache.clear();
+                        setr!(base, b.inst_results(c)[0]);
+                        let ea = b.ins().iconst(types::I64, extra_addr);
+                        for i in 1..8usize { if base as usize + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base as usize + i, v); }
+                    }
+                    Op::GetField(d, t, k) => { let tv = rv!(t); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = b.ins().call(helper_refs["rt_get_field"], &[tv, name]); setr!(d, b.inst_results(c)[0]); }
+                    Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); b.ins().call(helper_refs["rt_set_field"], &[tv, name, vv]); slots_cache.clear(); }
+                    Op::Len(d, a) => { let v = rv!(a); let c = b.ins().call(helper_refs["rt_len"], &[v]); let n = b.inst_results(c)[0]; let fl = b.ins().fcvt_from_uint(types::F64, n); setr!(d, box_f64!(fl)); }
+                    Op::Not(d, a) => { let v = rv!(a); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let a1 = b.ins().icmp(IntCC::Equal, v, nil); let a2 = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(a1, a2); let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); setr!(d, b.ins().select(falsy, t, fa)); }
+                    Op::Neg(d, a) => { let v = rv!(a); let m = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, m, QNAN); checked!(ok); let fv = b.ins().bitcast(types::F64, cast, v); let n = b.ins().fneg(fv); setr!(d, box_f64!(n)); }
+                    Op::Ne(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().icmp(IntCC::NotEqual, p, q); let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); setr!(d, b.ins().select(c, t, fa)); }
+                    Op::Div(d, x, y) | Op::Mod(d, x, y) => {
+                        let (p, q) = (rv!(x), rv!(y)); let both = is_num2!(p, q); checked!(both);
+                        let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
+                        let r = if matches!(*op, Op::Div(..)) { b.ins().fdiv(fp, fq) } else { let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, fq); b.ins().fsub(fp, m) };
+                        setr!(d, box_f64!(r));
+                    }
+                    Op::TagCheckStr(d, a) => { let v = rv!(a); b.ins().call(helper_refs["rt_tagcheck_str"], &[v]); setr!(d, v); }
+                    Op::TagCheckRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); b.ins().call(helper_refs["rt_tagcheck_rec"], &[v, s]); setr!(d, v); }
+                    Op::NewTableN(d, n, m) => { let nv = b.ins().iconst(types::I64, n as i64); let mv = b.ins().iconst(types::I64, m as i64); let c = b.ins().call(helper_refs["rt_new_table_sized"], &[nv, mv]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::RetN(start, n) => {
+                        if n == 0 { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
+                        else {
+                            let extra = n as usize - 1;
+                            let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (extra as u32).max(1), 3));
+                            for i in 0..extra { let v = rv!(start as usize + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); }
+                            let addr = b.ins().stack_addr(types::I64, slot, 0); let nv = b.ins().iconst(types::I64, extra as i64);
+                            b.ins().call(helper_refs["rt_ret_extra"], &[addr, nv]);
+                            let r = rv!(start); b.ins().return_(&[r]); terminated = true;
+                        }
                     }
                     Op::Switch(r, t) => {
                         // A jump table: negative and oversized indexes clamp onto the default.

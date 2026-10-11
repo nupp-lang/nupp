@@ -1,0 +1,29 @@
+module nupp.bench.multi
+
+--- Two results through a compiled function, with and without a cell.
+local m = {}
+
+function m.pair(src: string): ({string}, {string})
+    local tokens: {string} = {}
+    local errors: {string} = {}
+    local function add(e: string)
+        errors[#errors + 1] = e
+    end
+    tokens[1] = src
+    add("x")
+    return tokens, errors
+end
+
+function m.plain(src: string): ({string}, {string})
+    local a: {string} = {src}
+    local b: {string} = {"y", "z"}
+    return a, b
+end
+
+function m.lex(src: string): (number, number, number)
+    local t, e = m.pair(src)
+    local a, b = m.plain(src)
+    return #t + #a, #e + #b, 0
+end
+
+export = m

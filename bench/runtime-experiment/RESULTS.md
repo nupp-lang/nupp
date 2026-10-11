@@ -871,6 +871,64 @@ lexer needs the emitter to keep the checker's types for locals and
 parameters (it discards them for dynamic calls) and the JIT to take
 closures and upvalues. That is the next step for this slice.
 
+## The lexer on the typed tier
+
+Date: 2026-10-11. The same image, every function compiled by Cranelift
+before the first lex, and the interpreter used only for the module
+chunks that run once. What the JIT needed, all new: upvalues and cells
+(`GetUpval`, `GetCell`, `SetCell`, `NewCell`), closures (`NewClosure`,
+the current closure read once in the prologue from a global the call
+path maintains), dynamic calls and method calls through helpers that
+take their arguments in a stack slot, field reads and writes by constant
+name, `Len`, `Not`, `Neg`, `Ne`, `Div`, `Mod`, `FMod`, `GetSlot`, the
+string and record tag checks, sized tables, `RetN` and multiple results
+(surplus results handed back in an `extra` buffer the caller's lowering
+reads), and `pcall`. Every call in the lexer is still dynamic: the
+emitter has not yet kept the checker's types for parameters and locals,
+so no call is direct and no argument is unboxed. Forty-two functions
+compile; the only refusals left in the image are the sample programs
+and the once-run `load`.
+
+| the lexer's own source, per lex | ms | ns per byte |
+| --- | ---: | ---: |
+| LuaJIT trace, ffi arena | 0.43 | 10.6 |
+| LuaJIT interpreter, ffi arena | 2.70 | 65.6 |
+| prototype interpreter, table arena | 8.6 | 210 |
+| prototype typed tier, first run that agreed | 6.0 | 145 |
+| after the call helpers stopped allocating | 2.8 | 68 |
+| after `GetSlot` and `FMod` lowerings (arena methods compiled) | 2.5 | 60 |
+
+Three bugs found by this run, each a P3 lesson. `rt_new_cell` allocated
+without rooting its value, so the second lex freed a captured local: a
+helper that allocates must open a handle scope first, and the JIT's
+helper list should say which ones allocate. `enter_compiled` read the
+surplus-result count through `&mut self` after a call that wrote it
+through the context pointer, and the optimiser kept the stale read: the
+fields a helper writes behind the interpreter's back are read volatile
+with a fence. A nested helper call zeroed the outer helper's frame
+pointer: helpers save and restore it.
+
+The two-fold change from 6.0 to 2.8 ms was the dynamic-call helpers
+building a `Vec` of arguments, routing through `call_value` (another
+`Vec` of results) and copying out: the arguments now stay in the stack
+slot the compiled caller filled and the builtin and compiled paths return
+`Outs` on the stack. It is the same lesson as the builtin calls in the
+untyped tier, and it says the typed tier's remaining cost is the call
+boundary, not the code. The sampler on the 2.5 ms run: 40% in the
+dynamic-call path (`rt_call_dyn`, `enter_compiled`, `call_outs`,
+`builtins::call` and its `Outs`), 10% in the token tables' hash-part
+inserts, 12% in malloc and free, 6% in the collector, and the generated
+code itself under 12%.
+
+What this says for the plan: the typed tier already beats LuaJIT's
+interpreter on compiler-shaped code with every call still dynamic and
+every value boxed, so the `nupp check` row's 1.25x LuaJIT target is in
+reach of the untyped lowering plus direct calls. The next lowering
+items are the ones the profile names: direct calls to known callees with
+typed arguments (closes the 40%), `string.byte` as an intrinsic (half
+the builtin calls), and token records in place of tables (the hash
+inserts). The threaded interpreter is unaffected by any of this.
+
 ## Threaded dispatch: the call row closed
 
 Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the
