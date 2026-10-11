@@ -1,0 +1,23 @@
+[package]
+name = "nupp-vm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The Nupp runtime of the runtime plan: NaN-boxed values, a variable-size
+# non-moving heap with an incremental collector, one-stack frames, the
+# interpreter, the image loader and verifier, and the host services on the
+# parking surface. No JIT here; that is P5.
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "nupp-vm"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "allow"

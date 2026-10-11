@@ -1,0 +1,61 @@
+module nupp.bench.parsebench
+
+--- Runs the compiler's parser on the runtime: the table arena provider
+--- installed, then `parse` over a source text, answering a checksum over
+--- the concrete syntax tree so a run can be checked against LuaJIT.
+local parser = require("nupp.compiler.syntax.parser")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
+local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
+
+local bench = {}
+
+function bench.setup(): boolean
+    triviaarena.install(tableProvider)
+    return true
+end
+
+--- Walks the tree: every node's kind and every token's text and position,
+--- folded into one number, with the node count.
+local function walk(node: any, sum: number, count: number): (number, number)
+    local kind = node.kind
+    if kind == nil then return sum, count end
+    for i = 1, #kind do sum = (sum * 31 + string.byte(kind, i)) % 1000000007 end
+    count = count + 1
+    if node.text ~= nil and node.line ~= nil then
+        sum = (sum * 31 + #node.text + node.line * 7 + node.col) % 1000000007
+        return sum, count
+    end
+    for _, child in ipairs(node) do
+        sum, count = walk(child, sum, count)
+    end
+    return sum, count
+end
+
+--- Parses `source` and returns the node count, the error count and the
+--- tree checksum.
+function bench.parse(source: string): (number, number, number)
+    local result = parser.parse(source, "bench.nupp")
+    local sum, count = walk(result.root, 0, 0)
+    return count, #result.errors, sum
+end
+
+--- The tree as text, one line per node or token, for diffing two runtimes.
+local function dumpInto(node: any, out: {string}, depth: number)
+    local kind = node.kind
+    if kind == nil then return end
+    if node.text ~= nil and node.line ~= nil then
+        out[#out + 1] = string.rep(" ", depth) .. kind .. " " .. node.text .. " " .. node.line .. ":" .. node.col
+        return
+    end
+    out[#out + 1] = string.rep(" ", depth) .. kind
+    for _, child in ipairs(node) do dumpInto(child, out, depth + 1) end
+end
+
+function bench.dump(source: string): string
+    local result = parser.parse(source, "bench.nupp")
+    local out: {string} = {}
+    dumpInto(result.root, out, 0)
+    return table.concat(out, "\n")
+end
+
+export = bench

@@ -1145,6 +1145,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nupp-vm"
+version = "0.1.0"
+
+[[package]]
 name = "objc2"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
