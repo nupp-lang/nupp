@@ -162,3 +162,66 @@ What this does not cover: SHA-256, whose IR is the builder-bridge entry
 mode and needs the string and scratch nodes lowered; records, `any`, and
 anything outside the admitted subset; the GC in the compiled tier (no stack
 maps yet); loop-header transfer; x86-64.
+
+## The whole-language slice: checked tree to image to runtime
+
+Date: 2026-10-10, same branch. The chunk after the image milestone: a
+bytecode emitter that walks the compiler's checked tree rather than the
+kernel IR, for a bounded program, and the runtime pieces to run it.
+Sources: `emit/emit.lua` (339 lines, run by `nupp run`, consuming
+`compile.check`'s annotated tree), `emit/sample.nupp` (the program),
+`src/image.rs` (the loader, 94 lines), and the untyped opcodes added to
+`interp.rs`: string concatenation, length, negation, tag checks, dynamic
+method dispatch through the shape's method table, and `pcall`.
+
+The program: a `local record Point` with three typed fields and a method; a
+function building a hundred points with `new` and named arguments and
+string concatenation into a typed array; a loop summing a method call per
+element; a function casting `any` to `Point` and reading a field; `pcall`
+around it with a well-typed and an ill-typed value; a string-keyed table
+written and read back; an `and`/`not` chain deciding the result.
+
+What happened:
+
+- **The checked tree carried everything the emitter needed.** Every
+  expression node has `inferredType`: primitives by tag, arrays with their
+  element, maps with key and value, records as `nominal` with a name and a
+  `byname` field map, literals with a base, `any` as itself. Record
+  declarations carry `resolvedType`. Slot order comes from the declaration's
+  entries. The emitter did its own lexical scoping and resolved method calls
+  statically when the receiver's type was a known record, dynamically
+  through the shape's method table otherwise. Nothing had to be added to the
+  checker.
+- **`lower.nupp` is not where the whole-language lowering lives.** Its IR
+  starts from admission and has no node for a record, a table, a string
+  value, a closure, `any` or an error path. The slice's emitter is a sibling
+  walking the checked tree; the kernel pipeline consumed `lower.nupp`'s
+  output for the admitted subset. That is the second of the plan's two
+  options, and it is now the answer: the whole-language lowering reads the
+  checked tree, and calls into the kernel lowering for bodies the kernel
+  admission accepts.
+- **The oracle found a collector bug the earlier corpus could not.** Under
+  interleaved marking, iteration eleven of the second run interned `"p11"`,
+  hit the intern table, and received the previous run's `"p11"`: white,
+  unreachable, and about to be swept. Registers carry no barrier, so the
+  sweep freed a string a register held. The intern table is a weak table,
+  and a weak table that hands out references needs a read barrier: while
+  marking, a white hit is greyed; while sweeping, a white hit is already
+  dead and is treated as a miss. Contracts 4.12. Stress mode could not see
+  this because its cycles are atomic; the interleaved mode exists for it.
+- **Enforced writes and the `any` boundary behave.** `value as Point` on a
+  table raises inside `pcall`, which reports false; on a real point it
+  passes and the typed slot read follows with no check.
+- **Result and cost.** The expected 1,691,750 from every run, including
+  under stress and interleaved collection with the oracle. The prototype
+  interpreter runs `main` in 27.7 us; LuaJIT's interpreter runs the same
+  program, compiled by the ordinary generator, in 8.6 us, and its JIT in
+  5.2 us. The gap is the cold tier the plan accepts plus the emitter's naive
+  register use, one move per operand, and `pcall` on a scratch task.
+
+What this does not cover: closures and upvalues, varargs, multiple
+returns, `for in`, string methods, metamethods, workers, and the typed tier
+for anything in this program: `Point.length` runs on the untyped
+interpreter although every operand is typed. Routing typed method bodies to
+the typed register classes and Cranelift is the next emitter step, and the
+first one where the two experiments meet.

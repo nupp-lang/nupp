@@ -70,6 +70,8 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 pub struct Shape {
     pub names: Vec<Value>, // interned strings
     pub types: Vec<SlotTy>,
+    /// The descriptor: method name (interned) to function id.
+    pub methods: HashMap<Value, u32>,
 }
 
 pub enum Body {
@@ -78,7 +80,7 @@ pub enum Body {
     Record { shape: u32, slots: Vec<Value> },
     /// Owned numeric storage a typed span borrows: the non-moving space.
     Storage { data: Vec<f64> },
-    Freed,
+    Freed(String),
 }
 
 pub struct Object {
@@ -125,7 +127,7 @@ impl Heap {
     }
 
     pub fn shape(&mut self, names: &[Value], types: &[SlotTy]) -> u32 {
-        self.shapes.push(Shape { names: names.to_vec(), types: types.to_vec() });
+        self.shapes.push(Shape { names: names.to_vec(), types: types.to_vec(), methods: HashMap::new() });
         (self.shapes.len() - 1) as u32
     }
 
@@ -151,7 +153,19 @@ impl Heap {
     }
 
     pub fn intern(&mut self, s: &str, roots: &dyn Roots) -> Value {
-        if let Some(p) = self.interned.get(s) { return Value::obj(*p); }
+        if let Some(&p) = self.interned.get(s) {
+            // The intern table is weak, so a hit is a read through a non-root
+            // edge and needs a barrier: while marking, a white hit is greyed so
+            // the cycle keeps it; while sweeping, a white hit is already dead by
+            // decision and must not be resurrected, so it is a miss.
+            unsafe {
+                match (self.phase, (*p.as_ptr()).color) {
+                    (Phase::Marking, Color::White) => { (*p.as_ptr()).color = Color::Gray; self.gray.push(p); self.stats.barrier_grays += 1; return Value::obj(p); }
+                    (Phase::Sweeping, Color::White) => { self.interned.remove(s); }
+                    _ => return Value::obj(p),
+                }
+            }
+        }
         let hash = { let mut h: u64 = 0xcbf29ce484222325; for b in s.bytes() { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } h };
         let p = self.alloc(Body::Str { text: s.into(), hash }, 32 + s.len(), roots);
         self.interned.insert(s.into(), p);
@@ -225,7 +239,7 @@ impl Heap {
                 unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } }
             }
         });
-        for s in &self.shapes { for &n in &s.names { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
+        for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
     }
 
     fn scan(&mut self, p: NonNull<Object>) {
@@ -235,7 +249,7 @@ impl Heap {
             match &(*p.as_ptr()).body {
                 Body::Table { array, hash } => { for &v in array { push(v); } for (&k, &v) in hash { push(k); push(v); } }
                 Body::Record { slots, .. } => { for &v in slots { push(v); } }
-                Body::Str { .. } | Body::Storage { .. } | Body::Freed => {}
+                Body::Str { .. } | Body::Storage { .. } | Body::Freed(_) => {}
             }
             (*p.as_ptr()).color = Color::Black;
         }
@@ -290,7 +304,8 @@ impl Heap {
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
-                o.body = Body::Freed;
+                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Freed(w) => w.clone() };
+                o.body = Body::Freed(what);
                 o.color = Color::White;
             } else {
                 drop(Box::from_raw(p.as_ptr()));
@@ -311,22 +326,23 @@ impl Heap {
 
     pub fn check_oracle_with(&self, roots: &dyn Roots, exact: bool) {
         let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        let mut stack: Vec<NonNull<Object>> = Vec::new();
-        let mut visit = |v: Value, stack: &mut Vec<NonNull<Object>>| { if let Some(p) = v.as_obj() { stack.push(p); } };
-        roots.each_root(&mut |v| visit(v, &mut stack));
-        for s in &self.shapes { for &n in &s.names { visit(n, &mut stack); } }
-        while let Some(p) = stack.pop() {
+        let mut stack: Vec<(NonNull<Object>, String)> = Vec::new();
+        let mut visit = |v: Value, via: String, stack: &mut Vec<(NonNull<Object>, String)>| { if let Some(p) = v.as_obj() { stack.push((p, via)); } };
+        let mut n = 0;
+        roots.each_root(&mut |v| { n += 1; visit(v, format!("root #{n}"), &mut stack) });
+        for s in &self.shapes { for &nm in s.names.iter().chain(s.methods.keys()) { visit(nm, "shape".into(), &mut stack); } }
+        while let Some((p, via)) = stack.pop() {
             if !seen.insert(p.as_ptr() as usize) { continue; }
             unsafe {
                 match &(*p.as_ptr()).body {
-                    Body::Freed => panic!("oracle: a reachable object was freed"),
-                    Body::Table { array, hash } => { for &v in array { visit(v, &mut stack); } for (&k, &v) in hash { visit(k, &mut stack); visit(v, &mut stack); } }
-                    Body::Record { slots, .. } => { for &v in slots { visit(v, &mut stack); } }
+                    Body::Freed(what) => panic!("oracle: a reachable object was freed: {what}, reached via {via}"),
+                    Body::Table { array, hash } => { for (i, &v) in array.iter().enumerate() { visit(v, format!("{via} > table[{}]", i + 1), &mut stack); } for (&k, &v) in hash { visit(k, format!("{via} > table key"), &mut stack); visit(v, format!("{via} > table value"), &mut stack); } }
+                    Body::Record { slots, shape } => { for (i, &v) in slots.iter().enumerate() { visit(v, format!("{via} > record{shape}.slot{i}"), &mut stack); } }
                     _ => {}
                 }
             }
         }
-        let survivors: Vec<usize> = self.objects.iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed) }).map(|p| p.as_ptr() as usize).collect();
+        let survivors: Vec<usize> = self.objects.iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed(_)) }).map(|p| p.as_ptr() as usize).collect();
         let set: std::collections::HashSet<usize> = survivors.iter().copied().collect();
         for s in &seen { assert!(set.contains(s), "oracle: a reachable object is missing from the heap"); }
         if exact {

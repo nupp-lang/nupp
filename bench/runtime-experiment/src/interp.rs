@@ -37,6 +37,18 @@ pub enum Op {
     SetSlot(u8, u16, u8),
     Park(u8),
     Checkpoint,
+    Ne(u8, u8, u8),
+    Concat(u8, u8, u8),
+    Not(u8, u8),
+    Neg(u8, u8),
+    Len(u8, u8),
+    /// Dynamic dispatch: method name (constant) looked up in the receiver's shape.
+    CallMethod(u16, u8, u8),
+    /// pcall: callee at base+1, arguments after; results ok at base, value at base+1.
+    PCall(u8, u8),
+    TagCheckRec(u8, u8, u32),
+    TagCheckNum(u8, u8),
+    TagCheckStr(u8, u8),
     // Typed tier: i = integer registers, f = float registers, v = f64x2 registers.
     IK(u8, i64),
     IAdd(u8, u8, u8),
@@ -123,6 +135,7 @@ pub struct Interp {
     pub handles: Vec<Value>,
     back_edges: u32,
     pub parks: u64,
+    pub trace: bool,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value] }
@@ -140,7 +153,7 @@ pub enum Outcome { Done(Value), Parked(u64) }
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0 } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok() } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles }; self.heap.intern(s, &r) }
 
@@ -207,6 +220,7 @@ impl Interp {
             loop {
                 debug_assert!(pc < ncode);
                 let op = unsafe { *code.add(pc) };
+                if self.trace { eprintln!("  {}:{} {:?}", self.funcs[fid as usize].name, pc, op); }
                 pc += 1;
                 match op {
                     Op::K(d, k) => r!(d) = unsafe { *consts.add(k as usize) },
@@ -274,8 +288,45 @@ impl Interp {
                         } }
                     }
                     Op::NewRecord(d, shape) => { let v = self.heap.new_record(shape, roots!(self)); r!(d) = v; }
-                    Op::GetSlot(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), Body::Freed => self.err("use after free"), _ => self.err("slot of a non-record") } }; }
-                    Op::SetSlot(t, i, s) => { let v = r!(s); let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, Body::Freed => self.err("use after free"), _ => self.err("slot of a non-record") } } }
+                    Op::GetSlot(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), Body::Freed(_) => self.err("use after free"), _ => self.err("slot of a non-record") } }; }
+                    Op::SetSlot(t, i, s) => { let v = r!(s); let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, Body::Freed(_) => self.err("use after free"), _ => self.err("slot of a non-record") } } }
+                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(x != y) }
+                    Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
+                    Op::Neg(d, a) => { let x = r!(a); if !x.is_num() { self.err("negate a non-number") } r!(d) = Value::num(-x.as_num()) }
+                    Op::Len(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; r!(d) = Value::num(n as f64) }
+                    Op::Concat(d, a, b) => {
+                        let (x, y) = (r!(a), r!(b));
+                        let text = |v: Value| -> String { if v.is_num() { let n = v.as_num(); if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{}", n) } } else { match v.as_obj() { Some(p) => unsafe { (*p.as_ptr()).str_text().to_string() }, None => self.err("concatenate a non-string") } } };
+                    let joined = text(x) + &text(y);
+                        let v = self.heap.intern(&joined, roots!(self));
+                        r!(d) = v;
+                    }
+                    Op::CallMethod(k, b, nargs) => {
+                        let name = unsafe { *consts.add(k as usize) };
+                        let recv = r!(b + 1);
+                        let p = recv.as_obj().unwrap_or_else(|| self.err("method call on a non-object"));
+                        let fid = unsafe { match &(*p.as_ptr()).body { Body::Record { shape, .. } => *self.heap.shapes[*shape as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method")), _ => self.err("method call on a non-record") } };
+                        self.push_frame(tid, fid, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break;
+                    }
+                    Op::PCall(b, nargs) => {
+                        // The callee runs on a scratch task so an error unwinds only it.
+                        let callee = r!(b + 1).as_func().unwrap_or_else(|| self.err("pcall of a non-function"));
+                        let args: Vec<Value> = (0..nargs as usize).map(|i| r!(b + 2 + i as u8)).collect();
+                        let scratch = self.spawn(callee, &args);
+                        let hook = std::panic::take_hook();
+                        std::panic::set_hook(Box::new(|_| {}));
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(scratch)));
+                        std::panic::set_hook(hook);
+                        self.tasks.truncate(scratch);
+                        match outcome {
+                            Ok(Outcome::Done(v)) => { r!(b) = Value::TRUE; r!(b + 1) = v; }
+                            Ok(Outcome::Parked(_)) => self.err("pcall body parked"),
+                            Err(payload) => { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); let m = self.heap.intern(&msg, roots!(self)); r!(b) = Value::FALSE; r!(b + 1) = m; }
+                        }
+                    }
+                    Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } r!(d) = v; }
+                    Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
+                    Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
                     Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; t.frames.last_mut().unwrap().pc = pc as u32; t.state = State::Parked(key); return Outcome::Parked(key); }
                     Op::Checkpoint => { self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,

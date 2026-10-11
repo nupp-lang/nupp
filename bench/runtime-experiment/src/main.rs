@@ -1,5 +1,6 @@
 mod heap;
 mod interp;
+mod image;
 mod ir;
 mod jit;
 mod lower_ir;
@@ -198,6 +199,29 @@ fn main() {
     let point = build(&mut it);
     let x = it.intern("x");
     if mode == "image" { image_mode(&mut it, &args[2]); return; }
+    if mode == "run-image" {
+        let text = std::fs::read_to_string(&args[2]).expect("image");
+        let entry = image::load(&mut it, &text).unwrap_or_else(|e| panic!("load: {e}"));
+        let want: f64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(f64::NAN);
+        let result = run_to_end(&mut it, entry, &[]);
+        eprintln!("result {} (expected {want})", result.as_num());
+        if !want.is_nan() { assert_eq!(result.as_num(), want); }
+        // Under collector stress with the oracle, then interleaved, then timed.
+        it.heap.stress = true; it.heap.oracle = true; it.heap.quarantine = true;
+        eprintln!("stress run");
+        assert_eq!(run_to_end(&mut it, entry, &[]).as_num(), result.as_num());
+        let stress = it.heap.stats.clone();
+        it.heap.stress = false; it.heap.stress_steps = true;
+        eprintln!("interleaved run");
+        assert_eq!(run_to_end(&mut it, entry, &[]).as_num(), result.as_num());
+        it.heap.stress_steps = false; it.heap.oracle = false; it.heap.quarantine = std::env::var("GC_QUARANTINE").is_ok();
+        eprintln!("PASS run-image: stress cycles {} freed {} barrier greys {}", stress.cycles, stress.freed, it.heap.stats.barrier_grays);
+        let mut count = 1usize;
+        let mut sink = 0.0;
+        loop { let s = cpu_now(); for _ in 0..count { sink += black_box(run_to_end(&mut it, entry, &[]).as_num()); } let e = cpu_now() - s; if e >= 0.2 { println!("main\t{:.1} us per call ({count} calls)", e / count as f64 * 1e6); break; } count *= 2; }
+        black_box(sink);
+        return;
+    }
 
     if mode == "all" || mode == "check" {
         // Semantics without stress.

@@ -1,0 +1,94 @@
+//! Loader for the emitter's text image: shapes, functions with constants and
+//! opcodes named after the runtime's `Op` variants, and the entry.
+
+use crate::heap::SlotTy;
+use crate::interp::{Function, Interp, Op};
+
+pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
+    let mut entry = 0u32;
+    let mut shape_ids: Vec<u32> = Vec::new();
+    let mut pending_methods: Vec<(u32, String, u32)> = Vec::new();
+    let mut funcs: Vec<Function> = Vec::new();
+    let base = it.funcs.len() as u32;
+    let mut cur: Option<Function> = None;
+    for (ln, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() { continue; }
+        let parts: Vec<&str> = split(line);
+        match parts[0] {
+            "shape" => {
+                let mut names = Vec::new(); let mut types = Vec::new();
+                for p in &parts[3..] {
+                    if let Some(m) = p.strip_prefix("method:") { let (n, f) = m.split_once('=').unwrap(); pending_methods.push((shape_ids.len() as u32, n.to_string(), f.parse().unwrap())); continue; }
+                    let (n, t) = p.split_once(':').ok_or(format!("line {ln}: slot"))?;
+                    names.push(it.intern(n));
+                    types.push(match t { "num" => SlotTy::Num, "str" => SlotTy::Str, "bool" => SlotTy::Bool, t if t.starts_with("rec:") => SlotTy::Record(shape_ids[t[4..].parse::<usize>().unwrap()]), _ => SlotTy::Any });
+                }
+                let id = it.heap.shape(&names, &types);
+                shape_ids.push(id);
+            }
+            "function" => {
+                let name: &'static str = Box::leak(parts[1].to_string().into_boxed_str());
+                cur = Some(Function { name, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: 1, nfreg: 1, nvreg: 2 });
+            }
+            "const" => {
+                let f = cur.as_mut().unwrap();
+                let v = match parts[2] {
+                    "num" => crate::heap::Value::num(parts[3].parse().unwrap()),
+                    "str" => { let s = unquote(&line[line.find('"').unwrap()..]); it.intern(&s) }
+                    "nil" | "builtin" => crate::heap::Value::NIL,
+                    "true" => crate::heap::Value::TRUE,
+                    "false" => crate::heap::Value::FALSE,
+                    "func" => crate::heap::Value::func(base + parts[3].parse::<u32>().unwrap()),
+                    k => return Err(format!("line {ln}: constant kind {k}")),
+                };
+                f.consts.push(v);
+            }
+            "end" => { funcs.push(cur.take().unwrap()); }
+            "entry" => { entry = base + parts[1].parse::<u32>().unwrap(); }
+            name => {
+                let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
+                let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };
+                let op = match name {
+                    "K" => Op::K(a(1) as u8, a(2) as u16), "Move" => Op::Move(a(1) as u8, a(2) as u8), "Nil" => Op::Nil(a(1) as u8),
+                    "Add" => Op::Add(a(1) as u8, a(2) as u8, a(3) as u8), "Sub" => Op::Sub(a(1) as u8, a(2) as u8, a(3) as u8), "Mul" => Op::Mul(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "Lt" => Op::Lt(a(1) as u8, a(2) as u8, a(3) as u8), "Le" => Op::Le(a(1) as u8, a(2) as u8, a(3) as u8), "Eq" => Op::Eq(a(1) as u8, a(2) as u8, a(3) as u8), "Ne" => Op::Ne(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "Concat" => Op::Concat(a(1) as u8, a(2) as u8, a(3) as u8), "Not" => Op::Not(a(1) as u8, a(2) as u8), "Neg" => Op::Neg(a(1) as u8, a(2) as u8), "Len" => Op::Len(a(1) as u8, a(2) as u8),
+                    "Jmp" => Op::Jmp(a(1) as i32), "JmpIf" => Op::JmpIf(a(1) as u8, a(2) as i32), "JmpIfNot" => Op::JmpIfNot(a(1) as u8, a(2) as i32),
+                    "Call" => Op::Call(base + a(1) as u32, a(2) as u8, a(3) as u8), "CallDyn" => Op::CallDyn(a(1) as u8, a(2) as u8, a(3) as u8), "CallMethod" => Op::CallMethod(a(1) as u16, a(2) as u8, a(3) as u8), "PCall" => Op::PCall(a(1) as u8, a(2) as u8),
+                    "Ret" => Op::Ret(a(1) as u8), "RetNil" => Op::RetNil,
+                    "NewTable" => Op::NewTable(a(1) as u8), "GetIdx" => Op::GetIdx(a(1) as u8, a(2) as u8, a(3) as u8), "SetIdx" => Op::SetIdx(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "GetField" => Op::GetField(a(1) as u8, a(2) as u8, a(3) as u16), "SetField" => Op::SetField(a(1) as u8, a(2) as u16, a(3) as u8),
+                    "NewRecord" => Op::NewRecord(a(1) as u8, shape_ids[a(2) as usize]), "GetSlot" => Op::GetSlot(a(1) as u8, a(2) as u8, a(3) as u16), "SetSlot" => Op::SetSlot(a(1) as u8, a(2) as u16, a(3) as u8),
+                    "TagCheckRec" => Op::TagCheckRec(a(1) as u8, a(2) as u8, shape_ids[a(3) as usize]), "TagCheckNum" => Op::TagCheckNum(a(1) as u8, a(2) as u8), "TagCheckStr" => Op::TagCheckStr(a(1) as u8, a(2) as u8),
+                    other => return Err(format!("line {ln}: unknown opcode {other}")),
+                };
+                f.code.push(op);
+            }
+        }
+    }
+    for f in funcs { it.funcs.push(f); }
+    for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, base + fid); }
+    Ok(entry)
+}
+
+fn split(line: &str) -> Vec<&str> {
+    // Whitespace split that keeps a quoted string as one token.
+    let mut out = Vec::new();
+    let mut rest = line;
+    while !rest.is_empty() {
+        rest = rest.trim_start();
+        if rest.starts_with('"') { let end = rest[1..].find('"').map(|i| i + 2).unwrap_or(rest.len()); out.push(&rest[..end]); rest = &rest[end..]; }
+        else { let end = rest.find(char::is_whitespace).unwrap_or(rest.len()); out.push(&rest[..end]); rest = &rest[end..]; }
+    }
+    out
+}
+
+fn unquote(s: &str) -> String {
+    let inner = &s[1..s.rfind('"').unwrap()];
+    let mut out = String::new();
+    let b = inner.as_bytes();
+    let mut i = 0;
+    while i < b.len() { if b[i] == b'\\' && i + 3 < b.len() + 1 { let code: u8 = std::str::from_utf8(&b[i + 1..i + 4]).unwrap().parse().unwrap(); out.push(code as char); i += 4; } else { out.push(b[i] as char); i += 1; } }
+    out
+}
