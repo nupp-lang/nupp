@@ -139,7 +139,19 @@ def build(root, cache, sources):
             rust_linker = work / 'guest-rust-cc'
             # Rust requests GCC's shared unwinder explicitly. Replace that
             # glibc library with the guest's already verified LLVM unwinder.
-            rust_linker.write_text('#!/usr/bin/env python3\nimport os, sys\nos.execv(' + repr(str(cc)) + ', [' + repr(str(cc)) + '] + [' + repr(str(work / 'libunwind.a')) + ' if arg == "-lgcc_s" else arg for arg in sys.argv[1:]])\n')
+            # The unwinder's i386 PIC objects can reference the local stack
+            # protector trampoline, so include its object after the archive.
+            rust_linker.write_text(
+                '#!/usr/bin/env python3\n'
+                'import os, sys\n'
+                'arguments = []\n'
+                'for arg in sys.argv[1:]:\n'
+                '    if arg == "-lgcc_s":\n'
+                f'        arguments.extend(({str(work / "libunwind.a")!r}, {str(work / "guest-ssp.o")!r}))\n'
+                '    else:\n'
+                '        arguments.append(arg)\n'
+                f'os.execv({str(cc)!r}, [{str(cc)!r}, *arguments])\n'
+            )
             rust_linker.chmod(0o755)
             crc_env = {**environment, 'RUSTC': rustc,
                        'CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER': str(rust_linker),
