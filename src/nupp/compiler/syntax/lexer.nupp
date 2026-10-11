@@ -357,6 +357,139 @@ local function isNameChar(c: integer?): boolean?
     return isNameStart(c) or isDigit(c)
 end
 
+local function hexValue(digit: integer?): integer?
+    if not digit then
+        return nil
+    elseif isDigit(digit) then
+        return digit - 48
+    elseif digit >= 97 and digit <= 102 then
+        return digit - 87
+    elseif digit >= 65 and digit <= 70 then
+        return digit - 55
+    end
+
+    return nil
+end
+
+--- The UTF-8 bytes of one code point, as `\u{}` denotes them.
+local function utf8Bytes(value: integer): string
+    if value < 0x80 then
+        return string.char(value)
+    elseif value < 0x800 then
+        return string.char(0xC0 + math.floor(value / 0x40), 0x80 + value % 0x40)
+    elseif value < 0x10000 then
+        return string.char(
+            0xE0 + math.floor(value / 0x1000),
+            0x80 + math.floor(value / 0x40) % 0x40,
+            0x80 + value % 0x40
+        )
+    end
+
+    return string.char(
+        0xF0 + math.floor(value / 0x40000),
+        0x80 + math.floor(value / 0x1000) % 0x40,
+        0x80 + math.floor(value / 0x40) % 0x40,
+        0x80 + value % 0x40
+    )
+end
+
+const SIMPLE_ESCAPES: {
+    [integer]: string
+} = {
+    [97] = "\a",
+    [98] = "\b",
+    [102] = "\f",
+    [110] = "\n",
+    [114] = "\r",
+    [116] = "\t",
+    [118] = "\v",
+    [92] = "\\",
+    [34] = "\"",
+    [39] = "'",
+}
+
+--- Decodes the escape whose backslash is at `p` in `source`, inside a short
+--- string delimited by `quote`: the position after it, whether LuaJIT accepts
+--- it, the position an error is shown at, and the bytes it denotes when it is
+--- accepted. The scanner validates escapes through this and `stringValue`
+--- decodes them through it, so a literal's value is decided by the same rules
+--- that admitted it.
+local function decodeEscape(source: string, p: integer, quote: integer): (integer, boolean, integer, string?)
+    local function upTo(at: integer): integer
+        local stop = byte(source, at)
+        if stop == nil or stop == quote or stop == 10 or stop == 13 then
+            return at - 1
+        end
+
+        return at
+    end
+
+    local ch = byte(source, p + 1)
+    if ch == nil then
+        return p + 1, true, p, "" -- the string is unterminated; that is the error
+    elseif ch == 10 or ch == 13 then
+        local after = byte(source, p + 2)
+        if after ~= ch and (after == 10 or after == 13) then
+            return p + 3, true, p, "\n"
+        end
+        return p + 2, true, p, "\n"
+    elseif ch == 122 then -- z
+        local at = p + 2
+        local next = byte(source, at)
+        while next == 32 or next == 9 or next == 10 or next == 13 or next == 11 or next == 12 do
+            at = at + 1
+            next = byte(source, at)
+        end
+        return at, true, p, ""
+    elseif ch == 120 then -- x
+        local at, value = p + 2, 0
+        for _ = 1, 2 do
+            local digit = hexValue(byte(source, at))
+            if not digit then
+                return at, false, upTo(at), nil
+            end
+            value = value * 16 + digit
+            at = at + 1
+        end
+        return at, true, p, string.char(value)
+    elseif ch == 117 then -- u
+        if byte(source, p + 2) ~= 123 then
+            return p + 2, false, upTo(p + 2), nil
+        end
+        local at: integer, value: integer, digits: integer = p + 3, 0, 0
+        local amount = hexValue(byte(source, at))
+        while amount do
+            value = value * 16 + amount
+            digits = digits + 1
+            at = at + 1
+            amount = hexValue(byte(source, at))
+        end
+        if byte(source, at) ~= 125 then
+            return at, false, upTo(at), nil
+        end
+        local valid = digits > 0 and value <= 0x10FFFF
+        return at + 1, valid, at, valid and utf8Bytes(value) or nil
+    elseif isDigit(ch) then
+        local at, value = p + 1, 0
+        for _ = 1, 3 do
+            local digit = byte(source, at)
+            if not (digit and isDigit(digit)) then
+                break
+            end
+            value = value * 10 + digit - 48
+            at = at + 1
+        end
+        return at, value <= 255, at - 1, value <= 255 and string.char(value) or nil
+    end
+
+    local simple = SIMPLE_ESCAPES[ch]
+    if simple ~= nil then
+        return p + 2, true, p, simple
+    end
+
+    return p + 2, false, p + 1, nil
+end
+
 --- Scans a long-bracket body starting at the opening '['.
 ---
 --- Returns the position one past the closing bracket, or nil when there is no long
@@ -490,97 +623,8 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     -- after it, line breaks included; `\x` takes two hex digits, `\u{...}` a code
     -- point up to U+10FFFF, and a decimal escape up to three digits up to 255.
     local function scanEscape(p: integer, quote: integer): (integer, boolean, integer)
-        local function upTo(at: integer): integer
-            local stop = byte(source, at)
-            if stop == nil or stop == quote or stop == 10 or stop == 13 then
-                return at - 1
-            end
-
-            return at
-        end
-
-        local function hexValue(digit: integer?): integer?
-            if not digit then
-                return nil
-            elseif isDigit(digit) then
-                return digit - 48
-            elseif digit >= 97 and digit <= 102 then
-                return digit - 87
-            elseif digit >= 65 and digit <= 70 then
-                return digit - 55
-            end
-
-            return nil
-        end
-
-        local ch = byte(source, p + 1)
-        if ch == nil then
-            return p + 1, true, p -- the string is unterminated; that is the error
-        elseif ch == 10 or ch == 13 then
-            local after = byte(source, p + 2)
-            if after ~= ch and (after == 10 or after == 13) then
-                return p + 3, true, p
-            end
-            return p + 2, true, p
-        elseif ch == 122 then -- z
-            local at = p + 2
-            local next = byte(source, at)
-            while next == 32 or next == 9 or next == 10 or next == 13 or next == 11 or next == 12 do
-                at = at + 1
-                next = byte(source, at)
-            end
-            return at, true, p
-        elseif ch == 120 then -- x
-            local at = p + 2
-            for _ = 1, 2 do
-                if not hexValue(byte(source, at)) then
-                    return at, false, upTo(at)
-                end
-                at = at + 1
-            end
-            return at, true, p
-        elseif ch == 117 then -- u
-            if byte(source, p + 2) ~= 123 then
-                return p + 2, false, upTo(p + 2)
-            end
-            local at, value, digits = p + 3, 0, 0
-            local amount = hexValue(byte(source, at))
-            while amount do
-                value = value * 16 + amount
-                digits = digits + 1
-                at = at + 1
-                amount = hexValue(byte(source, at))
-            end
-            if byte(source, at) ~= 125 then
-                return at, false, upTo(at)
-            end
-            return at + 1, digits > 0 and value <= 0x10FFFF, at
-        elseif isDigit(ch) then
-            local at, value = p + 1, 0
-            for _ = 1, 3 do
-                local digit = byte(source, at)
-                if not (digit and isDigit(digit)) then
-                    break
-                end
-                value = value * 10 + digit - 48
-                at = at + 1
-            end
-            return at, value <= 255, at - 1
-        elseif ch == 97
-            or ch == 98
-            or ch == 102
-            or ch == 110
-            or ch == 114
-            or ch == 116
-            or ch == 118
-            or ch == 92
-            or ch == 34
-            or ch == 39
-        then
-            return p + 2, true, p
-        end
-
-        return p + 2, false, p + 1
+        local after, valid, shown = decodeEscape(source, p, quote)
+        return after, valid, shown
     end
 
     -- Scan one short-string token starting at the quote character. Returns endpos
@@ -998,11 +1042,12 @@ end
 
 --- A literal's value is the string it denotes, not its source text, so
 --- `"\1"` is one byte and every reader of that value has to agree about it.
---- Decoding is done by handing the text back to Lua, which is whose escape
---- syntax it is; a backtick literal without interpolation is first turned into
---- the Lua literal the generator emits for it, so the two forms answer the
---- same. A long-bracket string is not answered here: its runtime bytes are
---- whatever the dedent rule that owns it leaves, not an escape question.
+--- Escapes are decoded by the same function that validated them when the
+--- literal was scanned; a backtick literal without interpolation is first
+--- turned into the Lua literal the generator emits for it, so the two forms
+--- answer the same. A long-bracket string is not answered here: its runtime
+--- bytes are whatever the dedent rule that owns it leaves, not an escape
+--- question. Text that is not one well-formed short literal answers nil.
 function lexer.stringValue(text: string): string?
     local first = text:sub(1, 1)
     local quoted: string?
@@ -1014,16 +1059,40 @@ function lexer.stringValue(text: string): string?
     if quoted == nil then
         return nil
     end
-    local chunk = loadstring("return " .. (quoted as string))
-    if not chunk then
+    local q = quoted as string
+    local n = #q
+    local quote = byte(q, 1)
+    if n < 2 or quote == nil or byte(q, n) ~= quote then
         return nil
     end
-    local ok, value = pcall(chunk as function(): any)
-    if not ok or type(value) ~= "string" then
+    local parts: {string} = {}
+    local p: integer, start: integer = 2, 2
+    while p < n do
+        local ch = byte(q, p)
+        if ch == 92 then
+            if p > start then
+                parts[#parts + 1] = sub(q, start, p - 1)
+            end
+            local after, valid, _, bytes = decodeEscape(q, p, quote)
+            if not valid or bytes == nil or after > n then
+                return nil
+            end
+            parts[#parts + 1] = bytes
+            p, start = after, after
+        elseif ch == quote or ch == 10 or ch == 13 then
+            return nil
+        else
+            p = p + 1
+        end
+    end
+    if p ~= n then
         return nil
+    end
+    if n > start then
+        parts[#parts + 1] = sub(q, start, n - 1)
     end
 
-    return value as string
+    return table.concat(parts)
 end
 
 export = lexer
