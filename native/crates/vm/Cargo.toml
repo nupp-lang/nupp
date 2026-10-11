@@ -20,11 +20,21 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
+default = ["jit"]
+# The typed tier: Cranelift lowering of the bytecode (P5). Off, the crate is
+# the interpreter alone, which is what the browser build and a bootstrap
+# without Cranelift need.
+jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 # Count executed opcodes by name (OP_STATS=1 at run time); off by default
 # because the check costs the dispatch loop a branch per opcode.
 opstats = []
 
 [dependencies]
+cranelift-codegen = { version = "0.135", optional = true }
+cranelift-frontend = { version = "0.135", optional = true }
+cranelift-jit = { version = "0.135", optional = true }
+cranelift-module = { version = "0.135", optional = true }
+cranelift-native = { version = "0.135", optional = true }
 
 [build-dependencies]
 cc = "1"

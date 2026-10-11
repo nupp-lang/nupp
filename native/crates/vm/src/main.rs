@@ -40,6 +40,9 @@ fn show(it: &Interp, v: Value) -> String {
 }
 
 fn main() {
+    // Raises travel as panics between catch points; the default hook would
+    // print each one. The runner reports the one that reaches it.
+    if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN]"); std::process::exit(2); }
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new();
@@ -52,7 +55,33 @@ fn main() {
     let t0 = cpu_now();
     image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
     let load_s = cpu_now() - t0;
+    it.entries = vec![0u64; it.funcs.len()];
     it.prepare_threaded();
+    // The typed tier: every function it accepts, callees first by id, with
+    // its compile time reported apart from the run time.
+    #[cfg(feature = "jit")]
+    let _jit = if std::env::var("NO_JIT").is_err() {
+        nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        let mut j = nupp_vm::jit::Jit::new();
+        j.extra_addr = &it.extra as *const [Value; 8] as i64;
+        j.entries_addr = it.entries.as_ptr() as i64;
+        j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
+        let tj = cpu_now();
+        let (mut compiled, mut refused) = (0, Vec::new());
+        // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
+        // those names interpreted: the bisection controls.
+        let limit: usize = std::env::var("JIT_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+        let skip: Vec<String> = std::env::var("JIT_SKIP").map(|s| s.split(',').map(|x| x.to_string()).collect()).unwrap_or_default();
+        for fid in 0..it.funcs.len() {
+            let f = it.funcs[fid].clone();
+            if f.name.starts_with("module:") || compiled >= limit || skip.iter().any(|n| *n == f.name) { continue; }
+            match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.entries[fid] = ptr as u64; compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
+        }
+        let compile_s = cpu_now() - tj;
+        if std::env::var("JIT_LIST").is_ok() { for (n, us) in &j.compile_micros { eprintln!("jit\t{n}\t{us} us"); } }
+        eprintln!("jit: compiled {compiled} functions in {:.2} ms; refused {}{}", compile_s * 1e3, refused.len(), if refused.is_empty() { String::new() } else { format!(": {}", refused.join(", ")) });
+        Some(j)
+    } else { None };
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
     let module = it.require(&args[3]);
     if let Some(name) = &setup { let k = it.intern(name); let sf = it.get_index(module, k); let t = it.spawn_closure(sf, &[]); drive(&mut it, &[t]); it.tasks.truncate(t); }

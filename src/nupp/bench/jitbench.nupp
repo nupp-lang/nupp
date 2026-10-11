@@ -1,0 +1,29 @@
+module nupp.bench.jitbench
+
+--- Small programs whose answers the typed tier must agree with the
+--- interpreter on: captured counters across recursion and errors.
+local bench = {}
+
+local nesting = 0
+local MAX = 5
+
+local function rec(n: number): number
+    nesting = nesting + 1
+    if nesting > MAX then
+        error("deep", 0)
+    end
+    local r = 0
+    if n > 0 then
+        r = rec(n - 1) + 1
+    end
+    nesting = nesting - 1
+    return r
+end
+
+function bench.run(): (number, number, number)
+    local ok, r = pcall(rec, 3)
+    local ok2, r2 = pcall(rec, 10)
+    return (ok and r or -1), (ok2 and r2 or -1), nesting
+end
+
+export = bench

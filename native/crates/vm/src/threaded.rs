@@ -20,11 +20,13 @@ pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_wo
 pub struct ShapeInfo { pub names: *const u64, pub n: u64 }
 
 #[repr(C)]
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8 }
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64 }
 
 pub const ST_REENTER: u32 = 0xffff_ffff;
 pub const ST_DONE: u32 = 0xffff_fffe;
 pub const ST_PARKED: u32 = 0xffff_fffd;
+/// A raise is propagating: `Interp::pending_error` holds the value.
+pub const ST_ERROR: u32 = 0xffff_fffc;
 
 // The opcode numbers of `dispatch.c`, in its enum's order.
 #[allow(dead_code)]
@@ -153,11 +155,15 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     let (win, _) = it.window(tid);
     #[cfg(feature = "opstats")]
     if let Some(st) = it.op_stats.as_mut() { let op = it.funcs[win.fid as usize].code[pc as usize]; *st.entry(crate::interp::op_name(&op)).or_insert(0) += 1; }
-    let r = match it.step(tid, &win, pc as usize) {
-        Step::Next(np) => np as u32,
-        Step::Reenter => ST_REENTER,
-        Step::Return(Outcome::Done(v)) => { ctx.result = v.0; ST_DONE }
-        Step::Return(Outcome::Parked(k)) => { ctx.result = k; ST_PARKED }
+    // A raise inside the opcode becomes the error status: the core returns
+    // and `run_threaded` re-raises where Rust frames can carry it.
+    let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.step(tid, &win, pc as usize)));
+    let r = match stepped {
+        Ok(Step::Next(np)) => np as u32,
+        Ok(Step::Reenter) => ST_REENTER,
+        Ok(Step::Return(Outcome::Done(v))) => { ctx.result = v.0; ST_DONE }
+        Ok(Step::Return(Outcome::Parked(k))) => { ctx.result = k; ST_PARKED }
+        Err(p) => { let v = it.error_value(p); it.pending_error = Some(v); ctx.status = ST_ERROR; ST_ERROR }
     };
     sync(ctx, it);
     r
@@ -187,28 +193,38 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
 /// hash part, a structural record's overflow, or an absent field (nil).
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
-    let (it, _) = enter_rust(unsafe { &mut *ctx });
-    it.get_index(Value(obj), Value(name)).0
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let v = it.guarded(|it| it.get_index(Value(obj), Value(name)));
+    if v == Value::ERROR { ctx.status = ST_ERROR; }
+    v.0
 }
 /// A read by any value key outside the core's array fast path: hash part,
 /// record, or a key that is a slice or an uninterned string.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
-    let (it, _) = enter_rust(unsafe { &mut *ctx });
-    it.get_index_any(Value(obj), Value(key)).0
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let v = it.guarded(|it| it.get_index_any(Value(obj), Value(key)));
+    if v == Value::ERROR { ctx.status = ST_ERROR; }
+    v.0
 }
 /// A table or record read by integer index outside the core's array fast path.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
-    let (it, _) = enter_rust(unsafe { &mut *ctx });
-    it.get_index(Value(obj), Value::num(i as f64)).0
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let v = it.guarded(|it| it.get_index(Value(obj), Value::num(i as f64)));
+    if v == Value::ERROR { ctx.status = ST_ERROR; }
+    v.0
 }
 /// A store by integer index: the array part's growth, the hash part, a record's children.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    it.set_index(Value(obj), Value::num(i as f64), Value(v));
+    let r = it.guarded(|it| { it.set_index(Value(obj), Value::num(i as f64), Value(v)); Value::NIL });
+    if r == Value::ERROR { ctx.status = ST_ERROR; }
     sync(ctx, it);
 }
 /// The insertion barrier (4.2) for a store the core makes while marking.
@@ -216,6 +232,22 @@ pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
 pub extern "C" fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
     let (it, _) = enter_rust(unsafe { &mut *ctx });
     if let Some(p) = Value(parent).as_obj() { it.heap.barrier(p, Value(child)); }
+}
+/// A compiled function called from the core: arguments from the window at
+/// `base + 1`, results delivered from `base`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, base: u64, nargs: u32, nparams: u32) {
+    let ctx = unsafe { &mut *ctx };
+    let (it, tid) = enter_rust(ctx);
+    let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8);
+    for (i, slot) in buf.iter_mut().enumerate().take(n) { *slot = Value(it.tasks[tid].stack[base as usize + 1 + i]); }
+    let mut outs = crate::builtins::Outs::new();
+    let r = it.guarded(|it| { outs = it.enter_compiled(entry, Value(closure), &buf[..n], nparams as usize); Value::NIL });
+    if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
+    let t = &mut it.tasks[tid];
+    for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
+    it.last_nres = outs.len();
+    sync(ctx, it);
 }
 /// A builtin called from the core: arguments in the window from `base + 1`,
 /// results delivered from `base`. Host services, which may park, are not
@@ -226,7 +258,9 @@ pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32)
     let (it, tid) = enter_rust(ctx);
     let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8);
     for (i, slot) in buf.iter_mut().enumerate().take(n) { *slot = Value(it.tasks[tid].stack[base as usize + 1 + i]); }
-    let outs = crate::builtins::call(it, id, &buf[..n]);
+    let mut outs = crate::builtins::Outs::new();
+    let r = it.guarded(|it| { outs = crate::builtins::call(it, id, &buf[..n]); Value::NIL });
+    if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
     let t = &mut it.tasks[tid];
     if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
     for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
@@ -238,7 +272,9 @@ pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32)
 pub extern "C" fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
-    let outs = crate::builtins::iter_next(it, Value(iter));
+    let mut outs = crate::builtins::Outs::new();
+    let r = it.guarded(|it| { outs = crate::builtins::iter_next(it, Value(iter)); Value::NIL });
+    if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
     let t = &mut it.tasks[tid];
     if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
     for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
@@ -249,20 +285,27 @@ pub extern "C" fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
 pub extern "C" fn rt_new_record(ctx: *mut Ctx, shape: u32) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let v = it.new_record(shape);
+    let v = it.guarded(|it| it.new_record(shape));
+    if v == Value::ERROR { ctx.status = ST_ERROR; }
     sync(ctx, it);
     v.0
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_len(ctx: *mut Ctx, v: u64) -> u64 {
-    let (it, _) = enter_rust(unsafe { &mut *ctx });
-    match it.kind_of(Value(v)) { Some(crate::heap::KIND_RECORD) => it.array_len(Value(v)) as u64, Some(crate::heap::KIND_TABLE) => it.array_len(Value(v)) as u64, _ => it.bytes_of(Value(v)).len() as u64 }
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let r = it.guarded(|it| Value::num(match it.kind_of(Value(v)) { Some(crate::heap::KIND_RECORD) | Some(crate::heap::KIND_TABLE) => it.array_len(Value(v)) as f64, _ => it.bytes_of(Value(v)).len() as f64 }));
+    if r == Value::ERROR { ctx.status = ST_ERROR; return 0; }
+    r.as_num() as u64
 }
 /// Equality past the word compare: two objects by content when string-like.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u32 {
-    let it = unsafe { &*((*ctx).interp as *const Interp) };
-    it.values_equal(Value(x), Value(y)) as u32
+    let ctx = unsafe { &mut *ctx };
+    let it = unsafe { &mut *(ctx.interp as *mut Interp) };
+    let r = it.guarded(|it| Value::boolean(it.values_equal(Value(x), Value(y))));
+    if r == Value::ERROR { ctx.status = ST_ERROR; return 0; }
+    (r == Value::TRUE) as u32
 }
 
 impl Interp {
@@ -281,7 +324,7 @@ impl Interp {
     pub fn run_threaded(&mut self, tid: usize) -> Outcome {
         assert_eq!(self.tasks[tid].state, State::Runnable);
         if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8 };
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr() };
         sync(&mut ctx, self);
         let status = unsafe { vm_run(&mut ctx) };
         // The core's pops do not touch the task record; its state and last
@@ -291,6 +334,7 @@ impl Interp {
         match status {
             ST_DONE => { let v = Value(ctx.result); let t = &mut self.tasks[tid]; if t.state != State::Done { t.state = State::Done; t.result = v; } Outcome::Done(t.result) }
             ST_PARKED => Outcome::Parked(ctx.result),
+            ST_ERROR => { let v = self.pending_error.take().unwrap_or(Value::NIL); std::panic::panic_any(crate::builtins::LuaError(v.0)) }
             s => panic!("threaded core returned status {s:#x}"),
         }
     }

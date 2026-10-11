@@ -291,9 +291,16 @@ pub struct Interp {
     pub finfo: Vec<crate::threaded::FuncInfo>,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
     pub threaded: bool,
+    /// The typed tier's compiled entry per function (0 when interpreted),
+    /// and the buffer results past the first travel through.
+    pub entries: Vec<u64>,
+    pub extra: [Value; 8],
+    pub extra_n: usize,
+    /// The value of a raise that is propagating as `Value::ERROR` returns.
+    pub pending_error: Option<Value>,
 }
 
-struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value] }
+struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; 8], extra_n: usize, pending: Option<Value> }
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
@@ -319,6 +326,14 @@ impl Roots for TaskRoots<'_> {
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
         for &v in self.registered { f(v); }
+        for &v in &self.extra[..self.extra_n.min(8)] { f(v); }
+        if let Some(e) = self.pending { f(e); }
+        #[cfg(feature = "jit")]
+        {
+            f(Value(crate::jit::CUR_CLOSURE.load(std::sync::atomic::Ordering::Relaxed)));
+            let fp = crate::jit::HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
+            if fp != 0 { crate::jit::walk_compiled_roots(fp, &mut |bits| f(Value(bits))); }
+        }
     }
 }
 
@@ -335,7 +350,7 @@ pub enum Flow { Next, Reenter, Return(Outcome) }
 /// (re-derive the windows), or the task's outcome.
 pub enum Step { Next(usize), Reenter, Return(Outcome) }
 
-macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered } } }
+macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n, pending: $self.pending_error } } }
 
 /// The header behind an object value, or an error; the message is built
 /// only on the error path.
@@ -344,7 +359,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), finfo: Vec::new(), shape_info: Vec::new(), threaded: false } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -515,6 +530,50 @@ impl Interp {
 
     // ---- calls from the runtime ------------------------------------------
 
+    /// The typed tier's entry for a function, if it has one.
+    #[inline]
+    pub fn entry_of(&self, fid: u32) -> u64 { self.entries.get(fid as usize).copied().unwrap_or(0) }
+    /// Enters a compiled function with its closure and value arguments through
+    /// a per-arity trampoline; the first result returns, extras through `extra`.
+    #[cfg(feature = "jit")]
+    pub fn enter_compiled(&mut self, entry: u64, closure: Value, args: &[Value], nparams: usize) -> crate::builtins::Outs {
+        use std::sync::atomic::{compiler_fence, Ordering::SeqCst};
+        // Exactly the callee's parameters are passed, missing ones as nil:
+        // a compiled function reads its parameter registers unconditionally.
+        let mut padded = [Value::NIL; 8]; let n = nparams.min(8); for (i, v) in args.iter().take(n).enumerate() { padded[i] = *v; }
+        let args = &padded[..n];
+        crate::jit::CUR_CLOSURE.store(closure.0, std::sync::atomic::Ordering::Relaxed);
+        unsafe { std::ptr::write_volatile(&mut self.extra_n, 0); }
+        compiler_fence(SeqCst);
+        let a = |i: usize| args.get(i).map(|v| v.0).unwrap_or(Value::NIL.0);
+        let r = unsafe { match args.len() {
+            0 => std::mem::transmute::<u64, extern "C-unwind" fn() -> u64>(entry)(),
+            1 => std::mem::transmute::<u64, extern "C-unwind" fn(u64) -> u64>(entry)(a(0)),
+            2 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64) -> u64>(entry)(a(0), a(1)),
+            3 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2)),
+            4 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2), a(3)),
+            5 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2), a(3), a(4)),
+            6 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64, u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2), a(3), a(4), a(5)),
+            7 => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64, u64, u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2), a(3), a(4), a(5), a(6)),
+            _ => std::mem::transmute::<u64, extern "C-unwind" fn(u64, u64, u64, u64, u64, u64, u64, u64) -> u64>(entry)(a(0), a(1), a(2), a(3), a(4), a(5), a(6), a(7)),
+        } };
+        // The callee's helpers wrote `extra` through another alias of this
+        // interpreter; it is re-read volatile so the compiler cannot assume
+        // the zero stored above.
+        compiler_fence(SeqCst);
+        // A raise inside came back as the sentinel: it continues as a panic
+        // here, where Rust frames can carry it to the catch point.
+        if Value(r) == Value::ERROR { let v = self.pending_error.take().unwrap_or(Value::NIL); std::panic::panic_any(crate::builtins::LuaError(v.0)); }
+        let n = unsafe { std::ptr::read_volatile(&self.extra_n) }.min(7);
+        let mut outs = crate::builtins::Outs::new();
+        outs.push(Value(r));
+        for i in 0..n { outs.push(unsafe { std::ptr::read_volatile(&self.extra[i]) }); }
+        unsafe { std::ptr::write_volatile(&mut self.extra_n, 0); }
+        self.last_nres = outs.len();
+        outs
+    }
+    #[cfg(not(feature = "jit"))]
+    pub fn enter_compiled(&mut self, _entry: u64, _closure: Value, _args: &[Value], _nparams: usize) -> crate::builtins::Outs { unreachable!("no typed tier in this build") }
     /// Calls any callable value on a scratch task and returns every result:
     /// the path for builtins that call back (gsub) and for module chunks.
     pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
@@ -523,6 +582,8 @@ impl Interp {
             let h = hdr!(self, callee, &format!("call_value of a non-function {:#x}", callee.0));
             match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
+        let entry = self.entry_of(fid);
+        if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
         let scratch = self.spawn(fid, args);
         self.tasks[scratch].stack[2] = closure.0;
         let outcome = self.run(scratch);
@@ -533,7 +594,8 @@ impl Interp {
     /// `call_value` without a heap allocation on the builtin path.
     pub fn call_outs(&mut self, callee: Value, args: &[Value]) -> crate::builtins::Outs {
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args); }
-        if let Some(p) = callee.as_obj() { if unsafe { (*p.as_ptr()).kind } == KIND_ITER { return crate::builtins::iter_next(self, callee); } }
+        if let Some(f) = callee.as_func() { let e = self.entry_of(f); if e != 0 && !self.funcs[f as usize].vararg { let np = self.funcs[f as usize].nparams as usize; return self.enter_compiled(e, Value::NIL, args, np); } }
+        if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }
         self.call_value(callee, args).into_iter().collect()
     }
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
@@ -557,6 +619,14 @@ impl Interp {
             Ok(mut vals) => { vals.insert(0, Value::TRUE); vals }
             Err(payload) => { let v = self.error_value(payload); vec![Value::FALSE, v] }
         }
+    }
+    /// Runs `body` and, when it raises, parks the value in `pending_error`
+    /// and answers the sentinel: the boundary where a Rust panic becomes a
+    /// VM-level raise that compiled code and the threaded core return upward.
+    #[inline]
+    pub fn guarded(&mut self, body: impl FnOnce(&mut Interp) -> Value) -> Value {
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(self)));
+        match r { Ok(v) => v, Err(p) => { let v = self.error_value(p); self.pending_error = Some(v); Value::ERROR } }
     }
     /// The value an unwinding error carries: `error`'s value, or the message.
     pub fn error_value(&mut self, payload: Box<dyn std::any::Any + Send>) -> Value {
@@ -1016,7 +1086,11 @@ impl Interp {
         let (regs, base, fid) = (w.regs, w.base, w.fid);
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let callee = r!(fr);
-        if let Some(f) = callee.as_func() { self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter; }
+        if let Some(f) = callee.as_func() {
+            let e = self.entry_of(f);
+            if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, Value::NIL, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+            self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
+        }
         if let Some(id) = callee.as_builtin() {
             let mut buf = [Value::NIL; 8]; let fixed = (nargs & 127) as usize; let mut n = fixed.min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
             if nargs >= 128 { let t = &self.tasks[tid]; let s = t.cur; let nv = nvar_of(t.stack[s + 3]); for i in 0..nv { if n < 8 { buf[n] = Value(t.stack[s - nv + i]); n += 1; } } }
@@ -1037,6 +1111,8 @@ impl Interp {
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         if h.kind != KIND_CLOSURE { self.err(&format!("call of a non-function object ({}) in {} at pc {} register {}", Heap::describe(h), self.funcs[fid as usize].name, pc, fr)) }
         let f = h.fid();
+        let e = self.entry_of(f);
+        if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         // A dynamic call carries every argument as a value; a typed callee's
         // float parameters are unboxed on entry.
         let (nv, n, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.sig.len(), c.vararg) };
@@ -1077,6 +1153,8 @@ impl Interp {
         if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
         let ch = hdr!(self, method, "method is not a function");
         if ch.kind != KIND_CLOSURE { self.err("method is not a function") }
+        let e = self.entry_of(ch.fid());
+        if e != 0 && !self.funcs[ch.fid() as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[ch.fid() as usize].nparams as usize; let outs = self.enter_compiled(e, method, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         self.push_frame(tid, ch.fid(), base + b as usize, nargs, pc);
         let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
         Flow::Reenter

@@ -18,6 +18,8 @@ the image loader and verifier, and the host services on the parking surface.
 | `verify` | operand classes, branch and callee checks, fact re-derivation, def/use and liveness |
 | `image` | the loader for the emitter's text image |
 | `host` | a pool of host threads serving file, sleep, process and directory requests as plain data |
+| `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
+| `jit` | the typed tier: Cranelift lowering, its helpers, the stack-map root walk |
 | `emit/emitmod.lua` | the module-graph emitter from the checker's tree, run with `nupp run` from `emit/` |
 
 ## Decisions the layout fixes
@@ -71,15 +73,48 @@ the collector's verification modes. `TRACE_CALLS=1` prints every call.
 The compiler's lexer and parser run unmodified on it, as module graphs
 emitted from the checked tree, and agree with LuaJIT node for node:
 
-| source | nodes | Rust loop | threaded core | LuaJIT interpreter | LuaJIT JIT |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 5.3 ms | 2.7 ms | 0.43 ms |
-| lexer.nupp, parse | 8,523 | 15.6 ms | 9.6 ms | 5.9 ms | 4.3 ms |
-| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 14.3 ms | 8.7 ms | 3.9 ms |
-| parser.nupp (156 KB), parse | 40,179 | 67 ms | 42.1 ms | 26.8 ms | 16.9 ms |
+| source | nodes | Rust loop | threaded core | typed tier | LuaJIT interpreter | LuaJIT JIT |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 5.3 ms | 1.54 ms | 2.7 ms | 0.43 ms |
+| lexer.nupp, parse | 8,523 | 15.6 ms | 9.6 ms | 3.4 ms | 5.9 ms | 4.3 ms |
+| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 14.3 ms | 4.9 ms | 8.7 ms | 3.9 ms |
+| parser.nupp (156 KB), parse | 40,179 | 67 ms | 42.1 ms | 15.6 ms | 26.8 ms | 16.9 ms |
 
 (The Rust-loop column is from before the emitter's opcode work; the
-threaded column after it.)
+threaded column after it. The typed tier compiles every function of the
+parser's image, 151 of them, in about 290 ms before the first call, which is
+reported apart from the run time.)
+
+**The typed tier** (`src/jit.rs`, feature `jit`, on by default) is the
+prototype's Cranelift lowering ported onto this heap: value registers as
+stack-map variables, typed registers as machine registers, inline fast
+paths for arithmetic, comparison, array and slot access, byte reads and
+field reads through a per-site shape cache, guarded direct calls to known
+callees, and helpers for the rest. The threaded core calls a compiled
+function wherever it would push a frame, and compiled code calls back into
+the runtime for what it does not lower. Parsing parser.nupp runs at
+LuaJIT's trace speed with no inlining and every local still boxed, and the
+collector's stress and interleaved modes pass under compiled code through
+the stack maps.
+
+**Raises do not unwind native frames.** cranelift-jit 0.135 no longer
+registers unwind information with the system unwinder, and the threaded
+core's C frames cannot be unwound either, which contracts 6.4 and 6.5
+anticipated: a raise unwinds VM frames. `error` still raises as a Rust
+panic between catch points, but at every boundary into compiled code or
+the core a guard turns it into `Value::ERROR` with the value parked in
+`pending_error`; compiled code checks each helper and callee result and
+returns the sentinel, the core returns an error status, and the Rust frame
+that entered them re-raises it as a panic up to the nearest `pcall`. A
+small module with a captured counter, recursion and `error` under `pcall`
+(`nupp.bench.jitbench`) agrees across all four tier combinations.
+
+Two bugs the parser found in the port: a compiled entry was called with
+the argument count the caller supplied rather than the callee's parameter
+count, so a missing optional parameter read a stale register (the same
+family as the interpreter's bug earlier); and the panic hook was taken and
+reinstalled around every helper call, which doubled the run time until it
+moved to the runner.
 
 Under stress with the oracle the lexer-source parse runs 19,000-odd full
 cycles and the parser-source parse survives interleaved marking with the

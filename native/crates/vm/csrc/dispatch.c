@@ -38,6 +38,7 @@ typedef struct {
     const struct { const Value* names; uint64_t n; }* shapes;
     uint64_t nshapes;
     const uint8_t* marking;
+    const uint64_t* entries; // the typed tier's compiled entry per function, or 0
 } Ctx;
 
 // Rust helpers.
@@ -53,6 +54,7 @@ extern void rt_call_iter(Ctx* ctx, Value iter, uint64_t base);
 extern Value rt_new_record(Ctx* ctx, uint32_t shape);
 extern uint64_t rt_len(Ctx* ctx, Value v);
 extern Value rt_get_index(Ctx* ctx, Value obj, Value key);
+extern void rt_enter_compiled(Ctx* ctx, uint64_t entry, Value closure, uint64_t base, uint32_t nargs, uint32_t nparams);
 
 // Opcode numbers, matched by `threaded.rs`.
 enum {
@@ -71,6 +73,9 @@ enum {
 #define ST_REENTER 0xffffffffu
 #define ST_DONE 0xfffffffeu
 #define ST_PARKED 0xfffffffdu
+#define ST_ERROR 0xfffffffcu
+// After a helper that may raise: the error status ends the run here.
+#define CHECK_ERR if (ctx->status == ST_ERROR) return 0
 
 #define QNAN 0x7ff8000000000000ull
 #define TAG_SHIFT 48
@@ -143,7 +148,7 @@ static Value reenter(ARGS) {
 static Value slow(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
     uint32_t r = rt_exec_op(ctx, (uint32_t)(pc - fi->code));
-    if (r == ST_DONE || r == ST_PARKED) { ctx->status = r; return 0; }
+    if (r == ST_DONE || r == ST_PARKED || r == ST_ERROR) { ctx->status = r; return 0; }
     if (r == ST_REENTER) { REENTER; }
     // The stack may have moved under an allocation or a push inside the helper.
     frame = ctx->stack + ctx->cur;
@@ -165,10 +170,10 @@ ARITH(h_mul, num(p * q))
 ARITH(h_lt, boolean(p < q))
 ARITH(h_le, boolean(p <= q))
 static Value h_eq(ARGS) {
-    regs[pc->a] = boolean(values_equal(ctx, regs[pc->b], regs[pc->c])); pc++; NEXT;
+    int e = values_equal(ctx, regs[pc->b], regs[pc->c]); CHECK_ERR; regs[pc->a] = boolean(e); pc++; NEXT;
 }
 static Value h_ne(ARGS) {
-    regs[pc->a] = boolean(!values_equal(ctx, regs[pc->b], regs[pc->c])); pc++; NEXT;
+    int e = values_equal(ctx, regs[pc->b], regs[pc->c]); CHECK_ERR; regs[pc->a] = boolean(!e); pc++; NEXT;
 }
 static Value h_not(ARGS) { regs[pc->a] = boolean(!truthy(regs[pc->b])); pc++; NEXT; }
 static Value h_neg(ARGS) { Value x = regs[pc->b]; if (__builtin_expect(is_num(x), 1)) { regs[pc->a] = num(-as_num(x)); pc++; NEXT; } SLOW; }
@@ -225,8 +230,8 @@ static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_ob
 static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { fregs[pc->a] = as_num(((Value*)obj_ptr(r))[pc->c]); pc++; NEXT; } SLOW; }
 // A number stored into a slot needs no barrier: it is not a reference.
 static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
-static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } if (k == KIND_RECORD) { regs[pc->a] = num((double)rt_len(ctx, v)); pc++; NEXT; } } SLOW; }
-static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } if (k == KIND_RECORD) { fregs[pc->a] = (double)rt_len(ctx, v); pc++; NEXT; } } SLOW; }
+static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } if (k == KIND_RECORD) { uint64_t n = rt_len(ctx, v); CHECK_ERR; regs[pc->a] = num((double)n); pc++; NEXT; } } SLOW; }
+static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } if (k == KIND_RECORD) { uint64_t n = rt_len(ctx, v); CHECK_ERR; fregs[pc->a] = (double)n; pc++; NEXT; } } SLOW; }
 static Value h_strbyte(ARGS) {
     Value s = regs[pc->b];
     if (__builtin_expect(is_obj(s), 1)) {
@@ -293,17 +298,24 @@ static Value h_calldyn(ARGS) {
         // A builtin; a host service may park, so it goes to Rust whole.
         uint32_t id = (uint32_t)callee;
         if (id >= HOST_BASE) SLOW;
-        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs);
+        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
     else if (is_obj(callee) && obj_kind(callee) == KIND_ITER) {
-        rt_call_iter(ctx, callee, ctx->cur + HDR + pc->b);
+        rt_call_iter(ctx, callee, ctx->cur + HDR + pc->b); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
     else SLOW;
     if (fid >= ctx->nfuncs || ctx->funcs[fid].vararg) SLOW;
+    uint64_t entry = ctx->entries[fid];
+    if (entry) {
+        // The typed tier has this function: call it with the window's arguments.
+        rt_enter_compiled(ctx, entry, closure, ctx->cur + HDR + pc->b, nargs, ctx->funcs[fid].nparams); CHECK_ERR;
+        frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
+        pc++; NEXT;
+    }
     uint32_t np = ctx->funcs[fid].nparams;
     if (nargs > np) nargs = np;
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->b), nargs, (uint32_t)(pc - fi->code) + 1, closure);
@@ -352,7 +364,7 @@ static Value h_getfield(ARGS) {
             const Value* names = ctx->shapes[shape].names; uint64_t n = ctx->shapes[shape].n;
             for (uint64_t i = 0; i < n; i++) if (names[i] == name) { regs[pc->a] = ((Value*)obj_ptr(t))[i]; pc++; NEXT; }
         }
-        regs[pc->a] = rt_get_field(ctx, t, name);
+        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
         pc++; NEXT;
     }
@@ -366,7 +378,7 @@ static Value h_getidxi(ARGS) {
         uint64_t n = obj_len(t);
         if (i >= 1 && (uint64_t)i <= n) { regs[pc->a] = ((Value*)obj_ptr(t))[i - 1]; pc++; NEXT; }
     }
-    if (is_obj(t)) { regs[pc->a] = rt_get_index_num(ctx, t, i); pc++; NEXT; }
+    if (is_obj(t)) { regs[pc->a] = rt_get_index_num(ctx, t, i); CHECK_ERR; pc++; NEXT; }
     SLOW;
 }
 static Value h_setidxi(ARGS) {
@@ -375,7 +387,7 @@ static Value h_setidxi(ARGS) {
         uint64_t n = obj_len(t);
         if (i >= 1 && (uint64_t)i <= n) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
     }
-    if (is_obj(t)) { rt_set_index_num(ctx, t, i, v); frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
+    if (is_obj(t)) { rt_set_index_num(ctx, t, i, v); CHECK_ERR; frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
     SLOW;
 }
 // Stores of references: the barrier's slow path only while marking (3.6).
@@ -398,7 +410,7 @@ static Value h_getidx(ARGS) {
             double d = as_num(key); uint64_t n = obj_len(t);
             if (d >= 1.0 && d <= (double)n && d == (double)(uint64_t)d) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint64_t)d - 1]; pc++; NEXT; }
         }
-        regs[pc->a] = rt_get_index(ctx, t, key);
+        regs[pc->a] = rt_get_index(ctx, t, key); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
         pc++; NEXT;
     }
@@ -406,7 +418,7 @@ static Value h_getidx(ARGS) {
 }
 static Value h_tagchecknum(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_num(v), 1)) { regs[pc->a] = v; pc++; NEXT; } SLOW; }
 static Value h_newrecord(ARGS) {
-    Value v = rt_new_record(ctx, (uint32_t)pc->k);
+    Value v = rt_new_record(ctx, (uint32_t)pc->k); CHECK_ERR;
     frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
     regs[pc->a] = v; pc++; NEXT;
 }

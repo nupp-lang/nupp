@@ -38,6 +38,11 @@ impl Value {
     pub const TRUE: Value = Value(QNAN | T_TRUE);
     /// What a resumable activation returns when it parked (contracts 6.2).
     pub const PARKED: Value = Value(QNAN | T_PARKED);
+    /// What a helper or a compiled function returns when a raise is
+    /// propagating: the value itself waits in `Interp::pending_error`, and
+    /// the nearest catch point (a `pcall`, or the runner) takes it up.
+    /// Raises unwind VM frames, never native ones (contracts 6.4, 6.5).
+    pub const ERROR: Value = Value(QNAN | T_PARKED | 1);
 
     #[inline]
     pub fn num(x: f64) -> Value {

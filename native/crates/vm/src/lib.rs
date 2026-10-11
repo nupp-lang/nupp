@@ -13,3 +13,5 @@ pub mod verify;
 pub mod image;
 pub mod host;
 pub mod threaded;
+#[cfg(feature = "jit")]
+pub mod jit;

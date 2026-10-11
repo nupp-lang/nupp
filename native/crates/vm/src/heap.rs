@@ -220,6 +220,7 @@ pub struct Heap {
     pub marking: u8,
 }
 
+thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as usize >= size) }
 
 impl Heap {
@@ -445,7 +446,7 @@ impl Heap {
             return;
         }
         if self.phase == Phase::Idle {
-            if self.debt < self.threshold { return; }
+            if self.debt < self.threshold || NEVER.with(|n| *n) { return; }
             self.start(roots);
         }
         let budget = (self.debt / 64).max(256);
