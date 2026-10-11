@@ -27,6 +27,22 @@ extern "C" fn rt_get_index(t: u64, k: u64) -> u64 {
     match Value(t).as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= array.len() && n.fract() == 0.0 { return array[n as usize - 1].0; } } hash.get(&key).copied().unwrap_or(Value::NIL).0 } _ => Value::NIL.0 } }, None => Value::NIL.0 }
 }
 
+/// The interpreter the compiled code's helpers act on. Set once before any
+/// compiled code runs; a product runtime passes a context pointer instead.
+static CTX: std::sync::atomic::AtomicPtr<Interp> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+fn ctx() -> &'static mut Interp { unsafe { &mut *CTX.load(std::sync::atomic::Ordering::Relaxed) } }
+
+/// Records the caller chain's frame pointer so a collection inside this
+/// helper sees the compiled frames above it.
+macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; interp::HELPER_FP.store(fp, std::sync::atomic::Ordering::Relaxed); }} }
+macro_rules! leave_helper { () => { interp::HELPER_FP.store(0, std::sync::atomic::Ordering::Relaxed) } }
+
+extern "C" fn rt_new_record(shape: u64) -> u64 { enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(); v.0 }
+extern "C" fn rt_new_table() -> u64 { enter_helper!(); let v = ctx().new_table(); leave_helper!(); v.0 }
+extern "C" fn rt_set_slot(obj: u64, i: u64, v: u64) -> u64 { ctx().set_slot(Value(obj), i as usize, Value(v)); 0 }
+extern "C" fn rt_set_index(t: u64, k: u64, v: u64) -> u64 { enter_helper!(); ctx().set_index(Value(t), Value(k), Value(v)); leave_helper!(); 0 }
+extern "C" fn rt_concat(a: u64, b: u64) -> u64 { enter_helper!(); let v = ctx().concat(Value(a), Value(b)); leave_helper!(); v.0 }
+
 type LlvmMapFn = unsafe extern "C" fn(*mut f64, *const f64, f64, f64, u64, u64);
 type LlvmDotFn = unsafe extern "C" fn(*const f64, *const f64, u64, u64) -> f64;
 
@@ -199,6 +215,8 @@ fn build(it: &mut Interp) -> u32 {
 }
 
 fn run_to_end(it: &mut Interp, fid: u32, args: &[Value]) -> Value {
+    // A compiled entry runs as compiled code from the first instruction.
+    if args.is_empty() { if let Some(Some(entry)) = it.compiled.get(fid as usize) { let f: extern "C" fn() -> u64 = unsafe { std::mem::transmute(*entry) }; return Value(f()); } }
     let t = it.spawn(fid, args);
     match it.run(t) { Outcome::Done(v) => { it.tasks.truncate(t); v } Outcome::Parked(_) => panic!("unexpected park") }
 }
@@ -217,7 +235,8 @@ fn main() {
         // Compile every function whose opcodes the JIT lowers, callees first, and
         // install the entries so the interpreter hands off calls to them.
         let compile_all = std::env::var("NO_JIT").is_err();
-        let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2)]);
+        CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2)]);
         it.compiled = vec![None; it.funcs.len()];
         if compile_all {
             let mut progress = true;
@@ -252,6 +271,16 @@ fn main() {
         if let Some(hot) = it.entry2 {
             let h = run_to_end(&mut it, hot, &[]).as_num();
             assert_eq!(h, 1691750.0 * 200.0);
+            // The compiled allocating function under every collector mode: its
+            // live value registers are visible only through the stack maps.
+            it.heap.stress = true; it.heap.oracle = true; it.heap.quarantine = true;
+            eprintln!("stress run of hot");
+            assert_eq!(run_to_end(&mut it, hot, &[]).as_num(), h, "compiled allocation under stress");
+            it.heap.stress = false; it.heap.stress_steps = true;
+            eprintln!("interleaved run of hot");
+            assert_eq!(run_to_end(&mut it, hot, &[]).as_num(), h, "compiled allocation under interleaved marking");
+            it.heap.stress_steps = false; it.heap.oracle = false; it.heap.quarantine = std::env::var("GC_QUARANTINE").is_ok();
+            eprintln!("PASS compiled allocation: stress cycles {} barrier greys {}", it.heap.stats.cycles, it.heap.stats.barrier_grays);
             let mut count = 1usize;
             loop { let s = cpu_now(); for _ in 0..count { sink += black_box(run_to_end(&mut it, hot, &[]).as_num()); } let e = cpu_now() - s; if e >= 0.3 { println!("hot\t{:.1} us per call ({count} calls)", e / count as f64 * 1e6); break; } count *= 2; }
         }

@@ -163,11 +163,16 @@ pub struct Interp {
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value] }
+/// The frame pointer of the runtime helper currently entered from compiled
+/// code, or zero; the root set walks compiled frames from here.
+pub static HELPER_FP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks { for &v in &t.regs { f(v); } f(t.result); }
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
+        let fp = HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
+        if fp != 0 { crate::jit::walk_compiled_roots(fp, &mut |bits| f(Value(bits))); }
     }
 }
 
@@ -198,6 +203,20 @@ impl Interp {
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Record { slots, .. } = &mut (*p.as_ptr()).body { slots[i] = v } } }
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { let p = rec.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => slots[i], _ => panic!("use after free or not a record") } } }
     pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Table { array, .. } = &mut (*p.as_ptr()).body { array.push(v) } (*p.as_ptr()).refresh(); } }
+    pub fn set_index(&mut self, tv: Value, iv: Value, v: Value) {
+        let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
+        self.heap.barrier(p, iv);
+        self.heap.barrier(p, v);
+        unsafe { match &mut (*p.as_ptr()).body {
+            Body::Table { array, hash } => { if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= array.len() + 1 { let k = iv.as_num() as usize; if k == array.len() + 1 { array.push(v) } else { array[k - 1] = v } } else { hash.insert(iv, v); } }
+            _ => self.err("index of a non-table"),
+        } (*p.as_ptr()).refresh(); }
+    }
+    pub fn concat(&mut self, x: Value, y: Value) -> Value {
+        let text = |v: Value| -> String { if v.is_num() { let n = v.as_num(); if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{}", n) } } else { match v.as_obj() { Some(p) => unsafe { (*p.as_ptr()).str_text().to_string() }, None => panic!("runtime error: concatenate a non-string") } } };
+        let joined = text(x) + &text(y);
+        self.heap.intern(&joined, roots!(self))
+    }
     pub fn array_get(&self, t: Value, i: usize) -> Value { let p = t.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array[i], _ => panic!("not a table") } } }
     pub fn check_oracle(&self) { self.heap.check_oracle(roots!(self)) }
 

@@ -19,6 +19,39 @@ const QNAN: i64 = 0x7ff8_0000_0000_0000u64 as i64;
 const PAYLOAD: i64 = (1i64 << 48) - 1;
 const NIL: i64 = (0x7ff8_0000_0000_0000u64 | (1 << 48)) as i64;
 
+/// Compiled code ranges and their stack maps: (start, end, [(return offset, frame span, [slot offsets])]).
+pub static CODE_MAPS: std::sync::Mutex<Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)>> = std::sync::Mutex::new(Vec::new());
+
+/// Walks the frame-pointer chain from `fp`, handing every value a compiled
+/// frame's stack map describes to `f`. Frames without a map are skipped.
+pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
+    let maps = CODE_MAPS.lock().unwrap();
+    let debug = std::env::var("DEBUG_ROOTS").is_ok();
+    let mut guard = 0;
+    while fp != 0 && guard < 10_000 {
+        guard += 1;
+        let ret = unsafe { *((fp + 8) as *const usize) };
+        if debug && guard < 8 { let hit = maps.iter().find(|(s, e, _)| ret >= *s && ret < *e).map(|(s, _, es)| (ret - s, es.iter().any(|(o, _, _)| *o == (ret - s) as u32))); eprintln!("walk fp={fp:#x} ret={ret:#x} compiled={hit:?}"); }
+        for (start, end, entries) in maps.iter() {
+            if ret >= *start && ret < *end {
+                let off = (ret - start) as u32;
+                if let Some((_, span, offsets)) = entries.iter().find(|(o, _, _)| *o == off) {
+                    // The return address at this frame lies in its caller, the
+                    // compiled function; the caller's frame pointer is the next
+                    // link, and its SP at the call is that minus the frame span.
+                    let caller_fp = unsafe { *(fp as *const usize) };
+                    let sp = caller_fp - *span as usize;
+                    if debug && !offsets.is_empty() { let vals: Vec<String> = offsets.iter().map(|&o| format!("{:#x}", unsafe { *((sp + o as usize) as *const u64) })).collect(); eprintln!("  map hit off={off} span={span} offsets={offsets:?} values={vals:?} fp={fp:#x}"); }
+                    for &o in offsets { f(unsafe { *((sp + o as usize) as *const u64) }); }
+                }
+            }
+        }
+        let next = unsafe { *(fp as *const usize) };
+        if next <= fp { break; }
+        fp = next;
+    }
+}
+
 pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, Vec<u8>, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
     bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)> }
 
@@ -39,6 +72,7 @@ impl Jit {
         fb.set("opt_level", "speed").unwrap();
         fb.set("use_colocated_libcalls", "false").unwrap();
         fb.set("is_pic", "false").unwrap();
+        fb.set("preserve_frame_pointers", "true").unwrap();
         let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(fb)).unwrap();
         let mut jb = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         jb.symbol("rt_storage_ptr", storage_ptr);
@@ -70,6 +104,7 @@ impl Jit {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
                 Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) => true,
+                Op::NewRecord(..) | Op::NewTable(..) | Op::SetSlot(..) | Op::SetIdx(..) | Op::SetIdxF(..) | Op::Concat(..) => self.helpers.contains_key("rt_new_record"),
                 _ => false,
             };
             if !ok { return Err(format!("{:?}", op)); }
@@ -104,7 +139,10 @@ impl Jit {
             let fvars: Vec<Variable> = (0..f.nfreg).map(|_| { let v = b.declare_var(types::F64); let z = b.ins().f64const(0.0); b.def_var(v, z); v }).collect();
             let vvars: Vec<Variable> = (0..f.nvreg).map(|_| { let v = b.declare_var(types::F64X2); let z = b.ins().f64const(0.0); let s = b.ins().splat(types::F64X2, z); b.def_var(v, s); v }).collect();
             // Value registers as variables, NaN-boxed words; parameters fill 1..=nparams.
-            let rvars: Vec<Variable> = (0..f.nregs as usize + 1).map(|_| { let v = b.declare_var(types::I64); let z = b.ins().iconst(types::I64, NIL); b.def_var(v, z); v }).collect();
+            // Value registers hold references, so every one is a stack-map
+            // variable: at each call the live ones are spilled to the frame and
+            // described in the map the root walker reads.
+            let rvars: Vec<Variable> = (0..f.nregs as usize + 1).map(|_| { let v = b.declare_var(types::I64); if std::env::var("NO_STACKMAPS").is_err() { b.declare_var_needs_stack_map(v); } let z = b.ins().iconst(types::I64, NIL); b.def_var(v, z); v }).collect();
             // Value registers: parameters, and storage pointers and lengths per parameter.
             let params: Vec<Value> = b.block_params(entry).to_vec();
             let mut vals: HashMap<u8, Value> = HashMap::new();
@@ -233,6 +271,18 @@ impl Jit {
                         if cret == b'f' { setf!(fb, r); } else { setr!(base, r); }
                     }
                     Op::Ret(r) => { let v = rv!(r); b.ins().return_(&[v]); terminated = true; }
+                    Op::NewRecord(d, shape) => { let sh = b.ins().iconst(types::I64, shape as i64); let c = b.ins().call(helper_refs["rt_new_record"], &[sh]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::NewTable(d) => { let c = b.ins().call(helper_refs["rt_new_table"], &[]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::SetSlot(r, i, x) => { let (obj, v) = (rv!(r), rv!(x)); let idx = b.ins().iconst(types::I64, i as i64); b.ins().call(helper_refs["rt_set_slot"], &[obj, idx, v]); }
+                    Op::SetIdx(t, i, x) => { let (obj, k, v) = (rv!(t), rv!(i), rv!(x)); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
+                    Op::SetIdxF(t, i, x) => { let (obj, kf, v) = (rv!(t), fv!(i), rv!(x)); let k = box_f64!(kf); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
+                    Op::Concat(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().call(helper_refs["rt_concat"], &[p, q]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::NewRecord(d, shape) => { let sh = b.ins().iconst(types::I64, shape as i64); let c = b.ins().call(helper_refs["rt_new_record"], &[sh]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::NewTable(d) => { let c = b.ins().call(helper_refs["rt_new_table"], &[]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::SetSlot(r, i, x) => { let (obj, v) = (rv!(r), rv!(x)); let idx = b.ins().iconst(types::I64, i as i64); b.ins().call(helper_refs["rt_set_slot"], &[obj, idx, v]); }
+                    Op::SetIdx(t, i, x) => { let (obj, k, v) = (rv!(t), rv!(i), rv!(x)); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
+                    Op::SetIdxF(t, i, x) => { let (obj, kf, v) = (rv!(t), fv!(i), rv!(x)); let k = box_f64!(kf); b.ins().call(helper_refs["rt_set_index"], &[obj, k, v]); slots_cache.clear(); }
+                    Op::Concat(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().call(helper_refs["rt_concat"], &[p, q]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
                     Op::FAdd(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fadd(p, q)); }
                     Op::FSub(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fsub(p, q)); }
                     Op::FMul(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fmul(p, q)); }
@@ -338,6 +388,9 @@ impl Jit {
         }
         self.module.define_function(id, &mut self.ctx).unwrap_or_else(|e| panic!("{}: {e}", f.name));
         if std::env::var("DISASM").is_ok() { if let Some(code) = self.ctx.compiled_code() { eprintln!("==== {} ({} bytes)\n{}", f.name, code.code_buffer().len(), code.vcode.as_deref().unwrap_or("")); } }
+        let maps: Vec<(u32, u32, Vec<u32>)> = self.ctx.compiled_code().map(|c| c.buffer.user_stack_maps().iter().map(|(off, span, m)| (*off, *span, m.entries().map(|(_, o)| o).collect())).collect()).unwrap_or_default();
+        let code_len = self.ctx.compiled_code().map(|c| c.code_buffer().len()).unwrap_or(0);
+        if std::env::var("DEBUG_ROOTS").is_ok() { eprintln!("maps\t{}\t{} safepoints: {:?}", f.name, maps.len(), maps.iter().take(4).collect::<Vec<_>>()); }
         self.module.clear_context(&mut self.ctx);
         // The boxed wrapper the interpreter calls: value words in, unboxed to
         // the typed entry, the result boxed back.
@@ -369,6 +422,8 @@ impl Jit {
             Some(wid)
         } else { None };
         self.module.finalize_definitions().unwrap();
+        let start_addr = self.module.get_finalized_function(id) as usize;
+        CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
         self.compile_micros.push((f.name.to_string(), start.elapsed().as_micros()));
         Ok(self.module.get_finalized_function(wrapper.unwrap_or(id)))
     }

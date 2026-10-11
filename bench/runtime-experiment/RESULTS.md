@@ -371,3 +371,36 @@ are live across any call in the loop on the stack even when the call is
 cold. That is the same tax LuaJIT pays around calls on this ABI, and the
 way out is a slow path that does not look like a C call to the register
 allocator, which is a later refinement, not a contract.
+
+## The collector under compiled allocation
+
+Date: 2026-10-11. Compiled code now allocates: `NEWRECORD`, `NEWTABLE`,
+`SETSLOT`, `SETIDX`, `SETIDXF` and `CONCAT` lower to runtime helpers that
+allocate through the same heap and barrier as the interpreter. Every value
+register is a Cranelift stack-map variable, so at each call the live ones
+are spilled to the frame and described by a map keyed by the return
+address, with the frame's active span. A helper entered from compiled code
+records its frame pointer; the root set then walks the frame-pointer chain,
+and for each return address inside compiled code reads the live slots from
+the caller's frame at frame pointer minus span plus offset. Frame pointers
+are preserved in compiled code for this. Contracts 4.4 and 4.5 as written.
+
+`hot` compiles whole now, allocation loop included, and runs as compiled
+code from its first instruction.
+
+| | stress + oracle | interleaved + oracle | `hot` |
+| --- | --- | --- | ---: |
+| with stack maps | pass, 476 cycles | pass | 35.5 us |
+| without stack maps | the table in a compiled register is freed under it; `index of a non-table` | | |
+
+Two mistakes on the way, both in reading the frame, neither in Cranelift:
+the first walk paired a return address with the callee's frame pointer
+instead of the caller's and read text addresses as roots; and a helper
+that did not record its frame pointer would have hidden every frame above
+it. The negative control is kept as a mode so the test stays honest.
+
+What this leaves for the product: the walker is a linear search over
+code ranges and maps, fine for a prototype, a sorted table for a runtime;
+the context pointer is a global here and a parameter there; and the
+interpreter does not yet poll at back-edges in compiled code, since
+nothing here runs long enough to need it.
