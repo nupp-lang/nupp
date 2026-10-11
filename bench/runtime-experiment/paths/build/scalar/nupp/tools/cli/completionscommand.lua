@@ -1,0 +1,29 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); require("nupp.compiler.runtime.typewitness").install(__nupp); require("nupp.derive").install(__nupp);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()local __nuppT1={ _G.nupp.__reflect.declaration("nupp.tools.cli.completionscommand\0runtime\0001") };
+
+
+
+local cliModule = require ( "nupp.cli" )
+
+
+
+
+
+
+
+
+
+
+local Completions = {} Completions.__index = Completions
+
+
+
+
+function Completions:run() 
+local compilerCLI = require ( "nupp.tools.cli" )
+io . write ( compilerCLI . completion ( self . shell ) )
+return 0
+end ;Completions.__nuppInit1=function(__nuppT3, a1) __nuppT3.shell = a1 return __nuppT3 end ;do local __nuppDerived={["data"]={["cli"]={["command"]={["aliases"]={},["documentation"]="Print a shell completion script.\n\nExamples:\n\n    nupp completions bash\n    nupp completions zsh\n    nupp completions fish",["group"]=false,["hidden"]=false,["name"]="completions",["summary"]="Print a shell completion script."},["fieldCount"]=1,["fields"]={{["arity"]="required",["choices"]={"bash","fish","zsh"},["constants"]={},["conversion"]="choice",["destination"]="string",["display"]="SHELL",["documentation"]="Shell whose completion script to print.",["field"]="shell",["hidden"]=false,["index"]=1,["long"]=true,["names"]={},["required"]=true,["role"]="positional",["value"]="SHELL"}},["positionals"]={{["arity"]="required",["choices"]={"bash","fish","zsh"},["constants"]={},["conversion"]="choice",["destination"]="string",["display"]="SHELL",["documentation"]="Shell whose completion script to print.",["field"]="shell",["hidden"]=false,["index"]=1,["long"]=true,["names"]={},["required"]=true,["role"]="positional",["value"]="SHELL"}},["preserveUnknown"]=false,["stopAtFirstArgument"]=false}},["effects"]={},["fields"]={},["fingerprint"]="d1a1ad8f0660a3971fd60b1d8ad27f06ecfbb3d022d16d2a889f985db0d63913",["helperABI"]={["nupp.cli.derivedFromCLI"]=1,["nupp.cli.derivedStrings"]=1,["nupp.cli.derivedText"]=1},["initializer"]="__nuppInit1",["inputs"]={},["key"]="nupp.derive.runtime.v2:nupp.tools.cli.completionscommand:Completions:1",["members"]={{["arguments"]={{["kind"]="constant",["value"]={}}},["helper"]={["member"]="derivedStrings",["module"]="nupp.cli"},["interface"]="cliModule.Runnable",["name"]="cliAliases",["namespace"]="static",["operation"]="forward.v1",["paramNames"]={},["provider"]="05e942631f9a8560d803c7587cae474a4892015a33a3814f709f02cad14b3c9e",["signature"]="function(): {string}"},{["arguments"]={{["kind"]="constant",["value"]="completions"}},["helper"]={["member"]="derivedText",["module"]="nupp.cli"},["interface"]="cliModule.Runnable",["name"]="cliName",["namespace"]="static",["operation"]="forward.v1",["paramNames"]={},["provider"]="05e942631f9a8560d803c7587cae474a4892015a33a3814f709f02cad14b3c9e",["signature"]="function(): string"},{["arguments"]={{["kind"]="constant",["value"]="Print a shell completion script."}},["helper"]={["member"]="derivedText",["module"]="nupp.cli"},["interface"]="cliModule.Runnable",["name"]="cliSummary",["namespace"]="static",["operation"]="forward.v1",["paramNames"]={},["provider"]="05e942631f9a8560d803c7587cae474a4892015a33a3814f709f02cad14b3c9e",["signature"]="function(): string"},{["arguments"]={{["kind"]="argument",["name"]="argv"},{["kind"]="entry"}},["helper"]={["member"]="derivedFromCLI",["module"]="nupp.cli"},["interface"]="cliModule.Runnable",["name"]="fromCLI",["namespace"]="static",["operation"]="forward.v1",["paramNames"]={"argv"},["provider"]="05e942631f9a8560d803c7587cae474a4892015a33a3814f709f02cad14b3c9e",["signature"]="function(argv: {string}): (Completions?, {@readonly destination: string?, @readonly field: string?, @readonly index: integer?, @readonly kind: string, @readonly message: string, @readonly option: string?, @readonly raw: string?}?)"}},["name"]="Completions",["providerABI"]={["cliModule.Command"]=1}} ;local __nuppDerivedEntry=_G.nupp.__derive.register("nupp.derive.runtime.v2:nupp.tools.cli.completionscommand:Completions:1",Completions,__nuppDerived) ;Completions["cliAliases"]=function()return _G.require("nupp.cli")["derivedStrings"]({})end ;Completions["cliName"]=function()return _G.require("nupp.cli")["derivedText"]("completions")end ;Completions["cliSummary"]=function()return _G.require("nupp.cli")["derivedText"]("Print a shell completion script.")end ;Completions["fromCLI"]=function(argv)return _G.require("nupp.cli")["derivedFromCLI"](argv,__nuppDerivedEntry)end  end ;_G.nupp.__reflect.link(Completions,__nuppT1[1],{ })
+
+
+local __nuppExportValue= { commandType = Completions } ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.tools.cli.completionscommand"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.tools.cli.completionscommand"]=__nuppExports;return __nuppExports

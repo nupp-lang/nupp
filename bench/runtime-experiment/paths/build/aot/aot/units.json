@@ -1,0 +1,1 @@
+{"schemaVersion":3,"target":"aarch64-apple-darwin","units":[{"cflags":["cpu=apple-m1","features=+neon","opt=3","triple=arm64-apple-macosx11.0.0"],"detector":false,"source":"up/up/up/src/nupp/io/path/pathtext.neon.ll","tier":"neon"}]}

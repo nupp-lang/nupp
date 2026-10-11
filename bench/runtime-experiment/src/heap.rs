@@ -227,6 +227,8 @@ impl Heap {
     }
     pub fn new_closure(&mut self, fid: u32, captures: Vec<Value>, roots: &dyn Roots) -> Value { let n = captures.len(); Value::obj(self.alloc(Body::Closure { fid, captures }, 32 + 8 * n, roots)) }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Cell { value }, 32, roots)) }
+    /// A growable buffer with room for a short result before it reallocates.
+    pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Bytes { data: Vec::with_capacity(64) }, 24 + 64, roots)) }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Bytes { data: vec![0u8; n] }, 24 + n, roots)) }
     /// A string that is not interned (hash 0): long results, as Lua 5.4 treats them.
     pub fn new_string(&mut self, text: String, roots: &dyn Roots) -> Value { let n = text.len(); Value::obj(self.alloc(Body::Str { text: text.into_boxed_str(), hash: 0 }, 32 + n, roots)) }

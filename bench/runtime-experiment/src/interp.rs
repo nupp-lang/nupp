@@ -294,6 +294,8 @@ impl Interp {
     pub fn register(&mut self, v: Value) -> usize { self.registered.push(v); self.registered.len() - 1 }
     pub fn release(&mut self, h: usize) { self.registered[h] = Value::NIL; }
     pub fn heap_new_bytes(&mut self, n: usize) -> Value { self.heap.new_bytes(n, roots!(self)) }
+    pub fn heap_new_buffer(&mut self) -> Value { self.heap.new_buffer(roots!(self)) }
+    pub fn heap_new_string(&mut self, text: String) -> Value { self.heap.new_string(text, roots!(self)) }
     pub fn bytes_to_str(&mut self, s: Value, n: usize) -> Value { let text = String::from_utf8(self.bytes_of(s)[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); self.heap.new_string(text, roots!(self)) }
     /// Lua's substring clamping: 1-based inclusive, out-of-range ends clamp, an empty range is empty.
     pub fn sub_bytes(&self, v: Value, i: i64, j: i64) -> &[u8] {
@@ -304,6 +306,14 @@ impl Interp {
         if i > j { &b[0..0] } else { &b[(i - 1) as usize..j as usize] }
     }
     pub fn substring(&mut self, s: Value, i: i64, j: i64) -> Value { let text = String::from_utf8(self.sub_bytes(s, i, j).to_vec()).unwrap_or_else(|_| self.err("not text")); self.heap.new_string(text, roots!(self)) }
+    /// The buffer's bytes become the string: the buffer is dead after a finish.
+    pub fn buf_finish(&mut self, buf: Value) -> Value {
+        let p = buf.as_obj().unwrap_or_else(|| self.err("finish of a non-buffer"));
+        let bytes = unsafe { match &mut (*p.as_ptr()).body { Body::Bytes { data } => std::mem::take(data), _ => self.err("not a buffer") } };
+        unsafe { (*p.as_ptr()).refresh(); }
+        let text = String::from_utf8(bytes).unwrap_or_else(|_| self.err("not text"));
+        self.heap.new_string(text, roots!(self))
+    }
     pub fn buf_append(&mut self, buf: Value, text: &[u8]) {
         let p = buf.as_obj().unwrap_or_else(|| self.err("append to a non-buffer"));
         unsafe { match &mut (*p.as_ptr()).body { Body::Bytes { data } => { data.extend_from_slice(text); } _ => self.err("not a buffer") } (*p.as_ptr()).refresh(); }
@@ -513,11 +523,11 @@ impl Interp {
                     Op::StoreU32(s, i, v) => { let x = ir!(v) as u32; let bytes = self.bytes_mut(r!(s)); let off = ir!(i) as usize; if off + 4 > bytes.len() { self.err("word write out of range") } bytes[off..off + 4].copy_from_slice(&x.to_le_bytes()); }
                     Op::ICmpNe(d, a, b) => ir!(d) = (ir!(a) != ir!(b)) as i64,
                     Op::Truthy(d, v) => ir!(d) = r!(v).truthy() as i64,
-                    Op::NewBuffer(d) => { let v = self.heap.new_bytes(0, roots!(self)); r!(d) = v; }
+                    Op::NewBuffer(d) => { let v = self.heap.new_buffer(roots!(self)); r!(d) = v; }
                     Op::BufAppend(bf, s) => { let text = self.bytes_of(r!(s)).to_vec(); self.buf_append(r!(bf), &text); }
                     Op::BufAppendSub(bf, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = self.sub_bytes(r!(s), i, j).to_vec(); self.buf_append(r!(bf), &text); }
                     Op::Substring(d, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = String::from_utf8(self.sub_bytes(r!(s), i, j).to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
-                    Op::BufFinish(d, bf) => { let text = String::from_utf8(self.bytes_of(r!(bf)).to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
+                    Op::BufFinish(d, bf) => { let v = self.buf_finish(r!(bf)); r!(d) = v; }
                     Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap.new_bytes(n, roots!(self)); r!(d) = v; }
                     Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = String::from_utf8(self.bytes_of(r!(s))[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
                     Op::Switch(r, t) => {

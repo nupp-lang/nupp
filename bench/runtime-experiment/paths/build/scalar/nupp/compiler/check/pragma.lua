@@ -1,0 +1,602 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.syntax.cst" )
+local generics = require ( "nupp.compiler.types.generics" )
+local indexedViews = require ( "nupp.compiler.types.indexedviews" )
+local lints = require ( "nupp.compiler.lints" )
+local state = require ( "nupp.compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+
+local pragma = { }
+
+
+
+
+
+
+
+
+function pragma . install ( c ) 
+local marks = c . marks
+local defineAnnotation = marks . defineAnnotation
+local validateAnnotation = marks . validateAnnotation
+local stringValue , nameText = marks . stringValue , marks . nameText
+
+local handlers = { }
+
+local function nominalValue ( value ) 
+if value ~= nil then
+value = T . unwrapOwnership ( value )
+end
+if value ~= nil and ( value . tag == "typeobject" or value . tag == "metatable" ) then
+value = value . of
+end
+if value ~= nil and value . tag == "genericAlias" then
+value = T . unwrapOwnership ( value . body )
+if value . tag == "nominal" then
+value = value . origin or value
+end
+end
+
+return value ~= nil and value . tag == "nominal" and value or nil
+end
+
+
+
+
+
+local function bindGpuSpec ( target , body ) 
+local nameToken = target and target . name
+local functionType = body and body . signatureType
+if nameToken == nil or functionType == nil or functionType . tag ~= "func" then
+return
+end
+local gpuModule = c . env and c . env . resolveModule and c . env . resolveModule ( c . env , "nupp.gpu" ) or nil
+local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports ( c . env , "nupp.gpu" ) or nil
+local context = nominalValue (
+exports and exports . types . Context or ( gpuModule and c . fieldType ( gpuModule , "Context" ) or nil )
+)
+local buffer = nominalValue (
+exports and exports . types . Buffer or ( gpuModule and c . fieldType ( gpuModule , "Buffer" ) or nil )
+)
+if context == nil or buffer == nil or buffer . typeParams == nil or buffer . typeParams [ 1 ] == nil then
+c . diag ( "NUPP2903" , nameToken , "the GPU runtime types could not be resolved" )
+return
+end
+
+local suffix = nameToken . text .. "@" .. tostring ( nameToken . offset or 0 )
+local identity = ( c . filename or "?" ) .. "\0gpu\0" .. suffix
+local spec = T . nominal ( "GpuSpec<" .. suffix .. ">" , "record" , identity .. "\0spec" )
+local kernel = T . nominal ( "GpuKernel<" .. suffix .. ">" , "record" , identity .. "\0kernel" )
+local binding = T . nominal ( "GpuBinding<" .. suffix .. ">" , "record" , identity .. "\0binding" )
+
+
+
+local close = T . methodCleanup ( "close" )
+for _ , child in ipairs ( { kernel , binding } ) do
+child . inherentCleanup = close
+child . byname . close = T . func ( { child } , { T . nil_ } , false , { "takes" } )
+end
+local bindParams = { kernel }
+local bindModes = { "borrows" }
+local bindNames = { "self" }
+local uniformParams = { binding }
+local uniformModes = { "borrows" }
+local uniformNames = { "self" }
+for position , paramType in ipairs ( functionType . params ) do
+local element = indexedViews . spanElement ( paramType )
+if element ~= nil then
+local map = { [ buffer . typeParams [ 1 ] ] = element }
+bindParams [ # bindParams + 1 ] = generics . instantiate ( buffer , map )
+bindModes [ # bindModes + 1 ] = "borrows"
+bindNames [ # bindNames + 1 ] = functionType . paramNames [ position ] or ""
+else
+uniformParams [ # uniformParams + 1 ] = paramType
+uniformModes [ # uniformModes + 1 ] = "plain"
+uniformNames [ # uniformNames + 1 ] = functionType . paramNames [ position ] or ""
+end
+end
+spec . byname . compile = T . func (
+{ spec , context } ,
+{
+T . affine ( kernel , {
+close
+} )
+} ,
+false ,
+{ "borrows" , "borrows" } ,
+nil ,
+nil ,
+nil ,
+2 ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+{ "self" , "context" }
+)
+kernel . byname . bind = T . func (
+bindParams ,
+{
+T . affine ( binding , {
+close
+} )
+} ,
+false ,
+bindModes ,
+nil ,
+nil ,
+nil ,
+nil ,
+true ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+bindNames
+)
+binding . byname . dispatch = T . func (
+uniformParams ,
+{ } ,
+false ,
+uniformModes ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+uniformNames
+)
+body . gpuSpecType = spec
+c . bindVar ( nameToken . text , spec )
+if target . exported then
+c . moduleFields [ nameToken . text ] = spec
+end
+end
+
+local RELAXATIONS = {
+[ "function-identity" ] = true ,
+[ "load-order" ] = true ,
+[ "error-site" ] = true ,
+frames = true ,
+[ "gc-timing" ] = true ,
+[ "table-order" ] = true ,
+
+
+
+
+[ "fp-contract" ] = true ,
+
+
+[ "fp-transcendentals" ] = true ,
+}
+
+local function effectContract ( application ) 
+local listMembers = {
+reads = true ,
+writes = true ,
+shapes = true ,
+metatables = true ,
+escapes = true ,
+calls = true ,
+returns = true ,
+}
+local boolMembers = { allocates = true , suspends = true , raises = true , external = true , }
+local contract = {
+reads = { } ,
+writes = { } ,
+shapes = { } ,
+metatables = { } ,
+escapes = { } ,
+calls = { } ,
+returns = { } ,
+allocates = false ,
+yields = false ,
+raises = false ,
+external = false ,
+}
+local seen = { }
+for _ , arg in ipairs ( application . annotationArgs or { } ) do
+local name = arg . name and arg . name . text or nil
+
+local semanticName = name == "suspends" and "yields" or name
+if not name or seen [ semanticName ] or not ( listMembers [ name ] or boolMembers [ name ] ) then
+c . diag ( "NUPP2112" , arg , "@effects arguments must be unique named effect members" )
+elseif listMembers [ name ] then
+seen [ semanticName ] = true
+local expr = arg . expr
+if not expr or expr . kind ~= "tableExpr" then
+c . diag ( "NUPP2112" , arg , ("@effects.%s must be an array of strings") : format ( name ) )
+else
+for _ , field in ipairs ( expr . fields or { } ) do
+local value = field . kind == "fieldItem" and stringValue ( field . value ) or nil
+if not value then
+c . diag ( "NUPP2112" , field , ("@effects.%s entries must be strings") : format ( name ) )
+else
+contract [ name ] [ # contract [ name ] + 1 ] = value
+end
+end
+end
+else
+seen [ semanticName ] = true
+local expr = arg . expr
+if not expr or ( expr . kind ~= "trueExpr" and expr . kind ~= "falseExpr" ) then
+c . diag ( "NUPP2112" , arg , ("@effects.%s must be true or false") : format ( name ) )
+else
+contract [ semanticName ] = expr . kind == "trueExpr"
+end
+end
+end
+
+return contract
+end
+
+handlers . pragmaStmt = function ( stat ) 
+local annotationName = stat . name
+if not annotationName then
+return
+end
+local written = annotationName . text
+local target = stat . stat
+
+
+
+while target and ( target . kind == "pragmaStmt" or target . kind == "exportStmt" ) do
+target = target . stat
+end
+
+
+
+local targetKind = target and target . kind or ""
+local targetBody = nil
+if target then
+if target . kind == "funcStmt"
+or target . kind == "localFuncStmt"
+or target . kind == "inlineMethod"
+or target . kind == "constructorDecl"
+then
+targetBody = target . body
+end
+end
+if written == "annotation" and target and targetKind == "recordDecl" then
+target . isAnnotationDefinition = true
+end
+local annotation , valid = validateAnnotation ( stat , target )
+local targetAny = target
+
+
+
+
+if written == "deprecated" and valid and target and targetAny . deprecation then
+local function deprecate ( tok ) 
+if tok then
+tok . deprecation = targetAny . deprecation
+local annotationToken = cst . firstToken ( stat )
+tok . deprecationToken = annotationToken or nil
+end
+end
+
+if target . kind == "localStmt" then
+for _ , name in ipairs ( target . names or { } ) do
+deprecate ( name )
+end
+elseif target . kind == "funcStmt" and target . name then
+local _ , member = c . funcOwner ( target . name )
+deprecate ( member or targetAny . name . base )
+else
+deprecate ( targetAny . name )
+end
+end
+
+if written == "syntax" and valid and target and target . kind == "localStmt" then
+local values = ( stat ) . annotationValues
+local value = values and values . value
+local format = value and stringValue ( value . expr ) or nil
+if format then
+
+
+targetAny . embeddedStringFormat = format
+end
+end
+
+if not annotation then
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+end
+if written == "unsafe" then
+if stat . stat then
+if valid then
+c . withUnsafe ( true , function ( ) 
+c . checkStat ( stat . stat )
+end )
+else
+c . checkStat ( stat . stat )
+end
+end
+return
+elseif written == "annotation" then
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+if valid and target and targetKind == "recordDecl" then
+defineAnnotation ( stat , target )
+end
+return
+
+elseif written == "nosuspend" or written == "noalloc" or written == "noraise" then
+if valid and target and targetAny . body then
+if written == "nosuspend" then
+
+
+local loopTarget = targetKind == "fornumStmt"
+or targetKind == "forinStmt"
+or targetKind == "whileStmt"
+or targetKind == "repeatStmt"
+local regionBody = loopTarget and target or targetAny . body
+c . nosuspend . region ( { body = regionBody } )
+c . noSuspendDepth = c . noSuspendDepth + 1
+else
+local effect = written == "noalloc" and "allocates" or "raises"
+c . effectRegions . region ( { body = targetAny . body , effect = effect } )
+c . effectRegionDepths [ effect ] = ( c . effectRegionDepths [ effect ] or 0 ) + 1
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+if valid and target and targetAny . body then
+if written == "nosuspend" then
+c . noSuspendDepth = c . noSuspendDepth - 1
+else
+local effect = written == "noalloc" and "allocates" or "raises"
+c . effectRegionDepths [ effect ] = ( c . effectRegionDepths [ effect ] or 1 ) - 1
+end
+end
+return
+
+elseif written == "comptime" then
+if valid and target then
+targetAny . comptimeTok = annotationName
+targetAny . comptimeOnly = true
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+
+elseif written == "jit" then
+if valid and targetBody then
+if targetBody . aotRequired then
+c . diag ( "NUPP2901" , annotationName , "@jit and @aot name different compilers for one body" )
+end
+
+
+
+
+local profile = c . env and c . env . targetProfile or nil
+if profile ~= nil and not ( profile ) . tracingJit then
+c . diag (
+"NUPP2904" ,
+annotationName ,
+"@jit needs a tracing JIT, and " .. tostring ( ( profile ) . target ) .. " has none"
+)
+end
+targetBody . jitRequired = true
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+
+elseif written == "aot" then
+
+
+
+
+if valid and ( targetKind == "constructorDecl" or targetKind == "inlineMethod" ) then
+c . diag (
+"NUPP2902" ,
+annotationName ,
+("@aot cannot compile %s")
+
+: format ( targetKind == "constructorDecl" and "a constructor" or "an inline interface requirement" )
+)
+elseif valid and targetBody and c . functionDepth > 0 then
+
+
+
+
+
+c . diag ( "NUPP2902" , annotationName , "@aot cannot compile a function nested in another function" )
+elseif valid and targetBody and targetKind ~= "localFuncStmt" then
+
+
+
+
+c . diag ( "NUPP2902" , annotationName , "@aot currently requires a local function declaration" )
+elseif valid and targetBody then
+if targetBody . jitRequired then
+c . diag ( "NUPP2901" , annotationName , "@aot and @jit name different compilers for one body" )
+end
+targetBody . aotRequired = true
+local values = ( stat ) . annotationValues
+local target = values and values . target
+local requested = target and stringValue ( target . expr ) or nil
+if requested ~= nil then
+targetBody . aotTarget = requested
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+
+
+
+if valid and targetBody and targetBody . aotRequired then
+c . aot . body ( targetBody )
+c . nativeOnly . mark ( stat . stat , targetBody )
+local selected = c . env . config and c . env . config . _target or nil
+if targetBody . aotTarget == "gpu"
+and targetKind == "localFuncStmt"
+and selected ~= nil
+and ( selected . aot == "require" or selected . aot == "require-wasm" or selected . gpuBindings == true )
+then
+bindGpuSpec ( target , targetBody )
+end
+end
+return
+
+elseif written == "derive" then
+if valid and target and target . kind == "recordDecl" then
+target . deriveApplications = target . deriveApplications or { }
+local seen = false
+for _ , prior in ipairs ( target . deriveApplications ) do
+if prior == stat then
+seen = true
+do break end
+end
+end
+if not seen then
+target . deriveApplications [ # target . deriveApplications + 1 ] = stat
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+
+elseif written == "effects" then
+if valid and target then
+local contract = effectContract ( stat )
+target . effectContract = contract
+if targetBody then
+targetBody . effectContract = contract
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+if valid and target and target . kind == "localStmt" and target . effectContract then
+for _ , name in ipairs ( target . names or { } ) do
+if name . definition then
+name . definition . effectContract = target . effectContract
+end
+end
+end
+return
+
+elseif written == "relax" then
+local relaxed = { }
+for _ , arg in ipairs ( stat . annotationArgs or { } ) do
+local expr = arg . expr
+local value = nameText ( expr ) or stringValue ( expr )
+if not value or not RELAXATIONS [ value ] then
+c . diag (
+"NUPP2112" ,
+arg ,
+"@relax names function-identity, load-order, error-site, frames, gc-timing, table-order, fp-contract, or fp-transcendentals"
+
+)
+else
+relaxed [ value ] = true
+end
+end
+if valid and target then
+target . relaxedGuarantees = relaxed
+if targetBody then
+targetBody . relaxedGuarantees = relaxed
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+
+end
+
+if written ~= "allow" then
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+return
+end
+
+
+
+
+
+local set = { }
+if not stat . annotationArgs or # stat . annotationArgs == 0 then
+set [ "*" ] = true
+else
+for _ , arg in ipairs ( stat . annotationArgs ) do
+local expr = arg . kind == "annotationArg" and arg . expr or nil
+local named = arg . kind == "annotationArg" and arg . name or nil
+local spelled = nil
+if expr and expr . kind == "name" then
+local tok = expr . token
+spelled = tok and tok . text or nil
+end
+local name = spelled or stringValue ( expr )
+if named or not name then
+c . diag ( "NUPP2112" , arg , "@allow arguments must be lint names or codes" )
+elseif not lints . get ( name ) then
+
+
+c . diag ( "NUPP2108" , arg , ("%s is not a lint, so it cannot be allowed") : format ( name ) )
+end
+if name then
+set [ name ] = true
+end
+end
+end
+c . allowed [ # c . allowed + 1 ] = set
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+c . allowed [ # c . allowed ] = nil
+end
+
+return handlers
+end
+
+local __nuppExportValue= pragma ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.check.pragma"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.check.pragma"]=__nuppExports;return __nuppExports

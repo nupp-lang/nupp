@@ -1,0 +1,207 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+local fs = require ( "nupp.compiler.fs" )
+local json = require ( "nupp.codec.json" )
+local deps = require ( "nupp.tools.build.deps" )
+local lexer = require ( "nupp.compiler.syntax.lexer" )
+
+local spi = { }
+
+local function qualified ( name ) 
+if type ( name ) ~= "string" or name : sub ( 1 , 1 ) == "." or name : sub ( -1 ) == "." or name : find ( ".." , 1 , true ) ~= nil then
+return false
+end
+for segment in name : gmatch ( "[^.]+" ) do
+if segment : match ( "^[A-Za-z_][A-Za-z0-9_]*$" ) == nil or lexer . KEYWORDS [ segment ] then
+return false
+end
+end
+
+return name ~= ""
+end
+
+
+function spi . read ( root , config , target , records ) 
+local entries , seen , visited = { } , { } , { }
+
+local function read ( path , dependency ) 
+if not fs . exists ( path ) then
+return nil
+end
+local source , why = fs . readFile ( path )
+if not source then
+return why
+end
+local document = json . decode ( source , json . NULL )
+if type ( document ) ~= "table" or json . isArray ( document ) or document == json . NULL then
+return path .. " must contain an interface-to-module object"
+end
+local names = { }
+for name in pairs ( document ) do
+
+
+if type ( name ) ~= "string" or name : sub ( 1 , 1 ) ~= "$" then
+names [ # names + 1 ] = name
+end
+end
+table . sort ( names )
+for _ , interface in ipairs ( names ) do
+local modules = document [ interface ]
+if not qualified ( interface ) or not interface : find ( "." , 1 , true ) then
+return path .. ": invalid qualified interface " .. tostring ( interface )
+end
+if type ( modules ) ~= "table" or not json . isArray ( modules ) then
+return path .. ": " .. interface .. " must list implementation modules"
+end
+for _ , implementation in ipairs ( modules ) do
+if not qualified ( implementation ) then
+return path .. ": invalid implementation module for " .. interface
+end
+local key = interface .. "\0" .. implementation
+if not seen [ key ] then
+seen [ key ] = true
+entries [
+# entries + 1
+] = { interface = interface , implementation = implementation , dependency = dependency }
+end
+end
+end
+
+return nil
+end
+
+local failure = read ( fs . join ( root , "nupp/spi.json" ) , "application" )
+if failure then
+return nil , failure
+end
+
+local function visit ( name ) 
+if visited [ name ] then
+return nil
+end
+visited [ name ] = true
+local record = deps . record ( records , name , "target" )
+if record and record . typeRoot then
+local why = read ( fs . join ( record . typeRoot , "spi.json" ) , name )
+if why then
+return why
+end
+end
+local dependency = ( config . dependencies or { } ) [ name ]
+for _ , child in ipairs ( dependency and dependency . dependencies or { } ) do
+local why = visit ( child )
+if why then
+return why
+end
+end
+
+return nil
+end
+
+for _ , name in ipairs ( target . dependencies or { } ) do
+failure = visit ( name )
+if failure then
+return nil , failure
+end
+end
+
+return entries
+end
+
+
+
+function spi . check ( session , entries , root , outDir ) 
+local seen = { }
+local kept = { }
+for index , entry in ipairs ( entries ) do
+local moduleName , typeName = entry . interface : match ( "^(.*)%.([^.]+)$" )
+local path = session . inc . modulePath ( moduleName ) or session . stageBundled ( moduleName )
+if path == nil then
+return nil , "SPI interface module not found: " .. moduleName
+end
+local declaration = session . inc . checkFile ( path )
+local interface = declaration . exports and declaration . exports . types [ typeName ]
+local origin = interface and ( interface . origin or interface )
+if not origin
+or origin . tag ~= "nominal"
+or origin . declKind ~= "interface"
+or # ( origin . typeParams or { } ) > 0
+then
+return nil , "SPI declaration must name a concrete exported interface: " .. entry . interface
+end
+entry . interface = origin . moduleName .. "." .. ( origin . name : match ( "[^.]+$" ) or origin . name )
+local implementation = session . inc . modulePath ( entry . implementation )
+or session . stageBundled ( entry . implementation )
+if implementation == nil or implementation : match ( "%.lua$" ) then
+return nil , "SPI implementation needs typed Nupp or a declaration: " .. entry . implementation
+end
+local source = ("local {type %s as Interface} = require(%q)\nlocal implementation: Interface = require(%q)\nreturn implementation\n")
+
+: format ( typeName , moduleName , entry . implementation )
+local checkedPath = fs . join ( root , fs . join ( outDir , "generated/nupp/spi/check" .. index .. ".nupp" ) )
+session . inc . openGeneratedDocument ( checkedPath , source )
+local checked = session . inc . checkFile ( checkedPath )
+session . inc . closeDocument ( checkedPath )
+for _ , diagnostic in ipairs ( checked . diags ) do
+if diagnostic . severity == "error" then
+return nil , "SPI "
+.. entry . interface
+.. " from "
+.. entry . implementation
+.. ": "
+.. diagnostic . code
+.. ": "
+.. diagnostic . msg
+end
+end
+local key = entry . interface .. "\0" .. entry . implementation
+if not seen [ key ] then
+seen [ key ] = true
+kept [ # kept + 1 ] = entry
+end
+end
+for index = # entries , 1 , -1 do
+entries [ index ] = nil
+end
+for index , entry in ipairs ( kept ) do
+entries [ index ] = entry
+end
+
+return true
+end
+
+
+function spi . write ( root , outDir , entries ) 
+local interfaces = { }
+local names = { }
+for _ , entry in ipairs ( entries ) do
+if not interfaces [ entry . interface ] then
+interfaces [ entry . interface ] = { }
+names [ # names + 1 ] = entry . interface
+end
+local modules = interfaces [ entry . interface ]
+modules [ # modules + 1 ] = string . format ( "%q" , entry . implementation )
+end
+table . sort ( names )
+local dependencies = { }
+for _ , entry in ipairs ( entries ) do
+dependencies [ # dependencies + 1 ] = "@requires-dynamically " .. entry . implementation
+end
+local lines = {
+"module nupp.spi.index" ,
+"const _DYNAMIC_REQUIRES = " .. string . format ( "%q" , table . concat ( dependencies , " " ) ) ,
+"export = {" ,
+}
+for _ , name in ipairs ( names ) do
+lines [ # lines + 1 ] = ("    [%q] = {%s},") : format ( name , table . concat ( interfaces [ name ] , ", " ) )
+end
+lines [ # lines + 1 ] = "}\n"
+
+return fs . writeFileIfChanged (
+fs . join ( root , fs . join ( outDir , "generated/nupp/spi/index.g.nupp" ) ) ,
+table . concat ( lines , "\n" )
+)
+end
+
+local __nuppExportValue= spi ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.tools.build.spi"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.tools.build.spi"]=__nuppExports;return __nuppExports

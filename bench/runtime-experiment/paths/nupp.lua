@@ -6,8 +6,8 @@ return {
         outDir = "build",
         default = "paths",
         targets = {
-            ["paths"] = {kind = "modules", description = "normaliser with its @aot entry compiled", entries = {"pathbench"}, optimize = 1, aot = "require"},
-            ["paths-scalar"] = {kind = "modules", description = "the same source left to LuaJIT", entries = {"pathbench"}, optimize = 1, aot = "off"},
+            ["paths"] = {kind = "modules", description = "normaliser with its @aot entry compiled", entries = {"nupp.bench.pathbench"}, optimize = 1, aot = "require"},
+            ["paths-scalar"] = {kind = "modules", description = "the same source left to LuaJIT", entries = {"nupp.bench.pathbench"}, optimize = 1, aot = "off"},
         },
     },
 }

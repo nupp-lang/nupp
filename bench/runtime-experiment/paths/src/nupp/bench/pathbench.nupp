@@ -1,0 +1,13 @@
+module nupp.bench.pathbench
+
+--- The shipped normaliser re-exported from inside the `nupp` namespace, so
+--- a build target can compile its `@aot` entry and a harness can time it.
+local pathtext = require("nupp.io.path.pathtext")
+
+local pathbench = {}
+
+function pathbench.normalize(text: string, windows: boolean): string
+    return pathtext.normalize(text, windows)
+end
+
+export = pathbench

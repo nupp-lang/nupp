@@ -1,0 +1,32 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+local __nuppExportValue= {
+dialect = "luajit" ,
+providers = {
+{ [ "service" ] = "data.json" , [ "name" ] = "nupp.aot" , [ "entry" ] = "nupp.codec.json.aot" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "json" , api = 2 } ,
+{ [ "service" ] = "data.json" , [ "name" ] = "nupp.lunajson" , [ "entry" ] = "nupp.runtime.provider.lunajson" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "json" , api = 2 } ,
+{ [ "service" ] = "data.uuid" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativeuuid" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "uuid" , api = 1 } ,
+{ [ "service" ] = "host.crypto" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativecrypto" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "crypto" , api = 1 } ,
+{ [ "service" ] = "host.gpu" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativegpu" , [ "contract" ] = "nupp.runtime.services.gpu" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.http" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativehttp" , [ "contract" ] = "nupp.runtime.services.http" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.net" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativenet" , [ "contract" ] = "nupp.runtime.services.net" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.path" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativepath" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "path" , api = 1 } ,
+{ [ "service" ] = "host.process" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativeprocess" , [ "contract" ] = "nupp.runtime.services.process" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.system" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativesystem" , [ "contract" ] = "nupp.runtime.services.system" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.time" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativetime" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "time" , api = 1 } ,
+{ [ "service" ] = "host.tls" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativetls" , [ "contract" ] = "nupp.runtime.services.tls" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "host.uri" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativeuri" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "uri" , api = 1 } ,
+{ [ "service" ] = "host.workers" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.workers" , [ "contract" ] = "nupp.runtime.services.workers" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "numeric.bitops" , [ "name" ] = "nupp.native" , [ "entry" ] = "bit" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "bitops" , api = 1 } ,
+{ [ "service" ] = "numeric.bitops" , [ "name" ] = "nupp.scalar" , [ "entry" ] = "nupp.runtime.provider.scalarbitops" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "bitops" , api = 1 } ,
+{ [ "service" ] = "nupp.checksum" , [ "name" ] = "nupp.builtin" , [ "entry" ] = "nupp.runtime.provider.checksum" , [ "contract" ] = "nupp.runtime.services.checksum" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "nupp.compression" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativecompression" , [ "contract" ] = "nupp.runtime.services.compression" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "nupp.digest" , [ "name" ] = "nupp.builtin" , [ "entry" ] = "nupp.runtime.provider.digest" , [ "contract" ] = "nupp.runtime.services.digest" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "nupp.mac" , [ "name" ] = "nupp.builtin" , [ "entry" ] = "nupp.runtime.provider.mac" , [ "contract" ] = "nupp.runtime.services.mac" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "representation.cstorage" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativestorage" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "cstorage" , api = 1 } ,
+{ [ "service" ] = "suspension" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.suspension" , [ "contract" ] = "nupp.runtime.services.suspension" , [ "export" ] = "service" , api = 1 } ,
+{ [ "service" ] = "text.buffer" , [ "name" ] = "nupp.native" , [ "entry" ] = "nupp.runtime.provider.nativebuffer" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "buffer" , api = 1 } ,
+{ [ "service" ] = "text.buffer" , [ "name" ] = "nupp.portable" , [ "entry" ] = "nupp.runtime.provider.tablebuffer" , [ "contract" ] = "nupp.runtime.services.contracts" , [ "export" ] = "buffer" , api = 1 } ,
+} ,
+} ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.runtime.services.artifact"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.services.artifact"]=__nuppExports;return __nuppExports

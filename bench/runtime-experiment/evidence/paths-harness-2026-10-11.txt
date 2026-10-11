@@ -1,0 +1,4 @@
+llvm-aot	13.98 ns per input byte	0.149 us per call	(777 cases, 8258 bytes)
+luajit	8.67 ns per input byte	0.092 us per call	(777 cases, 8258 bytes)
+luajit-interp	70.66 ns per input byte	0.751 us per call	(777 cases, 8258 bytes)
+exit 0

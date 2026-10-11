@@ -1,0 +1,907 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+local native = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local FEATURES = {
+[
+"runtime.crypto"
+] = { name = "crypto_runtime" , module = "nupp.random" , runtimeModule = "nupp.random" , portableRuntime = true } ,
+[
+"runtime.http"
+] = {
+name = "http_runtime" ,
+module = "nupp.io.http" ,
+runtimeModule = "nupp.io.http" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[
+"runtime.files"
+] = {
+name = "files_runtime" ,
+module = "nupp.io.files" ,
+runtimeModule = "nupp.io.files" ,
+portableRuntime = true ,
+requires = {
+"runtime.files_messages" ,
+"runtime.files_path" ,
+"runtime.files_spi" ,
+"runtime.path" ,
+"runtime.suspension" ,
+"stdlib.io" ,
+}
+} ,
+[
+"runtime.files_messages"
+] = { name = "files_messages" , runtimeModule = "nupp.io.files.messages" , portableRuntime = true } ,
+[
+"runtime.files_path"
+] = {
+name = "files_path" ,
+runtimeModule = "nupp.io.files.path" ,
+portableRuntime = true ,
+requires = { "runtime.path" , "stdlib.io" } ,
+} ,
+[
+"runtime.files_spi"
+] = {
+name = "files_spi" ,
+runtimeModule = "nupp.io.files.spi" ,
+portableRuntime = true ,
+requires = { "runtime.files_messages" , "runtime.files_path" , "stdlib.io" } ,
+} ,
+[
+"runtime.uri_provider"
+] = {
+name = "uri_provider" ,
+module = "nupp.io.uri.provider" ,
+runtimeModule = "nupp.io.uri.provider" ,
+portableRuntime = true
+} ,
+[
+"runtime.path_provider"
+] = {
+name = "path_provider" ,
+module = "nupp.io.path.provider" ,
+runtimeModule = "nupp.io.path.provider" ,
+portableRuntime = true
+} ,
+[
+"runtime.process"
+] = {
+name = "process_runtime" ,
+module = "nupp.io.process" ,
+runtimeModule = "nupp.io.process" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[
+"runtime.tls"
+] = {
+name = "tls_runtime" ,
+module = "nupp.io.tls" ,
+runtimeModule = "nupp.io.tls" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[
+"runtime.net"
+] = {
+name = "net_runtime" ,
+module = "nupp.io.net" ,
+runtimeModule = "nupp.io.net" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[
+"runtime.time"
+] = {
+name = "time_runtime" ,
+module = "nupp.time" ,
+runtimeModule = "nupp.time" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[
+"runtime.workers"
+] = {
+name = "workers_runtime" ,
+module = "nupp.workers" ,
+runtimeModule = "nupp.workers" ,
+portableRuntime = true ,
+requires = { "runtime.suspension" }
+} ,
+[ "runtime.int64" ] = { name = "int64" , requires = { } } ,
+[
+"runtime.structvalue"
+] = { name = "structvalue" , runtimeModule = "nupp.runtime.structvalue" , portableRuntime = true , requires = { } } ,
+[
+"runtime.uuid"
+] = {
+name = "uuid_runtime" ,
+exports = { "nupp.util.uuid4" , "nupp.util.uuid7" } ,
+runtimeModule = "nupp.runtime.uuidprovider" ,
+portableRuntime = true
+} ,
+[
+"runtime.bitops"
+] = { name = "bitops" , runtimeModule = "nupp.runtime.bitops" , portableRuntime = true , requires = { } } ,
+[ "runtime.managed" ] = { name = "managed" , runtimeModule = "nupp.runtime.managed" , portableRuntime = true } ,
+[
+"runtime.io_internal_ownedreader"
+] = {
+name = "io_internal_ownedreader" ,
+runtimeModule = "nupp.io.internal.ownedreader" ,
+portableRuntime = true ,
+requires = { "runtime.io_internal_bytes" , "runtime.cstorage" } ,
+} ,
+[
+"runtime.bitset"
+] = {
+name = "bitset" ,
+module = "nupp.util.internal.bitset" ,
+runtimeModule = "nupp.util.internal.bitset" ,
+portableRuntime = true ,
+requires = { "runtime.cstorage" , "runtime.bitops" } ,
+} ,
+[
+"runtime.cstorage"
+] = {
+name = "cstorage" ,
+module = "nupp.runtime.storage" ,
+runtimeModule = "nupp.runtime.storage" ,
+portableRuntime = true ,
+} ,
+[
+"runtime.net_contract"
+] = {
+name = "net_contract" ,
+runtimeModule = "nupp.io.net.spi" ,
+portableRuntime = true ,
+requires = { "runtime.net_types" }
+} ,
+[
+"runtime.net_types"
+] = { name = "net_types" , runtimeModule = "nupp.io.net.types" , portableRuntime = true , requires = { } } ,
+[
+"runtime.net_internal"
+] = { name = "net_internal" , runtimeModule = "nupp.io.net.internal" , portableRuntime = true , requires = { } } ,
+[
+"runtime.tls_contract"
+] = {
+name = "tls_contract" ,
+runtimeModule = "nupp.io.tls.spi" ,
+portableRuntime = true ,
+requires = { "runtime.tls_types" }
+} ,
+[
+"runtime.tls_types"
+] = { name = "tls_types" , runtimeModule = "nupp.io.tls.types" , portableRuntime = true , requires = { } } ,
+[
+"runtime.process_contract"
+] = {
+name = "process_contract" ,
+runtimeModule = "nupp.io.process.spi" ,
+portableRuntime = true ,
+requires = { "runtime.process_types" }
+} ,
+[
+"runtime.process_types"
+] = { name = "process_types" , runtimeModule = "nupp.io.process.types" , portableRuntime = true , requires = { } } ,
+[
+"runtime.http_messages"
+] = { name = "http_messages" , runtimeModule = "nupp.io.http.messages" , portableRuntime = true , requires = { } } ,
+
+[
+"runtime.io_internal_bytes"
+] = {
+name = "io_internal_bytes" ,
+runtimeModule = "nupp.io.internal.bytes" ,
+portableRuntime = true ,
+requires = { "stdlib.math" , "runtime.spanview" , "runtime.text_buffer" }
+} ,
+[
+"runtime.io_internal_scalars"
+] = {
+name = "io_internal_scalars" ,
+runtimeModule = "nupp.io.internal.scalars" ,
+portableRuntime = true ,
+requires = { "runtime.io_internal_bytes" }
+} ,
+[
+"runtime.io_internal_lines"
+] = {
+name = "io_internal_lines" ,
+runtimeModule = "nupp.io.internal.lines" ,
+portableRuntime = true ,
+requires = { "runtime.io_internal_bytes" }
+} ,
+[
+"runtime.io_http_internal_transport"
+] = {
+name = "io_http_internal_transport" ,
+runtimeModule = "nupp.io.http.internal.transport" ,
+requires = { "runtime.native" , "native.time" }
+} ,
+
+[ "runtime.test" ] = { name = "test" , module = "nupp.test" , runtimeModule = "nupp.test" , portableRuntime = true , } ,
+[ "native.lpeg" ] = { name = "lpeg" , module = "lpeg" , host = "lpeg" , binary = true , externalModule = true , } ,
+[
+"stdlib.lpeg.re"
+] = { name = "lpeg_re" , module = "re" , runtimeModule = "re" , portableRuntime = true , requires = { "native.lpeg" } , } ,
+
+[
+"native.json"
+] = {
+name = "json" ,
+module = "nupp.codec.json.provider" ,
+modules = { "nupp.codec.json" } ,
+exports = { "nupp.codec.json" } ,
+} ,
+[
+"runtime.gpu_layout"
+] = {
+name = "gpu_layout" ,
+modules = { "nupp.gpu.layout" } ,
+runtimeModule = "nupp.gpu.layout" ,
+portableRuntime = true ,
+requires = { "runtime.gpu_layoutfacts" } ,
+} ,
+[
+"runtime.gpu_layoutfacts"
+] = { name = "gpu_layoutfacts" , runtimeModule = "nupp.gpu.layoutfacts" , portableRuntime = true } ,
+[ "runtime.gpu_api" ] = { name = "gpu_api" , runtimeModule = "nupp.gpu" , portableRuntime = true } ,
+[ "runtime.gpu" ] = { name = "gpu_runtime" , module = "nupp.gpu" , runtimeModule = "nupp.gpu" , portableRuntime = true } ,
+[ "native.gpu" ] = {
+name = "gpu" ,
+modules = { "nupp.runtime.provider.nativegpu" } ,
+runtimeModule = "nupp.runtime.provider.nativegpu" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "gpu" ,
+host = "native-gpu" ,
+library = "nupp_native" ,
+binary = true ,
+
+
+requires = {
+"runtime.native" ,
+"runtime.suspension" ,
+"runtime.spanview" ,
+"runtime.gpu_api" ,
+"runtime.gpu_layout"
+} ,
+} ,
+
+
+
+[
+"native.aot_runtime"
+] = {
+name = "aot_runtime" ,
+modules = { "nupp.runtime.aotruntime" } ,
+runtimeModule = "nupp.runtime.aotruntime" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "base" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.native" } ,
+} ,
+
+
+
+[ "native.codegen" ] = {
+name = "codegen" ,
+modules = { "nupp.compiler.aot.llvm.codegen" } ,
+runtimeModule = "nupp.compiler.aot.llvm.codegen" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "codegen" ,
+host = "native-codegen" ,
+library = "nupp_native" ,
+binary = true ,
+
+
+optional = true ,
+requires = { "runtime.native" } ,
+} ,
+
+
+[ "runtime.data_utf8" ] = { name = "data_utf8" , modules = { "nupp.text.utf8" } , } ,
+[
+"stdlib.peg"
+] = {
+portableRuntime = true ,
+name = "peg" ,
+runtimeModule = "nupp.compiler.runtime.peg" ,
+requires = { "native.lpeg" } ,
+} ,
+[
+"stdlib.peg.compile"
+] = {
+name = "peg_compile" ,
+portableRuntime = true ,
+globals = { "nupp.peg.compile" } ,
+runtimeModule = "nupp.compiler.runtime.peg" ,
+requires = { "native.lpeg" } ,
+} ,
+[
+"stdlib.fieldcodec"
+] = {
+name = "fieldcodec" ,
+globals = { "nupp.reflect.fieldCodec" } ,
+runtimeModule = "nupp.compiler.runtime.reflect" ,
+portableRuntime = true ,
+} ,
+[
+"stdlib.reflection"
+] = {
+name = "reflection" ,
+globals = { "nupp.reflect.extensionKey" , "nupp.reflect.runtime" , "nupp.reflect.runtimeType" } ,
+runtimeModule = "nupp.compiler.runtime.reflect" ,
+portableRuntime = true ,
+} ,
+[
+"stdlib.typewitness"
+] = {
+name = "typewitness" ,
+globals = { } ,
+runtimeModule = "nupp.compiler.runtime.typewitness" ,
+portableRuntime = true ,
+} ,
+[ "stdlib.derives" ] = { name = "derives" , globals = { } , runtimeModule = "nupp.derive" , portableRuntime = true , } ,
+[
+"stdlib.io"
+] = {
+name = "io" ,
+modules = { "nupp.io" } ,
+runtimeModule = "nupp.io" ,
+portableRuntime = true ,
+requires = { "runtime.io_internal_bytes" , "runtime.io_internal_scalars" , "runtime.io_internal_lines" } ,
+} ,
+[
+"runtime.text_buffer"
+] = {
+name = "text_buffer" ,
+module = "nupp.text" ,
+runtimeModule = "nupp.text" ,
+portableRuntime = true ,
+requires = { }
+} ,
+
+
+
+
+
+[
+"stdlib.math"
+] = {
+name = "math" ,
+globals = { "nupp.math" } ,
+runtimeModule = "nupp.compiler.runtime.math" ,
+portableRuntime = true ,
+requires = { "runtime.bitops" } ,
+} ,
+[ "native.path" ] = {
+name = "path" ,
+
+
+modules = { "nupp.runtime.provider.nativepath" } ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "filesystem" ,
+host = "native-files" ,
+library = "nupp_native" ,
+binary = true ,
+runtimeModule = "nupp.runtime.provider.nativepath" ,
+requires = { "runtime.path" , "runtime.native" } ,
+} ,
+[
+"runtime.path"
+] = {
+name = "path_runtime" ,
+module = "nupp.io.path" ,
+runtimeModule = "nupp.io.path" ,
+portableRuntime = true ,
+requires = { "runtime.pathtext" , "runtime.path_provider" } ,
+} ,
+[ "runtime.pathtext" ] = { name = "pathtext" , runtimeModule = "nupp.io.path.pathtext" , portableRuntime = true , } ,
+[
+"native.uri"
+] = {
+name = "uri" ,
+modules = { "nupp.runtime.provider.nativeuri" } ,
+runtimeModule = "nupp.runtime.provider.nativeuri" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "uri" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.uri" , "runtime.native" } ,
+} ,
+[
+"runtime.uri"
+] = {
+name = "uri_runtime" ,
+module = "nupp.io.uri" ,
+runtimeModule = "nupp.io.uri" ,
+portableRuntime = true ,
+requires = { "runtime.uri_whatwg" }
+} ,
+[ "runtime.uri_whatwg" ] = { name = "uri_whatwg" , runtimeModule = "nupp.io.uri.whatwg" , portableRuntime = true } ,
+[
+"native.uuid"
+] = {
+name = "uuid" ,
+modules = { "nupp.runtime.provider.nativeuuid" } ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "uuid" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.native" } ,
+} ,
+[ "native.files" ] = {
+name = "files" ,
+modules = { "nupp.runtime.provider.nativefiles" } ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "files" ,
+host = "native-files" ,
+library = "nupp_native" ,
+binary = true ,
+runtimeModule = "nupp.runtime.provider.nativefiles" ,
+
+
+requires = {
+"runtime.files" ,
+"native.path" ,
+"stdlib.io" ,
+"runtime.spanview" ,
+"runtime.suspension" ,
+"runtime.native" ,
+} ,
+} ,
+[ "runtime.suspension" ] = {
+
+
+
+name = "suspension" ,
+module = "nupp.suspension" ,
+
+
+
+modules = { "nupp.suspension.host" , "nupp.suspension.selected" } ,
+runtimeModule = "nupp.suspension" ,
+portableRuntime = true ,
+} ,
+[
+"runtime.tasks"
+] = {
+name = "tasks" ,
+module = "nupp.tasks" ,
+runtimeModule = "nupp.tasks" ,
+requires = { "runtime.suspension" } ,
+portableRuntime = true ,
+} ,
+[
+"native.crc"
+] = {
+name = "crc" ,
+module = "nupp.runtime.provider.nativecrc" ,
+runtimeModule = "nupp.runtime.provider.nativecrc" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "base" ,
+host = "native-checksum" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.native" } ,
+} ,
+[ "runtime.native" ] = { name = "native_runtime" , runtimeModule = "nupp.runtime.native" , } ,
+[
+"native.time"
+] = {
+name = "time" ,
+module = "nupp.runtime.provider.nativetime" ,
+runtimeModule = "nupp.runtime.provider.nativetime" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "base" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.suspension" , "runtime.native" } ,
+} ,
+[ "native.net" ] = {
+name = "net" ,
+
+
+
+module = "nupp.runtime.provider.nativenet" ,
+runtimeModule = "nupp.runtime.provider.nativenet" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "net" ,
+host = "native-net" ,
+library = "nupp_native" ,
+binary = true ,
+requires = {
+"runtime.net_contract" ,
+"runtime.net_types" ,
+"runtime.net_internal" ,
+"runtime.suspension" ,
+"runtime.native"
+} ,
+} ,
+[ "native.tls" ] = {
+name = "tls" ,
+
+
+
+module = "nupp.runtime.provider.nativetls" ,
+runtimeModule = "nupp.runtime.provider.nativetls" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "tls" ,
+host = "native-tls" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.tls_contract" , "runtime.tls_types" , "native.net" , "runtime.suspension" , "runtime.native" } ,
+} ,
+[ "native.process" ] = {
+name = "process" ,
+
+
+
+
+
+module = "nupp.runtime.provider.nativeprocess" ,
+runtimeModule = "nupp.runtime.provider.nativeprocess" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "process" ,
+host = "native-process" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.process_contract" , "runtime.process_types" , "runtime.suspension" , "runtime.native" } ,
+} ,
+[
+"native.workers"
+] = {
+name = "workers" ,
+module = "nupp.runtime.provider.workers" ,
+host = "workers" ,
+binary = true ,
+runtimeModule = "nupp.runtime.provider.workers" ,
+requires = { "runtime.suspension" , "runtime.tasks" , "runtime.workers" } ,
+} ,
+[
+"native.sharedbytes"
+] = {
+name = "sharedbytes" ,
+module = "nupp.mem.sharedbytes" ,
+host = "workers" ,
+binary = true ,
+runtimeModule = "nupp.mem.sharedbytes" ,
+requires = { "runtime.spanview" } ,
+} ,
+
+
+
+[
+"runtime.spanview"
+] = { name = "spanview" , runtimeModule = "nupp.mem.span" , portableRuntime = true , requires = { "runtime.indexed" } , } ,
+[ "runtime.indexed" ] = { name = "indexed" , runtimeModule = "nupp.mem.indexed" , portableRuntime = true , } ,
+[
+"runtime.heap"
+] = { name = "heap" , module = "nupp.mem.heap" , runtimeModule = "nupp.mem.heap" , requires = { "runtime.spanview" } , } ,
+[ "native.http" ] = {
+name = "http" ,
+module = "nupp.runtime.provider.nativehttp" ,
+runtimeModule = "nupp.runtime.provider.nativehttp" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "http" ,
+library = "nupp_native" ,
+binary = true ,
+
+
+requires = {
+"runtime.http_messages" ,
+"runtime.io_http_internal_transport" ,
+"runtime.suspension" ,
+"runtime.tasks" ,
+"runtime.native" ,
+"native.path" ,
+"native.time" ,
+"native.uri" ,
+"stdlib.io" ,
+} ,
+} ,
+[
+"native.compression"
+] = {
+name = "compression" ,
+modules = { "nupp.runtime.provider.nativecompression" } ,
+runtimeModule = "nupp.runtime.provider.nativecompression" ,
+provider = "nupp_native" ,
+providerDriver = "native-rust" ,
+providerFeature = "compression" ,
+host = "native-compression" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.native" , "runtime.spanview" , "stdlib.io" } ,
+} ,
+[
+"runtime.compression"
+] = {
+name = "compression_runtime" ,
+module = "nupp.compression" ,
+runtimeModule = "nupp.compression" ,
+portableRuntime = true ,
+requires = { "runtime.spanview" , "stdlib.io" } ,
+} ,
+[
+"native.sha256"
+] = {
+name = "sha256" ,
+exports = { "nupp.digest.internal.sha256.sha256" } ,
+runtimeModule = "nupp.digest.internal.sha256" ,
+portableRuntime = true ,
+} ,
+[
+"runtime.system"
+] = { name = "system_runtime" , module = "nupp.system" , runtimeModule = "nupp.system" , portableRuntime = true } ,
+[
+"native.system"
+] = { name = "system" , module = "nupp.runtime.provider.nativesystem" , requires = { "runtime.native" } , } ,
+[ "runtime.host" ] = {
+name = "host_runtime" ,
+module = "nupp.host" ,
+runtimeModule = "nupp.host" ,
+portableRuntime = true ,
+
+requires = { "runtime.suspension" } ,
+} ,
+[ "native.host" ] = { name = "host" , module = "nupp.runtime.provider.nativehost" , requires = { "runtime.suspension" } } ,
+[
+"native.crypto"
+] = { name = "crypto" , module = "nupp.runtime.provider.nativecrypto" , requires = { "runtime.native" } , } ,
+}
+
+local byGlobal = { }
+local byModule , byModuleMember = { } , { }
+local byName = { }
+for effect , feature in pairs ( FEATURES ) do
+if feature . binary then
+byName [ feature . name ] = effect
+end
+for _ , path in ipairs ( feature . globals or { } ) do
+byGlobal [ path ] = effect
+end
+if feature . module then
+byModule [ feature . module ] = effect
+end
+for _ , moduleName in ipairs ( feature . modules or { } ) do
+byModule [ moduleName ] = effect
+end
+for _ , path in ipairs ( feature . exports or { } ) do
+local moduleName , member = path : match ( "^(.*)%.([^.]+)$" )
+if moduleName and member then
+byModuleMember [ moduleName ] = byModuleMember [ moduleName ] or { }
+byModuleMember [ moduleName ] [ member ] = effect
+end
+end
+end
+
+
+
+
+
+
+function native . decorateGlobals ( globals ) 
+local effects = { }
+
+local function decorate ( owner , member , effect ) 
+if owner then
+effects [ owner ] = effects [ owner ] or { }
+effects [ owner ] [ member ] = effect
+end
+end
+
+for path , effect in pairs ( byGlobal ) do
+local parts = { }
+for part in path : gmatch ( "[^.]+" ) do
+parts [ # parts + 1 ] = part
+end
+local entry = globals [ parts [ 1 ] ]
+local t = entry and entry . t
+for index = 2 , # parts do
+if index == # parts and t then
+decorate ( t , parts [ index ] , effect )
+
+
+
+
+
+local qualified = globals [ table . concat ( parts , "." , 1 , index - 1 ) ]
+decorate ( qualified and qualified . t , parts [ index ] , effect )
+end
+
+
+
+t = t and ( t . byname and t . byname [ parts [ index ] ] or t . nestedTypes and t . nestedTypes [ parts [ index ] ] ) or nil
+end
+end
+
+return effects
+end
+
+function native . forModule ( name ) 
+return byModule [ name ]
+end
+
+function native . forModuleMember ( name , member ) 
+local members = byModuleMember [ name ]
+return members and members [ member ] or nil
+end
+
+function native . feature ( effect ) 
+return FEATURES [ effect ]
+end
+
+
+
+
+
+function native . effectNames ( ) 
+local names = { }
+for effect in pairs ( FEATURES ) do
+names [ # names + 1 ] = effect
+end
+table . sort ( names )
+
+return names
+end
+
+function native . featureNames ( ) 
+local names = { }
+for name in pairs ( byName ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+
+return names
+end
+
+
+
+
+
+
+
+function native . expand ( effects ) 
+local closed = { }
+local pending = { }
+for effect in pairs ( effects or { } ) do
+closed [ effect ] = true
+pending [ # pending + 1 ] = effect
+end
+while # pending > 0 do
+local effect = table . remove ( pending )
+local feature = FEATURES [ effect ]
+for _ , needed in ipairs ( feature and feature . requires or { } ) do
+if not closed [ needed ] then
+closed [ needed ] = true
+pending [ # pending + 1 ] = needed
+end
+end
+end
+
+return closed
+end
+
+
+
+
+
+
+function native . resolve ( effects , overrides ) 
+local resolved = { }
+for effect in pairs ( effects or { } ) do
+resolved [ effect ] = true
+end
+for name , enabled in pairs ( overrides or { } ) do
+local effect = byName [ name ]
+if effect then
+resolved [ effect ] = enabled and true or nil
+end
+end
+
+return native . expand ( resolved )
+end
+
+function native . features ( effects ) 
+local out = { }
+for effect in pairs ( effects or { } ) do
+local feature = FEATURES [ effect ]
+if feature then
+out [ # out + 1 ] = feature
+end
+end
+table . sort ( out , function ( a , b ) 
+return a . name < b . name
+end )
+
+return out
+end
+
+
+
+function native . hostFeatureNames ( effects ) 
+local names , included = { } , { }
+for _ , feature in ipairs ( native . features ( effects ) ) do
+if feature . host and not included [ feature . host ] then
+names [ # names + 1 ] = feature . host
+included [ feature . host ] = true
+end
+end
+table . sort ( names )
+
+return names
+end
+
+
+
+function native . requiredHostFeatureNames ( effects ) 
+local names , included = { } , { }
+for _ , feature in ipairs ( native . features ( effects ) ) do
+if feature . host and not ( feature ) . optional and not included [ feature . host ] then
+names [ # names + 1 ] = feature . host
+included [ feature . host ] = true
+end
+end
+table . sort ( names )
+
+return names
+end
+
+local __nuppExportValue= native ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.native"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.native"]=__nuppExports;return __nuppExports

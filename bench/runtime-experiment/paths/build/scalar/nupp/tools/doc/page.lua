@@ -1,0 +1,729 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); require("nupp.compiler.runtime.typewitness").install(__nupp);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()local __nuppT1={ _G.nupp.__reflect.declaration("nupp.tools.doc.page\0runtime\0001") };
+
+
+
+
+
+
+
+
+local stringsMod = require ( "nupp.tools.doc.strings" )
+local urlsMod = require ( "nupp.tools.doc.urls" )
+local htmlMod = require ( "nupp.tools.doc.html" )
+local assetsMod = require ( "nupp.tools.doc.assets" )
+
+local htmlEscape = stringsMod . htmlEscape
+local moduleFile , pageLink = urlsMod . moduleFile , urlsMod . pageLink
+local relativePrefix = urlsMod . relativePrefix
+local markdownHtml = htmlMod . markdownHtml
+local ICONS = assetsMod . ICONS
+
+local page = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+page.Entry = {} page.Entry.__index = page.Entry ;_G.nupp.__reflect.link(page.Entry,__nuppT1[1],{ __nuppT1[1] })
+
+
+
+
+
+
+
+local function assetHref ( prefix , source ) 
+source = tostring ( source )
+if source : match ( "^[%w+.-]+:" ) or source : sub ( 1 , 1 ) == "/" then
+return source
+end
+
+return prefix .. source
+end
+
+local function moduleTree ( modules ) 
+local root = { children = { } , order = { } }
+for _ , module in ipairs ( modules ) do
+local node = root
+for segment in module . name : gmatch ( "[^.]+" ) do
+if not node . children [ segment ] then
+node . children [ segment ] = { name = segment , children = { } , order = { } }
+node . order [ # node . order + 1 ] = segment
+end
+node = node . children [ segment ]
+end
+node . module = module
+end
+
+local function sort ( node ) 
+table . sort ( node . order )
+for _ , name in ipairs ( node . order ) do
+sort ( node . children [ name ] )
+end
+end
+
+sort ( root )
+
+return root
+end
+
+local function moduleBranchContains ( node , current ) 
+if node . module and node . module . name == current then
+return true
+end
+for _ , name in ipairs ( node . order ) do
+if moduleBranchContains ( node . children [ name ] , current ) then
+return true
+end
+end
+
+return false
+end
+
+local function moduleTreeHtml ( node , current , prefix , path ) 
+local parts = { }
+for _ , name in ipairs ( node . order ) do
+local child = node . children [ name ]
+local childPath = path == "" and name or path .. "." .. name
+if # child . order == 0 then
+local module = child . module
+local active = module . name == current and " aria-current=\"page\"" or ""
+parts [
+# parts + 1
+] = "<li data-module=\"" .. htmlEscape (
+module . name : lower ( )
+) .. "\"><a" .. active .. " href=\"" .. prefix .. moduleFile (
+module . name
+) .. "\" aria-label=\"" .. htmlEscape ( module . name ) .. "\"><code>" .. htmlEscape ( name ) .. "</code></a></li>"
+else
+
+
+
+
+local open = ( path == "" or moduleBranchContains ( child , current ) ) and " open" or ""
+local label = "<code>" .. htmlEscape ( name ) .. "</code>"
+local item , summary = "<li class=\"nuppdoc-module-branch\">" , "<summary>" .. label .. "</summary>"
+
+
+if child . module then
+local module = child . module
+local active = module . name == current and " aria-current=\"page\"" or ""
+item = "<li class=\"nuppdoc-module-branch\" data-module=\"" .. htmlEscape ( module . name : lower ( ) ) .. "\">"
+summary = "<summary class=\"nuppdoc-module-branch-link\"><a"
+.. active
+.. " href=\""
+.. prefix
+.. moduleFile (
+module . name
+) .. "\" aria-label=\"" .. htmlEscape ( module . name ) .. "\">" .. label .. "</a></summary>"
+end
+parts [ # parts + 1 ] = item .. "<details" .. open .. ">" .. summary .. "<ul class=\"nuppdoc-module-tree\">"
+parts [ # parts + 1 ] = moduleTreeHtml ( child , current , prefix , childPath )
+parts [ # parts + 1 ] = "</ul></details></li>"
+end
+end
+
+return table . concat ( parts )
+end
+
+local function pageTree ( pages ) 
+local root = { children = { } , order = { } , pages = { } }
+local listed = { }
+local sections = { }
+for _ , candidate in ipairs ( pages or { } ) do
+
+
+
+if candidate . path ~= "" and not candidate . module and not candidate . unlisted and not candidate . api then
+listed [ # listed + 1 ] = candidate
+
+
+
+
+local parent = candidate . path : match ( "^(.*)/[^/]+$" )
+while parent do
+sections [ parent ] = true
+parent = parent : match ( "^(.*)/[^/]+$" )
+end
+end
+end
+for _ , candidate in ipairs ( listed ) do
+
+
+
+
+local path = candidate . path
+local parent = path : match ( "^(.*)/[^/]+$" )
+if parent and not sections [ path ] then
+path = parent
+end
+local node = root
+for segment in path : gmatch ( "[^/]+" ) do
+if not node . children [ segment ] then
+node . children [ segment ] = { key = segment , children = { } , order = { } , pages = { } }
+node . order [ # node . order + 1 ] = segment
+end
+node = node . children [ segment ]
+end
+node . pages [ # node . pages + 1 ] = candidate
+end
+
+return root
+end
+
+local function pageBranchContains ( node , currentPath ) 
+for _ , candidate in ipairs ( node . pages ) do
+if candidate . path == currentPath then
+return true
+end
+end
+for _ , name in ipairs ( node . order ) do
+if pageBranchContains ( node . children [ name ] , currentPath ) then
+return true
+end
+end
+
+return false
+end
+
+
+
+local function sectionPage ( node , path ) 
+for _ , candidate in ipairs ( node . pages ) do
+if candidate . path == path then
+return candidate
+end
+end
+
+return nil
+end
+
+local function pageTreeHtml ( node , currentPath , prefix , path ) 
+local out = { }
+for _ , candidate in ipairs ( node . pages ) do
+if candidate . path ~= path then
+local active = candidate . path == currentPath and " aria-current=\"page\"" or ""
+local link = pageLink ( prefix , candidate . path )
+local title = htmlEscape ( candidate . title )
+out [ # out + 1 ] = "<li><a" .. active .. " href=\"" .. link .. "\">" .. title .. "</a></li>"
+end
+end
+for _ , name in ipairs ( node . order ) do
+local child = node . children [ name ]
+local childPath = path == "" and name or path .. "/" .. name
+local label = name : gsub ( "[-_]" , " " )
+label = label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 )
+local open = pageBranchContains ( child , currentPath ) and " open" or ""
+local own = sectionPage ( child , childPath )
+local active = own and own . path == currentPath and " aria-current=\"page\"" or ""
+if own and # child . pages == 1 and # child . order == 0 then
+
+
+out [
+# out + 1
+] = "<li><a" .. active .. " href=\"" .. pageLink (
+prefix ,
+own . path
+) .. "\">" .. htmlEscape ( own . title ) .. "</a></li>"
+else
+local summary = "<summary>" .. htmlEscape ( label ) .. "</summary>"
+if own then
+summary = "<summary class=\"nuppdoc-sidebar-section-link\"><a" .. active .. " href=\"" .. pageLink (
+prefix ,
+own . path
+) .. "\">" .. htmlEscape ( label ) .. "</a></summary>"
+end
+out [ # out + 1 ] = "<li class=\"nuppdoc-sidebar-section\"><details" .. open .. ">" .. summary .. "<ul>"
+out [ # out + 1 ] = pageTreeHtml ( child , currentPath , prefix , childPath )
+out [ # out + 1 ] = "</ul></details></li>"
+end
+end
+
+return table . concat ( out )
+end
+
+local function sidebar ( modules , current , prefix , pages , currentPath ) 
+local out = { "<aside class=\"nuppdoc-sidebar\" id=\"nuppdoc-sidebar\" aria-label=\"Page navigation\"><ul>" }
+out [ # out + 1 ] = pageTreeHtml ( pageTree ( pages ) , currentPath , prefix , "" )
+local apiOpen = current and current ~= "" and " open" or ""
+if apiOpen == "" then
+for _ , candidate in ipairs ( pages or { } ) do
+if candidate . api and candidate . path == currentPath then
+apiOpen = " open"
+do break end
+end
+end
+end
+out [
+# out + 1
+] = "<li class=\"nuppdoc-sidebar-section\"><details"
+.. apiOpen
+.. "><summary>API reference</summary>"
+.. "<ul class=\"nuppdoc-module-tree\">"
+.. moduleTreeHtml (
+moduleTree ( modules ) ,
+current ,
+prefix ,
+""
+)
+
+
+
+for _ , candidate in ipairs ( pages or { } ) do
+if candidate . api then
+local active = candidate . path == currentPath and " aria-current=\"page\"" or ""
+out [
+# out + 1
+] = "<li><a" .. active .. " href=\"" .. pageLink (
+prefix ,
+candidate . path
+) .. "\">" .. htmlEscape ( candidate . navigationTitle or candidate . title ) .. "</a></li>"
+end
+end
+out [ # out + 1 ] = "</ul></details></li></ul></aside>"
+
+return table . concat ( out )
+end
+
+local outlineEntries
+
+
+
+
+
+
+
+
+outlineEntries = function ( items , depth ) 
+local out = { }
+for _ , item in ipairs ( items or { } ) do
+local children = item . items or { }
+local link = "<a href=\"#" .. htmlEscape (
+item . path
+) .. "\" title=\"" .. htmlEscape ( item . name ) .. "\">" .. htmlEscape ( item . name ) .. "</a>"
+if # children > 0 then
+out [
+# out + 1
+] = "<li class=\"nuppdoc-outline-section\"><details" .. (
+depth == 0 and " open" or ""
+) .. "><summary>" .. link .. "</summary><ol>"
+out [ # out + 1 ] = outlineEntries ( children , depth + 1 )
+out [ # out + 1 ] = "</ol></details></li>"
+else
+out [ # out + 1 ] = "<li>" .. link .. "</li>"
+end
+end
+
+return table . concat ( out )
+end
+
+local function outline ( items ) 
+local out = {
+"<aside class=\"nuppdoc-outline\" id=\"nuppdoc-outline\" aria-label=\"On this page\"><div class=\"nuppdoc-outline-title\">On this page</div><ol>"
+
+}
+out [ # out + 1 ] = outlineEntries ( items or { } , 0 )
+out [ # out + 1 ] = "</ol></aside>"
+
+return table . concat ( out )
+end
+
+local function searchDialog ( searchIndexUrl ) 
+return "<dialog class=\"nuppdoc-search-dialog\" aria-label=\"Search documentation\""
+.. " data-nuppdoc-search-index=\""
+.. htmlEscape (
+searchIndexUrl
+)
+.. "\"><section class=\"nuppdoc-search-panel\"><header><label><span aria-hidden=\"true\">⌕</span><input type=\"search\" placeholder=\"Search documentation\" autocomplete=\"off\" aria-label=\"Search documentation\"></label><button type=\"button\" data-nuppdoc-search-close aria-label=\"Close search\">Esc</button></header><nav class=\"nuppdoc-search-results\" aria-live=\"polite\"></nav></section></dialog>"
+
+
+
+
+
+
+
+end
+
+local function breadcrumbs ( route , title , pages , prefix ) 
+if route == "" then
+return ""
+end
+local byPath = { }
+for _ , candidate in ipairs ( pages or { } ) do
+byPath [ candidate . path ] = candidate
+end
+local out = {
+"<nav class=\"nuppdoc-breadcrumbs\" aria-label=\"Breadcrumb\"><ol>" ,
+"<li><a href=\""
+.. prefix
+.. "index.html\" class=\"nuppdoc-breadcrumb-home\" aria-label=\"Home\" title=\"Home\"><span aria-hidden=\"true\">⌂</span></a></li>"
+
+}
+local path = ""
+local segments = { }
+for segment in route : gmatch ( "[^/]+" ) do
+segments [ # segments + 1 ] = segment
+end
+for index , segment in ipairs ( segments ) do
+path = path == "" and segment or path .. "/" .. segment
+if index == # segments then
+out [ # out + 1 ] = "<li><span aria-current=\"page\">" .. htmlEscape ( title ) .. "</span></li>"
+elseif byPath [ path ] then
+out [
+# out + 1
+] = "<li><a href=\"" .. pageLink ( prefix , path ) .. "\">" .. htmlEscape ( byPath [ path ] . title ) .. "</a></li>"
+else
+local label = segment : gsub ( "[-_]" , " " )
+out [ # out + 1 ] = "<li><span>" .. htmlEscape ( label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 ) ) .. "</span></li>"
+end
+end
+out [ # out + 1 ] = "</ol></nav>"
+
+return table . concat ( out )
+end
+
+local function pageNavigation ( route , pages , prefix ) 
+local current
+for index , candidate in ipairs ( pages or { } ) do
+if candidate . path == route then
+current = index ;
+do break end
+end
+end
+if not current then
+return ""
+end
+local previous , following = pages [ current - 1 ] , pages [ current + 1 ]
+if not previous and not following then
+return ""
+end
+local out = { "<nav class=\"nuppdoc-page-nav\" aria-label=\"Documentation pages\">" }
+if previous then
+out [
+# out + 1
+] = "<a class=\"nuppdoc-page-nav-previous\" href=\"" .. pageLink (
+prefix ,
+previous . path
+)
+.. "\"><span class=\"nuppdoc-page-nav-label\">"
+.. "← Previous</span><span class=\"nuppdoc-page-nav-title\">"
+.. htmlEscape (
+previous . title
+) .. "</span></a>"
+end
+if following then
+out [
+# out + 1
+] = "<a class=\"nuppdoc-page-nav-next\" href=\"" .. pageLink (
+prefix ,
+following . path
+)
+.. "\"><span class=\"nuppdoc-page-nav-label\">"
+.. "Next →</span><span class=\"nuppdoc-page-nav-title\">"
+.. htmlEscape (
+following . title
+) .. "</span></a>"
+end
+out [ # out + 1 ] = "</nav>"
+
+return table . concat ( out )
+end
+
+local function homeHero ( config , links , resolveHref ) 
+if config . layout ~= "home" then
+return ""
+end
+local class = config . heroImage and "nuppdoc-hero-main has-image" or "nuppdoc-hero-main"
+local out = {
+"<section class=\"nuppdoc-home-hero\"><div class=\""
+.. class
+.. "\"><div class=\"nuppdoc-hero-copy\"><h1>"
+.. htmlEscape (
+config . heroTitle or config . title
+) .. "</h1>"
+}
+if config . heroText then
+out [ # out + 1 ] = "<p class=\"nuppdoc-hero-text\">" .. htmlEscape ( config . heroText ) .. "</p>"
+end
+if config . heroContent then
+out [ # out + 1 ] = "<p class=\"nuppdoc-hero-content\">" .. htmlEscape ( config . heroContent ) .. "</p>"
+end
+if # ( config . heroActions or { } ) > 0 then
+out [ # out + 1 ] = "<div class=\"nuppdoc-hero-actions\">"
+
+
+for _ , action in ipairs ( config . heroActions ) do
+local href = tostring ( action . path or "" )
+if resolveHref then
+href = resolveHref ( href )
+end
+local theme = action . theme == "brand" and "brand" or "alt"
+out [
+# out + 1
+] = "<a class=\"nuppdoc-hero-action " .. theme .. "\" href=\"" .. htmlEscape (
+href
+) .. "\">" .. htmlEscape ( action . text ) .. "</a>"
+end
+out [ # out + 1 ] = "</div>"
+end
+
+out [ # out + 1 ] = "</div>"
+if config . heroImage then
+out [
+# out + 1
+] = "<div class=\"nuppdoc-hero-image\"><div class=\"nuppdoc-hero-starburst\""
+.. " aria-hidden=\"true\"></div><img src=\""
+.. htmlEscape (
+config . heroImage
+) .. "\" alt=\"" .. htmlEscape ( config . heroImageAlt ) .. "\"></div>"
+end
+out [ # out + 1 ] = "</div>"
+out [ # out + 1 ] = "</section>"
+
+return table . concat ( out )
+end
+
+
+
+local function homeFeatures ( config , links ) 
+if config . layout ~= "home" or # ( config . features or { } ) == 0 then
+return ""
+end
+
+local out = { "<section class=\"nuppdoc-feature-showcase\" aria-label=\"Nupp features\">" }
+for _ , feature in ipairs ( config . features ) do
+out [ # out + 1 ] = "<article class=\"nuppdoc-showcase-feature\">"
+out [ # out + 1 ] = "<div class=\"nuppdoc-showcase-visual\">"
+if feature . image then
+out [
+# out + 1
+] = "<img src=\"" .. htmlEscape ( feature . image ) .. "\" alt=\"" .. htmlEscape ( feature . imageAlt or "" ) .. "\">"
+elseif feature . code then
+
+
+
+local language = feature . codeLanguage or "nupp"
+out [ # out + 1 ] = markdownHtml ( "```" .. language .. "\n" .. feature . code .. "\n```" , links )
+elseif feature . icon then
+out [
+# out + 1
+] = "<span class=\"nuppdoc-showcase-icon\" aria-hidden=\"true\">" .. htmlEscape ( feature . icon ) .. "</span>"
+end
+out [
+# out + 1
+] = "</div><div class=\"nuppdoc-showcase-copy\"><h2>" .. htmlEscape (
+feature . title
+) .. "</h2><div class=\"nuppdoc-showcase-details\">" .. markdownHtml (
+feature . details or "" ,
+links
+) .. "</div></div></article>"
+end
+out [ # out + 1 ] = "</section>"
+
+return table . concat ( out )
+end
+
+local function brand ( settings , siteTitle , prefix ) 
+local out = { "<a class=\"nuppdoc-brand\" href=\"" .. prefix .. "index.html\">" }
+if settings . logo and settings . logo ~= "" then
+out [ # out + 1 ] = "<img class=\"nuppdoc-logo\" src=\"" .. htmlEscape ( assetHref ( prefix , settings . logo ) ) .. "\" alt=\"\">"
+else
+out [ # out + 1 ] = "<span class=\"nuppdoc-mark\">++</span>"
+end
+local name = settings . name
+if name == nil then
+name = siteTitle
+end
+if name ~= "" then
+out [ # out + 1 ] = "<span class=\"nuppdoc-brand-name\">" .. htmlEscape ( name ) .. "</span>"
+end
+out [ # out + 1 ] = "</a>"
+
+return table . concat ( out )
+end
+
+function page . render (
+title ,
+siteTitle ,
+body ,
+modules ,
+current ,
+items ,
+file ,
+settings ,
+pages ,
+route ,
+layout
+) 
+local prefix = relativePrefix ( file )
+local home = layout == "home"
+local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"
+local contentClass = home and "nuppdoc-content nuppdoc-home-content" or "nuppdoc-content"
+local actions = { }
+local mobileOutlineAction = ""
+if not home then
+actions [
+# actions + 1
+] = "<button class=\"nuppdoc-icon-link nuppdoc-mobile-nav-toggle\""
+.. " type=\"button\" data-mobile-nav-toggle aria-controls=\"nuppdoc-sidebar\""
+.. " aria-expanded=\"false\" aria-label=\"Open page navigation\""
+.. " title=\"Open page navigation\">"
+.. ICONS . menu
+.. "</button>"
+mobileOutlineAction = "<button class=\"nuppdoc-icon-link nuppdoc-mobile-outline-toggle\""
+.. " type=\"button\" data-mobile-outline-toggle aria-controls=\"nuppdoc-outline\""
+.. " aria-expanded=\"false\" aria-label=\"Open table of contents\""
+.. " title=\"Open table of contents\">"
+.. ICONS . outline
+.. "</button>"
+actions [
+# actions + 1
+] = "<button class=\"nuppdoc-icon-link nuppdoc-panel-toggle\""
+.. " type=\"button\" data-panel-toggle=\"sidebar\""
+.. " aria-label=\"Toggle page navigation\" title=\"Toggle page navigation\">"
+.. ICONS . panel
+.. "</button>"
+actions [
+# actions + 1
+] = "<button class=\"nuppdoc-icon-link nuppdoc-panel-toggle"
+.. " nuppdoc-panel-toggle-right\" type=\"button\" data-panel-toggle=\"outline\""
+.. " aria-label=\"Toggle page outline\" title=\"Toggle page outline\">"
+.. ICONS . panel
+.. "</button>"
+end
+actions [
+# actions + 1
+] = "<a class=\"nuppdoc-icon-link\" href=\"llms.txt\""
+.. " aria-label=\"View this page as llms.txt\" title=\"llms.txt\">"
+.. ICONS . markdown
+.. "</a>"
+if settings . github then
+actions [
+# actions + 1
+] = "<a class=\"nuppdoc-icon-link\" href=\"" .. htmlEscape (
+settings . github
+) .. "\" aria-label=\"View this project on GitHub\"" .. " title=\"GitHub\">" .. ICONS . github .. "</a>"
+end
+actions [
+# actions + 1
+] = "<button class=\"nuppdoc-icon-link\" type=\"button\" title=\"Toggle theme\" aria-label=\"Toggle theme\" data-theme-toggle>◐</button>"
+
+local side = home and "" or sidebar ( modules , current , prefix , pages , route )
+local right = home and "" or outline ( items )
+
+
+
+local favicon = ""
+if settings . favicon and settings . favicon ~= "" then
+favicon = "<link rel=\"icon\" href=\"" .. htmlEscape ( assetHref ( prefix , settings . favicon ) ) .. "\">"
+end
+local playground = body : find ( "<nupp-playground" , 1 , true )
+and "<script type=\"module\" src=\"/playground/doc-app.js\"></script>"
+or ""
+
+return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+.. "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+.. "<meta name=\"description\" content=\""
+.. htmlEscape (
+settings . description
+) .. "\">" .. "<title>" .. htmlEscape (
+title
+) .. " | " .. htmlEscape (
+siteTitle
+)
+.. "</title>"
+.. favicon
+.. "<link rel=\"stylesheet\" href=\""
+.. prefix
+.. "assets/style.css\">"
+.. "</head><body><div class=\"nuppdoc-site\"><header class=\"nuppdoc-header\"><nav class=\"nuppdoc-nav\">"
+.. brand (
+settings ,
+siteTitle ,
+prefix
+)
+.. "<div class=\"nuppdoc-top-nav\"><a href=\""
+.. prefix
+.. "getting-started/index.html\">Getting started</a><a href=\""
+.. "https://nupp.org/modules/nupp/index.html\">API</a><a href=\"/playground/\">Playground</a></div><div class=\"nuppdoc-actions\">"
+.. table . concat (
+actions
+) .. "<button class=\"nuppdoc-search-button\" type=\"button\" data-nuppdoc-search aria-label=\"Search documentation\"><span aria-hidden=\"true\">⌕</span><span>Search</span><kbd>⌘ K</kbd></button>" .. mobileOutlineAction .. "</div></nav></header>" .. (
+home and ""
+or "<button class=\"nuppdoc-sidebar-backdrop\" type=\"button\" data-mobile-nav-close aria-label=\"Close page navigation\"></button><button class=\"nuppdoc-outline-backdrop\" type=\"button\" data-mobile-outline-close aria-label=\"Close table of contents\"></button>"
+
+
+
+) .. "<div class=\"" .. shellClass .. "\">" .. side .. "<main class=\"" .. contentClass .. "\">" .. (
+home and "" or breadcrumbs ( route , title , pages , prefix )
+) .. body .. (
+home and "" or pageNavigation ( route , pages , prefix )
+)
+.. "</main>"
+.. right
+.. "</div><footer class=\"nuppdoc-footer\"><a href=\"llms.txt\">llms.txt</a>"
+.. "<span aria-hidden=\"true\">·</span><span>Generated by nupp</span></footer></div>"
+.. searchDialog (
+prefix .. "assets/search-index.js"
+) .. playground .. "<script src=\"" .. prefix .. "assets/site.js\"></script></body></html>\n"
+end
+
+page . homeHero = homeHero
+page . homeFeatures = homeFeatures
+
+local __nuppExportValue= page ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.tools.doc.page"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.tools.doc.page"]=__nuppExports;return __nuppExports

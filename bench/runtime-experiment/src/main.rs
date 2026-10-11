@@ -50,11 +50,11 @@ extern "C" fn rt_new_bytes(n: u64) -> u64 {
     if std::env::var("REUSE_SCRATCH").is_ok() { let mut s = SCRATCH.lock().unwrap(); if let Some((_, v)) = s.iter().find(|(k, _)| *k == n as usize) { return *v; } enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); ctx().register(v); s.push((n as usize, v.0)); return v.0; }
     enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); v.0
 }
-extern "C" fn rt_new_buffer() -> u64 { enter_helper!(); let v = ctx().heap_new_bytes(0); leave_helper!(); v.0 }
+extern "C" fn rt_new_buffer() -> u64 { enter_helper!(); let v = ctx().heap_new_buffer(); leave_helper!(); v.0 }
 extern "C" fn rt_buf_append(buf: u64, s: u64) -> u64 { let it = ctx(); let text = it.bytes_of(Value(s)).to_vec(); it.buf_append(Value(buf), &text); 0 }
 extern "C" fn rt_buf_append_sub(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); let text = it.sub_bytes(Value(s), i as i64, j as i64).to_vec(); it.buf_append(Value(buf), &text); 0 }
 extern "C" fn rt_substring(s: u64, i: u64, j: u64) -> u64 { enter_helper!(); let v = ctx().substring(Value(s), i as i64, j as i64); leave_helper!(); v.0 }
-extern "C" fn rt_buf_finish(buf: u64) -> u64 { enter_helper!(); let it = ctx(); let n = it.bytes_of(Value(buf)).len(); let v = it.bytes_to_str(Value(buf), n); leave_helper!(); v.0 }
+extern "C" fn rt_buf_finish(buf: u64) -> u64 { enter_helper!(); let v = ctx().buf_finish(Value(buf)); leave_helper!(); v.0 }
 extern "C" fn rt_bytes_to_str(s: u64, n: u64) -> u64 { enter_helper!(); let v = ctx().bytes_to_str(Value(s), n as usize); leave_helper!(); v.0 }
 /// The slow path of dynamic arithmetic and comparison: reached only when an
 /// operand is not a number, which this prototype treats as an error.
@@ -287,7 +287,7 @@ fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {
     let norm: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(ptr) };
     let corpus: Vec<(String, bool, String)> = std::fs::read_to_string(corpus_path).expect("corpus").lines().map(|l| { let mut p = l.split('\t'); (p.next().unwrap().to_string(), p.next().unwrap() == "1", p.next().unwrap_or("").to_string()) }).collect();
     let text_of = |it: &Interp, v: Value| -> String { String::from_utf8(it.bytes_of(v).to_vec()).unwrap() };
-    let inputs: Vec<Value> = corpus.iter().map(|(p, _, _)| { let v = it.heap.new_string(p.clone(), &interp::NoRoots); it.handles.push(v); v }).collect();
+    let inputs: Vec<Value> = corpus.iter().map(|(p, _, _)| { let v = it.heap_new_string(p.clone()); it.handles.push(v); v }).collect();
     let mut checks = 0;
     let mut failures = 0;
     for (k, (p, w, want)) in corpus.iter().enumerate() {
@@ -306,6 +306,8 @@ fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {
     for k in (0..corpus.len()).step_by(37) { let (_, w, want) = &corpus[k]; assert_eq!(&text_of(it, Value(norm(inputs[k].0, Value::boolean(*w).0))), want); checks += 1; }
     it.heap.stress_steps = false; it.heap.oracle = false; it.heap.quarantine = false;
     eprintln!("PASS paths {checks} checks over {} cases", corpus.len());
+    // What the three allocations a call makes cost on their own.
+    { let n = 200_000; let s = cpu_now(); for _ in 0..n { let scope = it.open_scope(); let t = it.new_table(); it.handles.push(t); let b = it.heap_new_buffer(); it.handles.push(b); let r = it.heap_new_string("src/a/b".to_string()); it.handles.push(r); it.close_scope(scope); } let e = cpu_now() - s; eprintln!("alloc probe\ttable + buffer + string: {:.1} ns per call", e / n as f64 * 1e9); }
     let total_bytes: usize = corpus.iter().map(|(p, _, _)| p.len()).sum();
     let flags: Vec<u64> = corpus.iter().map(|(_, w, _)| Value::boolean(*w).0).collect();
     let (in2, fl2) = (inputs.clone(), flags.clone());
