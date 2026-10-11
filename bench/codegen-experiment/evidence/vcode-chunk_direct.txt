@@ -1,0 +1,61 @@
+==== chunk_direct (180 bytes)
+  pacibsp
+  unwind Aarch64SetPointerAuth { return_addresses: true }
+  stp fp, lr, [sp, #-16]!
+  unwind PushFrameRegs { offset_upward_to_caller_sp: 16 }
+  mov fp, sp
+  unwind DefineNewFrame { offset_upward_to_caller_sp: 16, offset_downward_to_clobbers: 64 }
+  str x26, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 48, reg: p26i }
+  stp x23, x24, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 32, reg: p23i }
+  unwind SaveReg { clobber_offset: 40, reg: p24i }
+  stp x21, x22, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 16, reg: p21i }
+  unwind SaveReg { clobber_offset: 24, reg: p22i }
+  stp x19, x20, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 0, reg: p19i }
+  unwind SaveReg { clobber_offset: 8, reg: p20i }
+block0:
+  mov x23, x4
+  mov x4, x1
+  mov x1, x0
+  movz x6, #0
+  mov x0, x6
+  mov x22, x2
+  b label1
+block1:
+  subs xzr, x6, x22
+  b.lo label3 ; b label2
+block2:
+  ldp x19, x20, [sp], #16
+  ldp x21, x22, [sp], #16
+  ldp x23, x24, [sp], #16
+  ldr x26, [sp], #16
+  ldp fp, lr, [sp], #16
+  retabsp
+block3:
+  mov x19, x1
+  mov x26, x0
+  add x0, x19, x6, LSL 3
+  mov x24, x3
+  add x1, x6, x24
+  subs xzr, x1, x22
+  csel x20, x1, x22, lo
+  sub x3, x20, x6
+  mov x21, x4
+  add x2, x21, x6, LSL 3
+  mov x1, x3
+  bl 0
+  mov x0, x26
+  subs xzr, x0, x22
+  b.hs #trap=user1
+  mov x4, x23
+  str d0, [x4, x0, LSL #3]
+  add x0, x0, #1
+  mov x6, x20
+  mov x4, x21
+  mov x3, x24
+  mov x1, x19
+  b label1
+

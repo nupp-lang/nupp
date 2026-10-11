@@ -1,0 +1,153 @@
+==== sha256_compress (512 bytes)
+  pacibsp
+  unwind Aarch64SetPointerAuth { return_addresses: true }
+  stp fp, lr, [sp, #-16]!
+  unwind PushFrameRegs { offset_upward_to_caller_sp: 16 }
+  mov fp, sp
+  unwind DefineNewFrame { offset_upward_to_caller_sp: 16, offset_downward_to_clobbers: 16 }
+  stp x19, x20, [sp, #-16]!
+  unwind SaveReg { clobber_offset: 0, reg: p19i }
+  unwind SaveReg { clobber_offset: 8, reg: p20i }
+  sub sp, sp, #256
+  unwind StackAlloc { size: 256 }
+block0:
+  movz x5, #0
+  b label1
+block1:
+  subs xzr, x5, x2
+  b.lo label3 ; b label2
+block2:
+  add sp, sp, #256
+  ldp x19, x20, [sp], #16
+  ldp fp, lr, [sp], #16
+  retabsp
+block3:
+  movz x12, #0
+  b label4
+block4:
+  subs xzr, x12, #16
+  b.lo label12 ; b label5
+block5:
+  b label6
+block6:
+  subs xzr, x12, #64
+  b.lo label11 ; b label7
+block7:
+  ldr w11, [x0]
+  ldr w10, [x0, #4]
+  ldr w9, [x0, #8]
+  ldr w8, [x0, #12]
+  ldr w7, [x0, #16]
+  ldr w6, [x0, #20]
+  ldr w4, [x0, #24]
+  ldr w12, [x0, #28]
+  movz x13, #0
+  b label8
+block8:
+  subs xzr, x13, #64
+  b.lo label10 ; b label9
+block9:
+  ldr w13, [x0]
+  add w11, w13, w11
+  str w11, [x0]
+  ldr w11, [x0, #4]
+  add w10, w11, w10
+  str w10, [x0, #4]
+  ldr w10, [x0, #8]
+  add w9, w10, w9
+  str w9, [x0, #8]
+  ldr w9, [x0, #12]
+  add w8, w9, w8
+  str w8, [x0, #12]
+  ldr w8, [x0, #16]
+  add w7, w8, w7
+  str w7, [x0, #16]
+  ldr w7, [x0, #20]
+  add w6, w7, w6
+  str w6, [x0, #20]
+  ldr w6, [x0, #24]
+  add w4, w6, w4
+  str w4, [x0, #24]
+  ldr w4, [x0, #28]
+  add w4, w4, w12
+  str w4, [x0, #28]
+  add x5, x5, #1
+  b label1
+block10:
+  ldr w14, [x3, x13, LSL #2]
+  mov x15, sp
+  ldr w15, [x15, x13, LSL #2]
+  add x13, x13, #1
+  extr w19, w7, #6
+  extr w20, w7, #11
+  eor w19, w19, w20
+  extr w20, w7, #25
+  eor w19, w19, w20
+  add w12, w12, w19
+  and w19, w7, w4
+  and w20, w7, w6
+  eor w20, w20, w4
+  eor w19, w19, w20
+  add w12, w12, w19
+  add w12, w12, w14
+  add w12, w12, w15
+  extr w14, w11, #2
+  extr w15, w11, #13
+  eor w14, w14, w15
+  extr w15, w11, #22
+  eor w14, w14, w15
+  eor w15, w10, w9
+  and w15, w11, w15
+  and w19, w10, w9
+  eor w15, w15, w19
+  add w14, w14, w15
+  add w14, w12, w14
+  add w8, w8, w12
+  mov x12, x4
+  mov x4, x6
+  mov x6, x7
+  mov x7, x8
+  mov x8, x9
+  mov x9, x10
+  mov x10, x11
+  mov x11, x14
+  b label8
+block11:
+  mov x4, sp
+  movn x6, #59
+  add x6, x4, x6
+  ldr w7, [x6, x12, LSL #2]
+  movn x6, #7
+  add x6, x4, x6
+  ldr w6, [x6, x12, LSL #2]
+  movn x8, #63
+  add x8, x4, x8
+  ldr w8, [x8, x12, LSL #2]
+  movn x9, #27
+  add x9, x4, x9
+  ldr w9, [x9, x12, LSL #2]
+  extr w10, w7, #7
+  extr w11, w7, #18
+  eor w10, w10, w11
+  lsr w7, w7, #3
+  eor w7, w10, w7
+  add w7, w8, w7
+  add w7, w7, w9
+  extr w8, w6, #17
+  extr w9, w6, #19
+  eor w8, w8, w9
+  lsr w6, w6, #10
+  eor w6, w8, w6
+  add w6, w7, w6
+  str w6, [x4, x12, LSL #2]
+  add x12, x12, #1
+  b label6
+block12:
+  add x4, x1, x5, LSL 6
+  ldr w4, [x4, x12, LSL #2]
+  rev32 w4, w4
+  mov x6, sp
+  str w4, [x6, x12, LSL #2]
+  add x12, x12, #1
+  b label4
+

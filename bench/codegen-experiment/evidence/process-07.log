@@ -1,0 +1,17 @@
+compile	map	248
+compile	map_u2	105
+compile	dot	94
+compile	dot_u2	86
+compile	sha256_compress	338
+compile	chunk_direct	94
+compile	chunk_extern	59
+compile	finalize	9
+addr	map	0x1005e0000
+addr	map_u2	0x1005e0078
+addr	dot	0x1005e0110
+addr	dot_u2	0x1005e0198
+addr	sha	0x1005e0248
+addr	chunk_direct	0x1005e0448
+addr	chunk_extern	0x1005e0514
+PASS codegen-experiment 258231
+consumed 919518287.2011719

@@ -1,0 +1,110 @@
+{
+  "hashes": {
+    "/private/tmp/nupp-codegen-experiment/build/rust/target/release/codegen-experiment": "3b0d7e20f8aae36f44c1382268d9b0fb509bdc775d1b750e6cc0c31e06c0b4aa",
+    "/private/tmp/nupp-codegen-experiment/bench/codegen-experiment/src/jit.rs": "33c9490209214cefde9dc6318a6383d2c55ebc7f3b10878aefa691945378701c",
+    "/private/tmp/nupp-codegen-experiment/bench/codegen-experiment/src/kernels.rs": "3c2d10df18a30525ac64f382e723883911b9276610b8aa9e225a68f6307d43f7",
+    "/private/tmp/nupp-codegen-experiment/bench/codegen-experiment/src/main.rs": "1900714ca8a9420715977a1e99062e9a45475f41170a522d7b3309a0bf3941d6",
+    "/private/tmp/nupp-codegen-experiment/bench/codegen-experiment/libhand.dylib": "a13d0ce1f69ce22da9ef4c3e93126833a27e2d31500ee081d909b2684417c93d"
+  },
+  "environment": {
+    "HAND_KERNELS": "/private/tmp/nupp-codegen-experiment/bench/codegen-experiment/libhand.dylib",
+    "LLVM_KERNELS": null,
+    "SHA_CONTROL": null,
+    "SAMPLE_SECONDS": "0.02",
+    "ROUNDS": "9",
+    "OPT_LEVEL": null
+  },
+  "processes": [],
+  "compile_micros": [
+    {
+      "map": 257,
+      "map_u2": 105,
+      "dot": 94,
+      "dot_u2": 85,
+      "sha256_compress": 332,
+      "chunk_direct": 75,
+      "chunk_extern": 53,
+      "finalize": 3
+    },
+    {
+      "map": 253,
+      "map_u2": 105,
+      "dot": 94,
+      "dot_u2": 87,
+      "sha256_compress": 289,
+      "chunk_direct": 76,
+      "chunk_extern": 53,
+      "finalize": 4
+    },
+    {
+      "map": 252,
+      "map_u2": 141,
+      "dot": 99,
+      "dot_u2": 90,
+      "sha256_compress": 276,
+      "chunk_direct": 73,
+      "chunk_extern": 51,
+      "finalize": 4
+    },
+    {
+      "map": 248,
+      "map_u2": 108,
+      "dot": 95,
+      "dot_u2": 87,
+      "sha256_compress": 270,
+      "chunk_direct": 73,
+      "chunk_extern": 52,
+      "finalize": 4
+    },
+    {
+      "map": 268,
+      "map_u2": 120,
+      "dot": 107,
+      "dot_u2": 101,
+      "sha256_compress": 300,
+      "chunk_direct": 81,
+      "chunk_extern": 59,
+      "finalize": 5
+    },
+    {
+      "map": 255,
+      "map_u2": 112,
+      "dot": 149,
+      "dot_u2": 178,
+      "sha256_compress": 342,
+      "chunk_direct": 82,
+      "chunk_extern": 56,
+      "finalize": 4
+    },
+    {
+      "map": 248,
+      "map_u2": 105,
+      "dot": 94,
+      "dot_u2": 86,
+      "sha256_compress": 338,
+      "chunk_direct": 94,
+      "chunk_extern": 59,
+      "finalize": 9
+    },
+    {
+      "map": 247,
+      "map_u2": 113,
+      "dot": 142,
+      "dot_u2": 88,
+      "sha256_compress": 278,
+      "chunk_direct": 76,
+      "chunk_extern": 53,
+      "finalize": 4
+    },
+    {
+      "map": 284,
+      "map_u2": 144,
+      "dot": 116,
+      "dot_u2": 93,
+      "sha256_compress": 274,
+      "chunk_direct": 74,
+      "chunk_extern": 50,
+      "finalize": 4
+    }
+  ]
+}

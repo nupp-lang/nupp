@@ -1,0 +1,56 @@
+==== dot_u2 (176 bytes)
+  unwind Aarch64SetPointerAuth { return_addresses: false }
+block0:
+  movz x10, #0
+  movi v16.16b, #0
+  subs xzr, x1, x3
+  csel x1, x1, x3, lo
+  mov v17.16b, v16.16b
+  mov v18.16b, v16.16b
+  mov v19.16b, v16.16b
+  b label1
+block1:
+  add x3, x10, #8
+  subs xzr, x3, x1
+  b.ls label6 ; b label2
+block2:
+  movi v20.2s, #0
+  b label3
+block3:
+  subs xzr, x10, x1
+  b.lo label5 ; b label4
+block4:
+  fadd v0.2d, v16.2d, v18.2d
+  mov d1, v0.d[1]
+  fadd d0, d0, d1
+  fadd v1.2d, v19.2d, v17.2d
+  mov d2, v1.d[1]
+  fadd d1, d1, d2
+  fadd d0, d0, d1
+  fadd d0, d0, d20
+  ret
+block5:
+  ldr d0, [x0, x10, LSL #3]
+  ldr d1, [x2, x10, LSL #3]
+  add x10, x10, #1
+  fmadd d20, d0, d1, d20
+  b label3
+block6:
+  lsl x6, x10, #3
+  add x4, x0, x10, LSL 3
+  ldr q0, [x0, x6]
+  ldr q1, [x4, #16]
+  add x5, x2, x10, LSL 3
+  ldr q2, [x2, x6]
+  ldr q3, [x5, #16]
+  ldr q4, [x4, #32]
+  ldr q5, [x4, #48]
+  ldr q6, [x5, #32]
+  ldr q7, [x5, #48]
+  fmla v16.2d, v16.2d, v0.2d, v2.2d
+  fmla v19.2d, v19.2d, v1.2d, v3.2d
+  fmla v18.2d, v18.2d, v4.2d, v6.2d
+  fmla v17.2d, v17.2d, v5.2d, v7.2d
+  mov x10, x3
+  b label1
+

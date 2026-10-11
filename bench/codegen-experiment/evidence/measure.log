@@ -1,0 +1,41 @@
+process 1 done
+process 2 done
+process 3 done
+process 4 done
+process 5 done
+process 6 done
+process 7 done
+process 8 done
+process 9 done
+32 {'sha_jit': 176066851481.5, 'sha_c': 184982165102.8}
+   sha_jit/sha_c                      0.951x (0.943-0.960) cv 1.1%
+63 {'map_jit': 8223942341.5, 'map_jit_u2': 8604259639.9, 'map_llvm': 6564022646.9, 'map_hand': 6342062824.2, 'dot_jit': 7944463955.0, 'dot_jit_u2': 8338221653.3, 'dot_llvm': 7774250980.2, 'dot_hand': 7417022864.8}
+   map_jit/map_llvm                   1.254x (1.235-1.273) cv 2.0%
+   map_jit_u2/map_llvm                1.321x (1.301-1.341) cv 2.0%
+   map_jit/map_hand                   1.301x (1.279-1.322) cv 2.2%
+   dot_jit/dot_llvm                   1.015x (1.001-1.028) cv 1.8%
+   dot_jit_u2/dot_llvm                1.084x (1.072-1.096) cv 1.5%
+   dot_jit_u2/dot_hand                1.132x (1.113-1.152) cv 2.2%
+1024 {'map_jit': 109897395869.1, 'map_jit_u2': 97335583230.3, 'map_llvm': 99677801329.4, 'map_hand': 103678243543.1, 'dot_jit': 196067882750.8, 'dot_jit_u2': 103849093184.5, 'dot_llvm': 151844229076.9, 'dot_hand': 153422692943.4, 'sha_jit': 2929563940352.5, 'sha_c': 2646087155141.5}
+   map_jit/map_llvm                   1.090x (1.039-1.143) cv 6.3%
+   map_jit_u2/map_llvm                0.977x (0.959-0.996) cv 2.5%
+   map_jit/map_hand                   1.078x (1.028-1.131) cv 6.2%
+   dot_jit/dot_llvm                   1.292x (1.286-1.297) cv 0.6%
+   dot_jit_u2/dot_llvm                0.686x (0.684-0.688) cv 0.4%
+   dot_jit_u2/dot_hand                0.678x (0.674-0.682) cv 0.7%
+   sha_jit/sha_c                      1.105x (1.087-1.123) cv 2.1%
+65536 {'sha_jit': 176781716216216.2, 'sha_c': 157579856060606.1}
+   sha_jit/sha_c                      1.109x (1.090-1.127) cv 2.1%
+65539 {'map_jit': 6547293258909.4, 'map_jit_u2': 6293638273981.4, 'map_llvm': 6323079425837.3, 'map_hand': 6311839145460.3, 'dot_jit': 15257649253731.3, 'dot_jit_u2': 8222372731854.8, 'dot_llvm': 11142563356164.4, 'dot_hand': 11154662943871.7, 'chunk_jit_direct': 8394082044384.7, 'chunk_jit_extern': 8522650491400.5, 'chunk_rust_jit': 8417326194910.0, 'chunk_rust_llvm': 8491371480472.3}
+   map_jit/map_llvm                   1.043x (1.028-1.059) cv 1.9%
+   map_jit_u2/map_llvm                1.006x (0.998-1.014) cv 1.0%
+   map_jit/map_hand                   1.038x (1.021-1.056) cv 2.1%
+   dot_jit/dot_llvm                   1.362x (1.354-1.370) cv 0.8%
+   dot_jit_u2/dot_llvm                0.736x (0.731-0.740) cv 0.8%
+   dot_jit_u2/dot_hand                0.733x (0.726-0.739) cv 1.1%
+   chunk_jit_direct/chunk_rust_llvm   0.987x (0.974-1.000) cv 1.7%
+   chunk_jit_extern/chunk_rust_llvm   1.012x (1.004-1.020) cv 1.0%
+   chunk_rust_jit/chunk_rust_llvm     1.000x (0.995-1.004) cv 0.6%
+1048576 {'sha_jit': 2836401785714286.0, 'sha_c': 2562111111111111.0}
+   sha_jit/sha_c                      1.115x (1.090-1.140) cv 2.9%
+exit 0
