@@ -13,6 +13,9 @@ cranelift-jit = "0.135.2"
 cranelift-module = "0.135.2"
 cranelift-native = "0.135.2"
 
+[features]
+trace = []
+
 [profile.release]
 debug = 1
 

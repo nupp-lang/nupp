@@ -404,3 +404,37 @@ code ranges and maps, fine for a prototype, a sorted table for a runtime;
 the context pointer is a global here and a parameter there; and the
 interpreter does not yet poll at back-edges in compiled code, since
 nothing here runs long enough to need it.
+
+## Closures, and the untyped call path
+
+Date: 2026-10-11. Closures: a local any nested function captures lives in a
+heap cell from its declaration, closures capture cells, and reads and
+writes go through them, so the enclosing scope and every closure share one
+location with no open-upvalue bookkeeping. Closure and cell objects are
+scanned. `emit/closures.nupp` exercises shared counters, a closure in a
+table per loop iteration, and a captured parameter; it returns the expected
+value under every collector mode. The prototype interpreter runs it in
+48 us per call against LuaJIT's interpreter at 13 us and its trace at 1.2.
+
+The untyped call path, the one hypothesis row outside its price, was then
+worked on and first got worse. A bisect against the two earlier commits
+found the interpreter 20% slower than the first prototype before any of
+today's changes, and the cause was a single line: the per-instruction
+trace check added for debugging, a load and a branch on every dispatch
+that also kept the hot loop from holding its state in registers. It is now
+a compile-time feature. Two more changes: the heavy opcode handlers are
+outlined into non-inlined functions so the dispatch loop stays small, and
+returns no longer clear the popped window, because the root set marks a
+task's registers only up to its live top, as Lua's collector does.
+
+| medians of three | prototype | PUC Lua 5.5 | ratio |
+| --- | ---: | ---: | ---: |
+| fib(30) | 42.8 ms | 19.5 ms | 2.2x |
+| 5M field updates by name | 46.7 ms | 27.1 ms | 1.7x |
+| binary trees | 57.4 ms | 52.4 ms | 1.1x |
+
+fib remains outside the 2x price. What is left per call is structural to
+this prototype: four register stacks grown separately, a frame record
+pushed and popped, and the dispatch loop re-entered on both the call and
+the return. A frame layout with the registers inline and a single stack
+is the P3 design, not a tweak to this one.
