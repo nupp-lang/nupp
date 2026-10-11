@@ -85,3 +85,80 @@ No JIT frames or stack maps; no generational nursery; no strings beyond
 interning; no closures or upvalues; no `any`-to-typed boundary beyond the
 enforced write; one thread; one arm64 machine under other sessions' load.
 The interpreter is a `match` over an enum with no threading of dispatch.
+
+## The image pipeline: compiler IR to verified bytecode to both tiers
+
+Date: 2026-10-10, same branch. The milestone after P2: take real Nupp source
+through the existing compiler, verify the result, and run it on both tiers.
+Sources: `src/ir.rs` (parser for `nupp aot --emit ir` text, 150 lines),
+`src/lower_ir.rs` (lowering to the typed bytecode and the verifier, 450
+lines), `src/jit.rs` (Cranelift lowering of the bytecode, 200 lines). Input:
+`bench/codegen-experiment/nupp/kernels.ir`, the compiler's `native-ir 45`
+listing for the integrated map and dot kernels, produced by `nupp aot --emit
+ir` on the unmodified compiler.
+
+What happened, in order:
+
+- **The compiler's IR was consumed unchanged.** `lower.nupp`'s textual
+  output has params with regions and ownership, entry relations, structured
+  `while`/`if`/`let`/`set` statements, and call-shaped expressions over the
+  species API. The parser is a page; the lowering maps each node to the
+  bytecode's typed opcodes. For the kernel slice the open question is
+  answered: port, not rewrite. The IR has no heap-value nodes beyond the
+  builder bridge family, so the whole-language question stays open as the
+  plan says.
+- **The verifier rejected a real image for a real reason.** The map loop's
+  condition proves `cursor + 4 <= #input`, but the body also stores to
+  `output`. The only thing that makes that store safe is the entry check that
+  the counts are equal, which the IR lists under `relations`. The bytecode
+  had no instruction for it, so the verifier refused the store. The fix is
+  the contract's: relations become `GUARDLENLE` instructions in the prologue
+  that the interpreter and JIT enforce by trapping, and a fact on one span
+  carries to another only through a guard chain the verifier can follow.
+  Contracts 3.4 and 3.5 are amended accordingly.
+- **The verifier rejects tampered images.** An overstated fact (`+8` where
+  the condition proves `+4`) and an unchecked access with its fact removed
+  are both refused, with the pc and the reason.
+- **Both tiers agree with LLVM.** 67,817 checks at thirteen sizes, including
+  0, 1, odd tails and 65,539, against a Rust reference and the LLVM NEON
+  artifact: interpreter, Cranelift, and LLVM all within 1e-9 relative.
+- **Lowering peepholes are where the compiled-code quality lives.** The
+  first lowering compiled to 2.0x LLVM. The IR writes a span index as
+  `int_to_f64(u32_add(cursor, 1))`, which round-trips through two float
+  conversions per access; recognising it as the cursor register took map to
+  1.6x. Assignments emitted as add-with-zero put an extra vector add on the
+  accumulator chain; real moves took dot from 2.1x to 1.3x. Splats of
+  uniforms inside the loop are hoisted to the prologue by the lowering,
+  though Cranelift rematerialises them anyway. Fused multiply-add is
+  emitted for add-of-mul, as the LLVM artifact does.
+
+Nine processes, medians of nine rotated rounds each, this machine under
+other sessions' load:
+
+| Elements | compiled from IR / LLVM | interpreted / LLVM |
+| ---: | ---: | ---: |
+| 65,539 map | 1.57x | 40x |
+| 65,539 dot | 1.40x | 32x |
+| 1,024 map | 1.92x | 50x |
+| 1,024 dot | 1.39x | 36x |
+| 63 map | 2.87x | 61x |
+| 63 dot | 2.03x | 60x |
+
+Compile time 0.4-1.8 ms per function here, against 0.1-0.3 ms in the first
+experiment, because this lowering emits every subexpression into its own
+register and the Cranelift front end does the cleanup.
+
+What the remaining gap is: the hand lowering of the same kernels reached
+1.04x and 0.74x on the same backend. The compiled loop body here is 17
+instructions where the hand one was 12; the extra five are two phi moves of
+the span pointers at the loop header, the rematerialised splat, and the
+32-bit mask of the cursor. None is the pipeline; all are the shape of what
+the lowering hands Cranelift, and the second experiment showed what the
+shape should be. Dot additionally has one accumulator because the source
+has one; the reduction-unrolling rule is the generator's, not the
+lowering's.
+
+What this does not cover: SHA-256, whose IR is the builder-bridge entry
+mode and needs the string and scratch nodes lowered; records, `any`, and
+anything outside the admitted subset; the GC in the compiled tier (no stack
+maps yet); loop-header transfer; x86-64.

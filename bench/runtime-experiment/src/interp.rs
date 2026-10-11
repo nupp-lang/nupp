@@ -46,6 +46,36 @@ pub enum Op {
     FK(u8, f64),
     /// Unbox a number from a value register into a float register.
     FUnbox(u8, u8),
+    ISub(u8, u8, u8),
+    /// Wrap an integer register to 32 bits.
+    IMaskU32(u8, u8),
+    IToF(u8, u8),
+    /// Truncating conversion of a float register to an integer register.
+    FToI(u8, u8),
+    FSub(u8, u8, u8),
+    FMul(u8, u8, u8),
+    /// Unsigned comparisons into an integer register holding 0 or 1.
+    ICmpLe(u8, u8, u8),
+    ICmpLt(u8, u8, u8),
+    FCmpLe(u8, u8, u8),
+    FCmpLt(u8, u8, u8),
+    IAnd(u8, u8, u8),
+    JmpIfIZero(u8, i32),
+    VAdd(u8, u8, u8),
+    VMul(u8, u8, u8),
+    /// Masked two-lane load: lanes at `off + l` below `active` are loaded,
+    /// the rest are zero; every loaded lane is bounds-checked.
+    VLoadM(u8, u8, u8, i32, u8),
+    VStoreM(u8, u8, u8, i32, u8),
+    /// A cited loop fact: `cursor + k <= len` holds here, established by the
+    /// branch that guards the loop body. The verifier re-derives it; the
+    /// interpreter and JIT ignore it.
+    LoopFact(u8, i64, u8),
+    /// An entry guard: count register a <= count register b, or the call is refused.
+    GuardLenLe(u8, u8),
+    IMov(u8, u8),
+    FMov(u8, u8),
+    VMov(u8, u8),
     FAdd(u8, u8, u8),
     FFma(u8, u8, u8, u8),
     StorageLen(u8, u8),
@@ -254,6 +284,35 @@ impl Interp {
                     Op::IJmpIfUle(a, b, off) => if (ir!(a) as u64) <= (ir!(b) as u64) { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::IJmpIfUlt(a, b, off) => if (ir!(a) as u64) < (ir!(b) as u64) { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::FK(d, k) => fr!(d) = k,
+                    Op::ISub(d, a, b) => ir!(d) = ir!(a).wrapping_sub(ir!(b)),
+                    Op::IMaskU32(d, a) => ir!(d) = ir!(a) & 0xffff_ffff,
+                    Op::IToF(d, a) => fr!(d) = ir!(a) as f64,
+                    Op::FToI(d, a) => ir!(d) = fr!(a) as i64,
+                    Op::FSub(d, a, b) => fr!(d) = fr!(a) - fr!(b),
+                    Op::FMul(d, a, b) => fr!(d) = fr!(a) * fr!(b),
+                    Op::ICmpLe(d, a, b) => ir!(d) = ((ir!(a) as u64) <= (ir!(b) as u64)) as i64,
+                    Op::ICmpLt(d, a, b) => ir!(d) = ((ir!(a) as u64) < (ir!(b) as u64)) as i64,
+                    Op::FCmpLe(d, a, b) => ir!(d) = (fr!(a) <= fr!(b)) as i64,
+                    Op::FCmpLt(d, a, b) => ir!(d) = (fr!(a) < fr!(b)) as i64,
+                    Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
+                    Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
+                    Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
+                    Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
+                    Op::VLoadM(d, s, i, off, active) => {
+                        let base = ir!(i) + off as i64; let act = ir!(active) - off as i64; let st = storage!(s);
+                        let mut v = [0.0; 2];
+                        for l in 0..2i64 { if l < act { let k = (base + l) as usize; if k >= st.len() { self.err("masked load out of bounds") } v[l as usize] = st[k]; } }
+                        vr!(d) = v;
+                    }
+                    Op::VStoreM(s, i, v, off, active) => {
+                        let base = ir!(i) + off as i64; let act = ir!(active) - off as i64; let x = vr!(v); let st = storage!(s);
+                        for l in 0..2i64 { if l < act { let k = (base + l) as usize; if k >= st.len() { self.err("masked store out of bounds") } st[k] = x[l as usize]; } }
+                    }
+                    Op::LoopFact(..) => {}
+                    Op::IMov(d, a) => ir!(d) = ir!(a),
+                    Op::FMov(d, a) => fr!(d) = fr!(a),
+                    Op::VMov(d, a) => vr!(d) = vr!(a),
+                    Op::GuardLenLe(a, b) => if (ir!(a) as u64) > (ir!(b) as u64) { self.err("native spans have incompatible lengths") },
                     Op::FUnbox(d, r) => { let v = r!(r); if !v.is_num() { self.err("not a number") } fr!(d) = v.as_num(); }
                     Op::FAdd(d, a, b) => fr!(d) = fr!(a) + fr!(b),
                     Op::FFma(d, a, b, c) => fr!(d) = fr!(a).mul_add(fr!(b), fr!(c)),

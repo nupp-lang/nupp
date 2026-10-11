@@ -1,9 +1,120 @@
 mod heap;
 mod interp;
+mod ir;
+mod jit;
+mod lower_ir;
 
 use heap::{Body, SlotTy, Value};
 use interp::{Function, Interp, Op, Outcome, State};
 use std::hint::black_box;
+
+extern "C" fn rt_storage_ptr(v: u64) -> u64 {
+    match Value(v).as_obj() { Some(p) => unsafe { if let Body::Storage { data } = &mut (*p.as_ptr()).body { data.as_mut_ptr() as u64 } else { 0 } }, None => 0 }
+}
+extern "C" fn rt_storage_len(v: u64) -> u64 {
+    match Value(v).as_obj() { Some(p) => unsafe { if let Body::Storage { data } = &(*p.as_ptr()).body { data.len() as u64 } else { 0 } }, None => 0 }
+}
+
+type LlvmMapFn = unsafe extern "C" fn(*mut f64, *const f64, f64, f64, u64, u64);
+type LlvmDotFn = unsafe extern "C" fn(*const f64, *const f64, u64, u64) -> f64;
+
+fn storage_slice(v: Value) -> &'static mut [f64] { unsafe { if let Body::Storage { data } = &mut (*v.as_obj().unwrap().as_ptr()).body { std::slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) } else { panic!("not storage") } } }
+
+/// `image FILE`: parse the compiler's kernel IR, lower, verify, run on the
+/// interpreter and through Cranelift, check against references and the LLVM
+/// artifact, and time all three.
+fn image_mode(it: &mut Interp, path: &str) {
+    let text = std::fs::read_to_string(path).expect("IR file");
+    let funcs = ir::parse(&text).expect("parse IR");
+    let mut ids: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut lowered: Vec<Function> = Vec::new();
+    for f in &funcs {
+        let l = lower_ir::lower(f);
+        match lower_ir::verify(&l) { Ok(()) => eprintln!("verify\t{}\tok\t{} ops", f.name, l.code.len()), Err(e) => panic!("verify {}: {e}", f.name) }
+        if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in l.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
+        ids.insert(f.name.clone(), it.funcs.len() as u32);
+        it.funcs.push(l.clone());
+        lowered.push(l);
+    }
+    // Negative checks: a fact the branch does not establish, and an unchecked access with no fact.
+    {
+        let mut bad = lowered[0].clone();
+        for op in bad.code.iter_mut() { if let Op::LoopFact(c, k, l) = *op { *op = Op::LoopFact(c, k + 4, l); } }
+        assert!(lower_ir::verify(&bad).is_err(), "an overstated fact must be rejected");
+        let mut bad = lowered[0].clone();
+        bad.code.retain(|o| !matches!(o, Op::LoopFact(..)));
+        let err = lower_ir::verify(&bad).err().expect("an unchecked access without a fact must be rejected");
+        eprintln!("verify\trejects\t{err}");
+    }
+    let base = it.funcs.len() as u32 - lowered.len() as u32;
+    let map_id = ids["explicitMap"]; let dot_id = ids["explicitAlgebraic"];
+    let llvm = unsafe { libloading::Library::new(std::env::var("LLVM_KERNELS").unwrap_or_else(|_| "/private/tmp/nupp-luajit-simd-replacement/bench/luajit-simd-replacement/integrated/build/lib/libkernels_aot.dylib".into())) }.expect("LLVM dylib");
+    let llvm_map: LlvmMapFn = unsafe { *llvm.get(b"ks_166cb74ff622b797_explicit_map__neon\0").unwrap() };
+    let llvm_dot: LlvmDotFn = unsafe { *llvm.get(b"ks_166cb74ff622b797_explicit_algebraic__neon\0").unwrap() };
+    let mut j = jit::Jit::new(rt_storage_ptr as *const u8, rt_storage_len as *const u8);
+    let map_ptr = j.compile(&lowered[(map_id - base) as usize]);
+    let dot_ptr = j.compile(&lowered[(dot_id - base) as usize]);
+    for (n, us) in &j.compile_micros { eprintln!("compile\t{n}\t{us} us"); }
+    let jit_map: unsafe extern "C" fn(u64, u64, u64, u64) -> u64 = unsafe { std::mem::transmute(map_ptr) };
+    let jit_dot: unsafe extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(dot_ptr) };
+    let close = |a: f64, b: f64, what: &str| { let tol = 1e-9 * f64::max(1.0, f64::max(a.abs(), b.abs())); assert!((a - b).abs() <= tol, "{what}: {a} vs {b}"); };
+    let mut cases = 0;
+    for &n in &[0usize, 1, 2, 3, 4, 5, 7, 63, 64, 65, 1024, 1027, 65539] {
+        let a = it.new_storage(n); it.handles.push(a);
+        let b = it.new_storage(n); it.handles.push(b);
+        let o1 = it.new_storage(n); it.handles.push(o1);
+        let o2 = it.new_storage(n); it.handles.push(o2);
+        for (i, v) in storage_slice(a).iter_mut().enumerate() { *v = ((i % 61) as f64 - 30.0) / 16.0; }
+        for (i, v) in storage_slice(b).iter_mut().enumerate() { *v = ((i % 37) as f64 - 18.0) / 32.0; }
+        run_to_end(it, map_id, &[o1, a, Value::num(1.25), Value::num(-0.5)]);
+        unsafe { jit_map(o2.0, a.0, Value::num(1.25).0, Value::num(-0.5).0) };
+        let mut o3 = vec![0.0; n.max(1)];
+        unsafe { llvm_map(o3.as_mut_ptr(), storage_slice(a).as_ptr(), 1.25, -0.5, n as u64, n as u64) };
+        for i in 0..n { let want = storage_slice(a)[i] * 1.25 - 0.5; close(storage_slice(o1)[i], want, "interp map"); close(storage_slice(o2)[i], want, "jit map"); close(o3[i], want, "llvm map"); cases += 1; }
+        let want: f64 = storage_slice(a).iter().zip(storage_slice(b).iter()).map(|(x, y)| x * y).sum();
+        close(run_to_end(it, dot_id, &[a, b]).as_num(), want, "interp dot");
+        close(Value(unsafe { jit_dot(a.0, b.0) }).as_num(), want, "jit dot");
+        close(unsafe { llvm_dot(storage_slice(a).as_ptr(), storage_slice(b).as_ptr(), n as u64, n as u64) }, want, "llvm dot");
+        cases += 1;
+        it.handles.truncate(it.handles.len() - 4);
+    }
+    eprintln!("PASS image {cases} checks");
+    // Timing, one process, rotated rounds, thread CPU time.
+    let seconds = 0.02; let rounds = 9;
+    for &n in &[63usize, 1024, 65539] {
+        let a = it.new_storage(n); it.handles.push(a);
+        let b = it.new_storage(n); it.handles.push(b);
+        let o = it.new_storage(n); it.handles.push(o);
+        for (i, v) in storage_slice(a).iter_mut().enumerate() { *v = ((i % 61) as f64 - 30.0) / 16.0; }
+        for (i, v) in storage_slice(b).iter_mut().enumerate() { *v = ((i % 37) as f64 - 18.0) / 32.0; }
+        let mut out = vec![0.0; n];
+        let (ap, bp) = (storage_slice(a).as_ptr(), storage_slice(b).as_ptr());
+        let mut runners: Vec<(&str, Box<dyn FnMut(&mut Interp) -> f64>)> = vec![
+            ("map_interp", Box::new(move |it| { run_to_end(it, map_id, &[o, a, Value::num(1.25), Value::num(0.5)]); 0.0 })),
+            ("map_jit", Box::new(move |_| { unsafe { jit_map(o.0, a.0, Value::num(1.25).0, Value::num(0.5).0) }; 0.0 })),
+            ("map_llvm", Box::new(move |_| { unsafe { llvm_map(out.as_mut_ptr(), ap, 1.25, 0.5, n as u64, n as u64) }; out[0] })),
+            ("dot_interp", Box::new(move |it| run_to_end(it, dot_id, &[a, b]).as_num())),
+            ("dot_jit", Box::new(move |_| Value(unsafe { jit_dot(a.0, b.0) }).as_num())),
+            ("dot_llvm", Box::new(move |_| unsafe { llvm_dot(ap, bp, n as u64, n as u64) })),
+        ];
+        let mut calls = Vec::new();
+        let mut sink = 0.0;
+        for (_, r) in runners.iter_mut() {
+            let mut count = 1usize;
+            loop { let s = cpu_now(); for _ in 0..count { sink += black_box(r(it)); } let e = cpu_now() - s; if e >= seconds { break; } count = (count * 2).max((count as f64 * seconds / e.max(1e-7)).ceil() as usize); }
+            calls.push(count);
+            for _ in 0..4 { for _ in 0..count { sink += black_box(r(it)); } }
+        }
+        let mut samples: Vec<Vec<f64>> = vec![Vec::new(); runners.len()];
+        for round in 0..rounds { for k in 0..runners.len() { let idx = (k + round) % runners.len(); let s = cpu_now(); for _ in 0..calls[idx] { sink += black_box((runners[idx].1)(it)); } samples[idx].push((cpu_now() - s) / calls[idx] as f64 * 1e9); } }
+        let med = |v: &mut Vec<f64>| { v.sort_by(|a, b| a.partial_cmp(b).unwrap()); v[v.len() / 2] };
+        let m: Vec<f64> = samples.iter_mut().map(med).collect();
+        for (i, (name, _)) in runners.iter().enumerate() { println!("{n}\t{name}\t{:.1} ns", m[i]); }
+        println!("{n}\tjit/llvm map {:.3}x  dot {:.3}x  interp/jit map {:.1}x dot {:.1}x", m[1] / m[2], m[4] / m[5], m[0] / m[1], m[3] / m[4]);
+        black_box(sink);
+        it.handles.truncate(it.handles.len() - 3);
+    }
+}
 
 fn cpu_now() -> f64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
@@ -86,6 +197,7 @@ fn main() {
     let mut it = Interp::new();
     let point = build(&mut it);
     let x = it.intern("x");
+    if mode == "image" { image_mode(&mut it, &args[2]); return; }
 
     if mode == "all" || mode == "check" {
         // Semantics without stress.

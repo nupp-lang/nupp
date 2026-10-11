@@ -1,0 +1,21 @@
+63	map_interp	524.8 ns
+63	map_jit	24.7 ns
+63	map_llvm	8.6 ns
+63	dot_interp	639.9 ns
+63	dot_jit	21.6 ns
+63	dot_llvm	11.0 ns
+63	jit/llvm map 2.862x  dot 1.961x  interp/jit map 21.3x dot 29.7x
+1024	map_interp	5742.6 ns
+1024	map_jit	225.5 ns
+1024	map_llvm	117.0 ns
+1024	dot_interp	7115.0 ns
+1024	dot_jit	273.1 ns
+1024	dot_llvm	202.2 ns
+1024	jit/llvm map 1.928x  dot 1.351x  interp/jit map 25.5x dot 26.0x
+65539	map_interp	366408.6 ns
+65539	map_jit	14187.7 ns
+65539	map_llvm	8926.4 ns
+65539	dot_interp	444398.7 ns
+65539	dot_jit	19460.2 ns
+65539	dot_llvm	14534.4 ns
+65539	jit/llvm map 1.589x  dot 1.339x  interp/jit map 25.8x dot 22.8x

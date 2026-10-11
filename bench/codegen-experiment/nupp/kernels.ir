@@ -1,0 +1,61 @@
+native-ir 45
+function explicitMap
+symbol ks_explicit_map
+entry kernel
+simd species(uint8,16)
+layouts
+params
+  write_span output:f64 source(number) span(nupp.mem.span) region(r0) readwrite @7:5
+  read_span input:f64 source(number) span(nupp.mem.span) region(r1) read @8:5
+  uniform scale:f64 source(number) @9:5
+  uniform bias:f64 source(number) @10:5
+aliasing
+  disjoint r0 r1 proof(exclusive_borrow)
+helpers
+relations
+  #input <= #output @12:8
+  #output <= #input @12:8
+guards
+results nil
+block
+  let species:simd_species_f64_fixed4 = simd_species.species:simd_species_f64_fixed4()
+  var cursor:u32 = numeric_cast(constant:f64 0)
+  while le(u64_add(numeric_cast(local:u32 cursor), numeric_cast(simd_lanes_generic.lanes:u32(local:simd_species_f64_fixed4 species))), count input) carrying cursor:u32
+    simd_store.store:lua_effect(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), simd_binary.add:simd_vector_f64_fixed4(simd_binary.mul:simd_vector_f64_fixed4(simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), span:input), simd_splat.splat:simd_vector_f64_fixed4(uniform:f64 scale)), simd_splat.splat:simd_vector_f64_fixed4(uniform:f64 bias)), span:output)
+    set cursor = u32_add(local:u32 cursor, simd_lanes_generic.lanes:u32(local:simd_species_f64_fixed4 species))
+  end
+  if lt(local:u32 cursor, count input)
+    let active:simd_mask_f64_fixed4 = simd_tail.tail:simd_mask_f64_fixed4(numeric_cast(sub(count input, int_to_f64(local:u32 cursor))))
+    simd_store.store:lua_effect(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), simd_binary.add:simd_vector_f64_fixed4(simd_binary.mul:simd_vector_f64_fixed4(simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), local:simd_mask_f64_fixed4 active, span:input), simd_splat.splat:simd_vector_f64_fixed4(uniform:f64 scale)), simd_splat.splat:simd_vector_f64_fixed4(uniform:f64 bias)), local:simd_mask_f64_fixed4 active, span:output)
+  end
+
+native-ir 45
+function explicitAlgebraic
+symbol ks_explicit_algebraic
+entry kernel
+simd species(uint8,16)
+layouts
+params
+  read_span left:f64 source(number) span(nupp.mem.span) region(r0) read @28:34
+  read_span right:f64 source(number) span(nupp.mem.span) region(r1) read @28:67
+aliasing
+  may_alias r0 r1 proof(shared_borrows)
+helpers
+relations
+  #left <= #right @29:8
+  #right <= #left @29:8
+guards
+results f64
+block
+  let species:simd_species_f64_fixed4 = simd_species.species:simd_species_f64_fixed4()
+  var accumulator:simd_vector_f64_fixed4 = simd_splat.splat:simd_vector_f64_fixed4(constant:f64 0.0)
+  var cursor:u32 = numeric_cast(constant:f64 0)
+  while and(le(u64_add(numeric_cast(local:u32 cursor), numeric_cast(simd_lanes_generic.lanes:u32(local:simd_species_f64_fixed4 species))), count left), le(u64_add(numeric_cast(local:u32 cursor), numeric_cast(simd_lanes_generic.lanes:u32(local:simd_species_f64_fixed4 species))), count right)) carrying accumulator:simd_vector_f64_fixed4, cursor:u32
+    set accumulator = simd_binary.add:simd_vector_f64_fixed4(local:simd_vector_f64_fixed4 accumulator, simd_binary.mul:simd_vector_f64_fixed4(simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), span:left), simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), span:right)))
+    set cursor = u32_add(local:u32 cursor, simd_lanes_generic.lanes:u32(local:simd_species_f64_fixed4 species))
+  end
+  if lt(local:u32 cursor, count left)
+    let active:simd_mask_f64_fixed4 = simd_tail.tail:simd_mask_f64_fixed4(numeric_cast(sub(count left, int_to_f64(local:u32 cursor))))
+    set accumulator = simd_binary.add:simd_vector_f64_fixed4(local:simd_vector_f64_fixed4 accumulator, simd_binary.mul:simd_vector_f64_fixed4(simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), local:simd_mask_f64_fixed4 active, span:left), simd_load.load:simd_vector_f64_fixed4(local:simd_species_f64_fixed4 species, int_to_f64(u32_add(local:u32 cursor, constant:u32 1)), local:simd_mask_f64_fixed4 active, span:right)))
+  end
+  return simd_horizontal.algebraic_sum:f64(local:simd_vector_f64_fixed4 accumulator)
