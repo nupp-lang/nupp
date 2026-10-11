@@ -45,6 +45,35 @@ return (new Wide(signed = -7LL, unsigned = 9ULL)):debug()
     assert(result == "Wide { signed = -7LL, unsigned = 9ULL }", result)
 end
 
+-- A record names itself wherever it sits. One inside a list, a tuple, or a map
+-- used to render as a bare table, because only fields carried the type's name.
+function M.debugNamesRecordsInsideContainers()
+    local result = run(
+        [=[
+@derive(nupp.derive.Debug)
+local record Child
+    label: string
+end
+@derive(nupp.derive.Debug)
+local record Parent
+    first: Child
+    rest: {Child}
+    pair: {Child, integer}
+    byName: {[string]: Child}
+end
+return (new Parent(
+    first = new Child(label = "a"),
+    rest = {new Child(label = "b")},
+    pair = {new Child(label = "c"), 1},
+    byName = {only = new Child(label = "d")}
+)):debug()
+]=]
+    )
+    local expected = 'Parent { first = Child { label = "a" }, rest = {Child { label = "b" }}, '
+        .. 'pair = {Child { label = "c" }, 1}, byName = {["only"] = Child { label = "d" }} }'
+    assert(result == expected, result)
+end
+
 function M.debugPoliciesDoNotRequireTraversableFieldTypes()
     local result = run(
         [=[

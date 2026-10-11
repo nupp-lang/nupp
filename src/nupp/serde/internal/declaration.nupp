@@ -779,7 +779,11 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
         local children: {core.Child<Member>} = {}
         local elements: {integer} = kind == "array" and {node.element} or node.members
         for position, element in ipairs(elements) do
-            local child = new Member(name = tostring(position), index = position)
+            local child = new Member(
+                name = tostring(position),
+                index = position,
+                label = typeLabel(graph.root.info, element, {})
+            )
             adapters[position] = resolve(graph, element, child)
             children[position] = new Child(member = child, adapter = adapters[position])
         end
@@ -793,8 +797,8 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
             consume = new ReadElements(adapters = adapters, tuple = kind == "tuple")
         )
     elseif kind == "map" and node.readKey ~= nil and node.readValue ~= nil then
-        local key = new Member(name = "key", index = 1)
-        local value = new Member(name = "value", index = 2)
+        local key = new Member(name = "key", index = 1, label = typeLabel(graph.root.info, node.readKey, {}))
+        local value = new Member(name = "value", index = 2, label = typeLabel(graph.root.info, node.readValue, {}))
         local keyAdapter = resolve(graph, node.readKey, key)
         local valueAdapter = resolve(graph, node.readValue, value)
         link.target = new Map(
