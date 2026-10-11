@@ -51,7 +51,7 @@ end
 local Fn = {}
 Fn.__index = Fn
 local function newFn(name)
-    local f = setmetatable({name = name, consts = {}, constIndex = {}, code = {}, nregs = 1, nfregs = 0, scopes = {{}}, nparams = 0}, Fn)
+    local f = setmetatable({name = name, consts = {}, constIndex = {}, code = {}, nregs = 1, nfregs = 0, scopes = {{}}, nparams = 0, upvals = {}, upvalIndex = {}, captured = {}, parent = nil}, Fn)
     functions[#functions + 1] = f
     f.id = #functions - 1
     funcByName[name] = f
@@ -68,14 +68,47 @@ function Fn:op(...) self.code[#self.code + 1] = {...}; return #self.code end
 function Fn:patch(at, ...) self.code[at] = {...} end
 function Fn:reg() local r = self.nregs; self.nregs = r + 1; return r end
 function Fn:freg() local r = self.nfregs; self.nfregs = r + 1; return r end
-function Fn:declare(name, class) local r = class == "f" and self:freg() or self:reg(); self.scopes[#self.scopes][name] = {reg = r, class = class or "v"}; return r end
-function Fn:lookup(name) for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class end end end
+function Fn:declare(name, class)
+    -- A local any nested function captures lives in a heap cell, so the
+    -- closure and the enclosing scope share one mutable location.
+    if self.captured[name] then
+        local r = self:reg()
+        self.scopes[#self.scopes][name] = {reg = r, class = "v", cell = true}
+        return r, true
+    end
+    local r = class == "f" and self:freg() or self:reg()
+    self.scopes[#self.scopes][name] = {reg = r, class = class or "v"}
+    return r
+end
+function Fn:lookup(name)
+    for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class, r.cell end end
+end
+-- An upvalue: the index of `name` among this function's captures, creating
+-- the capture chain through enclosing functions as needed.
+function Fn:upvalue(name)
+    if self.upvalIndex[name] then return self.upvalIndex[name] end
+    if not self.parent then return nil end
+    local preg, _, pcell = self.parent:lookup(name)
+    local source
+    if preg then
+        assert(pcell, "captured local " .. name .. " is not a cell")
+        source = {kind = "local", reg = preg}
+    else
+        local pi = self.parent:upvalue(name)
+        if not pi then return nil end
+        source = {kind = "upval", index = pi}
+    end
+    self.upvals[#self.upvals + 1] = source
+    self.upvalIndex[name] = #self.upvals - 1
+    return #self.upvals - 1
+end
 function Fn:push() self.scopes[#self.scopes + 1] = {} end
 function Fn:pop() self.scopes[#self.scopes] = nil end
 function Fn:here() return #self.code end
 function Fn:offset(from, to) return to - from end  -- relative to the op after `from`
 
 local function tokText(tok) return tok.value ~= nil and tok.value or tok.text end
+markCaptures, defineFunction, signatureOf = nil, nil, nil
 
 local function isNumeric(t)
     local tag = tyTag(t)
@@ -175,8 +208,20 @@ expr = function(f, node, dst, want)
     end
     if k == "name" then
         local name = tokText(node.token)
-        local r, c = f:lookup(name)
+        local r, c, cell = f:lookup(name)
+        if r and cell then
+            local d = f:reg(); f:op("GetCell", d, r)
+            if numeric then local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f" end
+            return d, "v"
+        end
         if r then return r, c end
+        local ui = f:upvalue(name)
+        if ui then
+            local cellReg = f:reg(); f:op("GetUpval", cellReg, ui)
+            local d = f:reg(); f:op("GetCell", d, cellReg)
+            if numeric then local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f" end
+            return d, "v"
+        end
     end
     if numeric and k == "dotIndex" then
         local objTy = node.obj.inferredType
@@ -312,6 +357,19 @@ expr = function(f, node, dst, want)
                 f:op("SetIdx", dst, i, v)
             else error("table field " .. field.kind) end
         end
+    elseif k == "funcExpr" then
+        local inner = newFn(f.name .. ".fn" .. tostring(#functions))
+        inner.parent = f
+        signatureOf(inner, node.body)
+        markCaptures(inner, node.body)
+        defineFunction(inner, node.body)
+        -- Captures: each is a cell register of this function or one of its own upvalues.
+        local base = f:reg()
+        while f.nregs < base + #inner.upvals + 1 do f:reg() end
+        for i, u in ipairs(inner.upvals) do
+            if u.kind == "local" then f:op("Move", base + i, u.reg) else local t = f:reg(); f:op("GetUpval", t, u.index); f:op("Move", base + i, t) end
+        end
+        f:op("NewClosure", dst, inner.id, base, #inner.upvals)
     elseif k == "castExpr" then
         local target = node.inferredType
         local v = exprAs(f, node.expr, "v", dst)
@@ -334,16 +392,27 @@ local function stmt(f, node)
         local value = node.exprs and node.exprs[1]
         local declared = node.types and node.types[1] and node.types[1].resolvedType
         local class = (isNumeric(declared) or (not declared and value and isNumeric(value.inferredType))) and "f" or "v"
-        local r = f:declare(name, class)
-        if value then exprAs(f, value, class, r) elseif class == "v" then f:op("Nil", r) else f:op("FK", r, 0) end
+        local r, cell = f:declare(name, class)
+        if cell then
+            local v = f:reg()
+            if value then exprAs(f, value, "v", v) else f:op("Nil", v) end
+            f:op("NewCell", r, v)
+        elseif value then exprAs(f, value, class, r) elseif class == "v" then f:op("Nil", r) else f:op("FK", r, 0) end
         mark = f.nregs
     elseif k == "assignStmt" then
         local target = node.targets[1]
         local value = node.exprs[1]
         if target.kind == "name" then
-            local r, c = f:lookup(tokText(target.token))
-            assert(r, "assign to unknown local")
-            exprAs(f, value, c, r)
+            local r, c, cell = f:lookup(tokText(target.token))
+            if r and cell then
+                local v = exprAs(f, value, "v"); f:op("SetCell", r, v)
+            elseif r then
+                exprAs(f, value, c, r)
+            else
+                local ui = assert(f:upvalue(tokText(target.token)), "assign to unknown name")
+                local cellReg = f:reg(); f:op("GetUpval", cellReg, ui)
+                local v = exprAs(f, value, "v"); f:op("SetCell", cellReg, v)
+            end
         elseif target.kind == "dotIndex" then
             local objTy = target.obj.inferredType
             local o = exprAs(f, target.obj, "v")
@@ -415,11 +484,32 @@ block = function(f, node)
     f:pop()
 end
 
+-- Capture analysis: every name used inside a nested function body is a
+-- candidate; locals of this function with those names become cells. Shadowing
+-- is not resolved, which over-approximates and is always safe.
+local SKIP = {parent = true, inferredType = true, resolvedType = true, signatureType = true, selectedDefinition = true, methodEntry = true, token = true}
+local function walkSyntax(node, seen, visit)
+    if type(node) ~= "table" or seen[node] then return end
+    seen[node] = true
+    if visit(node) == false then return end
+    for k, v in pairs(node) do
+        if not SKIP[k] and type(v) == "table" then walkSyntax(v, seen, visit) end
+    end
+end
+local function collectNames(node, out)
+    walkSyntax(node, {}, function(n) if n.kind == "name" and n.token then out[tokText(n.token)] = true end end)
+end
+function markCaptures(f, funcbody)
+    walkSyntax(funcbody.body, {}, function(n)
+        if n.kind == "funcExpr" or n.kind == "shortfn" then collectNames(n.body, f.captured); collectNames(n.expr, f.captured); return false end
+    end)
+end
+
 -- The calling convention: parameters of numeric type travel in float
 -- registers, in declaration order among the float parameters; everything
 -- else travels in value registers, in declaration order among those. The
 -- result travels as a float when the declared return type is numeric.
-local function signatureOf(f, funcbody)
+function signatureOf(f, funcbody)
     -- The checker's signature type carries the resolved parameter and result types.
     local st = funcbody.signatureType or {}
     local params = funcbody.params or {}
@@ -431,12 +521,25 @@ local function signatureOf(f, funcbody)
     f.ret = (st.rets and st.rets[1] and isNumeric(st.rets[1])) and "f" or "v"
 end
 
-local function defineFunction(f, funcbody)
+function defineFunction(f, funcbody)
     local params = funcbody.params or {}
     -- Float parameters are float registers 0.., value parameters value registers 1..
     local nf = 0
+    local cellParams = {}
     for i, p in ipairs(params) do
-        if f.sig[i] == "f" then f:declare(tokText(p.name), "f"); nf = nf + 1 else f:declare(tokText(p.name), "v") end
+        local name = tokText(p.name)
+        if f.captured[name] then
+            -- The parameter arrives in its window; it is moved into a cell on entry.
+            local r = f.sig[i] == "f" and f:freg() or f:reg()
+            if f.sig[i] == "f" then nf = nf + 1 end
+            cellParams[#cellParams + 1] = {name, r, f.sig[i]}
+        elseif f.sig[i] == "f" then f:declare(name, "f"); nf = nf + 1 else f:declare(name, "v") end
+    end
+    for _, cp in ipairs(cellParams) do
+        local cellReg = f:declare(cp[1])
+        local v = cp[2]
+        if cp[3] == "f" then local b = f:reg(); f:op("FBox", b, v); v = b end
+        f:op("NewCell", cellReg, v)
     end
     block(f, funcbody.body)
     if f.code[#f.code] == nil or (f.code[#f.code][1] ~= "Ret" and f.code[#f.code][1] ~= "RetNil") then f:op("RetNil") end
@@ -463,7 +566,7 @@ for _, s in ipairs(stats) do
 end
 -- Resolve slot types that name records declared later.
 for _, shape in ipairs(shapeOrder) do end
-for _, p in ipairs(pending) do defineFunction(p[1], p[2]) end
+for _, p in ipairs(pending) do markCaptures(p[1], p[2]); defineFunction(p[1], p[2]) end
 
 -- Output -------------------------------------------------------------------
 local function q(s) return '"' .. s:gsub('[%c"\\]', function(c) return string.format("\\%03d", c:byte()) end) .. '"' end

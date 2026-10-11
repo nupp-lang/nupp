@@ -53,6 +53,13 @@ pub enum Op {
     TagCheckRec(u8, u8, u32),
     TagCheckNum(u8, u8),
     TagCheckStr(u8, u8),
+    /// New closure over function `fid` capturing n values from base..
+    NewClosure(u8, u32, u8, u8),
+    NewCell(u8, u8),
+    GetCell(u8, u8),
+    SetCell(u8, u8),
+    /// Capture i of the running closure.
+    GetUpval(u8, u8),
     FBox(u8, u8),
     GetSlotF(u8, u8, u16),
     SetSlotF(u8, u16, u8),
@@ -133,7 +140,8 @@ pub struct Function {
 }
 
 #[derive(Clone, Copy)]
-struct Frame { func: u32, pc: u32, base: u32, ibase: u32, fbase: u32, vbase: u32, ret: u32, /// Where a float result goes in the caller's float window, when the callee returns one.
+struct Frame { func: u32, pc: u32, base: u32, ibase: u32, fbase: u32, vbase: u32, ret: u32, /// The closure this activation runs, or nil for a plain function.
+    closure: Value, /// Where a float result goes in the caller's float window, when the callee returns one.
     ret_f: u32, ret_is_f: bool }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -190,7 +198,7 @@ impl Interp {
         let f = &self.funcs[fid as usize];
         let mut t = Task { regs: vec![Value::NIL; f.nregs as usize + 1], iregs: vec![0; f.nireg as usize], fregs: vec![0.0; f.nfreg as usize], vregs: vec![[0.0; 2]; f.nvreg as usize], frames: Vec::new(), state: State::Runnable, result: Value::NIL };
         for (i, &a) in args.iter().enumerate() { t.regs[i + 1] = a; }
-        t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0, ret_f: 0, ret_is_f: false });
+        t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0, ret_f: 0, ret_is_f: false, closure: Value::NIL });
         self.tasks.push(t);
         self.tasks.len() - 1
     }
@@ -316,7 +324,29 @@ impl Interp {
                         let _ = nargs;
                         break;
                     }
-                    Op::CallDyn(fr, b, nargs) => { let f = r!(fr).as_func().unwrap_or_else(|| self.err("call of a non-function")); self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break; }
+                    Op::CallDyn(fr, b, nargs) => {
+                        let callee = r!(fr);
+                        if let Some(f) = callee.as_func() { self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break; }
+                        let p = callee.as_obj().unwrap_or_else(|| self.err("call of a non-function"));
+                        let f = unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => *fid, _ => self.err("call of a non-function") } };
+                        // Dynamic calls pass values; a typed callee unboxes its float parameters on entry.
+                        let sig = self.funcs[f as usize].sig.clone();
+                        let nv = sig.iter().filter(|&&c| c != b'f').count() as u8;
+                        self.push_frame(tid, f, base + b as usize, nv, pc, fid, base, ibase, fbase, vbase, base + b as usize);
+                        let t = &mut self.tasks[tid];
+                        let frame = *t.frames.last().unwrap();
+                        // Float parameters from the value arguments, in declaration order.
+                        let (mut vi, mut fi) = (0usize, 0usize);
+                        let callee_base = frame.base as usize;
+                        for &c in &sig { if c == b'f' { let v = t.regs[callee_base + 1 + vi + fi]; t.fregs[frame.fbase as usize + fi] = v.as_num(); fi += 1; } else { vi += 1; } }
+                        // Value parameters must be contiguous at r1..: compact them past any float ones.
+                        if fi > 0 { let (mut vi2, mut src) = (0usize, 0usize); for &c in &sig { if c != b'f' { vi2 += 1; t.regs[callee_base + vi2] = t.regs[callee_base + 1 + src]; } src += 1; } }
+                        let fr_ = t.frames.last_mut().unwrap();
+                        fr_.closure = callee;
+                        fr_.ret_is_f = false;
+                        let _ = nargs;
+                        break;
+                    }
                     Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
                     Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Outcome::Done(Value::NIL); } break; }
                     Op::NewTable(d) => { let v = self.heap.new_table(roots!(self)); r!(d) = v; }
@@ -407,6 +437,11 @@ impl Interp {
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } r!(d) = v; }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
+                    Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.heap.new_closure(f, caps, roots!(self)); r!(d) = v; }
+                    Op::NewCell(d, a) => { let v = r!(a); let c = self.heap.new_cell(v, roots!(self)); r!(d) = c; }
+                    Op::GetCell(d, c) => { let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Cell { value } => *value, _ => self.err("not a cell") } }; }
+                    Op::SetCell(c, a) => { let v = r!(a); let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Cell { value } => *value = v, _ => self.err("not a cell") } } }
+                    Op::GetUpval(d, i) => { let clo = self.tasks[tid].frames.last().unwrap().closure; let p = clo.as_obj().unwrap_or_else(|| self.err("upvalue outside a closure")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Closure { captures, .. } => captures[i as usize], _ => self.err("not a closure") } }; }
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
                     Op::GetSlotF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), _ => self.err("slot of a non-record") } }; fr!(d) = v.as_num(); }
                     Op::SetSlotF(t, i, a) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = Value::num(fr!(a)); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, _ => self.err("slot of a non-record") } } }
@@ -489,7 +524,9 @@ impl Interp {
     #[allow(clippy::too_many_arguments)]
     fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize, _caller: u32, _base: usize, ibase: usize, fbase: usize, vbase: usize, ret: usize) {
         let callee = &self.funcs[f as usize];
-        assert_eq!(callee.nparams, nargs, "arity");
+        // The value-argument count: float parameters travel in the float window.
+        let expected = if callee.sig.len() == callee.nparams as usize { callee.sig.iter().filter(|&&c| c != b'f').count() as u8 } else { callee.nparams };
+        assert_eq!(expected, nargs, "arity of {}", callee.name);
         let t = &mut self.tasks[tid];
         t.frames.last_mut().unwrap().pc = pc as u32;
         // The callee's window starts at the caller's result slot, so its r1 is the first argument.
@@ -501,7 +538,7 @@ impl Interp {
         if t.iregs.len() < ni + callee.nireg as usize { t.iregs.resize(ni + callee.nireg as usize, 0); }
         if t.fregs.len() < nf + callee.nfreg as usize { t.fregs.resize(nf + callee.nfreg as usize, 0.0); }
         if t.vregs.len() < nv + callee.nvreg as usize { t.vregs.resize(nv + callee.nvreg as usize, [0.0; 2]); }
-        t.frames.push(Frame { func: f, pc: 0, base: base as u32, ibase: ni as u32, fbase: nf as u32, vbase: nv as u32, ret: ret as u32, ret_f: 0, ret_is_f: false });
+        t.frames.push(Frame { func: f, pc: 0, base: base as u32, ibase: ni as u32, fbase: nf as u32, vbase: nv as u32, ret: ret as u32, ret_f: 0, ret_is_f: false, closure: Value::NIL });
     }
 
     /// Pops the frame, delivering `v` to the caller's result register; true when

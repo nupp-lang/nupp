@@ -81,6 +81,10 @@ pub enum Body {
     Record { shape: u32, slots: Vec<Value> },
     /// Owned numeric storage a typed span borrows: the non-moving space.
     Storage { data: Vec<f64> },
+    /// A closure: a function id and its captures, each a cell or a value.
+    Closure { fid: u32, captures: Vec<Value> },
+    /// A shared mutable location a captured local lives in.
+    Cell { value: Value },
     Freed(String),
 }
 
@@ -90,6 +94,8 @@ pub const KIND_TABLE: u8 = 2;
 pub const KIND_RECORD: u8 = 3;
 pub const KIND_STORAGE: u8 = 4;
 pub const KIND_FREED: u8 = 0;
+pub const KIND_CLOSURE: u8 = 5;
+pub const KIND_CELL: u8 = 6;
 
 /// The header has a fixed layout so compiled code reads an object's kind, the
 /// pointer to its payload (slots, array part, storage, bytes) and that
@@ -119,6 +125,8 @@ impl Object {
             Body::Table { array, .. } => { self.kind = KIND_TABLE; self.aux_ptr = array.as_mut_ptr() as *mut u8; self.aux_len = array.len() as u64; }
             Body::Record { slots, .. } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64; }
             Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
+            Body::Closure { captures, .. } => { self.kind = KIND_CLOSURE; self.aux_ptr = captures.as_mut_ptr() as *mut u8; self.aux_len = captures.len() as u64; }
+            Body::Cell { value } => { self.kind = KIND_CELL; self.aux_ptr = value as *mut Value as *mut u8; self.aux_len = 1; }
             Body::Freed(_) => { self.kind = KIND_FREED; self.aux_ptr = std::ptr::null_mut(); self.aux_len = 0; }
         }
     }
@@ -213,6 +221,8 @@ impl Heap {
         let n = self.shapes[shape as usize].names.len();
         Value::obj(self.alloc(Body::Record { shape, slots: vec![Value::NIL; n] }, 24 + 8 * n, roots))
     }
+    pub fn new_closure(&mut self, fid: u32, captures: Vec<Value>, roots: &dyn Roots) -> Value { let n = captures.len(); Value::obj(self.alloc(Body::Closure { fid, captures }, 32 + 8 * n, roots)) }
+    pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Cell { value }, 32, roots)) }
     pub fn new_storage(&mut self, n: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Storage { data: vec![0.0; n] }, 24 + 8 * n, roots)) }
 
     /// The insertion barrier: storing a white child into a black parent while
@@ -285,6 +295,8 @@ impl Heap {
             match &(*p.as_ptr()).body {
                 Body::Table { array, hash } => { for &v in array { push(v); } for (&k, &v) in hash { push(k); push(v); } }
                 Body::Record { slots, .. } => { for &v in slots { push(v); } }
+                Body::Closure { captures, .. } => { for &v in captures { push(v); } }
+                Body::Cell { value } => push(*value),
                 Body::Str { .. } | Body::Storage { .. } | Body::Freed(_) => {}
             }
             (*p.as_ptr()).color = Color::Black;
@@ -340,7 +352,7 @@ impl Heap {
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
-                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Freed(w) => w.clone() };
+                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Freed(w) => w.clone() };
                 o.body = Body::Freed(what);
                 o.refresh();
                 o.color = Color::White;
@@ -375,6 +387,8 @@ impl Heap {
                     Body::Freed(what) => panic!("oracle: a reachable object was freed: {what}, reached via {via}"),
                     Body::Table { array, hash } => { for (i, &v) in array.iter().enumerate() { visit(v, format!("{via} > table[{}]", i + 1), &mut stack); } for (&k, &v) in hash { visit(k, format!("{via} > table key"), &mut stack); visit(v, format!("{via} > table value"), &mut stack); } }
                     Body::Record { slots, shape } => { for (i, &v) in slots.iter().enumerate() { visit(v, format!("{via} > record{shape}.slot{i}"), &mut stack); } }
+                    Body::Closure { captures, .. } => { for (i, &v) in captures.iter().enumerate() { visit(v, format!("{via} > closure.capture{i}"), &mut stack); } }
+                    Body::Cell { value } => visit(*value, format!("{via} > cell"), &mut stack),
                     _ => {}
                 }
             }

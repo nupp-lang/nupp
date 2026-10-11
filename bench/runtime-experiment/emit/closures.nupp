@@ -1,0 +1,37 @@
+local function counter(start: number): function(): number
+    local n = start
+    return function(): number
+        n = n + 1
+        return n
+    end
+end
+
+local function adder(k: number): function(number): number
+    return function(x: number): number
+        return x + k
+    end
+end
+
+local function main(): number
+    local c = counter(10)
+    local d = counter(100)
+    local add5 = adder(5)
+    local fns: {function(): number} = {}
+    for i = 1, 3 do
+        local base = i * 1000
+        fns[i] = function(): number
+            base = base + 1
+            return base
+        end
+    end
+    local s = 0
+    for _ = 1, 1000 do
+        s = s + c() + d()
+    end
+    for _ = 1, 10 do
+        s = s + fns[1]() + fns[2]() + fns[3]()
+    end
+    return add5(s)
+end
+
+return main
