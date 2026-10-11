@@ -1050,6 +1050,33 @@ process, system, path, uri, http, JSON, GPU) is a list of request kinds
 on this surface, and path and JSON are pure computation that never
 parks.
 
+## The liveness pass under parks and entries
+
+Date: 2026-10-11. Contracts 6.2 left "only named registers spilled; a
+liveness pass tightens that". The pass is in the verifier's module
+(`lower_ir::liveness`): a def/use table per opcode beside the operand
+table (`defs_uses`, which says for each named register which way it is
+used, with call windows written from the base and read above it), the
+backward dataflow over fall-through, branch and jump-table successors to
+a fixpoint, and live-in and live-out sets per pc as 256-bit sets per
+class. The JIT spills at a park only the registers live after it and
+loads at a frame-record entry only those live at its pc (parameters
+always). `NO_LIVENESS=1` restores the named-register behaviour for
+comparison; `PARK_STATS=1` prints what each park spills.
+
+| `park-compiled`, 1000 tasks x 1000 parks, ns per park and resume | |
+| --- | ---: |
+| every named register (5) spilled and reloaded | 13.0-13.3 |
+| live registers only (3 of 5) | 12.2-12.4 |
+
+Six percent on a worker with five registers; the saving scales with the
+registers a function names that are dead across the park, which in
+compiler-shaped code (the lexer's functions name 20-40) is most of them.
+The entry side matters more than the park side once functions are large:
+a loop-header transfer that loads forty registers to use six is the
+difference the pass removes. Every regression mode passes with the
+pass on, including the loop-header transfers in `run-image`.
+
 ## Threaded dispatch: the call row closed
 
 Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the

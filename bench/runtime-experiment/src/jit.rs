@@ -155,6 +155,11 @@ impl Jit {
             let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = self.funcs.iter().map(|(k, (id, sg, r))| (*k, (self.module.declare_func_in_func(*id, b.func), sg.clone(), *r))).collect();
             let consts: Vec<u64> = f.consts.iter().map(|v| v.0).collect();
             // The registers the function names, per class, in order.
+            // Liveness (contracts 6.2, the tightening): a park spills only what
+            // is live after it, a frame-record entry loads only what is live at
+            // its pc. NO_LIVENESS=1 falls back to every named register.
+            let (live_in, live_out) = crate::lower_ir::liveness(f);
+            let no_liveness = std::env::var("NO_LIVENESS").is_ok();
             let used: (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) = {
                 let mut sets = [BTreeSet::new(), BTreeSet::new(), BTreeSet::new(), BTreeSet::new()];
                 for op in &f.code { for (c, r) in crate::lower_ir::operands(op).0 { sets[match c { crate::lower_ir::C::V => 0, crate::lower_ir::C::I => 1, crate::lower_ir::C::F => 2, crate::lower_ir::C::X => 3 }].insert(r); } }
@@ -198,9 +203,10 @@ impl Jit {
                 // defaults: a frame-record entry and a park touch only those.
                 let (rp, fp_, ip) = (params[0], params[1], params[2]);
                 let _hdr = params[3];
-                for &r in &used.0 { let v = b.ins().load(types::I64, flags, rp, (r as usize * 8) as i32); b.def_var(rvars[r as usize], v); }
-                for &r in &used.2 { let v = b.ins().load(types::F64, flags, fp_, (r as usize * 8) as i32); b.def_var(fvars[r as usize], v); }
-                for &r in &used.1 { let v = b.ins().load(types::I64, flags, ip, (r as usize * 8) as i32); b.def_var(ivars[r as usize], v); }
+                let entry_live = |k: usize, r: u8| no_liveness || live_in.get(header).map(|l| l[k].contains(r)).unwrap_or(true);
+                for &r in &used.0 { if r <= f.nparams || entry_live(0, r) { let v = b.ins().load(types::I64, flags, rp, (r as usize * 8) as i32); b.def_var(rvars[r as usize], v); } }
+                for &r in &used.2 { if entry_live(2, r) { let v = b.ins().load(types::F64, flags, fp_, (r as usize * 8) as i32); b.def_var(fvars[r as usize], v); } }
+                for &r in &used.1 { if entry_live(1, r) { let v = b.ins().load(types::I64, flags, ip, (r as usize * 8) as i32); b.def_var(ivars[r as usize], v); } }
                 for r in 1..=f.nparams as usize { if uses_storage { let p = b.use_var(rvars[r]); let c1 = b.ins().call(sp, &[p]); let ptr = b.inst_results(c1)[0]; let c2 = b.ins().call(sl, &[p]); let len = b.inst_results(c2)[0]; ptrs.insert(r as u8, (ptr, len)); vals.insert(r as u8, p); } }
                 let _ = header;
             }
@@ -504,9 +510,12 @@ impl Jit {
                         // that took the frame record can park.
                         if osr.is_none() { panic!("{}: park in a function compiled without its frame record", f.name); }
                         let (rp, fp_, ip, hdr) = (params[0], params[1], params[2], params[3]);
-                        for &r in &used.0 { let v = b.use_var(rvars[r as usize]); b.ins().store(flags, v, rp, (r as usize * 8) as i32); }
-                        for &r in &used.2 { let v = b.use_var(fvars[r as usize]); b.ins().store(flags, v, fp_, (r as usize * 8) as i32); }
-                        for &r in &used.1 { let v = b.use_var(ivars[r as usize]); b.ins().store(flags, v, ip, (r as usize * 8) as i32); }
+                        let park_live = |k: usize, r: u8| no_liveness || live_out[pc][k].contains(r);
+                        let spilled = used.0.iter().filter(|&&r| park_live(0, r)).count() + used.1.iter().filter(|&&r| park_live(1, r)).count() + used.2.iter().filter(|&&r| park_live(2, r)).count();
+                        if std::env::var("PARK_STATS").is_ok() { eprintln!("park\t{}@{pc}\tspills {spilled} of {} named", f.name, used.0.len() + used.1.len() + used.2.len()); }
+                        for &r in &used.0 { if park_live(0, r) { let v = b.use_var(rvars[r as usize]); b.ins().store(flags, v, rp, (r as usize * 8) as i32); } }
+                        for &r in &used.2 { if park_live(2, r) { let v = b.use_var(fvars[r as usize]); b.ins().store(flags, v, fp_, (r as usize * 8) as i32); } }
+                        for &r in &used.1 { if park_live(1, r) { let v = b.use_var(ivars[r as usize]); b.ins().store(flags, v, ip, (r as usize * 8) as i32); } }
                         let h = b.ins().load(types::I64, flags, hdr, 0);
                         let low = b.ins().band_imm(h, 0xffff_ffff);
                         let pcv = b.ins().iconst(types::I64, ((pc as u64 + 1) << 32) as i64);

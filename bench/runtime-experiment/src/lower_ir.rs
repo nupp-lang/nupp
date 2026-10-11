@@ -726,3 +726,83 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// A set of registers of one class, 256 wide.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct RegSet(pub [u64; 4]);
+impl RegSet {
+    pub fn insert(&mut self, r: u8) { self.0[(r >> 6) as usize] |= 1 << (r & 63); }
+    pub fn remove(&mut self, r: u8) { self.0[(r >> 6) as usize] &= !(1 << (r & 63)); }
+    pub fn contains(&self, r: u8) -> bool { self.0[(r >> 6) as usize] & (1 << (r & 63)) != 0 }
+    pub fn union(&self, o: &RegSet) -> RegSet { RegSet([self.0[0] | o.0[0], self.0[1] | o.0[1], self.0[2] | o.0[2], self.0[3] | o.0[3]]) }
+    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ { (0..=255u8).filter(move |&r| self.contains(r)) }
+    pub fn len(&self) -> usize { self.0.iter().map(|w| w.count_ones() as usize).sum() }
+}
+
+/// The registers an opcode defines and the registers it reads, by class.
+/// `operands` lists every register an opcode names; this says which way
+/// each is used, which is what liveness needs. A register both read and
+/// written (a buffer append, a typed call's window) appears in both.
+pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
+    use Op::*;
+    use C::*;
+    let (all, _) = operands(op);
+    let first_def = |all: &Vec<(C, u8)>| (vec![all[0]], all[1..].to_vec());
+    let none_def = |all: &Vec<(C, u8)>| (Vec::new(), all.clone());
+    match *op {
+        // Every register named is read.
+        SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
+        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) => none_def(&all),
+        // Read and written.
+        BufAppend(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
+        RetN(start, n) => (Vec::new(), (0..n.max(1)).map(|i| (V, start + i)).collect()),
+        // Calls: arguments above the window base are read, results from the base written.
+        CallDyn(fr, base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), std::iter::once((V, fr)).chain((1..=nargs).map(|i| (V, base + i))).collect()),
+        CallK(_, fr, base, nargs, nres) => ((0..nres.max(1)).map(|i| (V, base + i)).collect(), std::iter::once((V, fr)).chain((1..=nargs).map(|i| (V, base + i))).collect()),
+        Call(_, base, nargs) => (vec![(V, base)], (1..=nargs).map(|i| (V, base + i)).collect()),
+        CallMethod(_, base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=nargs).map(|i| (V, base + i)).collect()),
+        PCall(base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=nargs + 1).map(|i| (V, base + i)).collect()),
+        CallT(..) => (all.clone(), all.clone()),
+        NewClosure(d, _, base, n) => (vec![(V, d)], (1..=n).map(|i| (V, base + i)).collect()),
+        _ => first_def(&all),
+    }
+}
+
+/// Live-in and live-out register sets per pc, by class (V, I, F, X): the
+/// backward dataflow over the bytecode's control flow. A frame record
+/// written at a park needs only the registers live after it; a frame-record
+/// entry needs only the registers live at its pc.
+pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
+    let n = f.code.len();
+    let class_of = |c: C| match c { C::V => 0, C::I => 1, C::F => 2, C::X => 3 };
+    let succs: Vec<Vec<usize>> = f.code.iter().enumerate().map(|(pc, op)| {
+        let (_, offs) = operands(op);
+        let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
+        let falls = !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Switch(..));
+        if let Op::Switch(_, t) = op { let (def, tbl) = &f.jump_tables[*t as usize]; for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } }
+        if falls && pc + 1 < n { s.push(pc + 1); }
+        s.retain(|&t| t < n);
+        s
+    }).collect();
+    let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
+        let (d, u) = defs_uses(op);
+        let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
+        for (c, r) in d { ds[class_of(c)].insert(r); }
+        for (c, r) in u { us[class_of(c)].insert(r); }
+        (ds, us)
+    }).collect();
+    let mut live_in = vec![[RegSet::default(); 4]; n];
+    let mut live_out = vec![[RegSet::default(); 4]; n];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for pc in (0..n).rev() {
+            let mut out = [RegSet::default(); 4];
+            for &s in &succs[pc] { for k in 0..4 { out[k] = out[k].union(&live_in[s][k]); } }
+            let mut inn = [RegSet::default(); 4];
+            for k in 0..4 { let mut t = out[k]; for r in du[pc].0[k].iter() { t.remove(r); } inn[k] = t.union(&du[pc].1[k]); }
+            if out != live_out[pc] || inn != live_in[pc] { live_out[pc] = out; live_in[pc] = inn; changed = true; }
+        }
+    }
+    (live_in, live_out)
+}
