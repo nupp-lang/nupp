@@ -73,10 +73,13 @@ emitted from the checked tree, and agree with LuaJIT node for node:
 
 | source | nodes | Rust loop | threaded core | LuaJIT interpreter | LuaJIT JIT |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 5.9 ms | 2.7 ms | 0.43 ms |
-| lexer.nupp, parse | 8,523 | 15.6 ms | 10.2 ms | 5.9 ms | 4.3 ms |
-| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 15.4 ms | 8.7 ms | 3.9 ms |
-| parser.nupp (156 KB), parse | 40,179 | 67 ms | 44.6 ms | 26.8 ms | 16.9 ms |
+| lexer.nupp (41 KB), lex only | 4,903 tokens | 8.0 ms | 5.3 ms | 2.7 ms | 0.43 ms |
+| lexer.nupp, parse | 8,523 | 15.6 ms | 9.7 ms | 5.9 ms | 4.3 ms |
+| cst.nupp (94 KB), parse | 12,197 | 23.7 ms | 14.8 ms | 8.7 ms | 3.9 ms |
+| parser.nupp (156 KB), parse | 40,179 | 67 ms | 42.3 ms | 26.8 ms | 16.9 ms |
+
+(The Rust-loop column is from before the emitter's opcode work; the
+threaded column after it.)
 
 Under stress with the oracle the lexer-source parse runs 19,000-odd full
 cycles and the parser-source parse survives interleaved marking with the
@@ -89,11 +92,26 @@ call and return path in C, with specialised helpers for field reads,
 indexed stores, builtin calls and allocation and a generic one-opcode
 fallback into the Rust interpreter for the rest (0.7% of opcodes). It
 takes the interpreter from 2.6x to 1.7x LuaJIT's interpreter. The profile
-on it is flat across handlers, led by `Move` (18% of opcodes), cell and
-upvalue reads (17%) and the box and unbox traffic between the value and
-typed register files; the next lever is the opcode count, which is the
-emitter's: move elimination, hoisting a captured local's cell read, and
-keeping typed locals in one register file.
+on it is flat across handlers.
+
+**Opcode count.** The emitter then learned to land results where they are
+needed (the destination is passed down to kinds that write it last, and a
+call's window starts at the destination when nothing is live above it), to
+keep arithmetic and comparison on value-register operands in the value
+domain instead of unboxing into the typed files and boxing back, to branch
+on a typed compare's integer register without boxing a boolean, to load a
+number literal as a value constant, and to load a closure's captures once
+at entry. Opcodes for the parser-source parse went from 27.9M to 23.4M
+(`Move` from 5.0M to 3.1M, the box and unbox pairs halved) and the time
+from 44.6 to 42.3 ms: a 16% opcode cut bought 5%, because the remaining
+opcodes are the ones the parser's structure demands. Its state lives in
+captured locals read through small closures (`cur()`, `advance()`), so a
+call, two cell reads and an index make up most of the stream, and a cell
+read can only be hoisted where a semantic fact proves nothing writes the
+cell across the loop, which the emitter does not have. The Rust loop and
+the threaded core agree on every checksum; the collector modes pass on
+both. At 1.8 ns per opcode against LuaJIT's interpreter at about 1.3, the
+next step that changes the ratio is the typed tier, not the emitter.
 
 Bugs the parser found: a dynamic call to a closure copied `sig.len()`
 registers from the caller's window, so a parameter the call did not supply

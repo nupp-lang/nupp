@@ -125,6 +125,18 @@ function Fn:knownFid(name)
     for i = #self.scopes, 1, -1 do local e = self.scopes[i][name]; if e then return e.fid end end
     if self.parent then return self.parent:knownFid(name) end
 end
+-- The register holding capture `ui` of this closure: a closure's captures
+-- never change, so each used one is loaded once at entry (the loads are
+-- prepended when the body is complete) and read from its register after.
+function Fn:upvalReg(ui)
+    self.upvalRegs = self.upvalRegs or {}
+    local r = self.upvalRegs[ui]
+    if r then return r end
+    r = self:reg()
+    self.declTop = math.max(self.declTop or 0, r + 1)
+    self.upvalRegs[ui] = r
+    return r
+end
 function Fn:upvalue(name)
     if self.upvalIndex[name] then return self.upvalIndex[name] end
     if not self.parent then return nil end
@@ -192,7 +204,50 @@ local function coerce(f, reg, class, want, dst)
 end
 
 local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure
-local function exprAs(f, node, want, dst) local r, c = expr(f, node, nil, want); return coerce(f, r, c, want, dst) end
+-- Expression kinds that write their destination only after every read of
+-- their operands, so the destination may be a register the operands name.
+-- A table constructor writes first and then reads its fields; `and`, `or`
+-- and `??` write the left operand before evaluating the right.
+local DST_SAFE = {call = true, methodCall = true, dotIndex = true, bracketIndex = true, number = true, string = true, trueExpr = true, falseExpr = true, ["nil"] = true, nilExpr = true, unop = true, name = true, funcExpr = true, castExpr = true}
+local function dstSafe(node)
+    while node.kind == "paren" do node = node.expr end
+    if node.kind == "binop" then local op = tokText(node.op); return op ~= "and" and op ~= "or" and op ~= "??" end
+    return DST_SAFE[node.kind] == true
+end
+local function exprAs(f, node, want, dst)
+    local pass = (want == "v" and dst and dstSafe(node)) and dst or nil
+    local r, c = expr(f, node, pass, want)
+    return coerce(f, r, c, want, dst)
+end
+-- Emits a condition and the branch taken when it is false: a typed
+-- comparison branches on its integer register, anything else on its value.
+local function condBranch(f, node)
+    local r, c = expr(f, node, nil, "cond")
+    if c == "i" then return f:op("JmpIfIZero", r, 0), "JmpIfIZero", r end
+    local v = coerce(f, r, c, "v")
+    return f:op("JmpIfNot", v, 0), "JmpIfNot", v
+end
+-- Whether an expression's natural home is a value register (or a number
+-- literal), so arithmetic and comparison on it stay in the value domain
+-- rather than unboxing into the typed files and boxing the result back.
+local function valueDomain(f, node)
+    local k = node.kind
+    if k == "paren" then return valueDomain(f, node.expr) end
+    if k == "number" or k == "string" or k == "call" or k == "methodCall" or k == "bracketIndex" then return true end
+    if k == "name" then
+        local r, c, cell = f:lookup(tokText(node.token))
+        if r then return cell or c == "v" end
+        return true
+    end
+    if k == "dotIndex" then
+        local shape = shapeOf(node.obj.inferredType)
+        local fname = tokText(node.name)
+        return not (shape and shape.slotIndex[fname] and shape.slots[shape.slotIndex[fname] + 1].ty == "num")
+    end
+    if k == "binop" then return valueDomain(f, node.lhs) and valueDomain(f, node.rhs) end
+    if k == "unop" then return valueDomain(f, node.operand) end
+    return false
+end
 
 -- A call with results landing at `dst..`: eight registers are reserved above
 -- the base so a callee's extra results have somewhere to go.
@@ -208,7 +263,7 @@ callInto = function(f, node, dst, extraSelf)
     -- the top, which nothing holds live, inside the frame's nine-word slack.
     while f.nregs < base + nargs + 1 do f:reg() end
     for i, a in ipairs(argRegs) do
-        if type(a) == "number" then f:op("Move", base + i, a) else exprAs(f, a, "v", base + i) end
+        if type(a) == "number" then if a ~= base + i then f:op("Move", base + i, a) end else exprAs(f, a, "v", base + i) end
     end
     -- A trailing `...` spreads this frame's own varargs, flagged by 128 on
     -- the count; the runtime copies them from below the header.
@@ -252,9 +307,18 @@ local function emitCall(f, node, dst, nres)
         if emitStrByte(f, node, dst, nres) then return end
     end
     local function finish(base) if base ~= dst then for i = 0, nres - 1 do f:op("Move", dst + i, base + i) end end end
+    -- When the destination is the highest register in use, the call's window
+    -- starts there and the results land in place; the callee and receiver
+    -- are evaluated above the reserved window.
+    local top = dst == f.nregs - 1
+    local argc = 0
+    for _, a in ipairs(node.args and node.args.exprs or {}) do if a.kind ~= "vararg" then argc = argc + 1 end end
     if node.kind == "methodCall" then
-        local o = exprAs(f, node.obj, "v")
-        local base, nargs = callInto(f, node, math.max(dst, f.nregs), o)
+        -- Otherwise the window is placed above the receiver once it exists.
+        local base, o
+        if top then base = dst; while f.nregs < base + argc + 3 do f:reg() end; o = exprAs(f, node.obj, "v", base + 1)
+        else o = exprAs(f, node.obj, "v"); base = math.max(dst, f.nregs) end
+        local base, nargs = callInto(f, node, base, o)
         f:op("CallMethod", f:const("str", tokText(node.name)), base, nargs)
         finish(base)
         return
@@ -279,8 +343,11 @@ local function emitCall(f, node, dst, nres)
             return
         end
     end
-    local fr = exprAs(f, callee, "v")
-    local base, nargs = callInto(f, node, math.max(dst, f.nregs))
+    -- Otherwise the window is placed above the callee once it exists.
+    local base, fr
+    if top then base = dst; while f.nregs < base + argc + 2 do f:reg() end; fr = exprAs(f, callee, "v")
+    else fr = exprAs(f, callee, "v"); base = math.max(dst, f.nregs) end
+    local base, nargs = callInto(f, node, base)
     local fid = callee.kind == "name" and f:knownFid(tokText(callee.token))
     if fid then f:op("CallK", fid, fr, base, nargs, nres) else f:op("CallDyn", fr, base, nargs) end
     finish(base)
@@ -293,11 +360,12 @@ expr = function(f, node, dst, want)
     local integer = isInteger(node.inferredType)
     if k == "number" then
         local n = tonumber(tokText(node.token))
+        if want ~= "i" and want ~= "f" then dst = dst or f:reg(); f:op("K", dst, f:const("num", n)); return dst, "v" end
         if want == "i" and isIntegerish(node) then local ir = f:freg(); f:op("IK", ir, string.format("%d", n)); return ir, "i" end
         local fr = f:freg(); f:op("FK", fr, n)
         return fr, "f"
     end
-    if k == "binop" and isIntegerish(node.lhs) and isIntegerish(node.rhs) then
+    if k == "binop" and isIntegerish(node.lhs) and isIntegerish(node.rhs) and (want == "i" or want == "f" or not (valueDomain(f, node.lhs) and valueDomain(f, node.rhs))) then
         local op = tokText(node.op)
         local map = {["+"] = "IAdd", ["-"] = "ISub"}
         if map[op] then local a = exprAs(f, node.lhs, "i"); local bb = exprAs(f, node.rhs, "i"); local d = f:freg(); f:op(map[op], d, a, bb); return d, "i" end
@@ -305,12 +373,18 @@ expr = function(f, node, dst, want)
         if cmp[op] then
             local a = exprAs(f, node.lhs, "i"); local bb = exprAs(f, node.rhs, "i"); local i = f:freg()
             if op == ">" or op == ">=" then f:op(cmp[op], i, bb, a) else f:op(cmp[op], i, a, bb) end
+            if want == "cond" then return i, "i" end
             local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
         end
     end
     if numeric and k == "binop" then
         local op = tokText(node.op)
         local map = {["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv", ["%"] = "FMod"}
+        if map[op] and isNumeric(node.lhs.inferredType) and isNumeric(node.rhs.inferredType) and want ~= "f" and want ~= "i" and valueDomain(f, node.lhs) and valueDomain(f, node.rhs) then
+            local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
+            local vmap = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["/"] = "Div", ["%"] = "Mod"}
+            dst = dst or f:reg(); f:op(vmap[op], dst, a, b); return dst, "v"
+        end
         if map[op] and isNumeric(node.lhs.inferredType) and isNumeric(node.rhs.inferredType) then
             local a = exprAs(f, node.lhs, "f"); local b = exprAs(f, node.rhs, "f")
             local d = f:freg(); f:op(map[op], d, a, b); return d, "f"
@@ -320,6 +394,7 @@ expr = function(f, node, dst, want)
         local a = exprAs(f, node.operand, "f"); local d = f:freg(); f:op("FNeg", d, a); return d, "f"
     end
     if numeric and k == "unop" and tokText(node.op) == "#" then
+        if want ~= "f" and want ~= "i" then local a = exprAs(f, node.operand, "v"); dst = dst or f:reg(); f:op("Len", dst, a); return dst, "v" end
         local a = exprAs(f, node.operand, "v"); local d = f:freg(); f:op("LenF", d, a); return d, "f"
     end
     if k == "vararg" then error("... outside a call's last argument is not in this emitter") end
@@ -334,7 +409,7 @@ expr = function(f, node, dst, want)
         if r then return r, c end
         local ui = f:upvalue(name)
         if ui then
-            local cellReg = f:reg(); f:op("GetUpval", cellReg, ui)
+            local cellReg = f:upvalReg(ui)
             local d = f:reg(); f:op("GetCell", d, cellReg)
             if numeric and want == "f" then local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f" end
             return d, "v"
@@ -360,10 +435,11 @@ expr = function(f, node, dst, want)
     if k == "binop" then
         local op = tokText(node.op)
         local cmp = {["<"] = "FCmpLt", ["<="] = "FCmpLe", [">"] = "FCmpLt", [">="] = "FCmpLe", ["=="] = "FCmpEq", ["~="] = "FCmpNe"}
-        if cmp[op] and isNumeric(node.lhs.inferredType) and isNumeric(node.rhs.inferredType) then
+        if cmp[op] and isNumeric(node.lhs.inferredType) and isNumeric(node.rhs.inferredType) and not (valueDomain(f, node.lhs) and valueDomain(f, node.rhs)) then
             local a = exprAs(f, node.lhs, "f"); local b = exprAs(f, node.rhs, "f")
             local i = f:freg()
             if op == ">" or op == ">=" then f:op(cmp[op], i, b, a) else f:op(cmp[op], i, a, b) end
+            if want == "cond" then return i, "i" end
             local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
         end
     end
@@ -512,7 +588,7 @@ emitClosure = function(f, funcbody, dst, name, implicitSelf)
     local base = f:reg()
     while f.nregs < base + #inner.upvals + 1 do f:reg() end
     for i, u in ipairs(inner.upvals) do
-        if u.kind == "local" then f:op("Move", base + i, u.reg) else local t = f:reg(); f:op("GetUpval", t, u.index); f:op("Move", base + i, t) end
+        if u.kind == "local" then f:op("Move", base + i, u.reg) else f:op("Move", base + i, f:upvalReg(u.index)) end
     end
     f:op("NewClosure", dst, inner.id, base, #inner.upvals)
     return inner
@@ -539,7 +615,7 @@ local function assignTo(f, target, valueReg)
         elseif r then coerce(f, valueReg, "v", c, r)
         else
             local ui = assert(f:upvalue(tokText(target.token)), "assign to unknown name " .. tokText(target.token))
-            local cellReg = f:reg(); f:op("GetUpval", cellReg, ui); f:op("SetCell", cellReg, valueReg)
+            local cellReg = f:upvalReg(ui); f:op("SetCell", cellReg, valueReg)
         end
     elseif target.kind == "dotIndex" then
         local shape = shapeOf(target.obj.inferredType)
@@ -644,25 +720,23 @@ stmt = function(f, node)
         -- declared above every temporary the condition used.
         local mark = f.nregs
         for _, clause in ipairs(node.clauses) do
-            local c = exprAs(f, clause.cond, "v")
-            local branch = f:op("JmpIfNot", c, 0)
+            local branch, bop, c = condBranch(f, clause.cond)
             f.nregs = math.max(mark, f.declTop or 0)
             block(f, clause.body)
             exits[#exits + 1] = f:op("Jmp", 0)
-            f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
+            f:patch(branch, bop, c, f:offset(branch, f:here()))
         end
         if node.elseClause then block(f, node.elseClause.body or node.elseClause) end
         for _, e in ipairs(exits) do f:patch(e, "Jmp", f:offset(e, f:here())) end
     elseif k == "whileStmt" then
         local top = f:here()
         local mark = f.nregs
-        local c = exprAs(f, node.cond, "v")
-        local branch = f:op("JmpIfNot", c, 0)
+        local branch, bop, c = condBranch(f, node.cond)
         f.nregs = math.max(mark, f.declTop or 0)
         loopBegin(f)
         block(f, node.body)
         local back = f:op("Jmp", 0); f:patch(back, "Jmp", f:offset(back, top))
-        f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
+        f:patch(branch, bop, c, f:offset(branch, f:here()))
         loopEnd(f)
     elseif k == "repeatStmt" then
         local top = f:here()
@@ -842,9 +916,24 @@ defineFunction = function(f, funcbody)
     -- The surplus arguments stay in the frame; `...` is spread only in a call.
     if varargParam then assert(not varargParam.name, "a named vararg is not in this emitter") end
     for _, cp in ipairs(cellParams) do local cellReg = f:declare(cp[1]); f:op("NewCell", cellReg, cp[2]) end
+    -- Every capture the body may read gets its register now, below the
+    -- locals, so no scope's end reclaims it: the free names, over-approximated
+    -- by `collectFree`, that resolve to upvalues.
+    if f.parent then
+        local free, names = {}, {}
+        collectFree(funcbody, free)
+        for name in pairs(free) do names[#names + 1] = name end
+        table.sort(names)
+        for _, name in ipairs(names) do local ui = f:upvalue(name); if ui then f:upvalReg(ui) end end
+    end
     block(f, funcbody.body)
     local last = f.code[#f.code]
     if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then f:op("RetNil") end
+    -- Branch offsets are relative to the next instruction, so a prefix moves nothing.
+    local loads = {}
+    for ui, r in pairs(f.upvalRegs or {}) do loads[#loads + 1] = {"GetUpval", r, ui} end
+    table.sort(loads, function(a, b) return a[3] < b[3] end)
+    for i = #loads, 1, -1 do table.insert(f.code, 1, loads[i]) end
 end
 
 -- Modules ----------------------------------------------------------------------
