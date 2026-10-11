@@ -46,7 +46,7 @@ holds at most 32 requests. Source is capped at 1 MiB. Closing or stopping the
 compiler terminates its guest; the next check creates a new session. Old worker
 responses cannot update a replacement editor session.
 
-The compiler uses 128 MiB guest RAM. Snapshots precede LuaJIT startup, so no
+The compiler uses 256 MiB guest RAM. Snapshots precede LuaJIT startup, so no
 user code, compiler session, live resources or JIT traces are shared between
 users. Each restore injects fresh entropy, time and configuration. A rejected
 snapshot falls back to normal boot of the same verified guest.

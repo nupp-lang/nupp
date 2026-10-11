@@ -16,8 +16,8 @@ local restored = json.decode(users, bytes)
 print(restored.id, restored.name or "anonymous")
 
 -- Documents preserve data without choosing an application declaration.
-local contents = documents.documentAdapter():contents()
-local loose = json.decodeDocument(documents.documentAdapter(), [[{"ok":true,"count":3}]])
+local contents = documents.adapter():contents()
+local loose = json.decodeDocument(documents.adapter(), [[{"ok":true,"count":3}]])
 print(json.encode(contents, loose))
 
 -- Try decoding [[{"id":"41"}]] or assigning a number to tags.

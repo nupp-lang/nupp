@@ -38,7 +38,7 @@ async function boot(message) {
   const manifest = await loadManifest(base);
   const profile = message.profile === 'compiler' ? 'compiler' : 'runner';
   const memoryMiB = manifest.profiles?.[profile]?.memoryMiB;
-  if (memoryMiB !== (profile === 'compiler' ? 128 : 64)) throw new Error('Unsupported guest memory profile');
+  if (memoryMiB !== (profile === 'compiler' ? 256 : 64)) throw new Error('Unsupported guest memory profile');
   mailbox = (memoryMiB - 16) * MIB;
   const asset = assetsFor(manifest, base);
   const app = new Uint8Array(message.app);

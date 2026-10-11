@@ -245,7 +245,7 @@ def build(root, cache, sources):
             for path in (root / 'runtime/luajit').glob('*.mjs'):
                 shutil.copyfile(path, packaged / path.name)
             manifest = {'schema': 1, 'guestAbi': 1, 'architecture': 'i386-linux-musl', 'buildKey': key,
-                        'inputs': identity, 'profiles': {'runner': {'memoryMiB': 64}, 'compiler': {'memoryMiB': 128}},
+                        'inputs': identity, 'profiles': {'runner': {'memoryMiB': 64}, 'compiler': {'memoryMiB': 256}},
                         'assets': {str(path.relative_to(packaged)): {'sha256': sha(path), 'bytes': path.stat().st_size}
                                    for path in sorted(packaged.rglob('*')) if path.is_file()}}
             (packaged / 'guest-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
