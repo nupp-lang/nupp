@@ -14,8 +14,12 @@ fn timed<F: FnMut() -> f64>(name: &str, want: f64, mut f: F) -> f64 {
     m
 }
 
+fn rss_mb() -> f64 { let mut ru: libc::rusage = unsafe { std::mem::zeroed() }; unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) }; ru.ru_maxrss as f64 / (1 << 20) as f64 }
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("sched") { return sched_mode(); }
+    if args.get(1).map(|s| s.as_str()) == Some("live") { return live_mode(); }
     let collector = match args.get(1).map(|s| s.as_str()).unwrap_or("copying") { "drc" => Collector::DeferredReferenceCounting, "null" => Collector::Null, _ => Collector::Copying };
     let mut config = Config::new();
     config.wasm_gc(true).wasm_function_references(true).wasm_exceptions(true).wasm_tail_call(true).collector(collector);
@@ -116,5 +120,73 @@ fn main() -> Result<()> {
             Err(e) => println!("park\tunavailable: {e}"),
         }
     } else { println!("park\tstack switching not supported: {}", park_engine.err().map(|e| e.to_string()).unwrap_or_default()); }
+    Ok(())
+}
+
+
+fn engine_with(collector: Collector, heap_mb: Option<u64>) -> Result<Engine> {
+    let mut config = Config::new();
+    config.wasm_gc(true).wasm_function_references(true).wasm_exceptions(true).wasm_tail_call(true).collector(collector);
+    config.cranelift_opt_level(OptLevel::Speed);
+    if let Some(mb) = heap_mb { config.gc_heap_initial_size(mb << 20); config.gc_heap_reservation((mb * 4) << 20); }
+    Engine::new(&config)
+}
+
+/// 1,000 tasks parking 1,000 times each in a three-frame chain, scheduled
+/// round-robin, as the prototype's `park1000x1000`.
+fn sched_mode() -> Result<()> {
+    let engine = engine_with(Collector::Copying, None)?;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wat");
+    let module = Module::from_file(&engine, dir.join("sched.wat"))?;
+    let mut store = Store::new(&engine, ());
+    let instance = Instance::new(&mut store, &module, &[])?;
+    let spawn = instance.get_typed_func::<(i32, i64), ()>(&mut store, "spawn")?;
+    let run = instance.get_typed_func::<(), i64>(&mut store, "run")?;
+    let step = instance.get_typed_func::<i32, i32>(&mut store, "step")?;
+    let parks = instance.get_typed_func::<(), i64>(&mut store, "parks")?;
+    let (count, n) = (1000i32, 1000i64);
+    let mut samples = Vec::new();
+    for _ in 0..5 { spawn.call(&mut store, (count, n))?; let s = cpu_now(); let p = run.call(&mut store, ())?; samples.push(cpu_now() - s); assert_eq!(p, count as i64 * n); }
+    println!("sched\twasm scheduler, 1000 tasks x 1000 parks, 3 frames\t{:.1} ns per park and resume", median(samples) / (count as f64 * n as f64) * 1e9);
+    let mut samples = Vec::new();
+    for _ in 0..5 {
+        spawn.call(&mut store, (count, n))?;
+        let s = cpu_now();
+        let mut live = count;
+        while live > 0 { for i in 0..count { match step.call(&mut store, i)? { 0 => live -= 1, _ => {} } } }
+        samples.push(cpu_now() - s);
+        assert_eq!(parks.call(&mut store, ())?, count as i64 * n);
+    }
+    println!("sched\thost scheduler calling step per task\t{:.1} ns per park and resume", median(samples) / (count as f64 * n as f64) * 1e9);
+    Ok(())
+}
+
+/// Boxed trees beside a large live heap, under each heap size: time per
+/// tree, one explicit full collection, and the process's peak memory.
+fn live_mode() -> Result<()> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wat");
+    let live_n: i32 = std::env::var("LIVE_N").ok().and_then(|s| s.parse().ok()).unwrap_or(2_000_000);
+    // One configuration per process when LIVE_CFG is set, so peak memory is that configuration's.
+    let only_heap: Option<Option<u64>> = std::env::var("LIVE_CFG").ok().map(|c| if c == "default" { None } else { Some(c.parse().unwrap()) });
+    let only_live: Option<bool> = std::env::var("LIVE_WITH").ok().map(|c| c == "1");
+    for heap in [None, Some(256u64), Some(1024u64)] {
+        if let Some(h) = only_heap { if h != heap { continue; } }
+        for with_live in [false, true] {
+            if let Some(w) = only_live { if w != with_live { continue; } }
+            let engine = engine_with(Collector::Copying, heap)?;
+            let module = Module::from_file(&engine, dir.join("liveheap.wat"))?;
+            let mut store = Store::new(&engine, ());
+            let instance = Instance::new(&mut store, &module, &[])?;
+            let build = instance.get_typed_func::<i32, ()>(&mut store, "build_live")?;
+            let trees = instance.get_typed_func::<(f64, f64), f64>(&mut store, "trees")?;
+            let t0 = cpu_now();
+            if with_live { build.call(&mut store, live_n)?; }
+            let build_s = cpu_now() - t0;
+            let mut samples = Vec::new();
+            for _ in 0..5 { let s = cpu_now(); let r = trees.call(&mut store, (10.0, 15.0))?; samples.push(cpu_now() - s); assert_eq!(r, 655350.0); }
+            let g0 = cpu_now(); store.gc(None); let gc_s = cpu_now() - g0;
+            println!("live\theap {}\tlive {}\ttrees15x10 {:.1} ms\tfull collection {:.1} ms\tbuild {:.0} ms\tpeak rss {:.0} MB", heap.map(|m| format!("{m} MB")).unwrap_or("default".into()), if with_live { format!("{live_n} records") } else { "none".into() }, median(samples) * 1e3, gc_s * 1e3, build_s * 1e3, rss_mb());
+        }
+    }
     Ok(())
 }

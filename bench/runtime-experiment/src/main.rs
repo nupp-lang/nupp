@@ -507,6 +507,29 @@ fn main() {
     let point = build(&mut it);
     let x = it.intern("x");
     if mode == "image" { image_mode(&mut it, &args[2]); return; }
+    if mode == "trees-live" {
+        // The same trees beside a large live heap of records, for the Wasm comparison.
+        let live_n: usize = std::env::var("LIVE_N").ok().and_then(|s| s.parse().ok()).unwrap_or(2_000_000);
+        let rss = || { let mut ru: libc::rusage = unsafe { std::mem::zeroed() }; unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) }; ru.ru_maxrss as f64 / (1 << 20) as f64 };
+        for with_live in [false, true] {
+            let mut it = Interp::new();
+            build(&mut it);
+            let scope = it.open_scope();
+            let t0 = cpu_now();
+            if with_live {
+                let holder = it.new_table(); it.handles.push(holder);
+                for i in 0..live_n { let r = it.new_record(point); it.set_slot(r, 0, Value::num(i as f64)); let s = it.heap_new_string(format!("key{i}")); it.set_slot(r, 1, s); it.set_index(holder, Value::num(i as f64 + 1.0), r); }
+            }
+            let build_s = cpu_now() - t0;
+            let mut samples = Vec::new();
+            for _ in 0..5 { let s = cpu_now(); let r = run_to_end(&mut it, TREES, &[Value::num(10.0), Value::num(15.0)]).as_num(); samples.push(cpu_now() - s); assert_eq!(r, 655350.0); }
+            let g0 = cpu_now(); it.full_cycle(); let gc_s = cpu_now() - g0;
+            let mut v = samples; v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!("live	prototype	live {}	trees15x10 {:.1} ms	full collection {:.1} ms	build {:.0} ms	peak rss {:.0} MB", if with_live { format!("{live_n} records") } else { "none".into() }, v[2] * 1e3, gc_s * 1e3, build_s * 1e3, rss());
+            it.close_scope(scope);
+        }
+        return;
+    }
     if mode == "paths" { paths_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "base64" { base64_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "handlers" { handlers_mode(&mut it, &args[2]); return; }

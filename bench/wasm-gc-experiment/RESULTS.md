@@ -140,3 +140,56 @@ Where that leaves the gate:
 - **Not measured**: metatables and dynamic dispatch, `pcall` through the
   exceptions proposal, the vector family, the typed kernels (expected to
   tie), the browser.
+
+## Third round: the scheduler, and a large live heap
+
+Same day, after review. Two measurements the second half did not make:
+suspension with a scheduler and many tasks resuming at their own frames,
+rather than one generator yielding to a loop in the same call; and an
+allocation-heavy workload beside a live heap of the size the compiler
+keeps. Modes `sched` and `live`; the prototype gained `trees-live`.
+
+**Scheduler.** `wat/sched.wat` is the prototype's park benchmark: 1,000
+tasks, each parking 1,000 times from the innermost of three suspendable
+frames, scheduled round-robin until all finish, each task resuming at its
+own frame state. With the scheduler loop in Wasm it is 4.2 ns per park
+and resume; with the host driving one `step` call per task it is 17.7,
+of which the host-to-Wasm call is 11.6. The prototype's figure for the
+same workload is 10 ns with its scheduler in Rust. So the state-machine
+lowering stands at 4.2 against 10 when both schedulers are in their own
+code, and loses when the scheduler sits across the boundary.
+
+**Live heap.** `wat/liveheap.wat` builds two million records, each
+holding two boxed numbers and an eight-byte array, about 250 MB of
+objects, keeps them reachable, then runs the boxed untyped trees. The
+prototype does the same with two million records holding a number and a
+string. Each configuration in its own process so peak memory is its own.
+
+| boxed trees, depth 15 x10, beside 2M live records | time | full collection | peak RSS |
+| --- | ---: | ---: | ---: |
+| Wasm GC, default heap, no live records | 11.2 ms | | 17 MB |
+| Wasm GC, default heap, live | 292 ms | 53 ms | 521 MB |
+| Wasm GC, 256 MB heap, live | 293 ms | 55 ms | 521 MB |
+| Wasm GC, 1 GB heap, live | 9.4 ms | 81 ms | 799 MB |
+| prototype, no live records | 43.6 ms | 2 ms | 53 MB |
+| prototype, live | 42.9 ms | 37 ms | 838 MB |
+
+This is the result that matters. wasmtime's copying collector copies the
+whole live set at every collection, and sizes its heap by its own policy,
+so an allocation-heavy loop beside a large live set runs 26x slower than
+the same loop alone, until the heap is told to be four times the live set,
+at which point the workload is fast again and the process holds 800 MB
+for 250 MB of objects. The prototype's incremental mark-sweep is paced by
+the live size and is unaffected: 43 ms either way, at the cost of fatter
+objects (its records are 130-byte slots plus a boxed string). The
+compiler is exactly the live-heap case, hundreds of megabytes of checked
+trees and types kept across a run while every expression allocates.
+
+What this does to the gate: the untyped row's pass in the first half was
+a property of a small live set. On a runtime that does not control its
+collector, the row is a function of wasmtime's heap policy, which its
+documentation says may change. A generational collector in wasmtime would
+change this; none is offered today. The suspension row is settled in
+Wasm's favour as a lowering, provided the scheduler is in Wasm; the
+checker's existing `suspends` inference supplies the fact the lowering
+needs.
