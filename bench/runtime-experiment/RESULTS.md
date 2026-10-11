@@ -706,3 +706,34 @@ Against the hypothesis row this is a miss as measured: 1.6x LLVM and 2.6x
 LuaJIT's trace on a workload the row did not foresee as allocation-bound.
 It stands as a decision on the allocator rather than a decision against
 the plan: the loop itself is the same code as the other two kernels'.
+
+## Chunked object allocation
+
+Date: 2026-10-11, following the path finding. Objects were a `Box` each
+plus a push onto a heap-wide vector the sweep walked and compacted. They
+are now slots in 1,024-object chunks that never move: allocation pops a
+free list or bumps into the newest chunk, the sweep walks slots in order,
+and a freed slot's body is dropped in place and the slot goes on the free
+list. Two collector rules followed from it, both caught by the oracle on
+the first run. A slot reused behind the sweep's position is not whitened
+this cycle, so an object allocated there is white, while one ahead of the
+sweep or allocated during marking is black (the old vector appended every
+new object ahead of the sweep, so the question never arose). And a
+quarantine tombstone leaves the heap's accounting when it is made,
+rather than being freed again on every later sweep, which had wrapped the
+live-byte count and stopped collection from ever starting.
+
+Old and new binaries interleaved, three rounds each, on a loaded machine:
+
+| | old | new |
+| --- | ---: | ---: |
+| table + buffer + string allocation probe | 125-174 ns | 62-80 ns |
+| path normalisation per call | 0.35-0.41 us | 0.24-0.29 us |
+| binary trees, depth 15 x10 | 77-88 ms | 58-70 ms |
+
+Every mode passes as before: the collector check, the image kernels,
+Base64 and the paths corpus under stress and interleaved collection, the
+sample and closure images. What remains per object is the body's own
+allocation, a `Vec` for a table or a `Box<str>` for a string, and the
+write of the fixed header; inline string storage and tables that start
+with a sized array part are the next two steps, both P3.

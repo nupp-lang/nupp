@@ -99,6 +99,8 @@ pub const KIND_FREED: u8 = 0;
 pub const KIND_CLOSURE: u8 = 5;
 pub const KIND_CELL: u8 = 6;
 pub const KIND_BYTES: u8 = 7;
+/// Objects per allocation chunk.
+pub const CHUNK: usize = 1024;
 
 /// The header has a fixed layout so compiled code reads an object's kind, the
 /// pointer to its payload (slots, array part, storage, bytes) and that
@@ -113,6 +115,11 @@ pub struct Object {
     pub aux_ptr: *mut u8,
     pub aux_len: u64,
     pub bytes: usize,
+    /// Whether the slot holds an object; a freed slot's body is dropped and
+    /// the slot waits on the free list.
+    pub used: bool,
+    /// The slot's index in allocation order, for the free list and the sweep.
+    pub slot: u32,
     pub body: Body,
 }
 
@@ -144,7 +151,13 @@ impl Object {
 enum Phase { Idle, Marking, Sweeping }
 
 pub struct Heap {
-    objects: Vec<NonNull<Object>>,
+    /// Object slots in fixed chunks that never move: the sweep walks them in
+    /// order, a freed slot goes on the free list, allocation takes the free
+    /// list first and bumps into the newest chunk otherwise.
+    chunks: Vec<Box<[std::mem::MaybeUninit<Object>; CHUNK]>>,
+    bump: usize,
+    free: Vec<usize>,
+    live_count: usize,
     gray: Vec<NonNull<Object>>,
     phase: Phase,
     sweep_index: usize,
@@ -170,7 +183,7 @@ pub trait Roots { fn each_root(&self, f: &mut dyn FnMut(Value)); }
 
 impl Heap {
     pub fn new() -> Heap {
-        Heap { objects: Vec::new(), gray: Vec::new(), phase: Phase::Idle, sweep_index: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: false, stress_steps: false, oracle: false, quarantine: std::env::var("GC_QUARANTINE").is_ok(), shapes: Vec::new(), interned: HashMap::new(), stats: Stats::default() }
+        Heap { chunks: Vec::new(), bump: CHUNK, free: Vec::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_index: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: false, stress_steps: false, oracle: false, quarantine: std::env::var("GC_QUARANTINE").is_ok(), shapes: Vec::new(), interned: HashMap::new(), stats: Stats::default() }
     }
 
     pub fn shape(&mut self, names: &[Value], types: &[SlotTy]) -> u32 {
@@ -183,10 +196,21 @@ impl Heap {
         // cycle never frees what it did not scan and a sweep in progress never
         // frees what was allocated after marking ended. The sweep whitens
         // them as it passes; white otherwise, as the next cycle will see them.
-        let color = if self.phase != Phase::Idle { Color::Black } else { Color::White };
-        let p = NonNull::new(Box::into_raw(Box::new(Object { kind: 0, color, epoch: self.stats.cycles, aux_ptr: std::ptr::null_mut(), aux_len: 0, bytes, body }))).unwrap();
-        unsafe { (*p.as_ptr()).refresh(); }
-        self.objects.push(p);
+        let index = match self.free.pop() {
+            Some(i) => i,
+            None => {
+                if self.bump == CHUNK { self.chunks.push(Box::new(unsafe { std::mem::MaybeUninit::uninit().assume_init() })); self.bump = 0; }
+                self.bump += 1;
+                (self.chunks.len() - 1) * CHUNK + self.bump - 1
+            }
+        };
+        let p = self.slot(index);
+        // A slot the sweep has already passed will not be whitened this
+        // cycle, so an object allocated there is white; one ahead of the
+        // sweep, or any during marking, is black so the cycle keeps it.
+        let color = match self.phase { Phase::Idle => Color::White, Phase::Marking => Color::Black, Phase::Sweeping => if index < self.sweep_index { Color::White } else { Color::Black } };
+        unsafe { p.as_ptr().write(Object { kind: 0, color, epoch: self.stats.cycles, aux_ptr: std::ptr::null_mut(), aux_len: 0, bytes, used: true, slot: index as u32, body }); (*p.as_ptr()).refresh(); }
+        self.live_count += 1;
         self.live_bytes += bytes;
         self.debt += bytes;
         self.stats.allocated += 1;
@@ -329,22 +353,22 @@ impl Heap {
                     self.sweep_index = 0;
                 }
                 Phase::Sweeping => {
-                    let mut end = (self.sweep_index + budget * 4).min(self.objects.len());
+                    // Slots in allocation order; the newest chunk only up to its bump.
+                    let total = self.slot_count();
                     let mut i = self.sweep_index;
-                    while i < end {
-                        let p = self.objects[i];
-                        let color = unsafe { (*p.as_ptr()).color };
-                        if color == Color::White {
-                            self.free(p);
-                            self.objects.swap_remove(i);
-                            end = end.min(self.objects.len());
-                        } else {
-                            unsafe { (*p.as_ptr()).color = Color::White; (*p.as_ptr()).epoch = self.stats.cycles; }
-                            i += 1;
+                    let mut work = budget * 4;
+                    while i < total && work > 0 {
+                        let p = self.slot(i);
+                        if unsafe { (*p.as_ptr()).used } {
+                            let color = unsafe { (*p.as_ptr()).color };
+                            if color == Color::White { self.free(p); }
+                            else { unsafe { (*p.as_ptr()).color = Color::White; (*p.as_ptr()).epoch = self.stats.cycles; } }
+                            work -= 1;
                         }
+                        i += 1;
                     }
                     self.sweep_index = i;
-                    if i >= self.objects.len() { self.phase = Phase::Idle; self.threshold = (self.live_bytes * 2).max(1 << 20); }
+                    if i >= total { self.phase = Phase::Idle; self.threshold = (self.live_bytes * 2).max(1 << 20); }
                     return;
                 }
                 Phase::Idle => return,
@@ -362,14 +386,28 @@ impl Heap {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
                 let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Freed(w) => w.clone() };
+                // A tombstone: dropped from the heap's accounting and never
+                // swept or reused, but its memory stays so a dangling
+                // reference reaches a Freed body rather than a new object.
                 o.body = Body::Freed(what);
                 o.refresh();
                 o.color = Color::White;
+                o.used = false;
+                self.live_count -= 1;
             } else {
-                drop(Box::from_raw(p.as_ptr()));
+                std::ptr::drop_in_place(&mut o.body);
+                o.used = false;
+                o.kind = KIND_FREED;
+                self.live_count -= 1;
+                self.free.push(o.slot as usize);
             }
         }
     }
+
+    fn slot_count(&self) -> usize { if self.chunks.is_empty() { 0 } else { (self.chunks.len() - 1) * CHUNK + self.bump } }
+    fn slot(&self, i: usize) -> NonNull<Object> { NonNull::new(self.chunks[i / CHUNK][i % CHUNK].as_ptr() as *mut Object).unwrap() }
+    /// Every live slot, for the oracle.
+    fn objects(&self) -> Vec<NonNull<Object>> { (0..self.slot_count()).map(|i| self.slot(i)).filter(|p| unsafe { (*p.as_ptr()).used }).collect() }
 
     pub fn full_cycle(&mut self, roots: &dyn Roots) {
         if self.phase == Phase::Idle { self.start(roots); }
@@ -402,14 +440,14 @@ impl Heap {
                 }
             }
         }
-        let survivors: Vec<usize> = self.objects.iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed(_)) }).map(|p| p.as_ptr() as usize).collect();
+        let survivors: Vec<usize> = self.objects().iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed(_)) }).map(|p| p.as_ptr() as usize).collect();
         let set: std::collections::HashSet<usize> = survivors.iter().copied().collect();
-        for s in &seen { assert!(set.contains(s), "oracle: a reachable object is missing from the heap"); }
+        for s in &seen { if !set.contains(s) { let o = unsafe { &*(*s as *const Object) }; let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Bytes { data } => format!("bytes {}", data.len()), _ => "other".into() }; panic!("oracle: a reachable object is missing from the heap: {what} used={} kind={} color={:?} epoch={} cycles={}", o.used, o.kind, o.color, o.epoch, self.stats.cycles); } }
         if exact {
             for s in &survivors { assert!(seen.contains(s), "oracle: an unreachable object survived"); }
             assert_eq!(seen.len(), survivors.len(), "oracle: reachable and surviving sets differ");
         }
     }
 
-    pub fn object_count(&self) -> usize { self.objects.len() }
+    pub fn object_count(&self) -> usize { self.live_count }
 }
