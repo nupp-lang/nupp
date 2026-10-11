@@ -85,6 +85,9 @@ pub enum Body {
 
 pub struct Object {
     pub color: Color,
+    /// The cycle that last whitened or allocated this object: a white object
+    /// from an earlier cycle is dead once marking has ended.
+    pub epoch: u64,
     pub bytes: usize,
     pub body: Body,
 }
@@ -137,7 +140,7 @@ impl Heap {
         // frees what was allocated after marking ended. The sweep whitens
         // them as it passes; white otherwise, as the next cycle will see them.
         let color = if self.phase != Phase::Idle { Color::Black } else { Color::White };
-        let p = NonNull::new(Box::into_raw(Box::new(Object { color, bytes, body }))).unwrap();
+        let p = NonNull::new(Box::into_raw(Box::new(Object { color, epoch: self.stats.cycles, bytes, body }))).unwrap();
         self.objects.push(p);
         self.live_bytes += bytes;
         self.debt += bytes;
@@ -161,7 +164,7 @@ impl Heap {
             unsafe {
                 match (self.phase, (*p.as_ptr()).color) {
                     (Phase::Marking, Color::White) => { (*p.as_ptr()).color = Color::Gray; self.gray.push(p); self.stats.barrier_grays += 1; return Value::obj(p); }
-                    (Phase::Sweeping, Color::White) => { self.interned.remove(s); }
+                    (Phase::Sweeping, Color::White) if (*p.as_ptr()).epoch < self.stats.cycles => { self.interned.remove(s); }
                     _ => return Value::obj(p),
                 }
             }
@@ -282,7 +285,7 @@ impl Heap {
                             self.objects.swap_remove(i);
                             end = end.min(self.objects.len());
                         } else {
-                            unsafe { (*p.as_ptr()).color = Color::White; }
+                            unsafe { (*p.as_ptr()).color = Color::White; (*p.as_ptr()).epoch = self.stats.cycles; }
                             i += 1;
                         }
                     }

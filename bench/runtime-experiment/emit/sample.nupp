@@ -38,11 +38,25 @@ local function main(): number
     local t = total(points)
     local labels: {[string]: boolean} = {}
     labels[describe(points[1])] = true
-    local bad: any = {x = "no"}
+    local bad: any = 5
     if safe(points[2]) and not safe(bad) and labels["p1!"] then
         return t
     end
     return -1
 end
 
-return main
+--- Builds the points once and sums them two hundred times: the typed tier's
+--- share of the program, with the allocation loop amortised away.
+local function hot(): number
+    local points: {Point} = {}
+    for i = 1, 100 do
+        points[i] = new Point(x = i, y = i * 2, name = "p")
+    end
+    local t = 0
+    for _ = 1, 200 do
+        t = t + total(points)
+    end
+    return t
+end
+
+return {main = main, hot = hot}

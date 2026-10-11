@@ -16,6 +16,17 @@ extern "C" fn rt_storage_len(v: u64) -> u64 {
     match Value(v).as_obj() { Some(p) => unsafe { if let Body::Storage { data } = &(*p.as_ptr()).body { data.len() as u64 } else { 0 } }, None => 0 }
 }
 
+extern "C" fn rt_record_slots(v: u64) -> u64 {
+    match Value(v).as_obj() { Some(p) => unsafe { if let Body::Record { slots, .. } = &mut (*p.as_ptr()).body { slots.as_mut_ptr() as u64 } else { 0 } }, None => 0 }
+}
+extern "C" fn rt_len(v: u64) -> u64 {
+    match Value(v).as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len() as u64, Body::Str { text, .. } => text.len() as u64, _ => 0 } }, None => 0 }
+}
+extern "C" fn rt_get_index(t: u64, k: u64) -> u64 {
+    let key = Value(k);
+    match Value(t).as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= array.len() && n.fract() == 0.0 { return array[n as usize - 1].0; } } hash.get(&key).copied().unwrap_or(Value::NIL).0 } _ => Value::NIL.0 } }, None => Value::NIL.0 }
+}
+
 type LlvmMapFn = unsafe extern "C" fn(*mut f64, *const f64, f64, f64, u64, u64);
 type LlvmDotFn = unsafe extern "C" fn(*const f64, *const f64, u64, u64) -> f64;
 
@@ -203,6 +214,25 @@ fn main() {
         let text = std::fs::read_to_string(&args[2]).expect("image");
         let entry = image::load(&mut it, &text).unwrap_or_else(|e| panic!("load: {e}"));
         let want: f64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(f64::NAN);
+        // Compile every function whose opcodes the JIT lowers, callees first, and
+        // install the entries so the interpreter hands off calls to them.
+        let compile_all = std::env::var("NO_JIT").is_err();
+        let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2)]);
+        it.compiled = vec![None; it.funcs.len()];
+        if compile_all {
+            let mut progress = true;
+            let mut refused: Vec<(String, String)> = Vec::new();
+            while progress {
+                progress = false;
+                refused.clear();
+                for fid in 0..it.funcs.len() {
+                    if it.compiled[fid].is_some() { continue; }
+                    let f = it.funcs[fid].clone();
+                    match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.compiled[fid] = Some(ptr); progress = true; eprintln!("compiled\t{}", f.name); } Err(e) => refused.push((f.name.to_string(), e)) }
+                }
+            }
+            for (n, e) in &refused { eprintln!("interpreted\t{n}\tfirst unsupported op {e}"); }
+        }
         let result = run_to_end(&mut it, entry, &[]);
         eprintln!("result {} (expected {want})", result.as_num());
         if !want.is_nan() { assert_eq!(result.as_num(), want); }
@@ -219,6 +249,12 @@ fn main() {
         let mut count = 1usize;
         let mut sink = 0.0;
         loop { let s = cpu_now(); for _ in 0..count { sink += black_box(run_to_end(&mut it, entry, &[]).as_num()); } let e = cpu_now() - s; if e >= 0.2 { println!("main\t{:.1} us per call ({count} calls)", e / count as f64 * 1e6); break; } count *= 2; }
+        if let Some(hot) = it.entry2 {
+            let h = run_to_end(&mut it, hot, &[]).as_num();
+            assert_eq!(h, 1691750.0 * 200.0);
+            let mut count = 1usize;
+            loop { let s = cpu_now(); for _ in 0..count { sink += black_box(run_to_end(&mut it, hot, &[]).as_num()); } let e = cpu_now() - s; if e >= 0.3 { println!("hot\t{:.1} us per call ({count} calls)", e / count as f64 * 1e6); break; } count *= 2; }
+        }
         black_box(sink);
         return;
     }

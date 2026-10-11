@@ -49,6 +49,17 @@ pub enum Op {
     TagCheckRec(u8, u8, u32),
     TagCheckNum(u8, u8),
     TagCheckStr(u8, u8),
+    FBox(u8, u8),
+    GetSlotF(u8, u8, u16),
+    SetSlotF(u8, u16, u8),
+    FDiv(u8, u8, u8),
+    FNeg(u8, u8),
+    LenF(u8, u8),
+    /// Table read with a float index into a value register.
+    GetIdxF(u8, u8, u8),
+    FCmpEq(u8, u8, u8),
+    FCmpNe(u8, u8, u8),
+    BoolFromI(u8, u8),
     // Typed tier: i = integer registers, f = float registers, v = f64x2 registers.
     IK(u8, i64),
     IAdd(u8, u8, u8),
@@ -136,6 +147,9 @@ pub struct Interp {
     back_edges: u32,
     pub parks: u64,
     pub trace: bool,
+    /// Compiled entry per function id, when the JIT has one.
+    pub compiled: Vec<Option<*const u8>>,
+    pub entry2: Option<u32>,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value] }
@@ -153,7 +167,7 @@ pub enum Outcome { Done(Value), Parked(u64) }
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok() } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles }; self.heap.intern(s, &r) }
 
@@ -235,7 +249,19 @@ impl Interp {
                     Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
                     Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break; }
+                    Op::Call(f, b, nargs) => {
+                        if let Some(Some(entry)) = self.compiled.get(f as usize) {
+                            // The handoff: arguments marshalled from the register window
+                            // as values, the compiled callee called through a per-arity
+                            // trampoline, the result landing where the window began.
+                            let entry = *entry;
+                            let args: [u64; 4] = std::array::from_fn(|i| if i < nargs as usize { r!(b + 1 + i as u8).0 } else { 0 });
+                            let result = unsafe { match nargs { 0 => std::mem::transmute::<_, extern "C" fn() -> u64>(entry)(), 1 => std::mem::transmute::<_, extern "C" fn(u64) -> u64>(entry)(args[0]), 2 => std::mem::transmute::<_, extern "C" fn(u64, u64) -> u64>(entry)(args[0], args[1]), 3 => std::mem::transmute::<_, extern "C" fn(u64, u64, u64) -> u64>(entry)(args[0], args[1], args[2]), _ => std::mem::transmute::<_, extern "C" fn(u64, u64, u64, u64) -> u64>(entry)(args[0], args[1], args[2], args[3]) } };
+                            r!(b) = Value(result);
+                            continue;
+                        }
+                        self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break;
+                    }
                     Op::CallDyn(fr, b, nargs) => { let f = r!(fr).as_func().unwrap_or_else(|| self.err("call of a non-function")); self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break; }
                     Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
                     Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Outcome::Done(Value::NIL); } break; }
@@ -327,6 +353,16 @@ impl Interp {
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } r!(d) = v; }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
+                    Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
+                    Op::GetSlotF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), _ => self.err("slot of a non-record") } }; fr!(d) = v.as_num(); }
+                    Op::SetSlotF(t, i, a) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = Value::num(fr!(a)); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, _ => self.err("slot of a non-record") } } }
+                    Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
+                    Op::FNeg(d, a) => fr!(d) = -fr!(a),
+                    Op::LenF(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; fr!(d) = n as f64; }
+                    Op::GetIdxF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("index of a non-table")); let k = fr!(i); let v = unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { if k >= 1.0 && (k as usize) <= array.len() && k.fract() == 0.0 { array[k as usize - 1] } else { *hash.get(&Value::num(k)).unwrap_or(&Value::NIL) } } _ => self.err("index of a non-table") } }; r!(d) = v; }
+                    Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
+                    Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
+                    Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
                     Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; t.frames.last_mut().unwrap().pc = pc as u32; t.state = State::Parked(key); return Outcome::Parked(key); }
                     Op::Checkpoint => { self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,

@@ -1,125 +1,161 @@
 shape 0 Point x:num y:num name:str method:length=0
-function Point.length 0 1 15
-  Move 5 1
-  GetSlot 4 5 0
-  Move 7 1
-  GetSlot 6 7 0
-  Mul 3 4 6
-  Move 10 1
-  GetSlot 9 10 1
-  Move 12 1
-  GetSlot 11 12 1
-  Mul 8 9 11
-  Add 2 3 8
-  Ret 2
+function Point.length 0 1 4 9
+  GetSlotF 0 1 0
+  GetSlotF 1 1 0
+  FMul 2 0 1
+  GetSlotF 3 1 1
+  GetSlotF 4 1 1
+  FMul 5 3 4
+  FAdd 6 2 5
+  FRet 6
+  RetNil
 end
-function describe 1 1 8
+function describe 1 1 7 2
   const 0 str "!"
-  Move 4 1
-  GetSlot 3 4 2
-  K 5 0
-  Concat 2 3 5
+  GetSlot 3 1 2
+  K 4 0
+  Concat 2 3 4
   Ret 2
 end
-function total 2 1 16
-  const 0 num 0
-  const 1 num 1
-  K 2 0
-  K 3 1
-  Move 5 1
-  Len 4 5
-  K 6 1
-  Le 7 3 4
-  JmpIfNot 7 9
-  Move 8 2
-  Move 11 1
-  Move 12 3
-  GetIdx 10 11 12
-  Move 10 10
-  Call 0 9 1
-  Add 2 8 9
-  Add 3 3 6
+function total 2 1 7 11
+  FK 1 0
+  FMov 0 1
+  FK 3 1
+  FMov 2 3
+  LenF 4 1
+  FK 5 1
+  FCmpLe 6 2 4
+  JmpIfIZero 6 9
+  FBox 4 2
+  GetIdx 3 1 4
+  Move 3 3
+  Call 0 2 1
+  FUnbox 7 2
+  FAdd 8 0 7
+  FMov 0 8
+  FAdd 2 2 5
   Jmp -11
-  Move 13 2
-  Ret 13
+  FRet 0
+  RetNil
 end
-function fromAny 3 1 7
-  Move 2 1
-  TagCheckRec 2 2 0
-  Move 4 2
-  GetSlot 3 4 0
-  Ret 3
+function fromAny 3 1 6 3
+  Move 3 1
+  TagCheckRec 3 3 0
+  Move 2 3
+  GetSlotF 0 2 0
+  FRet 0
+  RetNil
 end
-function safe 4 1 8
+function safe 4 1 9 2
   const 0 func 3
-  K 3 0
-  Move 4 1
-  PCall 2 1
-  Move 5 2
-  Ret 5
+  K 6 0
+  Move 4 6
+  Move 5 1
+  PCall 3 1
+  Move 2 3
+  Ret 2
 end
-function main 5 0 40
-  const 0 num 1
-  const 1 num 100
-  const 2 num 2
-  const 3 str "p"
-  const 4 true 
-  const 5 str "no"
-  const 6 str "x"
-  const 7 str "p1!"
-  NewTable 1
-  K 2 0
-  K 3 1
-  K 4 0
-  Le 5 2 3
-  JmpIfNot 5 16
-  Move 6 1
-  Move 7 2
-  NewRecord 8 0
-  Move 9 2
-  SetSlot 8 0 9
-  Move 11 2
-  K 12 2
-  Mul 10 11 12
-  SetSlot 8 1 10
-  K 14 3
-  Move 15 2
-  Concat 13 14 15
-  SetSlot 8 2 13
-  SetIdx 6 7 8
-  Add 2 2 4
-  Jmp -18
-  Move 17 1
-  Call 2 16 1
-  NewTable 18
-  Move 19 18
-  Move 22 1
-  K 23 0
-  GetIdx 21 22 23
-  Call 1 20 1
-  K 24 4
-  SetIdx 19 20 24
-  NewTable 25
-  K 26 5
-  SetField 25 6 26
-  Move 29 1
-  K 30 2
-  GetIdx 28 29 30
-  Call 4 27 1
-  JmpIfNot 27 3
-  Move 32 25
-  Call 4 31 1
-  Not 27 31
-  JmpIfNot 27 3
-  Move 33 18
-  K 34 7
-  GetIdx 27 33 34
-  JmpIfNot 27 3
-  Move 35 16
-  Ret 35
+function main 5 0 31 15
+  const 0 str "p"
+  const 1 true 
+  const 2 str "p1!"
+  NewTable 2
+  Move 1 2
+  FK 1 1
+  FMov 0 1
+  FK 2 100
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 13
+  FBox 3 0
+  NewRecord 4 0
+  SetSlotF 4 0 0
+  FK 5 2
+  FMul 6 0 5
+  SetSlotF 4 1 6
+  K 6 0
+  FBox 7 0
+  Concat 5 6 7
+  SetSlot 4 2 5
+  SetIdx 1 3 4
+  FAdd 0 0 3
+  Jmp -15
+  Move 9 1
+  Call 2 8 1
+  FUnbox 7 8
+  NewTable 11
+  Move 10 11
+  FK 8 1
+  FBox 15 8
+  GetIdx 14 1 15
+  Move 13 14
+  Call 1 12 1
+  K 16 1
+  SetIdx 10 12 16
+  FK 9 5
+  FBox 17 9
+  FK 10 2
+  FBox 23 10
+  GetIdx 22 1 23
+  Move 21 22
+  Call 4 20 1
+  Move 19 20
+  JmpIfNot 19 4
+  Move 26 17
+  Call 4 25 1
+  Not 24 25
+  Move 19 24
+  Move 18 19
+  JmpIfNot 18 3
+  K 28 2
+  GetIdx 27 10 28
+  Move 18 27
+  JmpIfNot 18 2
+  FRet 7
   Jmp 0
-  K 37 0
-  Neg 36 37
-  Ret 36
+  FK 11 1
+  FNeg 12 11
+  FRet 12
+  RetNil
+end
+function hot 6 0 10 18
+  const 0 str "p"
+  NewTable 2
+  Move 1 2
+  FK 1 1
+  FMov 0 1
+  FK 2 100
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 11
+  FBox 3 0
+  NewRecord 4 0
+  SetSlotF 4 0 0
+  FK 5 2
+  FMul 6 0 5
+  SetSlotF 4 1 6
+  K 5 0
+  SetSlot 4 2 5
+  SetIdx 1 3 4
+  FAdd 0 0 3
+  Jmp -13
+  FK 8 0
+  FMov 7 8
+  FK 10 1
+  FMov 9 10
+  FK 11 200
+  FK 12 1
+  FCmpLe 13 9 11
+  JmpIfIZero 13 7
+  Move 7 1
+  Call 2 6 1
+  FUnbox 14 6
+  FAdd 15 7 14
+  FMov 7 15
+  FAdd 9 9 12
+  Jmp -9
+  FRet 7
+  RetNil
 end
 entry 5
+entry2 6

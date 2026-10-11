@@ -225,3 +225,54 @@ for anything in this program: `Point.length` runs on the untyped
 interpreter although every operand is typed. Routing typed method bodies to
 the typed register classes and Cranelift is the next emitter step, and the
 first one where the two experiments meet.
+
+## The tiers meet: typed bodies compiled, called from the interpreter
+
+Date: 2026-10-11, same branch. The emitter now has register classes:
+expressions of numeric type live in float registers, boxing only where a
+value is required (a call argument, a table store, a return through the
+value convention), unboxing where a number arrives as a value (a parameter,
+a call result, an element read). Record slots declared numeric are read
+and written unboxed (`GETSLOTF`/`SETSLOTF`). Numeric `for` loops run on
+float registers with the compare flag driving the branch. `Point.length` is
+now a pure float body; `total` mixes value registers for the array and the
+receiver with float registers for the sum and the index.
+
+The JIT lowers the value-class opcodes these bodies use through runtime
+helpers, record slots by pointer, table reads and lengths by call, direct
+calls between compiled functions, and the interpreter hands calls to
+compiled entries through per-arity trampolines, the handoff in contracts
+section 5. Compilation is attempted per function, callees first, and a
+function with an unsupported opcode stays interpreted; the sample compiles
+`Point.length` and `total` and interprets the rest.
+
+| `hot`: 200 sums over 100 points | per call |
+| --- | ---: |
+| prototype, all interpreted | 954 us |
+| prototype, `total` and `Point.length` compiled | 129 us, then 87 us with the slots pointer hoisted per receiver |
+| LuaJIT interpreter, same source through the Lua generator | 358 us |
+| LuaJIT trace compiler | 47 us |
+
+Both collector verification modes pass with compiled frames in the call
+chain, because nothing in these compiled bodies allocates; stack maps are
+still absent and remain a P5 item.
+
+Two findings on the way:
+
+- **`as` is checked here and erased there.** With `bad = {x = "no"}`, the
+  Lua backend's erased cast lets `p.x` return a string and `pcall` reports
+  success; the new runtime's `TAGCHECK` refuses the cast. That is the
+  intended semantics of contracts 1.2 and a real behavioural difference a
+  migration will surface. The sample now uses a number, which both refuse.
+- **Two whites.** The intern table's read barrier treated any white hit
+  during sweeping as dead, but a sweep whitens survivors as it passes, so a
+  live interned string looked dead, was re-interned as a second object, and
+  a string-keyed table lookup then missed by identity. Objects now carry
+  the epoch that last whitened them; a white object from an earlier cycle
+  is dead, one from this cycle is a survivor. This is LuaJIT's two-white
+  scheme, and contracts 4.12 is amended to require it.
+
+The remaining gap to LuaJIT's trace on this path is lowering quality: an
+array read is a helper call on a boxed index, the method call is a real
+call, and nothing is inlined. Each is a known lowering item, not a design
+limit.

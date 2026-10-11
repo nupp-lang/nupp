@@ -51,7 +51,7 @@ end
 local Fn = {}
 Fn.__index = Fn
 local function newFn(name)
-    local f = setmetatable({name = name, consts = {}, constIndex = {}, code = {}, nregs = 1, scopes = {{}}, nparams = 0}, Fn)
+    local f = setmetatable({name = name, consts = {}, constIndex = {}, code = {}, nregs = 1, nfregs = 0, scopes = {{}}, nparams = 0}, Fn)
     functions[#functions + 1] = f
     f.id = #functions - 1
     funcByName[name] = f
@@ -67,8 +67,9 @@ end
 function Fn:op(...) self.code[#self.code + 1] = {...}; return #self.code end
 function Fn:patch(at, ...) self.code[at] = {...} end
 function Fn:reg() local r = self.nregs; self.nregs = r + 1; return r end
-function Fn:declare(name) local r = self:reg(); self.scopes[#self.scopes][name] = r; return r end
-function Fn:lookup(name) for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r end end end
+function Fn:freg() local r = self.nfregs; self.nfregs = r + 1; return r end
+function Fn:declare(name, class) local r = class == "f" and self:freg() or self:reg(); self.scopes[#self.scopes][name] = {reg = r, class = class or "v"}; return r end
+function Fn:lookup(name) for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class end end end
 function Fn:push() self.scopes[#self.scopes + 1] = {} end
 function Fn:pop() self.scopes[#self.scopes] = nil end
 function Fn:here() return #self.code end
@@ -76,9 +77,31 @@ function Fn:offset(from, to) return to - from end  -- relative to the op after `
 
 local function tokText(tok) return tok.value ~= nil and tok.value or tok.text end
 
+local function isNumeric(t)
+    local tag = tyTag(t)
+    if tag == "number" or tag == "integer" then return true end
+    if tag == "literal" then return isNumeric(t.base) end
+    return false
+end
+
+-- Move a value between classes: a float register boxes into a value register,
+-- a value register of numeric type unboxes into a float register.
+local function coerce(f, reg, class, want, dst)
+    if class == want then
+        if dst and dst ~= reg then f:op(want == "f" and "FMov" or "Move", dst, reg) return dst end
+        return reg
+    end
+    if want == "v" then dst = dst or f:reg(); f:op("FBox", dst, reg); return dst end
+    dst = dst or f:freg(); f:op("FUnbox", dst, reg); return dst
+end
+
 -- Expressions: evaluate `node` into register `dst` (allocating when nil); returns the register.
 local expr
-local function exprInto(f, node, dst) return expr(f, node, dst) end
+local function exprInto(f, node, dst) return expr(f, node, dst, "v") end
+local function exprAs(f, node, want, dst)
+    local r, c = expr(f, node, nil, want)
+    return coerce(f, r, c, want, dst)
+end
 
 local function callInto(f, node, dst, extraSelf)
     -- Common call layout: base = dst, args at dst+1..; registers above dst are temporaries.
@@ -91,14 +114,66 @@ local function callInto(f, node, dst, extraSelf)
     -- Ensure the registers dst+1.. are allocated for the arguments.
     while f.nregs < base + nargs + 1 do f:reg() end
     for i, a in ipairs(argRegs) do
-        if type(a) == "number" then f:op("Move", base + i, a) else exprInto(f, a, base + i) end
+        if type(a) == "number" then f:op("Move", base + i, a) else exprAs(f, a, "v", base + i) end
     end
     return base, nargs
 end
 
-expr = function(f, node, dst)
+-- Returns the register holding the result and its class. `dst` is honoured
+-- only when it has class `want`; callers that need a particular register use exprAs.
+expr = function(f, node, dst, want)
     local k = node.kind
-    if k == "paren" then return expr(f, node.expr, dst) end
+    if k == "paren" then return expr(f, node.expr, dst, want) end
+    local numeric = isNumeric(node.inferredType)
+    if k == "number" then
+        local fr = f:freg(); f:op("FK", fr, tonumber(tokText(node.token)))
+        return fr, "f"
+    end
+    if numeric and k == "binop" then
+        local op = tokText(node.op)
+        local map = {["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv"}
+        if map[op] then
+            local a = exprAs(f, node.lhs, "f"); local b = exprAs(f, node.rhs, "f")
+            local d = f:freg(); f:op(map[op], d, a, b); return d, "f"
+        end
+    end
+    if numeric and k == "unop" and tokText(node.op) == "-" then
+        local a = exprAs(f, node.operand, "f"); local d = f:freg(); f:op("FNeg", d, a); return d, "f"
+    end
+    if numeric and k == "unop" and tokText(node.op) == "#" then
+        local a = exprAs(f, node.operand, "v"); local d = f:freg(); f:op("LenF", d, a); return d, "f"
+    end
+    if k == "name" then
+        local name = tokText(node.token)
+        local r, c = f:lookup(name)
+        if r then return r, c end
+    end
+    if numeric and k == "dotIndex" then
+        local objTy = node.obj.inferredType
+        local fname = tokText(node.name)
+        if tyTag(objTy) == "nominal" and shapes[objTy.name] then
+            local o = exprAs(f, node.obj, "v")
+            local d = f:freg(); f:op("GetSlotF", d, o, (assert(shapes[objTy.name].slotIndex[fname]))); return d, "f"
+        end
+    end
+    if numeric and k == "bracketIndex" then
+        -- A numeric element read from a value container unboxes after the read.
+        local o = exprAs(f, node.obj, "v"); local i = exprAs(f, node.expr, "f")
+        local d = f:reg(); f:op("GetIdxF", d, o, i)
+        local fr = f:freg(); f:op("FUnbox", fr, d); return fr, "f"
+    end
+    if k == "binop" then
+        local op = tokText(node.op)
+        local cmp = {["<"] = "FCmpLt", ["<="] = "FCmpLe", [">"] = "FCmpLt", [">="] = "FCmpLe", ["=="] = "FCmpEq", ["~="] = "FCmpNe"}
+        if cmp[op] and isNumeric(node.lhs.inferredType) and isNumeric(node.rhs.inferredType) then
+            local a = exprAs(f, node.lhs, "f"); local b = exprAs(f, node.rhs, "f")
+            local i = f:freg() -- integer registers share the float counter in this emitter's numbering scheme
+            if op == ">" or op == ">=" then f:op(cmp[op], i, b, a) else f:op(cmp[op], i, a, b) end
+            local d = f:reg(); f:op("BoolFromI", d, i); return d, "v"
+        end
+    end
+    -- Everything else lands in a value register.
+    dst = (want ~= "f" and dst) or nil
     dst = dst or f:reg()
     if k == "number" then
         f:op("K", dst, f:const("num", tonumber(tokText(node.token))))
@@ -114,40 +189,38 @@ expr = function(f, node, dst)
     elseif k == "nil" or k == "nilExpr" then f:op("Nil", dst)
     elseif k == "name" then
         local name = tokText(node.token)
-        local r = f:lookup(name)
-        if r then f:op("Move", dst, r)
-        elseif funcByName[name] then f:op("K", dst, f:const("func", funcByName[name].id))
+        if funcByName[name] then f:op("K", dst, f:const("func", funcByName[name].id))
         elseif name == "pcall" then f:op("K", dst, f:const("builtin", "pcall"))
         else error("unresolved name " .. name) end
     elseif k == "binop" then
         local op = tokText(node.op)
         if op == "and" or op == "or" then
-            expr(f, node.lhs, dst)
+            exprAs(f, node.lhs, "v", dst)
             local branch = f:op(op == "and" and "JmpIfNot" or "JmpIf", dst, 0)
-            expr(f, node.rhs, dst)
+            exprAs(f, node.rhs, "v", dst)
             f:patch(branch, op == "and" and "JmpIfNot" or "JmpIf", dst, f:offset(branch, f:here()))
         else
-            local a = expr(f, node.lhs); local b = expr(f, node.rhs)
+            local a = exprAs(f, node.lhs, "v"); local b = exprAs(f, node.rhs, "v")
             local map = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["<"] = "Lt", ["<="] = "Le", ["=="] = "Eq", [".."] = "Concat", ["~="] = "Ne", [">"] = "Gt", [">="] = "Ge"}
             local name = assert(map[op], "operator " .. op)
             if name == "Gt" then f:op("Lt", dst, b, a) elseif name == "Ge" then f:op("Le", dst, b, a) else f:op(name, dst, a, b) end
         end
     elseif k == "unop" then
         local op = tokText(node.op)
-        local a = expr(f, node.operand)
+        local a = exprAs(f, node.operand, "v")
         if op == "not" then f:op("Not", dst, a) elseif op == "-" then f:op("Neg", dst, a) elseif op == "#" then f:op("Len", dst, a) else error("unop " .. op) end
     elseif k == "dotIndex" then
         local objTy = node.obj.inferredType
         local fname = tokText(node.name)
         if tyTag(objTy) == "nominal" and shapes[objTy.name] then
-            local o = expr(f, node.obj)
+            local o = exprAs(f, node.obj, "v")
             f:op("GetSlot", dst, o, (assert(shapes[objTy.name].slotIndex[fname], "field " .. fname)))
         else
-            local o = expr(f, node.obj)
+            local o = exprAs(f, node.obj, "v")
             f:op("GetField", dst, o, f:const("str", fname))
         end
     elseif k == "bracketIndex" then
-        local o = expr(f, node.obj); local i = expr(f, node.index or node.key or node.expr)
+        local o = exprAs(f, node.obj, "v"); local i = exprAs(f, node.expr, "v")
         f:op("GetIdx", dst, o, i)
     elseif k == "call" then
         local callee = node.obj
@@ -156,20 +229,20 @@ expr = function(f, node, dst)
             local args = node.args.exprs
             local base = dst
             while f.nregs < base + #args + 1 do f:reg() end
-            for i, a in ipairs(args) do exprInto(f, a, base + i) end
+            for i, a in ipairs(args) do exprAs(f, a, "v", base + i) end
             f:op("PCall", base, #args - 1)
         elseif callee.kind == "name" and funcByName[tokText(callee.token)] and not f:lookup(tokText(callee.token)) then
             local base, nargs = callInto(f, node, dst)
             f:op("Call", funcByName[tokText(callee.token)].id, base, nargs)
         else
-            local fr = expr(f, callee)
+            local fr = exprAs(f, callee, "v")
             local base, nargs = callInto(f, node, dst)
             f:op("CallDyn", fr, base, nargs)
         end
     elseif k == "methodCall" then
         local objTy = node.obj.inferredType
         local mname = tokText(node.name)
-        local o = expr(f, node.obj)
+        local o = exprAs(f, node.obj, "v")
         if tyTag(objTy) == "nominal" and funcByName[objTy.name .. "." .. mname] then
             local base, nargs = callInto(f, node, dst, o)
             f:op("Call", funcByName[objTy.name .. "." .. mname].id, base, nargs)
@@ -184,26 +257,30 @@ expr = function(f, node, dst)
         f:op("NewRecord", dst, shape.id)
         for _, a in ipairs(call.args.exprs or {}) do
             assert(a.kind == "namedArg", "new with positional arguments")
-            local v = expr(f, a.value or a.expr)
-            f:op("SetSlot", dst, (assert(shape.slotIndex[tokText(a.name)])), v)
+            local slot = (assert(shape.slotIndex[tokText(a.name)]))
+            if shape.slots[slot + 1].ty == "num" then
+                local v = exprAs(f, a.value, "f"); f:op("SetSlotF", dst, slot, v)
+            else
+                local v = exprAs(f, a.value, "v"); f:op("SetSlot", dst, slot, v)
+            end
         end
     elseif k == "tableExpr" then
         f:op("NewTable", dst)
         local n = 0
         for _, field in ipairs(node.fields) do
             if field.kind == "fieldNamed" then
-                local v = expr(f, field.value)
+                local v = exprAs(f, field.value, "v")
                 f:op("SetField", dst, f:const("str", tokText(field.name)), v)
             elseif field.kind == "fieldItem" then
                 n = n + 1
                 local i = f:reg(); f:op("K", i, f:const("num", n))
-                local v = expr(f, field.value or field.expr)
+                local v = exprAs(f, field.value, "v")
                 f:op("SetIdx", dst, i, v)
             else error("table field " .. field.kind) end
         end
     elseif k == "castExpr" then
         local target = node.inferredType
-        local v = expr(f, node.expr, dst)
+        local v = exprAs(f, node.expr, "v", dst)
         if tyTag(target) == "nominal" and shapes[target.name] then f:op("TagCheckRec", dst, v, shapes[target.name].id)
         elseif tyTag(target) == "number" or tyTag(target) == "integer" then f:op("TagCheckNum", dst, v)
         elseif tyTag(target) == "string" then f:op("TagCheckStr", dst, v)
@@ -211,7 +288,7 @@ expr = function(f, node, dst)
     else
         error("expression kind " .. tostring(k))
     end
-    return dst
+    return dst, "v"
 end
 
 local block
@@ -221,32 +298,41 @@ local function stmt(f, node)
     if k == "localStmt" then
         local name = tokText(node.names[1])
         local value = node.exprs and node.exprs[1]
-        local r = f:declare(name)
-        if value then expr(f, value, r) else f:op("Nil", r) end
+        local declared = node.types and node.types[1] and node.types[1].resolvedType
+        local class = (isNumeric(declared) or (not declared and value and isNumeric(value.inferredType))) and "f" or "v"
+        local r = f:declare(name, class)
+        if value then exprAs(f, value, class, r) elseif class == "v" then f:op("Nil", r) else f:op("FK", r, 0) end
         mark = f.nregs
     elseif k == "assignStmt" then
         local target = node.targets[1]
         local value = node.exprs[1]
         if target.kind == "name" then
-            local r = assert(f:lookup(tokText(target.token)), "assign to unknown local")
-            expr(f, value, r)
+            local r, c = f:lookup(tokText(target.token))
+            assert(r, "assign to unknown local")
+            exprAs(f, value, c, r)
         elseif target.kind == "dotIndex" then
             local objTy = target.obj.inferredType
-            local o = expr(f, target.obj); local v = expr(f, value)
-            if tyTag(objTy) == "nominal" and shapes[objTy.name] then f:op("SetSlot", o, shapes[objTy.name].slotIndex[tokText(target.name)], v)
-            else f:op("SetField", o, f:const("str", tokText(target.name)), v) end
+            local o = exprAs(f, target.obj, "v")
+            if tyTag(objTy) == "nominal" and shapes[objTy.name] then
+                local shape = shapes[objTy.name]; local slot = shape.slotIndex[tokText(target.name)]
+                if shape.slots[slot + 1].ty == "num" then local v = exprAs(f, value, "f"); f:op("SetSlotF", o, slot, v)
+                else local v = exprAs(f, value, "v"); f:op("SetSlot", o, slot, v) end
+            else local v = exprAs(f, value, "v"); f:op("SetField", o, f:const("str", tokText(target.name)), v) end
         elseif target.kind == "bracketIndex" then
-            local o = expr(f, target.obj); local i = expr(f, target.index or target.key or target.expr); local v = expr(f, value)
+            local o = exprAs(f, target.obj, "v"); local i = exprAs(f, target.expr, "v"); local v = exprAs(f, value, "v")
             f:op("SetIdx", o, i, v)
         else error("assignment target " .. target.kind) end
     elseif k == "callStmt" then
-        expr(f, node.expr)
+        expr(f, node.expr, nil, "v")
     elseif k == "returnStmt" then
-        if #node.exprs == 0 then f:op("RetNil") else local r = expr(f, node.exprs[1]); f:op("Ret", r) end
+        if #node.exprs == 0 then f:op("RetNil") else
+            local r, c = expr(f, node.exprs[1], nil, nil)
+            if c == "f" then f:op("FRet", r) else f:op("Ret", r) end
+        end
     elseif k == "ifStmt" then
         local exits = {}
         for _, clause in ipairs(node.clauses) do
-            local c = expr(f, clause.cond)
+            local c = exprAs(f, clause.cond, "v")
             local branch = f:op("JmpIfNot", c, 0)
             block(f, clause.body)
             exits[#exits + 1] = f:op("Jmp", 0)
@@ -256,24 +342,26 @@ local function stmt(f, node)
         for _, e in ipairs(exits) do f:patch(e, "Jmp", f:offset(e, f:here())) end
     elseif k == "whileStmt" then
         local top = f:here()
-        local c = expr(f, node.cond)
+        local c = exprAs(f, node.cond, "v")
         local branch = f:op("JmpIfNot", c, 0)
         block(f, node.body)
         local back = f:op("Jmp", 0); f:patch(back, "Jmp", f:offset(back, top))
         f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
     elseif k == "fornumStmt" then
+        -- Numeric loops run on float registers; the condition is a float compare
+        -- whose integer flag drives the branch directly.
         f:push()
-        local var = f:declare(tokText(node.var or node.name))
-        expr(f, node.start, var)
-        local limit = f:reg(); expr(f, node.stop, limit)
-        local step = f:reg(); if node.step then expr(f, node.step, step) else f:op("K", step, f:const("num", 1)) end
+        local var = f:declare(tokText(node.var), "f")
+        exprAs(f, node.start, "f", var)
+        local limit = exprAs(f, node.stop, "f")
+        local step = f:freg(); if node.step then exprAs(f, node.step, "f", step) else f:op("FK", step, 1) end
         local top = f:here()
-        local c = f:reg(); f:op("Le", c, var, limit)
-        local branch = f:op("JmpIfNot", c, 0)
+        local c = f:freg(); f:op("FCmpLe", c, var, limit)
+        local branch = f:op("JmpIfIZero", c, 0)
         block(f, node.body)
-        f:op("Add", var, var, step)
+        f:op("FAdd", var, var, step)
         local back = f:op("Jmp", 0); f:patch(back, "Jmp", f:offset(back, top))
-        f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
+        f:patch(branch, "JmpIfIZero", c, f:offset(branch, f:here()))
         f:pop()
     elseif k == "localFuncStmt" or k == "recordDecl" then
         -- Declared ahead of time; nothing to do inline.
@@ -292,7 +380,13 @@ end
 local function defineFunction(f, funcbody)
     local params = funcbody.params or {}
     f.nparams = #params
-    for _, p in ipairs(params) do f:declare(tokText(p.name)) end
+    local unbox = {}
+    for _, p in ipairs(params) do
+        local v = f:declare(tokText(p.name), "v")
+        local ty = p.type and p.type.resolvedType
+        if isNumeric(ty) then unbox[#unbox + 1] = {tokText(p.name), v} end
+    end
+    for _, u in ipairs(unbox) do local fr = f:declare(u[1], "f"); f:op("FUnbox", fr, u[2]) end
     block(f, funcbody.body)
     if f.code[#f.code] == nil or (f.code[#f.code][1] ~= "Ret" and f.code[#f.code][1] ~= "RetNil") then f:op("RetNil") end
 end
@@ -328,7 +422,7 @@ for _, shape in ipairs(shapeOrder) do
     emit(table.concat(parts, " "))
 end
 for _, f in ipairs(functions) do
-    emit(("function %s %d %d %d"):format(f.name, f.id, f.nparams, f.nregs + 2))
+    emit(("function %s %d %d %d %d"):format(f.name, f.id, f.nparams, f.nregs + 2, f.nfregs + 2))
     for i, c in ipairs(f.consts) do
         if c.kind == "str" then emit(("  const %d str %s"):format(i - 1, q(c.value))) else emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value))) end
     end
@@ -336,4 +430,5 @@ for _, f in ipairs(functions) do
     emit("end")
 end
 emit("entry " .. (funcByName.main and funcByName.main.id or 0))
+if funcByName.hot then emit("entry2 " .. funcByName.hot.id) end
 io.write(table.concat(out, "\n"), "\n")
