@@ -22,7 +22,9 @@ local platforms = {
     },
     {
         variable = "SELECTED_WINDOWS",
-        entry = {name = "Windows x64", os = "windows-2022", timeout = 120, artifact = "windows-x64"},
+        -- A cold Rust-native artifact gate leaves the broad suite beyond 120
+        -- minutes; keep the timeout above both stages.
+        entry = {name = "Windows x64", os = "windows-2022", timeout = 180, artifact = "windows-x64"},
     },
 }
 
