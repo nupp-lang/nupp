@@ -234,7 +234,7 @@ fn main() {
         let want: f64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(f64::NAN);
         // Compile every function whose opcodes the JIT lowers, callees first, and
         // install the entries so the interpreter hands off calls to them.
-        let compile_all = std::env::var("NO_JIT").is_err();
+        let compile_all = std::env::var("NO_JIT").is_err() && std::env::var("OSR_ONLY").is_err();
         CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2)]);
         it.compiled = vec![None; it.funcs.len()];
@@ -251,6 +251,30 @@ fn main() {
                 }
             }
             for (n, e) in &refused { eprintln!("interpreted\t{n}\tfirst unsupported op {e}"); }
+        }
+        if std::env::var("OSR_ONLY").is_ok() {
+            // Nothing precompiled: loops reach compiled code only by transfer at a header.
+            let jit_cell = std::rc::Rc::new(std::cell::RefCell::new(j));
+            let jc = jit_cell.clone();
+            let funcs_snapshot: Vec<Function> = it.funcs.clone();
+            let compiled_cell = std::rc::Rc::new(std::cell::RefCell::new(vec![None::<*const u8>; funcs_snapshot.len()]));
+            let cc = compiled_cell.clone();
+            // Callees first: a call in the loop body to an uncompiled function compiles
+            // that function (recursively) so the header entry can call it directly.
+            fn ensure(j: &mut jit::Jit, funcs: &[Function], compiled: &mut Vec<Option<*const u8>>, fid: usize, depth: usize) {
+                if compiled[fid].is_some() || depth > 8 { return; }
+                for op in &funcs[fid].code { if let Op::CallT(c, ..) | Op::Call(c, ..) = *op { if c as usize != fid { ensure(j, funcs, compiled, c as usize, depth + 1); } } }
+                if let Ok(p) = j.try_compile(&funcs[fid], fid as u32) { compiled[fid] = Some(p); eprintln!("compiled for transfer\t{}", funcs[fid].name); }
+            }
+            it.osr_compile = Some(Box::new(move |f: &Function, header: usize| {
+                let mut j = jc.borrow_mut();
+                let mut compiled = cc.borrow_mut();
+                let fid = funcs_snapshot.iter().position(|g| g.name == f.name).unwrap();
+                for op in &f.code { if let Op::CallT(c, ..) | Op::Call(c, ..) = *op { if c as usize != fid { ensure(&mut j, &funcs_snapshot, &mut compiled, c as usize, 0); } } }
+                match j.compile_osr(f, header) { Ok(p) => { eprintln!("osr\t{}@{header}", f.name); Some(p) } Err(e) => { eprintln!("osr refused\t{}@{header}: {e}", f.name); None } }
+            }));
+            j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[]);
+            let _ = &j;
         }
         let result = run_to_end(&mut it, entry, &[]);
         eprintln!("result {} (expected {want})", result.as_num());

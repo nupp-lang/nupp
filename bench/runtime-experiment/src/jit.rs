@@ -99,7 +99,15 @@ impl Jit {
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
     /// Calls to ids already compiled become direct calls; others are refused.
-    pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
+    pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> { self.try_compile_at(f, fid, None) }
+
+    /// Compiles `f` as a loop-header entry: the signature takes the
+    /// interpreter's value, float and integer windows, the prologue loads every
+    /// register from them and jumps to the block at `header_pc`. The activation
+    /// then finishes in compiled code and returns its boxed result.
+    pub fn compile_osr(&mut self, f: &Function, header_pc: usize) -> Result<*const u8, String> { self.try_compile_at(f, u32::MAX, Some(header_pc)) }
+
+    fn try_compile_at(&mut self, f: &Function, fid: u32, osr: Option<usize>) -> Result<*const u8, String> {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
@@ -112,11 +120,13 @@ impl Jit {
         let start = std::time::Instant::now();
         // The typed signature: float parameters as f64, the rest as value words.
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
-        let ret_f = f.ret == b'f';
+        let ret_f = f.ret == b'f' && osr.is_none();
         let mut sig = self.module.make_signature();
-        for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); }
+        if osr.is_some() { for _ in 0..3 { sig.params.push(AbiParam::new(types::I64)); } }
+        else { for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); } }
         sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
-        let id = self.module.declare_function(f.name, Linkage::Local, &sig).unwrap();
+        let name = match osr { Some(pc) => format!("{}@{pc}", f.name), None => f.name.to_string() };
+        let id = self.module.declare_function(&name, Linkage::Local, &sig).unwrap();
         if fid != u32::MAX { self.funcs.insert(fid, (id, classes.clone(), f.ret)); }
         self.ctx.func.signature = sig;
         self.ctx.want_disasm = std::env::var("DISASM").is_ok();
@@ -151,8 +161,18 @@ impl Jit {
             // that access storage; a function without such opcodes pays nothing
             // in its prologue, which matters once it is inlined into a loop.
             let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
+            if let Some(header) = osr {
+                // Every register from the interpreter's windows, then the loop header.
+                let (rp, fp_, ip) = (params[0], params[1], params[2]);
+                for r in 0..rvars.len() { let v = b.ins().load(types::I64, flags, rp, (r * 8) as i32); b.def_var(rvars[r], v); }
+                for r in 0..fvars.len() { let v = b.ins().load(types::F64, flags, fp_, (r * 8) as i32); b.def_var(fvars[r], v); }
+                for r in 0..ivars.len() { let v = b.ins().load(types::I64, flags, ip, (r * 8) as i32); b.def_var(ivars[r], v); }
+                for r in 1..=f.nparams as usize { if uses_storage { let p = b.use_var(rvars[r]); let c1 = b.ins().call(sp, &[p]); let ptr = b.inst_results(c1)[0]; let c2 = b.ins().call(sl, &[p]); let len = b.inst_results(c2)[0]; ptrs.insert(r as u8, (ptr, len)); vals.insert(r as u8, p); } }
+                let _ = header;
+            }
             let (mut vi, mut fi) = (0u8, 0u8);
             for (i, p) in params.iter().enumerate() {
+                if osr.is_some() { break; }
                 if classes[i] == b'f' {
                     b.def_var(fvars[fi as usize], *p);
                     fi += 1;
@@ -177,8 +197,11 @@ impl Jit {
                     _ => {}
                 }
             }
+            let mut starts = starts;
+            if let Some(h) = osr { starts.insert(h); }
             let blocks: HashMap<usize, Block> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
             let mut terminated = false;
+            if let Some(h) = osr { b.ins().jump(blocks[&h], &[]); terminated = true; }
             macro_rules! iv { ($i:expr) => { b.use_var(ivars[$i as usize]) } }
             macro_rules! fv { ($i:expr) => { b.use_var(fvars[$i as usize]) } }
             macro_rules! vv { ($i:expr) => { b.use_var(vvars[$i as usize]) } }
@@ -394,7 +417,7 @@ impl Jit {
         self.module.clear_context(&mut self.ctx);
         // The boxed wrapper the interpreter calls: value words in, unboxed to
         // the typed entry, the result boxed back.
-        let needs_wrapper = ret_f || classes.iter().any(|&c| c == b'f');
+        let needs_wrapper = osr.is_none() && (ret_f || classes.iter().any(|&c| c == b'f'));
         let wrapper = if needs_wrapper {
             let mut wsig = self.module.make_signature();
             for _ in 0..classes.len() { wsig.params.push(AbiParam::new(types::I64)); }

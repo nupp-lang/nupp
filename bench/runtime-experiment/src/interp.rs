@@ -171,6 +171,13 @@ pub struct Interp {
     /// Compiled entry per function id, when the JIT has one.
     pub compiled: Vec<Option<*const u8>>,
     pub entry2: Option<u32>,
+    /// Loop-header transfer: back-edge counts per (function, header pc), compiled
+    /// header entries, and the compiler callback the harness installs.
+    pub loop_counts: std::collections::HashMap<(u32, usize), u32>,
+    pub osr_entries: std::collections::HashMap<(u32, usize), Option<*const u8>>,
+    pub osr_compile: Option<Box<dyn FnMut(&Function, usize) -> Option<*const u8>>>,
+    pub osr_threshold: u32,
+    pub osr_transfers: u64,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value] }
@@ -206,7 +213,7 @@ pub enum Flow { Next, Reenter, Return(Outcome) }
 macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0 } }
 
     pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles }; self.heap.intern(s, &r) }
 
@@ -301,7 +308,23 @@ impl Interp {
                     Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("compare") } r!(d) = Value::boolean(x.as_num() < y.as_num()) }
                     Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("compare") } r!(d) = Value::boolean(x.as_num() <= y.as_num()) }
                     Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(x == y) }
-                    Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
+                    Op::Jmp(off) => {
+                        pc = (pc as i64 + off as i64) as usize;
+                        if off < 0 {
+                            self.back_edge();
+                            if self.osr_compile.is_some() {
+                                if let Some(entry) = self.loop_trip(fid, pc) {
+                                    // Transfer: the compiled header entry reads the windows,
+                                    // runs the activation to its end and returns the result.
+                                    let f: extern "C" fn(u64, u64, u64) -> u64 = unsafe { std::mem::transmute(entry) };
+                                    self.osr_transfers += 1;
+                                    let result = Value(f(regs as u64, fregs as u64, iregs as u64));
+                                    if self.pop_frame(tid, result) { return Outcome::Done(result); }
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
@@ -625,6 +648,20 @@ impl Interp {
                             _ => self.err("field of a non-object"),
                         } }
                     
+    }
+
+    /// Counts a back-edge at `header` of `fid`; past the threshold, compiles a
+    /// header entry once and returns it on this and every later trip.
+    #[inline(never)]
+    fn loop_trip(&mut self, fid: u32, header: usize) -> Option<*const u8> {
+        if let Some(e) = self.osr_entries.get(&(fid, header)) { return *e; }
+        let n = self.loop_counts.entry((fid, header)).or_insert(0);
+        *n += 1;
+        if *n < self.osr_threshold { return None; }
+        let f = self.funcs[fid as usize].clone();
+        let entry = self.osr_compile.as_mut().and_then(|c| c(&f, header));
+        self.osr_entries.insert((fid, header), entry);
+        entry
     }
 
     #[inline]

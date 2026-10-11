@@ -438,3 +438,30 @@ this prototype: four register stacks grown separately, a frame record
 pushed and popped, and the dispatch loop re-entered on both the call and
 the return. A frame layout with the registers inline and a single stack
 is the P3 design, not a tweak to this one.
+
+## Loop-header transfer
+
+Date: 2026-10-11. The interpreter counts back-edges per (function, loop
+header). Past a threshold it asks the JIT for a header entry: the same
+function compiled with a prologue that loads every value, float and
+integer register from the interpreter's windows and jumps to the header's
+block. The activation finishes in compiled code and returns its boxed
+result; the interpreter pops the frame as if the function had returned.
+There is no transfer out, as contracts 5.3 says. Callees the loop body
+calls are compiled first so the entry can call them directly; a body
+calling something the JIT cannot lower stays interpreted, which is what
+happened to `main` because `describe` reads a string slot the JIT does not
+handle yet.
+
+In a mode where nothing is precompiled, `total` and `hot` transfer at
+their first loop headers after fifty back-edges:
+
+| `hot` per call | |
+| --- | ---: |
+| interpreted throughout | 538 us |
+| transfer only, entered interpreted | 37.3 us |
+| precompiled, entered compiled | 37.3 us |
+
+The transferred activation allocates in compiled code with stack maps
+live, and the stress and interleaved runs pass with transfers happening
+inside them.
