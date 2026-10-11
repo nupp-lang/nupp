@@ -20,6 +20,8 @@ pub enum Stmt {
     If { cond: Expr, body: Vec<Stmt>, else_body: Vec<Stmt> },
     Expr(Expr),
     Return(Vec<Expr>),
+    /// `op local:T target[index] = value`: a store into a scratch buffer.
+    Store { op: String, target: String, index: Expr, value: Expr },
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +84,7 @@ fn parse_block(lines: &[&str], mut i: usize, depth: usize) -> Result<(Vec<Stmt>,
     while i < lines.len() {
         let line = lines[i];
         if line.trim().is_empty() { i += 1; continue; }
-        if indent(line) < depth || line.trim() == "end" || line.trim() == "else" { break; }
+        if indent(line) < depth || line.trim() == "end" || line.trim() == "else" || line.trim().starts_with("elseif ") { break; }
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("let ").or_else(|| t.strip_prefix("var ")) {
             let mutable = t.starts_with("var ");
@@ -106,16 +108,19 @@ fn parse_block(lines: &[&str], mut i: usize, depth: usize) -> Result<(Vec<Stmt>,
         } else if let Some(rest) = t.strip_prefix("if ") {
             let cond = parse_expr(rest)?;
             let (inner, next) = parse_block(lines, i + 1, depth + 2)?;
+            let (else_body, next) = parse_else(lines, next, depth)?;
             i = next;
-            let mut else_body = Vec::new();
-            if lines.get(i).map(|l| l.trim()) == Some("else") {
-                let (eb, next) = parse_block(lines, i + 1, depth + 2)?;
-                else_body = eb;
-                i = next;
-            }
             if lines.get(i).map(|l| l.trim()) != Some("end") { return Err(format!("if without end at line {i}")); }
             i += 1;
             body.push(Stmt::If { cond, body: inner, else_body });
+        } else if t.starts_with("lua.scratch_u8_set") {
+            let (lhs, rhs) = t.split_once(" = ").ok_or_else(|| format!("store without value: {t}"))?;
+            let (op, target) = lhs.split_once(' ').ok_or("store without target")?;
+            let open = target.find('[').ok_or("store without index")?;
+            let name = target[..open].rsplit(' ').next().unwrap().to_string();
+            let index = parse_expr(&target[open + 1..target.len() - 1])?;
+            body.push(Stmt::Store { op: op.to_string(), target: name, index, value: parse_expr(rhs)? });
+            i += 1;
         } else if let Some(rest) = t.strip_prefix("return") {
             let rest = rest.trim();
             let values = if rest.is_empty() || rest == "nil" { Vec::new() } else { split_top(rest).into_iter().map(|s| parse_expr(s.trim())).collect::<Result<_, _>>()? };
@@ -127,6 +132,20 @@ fn parse_block(lines: &[&str], mut i: usize, depth: usize) -> Result<(Vec<Stmt>,
         }
     }
     Ok((body, i))
+}
+
+/// The else part of an if: `else` with a block, `elseif` with a condition and
+/// a block nested as an if inside the else, or nothing.
+fn parse_else(lines: &[&str], i: usize, depth: usize) -> Result<(Vec<Stmt>, usize), String> {
+    let t = lines.get(i).map(|l| l.trim()).unwrap_or("");
+    if t == "else" { return parse_block(lines, i + 1, depth + 2); }
+    if let Some(rest) = t.strip_prefix("elseif ") {
+        let cond = parse_expr(rest)?;
+        let (inner, next) = parse_block(lines, i + 1, depth + 2)?;
+        let (else_body, next) = parse_else(lines, next, depth)?;
+        return Ok((vec![Stmt::If { cond, body: inner, else_body }], next));
+    }
+    Ok((Vec::new(), i))
 }
 
 /// Splits on top-level commas.
@@ -148,6 +167,8 @@ pub fn parse_expr(s: &str) -> Result<Expr, String> {
     if let Some(rest) = s.strip_prefix("constant:") { let (ty, value) = rest.split_once(' ').ok_or("constant")?; return Ok(Expr::Constant { ty: ty.into(), value: value.trim().into() }); }
     if let Some(rest) = s.strip_prefix("span:") { return Ok(Expr::Span(rest.trim().into())); }
     if let Some(rest) = s.strip_prefix("count ") { return Ok(Expr::Count(rest.trim().into())); }
+    // A bare symbol, such as the `eager` mode of a builder.
+    if !s.contains('(') && s.chars().all(|c| c.is_alphanumeric() || c == '_') { return Ok(Expr::Local { ty: "sym".into(), name: s.into() }); }
     let open = s.find('(').ok_or_else(|| format!("unrecognised expression: {s}"))?;
     if !s.ends_with(')') { return Err(format!("call without close: {s}")); }
     let head = &s[..open];

@@ -111,7 +111,8 @@ impl Jit {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) => true,
+                Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) => true,
+                Op::NewBytes(..) | Op::BytesToStr(..) => self.helpers.contains_key("rt_new_bytes"),
                 Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Lt(..) | Op::Le(..) => self.helpers.contains_key("rt_arith_slow"),
                 Op::NewRecord(..) | Op::NewTable(..) | Op::SetSlot(..) | Op::SetIdx(..) | Op::SetIdxF(..) | Op::SetIdxI(..) | Op::Concat(..) => self.helpers.contains_key("rt_new_record"),
                 _ => false,
@@ -217,6 +218,9 @@ impl Jit {
             let mut cond_of: HashMap<u8, Value> = HashMap::new();
             let no_canon = std::env::var("NO_CANON").is_ok();
             let unchecked = std::env::var("UNCHECKED_TABLES").is_ok();
+            // Payload pointer and length of a byte object per value register,
+            // valid while the block dominates: byte buffers never resize.
+            let mut bytes_cache: HashMap<u8, (Value, Value)> = HashMap::new();
             macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; slots_cache.remove(&($i as u8)); cond_of.remove(&($i as u8)); b.def_var(rvars[$i as usize], v) } }
             // The object behind a value register, and its payload pointer and
             // length, read from the fixed header; cached per register per block.
@@ -224,6 +228,11 @@ impl Jit {
             macro_rules! slots_of { ($r:expr) => {{ let r = $r as u8; match slots_cache.get(&r) { Some(v) => *v, None => { let o = obj_of!(r); let v = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); slots_cache.insert(r, v); v } } }} }
             // Both words are numbers: neither carries the quiet-NaN tag pattern.
             macro_rules! is_num2 { ($p:expr, $q:expr) => {{ let mp = b.ins().band_imm($p, QNAN); let np = b.ins().icmp_imm(IntCC::NotEqual, mp, QNAN); let mq = b.ins().band_imm($q, QNAN); let nq = b.ins().icmp_imm(IntCC::NotEqual, mq, QNAN); b.ins().band(np, nq) }} }
+            macro_rules! bytes_of { ($r:expr) => {{ let r = $r as u8; match bytes_cache.get(&r) { Some(v) => *v, None => { let o = obj_of!(r); let p = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let l = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); bytes_cache.insert(r, (p, l)); (p, l) } } }} }
+            // A bounds check: the failing side traps in a cold block; the
+            // continuation has one predecessor, so cached values stay valid.
+            let unchecked_bytes = std::env::var("UNCHECKED_BYTES").is_ok();
+            macro_rules! checked { ($ok:expr) => {{ let ok = $ok; if !unchecked_bytes { let cont = b.create_block(); let bad = b.create_block(); b.set_cold_block(bad); b.ins().brif(ok, cont, &[], bad, &[]); b.switch_to_block(bad); b.seal_block(bad); b.ins().trap(TrapCode::unwrap_user(2)); b.switch_to_block(cont); b.seal_block(cont); } }} }
             macro_rules! box_f64 { ($v:expr) => {{ let v = $v; let bits = b.ins().bitcast(types::I64, cast, v); if no_canon { bits } else { let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) } }} }
             for (pc, op) in f.code.iter().enumerate() {
                 if let Some(&blk) = blocks.get(&pc) {
@@ -231,6 +240,7 @@ impl Jit {
                     b.switch_to_block(blk);
                     slots_cache.clear();
                     cond_of.clear();
+                    bytes_cache.clear();
                     terminated = false;
                 }
                 if terminated { continue; }
@@ -354,6 +364,20 @@ impl Jit {
                     Op::IAnd(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().band(p, q)); }
                     Op::JmpIfIZero(c, off) => { let v = iv!(c); let next = blocks[&(pc + 1)]; b.ins().brif(v, next, &[], target(off), &[]); terminated = true; }
                     Op::Jmp(off) => { b.ins().jump(target(off), &[]); terminated = true; }
+                    Op::IShl(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().ishl(p, q)); }
+                    Op::IShrU(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().ushr(p, q)); }
+                    Op::IOr(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().bor(p, q)); }
+                    Op::IBswap32(d, x) => { let p = iv!(x); let p32 = b.ins().ireduce(types::I32, p); let s = b.ins().bswap(p32); seti!(d, b.ins().uextend(types::I64, s)); }
+                    Op::ICmpEq(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::Equal, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
+                    Op::Nil(d) => { setr!(d, b.ins().iconst(types::I64, NIL)); }
+                    Op::BytesLen(d, s) => { let (_, len) = bytes_of!(s); seti!(d, len); }
+                    Op::LoadU8K(d, s, i) => { let (ptr, _) = bytes_of!(s); let idx = iv!(i); let a = b.ins().iadd(ptr, idx); seti!(d, b.ins().uload8(types::I64, flags, a, 0)); }
+                    Op::LoadU8(d, s, i) => { let (ptr, len) = bytes_of!(s); let idx = iv!(i); let ok = b.ins().icmp(IntCC::UnsignedLessThan, idx, len); checked!(ok); let a = b.ins().iadd(ptr, idx); seti!(d, b.ins().uload8(types::I64, flags, a, 0)); }
+                    Op::LoadU32W(d, s, i) => { let (ptr, len) = bytes_of!(s); let idx = iv!(i); let off = b.ins().imul_imm(idx, 4); let end = b.ins().iadd_imm(off, 4); let ok = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, len); checked!(ok); let a = b.ins().iadd(ptr, off); seti!(d, b.ins().uload32(flags, a, 0)); }
+                    Op::StoreU8(s, i, x) => { let (ptr, len) = bytes_of!(s); let idx = iv!(i); let ok = b.ins().icmp(IntCC::UnsignedLessThan, idx, len); checked!(ok); let a = b.ins().iadd(ptr, idx); let v = iv!(x); b.ins().istore8(flags, v, a, 0); }
+                    Op::StoreU32(s, i, x) => { let (ptr, len) = bytes_of!(s); let off = iv!(i); let end = b.ins().iadd_imm(off, 4); let ok = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, len); checked!(ok); let a = b.ins().iadd(ptr, off); let v = iv!(x); b.ins().istore32(flags, v, a, 0); }
+                    Op::NewBytes(d, n) => { let nv = iv!(n); let c = b.ins().call(helper_refs["rt_new_bytes"], &[nv]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
+                    Op::BytesToStr(d, s, n) => { let (sv, nv) = (rv!(s), iv!(n)); let c = b.ins().call(helper_refs["rt_bytes_to_str"], &[sv, nv]); slots_cache.clear(); setr!(d, b.inst_results(c)[0]); }
                     Op::IUnbox(d, r) => { let v = rv!(r); let fv = b.ins().bitcast(types::F64, cast, v); seti!(d, b.ins().fcvt_to_sint_sat(types::I64, fv)); }
                     Op::ICmpSLt(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::SignedLessThan, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::ICmpSLe(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::SignedLessThanOrEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }

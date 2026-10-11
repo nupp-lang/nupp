@@ -6,7 +6,7 @@ use crate::ir::{Expr, Function as IrFunction, Stmt};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Class { I, F, V4, Span, Species }
+enum Class { I, F, V4, Span, Species, Val }
 
 #[derive(Clone, Copy, Debug)]
 struct Reg { class: Class, idx: u8 }
@@ -18,6 +18,9 @@ struct Lowerer {
     span_len: HashMap<String, u8>,
     ni: u8,
     nf: u8,
+    /// High-water marks: the register counts the function needs.
+    ni_high: u8,
+    nf_high: u8,
     nv: u8,
     nregs: u8,
     /// Loop facts in scope while lowering a body: (cursor name, k, span name).
@@ -28,11 +31,17 @@ struct Lowerer {
     /// Splats of uniforms, hoisted to the prologue: uniform name -> vector pair.
     hoisted_splats: HashMap<String, u8>,
     prologue: Vec<Op>,
+    /// The byte buffer and length a builder was handed, until it finishes.
+    pending_string: Option<(u8, u8)>,
+    consts: Vec<crate::heap::Value>,
+    /// Value registers holding pool constant strings, with their lengths.
+    const_len: HashMap<u8, usize>,
 }
 
 fn class_of(ty: &str) -> Class {
     match ty {
         "f64" | "f32" => Class::F,
+        "lua_string" | "lua_value" | "lua_builder" | "lua_scratch_u8" => Class::Val,
         t if t.starts_with("simd_vector_") => Class::V4,
         t if t.starts_with("simd_species_") => Class::Species,
         _ => Class::I, // u32, u64, i32, i64, bool, masks (active lane count)
@@ -40,11 +49,12 @@ fn class_of(ty: &str) -> Class {
 }
 
 impl Lowerer {
-    fn ireg(&mut self) -> u8 { self.ni += 1; self.ni - 1 }
-    fn freg(&mut self) -> u8 { self.nf += 1; self.nf - 1 }
+    fn ireg(&mut self) -> u8 { self.ni += 1; self.ni_high = self.ni_high.max(self.ni); self.ni - 1 }
+    fn freg(&mut self) -> u8 { self.nf += 1; self.nf_high = self.nf_high.max(self.nf); self.nf - 1 }
     fn vpair(&mut self) -> u8 { self.nv += 2; self.nv - 2 }
+    fn vreg(&mut self) -> u8 { let r = self.nregs; self.nregs += 1; r }
     fn alloc(&mut self, class: Class) -> Reg {
-        match class { Class::I => Reg { class, idx: self.ireg() }, Class::F => Reg { class, idx: self.freg() }, Class::V4 => Reg { class, idx: self.vpair() }, c => Reg { class: c, idx: 0 } }
+        match class { Class::I => Reg { class, idx: self.ireg() }, Class::F => Reg { class, idx: self.freg() }, Class::V4 => Reg { class, idx: self.vpair() }, Class::Val => Reg { class, idx: self.vreg() }, c => Reg { class: c, idx: 0 } }
     }
 
     fn to_f(&mut self, r: Reg) -> u8 {
@@ -105,8 +115,51 @@ impl Lowerer {
         d
     }
 
+    /// Whether one of the two registers was just set to a constant mask below `len`.
+    fn mask_below(&self, a: u8, b: u8, len: usize) -> bool {
+        let n = self.code.len();
+        let k_of = |r: u8| (0..n - 1).rev().find_map(|i| match self.code[i] { Op::IK(d, k) if d == r => Some(k), o if lower_dest(&o) == Some(r) => Some(-1), _ => None });
+        [a, b].iter().any(|&r| matches!(k_of(r), Some(k) if k >= 0 && (k as usize) < len))
+    }
+
+    /// The `nupp.math.u32` helpers the kernel declares, by name: the IR lists
+    /// them as helpers without bodies, so each maps to its integer opcode.
+    fn helper(&mut self, name: &str, args: &[Expr]) -> Reg {
+        let i = |l: &mut Self, e: &Expr| { let r = l.expr(e); l.to_i(r) };
+        let d = self.ireg();
+        match name {
+            "u32" => { if let Expr::Constant { value, .. } = &args[0] { self.code.push(Op::IK(d, value.parse::<f64>().unwrap() as u32 as i64)); } else { let a = i(self, &args[0]); self.code.push(Op::IMaskU32(d, a)); } }
+            "add" => { let a = i(self, &args[0]); let b = i(self, &args[1]); let t = self.ireg(); self.code.push(Op::IAdd(t, a, b)); self.code.push(Op::IMaskU32(d, t)); }
+            "shr" => { let a = i(self, &args[0]); let b = i(self, &args[1]); self.code.push(Op::IShrU(d, a, b)); }
+            "shl" => { let a = i(self, &args[0]); let b = i(self, &args[1]); let t = self.ireg(); self.code.push(Op::IShl(t, a, b)); self.code.push(Op::IMaskU32(d, t)); }
+            "andBits" => { let a = i(self, &args[0]); let b = i(self, &args[1]); self.code.push(Op::IAnd(d, a, b)); }
+            "orBits" => { let a = i(self, &args[0]); let b = i(self, &args[1]); self.code.push(Op::IOr(d, a, b)); }
+            "reversed" => { let a = i(self, &args[0]); self.code.push(Op::IBswap32(d, a)); }
+            other => panic!("unsupported helper {other}"),
+        }
+        Reg { class: Class::I, idx: d }
+    }
+
     fn call(&mut self, op: &str, ty: Option<&str>, args: &[Expr]) -> Reg {
+        if let Some(name) = op.strip_prefix("call ") { return self.helper(name, args); }
         match op {
+            "lua.length" => { let s = self.expr(&args[0]); let d = self.ireg(); self.code.push(Op::BytesLen(d, s.idx)); Reg { class: Class::I, idx: d } }
+            "lua_string_u32" => { let s = self.expr(&args[0]); let r = self.expr(&args[1]); let i = self.to_i(r); let d = self.ireg(); self.code.push(Op::LoadU32W(d, s.idx, i)); Reg { class: Class::I, idx: d } }
+            "lua_string_byte" => {
+                let s = self.expr(&args[0]); let r = self.expr(&args[1]); let i = self.to_i(r); let d = self.ireg();
+                // A lookup into a pool constant by a masked index is in bounds
+                // when the mask is below the constant's length; the verifier
+                // re-derives both from the bytecode (3.4b).
+                let proven = self.const_len.get(&s.idx).map_or(false, |&len| matches!(self.code.last(), Some(Op::IAnd(dd, a, b)) if *dd == i && self.mask_below(*a, *b, len)));
+                self.code.push(if proven { Op::LoadU8K(d, s.idx, i) } else { Op::LoadU8(d, s.idx, i) });
+                Reg { class: Class::I, idx: d }
+            }
+            "u32_sub" => { let a = self.expr(&args[0]); let b = self.expr(&args[1]); let t = self.ireg(); self.code.push(Op::ISub(t, a.idx, b.idx)); let d = self.ireg(); self.code.push(Op::IMaskU32(d, t)); Reg { class: Class::I, idx: d } }
+            "eq" => self.compare(args, Op::ICmpEq, Op::FCmpEq),
+            "lua.builder" => { let d = self.alloc(Class::Val); self.code.push(Op::Nil(d.idx)); d }
+            "lua.scratch_u8" => { let r = self.expr(&args[0]); let n = self.to_i(r); let d = self.alloc(Class::Val); self.code.push(Op::NewBytes(d.idx, n)); d }
+            "lua_builder_string_scratch" => { let r = self.expr(&args[2]); let n = self.to_i(r); let s = self.expr(&args[3]); self.pending_string = Some((s.idx, n)); Reg { class: Class::I, idx: 0 } }
+            "lua.builder_finish" => { let (s, n) = self.pending_string.take().expect("builder finished without a string"); let d = self.alloc(Class::Val); self.code.push(Op::BytesToStr(d.idx, s, n)); d }
             "numeric_cast" => { let r = self.expr(&args[0]); match r.class { Class::F => Reg { class: Class::I, idx: self.to_i(r) }, _ => r } }
             "int_to_f64" => { let r = self.expr(&args[0]); Reg { class: Class::F, idx: self.to_f(r) } }
             "u32_add" => { let a = self.expr(&args[0]); let b = self.expr(&args[1]); let t = self.ireg(); self.code.push(Op::IAdd(t, a.idx, b.idx)); let d = self.ireg(); self.code.push(Op::IMaskU32(d, t)); Reg { class: Class::I, idx: d } }
@@ -200,6 +253,7 @@ impl Lowerer {
             (Class::F, Class::I) => self.code.push(Op::IToF(dst.idx, src.idx)),
             (Class::I, Class::F) => self.code.push(Op::FToI(dst.idx, src.idx)),
             (Class::V4, Class::V4) => { self.code.push(Op::VMov(dst.idx, src.idx)); self.code.push(Op::VMov(dst.idx + 1, src.idx + 1)); }
+            (Class::Val, Class::Val) => self.code.push(Op::Move(dst.idx, src.idx)),
             (Class::Species, Class::Species) => {}
             (a, b) => panic!("assign {b:?} to {a:?}"),
         }
@@ -226,13 +280,22 @@ impl Lowerer {
 
     fn block(&mut self, stmts: &[Stmt]) {
         for s in stmts {
+            // Scalar temporaries live for one statement: a named register is
+            // allocated before its value's temporaries, and the counters
+            // return to the high-water mark afterwards. The prototype's
+            // operands are eight bits and a kernel's expression trees would
+            // otherwise run past them.
+            let mark = (self.ni, self.nf);
             match s {
                 Stmt::Let { name, ty, value, .. } => {
-                    let r = self.expr(value);
                     let class = class_of(ty);
                     let dst = self.alloc(class);
+                    let kept = (self.ni, self.nf);
+                    let r = self.expr(value);
                     self.assign(dst, r);
                     self.names.insert(name.clone(), dst);
+                    self.ni = kept.0; self.nf = kept.1;
+                    continue;
                 }
                 Stmt::Set { name, value } => { let r = self.expr(value); let dst = self.names[name]; self.assign(dst, r); }
                 Stmt::While { cond, body, .. } => {
@@ -278,23 +341,36 @@ impl Lowerer {
                     }
                 }
                 Stmt::Expr(e) => { self.expr(e); }
+                Stmt::Store { op, target, index, value } => {
+                    let s = self.names[target];
+                    let ir = self.expr(index); let i = self.to_i(ir);
+                    let vr = self.expr(value); let v = self.to_i(vr);
+                    match op.as_str() { "lua.scratch_u8_set4" => self.code.push(Op::StoreU32(s.idx, i, v)), "lua.scratch_u8_set" => self.code.push(Op::StoreU8(s.idx, i, v)), other => panic!("store {other}") }
+                }
                 Stmt::Return(values) => {
                     if values.is_empty() { self.code.push(Op::RetNil); }
-                    else { let r = self.expr(&values[0]); let f = self.to_f(r); self.code.push(Op::FRet(f)); }
+                    else { let r = self.expr(&values[0]); if r.class == Class::Val { self.code.push(Op::Ret(r.idx)); } else { let f = self.to_f(r); self.code.push(Op::FRet(f)); } }
                 }
             }
+            self.ni = mark.0; self.nf = mark.1;
         }
     }
 }
 
 /// Lowers one IR function. Span and uniform parameters arrive as values in
 /// registers 1.. in declaration order.
-pub fn lower(f: &IrFunction) -> Function {
-    let mut l = Lowerer { code: Vec::new(), names: HashMap::new(), span_value: HashMap::new(), span_len: HashMap::new(), ni: 0, nf: 0, nv: 0, nregs: 1, facts: Vec::new(), relations: Vec::new(), fuse: std::env::var("NO_FMA").is_err(), hoisted_splats: HashMap::new(), prologue: Vec::new() };
+pub fn lower(f: &IrFunction) -> Function { lower_with(f, &[]) }
+
+/// Lowers with named constants (the kernel's `konst_N` strings) bound to
+/// value registers loaded from the constant pool in the prologue.
+pub fn lower_with(f: &IrFunction, consts: &[(String, crate::heap::Value, usize)]) -> Function {
+    let mut l = Lowerer { code: Vec::new(), names: HashMap::new(), span_value: HashMap::new(), span_len: HashMap::new(), ni: 0, nf: 0, ni_high: 0, nf_high: 0, nv: 0, nregs: 1, facts: Vec::new(), relations: Vec::new(), fuse: std::env::var("NO_FMA").is_err(), hoisted_splats: HashMap::new(), prologue: Vec::new(), pending_string: None, consts: Vec::new(), const_len: HashMap::new() };
     for (i, p) in f.params.iter().enumerate() {
         let vreg = (i + 1) as u8;
         l.nregs = vreg + 1;
-        if p.kind.ends_with("span") {
+        if p.ty.starts_with("lua_") {
+            l.names.insert(p.name.clone(), Reg { class: Class::Val, idx: vreg });
+        } else if p.kind.ends_with("span") {
             l.span_value.insert(p.name.clone(), vreg);
             let len = l.ireg();
             l.code.push(Op::StorageLen(len, vreg));
@@ -305,6 +381,7 @@ pub fn lower(f: &IrFunction) -> Function {
             l.names.insert(p.name.clone(), Reg { class: Class::F, idx: fr });
         }
     }
+    for (name, v, len) in consts { let k = l.consts.len() as u16; l.consts.push(*v); let r = l.vreg(); l.code.push(Op::K(r, k)); l.names.insert(name.clone(), Reg { class: Class::Val, idx: r }); l.const_len.insert(r, *len); }
     for (a, b) in &f.relations { l.code.push(Op::GuardLenLe(l.span_len[a], l.span_len[b])); }
     l.relations = f.relations.clone();
     let prologue_end = l.code.len();
@@ -313,9 +390,9 @@ pub fn lower(f: &IrFunction) -> Function {
     // lies after this point, so offsets are unchanged.
     let hoisted = std::mem::take(&mut l.prologue);
     for (i, op) in hoisted.into_iter().enumerate() { l.code.insert(prologue_end + i, op); }
-    if !matches!(l.code.last(), Some(Op::RetNil) | Some(Op::FRet(_))) { l.code.push(Op::RetNil); }
-    assert!(l.ni < 250 && l.nf < 250 && l.nv < 250, "register pressure beyond the prototype's 8-bit operands");
-    Function { name: Box::leak(f.name.clone().into_boxed_str()), sig: vec![b'v'; f.params.len()], ret: b'v', nv_params: f.params.len() as u8, nf_params: 0, code: l.code, consts: Vec::new(), nparams: f.params.len() as u8, nregs: l.nregs + 1, nireg: l.ni + 1, nfreg: l.nf + 1, nvreg: l.nv + 2, jump_tables: Vec::new() }
+    if !matches!(l.code.last(), Some(Op::RetNil) | Some(Op::FRet(_)) | Some(Op::Ret(_))) { l.code.push(Op::RetNil); }
+    assert!(l.ni_high < 250 && l.nf_high < 250 && l.nv < 250, "register pressure beyond the prototype's 8-bit operands");
+    Function { name: Box::leak(f.name.clone().into_boxed_str()), sig: vec![b'v'; f.params.len()], ret: b'v', nv_params: f.params.len() as u8, nf_params: 0, code: l.code, consts: l.consts, nparams: f.params.len() as u8, nregs: l.nregs + 1, nireg: l.ni_high + 1, nfreg: l.nf_high + 1, nvreg: l.nv + 2, jump_tables: Vec::new() }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +483,23 @@ pub fn verify(f: &Function) -> Result<(), String> {
             }
         }
     }
+    // 3.4b: a proven byte lookup: the object register was loaded from the
+    // constant pool, the index was masked by a constant below that
+    // constant's length, and neither register was redefined between.
+    for (pc, op) in code.iter().enumerate() {
+        if let Op::LoadU8K(_, s, i) = *op {
+            // Register numbers are per class: a value register's definition is a value opcode.
+            let vdef = |r: u8| (0..pc).rev().find(|&j| matches!(code[j], Op::K(d, _) | Op::Move(d, _) | Op::Nil(d) | Op::NewBytes(d, _) | Op::BytesToStr(d, _, _) if d == r));
+            let def = |r: u8| (0..pc).rev().find(|&j| lower_dest(&code[j]) == Some(r));
+            let len = match vdef(s).map(|j| code[j]) { Some(Op::K(_, k)) => f.consts.get(k as usize).and_then(|v| v.as_obj()).map(|p| unsafe { (*p.as_ptr()).str_text().len() }), _ => None };
+            let Some(len) = len else { return Err(format!("pc {pc}: proven byte lookup on a register that is not a pool constant string")); };
+            let masked = match def(i).map(|j| (j, code[j])) {
+                Some((j, Op::IAnd(_, a, b))) => [a, b].iter().any(|&r| matches!((0..j).rev().find(|&q| lower_dest(&code[q]) == Some(r)).map(|q| code[q]), Some(Op::IK(_, k)) if k >= 0 && (k as usize) < len)),
+                _ => false,
+            };
+            if !masked { return Err(format!("pc {pc}: proven byte lookup whose index is not masked below {len}")); }
+        }
+    }
     // Every unchecked access must lie inside some fact's region; an access with
     // no fact before it in its loop is rejected.
     for (pc, op) in code.iter().enumerate() {
@@ -415,6 +509,11 @@ pub fn verify(f: &Function) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The integer register an opcode defines, if any.
+fn lower_dest(o: &Op) -> Option<u8> {
+    match *o { Op::IMov(d, _) | Op::IK(d, _) | Op::IAdd(d, ..) | Op::IAddK(d, ..) | Op::ISub(d, ..) | Op::IMaskU32(d, _) | Op::FToI(d, _) | Op::StorageLen(d, _) | Op::ICmpLe(d, ..) | Op::ICmpLt(d, ..) | Op::ICmpEq(d, ..) | Op::IAnd(d, ..) | Op::IOr(d, ..) | Op::IShl(d, ..) | Op::IShrU(d, ..) | Op::IBswap32(d, _) | Op::BytesLen(d, _) | Op::LoadU8(d, ..) | Op::LoadU8K(d, ..) | Op::LoadU32W(d, ..) | Op::IUnbox(d, _) | Op::ICmpSLt(d, ..) | Op::ICmpSLe(d, ..) => Some(d), _ => None }
 }
 
 /// Whether register `idx` at `at` was computed as `cursor + 1 - 1` through the

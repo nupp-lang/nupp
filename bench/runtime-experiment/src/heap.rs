@@ -81,6 +81,8 @@ pub enum Body {
     Record { shape: u32, slots: Vec<Value> },
     /// Owned numeric storage a typed span borrows: the non-moving space.
     Storage { data: Vec<f64> },
+    /// Owned byte storage: a scratch buffer or a byte string under construction.
+    Bytes { data: Vec<u8> },
     /// A closure: a function id and its captures, each a cell or a value.
     Closure { fid: u32, captures: Vec<Value> },
     /// A shared mutable location a captured local lives in.
@@ -96,6 +98,7 @@ pub const KIND_STORAGE: u8 = 4;
 pub const KIND_FREED: u8 = 0;
 pub const KIND_CLOSURE: u8 = 5;
 pub const KIND_CELL: u8 = 6;
+pub const KIND_BYTES: u8 = 7;
 
 /// The header has a fixed layout so compiled code reads an object's kind, the
 /// pointer to its payload (slots, array part, storage, bytes) and that
@@ -125,6 +128,7 @@ impl Object {
             Body::Table { array, .. } => { self.kind = KIND_TABLE; self.aux_ptr = array.as_mut_ptr() as *mut u8; self.aux_len = array.len() as u64; }
             Body::Record { slots, .. } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64; }
             Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
+            Body::Bytes { data } => { self.kind = KIND_BYTES; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
             Body::Closure { captures, .. } => { self.kind = KIND_CLOSURE; self.aux_ptr = captures.as_mut_ptr() as *mut u8; self.aux_len = captures.len() as u64; }
             Body::Cell { value } => { self.kind = KIND_CELL; self.aux_ptr = value as *mut Value as *mut u8; self.aux_len = 1; }
             Body::Freed(_) => { self.kind = KIND_FREED; self.aux_ptr = std::ptr::null_mut(); self.aux_len = 0; }
@@ -223,6 +227,9 @@ impl Heap {
     }
     pub fn new_closure(&mut self, fid: u32, captures: Vec<Value>, roots: &dyn Roots) -> Value { let n = captures.len(); Value::obj(self.alloc(Body::Closure { fid, captures }, 32 + 8 * n, roots)) }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Cell { value }, 32, roots)) }
+    pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Bytes { data: vec![0u8; n] }, 24 + n, roots)) }
+    /// A string that is not interned (hash 0): long results, as Lua 5.4 treats them.
+    pub fn new_string(&mut self, text: String, roots: &dyn Roots) -> Value { let n = text.len(); Value::obj(self.alloc(Body::Str { text: text.into_boxed_str(), hash: 0 }, 32 + n, roots)) }
     pub fn new_storage(&mut self, n: usize, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Storage { data: vec![0.0; n] }, 24 + 8 * n, roots)) }
 
     /// The insertion barrier: storing a white child into a black parent while
@@ -297,7 +304,7 @@ impl Heap {
                 Body::Record { slots, .. } => { for &v in slots { push(v); } }
                 Body::Closure { captures, .. } => { for &v in captures { push(v); } }
                 Body::Cell { value } => push(*value),
-                Body::Str { .. } | Body::Storage { .. } | Body::Freed(_) => {}
+                Body::Str { .. } | Body::Storage { .. } | Body::Bytes { .. } | Body::Freed(_) => {}
             }
             (*p.as_ptr()).color = Color::Black;
         }
@@ -348,11 +355,11 @@ impl Heap {
             let o = &mut *p.as_ptr();
             self.live_bytes -= o.bytes;
             self.stats.freed += 1;
-            if let Body::Str { text, .. } = &o.body { self.interned.remove(&**text); }
+            if let Body::Str { text, hash } = &o.body { if *hash != 0 { self.interned.remove(&**text); } }
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
-                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Freed(w) => w.clone() };
+                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Freed(w) => w.clone() };
                 o.body = Body::Freed(what);
                 o.refresh();
                 o.color = Color::White;

@@ -29,6 +29,25 @@ pub enum Op {
     IUnbox(u8, u8),
     ICmpSLt(u8, u8, u8),
     ICmpSLe(u8, u8, u8),
+    IShl(u8, u8, u8),
+    IShrU(u8, u8, u8),
+    IOr(u8, u8, u8),
+    IBswap32(u8, u8),
+    ICmpEq(u8, u8, u8),
+    /// Byte-level access to a string or byte buffer, every access checked.
+    BytesLen(u8, u8),
+    LoadU8(u8, u8, u8),
+    /// A byte read the verifier proves in bounds: the object is a pool
+    /// constant string of known length and the index is masked below it.
+    LoadU8K(u8, u8, u8),
+    /// Little-endian 32-bit word at a word index.
+    LoadU32W(u8, u8, u8),
+    StoreU8(u8, u8, u8),
+    /// Little-endian 32-bit word at a byte offset.
+    StoreU32(u8, u8, u8),
+    NewBytes(u8, u8),
+    /// A string from the first n bytes of a byte buffer.
+    BytesToStr(u8, u8, u8),
     /// Call function `fid` with arguments at base+1.., result into `base`.
     Call(u32, u8, u8),
     /// Typed call: value arguments at base+1.., float arguments in the float
@@ -249,6 +268,16 @@ impl Interp {
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Record { slots, .. } = &mut (*p.as_ptr()).body { slots[i] = v } } }
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { let p = rec.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => slots[i], _ => panic!("use after free or not a record") } } }
     pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Table { array, .. } = &mut (*p.as_ptr()).body { array.push(v) } (*p.as_ptr()).refresh(); } }
+    pub fn heap_new_bytes(&mut self, n: usize) -> Value { self.heap.new_bytes(n, roots!(self)) }
+    pub fn bytes_to_str(&mut self, s: Value, n: usize) -> Value { let text = String::from_utf8(self.bytes_of(s)[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); self.heap.new_string(text, roots!(self)) }
+    pub fn bytes_of(&self, v: Value) -> &[u8] {
+        let p = v.as_obj().unwrap_or_else(|| self.err("bytes of a non-object"));
+        unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), Body::Bytes { data } => data, _ => self.err("not bytes") } }
+    }
+    pub fn bytes_mut(&self, v: Value) -> &mut [u8] {
+        let p = v.as_obj().unwrap_or_else(|| self.err("bytes of a non-object"));
+        unsafe { match &mut (*p.as_ptr()).body { Body::Bytes { data } => data, _ => self.err("not a byte buffer") } }
+    }
     pub fn get_index(&self, tv: Value, key: Value) -> Value {
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         unsafe { match &(*p.as_ptr()).body {
@@ -433,6 +462,19 @@ impl Interp {
                     Op::IUnbox(d, v) => ir!(d) = r!(v).as_num() as i64,
                     Op::ICmpSLt(d, a, b) => ir!(d) = (ir!(a) < ir!(b)) as i64,
                     Op::ICmpSLe(d, a, b) => ir!(d) = (ir!(a) <= ir!(b)) as i64,
+                    Op::IShl(d, a, b) => ir!(d) = ir!(a).wrapping_shl(ir!(b) as u32),
+                    Op::IShrU(d, a, b) => ir!(d) = ((ir!(a) as u64) >> (ir!(b) as u32 & 63)) as i64,
+                    Op::IOr(d, a, b) => ir!(d) = ir!(a) | ir!(b),
+                    Op::IBswap32(d, a) => ir!(d) = (ir!(a) as u32).swap_bytes() as i64,
+                    Op::ICmpEq(d, a, b) => ir!(d) = (ir!(a) == ir!(b)) as i64,
+                    Op::BytesLen(d, s) => ir!(d) = self.bytes_of(r!(s)).len() as i64,
+                    Op::LoadU8K(d, s, i) => { let bytes = self.bytes_of(r!(s)); ir!(d) = bytes[ir!(i) as usize] as i64; }
+                    Op::LoadU8(d, s, i) => { let bytes = self.bytes_of(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte read out of range") } ir!(d) = bytes[i] as i64; }
+                    Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
+                    Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }
+                    Op::StoreU32(s, i, v) => { let x = ir!(v) as u32; let bytes = self.bytes_mut(r!(s)); let off = ir!(i) as usize; if off + 4 > bytes.len() { self.err("word write out of range") } bytes[off..off + 4].copy_from_slice(&x.to_le_bytes()); }
+                    Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap.new_bytes(n, roots!(self)); r!(d) = v; }
+                    Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = String::from_utf8(self.bytes_of(r!(s))[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
                     Op::Switch(r, t) => {
                         let i = ir!(r);
                         let off = { let (def, tbl) = &self.funcs[fid as usize].jump_tables[t as usize]; if i >= 0 && (i as usize) < tbl.len() { tbl[i as usize] } else { *def } };
