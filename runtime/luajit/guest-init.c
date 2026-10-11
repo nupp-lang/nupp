@@ -71,7 +71,7 @@ static off_t mailbox_address(void) {
     char *token, *cursor = NULL;
     for (token = strtok_r(args, " \n", &cursor); token; token = strtok_r(NULL, " \n", &cursor))
         if (sscanf(token, "nupp.mailbox=%lu", &address) == 1) break;
-    if (address != 48u * MIB && address != 240u * MIB) {
+    if (address != 48u * MIB && address != 112u * MIB) {
         errno = EINVAL;
         fail("unsupported guest memory profile");
     }

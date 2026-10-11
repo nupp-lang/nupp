@@ -136,7 +136,7 @@ source archives, build recipes and notices; it is not a published release asset
 and has no invented download pin. Source pin changes and guest recipe changes
 invalidate its local artifact identity.
 
-`runtime/luajit/host.mjs` owns a 64 MiB runner or 256 MiB compiler VM in a dedicated
+`runtime/luajit/host.mjs` owns a 64 MiB runner or 128 MiB compiler VM in a dedicated
 worker. The compiler retains one session and accepts source outside JSON.
 Cancellation terminates its worker; continuing requires a new compiler instance.
 Snapshots precede LuaJIT startup and contain no application or compiler session.
@@ -296,9 +296,8 @@ network measurement, or a promise that cached startup is free. See
 29–38 ms across these engines; `results/playground-ui.json` includes reruns,
 settings, backend switching and embedded-editor teardown.
 
-The following measurement used the earlier 64/128 MiB guest profiles. In a
-separate fresh Chromium process-family measurement, macOS's `footprint` tool
-reported:
+Memory profiles of 64/128 MiB describe guest RAM only. In a separate fresh
+Chromium process-family measurement, macOS's `footprint` tool reported:
 
 | Backend | Blank browser | Compiler ready | Sampled peak | After page close |
 | --- | --- | --- | --- | --- |

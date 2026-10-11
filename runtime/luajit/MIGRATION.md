@@ -55,8 +55,8 @@ Worker messages preserve Nupp's copy and cooperative-cancellation contracts.
 The default package pool admits two lanes. Stopping an application terminates
 its VMs and closes its pool; no SharedArrayBuffer or cross-origin isolation is
 required. A runner uses 64 MiB guest RAM and about 75 MiB Wasm memory; the compiler
-uses 256 MiB guest RAM. These exclude JavaScript, snapshots and compiled emulator
-code, and are not a total process-memory claim.
+uses 128 MiB and about 139 MiB. These exclude JavaScript, snapshots and compiled
+emulator code, and are not a total process-memory claim.
 
 Project-wide `compat = "lua51"` (or `--compat lua51`) is a checked source subset,
 not a lowering target. The normal generator is unchanged. Constructs requiring

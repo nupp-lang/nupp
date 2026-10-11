@@ -21,7 +21,7 @@ function fixture(t) {
     writeFileSync(path.join(directory, name), bytes);
   };
   const manifest = {schema:1, guestAbi:1, architecture:'i386-linux-musl', buildKey:'a'.repeat(64),
-    profiles:{runner:{memoryMiB:64}, compiler:{memoryMiB:256}}, inputs:{}, assets:{}, snapshots:{}};
+    profiles:{runner:{memoryMiB:64}, compiler:{memoryMiB:128}}, inputs:{}, assets:{}, snapshots:{}};
   for (const name of ['bridge.lua', 'guest-init.c', 'linux.config', 'vm-worker.mjs', 'assets.mjs']) {
     const relative = `runtime/luajit/${name}`;
     write(repo, relative, name+'\n'); manifest.inputs[relative] = digest(name+'\n');

@@ -24,10 +24,10 @@ recipes and local changes. Distributors must carry those artifacts with the
 runtime. Kernel and firmware licenses differ from the v86 emulator license;
 see the actual notices rather than treating the entire package as BSD.
 
-The 64 MiB application and 256 MiB compiler profiles reserve 16 MiB for an
-8 MiB mailbox and guard space. Initialization stops before LuaJIT is launched.
-Every restore writes fresh configuration, application code, 256 bits of browser
-entropy and wall time before starting a new LuaJIT process. The snapshot includes no
+The 64 MiB application and 128 MiB compiler profiles reserve eight MiB for a
+bounded mailbox. Initialization stops before LuaJIT is launched. Every restore
+writes fresh configuration, application code, 256 bits of browser entropy and
+wall time before starting a new LuaJIT process. The snapshot includes no
 application VM, credentials, service handles or live JIT traces.
 
 The compiler lane sends source outside its JSON envelope and retains one

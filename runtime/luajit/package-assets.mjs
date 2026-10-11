@@ -14,7 +14,7 @@ export function verifyGuest(repo, source) {
   for (const profile of ['runner', 'compiler']) {
     const snapshot = manifest.snapshots[profile];
     if (snapshot.buildKey !== manifest.buildKey || snapshot.guestAbi !== manifest.guestAbi ||
-        snapshot.memoryMiB !== (profile === 'compiler' ? 256 : 64) ||
+        snapshot.memoryMiB !== (profile === 'compiler' ? 128 : 64) ||
         snapshot.memoryMiB !== manifest.profiles?.[profile]?.memoryMiB ||
         !Number.isSafeInteger(snapshot.uncompressedBytes) || snapshot.uncompressedBytes <= 0 ||
         snapshot.uncompressedBytes > 256 * 1024 * 1024 || !manifest.assets[snapshot.asset])
