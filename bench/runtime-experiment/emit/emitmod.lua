@@ -12,6 +12,7 @@ local entryName = assert(arg[2], "entry module name")
 local env = envMod.new(root)
 
 local out = {}
+local assignedNames = {}
 local function emit(s) out[#out + 1] = s end
 local function tokText(tok) return tok.value ~= nil and tok.value or tok.text end
 local function tyTag(t) return type(t) == "table" and t.tag or "?" end
@@ -42,6 +43,25 @@ local function declareShape(node)
             shape.slotIndex[fname] = #shape.slots
             shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(nominal and nominal.byname and nominal.byname[fname])}
         end
+    end
+    return shape
+end
+-- A table constructor the checker types as a closed set of named fields gets
+-- a shape of its own, shared by every constructor with the same field set:
+-- the plan's structural object, slots by offset at the constructor and
+-- by name, through a per-site cache, everywhere it is read.
+local function structShape(ty)
+    if tyTag(ty) ~= "shape" or type(ty.fields) ~= "table" or #ty.fields == 0 then return nil end
+    local names = {}
+    for i, field in ipairs(ty.fields) do names[i] = type(field) == "table" and field.name or tostring(field) end
+    local name = "struct:" .. table.concat(names, ",")
+    if shapes[name] then return shapes[name] end
+    local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}}
+    shapes[name] = shape
+    shapeOrder[#shapeOrder + 1] = shape
+    for _, fname in ipairs(names) do
+        shape.slotIndex[fname] = #shape.slots
+        shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(ty.byname and ty.byname[fname])}
     end
     return shape
 end
@@ -86,6 +106,17 @@ function Fn:declare(name, class)
 end
 function Fn:lookup(name)
     for i = #self.scopes, 1, -1 do local r = self.scopes[i][name]; if r then return r.reg, r.class, r.cell end end
+end
+-- The function id a name is bound to, when it names a `local function` the
+-- module never assigns to: the call can then name its callee.
+-- The scope entry a name resolves to, through the enclosing functions.
+function Fn:binding(name)
+    for i = #self.scopes, 1, -1 do local e = self.scopes[i][name]; if e then return e end end
+    if self.parent then return self.parent:binding(name) end
+end
+function Fn:knownFid(name)
+    for i = #self.scopes, 1, -1 do local e = self.scopes[i][name]; if e then return e.fid end end
+    if self.parent then return self.parent:knownFid(name) end
 end
 function Fn:upvalue(name)
     if self.upvalIndex[name] then return self.upvalIndex[name] end
@@ -177,9 +208,38 @@ end
 -- A call's window is reserved above every register in use, so the callee
 -- and receiver values evaluated first are not clobbered by the arguments;
 -- the results are then moved down to `dst` (`nres` of them).
+-- `local byte = string.byte`: a local the module never assigns to, bound to
+-- a library function, so a call through it can become an intrinsic.
+local function markLibraryLocals(f, names, exprs)
+    for i, nameTok in ipairs(names) do
+        local e = exprs[i]
+        local name = tokText(nameTok)
+        if e and e.kind == "dotIndex" and e.obj.kind == "name" and tokText(e.obj.token) == "string" and not f:binding("string") and not assignedNames[name] then
+            local entry = f.scopes[#f.scopes][name]
+            if entry then entry.builtin = "string." .. tokText(e.name) end
+        end
+    end
+end
+-- `string.byte(s, i)` with one result wanted, `s` a string and `i` an
+-- integer by the checker: one opcode instead of a builtin call.
+local function emitStrByte(f, node, dst, nres)
+    local args = node.args and node.args.exprs or {}
+    if #args ~= 2 or (nres or 1) > 1 then return false end
+    if tyTag(args[1].inferredType) ~= "string" or not isIntegerish(args[2]) then return false end
+    local s = exprAs(f, args[1], "v")
+    local i = exprAs(f, args[2], "i")
+    f:op("StrByte", dst, s, i)
+    return true
+end
 local function emitCall(f, node, dst, nres)
     nres = nres or 1
     local callee = node.obj
+    if callee.kind == "name" then
+        local bnd = f:binding(tokText(callee.token))
+        if bnd and bnd.builtin == "string.byte" and emitStrByte(f, node, dst, nres) then return end
+    elseif callee.kind == "dotIndex" and callee.obj.kind == "name" and tokText(callee.obj.token) == "string" and tokText(callee.name) == "byte" and not f:binding("string") then
+        if emitStrByte(f, node, dst, nres) then return end
+    end
     local function finish(base) if base ~= dst then for i = 0, nres - 1 do f:op("Move", dst + i, base + i) end end end
     if node.kind == "methodCall" then
         local o = exprAs(f, node.obj, "v")
@@ -210,7 +270,8 @@ local function emitCall(f, node, dst, nres)
     end
     local fr = exprAs(f, callee, "v")
     local base, nargs = callInto(f, node, math.max(dst, f.nregs))
-    f:op("CallDyn", fr, base, nargs)
+    local fid = callee.kind == "name" and f:knownFid(tokText(callee.token))
+    if fid then f:op("CallK", fid, fr, base, nargs, nres) else f:op("CallDyn", fr, base, nargs) end
     finish(base)
 end
 
@@ -375,6 +436,20 @@ expr = function(f, node, dst, want)
     elseif k == "tableExpr" then
         local items, named = 0, 0
         for _, field in ipairs(node.fields) do if field.kind == "fieldItem" then items = items + 1 else named = named + 1 end end
+        local struct = items == 0 and structShape(node.inferredType)
+        if struct then
+            local every = true
+            for _, field in ipairs(node.fields) do if field.kind ~= "fieldNamed" or not struct.slotIndex[tokText(field.name)] then every = false end end
+            if every then
+                f:op("NewRecord", dst, struct.id)
+                for _, field in ipairs(node.fields) do
+                    local slot = struct.slotIndex[tokText(field.name)]
+                    if struct.slots[slot + 1].ty == "num" then local fv = exprAs(f, field.value, "f"); f:op("SetSlotF", dst, slot, fv)
+                    else local v = exprAs(f, field.value, "v"); f:op("SetSlot", dst, slot, v) end
+                end
+                return dst, "v"
+            end
+        end
         f:op("NewTableN", dst, math.min(items, 255), math.min(named, 255))
         local n = 0
         for _, field in ipairs(node.fields) do
@@ -424,6 +499,7 @@ emitClosure = function(f, funcbody, dst, name, implicitSelf)
         if u.kind == "local" then f:op("Move", base + i, u.reg) else local t = f:reg(); f:op("GetUpval", t, u.index); f:op("Move", base + i, t) end
     end
     f:op("NewClosure", dst, inner.id, base, #inner.upvals)
+    return inner
 end
 
 -- Multiple results: evaluate `exprs` for `count` targets into consecutive
@@ -495,6 +571,7 @@ stmt = function(f, node)
                 f:op("NewCell", r, v)
             elseif value then exprAs(f, value, d.class, r)
             elseif d.class == "v" then f:op("Nil", r) elseif d.class == "i" then f:op("IK", r, 0) else f:op("FK", r, 0) end
+            markLibraryLocals(f, names, exprs)
             return
         end
         local base = f.nregs
@@ -503,6 +580,7 @@ stmt = function(f, node)
             local r, cell = f:declare(d.name, d.class)
             if cell then f:op("NewCell", r, base + i - 1) else coerce(f, base + i - 1, "v", d.class, r) end
         end
+        markLibraryLocals(f, names, exprs)
     elseif k == "assignStmt" then
         local targets, exprs = node.targets, node.exprs
         if #targets == 1 and #exprs == 1 then
@@ -623,13 +701,15 @@ stmt = function(f, node)
         -- `local function f`: f is in scope in its own body, through its cell.
         local name = tokText(node.name)
         local r, cell = f:declare(name, "v")
+        local inner
         if cell then
             f:op("Nil", r + 0) -- placeholder; the cell is made below
             local nilReg = f:reg(); f:op("Nil", nilReg); f:op("NewCell", r, nilReg)
-            local c = f:reg(); emitClosure(f, node.body, c, name); f:op("SetCell", r, c)
+            local c = f:reg(); inner = emitClosure(f, node.body, c, name); f:op("SetCell", r, c)
         else
-            emitClosure(f, node.body, r, name)
+            inner = emitClosure(f, node.body, r, name)
         end
+        if not assignedNames[name] then f.scopes[#f.scopes][name].fid = inner.id end
     elseif k == "funcStmt" then
         local fname = node.name
         local baseName = tokText(fname.base)
@@ -771,6 +851,12 @@ local function compileModule(name, path)
     for _, s in ipairs(stats) do if s.kind == "recordDecl" then declareShape(s) elseif s.kind == "exportStmt" and s.stat and s.stat.kind == "recordDecl" then declareShape(s.stat) end end
     local chunk = newFn("module:" .. name, nil)
     chunk.sig, chunk.ret, chunk.nparams = {}, "v", 0
+    -- Names the module assigns to anywhere, by name: a `local function` not
+    -- among them keeps its closure for the module's life.
+    assignedNames = {}
+    walkSyntax(rootNode.blocks[1], {}, function(n)
+        if n.kind == "assignStmt" then for _, t in ipairs(n.targets) do if t.kind == "name" then assignedNames[tokText(t.token)] = true end end end
+    end)
     markCaptures(chunk, {body = rootNode.blocks[1]})
     block(chunk, rootNode.blocks[1])
     local last = chunk.code[#chunk.code]

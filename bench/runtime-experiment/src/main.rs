@@ -94,6 +94,16 @@ extern "C" fn rt_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let _h
 extern "C" fn rt_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.tagcheck_rec(Value(v), shape as u32); v }
 extern "C" fn rt_tagcheck_str(v: u64) -> u64 { let it = ctx(); if !Value(v).as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { it.err("value is not a string") } v }
 extern "C" fn rt_new_table_sized(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
+/// `string.byte` for a value compiled code could not prove a string: the
+/// builtin's behaviour, including its error.
+extern "C" fn rt_str_byte(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(Value(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64).0 } else { Value::NIL.0 } }
+/// A field read that missed its site cache: resolve by name and, for a
+/// record, remember the shape and slot for the next read at that site.
+extern "C" fn rt_get_field_ic(t: u64, name: u64, cache: *mut u64) -> u64 {
+    let it = ctx(); let tv = Value(t);
+    if let Some(p) = tv.as_obj() { if let Body::Record { shape, slots } = unsafe { &(*p.as_ptr()).body } { let sh = &it.heap.shapes[*shape as usize]; if let Some(i) = sh.names.iter().position(|n| n.0 == name) { unsafe { *cache = *shape as u64 + 1; *cache.add(1) = i as u64; } return slots[i].0; } } }
+    it.get_field(tv, Value(name)).0
+}
 extern "C" fn rt_ret_extra(argv: *const u64, n: u64) -> u64 { let it = ctx(); it.extra_n = (n as usize).min(8); for i in 0..it.extra_n { it.extra[i] = Value(unsafe { *argv.add(i) }); } 0 }
 /// pcall from compiled code: ok flag returned, every value after it in `extra`.
 extern "C" fn rt_pcall(argv: *const u64, nargs: u64) -> u64 {
@@ -340,7 +350,7 @@ fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {
     let fid = it.funcs.len() as u32;
     it.funcs.push(lowered.clone());
     CTX.store(it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
-    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1)]);
+    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_str_byte", rt_str_byte as *const u8, 2), ("rt_get_field_ic", rt_get_field_ic as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1)]);
     it.compiled = vec![None; it.funcs.len()];
     let ptr = j.try_compile(&lowered, fid).unwrap_or_else(|e| panic!("compile: {e}"));
     for (n, us) in &j.compile_micros { eprintln!("compile\t{n}\t{us} us"); }
@@ -420,7 +430,7 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
     let fid = it.funcs.len() as u32;
     it.funcs.push(lowered.clone());
     CTX.store(it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
-    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2)]);
+    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_str_byte", rt_str_byte as *const u8, 2), ("rt_get_field_ic", rt_get_field_ic as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2)]);
     it.compiled = vec![None; it.funcs.len()];
     let ptr = j.try_compile(&lowered, fid).unwrap_or_else(|e| panic!("compile: {e}"));
     for (n, us) in &j.compile_micros { eprintln!("compile\t{n}\t{us} us"); }
@@ -619,8 +629,13 @@ fn main() {
         it.compiled = vec![None; it.funcs.len()];
         if std::env::var("NO_JIT").is_err() {
             // The typed tier: every function the JIT accepts, callees first by iteration.
-            let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1), ("rt_call_dyn", rt_call_dyn as *const u8, 3), ("rt_call_method", rt_call_method as *const u8, 3), ("rt_get_field", rt_get_field as *const u8, 2), ("rt_set_field", rt_set_field as *const u8, 3), ("rt_new_cell", rt_new_cell as *const u8, 1), ("rt_set_cell", rt_set_cell as *const u8, 2), ("rt_new_closure", rt_new_closure as *const u8, 3), ("rt_tagcheck_rec", rt_tagcheck_rec as *const u8, 2), ("rt_tagcheck_str", rt_tagcheck_str as *const u8, 1), ("rt_new_table_sized", rt_new_table_sized as *const u8, 2), ("rt_ret_extra", rt_ret_extra as *const u8, 2), ("rt_pcall", rt_pcall as *const u8, 2)]);
+            let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_str_byte", rt_str_byte as *const u8, 2), ("rt_get_field_ic", rt_get_field_ic as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1), ("rt_call_dyn", rt_call_dyn as *const u8, 3), ("rt_call_method", rt_call_method as *const u8, 3), ("rt_get_field", rt_get_field as *const u8, 2), ("rt_set_field", rt_set_field as *const u8, 3), ("rt_new_cell", rt_new_cell as *const u8, 1), ("rt_set_cell", rt_set_cell as *const u8, 2), ("rt_new_closure", rt_new_closure as *const u8, 3), ("rt_tagcheck_rec", rt_tagcheck_rec as *const u8, 2), ("rt_tagcheck_str", rt_tagcheck_str as *const u8, 1), ("rt_new_table_sized", rt_new_table_sized as *const u8, 2), ("rt_ret_extra", rt_ret_extra as *const u8, 2), ("rt_pcall", rt_pcall as *const u8, 2)]);
             j.extra_addr = &it.extra as *const [Value; 8] as i64;
+            // The entry table compiled code reads: one word per function, filled as
+            // each compiles, so a caller compiled later calls its callee directly.
+            let entries: &'static mut [u64] = Box::leak(vec![0u64; it.funcs.len()].into_boxed_slice());
+            j.entries_addr = entries.as_ptr() as i64;
+            j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f')).collect();
             j.inline = false;
             let (mut compiled, mut refused) = (0, Vec::new());
             let limit: usize = std::env::var("JIT_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
@@ -628,7 +643,7 @@ fn main() {
             for fid in 0..it.funcs.len() {
                 let f = it.funcs[fid].clone();
                 if f.name.starts_with("module:") || compiled >= limit || skip.iter().any(|n| n == f.name) { continue; }
-                match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.compiled[fid] = Some(ptr); compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
+                match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.compiled[fid] = Some(ptr); entries[fid] = ptr as u64; compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
             }
             if std::env::var("JIT_LIST").is_ok() { for fid in 0..it.funcs.len() { if it.compiled[fid].is_some() { eprintln!("jit\t{}", it.funcs[fid].name); } } }
             eprintln!("compiled {compiled} functions; refused {}: {}", refused.len(), refused.join(", "));

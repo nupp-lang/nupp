@@ -4,7 +4,7 @@
 //! prologue.
 
 use crate::interp::{Function, Op};
-use crate::heap::{KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
+use crate::heap::{KIND_CLOSURE, KIND_RECORD, KIND_STR, KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::inline::{Inline, InlineCommand};
@@ -17,6 +17,7 @@ use std::collections::{BTreeSet, HashMap};
 
 const QNAN: i64 = 0x7ff8_0000_0000_0000u64 as i64;
 const PAYLOAD: i64 = (1i64 << 48) - 1;
+const T_OBJ_TAG: i64 = 5 << 48;
 const NIL: i64 = (0x7ff8_0000_0000_0000u64 | (1 << 48)) as i64;
 
 /// Compiled code ranges and their stack maps: (start, end, [(return offset, frame span, [slot offsets])]).
@@ -55,7 +56,11 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
 pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, Vec<u8>, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
     bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)>,
     /// Addresses compiled code reads directly: the closure it was entered with, and the extra-results array.
-    pub cur_closure_addr: i64, pub extra_addr: i64 }
+    pub cur_closure_addr: i64, pub extra_addr: i64,
+    /// The interpreter's compiled-entry table (one nullable pointer per function)
+    /// and, per function, its parameter count and whether every parameter and
+    /// the result are plain values: what a known-callee call needs to go direct.
+    pub entries_addr: i64, pub callee_info: Vec<(u8, bool)> }
 
 struct Inliner<'a> { bodies: &'a HashMap<FuncId, cranelift_codegen::ir::Function>, refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> }
 impl Inline for Inliner<'_> {
@@ -94,7 +99,7 @@ impl Jit {
         let storage_ptr = module.declare_function("rt_storage_ptr", Linkage::Import, &sig).unwrap();
         let storage_len = module.declare_function("rt_storage_len", Linkage::Import, &sig).unwrap();
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), bodies: HashMap::new(), inline: std::env::var("NO_INLINE").is_err(), compile_micros: Vec::new(), cur_closure_addr: &crate::interp::CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0 }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), bodies: HashMap::new(), inline: std::env::var("NO_INLINE").is_err(), compile_micros: Vec::new(), entries_addr: 0, callee_info: Vec::new(), cur_closure_addr: &crate::interp::CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0 }
     }
 
     pub fn compile(&mut self, f: &Function) -> *const u8 { self.try_compile(f, u32::MAX).unwrap() }
@@ -115,8 +120,9 @@ impl Jit {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
                 Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) | Op::Switch(..) | Op::Eq(..) | Op::TagCheckNum(..) | Op::GetIdxI(..) | Op::IUnbox(..) | Op::ICmpSLt(..) | Op::ICmpSLe(..) | Op::IShl(..) | Op::IShrU(..) | Op::IOr(..) | Op::IBswap32(..) | Op::ICmpEq(..) | Op::BytesLen(..) | Op::LoadU8(..) | Op::LoadU8K(..) | Op::LoadU32W(..) | Op::StoreU8(..) | Op::StoreU32(..) | Op::Nil(..) | Op::ICmpNe(..) | Op::Truthy(..) | Op::GetSlot(..) | Op::FMod(..) => true,
                 Op::NewBuffer(..) | Op::BufAppend(..) | Op::BufAppendSub(..) | Op::Substring(..) | Op::BufFinish(..) => self.helpers.contains_key("rt_new_buffer"),
-                Op::GetUpval(..) | Op::GetCell(..) | Op::SetCell(..) | Op::NewCell(..) | Op::NewClosure(..) | Op::CallDyn(..) | Op::CallMethod(..) | Op::GetField(..) | Op::SetField(..) | Op::Len(..) | Op::Not(..) | Op::Neg(..) | Op::Ne(..) | Op::Div(..) | Op::Mod(..) | Op::TagCheckStr(..) | Op::TagCheckRec(..) | Op::NewTableN(..) | Op::RetN(..) | Op::PCall(..) => self.helpers.contains_key("rt_call_dyn") && self.extra_addr != 0,
+                Op::GetUpval(..) | Op::GetCell(..) | Op::SetCell(..) | Op::NewCell(..) | Op::NewClosure(..) | Op::CallDyn(..) | Op::CallMethod(..) | Op::GetField(..) | Op::SetField(..) | Op::Len(..) | Op::Not(..) | Op::Neg(..) | Op::Ne(..) | Op::Div(..) | Op::Mod(..) | Op::TagCheckStr(..) | Op::TagCheckRec(..) | Op::NewTableN(..) | Op::RetN(..) | Op::PCall(..) | Op::CallK(..) => self.helpers.contains_key("rt_call_dyn") && self.extra_addr != 0,
                 Op::NewBytes(..) | Op::BytesToStr(..) => self.helpers.contains_key("rt_new_bytes"),
+                Op::StrByte(..) => self.helpers.contains_key("rt_str_byte"),
                 Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Lt(..) | Op::Le(..) => self.helpers.contains_key("rt_arith_slow"),
                 // A park needs the frame record: only a frame-record entry may compile it.
                 Op::Park(..) => osr.is_some(),
@@ -184,7 +190,7 @@ impl Jit {
             b.declare_var_needs_stack_map(closure_var);
             { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
-            let (cur_closure_addr, extra_addr) = (self.cur_closure_addr, self.extra_addr);
+            let (cur_closure_addr, extra_addr, entries_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr);
             if uses_closure { if osr.is_some() { let h = params[3]; let c = b.ins().load(types::I64, flags, h, 16); b.def_var(closure_var, c); } else { let a = b.ins().iconst(types::I64, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); } }
             if let Some(header) = osr {
                 // Every register the function names, from the interpreter's windows,
@@ -542,6 +548,90 @@ impl Jit {
                         let ea = b.ins().iconst(types::I64, extra_addr);
                         for i in 1..8usize { if base as usize + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base as usize + i, v); }
                     }
+                    Op::StrByte(d, s, i) => {
+                        // `string.byte(s, i)` inline: a string by its tag and kind, the
+                        // index against its length, one byte load boxed as a number;
+                        // nil past the end, and the helper for anything that is not a
+                        // string, which errors as the builtin would.
+                        let (v, idx) = (rv!(s), iv!(i));
+                        let fast = b.create_block(); let slow = b.create_block(); let inb = b.create_block(); let outb = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I64);
+                        b.set_cold_block(slow);
+                        let tag = b.ins().band_imm(v, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+                        let o = b.ins().band_imm(v, PAYLOAD);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_str = b.ins().icmp_imm(IntCC::Equal, kind, KIND_STR as i64);
+                        let ok = b.ins().band(is_obj, is_str);
+                        b.ins().brif(ok, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let ptr = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let len = b.ins().load(types::I64, flags, o, OFF_AUX_LEN);
+                        let i0 = b.ins().iadd_imm(idx, -1); let inr = b.ins().icmp(IntCC::UnsignedLessThan, i0, len);
+                        b.ins().brif(inr, inb, &[], outb, &[]);
+                        b.switch_to_block(inb); b.seal_block(inb);
+                        let a = b.ins().iadd(ptr, i0); let byte = b.ins().uload8(types::I64, flags, a, 0); let fl = b.ins().fcvt_from_uint(types::F64, byte); let bits = b.ins().bitcast(types::I64, cast, fl);
+                        b.ins().jump(join, &[bits.into()]);
+                        b.switch_to_block(outb); b.seal_block(outb);
+                        let nil = b.ins().iconst(types::I64, NIL); b.ins().jump(join, &[nil.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let c = b.ins().call(helper_refs["rt_str_byte"], &[v, idx]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let r = b.block_params(join)[0];
+                        setr!(d, r);
+                    }
+                    Op::CallK(fid_, fr, base, nargs, nres) => {
+                        // A call whose callee the emitter named: when the closure in
+                        // `fr` is that function and it has a compiled entry, the
+                        // arguments go in registers straight to the entry, with no
+                        // helper, no argument slot and no result vector. Anything
+                        // else takes the dynamic path. The guard is three loads and
+                        // two compares; the callee's id rides in its aux length.
+                        let (argc, want) = (nargs as usize, (nres as usize).max(1));
+                        let info = self.callee_info.get(fid_ as usize).copied();
+                        let direct = info.map(|(_, plain)| plain).unwrap_or(false) && self.entries_addr != 0;
+                        let cv = rv!(fr);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        for _ in 0..want { b.append_block_param(join, types::I64); }
+                        b.set_cold_block(slow);
+                        if direct {
+                            let nparams = info.unwrap().0 as usize;
+                            let tag = b.ins().band_imm(cv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+                            let o = b.ins().band_imm(cv, PAYLOAD);
+                            let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_clo = b.ins().icmp_imm(IntCC::Equal, kind, KIND_CLOSURE as i64);
+                            let al = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let rid = b.ins().ushr_imm(al, 32); let same = b.ins().icmp_imm(IntCC::Equal, rid, fid_ as i64);
+                            let ea = b.ins().iconst(types::I64, entries_addr + 8 * fid_ as i64); let entry = b.ins().load(types::I64, flags, ea, 0); let has = b.ins().icmp_imm(IntCC::NotEqual, entry, 0);
+                            let c1 = b.ins().band(is_obj, is_clo); let c2 = b.ins().band(same, has); let ok = b.ins().band(c1, c2);
+                            b.ins().brif(ok, fast, &[], slow, &[]);
+                            b.switch_to_block(fast); b.seal_block(fast);
+                            let ca = b.ins().iconst(types::I64, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
+                            let xa = b.ins().iconst(types::I64, extra_addr);
+                            if want > 1 { let nil = b.ins().iconst(types::I64, NIL); for i in 1..want { b.ins().store(flags, nil, xa, ((i - 1) * 8) as i32); } }
+                            let mut args: Vec<Value> = Vec::with_capacity(nparams);
+                            for i in 0..nparams { args.push(if i < argc { rv!(base as usize + 1 + i) } else { b.ins().iconst(types::I64, NIL) }); }
+                            let mut csig = self.module.make_signature();
+                            for _ in 0..nparams { csig.params.push(AbiParam::new(types::I64)); }
+                            csig.returns.push(AbiParam::new(types::I64));
+                            let sref = b.import_signature(csig);
+                            let c = b.ins().call_indirect(sref, entry, &args);
+                            let mut outs = vec![b.inst_results(c)[0]];
+                            for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
+                            { let ba: Vec<cranelift_codegen::ir::BlockArg> = outs.iter().map(|v| cranelift_codegen::ir::BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        } else {
+                            b.ins().jump(slow, &[]);
+                            b.switch_to_block(fast); b.seal_block(fast); b.ins().trap(TrapCode::unwrap_user(3));
+                        }
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3));
+                        for i in 0..argc { let v = rv!(base as usize + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); }
+                        let addr = b.ins().stack_addr(types::I64, slot, 0); let nv = b.ins().iconst(types::I64, argc as i64);
+                        let c = b.ins().call(helper_refs["rt_call_dyn"], &[cv, addr, nv]);
+                        let xa = b.ins().iconst(types::I64, extra_addr);
+                        let mut outs = vec![b.inst_results(c)[0]];
+                        for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
+                        { let ba: Vec<cranelift_codegen::ir::BlockArg> = outs.iter().map(|v| cranelift_codegen::ir::BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        b.switch_to_block(join); b.seal_block(join);
+                        slots_cache.clear(); cond_of.clear(); bytes_cache.clear();
+                        let outs: Vec<Value> = b.block_params(join).to_vec();
+                        for (i, v) in outs.into_iter().enumerate() { setr!(base as usize + i, v); }
+                    }
                     Op::CallMethod(k, base, nargs) => {
                         let argc = nargs as usize; // the receiver is counted
                         let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * argc as u32, 3));
@@ -552,6 +642,36 @@ impl Jit {
                         setr!(base, b.inst_results(c)[0]);
                         let ea = b.ins().iconst(types::I64, extra_addr);
                         for i in 1..8usize { if base as usize + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base as usize + i, v); }
+                    }
+                    Op::GetField(d, t, k) if self.helpers.contains_key("rt_get_field_ic") => {
+                        // A field read by name with a per-site cache: the shape this
+                        // site last saw and the slot the name has in it. A record of
+                        // that shape reads the slot inline; anything else goes to the
+                        // helper, which refills the cache. The plan's "resolved per
+                        // shape" access for structural types, monomorphic here.
+                        let cache: &'static mut [u64; 2] = Box::leak(Box::new([0u64; 2]));
+                        let cache_addr = cache.as_ptr() as i64;
+                        let tv = rv!(t);
+                        let chk = b.create_block(); let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I64);
+                        b.set_cold_block(slow);
+                        let ca = b.ins().iconst(types::I64, cache_addr);
+                        let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+                        b.ins().brif(is_obj, chk, &[], slow, &[]);
+                        b.switch_to_block(chk); b.seal_block(chk);
+                        let o = b.ins().band_imm(tv, PAYLOAD);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
+                        let al = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let shape1 = b.ins().ushr_imm(al, 32); let shape1 = b.ins().iadd_imm(shape1, 1);
+                        let seen = b.ins().load(types::I64, flags, ca, 0);
+                        let same = b.ins().icmp(IntCC::Equal, shape1, seen); let hit = b.ins().band(is_rec, same);
+                        b.ins().brif(hit, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let idx = b.ins().load(types::I64, flags, ca, 8); let off = b.ins().ishl_imm(idx, 3); let a = b.ins().iadd(slots, off);
+                        let v = b.ins().load(types::I64, flags, a, 0); b.ins().jump(join, &[v.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = b.ins().call(helper_refs["rt_get_field_ic"], &[tv, name, ca]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let r = b.block_params(join)[0]; setr!(d, r);
                     }
                     Op::GetField(d, t, k) => { let tv = rv!(t); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = b.ins().call(helper_refs["rt_get_field"], &[tv, name]); setr!(d, b.inst_results(c)[0]); }
                     Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); b.ins().call(helper_refs["rt_set_field"], &[tv, name, vv]); slots_cache.clear(); }

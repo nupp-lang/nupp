@@ -77,6 +77,14 @@ pub enum Op {
     /// result to base.
     CallT(u32, u8, u8, u8),
     CallDyn(u8, u8, u8),
+    /// A dynamic call whose callee the emitter knows statically: (function id,
+    /// callee register, window base, argument count, results wanted). The
+    /// interpreter treats it as `CallDyn`; compiled code guards the closure's
+    /// id and calls the compiled entry directly.
+    CallK(u16, u8, u8, u8, u8),
+    /// `string.byte(s, i)` with one result: the byte as a number, or nil out
+    /// of range. (destination, string register, integer index register)
+    StrByte(u8, u8, u8),
     Ret(u8),
     RetNil,
     NewTable(u8),
@@ -546,6 +554,8 @@ impl Interp {
         self.heap.barrier(p, v);
         unsafe { match &mut (*p.as_ptr()).body {
             Body::Table { array, hash } => { if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= array.len() + 1 { let k = iv.as_num() as usize; if k == array.len() + 1 { array.push(v) } else { array[k - 1] = v } } else { hash.insert(iv, v); } }
+            // A record written by name: the shape is closed, so an unknown name is an error.
+            Body::Record { shape, slots } => { let sh = &self.heap.shapes[*shape as usize]; match sh.names.iter().position(|n| *n == iv) { Some(i) => slots[i] = v, None => self.err("no such field") } }
             _ => self.err("index of a non-table"),
         } (*p.as_ptr()).refresh(); }
     }
@@ -660,7 +670,7 @@ impl Interp {
                     Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
-                    Op::CallDyn(fr, b, nargs) => match self.op_call_dyn(tid, &win, pc, fr, b, nargs) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
+                    Op::CallDyn(fr, b, nargs) | Op::CallK(_, fr, b, nargs, _) => match self.op_call_dyn(tid, &win, pc, fr, b, nargs) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
                     Op::CallMethod(k, b, nargs) => match self.op_call_method(tid, &win, pc, k, b, nargs) { Flow::Next => {} Flow::Reenter => break, Flow::Return(o) => return o },
                     Op::PCall(b, nargs) => self.op_pcall(&win, b, nargs),
                     Op::Concat(d, a, b) => self.op_concat(&win, d, a, b),
@@ -751,6 +761,7 @@ impl Interp {
                     Op::ICmpEq(d, a, b) => ir!(d) = (ir!(a) == ir!(b)) as i64,
                     Op::BytesLen(d, s) => ir!(d) = self.bytes_of(r!(s)).len() as i64,
                     Op::LoadU8K(d, s, i) => { let bytes = self.bytes_of(r!(s)); ir!(d) = bytes[ir!(i) as usize] as i64; }
+                    Op::StrByte(d, s, i) => { let v = r!(s); let p = v.as_obj().unwrap_or_else(|| self.err("byte of a non-string")); let bytes = unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), _ => self.err("byte of a non-string") } }; let i = ir!(i); r!(d) = if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64) } else { Value::NIL }; }
                     Op::LoadU8(d, s, i) => { let bytes = self.bytes_of(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte read out of range") } ir!(d) = bytes[i] as i64; }
                     Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
                     Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }

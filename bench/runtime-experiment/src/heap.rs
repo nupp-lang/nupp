@@ -152,11 +152,11 @@ impl Object {
         match &mut self.body {
             Body::Str { text, .. } => { self.kind = KIND_STR; self.aux_ptr = text.as_ptr() as *mut u8; self.aux_len = text.len() as u64; }
             Body::Table { array, .. } => { self.kind = KIND_TABLE; self.aux_ptr = array.as_mut_ptr() as *mut u8; self.aux_len = array.len() as u64; }
-            Body::Record { slots, .. } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64; }
+            Body::Record { shape, slots } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64 | ((*shape as u64) << 32); }
             Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
             Body::Bytes { data } => { self.kind = KIND_BYTES; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
             Body::Iter { keys, .. } => { self.kind = KIND_ITER; self.aux_ptr = keys.as_mut_ptr() as *mut u8; self.aux_len = keys.len() as u64; }
-            Body::Closure { captures, .. } => { self.kind = KIND_CLOSURE; self.aux_ptr = captures.as_mut_ptr() as *mut u8; self.aux_len = captures.len() as u64; }
+            Body::Closure { fid, captures } => { self.kind = KIND_CLOSURE; self.aux_ptr = captures.as_mut_ptr() as *mut u8; self.aux_len = captures.len() as u64 | ((*fid as u64) << 32); }
             Body::Cell { value } => { self.kind = KIND_CELL; self.aux_ptr = value as *mut Value as *mut u8; self.aux_len = 1; }
             Body::Freed(_) => { self.kind = KIND_FREED; self.aux_ptr = std::ptr::null_mut(); self.aux_len = 0; }
         }

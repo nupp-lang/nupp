@@ -630,6 +630,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) => r(&[(V, d)]),
         Move(d, s) | Not(d, s) | Neg(d, s) | Len(d, s) | TagCheckNum(d, s) | TagCheckStr(d, s) | NewCell(d, s) | GetCell(d, s) | SetCell(d, s) | BufAppend(d, s) | BufFinish(d, s) => r(&[(V, d), (V, s)]),
         Add(d, a, b) | Sub(d, a, b) | Mul(d, a, b) | Lt(d, a, b) | Le(d, a, b) | Eq(d, a, b) | Ne(d, a, b) | Concat(d, a, b) | GetIdx(d, a, b) | SetIdx(d, a, b) | CallDyn(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
+        CallK(_, fr, base, nargs, nres) => { let mut l = vec![(V, fr), (V, base)]; for i in 0..nargs.max(1) { l.push((V, base + 1 + i)); } for i in 1..nres { l.push((V, base + i)); } (l, Vec::new()) }
         JmpIf(c, off) | JmpIfNot(c, off) => (vec![(V, c)], vec![off]),
         Jmp(off) => (Vec::new(), vec![off]),
         Switch(i, _) => r(&[(I, i)]),
@@ -639,6 +640,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         ICmpSLt(d, a, b) | ICmpSLe(d, a, b) | IShl(d, a, b) | IShrU(d, a, b) | IOr(d, a, b) | ICmpEq(d, a, b) | ICmpNe(d, a, b) | IAdd(d, a, b) | ISub(d, a, b) | ICmpLe(d, a, b) | ICmpLt(d, a, b) | IAnd(d, a, b) => r(&[(I, d), (I, a), (I, b)]),
         IBswap32(d, a) | IMaskU32(d, a) | IMov(d, a) => r(&[(I, d), (I, a)]),
         LoadU8(d, s, i) | LoadU8K(d, s, i) | LoadU32W(d, s, i) => r(&[(I, d), (V, s), (I, i)]),
+        StrByte(d, s, i) => r(&[(V, d), (V, s), (I, i)]),
         StoreU8(s, i, v) | StoreU32(s, i, v) => r(&[(V, s), (I, i), (I, v)]),
         NewBytes(d, n) => r(&[(V, d), (I, n)]),
         BytesToStr(d, s, n) => r(&[(V, d), (V, s), (I, n)]),
@@ -717,6 +719,7 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
                 for off in std::iter::once(def).chain(tbl.iter()) { let tt = pc as i64 + 1 + *off as i64; if tt < 0 || tt > n as i64 { return Err(format!("pc {pc}: switch target {tt} outside the code")); } }
             }
             Op::Call(callee, ..) | Op::CallT(callee, ..) if callee as usize >= nfuncs => return Err(format!("pc {pc}: callee {callee} outside the image of {nfuncs}")),
+            Op::CallK(fid, ..) if fid as usize >= nfuncs => return Err(format!("pc {pc}: known callee {fid} outside the image of {nfuncs}")),
             Op::NewClosure(_, fid, ..) if fid as usize >= nfuncs => return Err(format!("pc {pc}: closure over function {fid} outside the image")),
             _ => {}
         }

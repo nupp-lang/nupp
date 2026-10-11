@@ -929,6 +929,68 @@ typed arguments (closes the 40%), `string.byte` as an intrinsic (half
 the builtin calls), and token records in place of tables (the hash
 inserts). The threaded interpreter is unaffected by any of this.
 
+## The lexer's call boundary and token shape, closed in four steps
+
+Date: 2026-10-11, continuing the typed-tier run above (2.5 ms, every
+call dynamic, tokens as hash tables). Each step is one lowering the
+profile named, and each is a mechanism the plan already describes.
+
+| the lexer's own source, per lex | ms | ns per byte |
+| --- | ---: | ---: |
+| typed tier, every call dynamic (above) | 2.5 | 60 |
+| + known-callee calls (`CallK`): a guarded direct call to the compiled entry | 2.05 | 50 |
+| + `string.byte(s, i)` as an opcode (`StrByte`), 48,132 builtin calls gone | 1.66 | 40 |
+| + token constructors as structural shapes, field reads through a site cache | 1.45 | 35 |
+| LuaJIT interpreter, ffi arena | 2.70 | 66 |
+| LuaJIT trace, ffi arena | 0.43 | 10.6 |
+
+**Known callees.** The emitter marks a `local function` the module never
+assigns to, and a call through that name carries the function id:
+`CallK fid callee base nargs nres`. The interpreter runs it as `CallDyn`.
+Compiled code checks three words (the value is an object, its kind is
+closure, the id in the closure header is the one named) and that the
+callee has a compiled entry in a flat table, then calls the entry with
+the arguments in registers; anything else takes the `rt_call_dyn` path.
+No helper, no argument slot, no result vector; surplus results come back
+through `extra`, NIL-filled before the call only for the results the
+site wants. The verifier checks only that the id is inside the image,
+because the guard makes a wrong id a slow call, not a wrong call.
+
+**The byte intrinsic.** `local byte = string.byte` is recognised as a
+library binding the module never reassigns, and a two-argument call
+through it whose first argument the checker typed `string` and second
+`integer` lowers to `StrByte`: an inline tag and kind check, a bounds
+compare, one byte load, boxed; nil past the end; the helper for anything
+not a string, which errors as the builtin would. Both the interpreter
+and the JIT implement it.
+
+**Structural shapes.** The checker types `{kind = ..., text = ...}` as
+a closed set of named fields (`tag = "shape"`), and the emitter gives
+every distinct field set a shape, so the constructor is `NewRecord` and
+slot stores, as a nominal record's is. Reads keep the structural rule
+from the plan (section "Nominal records have one layout; structural
+acceptance goes through a shape's descriptor"): `GetField` by name,
+lowered with a per-site cache of (shape, slot) that the helper fills on
+a miss. A record of the cached shape reads its slot inline; a table or
+another shape goes to the helper. Allocation per lex is now 4,904
+records, 4 tables, 970 closures, 1,354 cells.
+
+What was tried and reverted: slots inline in the record body (a
+small-vector of eight) made every object in the fixed-slot chunk
+allocator larger and cost the closure benchmark 25% for no measurable
+gain here. Inline slots need variable-size objects, which is the real
+runtime's layout, not this allocator's.
+
+Profile at 1.45 ms: malloc and free 22% (records' slot vectors, closures,
+cells), table reads by string key 10% (`KEYWORDS[text]`, `OPS1BYTE[c]`),
+the collector 7%, remaining dynamic and method calls 6%, the generated
+code itself about 15%. The lexer now runs at 0.54x LuaJIT's interpreter
+and 3.4x its trace, on the untyped lowering with direct calls: no
+unboxed locals, no typed signatures, no inlining. The plan's `nupp
+check` target of 1.25x LuaJIT wall time is met on this slice with room,
+and the typed signatures item is no longer the next thing the profile
+asks for; the allocator and the collector are.
+
 ## Threaded dispatch: the call row closed
 
 Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the
