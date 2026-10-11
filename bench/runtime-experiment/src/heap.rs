@@ -62,6 +62,7 @@ impl Value {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum Color { White, Gray, Black }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -83,13 +84,44 @@ pub enum Body {
     Freed(String),
 }
 
+/// Object kinds as the header byte compiled code reads.
+pub const KIND_STR: u8 = 1;
+pub const KIND_TABLE: u8 = 2;
+pub const KIND_RECORD: u8 = 3;
+pub const KIND_STORAGE: u8 = 4;
+pub const KIND_FREED: u8 = 0;
+
+/// The header has a fixed layout so compiled code reads an object's kind, the
+/// pointer to its payload (slots, array part, storage, bytes) and that
+/// payload's length at known offsets, with no runtime call.
+#[repr(C)]
 pub struct Object {
+    pub kind: u8,
     pub color: Color,
     /// The cycle that last whitened or allocated this object: a white object
     /// from an earlier cycle is dead once marking has ended.
     pub epoch: u64,
+    pub aux_ptr: *mut u8,
+    pub aux_len: u64,
     pub bytes: usize,
     pub body: Body,
+}
+
+pub const OFF_KIND: i32 = std::mem::offset_of!(Object, kind) as i32;
+pub const OFF_AUX_PTR: i32 = std::mem::offset_of!(Object, aux_ptr) as i32;
+pub const OFF_AUX_LEN: i32 = std::mem::offset_of!(Object, aux_len) as i32;
+
+impl Object {
+    /// Re-mirrors the payload pointer and length after the body changed.
+    pub fn refresh(&mut self) {
+        match &mut self.body {
+            Body::Str { text, .. } => { self.kind = KIND_STR; self.aux_ptr = text.as_ptr() as *mut u8; self.aux_len = text.len() as u64; }
+            Body::Table { array, .. } => { self.kind = KIND_TABLE; self.aux_ptr = array.as_mut_ptr() as *mut u8; self.aux_len = array.len() as u64; }
+            Body::Record { slots, .. } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64; }
+            Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
+            Body::Freed(_) => { self.kind = KIND_FREED; self.aux_ptr = std::ptr::null_mut(); self.aux_len = 0; }
+        }
+    }
 }
 
 impl Object {
@@ -140,7 +172,8 @@ impl Heap {
         // frees what was allocated after marking ended. The sweep whitens
         // them as it passes; white otherwise, as the next cycle will see them.
         let color = if self.phase != Phase::Idle { Color::Black } else { Color::White };
-        let p = NonNull::new(Box::into_raw(Box::new(Object { color, epoch: self.stats.cycles, bytes, body }))).unwrap();
+        let p = NonNull::new(Box::into_raw(Box::new(Object { kind: 0, color, epoch: self.stats.cycles, aux_ptr: std::ptr::null_mut(), aux_len: 0, bytes, body }))).unwrap();
+        unsafe { (*p.as_ptr()).refresh(); }
         self.objects.push(p);
         self.live_bytes += bytes;
         self.debt += bytes;
@@ -309,6 +342,7 @@ impl Heap {
                 // detectable by the oracle instead of being undefined behaviour.
                 let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", &text[..text.len().min(40)]), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Freed(w) => w.clone() };
                 o.body = Body::Freed(what);
+                o.refresh();
                 o.color = Color::White;
             } else {
                 drop(Box::from_raw(p.as_ptr()));

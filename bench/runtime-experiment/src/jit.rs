@@ -4,8 +4,11 @@
 //! prologue.
 
 use crate::interp::{Function, Op};
+use crate::heap::{KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, MemFlagsData, Value};
+use cranelift_codegen::inline::{Inline, InlineCommand};
+use std::borrow::Cow;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -13,9 +16,18 @@ use cranelift_module::{FuncId, Linkage, Module};
 use std::collections::{BTreeSet, HashMap};
 
 const QNAN: i64 = 0x7ff8_0000_0000_0000u64 as i64;
+const PAYLOAD: i64 = (1i64 << 48) - 1;
 const NIL: i64 = (0x7ff8_0000_0000_0000u64 | (1 << 48)) as i64;
 
-pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, u8)>, pub compile_micros: Vec<(String, u128)> }
+pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
+    bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)> }
+
+struct Inliner<'a> { bodies: &'a HashMap<FuncId, cranelift_codegen::ir::Function>, refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> }
+impl Inline for Inliner<'_> {
+    fn inline(&mut self, _caller: &cranelift_codegen::ir::Function, _inst: cranelift_codegen::ir::Inst, _op: cranelift_codegen::ir::Opcode, callee: cranelift_codegen::ir::FuncRef, _args: &[Value]) -> InlineCommand<'_> {
+        match self.refs.get(&callee).and_then(|id| self.bodies.get(id)) { Some(f) => InlineCommand::Inline { callee: Cow::Borrowed(f), visit_callee: false }, None => InlineCommand::KeepCall }
+    }
+}
 
 impl Jit {
     pub fn new(storage_ptr: *const u8, storage_len: *const u8) -> Jit { Self::with_helpers(storage_ptr, storage_len, &[]) }
@@ -46,7 +58,7 @@ impl Jit {
         let storage_ptr = module.declare_function("rt_storage_ptr", Linkage::Import, &sig).unwrap();
         let storage_len = module.declare_function("rt_storage_len", Linkage::Import, &sig).unwrap();
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), compile_micros: Vec::new() }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), storage_ptr, storage_len, helpers, funcs: HashMap::new(), bodies: HashMap::new(), inline: std::env::var("NO_INLINE").is_err(), compile_micros: Vec::new() }
     }
 
     pub fn compile(&mut self, f: &Function) -> *const u8 { self.try_compile(f, u32::MAX).unwrap() }
@@ -71,7 +83,7 @@ impl Jit {
         self.ctx.func.signature = sig;
         self.ctx.want_disasm = std::env::var("DISASM").is_ok();
         let frontend = self.module.target_config();
-        {
+        let inline_refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> = {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
             let sp = self.module.declare_func_in_func(self.storage_ptr, b.func);
             let sl = self.module.declare_func_in_func(self.storage_len, b.func);
@@ -123,7 +135,10 @@ impl Jit {
             macro_rules! rv { ($i:expr) => { b.use_var(rvars[$i as usize]) } }
             let mut slots_cache: HashMap<u8, Value> = HashMap::new();
             macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; slots_cache.remove(&($i as u8)); b.def_var(rvars[$i as usize], v) } }
-            macro_rules! slots_of { ($r:expr) => {{ let r = $r as u8; match slots_cache.get(&r) { Some(v) => *v, None => { let obj = rv!(r); let c = b.ins().call(helper_refs["rt_record_slots"], &[obj]); let v = b.inst_results(c)[0]; slots_cache.insert(r, v); v } } }} }
+            // The object behind a value register, and its payload pointer and
+            // length, read from the fixed header; cached per register per block.
+            macro_rules! obj_of { ($r:expr) => {{ let v = rv!($r); b.ins().band_imm(v, PAYLOAD) }} }
+            macro_rules! slots_of { ($r:expr) => {{ let r = $r as u8; match slots_cache.get(&r) { Some(v) => *v, None => { let o = obj_of!(r); let v = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); slots_cache.insert(r, v); v } } }} }
             macro_rules! box_f64 { ($v:expr) => {{ let v = $v; let bits = b.ins().bitcast(types::I64, cast, v); let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) }} }
             for (pc, op) in f.code.iter().enumerate() {
                 if let Some(&blk) = blocks.get(&pc) {
@@ -156,9 +171,42 @@ impl Jit {
                     Op::JmpIf(c, off) => { let v = rv!(c); let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); let is_nil = b.ins().icmp(IntCC::Equal, v, nil); let is_false = b.ins().icmp(IntCC::Equal, v, fa); let falsy = b.ins().bor(is_nil, is_false); let next = blocks[&(pc + 1)]; b.ins().brif(falsy, next, &[], target(off), &[]); terminated = true; }
                     Op::GetSlotF(d, r, i) => { let slots = slots_of!(r); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setf!(d, b.ins().bitcast(types::F64, cast, v)); }
                     Op::SetSlotF(r, i, x) => { let slots = slots_of!(r); let v = fv!(x); let boxed = box_f64!(v); b.ins().store(flags, boxed, slots, (i as i32) * 8); }
-                    Op::LenF(d, r) => { let obj = rv!(r); let c = b.ins().call(helper_refs["rt_len"], &[obj]); let n = b.inst_results(c)[0]; setf!(d, b.ins().fcvt_from_sint(types::F64, n)); }
-                    Op::GetIdxF(d, t, i) => { let obj = rv!(t); let k = fv!(i); let kb = box_f64!(k); let c = b.ins().call(helper_refs["rt_get_index"], &[obj, kb]); setr!(d, b.inst_results(c)[0]); }
-                    Op::GetIdx(d, t, i) => { let obj = rv!(t); let k = rv!(i); let c = b.ins().call(helper_refs["rt_get_index"], &[obj, k]); setr!(d, b.inst_results(c)[0]); }
+                    Op::LenF(d, r) => { let o = obj_of!(r); let n = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); setf!(d, b.ins().fcvt_from_sint(types::F64, n)); }
+                    Op::GetIdxF(d, t, i) | Op::GetIdx(d, t, i) => {
+                        // Inline array-part read: the object is a table, the index an
+                        // integral number in 1..=len; otherwise the general helper.
+                        let is_f = matches!(op, Op::GetIdxF(..));
+                        let o = obj_of!(t);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND);
+                        let is_table = b.ins().icmp_imm(IntCC::Equal, kind, KIND_TABLE as i64);
+                        let kf = if is_f { fv!(i) } else { let kv = rv!(i); b.ins().bitcast(types::F64, cast, kv) };
+                        let ki = b.ins().fcvt_to_sint_sat(types::I64, kf);
+                        let back = b.ins().fcvt_from_sint(types::F64, ki);
+                        let integral = b.ins().fcmp(FloatCC::Equal, back, kf);
+                        let len = b.ins().load(types::I64, flags, o, OFF_AUX_LEN);
+                        let idx0 = b.ins().iadd_imm(ki, -1);
+                        let in_range = b.ins().icmp(IntCC::UnsignedLessThan, idx0, len);
+                        let c1 = b.ins().band(is_table, integral);
+                        let fast = b.ins().band(c1, in_range);
+                        let fast_b = b.create_block(); let slow_b = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I64);
+                        b.ins().brif(fast, fast_b, &[], slow_b, &[]);
+                        b.switch_to_block(fast_b); b.seal_block(fast_b);
+                        let arr = b.ins().load(types::I64, flags, o, OFF_AUX_PTR);
+                        let off = b.ins().imul_imm(idx0, 8);
+                        let addr = b.ins().iadd(arr, off);
+                        let v = b.ins().load(types::I64, flags, addr, 0);
+                        b.ins().jump(join, &[v.into()]);
+                        b.switch_to_block(slow_b); b.seal_block(slow_b);
+                        let obj = rv!(t);
+                        let kb = if is_f { let kf2 = fv!(i); box_f64!(kf2) } else { rv!(i) };
+                        let c = b.ins().call(helper_refs["rt_get_index"], &[obj, kb]);
+                        let sv = b.inst_results(c)[0];
+                        b.ins().jump(join, &[sv.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        slots_cache.clear();
+                        setr!(d, b.block_params(join)[0]);
+                    }
                     Op::Call(callee, base, nargs) => { let (fref, _) = callee_refs[&callee]; let args: Vec<Value> = (0..nargs).map(|i| rv!(base + 1 + i)).collect(); let c = b.ins().call(fref, &args); setr!(base, b.inst_results(c)[0]); }
                     Op::Ret(r) => { let v = rv!(r); b.ins().return_(&[v]); terminated = true; }
                     Op::FAdd(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fadd(p, q)); }
@@ -250,8 +298,15 @@ impl Jit {
             }
             if !terminated { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); }
             b.seal_all_blocks();
+            let refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> = callee_refs.iter().filter_map(|(fid, (fr, _))| self.funcs.get(fid).map(|(id, _)| (*fr, *id))).collect();
             b.finalize(frontend);
+            refs
+        };
+        if self.inline && !inline_refs.is_empty() {
+            let inliner = Inliner { bodies: &self.bodies, refs: inline_refs };
+            self.ctx.inline(inliner).unwrap_or_else(|e| panic!("{}: inline: {e}", f.name));
         }
+        if fid != u32::MAX { self.bodies.insert(id, self.ctx.func.clone()); }
         if let Err(errors) = cranelift_codegen::verifier::verify_function(&self.ctx.func, self.module.isa()) {
             panic!("{}: {errors}\n{}", f.name, self.ctx.func.display());
         }

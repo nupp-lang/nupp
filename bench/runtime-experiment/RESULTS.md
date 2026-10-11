@@ -276,3 +276,42 @@ The remaining gap to LuaJIT's trace on this path is lowering quality: an
 array read is a helper call on a boxed index, the method call is a real
 call, and nothing is inlined. Each is a known lowering item, not a design
 limit.
+
+## Closing the hot path: fixed headers, inline access, inlining
+
+Date: 2026-10-11, same branch. The three shortcuts named above were taken
+back in order, with the hot path re-timed after each (three runs, spread
+under 5%):
+
+| step | `hot` per call |
+| --- | ---: |
+| two typed functions compiled, helper call per slot and per element | 129 us |
+| slots pointer hoisted per receiver within a block | 87 us |
+| fixed object header: kind, payload pointer and length at known offsets; slot reads and array reads inline (kind check, integrality, bounds, load; helper on the slow path) | 62 us |
+| Cranelift's inliner fed the callee's CLIF: `Point.length` inlined into `total` | 52 us |
+| LuaJIT trace compiler, same source | 47 us |
+| LuaJIT interpreter | 358 us |
+
+The fixed header is the one change that touches the object model: every
+object now begins with its kind, a mirrored pointer to its payload and the
+payload's length, refreshed whenever the payload moves. Records and
+storage never move theirs; a table's array part is refreshed on each push.
+Compiled code masks the value's payload bits to the object pointer and
+loads from there; the general case, a hash key or a non-table, falls to the
+runtime helper. This is the shape the contracts assume for the real
+runtime and the prototype had been faking with calls.
+
+Cranelift 0.135's inliner takes a per-call decision and the callee's CLIF;
+the JIT keeps the CLIF of every function it compiles and offers it for
+direct calls. No typed calling convention exists yet: an inlined callee
+still boxes its return and the caller unboxes it, which Cranelift's
+optimiser folds only partly. That, the value-index box in the array read,
+and the move chains the emitter leaves are what remains between 52 and the
+roughly 10 us of actual work in this loop.
+
+What this does and does not show. A two-tier runtime whose typed tier is
+a non-speculative Cranelift lowering now matches a mature trace compiler
+on a record-array loop, to within 10%, with three lowering items still
+open. It does not show anything about collection under compiled
+allocation (no stack maps), about closures, or about the untyped tier,
+which is unchanged at 3x LuaJIT's interpreter.
