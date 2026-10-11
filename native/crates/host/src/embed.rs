@@ -39,7 +39,6 @@ const VALUE_STRING: u32 = 3;
 const VALUE_BYTES: u32 = 4;
 const VALUE_HANDLE: u32 = 5;
 
-const RELOAD_STRICT: u32 = 1;
 
 const RELOAD_NO_CHANGE: u32 = 0;
 const RELOAD_COMMITTED: u32 = 1;
@@ -1130,7 +1129,7 @@ unsafe fn reload_configuration<'a>(
         });
     }
     let config = unsafe { config.read() };
-    if config.flags & !RELOAD_STRICT != 0 {
+    if config.flags != 0 {
         return Err(Failure::invalid(
             ERROR_CONFIGURATION,
             "nupp_reload_config contains unknown flags",
@@ -1161,7 +1160,7 @@ pub unsafe extern "C" fn nupp_reload_open(
             let (config, compiler, root) = reload_configuration(config, out)?;
             let entry = utf8(config.entry, "a reloading entry", ERROR_CONFIGURATION)?;
             let reload = runtime
-                .reload_open(compiler, root, entry, config.flags & RELOAD_STRICT != 0)
+                .reload_open(compiler, root, entry)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
             out.write(issue_reload(runtime, reload)?);
             Ok(())
@@ -1182,9 +1181,9 @@ pub unsafe extern "C" fn nupp_reload_attach(
         status_boundary(error, || {
             let entry = enter(runtime)?;
             let runtime = entry.runtime();
-            let (config, compiler, root) = reload_configuration(config, out)?;
+            let (_, compiler, root) = reload_configuration(config, out)?;
             let reload = runtime
-                .reload_attach(compiler, root, config.flags & RELOAD_STRICT != 0)
+                .reload_attach(compiler, root)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
             out.write(issue_reload(runtime, reload)?);
             Ok(())

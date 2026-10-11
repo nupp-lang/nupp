@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 corpus="$root/tests/lua51-compat"
 
-(cd "$corpus" && "$root/bin/nupp" build --compat lua51 --strict >/dev/null)
+(cd "$corpus" && "$root/bin/nupp" build --compat lua51 >/dev/null)
 
 if [ "$#" -eq 0 ]; then
     set -- lua5.1 lua5.2 lua5.3 lua5.4 luajit

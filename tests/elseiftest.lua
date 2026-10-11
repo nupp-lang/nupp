@@ -14,9 +14,9 @@ local envMod = require("nupp.compiler.project.env")
 local sharedEnv = envMod.new(".")
 
 local function lint(src, opts)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test.g.nupp", sharedEnv, opts or {})
+   local diags = check.check(result, "test.nupp", sharedEnv, opts or {})
    local found = {}
    for _, diag in ipairs(diags) do
       if diag.code == "NUPP2510" then found[#found + 1] = diag end

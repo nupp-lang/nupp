@@ -55,7 +55,7 @@ for name, entry in pairs(state.modules) do
     if name:match("^nupp%.") then
         local stem = "src/" .. name:gsub("%.", "/")
         local source, path
-        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", ".lua"}) do
+        for _, suffix in ipairs({".nupp", "/init.nupp", ".lua"}) do
             source, path = read(stem .. suffix), stem .. suffix
             if source then
                 break

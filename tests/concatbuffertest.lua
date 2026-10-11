@@ -12,14 +12,14 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(src, level, compat)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local checkDiags = check.check(result, "test.g.nupp", env, compat and {compat = compat} or nil)
+    local checkDiags = check.check(result, "test.nupp", env, compat and {compat = compat} or nil)
     if compat then
         testAssert.equal(#checkDiags, 0, "source compatibility diagnostics")
         testAssert.equal(result.compat, compat, "resolved source compatibility")
     end
-    local remarks = optimize.run(result, {level = level, filename = "test.g.nupp"})
+    local remarks = optimize.run(result, {level = level, filename = "test.nupp"})
     local code, diags = gen.generate(result, "test")
     testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
 
@@ -295,10 +295,10 @@ for i = 1, 3 do
 end
 return out
 ]], "test")
-    check.check(result, "test.g.nupp", env)
+    check.check(result, "test.nupp", env)
     local remarks = optimize.run(result, {
         level = 1,
-        filename = "test.g.nupp",
+        filename = "test.nupp",
         disabled = {["OPT-5"] = true},
     })
     for _, entry in ipairs(remarks) do

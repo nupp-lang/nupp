@@ -231,7 +231,7 @@ function M.generatedIndexesAreDeterministicAndReportWriteFailures()
             {interface = "z.Api", implementation = "z.first"},
         }
         assert(discovery.write(dir, "out", entries))
-        local generated = assert(fs.readFile(dir .. "/out/generated/nupp/spi/index.g.nupp"))
+        local generated = assert(fs.readFile(dir .. "/out/generated/nupp/spi/index.nupp"))
         local expected = [[module nupp.spi.index
 const _DYNAMIC_REQUIRES = "@requires-dynamically z.second @requires-dynamically a.first @requires-dynamically z.first"
 export = {

@@ -70,7 +70,7 @@ while true do
                 if kind == "hover" then
                     answers[i] = session:hover(7)
                 else
-                    answers[i] = session[kind](session, source, "latency.g.nupp", {})
+                    answers[i] = session[kind](session, source, "latency.nupp", {})
                 end
             else
                 answers[i] = decode(
@@ -78,7 +78,7 @@ while true do
                         encode({
                             kind = kind,
                             source = source,
-                            filename = "latency.g.nupp",
+                            filename = "latency.nupp",
                             offset = 7,
                             options = {}
                         })

@@ -31,7 +31,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `lints` | List the lints and their levels | [lints.md](../../reference/lints.md) |
 | `import-c` | Turn a C header into declarations | [c-interop.md](../runtime/c-interop/index.md) |
 | `export-c` | Export Nupp struct layouts and entry declarations | [c-interop.md](../runtime/c-interop/index.md) |
-| `migrate` | Convert annotated Lua into gradual Nupp | [gradual-typing.md](../language/gradual-typing.md) |
+| `migrate` | Convert annotated Lua into Nupp | [luacats.md](../projects/integrations/luacats.md) |
 | `aot` | Inspect verified AOT IR and target artifacts | [index.md](../performance/ahead-of-time/index.md) |
 | `reference` | Print focused language and tool reference | [diagnostics.md](../../reference/diagnostics.md) |
 | `ownership-audit` | Report resource obligations and transfers | [ownership.md](../runtime/ownership/index.md) |
@@ -49,14 +49,14 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 
 ```bash
 nupp check              # the whole configured project
-nupp check --strict     # hold every file to the strict floor, .g.nupp included
 nupp check src/app.nupp # one file
 ```
 
 Check the whole project rather than the file you changed. That is what lets Nupp
 verify module boundaries, ownership contracts, and project lint settings
-together. See [gradual typing](../language/gradual-typing.md) for what the strict
-floor adds, and [modules](../language/modules.md) for the boundaries it checks.
+together. See [file types](../language/file-types.md) for what each extension
+is checked for, and [modules](../language/modules.md) for the boundaries it
+checks.
 
 ## Machine-readable output
 

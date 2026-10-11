@@ -128,7 +128,7 @@ local function commentLines(text)
 end
 
 -- What a block is checked as. A caption naming a file keeps that file's extension, so
--- a `.g.nupp` view is checked gradually and a `.d.nupp` as a declaration; anything
+-- a `.nupp` view is checked as Nupp and a `.d.nupp` as a declaration; anything
 -- else is a strict file of its own, outside every source root.
 local function exampleName(where, block)
    local caption = block.options:match("%[([^%]]+)%]")

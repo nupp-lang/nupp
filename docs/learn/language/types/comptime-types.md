@@ -248,8 +248,8 @@ a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is reported as
 
 The declarations for the Lua standard library type `string.format` with a
 comptime function that reads the format string. A literal format gets exact
-argument arity and conversion checks, and a broad runtime `string` retains a
-gradual `...any` tail.
+argument arity and conversion checks, and a broad runtime `string` retains an
+unchecked `...any` tail.
 
 ```nupp
 local message = string.format("%s has %d messages", "Ada", 3)
@@ -278,7 +278,7 @@ See [derives.md](../../../reference/derives.md#debug) for what
 
 ### Formats the checker cannot read
 
-A format that is not a literal is not an error. The call keeps the gradual
+A format that is not a literal is not an error. The call keeps the unchecked
 `...any` tail instead of an exact parameter list:
 
 ```nupp
@@ -334,7 +334,7 @@ to rewrite the format and call `debug()`. It is available only on direct
 A literal pattern is read by a comptime function that counts its captures, and
 `string.match`, `find`, `gmatch`, and `gsub` take their result packs from it.
 Ordinary captures are `string` and empty `()` captures are `integer`. A dynamic
-pattern keeps the ordinary gradual result contract.
+pattern keeps the ordinary unchecked result contract.
 
 `match` keeps its first result optional, because the pattern may not match at
 all:
@@ -416,7 +416,7 @@ A `@comptime function` runs while source is checked and contributes only its
 resulting type or pack. It emits no callable function, cache table, or runtime
 branch, and [const parameters](#const-parameters) erase by the same boundary.
 See
-[strictness.md](../gradual-typing.md#constructs-that-arent-erased) for the
+[file-types.md](../file-types.md#constructs-that-arent-erased) for the
 two things that do survive.
 
 ### Why do type generators use parentheses?

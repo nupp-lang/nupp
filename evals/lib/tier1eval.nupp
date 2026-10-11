@@ -66,7 +66,7 @@ function tier1.makeWorkspace(root: string, nupp: string, entry: any): string
     end
     harness.write(harness.join(workspace, "nupp.lua"), MANIFEST)
     harness.write(harness.join(workspace, "sample.nupp"), entry.wrong)
-    harness.write(harness.join(workspace, "mathutil.g.nupp"), COMPANION)
+    harness.write(harness.join(workspace, "mathutil.nupp"), COMPANION)
     local shim = harness.join(bin, "nupp")
     harness.write(shim, "#!/bin/sh\nexec " .. shellQuote(nupp) .. " \"$@\"\n")
     local chmod = harness.run({"chmod", "+x", shim})
@@ -81,9 +81,6 @@ function tier1.check(nupp: string, workspace: string, entry: any): {any}
     local code = tostring(entry.code)
     local verb = code:match("^NUPP3") and "build" or "check"
     local argv = {nupp, verb, "--json"}
-    if entry.strict == true then
-        argv[#argv + 1] = "--strict"
-    end
     local done = harness.run(argv, workspace)
     local ok, answer = pcall(json.decode, done.stdout, json.NULL)
     if not ok then

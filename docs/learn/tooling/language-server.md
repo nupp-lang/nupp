@@ -101,9 +101,9 @@ rather than showing them against text it no longer has.
 ## Workspace folders
 
 A project is a `nupp.lua`. Each one is read under its own manifest, with its own
-dependencies, lint levels, strictness, language mode and target, so a file is
-checked the same way whichever window opened it and whichever folder the server
-was launched against. A project still searches its neighbors for modules, so a
+dependencies, lint levels, language mode and target, so a file is checked the
+same way whichever window opened it and whichever folder the server was
+launched against. A project still searches its neighbors for modules, so a
 `require` that crosses projects resolves as it always did. See
 [modules.md](../language/modules.md) for how a module name maps to a file.
 
@@ -340,7 +340,7 @@ editor and a terminal answer for the same bytes.
 An agent editing Nupp reads the checker first and reaches for the semantic
 operations only where a diagnostic does not say enough:
 
-1. Run `nupp check --json --strict`.
+1. Run `nupp check --json`.
 2. Apply a whole titled fix from `diagnostics[].fixes` when its title matches
    the intended repair, rather than selecting individual edits from it.
 3. Read `related` before changing a cross-file declaration or an ownership

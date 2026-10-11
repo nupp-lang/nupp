@@ -8,18 +8,6 @@ local env = envMod.new(HERE .. "/..")
 
 local function codes(source)
     env.loaded = {}
-    local parsed = parser.parse(source, "test.g.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
-    local out = {}
-    for j, diagnostic in ipairs(check.check(parsed, "test.g.nupp", env)) do
-        out[j] = diagnostic.code
-    end
-
-    return table.concat(out, " ")
-end
-
-local function strictCodes(source)
-    env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     local out = {}
@@ -77,7 +65,7 @@ end
 -- fit `function(): string`.
 function M.aHomogeneousTailSlotReadsAsOptional()
     testAssert.equal(
-        strictCodes(
+        codes(
             table.concat(
                 {
                     "local function none(): ...string",
@@ -242,7 +230,7 @@ end
 
 function M.missingExpandedResultsAreNilRatherThanAny()
     testAssert.equal(
-        strictCodes(
+        codes(
             table.concat(
                 {
                     "local function pair(): (number, string)",
@@ -306,7 +294,7 @@ function M.anInnerCallDoesNotSupplyTheEnclosingCallsResults()
                 "local function maybe(value: any): string?",
                 "   return value and 'owned' or nil",
                 "end",
-                "local function main(value: any, name: string)",
+                "local function main(value: unknown, name: string): nil",
                 "   want(('%s %q'):format(maybe(value), name))",
                 "   want(('%s %q'):format(name, maybe(value)))",
                 "   local formatted = ('%s'):format(maybe(value))",
@@ -324,7 +312,7 @@ end
 -- leaked pack through in the first place.
 function M.aStringLiteralReachesTheStringLibrary()
     testAssert.equal(
-        codes(table.concat({"local function want(n: number) end", "want(('%s'):format(1))", "return want",}, "\n")),
+        codes(table.concat({"local function want(n: number): nil end", "want(('%s'):format(1))", "return want",}, "\n")),
         "NUPP2006"
     )
     clean(
@@ -712,12 +700,12 @@ function M.genericPackForwardingKeepsBorrowProvenance()
 end
 
 function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
-    testAssert.equal(codes(table.concat({"local function drop<A...>(...: A...) end", "return drop",}, "\n")), "NUPP2605")
+    testAssert.equal(codes(table.concat({"local function drop<A...>(...: A...): nil end", "return drop",}, "\n")), "NUPP2605")
     testAssert.equal(
         codes(
             table.concat(
                 {
-                    "local function duplicate<A...>(sink: function(A...), ...: A...)",
+                    "local function duplicate<A...>(sink: function(A...), ...: A...): nil",
                     "   sink(...)",
                     "   sink(...)",
                     "end",

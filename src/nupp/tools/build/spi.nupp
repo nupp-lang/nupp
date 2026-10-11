@@ -198,7 +198,7 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
     lines[#lines + 1] = "}\n"
 
     return fs.writeFileIfChanged(
-        fs.join(root, fs.join(outDir, "generated/nupp/spi/index.g.nupp")),
+        fs.join(root, fs.join(outDir, "generated/nupp/spi/index.nupp")),
         table.concat(lines, "\n")
     )
 end

@@ -57,7 +57,7 @@ end
 --- Before any argument or result is compared, because a parameter erased to `any`
 --- accepts whatever it is given: checked first, the call would pass and the warning
 --- would describe a check that had already stopped meaning anything.
-local function reportGradualProjections(c: any, site: any, erased: {string})
+local function reportErasedProjections(c: any, site: any, erased: {string})
     local seen: {[string]: boolean} = {}
     for _, name in ipairs(erased) do
         if not seen[name] then
@@ -1374,7 +1374,7 @@ function calls.install(c: state.Checker): calls.Ops
             if varargType then
                 varargType = substType(varargType, map, erasedProjections, c.reductionControl)
             end
-            reportGradualProjections(c, site, erasedProjections)
+            reportErasedProjections(c, site, erasedProjections)
         end
         local packProblem
         paramPack, packProblem = generics.expandComputedPack(paramPack, c.reductionControl)
@@ -2766,7 +2766,7 @@ function calls.install(c: state.Checker): calls.Ops
             end
             params, rets = paramPack.head, retPack.head
             paramModes = paramPack.modes
-            reportGradualProjections(c, node, erasedProjections)
+            reportErasedProjections(c, node, erasedProjections)
             if paramPack.tail and paramPack.tail.kind == "homogeneous" then
                 varargType = paramPack.tail.type
             elseif varargType then

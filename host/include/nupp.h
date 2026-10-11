@@ -38,11 +38,6 @@ typedef enum nupp_config_flags {
     NUPP_CONFIG_OPEN_LIBRARIES = 1,
 } nupp_config_flags;
 
-/* Bits of nupp_reload_config.flags. */
-typedef enum nupp_reload_flags {
-    NUPP_RELOAD_STRICT = 1,
-} nupp_reload_flags;
-
 typedef enum nupp_status {
     NUPP_STATUS_OK = 0,
     NUPP_STATUS_INVALID_ARGUMENT = 1,
@@ -93,7 +88,8 @@ typedef struct nupp_config {
 /* Development hot reload compiles the project while the program runs, so
  * `compiler_path` names a directory holding the compiler's own Lua modules --
  * what `nupp build --target bootstrapCompiler` writes. It may be null when the
- * state already reaches them. `root` defaults to the process's directory. */
+ * state already reaches them. `root` defaults to the process's directory.
+ * `flags` is reserved and must be zero. */
 typedef struct nupp_reload_config {
     uint32_t size;
     uint32_t flags;

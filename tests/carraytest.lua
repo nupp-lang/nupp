@@ -17,18 +17,18 @@ local P = table.concat({
 }, "\n")
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
 local function run(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test.g.nupp", env)
+   local diags = check.check(result, "test.nupp", env)
    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
    testAssert.equal(#genDiags, 0, "gen diagnostics")
@@ -96,9 +96,9 @@ function M.fixedAndVariableLengthAreDistinct()
       "a literal allocation count carries its fixed bound")
    testAssert.equal(diagsOf(P .. "\nlocal n = 4\nlocal ps: P[4] = carray(P, n)"),
       "NUPP2001", "a dynamic allocation remains variable-length")
-   testAssert.equal(diagsOf(P .. "\nlocal a: P[4]\nlocal b: P[?] = a"), "",
+   testAssert.equal(diagsOf(P .. "\nlocal a: P[4] = nil as any\nlocal b: P[?] = a"), "",
       "a fixed array fits where any length is accepted")
-   testAssert.equal(diagsOf(P .. "\nlocal a: P[?]\nlocal b: P[4] = a"), "NUPP2001")
+   testAssert.equal(diagsOf(P .. "\nlocal a: P[?] = nil as any\nlocal b: P[4] = a"), "NUPP2001")
 end
 
 function M.arrayTypeIsWritableInAnnotations()
@@ -115,7 +115,7 @@ end
 function M.arrayCtypeIsBuiltOncePerElementType()
    local result = parser.parse(P .. "\nlocal a = carray(P, 2)\nlocal b = carray(P, 3)",
       "test")
-   check.check(result, "test.g.nupp", env)
+   check.check(result, "test.nupp", env)
    local code = gen.generate(result, "test")
    assert(code:find("__nuppArrayCache", 1, true),
       "the array ctype is cached rather than rebuilt:\n" .. code)

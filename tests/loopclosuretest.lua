@@ -13,9 +13,9 @@ local env = envMod.new(".")
 
 -- Every NUPP2505 the source produces.
 local function lint(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", env, {})
+    local diags = check.check(result, "test.nupp", env, {})
     local found = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2505" then
@@ -46,9 +46,9 @@ end
 -- What a source says about a closure that reads its iteration: the lint when the
 -- project asked for it, the broken `@jit` promise whether it asked or not.
 local function traceLint(src, opts)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", env, opts or {lints = {["jit-loop-closure"] = "note"}})
+    local diags = check.check(result, "test.nupp", env, opts or {lints = {["jit-loop-closure"] = "note"}})
     local found = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2515" or diag.code == "NUPP2707" then
@@ -604,7 +604,7 @@ for i = 1, 10 do
    register(function() return 1 end)
 end
 ]], "test")
-    local diags = check.check(result, "test.g.nupp", env, {lints = {["loop-invariant-closure"] = "off"}})
+    local diags = check.check(result, "test.nupp", env, {lints = {["loop-invariant-closure"] = "off"}})
     for _, diag in ipairs(diags) do
         testAssert.equal(diag.code ~= "NUPP2505", true, "a lint set to off says nothing")
     end

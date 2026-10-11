@@ -13,11 +13,11 @@ local env = envMod.new(HERE .. "/..")
 
 local function codes(source)
    env.loaded = {}
-   local parsed = parser.parse(source, "test.g.nupp")
+   local parsed = parser.parse(source, "test.nupp")
    testAssert.equal(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(parsed, "test.g.nupp", env)) do
+   for j, d in ipairs(check.check(parsed, "test.nupp", env)) do
       out[j] = d.code
    end
    return table.concat(out, " ")

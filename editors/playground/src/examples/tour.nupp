@@ -1,4 +1,4 @@
--- A quick tour of Nupp: gradual types over plain LuaJIT Lua.
+-- A quick tour of Nupp: static types over plain LuaJIT Lua.
 
 local type Priority = "low" | "normal" | "high"
 

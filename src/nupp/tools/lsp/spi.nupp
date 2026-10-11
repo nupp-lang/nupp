@@ -63,11 +63,11 @@ local function entries(inc: any): {any}
     end
     local config = require("nupp.tools.build.manifest").load(inc.env.rootDir)
     local build = config and config.build or {}
-    local paths = {fs.join(inc.env.rootDir, (build.outDir or "build") .. "/generated/nupp/spi/index.g.nupp")}
+    local paths = {fs.join(inc.env.rootDir, (build.outDir or "build") .. "/generated/nupp/spi/index.nupp")}
     for _, target in pairs(build.targets or {}) do
         paths[
             #paths + 1
-        ] = fs.join(inc.env.rootDir, (target.outDir or build.outDir or "build") .. "/generated/nupp/spi/index.g.nupp")
+        ] = fs.join(inc.env.rootDir, (target.outDir or build.outDir or "build") .. "/generated/nupp/spi/index.nupp")
     end
     local direct = inc.modulePath("nupp.spi.index")
     if direct then

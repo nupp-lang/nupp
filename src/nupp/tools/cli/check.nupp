@@ -83,9 +83,6 @@ local function run(options: any): integer
     local positional: {string} = options.files
     local paths: {string} = positional
     local values = options
-    -- An absent flag leaves the decision to the file's extension. False is an
-    -- explicit request for gradual checking in the checker API.
-    local strict = values.strict and true or nil
     local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil)
     if compatError then
         return usageError(compatError)
@@ -124,7 +121,6 @@ local function run(options: any): integer
         local project = require("nupp.tools.build.project")
         local produced: {[string]: any} = {}
         local code = project.check(".", {
-            strict = strict,
             compat = values.compat,
             target = target,
             platform = values.platform,
@@ -182,7 +178,7 @@ local function run(options: any): integer
     -- modules, which is what gives it the reuse a whole-project check has: unchanged
     -- source, unchanged dependencies, and the file's diagnostics are replayed from the
     -- last run rather than worked out again. It also means the file is checked the way
-    -- the project checks it -- same manifest, same strictness, same dependencies -- and
+    -- the project checks it -- same manifest, same dependencies -- and
     -- not the way a file that happens to be lying there would be.
     --
     -- What is left over is a declaration file, a `.lua`, a file from outside the
@@ -231,7 +227,6 @@ local function run(options: any): integer
             local unchecked: {string} = {}
             local produced: {[string]: any} = {}
             local code = project.check(".", {
-                strict = strict,
                 compat = values.compat,
                 paths = mine,
                 unchecked = unchecked,
@@ -285,7 +280,7 @@ local function run(options: any): integer
             end
             failed = true
         else
-            local diags = check.check(result, path, env as {[string]: any}, {strict = strict, compat = values.compat,})
+            local diags = check.check(result, path, env as {[string]: any}, {compat = values.compat})
             if asJson then
                 for _, diagnostic in ipairs(diags) do
                     diagnostics[#diagnostics + 1] = diagnostic
@@ -325,14 +320,11 @@ end
 ---
 ---     nupp check
 ---     nupp check src/main.nupp
----     nupp check --strict --json
+---     nupp check --json
 ---     nupp check --target app
 @cli("check")
 @derive(cliModule.Command)
 local record Check
-    --- Treat strict checker rules as errors.
-    strict: boolean = false
-
     --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
     @cli(value = "PROFILE", choices = {"lua51"})
     compat: string?

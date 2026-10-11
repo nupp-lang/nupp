@@ -20,9 +20,9 @@ local function decode<T>(binding: serde.Binding<T>, bytes: string): (T?, string?
 end
 ]]
         .. source
-    local parsed = parser.parse(source, "derive_acceptance.g.nupp")
+    local parsed = parser.parse(source, "derive_acceptance.nupp")
     assert(#parsed.errors == 0, "acceptance fixture parses")
-    local diagnostics = check.check(parsed, "derive_acceptance.g.nupp", env)
+    local diagnostics = check.check(parsed, "derive_acceptance.nupp", env)
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
             error(diagnostic.code .. ": " .. diagnostic.msg, 2)

@@ -78,28 +78,25 @@ end
 local SECTIONS: {reference.Section} = {
 
     new reference.Section(
-        title = "Gradual typing over LuaJIT",
-        codes = {},
+        title = "Nupp and LuaJIT",
+        codes = {"NUPP1006", "NUPP2105", "NUPP2106"},
         body = [=[
-A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program
-is a valid Nupp program: a `.lua` file is required, built, and run unchanged,
-and the typed layer is refused in one (`NUPP1006`).
+A statically typed language that compiles to LuaJIT's Lua and works beside plain
+`.lua` files. A `.lua` file is required, built, and run unchanged, and the typed
+layer is refused in one (`NUPP1006`).
 
-The extension says which floor a file is held to, so the floor is visible where
-the file is rather than in a setting that governs everything at once:
+| Extension | Meaning |
+| --- | --- |
+| `.nupp` | Nupp source, checked |
+| `.d.nupp` | declares an interface somebody else implements |
+| `.lua` | plain Lua; the typed layer is refused |
 
-| Extension | Floor | Meaning |
-| --- | --- | --- |
-| `.nupp` | strict | unknown variables and untyped exports are errors |
-| `.g.nupp` | gradual | the same typed syntax, without that floor |
-| `.d.nupp` | gradual | declares an interface somebody else implements |
-| `.lua` | gradual | plain Lua; the typed layer is refused |
-
-Write `.g.nupp` while a file is being typed and rename it to `.nupp` when it is
-ready. The marker is not part of the module's name, so `models.g.nupp` is the
-module `models` and nothing that requires it changes when it moves.
-`nupp check --strict` holds every file to the floor whatever it is called, which
-is how to see what a rename would cost.
+Every `.nupp` file holds two rules beyond ordinary checking: an unknown variable
+is an error (`NUPP2105`), and an exported declaration must write its types
+(`NUPP2106`), so nothing untyped crosses a module boundary. A `.lua` file
+reports neither, since an unknown name there may be a Lua global, and a
+`.d.nupp` file may use `any` at the boundary it describes. LuaCATS and EmmyLua
+comments in a `.lua` file are imported as checker facts.
 
 Two things are not erased. A `struct` lowers to FFI cdata with a fixed layout,
 and C headers import as checked declarations. Everything else is ordinary Lua at
@@ -150,12 +147,13 @@ Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
 `int8`…`int64`, `uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and
 `voidptr`.
 
-`any` is gradual: compatible with everything, in both directions, silently.
+`any` is the dynamic type: compatible with everything, in both directions,
+silently, so it opts a value out of checking.
 `unknown` is its sound counterpart at the top of the lattice: everything fits
 into it, and it fits nowhere else until narrowed or cast. `never` is the
 bottom: uninhabited, so it fits anywhere and nothing but itself fits it.
 
-`table` is gradual the same way toward table structures only, and is what `{}`
+`table` is compatible the same way with every table shape, and is what `{}`
 infers as, so it drops out of a union already holding one: `opts = opts or {}`
 leaves a declared record still holding its fields.
 
@@ -207,9 +205,8 @@ Parameters and results are annotated in the usual place. Several results are
 listed comma-separated; inside a function *type* a multi-result needs
 parentheses.
 
-In a strict file, meaning `.nupp` or any file under `--strict`, an exported
-function whose signature mentions `any` anywhere is treated as unannotated and
-reported: `any` is the absence of a type, not a type. A function that returns
+In a `.nupp` file, an exported function whose signature mentions `any`
+anywhere is treated as unannotated and reported: `any` is the absence of a type, not a type. A function that returns
 nothing still needs to say so, as `: nil`.
 
 A function that always raises, exits, or loops forever returns `never`; a call
@@ -348,7 +345,7 @@ parameters, so a generic record's recursive field reads `Node?`.
 A call infers type parameters from arguments and, for a single result, its
 destination: an annotated binding, an assigned target, a declared result, a
 constructed field, or a settled parameter. A result parameter left without
-explicit, inferred, gradual, defaulted, or destination evidence is an error
+explicit, inferred, `any`, defaulted, or destination evidence is an error
 instead of becoming `any`.
 Write `make<string>()` or `value: string = make()` when no argument can supply it.
 ]=],
@@ -453,7 +450,7 @@ array.
 
 Lua's value adjustment is unchanged: only a final unparenthesized call or a bare
 `...` expands in an argument, assignment, or return list, and parentheses
-project one value. An undecidable computed type stays gradual, and any other
+project one value. An undecidable computed type stays `any`, and any other
 unresolved result is rejected.
 
 Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple `Tail`
@@ -564,7 +561,7 @@ return m
         body = [=[
 `A & B` is the type of values satisfying both contracts. `&` binds more tightly
 than `|`, nested intersections flatten, duplicate members disappear, and
-`unknown` or gradual `any` add no constraint. Readable member types intersect,
+`unknown` or `any` add no constraint. Readable member types intersect,
 writable member types unite, and member names come from every constituent.
 
 When every member is a function, the intersection is an overload set. The
@@ -846,7 +843,7 @@ reachable by path, and not inherited. They have no runtime representation, so a
 projection is legal only once it resolves concretely where a C layout is needed,
 and an interface leaving one unsettled cannot carry `satisfies`. `== any` is
 fixed and still settles nothing. An answer whose head inference never reached is
-checked as `any` and reported by `gradual-projection`.
+checked as `any` and reported by `erased-projection`.
 ]=],
         example = [=[
 local m = {}
@@ -2529,7 +2526,7 @@ Visible functions are inferred to a pessimistic fixed point, including
 automatic cleanup. Exact direct exports transport only the positive
 `noAllocate` and `noRaise` facts a dependant observes; complete read, write,
 escape, and return summaries remain file-local. Unknown callbacks, methods,
-gradual calls, and uncontracted C functions prove neither fact.
+calls through `any`, and uncontracted C functions prove neither fact.
 
 A bodyless or foreign declaration may establish a fact with a trusted
 `@effects` contract. That is a promise about the unseen implementation, not a
@@ -2828,7 +2825,7 @@ Positions are 1-based byte line and column numbers everywhere, matching the
 compiler's own diagnostics. Color is off whenever output is not a terminal, so
 piped output never carries escapes.
 
-- `nupp check --strict [FILE...]` type-checks. `--json` returns structured
+- `nupp check [FILE...]` type-checks. `--json` returns structured
   diagnostics with `help`, `related`, `notes` and machine-applicable `fixes`.
   Read `help` and `related` before editing, and apply a whole titled fix rather
   than picking single edits out of one: a fix is all-or-nothing.
@@ -2847,7 +2844,7 @@ Every command taking `--json` also takes `--schema`, which prints the JSON
 Schema of that output, so a consumer can be written against a contract rather
 than against a sample.
 
-The loop that works: run `check --json --strict`, apply a complete fix whose
+The loop that works: run `check --json`, apply a complete fix whose
 title matches the intended repair, re-run, and run `nupp test` before
 committing.
 ]=]
@@ -3520,8 +3517,8 @@ function reference.skill(chapter: reference.Chapter?): string
             out[#out + 1] = "  " .. line
         end
     else
-        out[#out + 1] = "  Write, check and repair Nupp, the gradually typed LuaJIT"
-        out[#out + 1] = "  superset. Load before editing any .nupp file, or when"
+        out[#out + 1] = "  Write, check and repair Nupp, the statically typed language"
+        out[#out + 1] = "  for LuaJIT. Load before editing any .nupp file, or when"
         out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
         out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
         out[#out + 1] = "  check/explain/lsp, test coverage, trace-checking, and profiling"

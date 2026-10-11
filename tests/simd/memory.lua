@@ -262,7 +262,7 @@ function M.generate(options)
             end
             local name = 'simd_memory_' .. ty .. '_' .. at
             local source, names = sourceFor(ty, lanes)
-            files[name .. '.g.nupp'], probes[name] = source, names
+            files[name .. '.nupp'], probes[name] = source, names
             modules[#modules + 1] = name
             coverage[
                 #coverage + 1

@@ -10,9 +10,9 @@ local sharedEnv = nil
 local function formatted(source, env)
     sharedEnv = sharedEnv or envMod.new(".")
     local formatter = fmt.new({environment = env or sharedEnv})
-    local output, errors = formatter:format(source, "format.g.nupp")
+    local output, errors = formatter:format(source, "format.nupp")
     assert(#errors == 0, errors[1] and errors[1].msg)
-    local again, problems = formatter:format(output, "format.g.nupp")
+    local again, problems = formatter:format(output, "format.nupp")
     assert(#problems == 0, problems[1] and problems[1].msg)
     assert(again == output, "import formatting must be idempotent:\n" .. again)
 
@@ -21,12 +21,12 @@ end
 
 local function compile(source)
     local env = envMod.new(".")
-    local result = parser.parse(source, "format.g.nupp")
-    local errors = check.check(result, "format.g.nupp", env)
+    local result = parser.parse(source, "format.nupp")
+    local errors = check.check(result, "format.nupp", env)
     for _, err in ipairs(errors) do
         assert(err.severity == "warning" or err.severity == "off", tostring(err.code) .. ": " .. tostring(err.msg))
     end
-    local code, problems = gen.generate(result, "format.g.nupp")
+    local code, problems = gen.generate(result, "format.nupp")
     assert(#problems == 0, problems[1] and problems[1].msg)
 
     return code
@@ -110,7 +110,7 @@ function M.keepsModuleDocumentationAheadOfImports()
         'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn nupp.io.files.read("a")\nend\n'
     )
     assert(output:find('--[[A documented module.]]\nconst files', 1, true), output)
-    local documented = require("nupp.tools.doc.extract").extract(output, "format.g.nupp", "format")
+    local documented = require("nupp.tools.doc.extract").extract(output, "format.nupp", "format")
     assert(documented.text == "A documented module.", documented.text)
 end
 
@@ -118,7 +118,7 @@ function M.doesNotRewritePlainLuaOrDisabledFiles()
     local source = 'return nupp.io.files.read("a")\n'
     assert(fmt.format(source, "example.lua") == source)
     local disabled = '@!nofmt\n' .. source
-    assert(fmt.format(disabled, "example.g.nupp") == disabled)
+    assert(fmt.format(disabled, "example.nupp") == disabled)
 end
 
 function M.reusesAnUnshadowedModuleBinding()

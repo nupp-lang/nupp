@@ -178,7 +178,7 @@ return {
 ]],
         ["asset.txt"] = "resource from overridden output",
         [
-            "src/main.g.nupp"
+            "src/main.nupp"
         ] = [[
 local embedded = (package.preload["nupp.embedded"] as any)()
 print(embedded["/asset.txt"])
@@ -720,9 +720,9 @@ end
 function M.compilesModulesNothingRequires()
     local dir = tempProject({
         ["nupp.lua"] = SOURCE_SET_MANIFEST,
-        ["src/app/main.g.nupp"] = "print('main')\n",
+        ["src/app/main.nupp"] = "print('main')\n",
         -- Required by nothing at all.
-        ["src/app/orphan.g.nupp"] = "local orphan = {}\nreturn orphan\n",
+        ["src/app/orphan.nupp"] = "local orphan = {}\nreturn orphan\n",
     })
     local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
     assert(exists(dir .. "/build/app/orphan.lua"), "a module nothing requires is still compiled: " .. out)
@@ -733,14 +733,20 @@ end
 function M.aComputedRequireFindsItsModule()
     local dir = tempProject({
         ["nupp.lua"] = SOURCE_SET_MANIFEST,
-        ["src/app/main.g.nupp"] = 'local which = "app.plugin"\nprint(require(which).hi())\n',
+        -- A computed name resolves to no module the checker can see, so the
+        -- result is `unknown` until the program says what it expects.
         [
-            "src/app/plugin.g.nupp"
+            "src/app/main.nupp"
+        ] = 'local which = "app.plugin"\n'
+        .. 'local plugin = require(which) as {hi: function(): string}\n'
+        .. "print(plugin.hi())\n",
+        [
+            "src/app/plugin.nupp"
         ] = "local plugin = {}\n\nfunction plugin.hi(): string\n" .. '    return "found"\nend\n\nreturn plugin\n',
     })
     assert(select(1, capture(("cd '%s' && '%s' build"):format(dir, NUPP))))
     assert(exists(dir .. "/build/app/plugin.lua"), "the module named only by a computed require is in the build")
-    local ran = capture(("cd '%s' && '%s' run src/app/main.g.nupp"):format(dir, NUPP))
+    local ran = capture(("cd '%s' && '%s' run src/app/main.nupp"):format(dir, NUPP))
     assert(ran:find("found", 1, true), "and the program finds it at run time: " .. ran)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -750,14 +756,14 @@ end
 function M.checksModulesNothingRequires()
     local dir = tempProject({
         ["nupp.lua"] = SOURCE_SET_MANIFEST,
-        ["src/app/main.g.nupp"] = "print('main')\n",
+        ["src/app/main.nupp"] = "print('main')\n",
         [
-            "src/app/orphan.g.nupp"
+            "src/app/orphan.nupp"
         ] = "local orphan = {}\n\nfunction orphan.wrong(): string\n" .. "    return 42\nend\n\nreturn orphan\n",
     })
     local out = capture(("cd '%s' && '%s' check"):format(dir, NUPP))
     assert(out:find("NUPP2002", 1, true), "the orphan's type error is reported: " .. out)
-    assert(out:find("orphan.g.nupp", 1, true), "and named: " .. out)
+    assert(out:find("orphan.nupp", 1, true), "and named: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -773,12 +779,12 @@ return {
    }}},
 }
 ]],
-        ["src/app/main.g.nupp"] = "return require('shared.answer')\n",
-        ["src/app/plugin.g.nupp"] = "return {name = 'selected'}\n",
+        ["src/app/main.nupp"] = "return require('shared.answer')\n",
+        ["src/app/plugin.nupp"] = "return {name = 'selected'}\n",
         -- A static dependency is part of the target even when its file sits outside the
         -- selected directory.
-        ["src/shared/answer.g.nupp"] = "return 42\n",
-        ["src/other/orphan.g.nupp"] = "local value: string = 42\nreturn value\n",
+        ["src/shared/answer.nupp"] = "return 42\n",
+        ["src/other/orphan.nupp"] = "local value: string = 42\nreturn value\n",
     })
     local out = capture(("cd '%s' && '%s' build --target app"):format(dir, NUPP))
     testAssert.equal(out, "", "a scoped target ignores source outside its set: " .. out)
@@ -847,7 +853,7 @@ end
 function M.jsonBuildReportsColdAndWarmDeriveObservations()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["model.g.nupp"] = [[
+        ["model.nupp"] = [[
 @derive(nupp.derive.Debug)
 local record Model
     value: integer = 0
@@ -857,7 +863,7 @@ return new Model()
     })
     local first = require(
         "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)))
+    ).decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
     assert(first.ok and #first.derives == 1, "cold build reports all derives")
     local byProvider = {}
     for _, observation in ipairs(first.derives) do
@@ -873,7 +879,7 @@ return new Model()
 
     local second = require(
         "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)))
+    ).decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
     assert(second.ok and #second.derives == 1, "cached build preserves derive observations")
     for index, observation in ipairs(first.derives) do
         testAssert.equal(
@@ -917,15 +923,15 @@ end
 function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
-        ["src/main.g.nupp"] = 'local other = require("other")\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t, other',
-        ["src/other.g.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
+        ["src/main.nupp"] = 'local other = require("other")\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t, other',
+        ["src/other.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
     })
     local output = capture(
         (
-            "cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.g.nupp src/main.g.nupp"
+            "cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"
         ):format(dir, NUPP)
     )
-    assert(not output:find("src/other.g.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
+    assert(not output:find("src/other.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
     assert(
         not exists(dir .. "/src/main.lua") and not exists(dir .. "/src/other.lua"),
         "inspection creates no source neighbors"
@@ -933,26 +939,26 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     local record = json.decode(read(dir .. "/build/remarks.json"))
     assert(#record.remarks > 0, "selected workload has optimizer decisions")
     for _, remark in ipairs(record.remarks) do
-        testAssert.equal(remark.file, "src/main.g.nupp", "machine remarks obey file filter")
+        testAssert.equal(remark.file, "src/main.nupp", "machine remarks obey file filter")
         assert(remark.status == "fired" or remark.status == "declined", "decision has status")
         testAssert.equal(remark.hotness, "unknown", "static remarks do not invent hotness")
     end
     local manifestCommand = (
-        "cd %q && %q build --remarks --remarks-out --remarks-for src/main.g.nupp"
+        "cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp"
     ):format(dir, NUPP)
     for attempt = 1, 2 do
         local manifestOut = capture(manifestCommand)
         assert(
-            manifestOut:find("src/main.g.nupp:", 1, true),
+            manifestOut:find("src/main.nupp:", 1, true),
             "cold and warm builds replay selected remarks: " .. manifestOut
         )
         assert(
-            not manifestOut:find("src/other.g.nupp:", 1, true),
+            not manifestOut:find("src/other.nupp:", 1, true),
             "manifest filter excludes dependencies: " .. manifestOut
         )
     end
     output = capture(
-        ("cd %q && %q build --remarks --remarks-out --remarks-for src/main.g.nupp src/main.g.nupp"):format(dir, NUPP)
+        ("cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"):format(dir, NUPP)
     )
     assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
     record = json.decode(read(dir .. "/build/remarks.json"))
@@ -963,16 +969,16 @@ end
 function M.remarksOutTakesAnAttachedPath()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
-        ["src/main.g.nupp"] = 'local t = {}\nt.a = 1\nt.b = 2\nreturn t',
+        ["src/main.nupp"] = 'local t = {}\nt.a = 1\nt.b = 2\nreturn t',
     })
-    local output = capture(("cd %q && %q build -O1 --remarks-out=account.json src/main.g.nupp"):format(dir, NUPP))
+    local output = capture(("cd %q && %q build -O1 --remarks-out=account.json src/main.nupp"):format(dir, NUPP))
     testAssert.equal(output, "", "a named remarks path builds quietly: " .. output)
     local record = json.decode(read(dir .. "/account.json"))
     testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
     assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
     local refused = capture(
         (
-            "cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""
+            "cd %q && %q build --remarks-file src/main.nupp src/main.nupp 2>&1; echo \"__exit__:$?\""
         ):format(dir, NUPP)
     )
     assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)

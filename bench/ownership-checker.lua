@@ -89,9 +89,9 @@ local function medianOf(values)
 end
 
 local function compile(text)
-    local tree = parser.parse(text, "ownership-benchmark.g.nupp")
+    local tree = parser.parse(text, "ownership-benchmark.nupp")
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
-    local diagnostics, moduleType = check.check(tree, "ownership-benchmark.g.nupp", envMod.new("."))
+    local diagnostics, moduleType = check.check(tree, "ownership-benchmark.nupp", envMod.new("."))
     for _, diagnostic in ipairs(diagnostics) do
         assert(not diagnostic.code:match("^NUPP[123]"), diagnostic.code .. ": " .. diagnostic.msg)
     end

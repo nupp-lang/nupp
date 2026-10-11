@@ -332,8 +332,9 @@ end
 ```
 
 Cases and lifecycle hooks need a `: nil` return annotation, since a `.nupp`
-file is held to the strict floor and its exports are typed. See
-[strictness.md](../language/gradual-typing.md) for what that floor asks for, and
+file's exports are typed. See
+[file-types.md](../language/file-types.md#unknown-variables-and-untyped-exports)
+for what a `.nupp` file is held to, and
 [modules.md](../language/modules.md) for what `export` publishes. The
 compiler's own suite carries `tests/nupptest.nupp`, `tests/ioscalarstest.nupp`,
 and `tests/processcompat_test.nupp`, which is what keeps discovery,

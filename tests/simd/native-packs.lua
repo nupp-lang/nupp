@@ -99,7 +99,7 @@ function M.species()
             end
             local module = "simd_species_" .. element .. "_" .. first
             local source, names = speciesModule(element, lanes)
-            files[module .. ".g.nupp"] = source
+            files[module .. ".nupp"] = source
             probes[module] = names
             modules[#modules + 1] = module
             coverage[
@@ -127,10 +127,9 @@ end
 local function merge(into, generated, label)
     local oldEntry = generated.entry
     local renamed = "simd_native_" .. label
-    local top = generated.files[oldEntry .. ".nupp"] or generated.files[oldEntry .. ".g.nupp"]
+    local top = generated.files[oldEntry .. ".nupp"]
     assert(top, "pack has no entry source " .. oldEntry)
     generated.files[oldEntry .. ".nupp"] = nil
-    generated.files[oldEntry .. ".g.nupp"] = nil
     generated.files[renamed .. ".nupp"] = top
     if generated.probes[oldEntry] then
         assert(generated.probes[renamed] == nil, "duplicate renamed compact pack probe module " .. renamed)
@@ -289,7 +288,7 @@ local function validateProbes(generated, expected)
     local total, seen = 0, {}
     for module, names in pairs(generated.probes or {}) do
         assert(
-            generated.files[module .. ".nupp"] or generated.files[module .. ".g.nupp"],
+            generated.files[module .. ".nupp"],
             "probe module has no generated source " .. module
         )
         assert(type(names) == "table" and #names > 0, "probe module is empty " .. module)

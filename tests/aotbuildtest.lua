@@ -466,7 +466,7 @@ return {
     fixedScratch = fixedScratch,
     fixedByteScratch = fixedByteScratch,
     reusedScratchName = reusedScratchName,
-}
+} as unknown
 ]]
 
 local ALIASED_KERNEL = [[
@@ -719,7 +719,7 @@ return {
         ):format(policy)
     )
     manifest:close()
-    local source = assert(io.open(dir .. "/src/reader.g.nupp", "wb"))
+    local source = assert(io.open(dir .. "/src/reader.nupp", "wb"))
     source:write(UNUSED_SOURCE)
     source:close()
 
@@ -791,7 +791,7 @@ return {
         ):format(policy)
     )
     manifest:close()
-    local source = assert(io.open(dir .. "/src/builder.g.nupp", "wb"))
+    local source = assert(io.open(dir .. "/src/builder.nupp", "wb"))
     source:write(BUILDER)
     source:close()
 
@@ -4381,8 +4381,8 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     )
     -- The unit carries line tables into the authored file, and each raise
     -- keeps its own site rather than a merged line 0.
-    local ir = assert(read(tieredUnit(dir, firstHostTier(), "builder.g")))
-    assert(ir:find('!DIFile(filename: "builder.g.nupp"', 1, true), "the unit names its source file")
+    local ir = assert(read(tieredUnit(dir, firstHostTier(), "builder")))
+    assert(ir:find('!DIFile(filename: "builder.nupp"', 1, true), "the unit names its source file")
     assert(ir:find("!DILocation(line: ", 1, true), "statements carry their lines")
     assert(ir:find("%(ptr %%L, ptr @nupp%.bytes%.%d+%) nomerge"), "a raise keeps its own site")
     local generated = assert(read(dir .. "/build/native/builder.lua"))
@@ -5563,7 +5563,7 @@ local kernel = require("kernel")
 
 local m = {}
 
-function m.answer(): (boolean, any)
+function m.answer(): (boolean, unknown)
     local values = array.scalar(array.uint32, 40)
     do
         local writable = values:write()
@@ -7840,7 +7840,7 @@ function M.directSoaViewsRunAgainstTheSameLuaOracleAndReuseNativeObjects()
         handle:close()
     end
 
-    write("src/main.g.nupp", assert(read(NATIVE_HERE .. "/aot-soa/main.g.nupp")))
+    write("src/main.nupp", assert(read(NATIVE_HERE .. "/aot-soa/main.nupp")))
     local expected
     for _, policy in ipairs({"off", "require"}) do
         write(
@@ -7877,7 +7877,7 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
     test.equal(result.timing.aot.compiledObjects, 0, "unchanged source mapping reuses native artifacts")
     test.equal(result.timing.aot.reusedObjects, result.timing.aot.units, "every SoA object reused")
     write(
-        "src/main.g.nupp",
+        "src/main.nupp",
         [[
 local soa = require("nupp.mem.soa")
 local struct Particle

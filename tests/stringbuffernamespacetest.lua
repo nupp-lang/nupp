@@ -17,9 +17,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(src, level)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test.g.nupp", env)
+   local diags = check.check(result, "test.nupp", env)
    for _, diag in ipairs(diags or {}) do
       if diag.severity == "error" then
          error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)
@@ -62,7 +62,7 @@ function M.theModuleIsTypedRatherThanAny()
    -- declaration in decls/stringbuffer.d.nupp, so the arity is held.
    local result = parser.parse("local b = string.buffer.new(1, 2, 3, 4)\nreturn b\n", "test")
    testAssert.equal(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test.g.nupp", env)
+   local diags = check.check(result, "test.nupp", env)
    local found = false
    for _, diag in ipairs(diags or {}) do
       if diag.severity == "error" then found = true end

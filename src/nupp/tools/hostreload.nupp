@@ -145,9 +145,8 @@ end
 ---
 --- @param entry the entry `.nupp` module, absolute or relative to `root`
 --- @param root the project directory; the process's own when absent
---- @param strict whether every file is held to the strict floor
 --- @return the open session, or nil and why it could not be opened
-function hostreload.open(entry: string, root: string?, strict: boolean?): (hostreload.Session?, string?)
+function hostreload.open(entry: string, root: string?): (hostreload.Session?, string?)
     if active then
         return nil, "a hot reload session is already open in this process"
     end
@@ -160,7 +159,7 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
     -- Protected because the caller is C: an entry the build cannot even read raises
     -- where a checked one reports, and a host asking for a session it cannot have
     -- should be told that rather than handed a traceback.
-    local built, session, diagnostics = pcall(watch.open, path, strict, projectRoot)
+    local built, session, diagnostics = pcall(watch.open, path, projectRoot)
     if not built then
         return nil, tostring(session)
     end
@@ -177,7 +176,7 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
     local projectEnv = envMod.new(projectRoot)
 
     local function checkPlain(modulePath: string, env: any): boolean
-        return compile.check(modulePath, env, {strict = strict}) ~= nil
+        return compile.check(modulePath, env, {}) ~= nil
     end
 
     -- Installed before the chunk runs and left installed after it: a host calls into
@@ -278,9 +277,8 @@ end
 --- mismatch means the tree moved on and the component has to be rebuilt.
 ---
 --- @param root the project directory the component was built from
---- @param strict whether every file is held to the strict floor
 --- @return the open session, or nil and why it could not be opened
-function hostreload.attach(root: string?, strict: boolean?): (hostreload.Session?, string?)
+function hostreload.attach(root: string?): (hostreload.Session?, string?)
     if active then
         return nil, "a hot reload session is already open in this process"
     end
@@ -291,7 +289,7 @@ function hostreload.attach(root: string?, strict: boolean?): (hostreload.Session
     local hotRuntime = require("nupp.runtime.hotreload")
     local hash = require("nupp.compiler.hash")
     local watch = require("nupp.tools.cli.watch")
-    local session: any = require("nupp.tools.hotsession").new(root or ".", {strict = strict})
+    local session: any = require("nupp.tools.hotsession").new(root or ".", {})
     local driver: any = nil
 
     -- Recompiles one running module and adopts it as the session's baseline, or

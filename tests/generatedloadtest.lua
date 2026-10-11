@@ -21,11 +21,11 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local function generate(src)
-   local result = parser.parse(src, "load-test.g.nupp")
+   local result = parser.parse(src, "load-test.nupp")
    assert(#result.errors == 0, "syntax errors")
-   local diags = check.check(result, "load-test.g.nupp", env)
+   local diags = check.check(result, "load-test.nupp", env)
    assert(#diags == 0, "check: " .. (diags[1] and diags[1].msg or ""))
-   return gen.generate(result, "load-test.g.nupp")
+   return gen.generate(result, "load-test.nupp")
 end
 
 -- Sixty-one names read from around a function is one more than a Lua function can hold.

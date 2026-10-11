@@ -73,7 +73,7 @@ representation private and export constructors returning the interface.
 Sealing is entirely static. It emits no tag, wrapper, virtual dispatch, or
 runtime test. It earns its place when the visible methods rely on facts that
 mere field shape cannot prove, such as a pointer agreeing with a count. An `any`
-value remains gradual and can cross the boundary with the usual loss of static
+value remains unchecked and can cross the boundary with the usual loss of static
 guarantees.
 
 When comparing member functions that both declare a receiver -- a leading

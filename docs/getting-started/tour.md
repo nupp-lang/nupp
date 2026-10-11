@@ -22,9 +22,9 @@ end
 
 ## Plain Lua is valid Nupp
 
-Every valid LuaJIT program is valid Nupp syntax. Rename a `.lua` file to
-`.g.nupp` to enable typed syntax while keeping the gradual floor; renaming it
-directly to `.nupp` also enables strict checks such as unknown-global errors.
+Every valid LuaJIT program is valid Nupp syntax. A `.lua` file runs unchanged;
+renaming it to `.nupp` enables the typed syntax and the checks that come with
+it, such as unknown-variable errors.
 
 ```nupp:playground
 local function greet(name)
@@ -409,8 +409,8 @@ editor and the build never disagree about what your code means.
 ::: seealso
 - [tooling.md](../learn/tooling/index.md) for the guided version of that list
 - [why.md](why.md) for what each addition buys and what it costs
-- [strictness.md](../learn/language/gradual-typing.md) for typing an existing Lua project
-  a file at a time
+- [file-types.md](../learn/language/file-types.md) for how `.lua` and `.nupp`
+  files share a project
 - [overview.md](../learn/language/types/index.md) for the type system as a whole
 - [features.md](features.md) for the broader runtime, compilation, and
   deployment features

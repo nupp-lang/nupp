@@ -7,7 +7,7 @@ local json = require("nupp.codec.json")
 local serde = require("nupp.serde")
 local typedJSON = require("nupp.serde.json")
 local rendering = require("nupp.serde.debug")
-local native = require("serde_spike_native")
+local native: any = require("serde_spike_native")
 local text = require("nupp.text")
 
 local type FieldKind = "string" | "integer" | "number" | "boolean"
@@ -680,7 +680,7 @@ function m.currentDecodeSmall(): Small
     return assert(typedJSON.decode(serde.binding(Small, new serde.Options(unknownMembers = "ignore")), smallJson))
 end
 
-function m.documentDecodeSmall(): any
+function m.documentDecodeSmall(): unknown
     return (assert(json.decode(smallJson)))
 end
 
@@ -688,7 +688,7 @@ function m.nativeDecodeSmall(): Small
     return native.decodeRecord(smallSchema.native, smallJson, Small) as Small
 end
 
-function m.nativeDynamicDecodeSmall(): any
+function m.nativeDynamicDecodeSmall(): unknown
     return native.decodeSlots(smallSchema.native, smallJson)
 end
 
@@ -704,7 +704,7 @@ function m.currentDecodeMedium(): Medium
     return assert(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumJson))
 end
 
-function m.documentDecodeMedium(): any
+function m.documentDecodeMedium(): unknown
     return (assert(json.decode(mediumJson)))
 end
 
@@ -712,7 +712,7 @@ function m.nativeDecodeMedium(): Medium
     return native.decodeRecord(mediumSchema.native, mediumJson, Medium) as Medium
 end
 
-function m.nativeDynamicDecodeMedium(): any
+function m.nativeDynamicDecodeMedium(): unknown
     return native.decodeSlots(mediumSchema.native, mediumJson)
 end
 

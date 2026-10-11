@@ -16,7 +16,7 @@ local diagnosticRun = 0
 local function diagnostics(source)
     diagnosticRun = diagnosticRun + 1
     env.loaded = {}
-    local filename = ("typelevel-%d.g.nupp"):format(diagnosticRun)
+    local filename = ("typelevel-%d.nupp"):format(diagnosticRun)
     local parsed = parser.parse(source, filename)
     testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
 
@@ -46,7 +46,7 @@ local function oneDiagnostic(source, code, message)
 end
 
 local function typeDump(typeSource)
-    local parsed = parser.parse("local value: " .. typeSource, "test.g.nupp")
+    local parsed = parser.parse("local value: " .. typeSource, "test.nupp")
     testAssert.equal(#parsed.errors, 0)
     local declaration = parsed.root.blocks[1].stats[1]
     assert(declaration.kind == "localStmt")
@@ -130,7 +130,6 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
                     "   return nupp.types.error('expected binary digits')",
                     "end",
                     "local bad: Binary('2')",
-                    "return bad",
                 },
                 "\n"
             )
@@ -145,7 +144,6 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
                     "   return nupp.types.optional(T)",
                     "end",
                     "local bad: Optional(string, number)",
-                    "return bad",
                 },
                 "\n"
             )
@@ -158,7 +156,6 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
                 {
                     "local function Runtime(T: any): any return T end",
                     "local bad: Runtime(string)",
-                    "return Runtime(1), bad",
                 },
                 "\n"
             )
@@ -169,10 +166,10 @@ end
 
 function M.compilerOnlyTypeHandlesCannotEnterRuntimeSignatures()
     testAssert.equal(
-        codes(table.concat({"local function identity(T: type): type return T end", "return identity",}, "\n")),
+        codes("local function identity(T: type): type return T end"),
         "NUPP2421 NUPP2421"
     )
-    testAssert.equal(codes(table.concat({"local value: type = nil as any", "return value",}, "\n")), "NUPP2421")
+    testAssert.equal(codes("local value: type = nil as any"), "NUPP2421")
 end
 
 function M.openComptimeTypeCallsCloseAfterGenericInference()
@@ -280,7 +277,6 @@ function M.comptimeTypeAliasesNameReusableDescriptorShapes()
             {
                 "@comptime local type Field = {name: string, read: type?}",
                 "local value: Field = nil as any",
-                "return value",
             },
             "\n"
         ),
@@ -336,7 +332,6 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
                     "   return nupp.types.integer",
                     "end",
                     "local value: Bad(string)",
-                    "return value",
                 },
                 "\n"
             )
@@ -965,17 +960,17 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
         )
     )
     oneDiagnostic(
-        "local leaked = nupp.types.string\nreturn leaked",
+        "local leaked = nupp.types.string",
         "NUPP2421",
         'compiler-only member "string" is available only inside comptime'
     )
     oneDiagnostic(
-        "local leaked = nupp.types.optional\nreturn leaked",
+        "local leaked = nupp.types.optional",
         "NUPP2421",
         'compiler-only member "optional" is available only inside comptime'
     )
     oneDiagnostic(
-        "local leaked = nupp.types.error\nreturn leaked",
+        "local leaked = nupp.types.error",
         "NUPP2421",
         'compiler-only member "error" is available only inside comptime'
     )
@@ -985,7 +980,6 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
                 "local type ScalarLibrary = {@readonly step: @comptime function(integer): integer}",
                 "local library: ScalarLibrary = nil as any",
                 "local leaked = library.step",
-                "return leaked",
             },
             "\n"
         ),
@@ -1053,10 +1047,10 @@ function M.remapCollisionsReportAtTheOperator()
 end
 
 function M.removedTypeProgrammingSyntaxHasNoSpecialCst()
-    local parsed = parser.parse("local value: typeerror<'broken'>", "removed.g.nupp")
+    local parsed = parser.parse("local value: typeerror<'broken'>", "removed.nupp")
     testAssert.equal(#parsed.errors, 0)
     assert(not cst.dump(parsed.root):find("ttypeerror", 1, true), "typeerror is now an ordinary generic type name")
-    local matched = parser.parse("local type Old<T> = match T when infer X then X end", "removed.g.nupp")
+    local matched = parser.parse("local type Old<T> = match T when infer X then X end", "removed.nupp")
     assert(#matched.errors > 0, "type-level match and infer are no longer grammar")
 end
 
@@ -1265,7 +1259,7 @@ function M.typeComputationAndConstBindersEraseFromGeneratedLua()
         "\n"
     )
     clean(source)
-    local parsed = parser.parse(source, "erase.g.nupp")
+    local parsed = parser.parse(source, "erase.nupp")
     local lua, emitted = gen.generate(parsed, "erase")
     testAssert.equal(#emitted, 0, "code generation diagnostics")
     assert(not lua:find("const Name", 1, true), "const binder reached runtime Lua")
@@ -1286,7 +1280,7 @@ function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
         "\n"
     )
     clean(source)
-    local parsed = parser.parse(source, "annotation.g.nupp")
+    local parsed = parser.parse(source, "annotation.nupp")
     local lua, emitted = gen.generate(parsed, "annotation")
     testAssert.equal(#emitted, 0, "code generation diagnostics")
     -- The call is type material, so its parentheses erase with the annotation
@@ -1604,8 +1598,8 @@ function M.affineConstructorAddsNoRuntimeRepresentation()
         },
         "\n"
     )
-    local parsed = parser.parse(source, "affine-erasure.g.nupp")
-    local found = check.check(parsed, "affine-erasure.g.nupp", env)
+    local parsed = parser.parse(source, "affine-erasure.nupp")
+    local found = check.check(parsed, "affine-erasure.nupp", env)
     testAssert.equal(#found, 0, found[1] and found[1].msg or "check")
     local lua, emitted = gen.generate(parsed, "affine-erasure")
     testAssert.equal(#emitted, 0, "code generation diagnostics")
@@ -1953,8 +1947,8 @@ function M.comptimeCountsThePackItWasPassed()
 end
 
 -- A type argument that is itself a type parameter satisfies a bound only when its
--- own bound implies it. An unbounded one stands for anything, and the gradual
--- typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
+-- own bound implies it. An unbounded one stands for anything, and the old
+-- permissive typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
 -- whose method then read a field no integer has.
 function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
     local body = table.concat(
@@ -1981,7 +1975,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
         ),
         "NUPP2116 NUPP2116"
     )
-    testAssert.equal(codes(body .. "local type Also<U> = Reg<U>\nreturn Also\n"), "NUPP2116")
+    testAssert.equal(codes(body .. "local type Also<U> = Reg<U>\n"), "NUPP2116")
     clean(
         body .. table.concat(
             {
@@ -1992,7 +1986,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
                 "   return new Reg(item = x)",
                 "end",
                 "local type Also<U is Named> = Reg<U>",
-                "return wrap, narrow, Also",
+                "return wrap, narrow",
             },
             "\n"
         )
@@ -2117,12 +2111,12 @@ local different: simd.Mask<uint8, simd.Fixed<3>> = left ~= right
 return same:select(4, 2), different:any()
 ]]
     )
-    testAssert.equal(codes(prefix .. "return left < right"), "NUPP2003")
-    testAssert.equal(codes(prefix .. "return left == true"), "NUPP2003")
+    testAssert.equal(codes(prefix .. "local result = left < right"), "NUPP2003")
+    testAssert.equal(codes(prefix .. "local result = left == true"), "NUPP2003")
     testAssert.equal(
         codes(prefix .. [[
 local other: simd.Mask<uint8, simd.Fixed<4>> = nil as any
-return left == other
+local result = left == other
 ]]),
         "NUPP2006"
     )
@@ -2212,7 +2206,7 @@ function M.floatingReducerStateIsPrivateToTheSimdModule()
         codes([[
 local simd = require("nupp.simd")
 local sum = simd.reducer.orderedSum(0.0)
-return sum.total
+local total = sum.total
 ]]),
         "NUPP2209"
     )
@@ -2445,12 +2439,12 @@ function M.admissionEmitsOnlyWhatProofLeaves()
     local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
 
     local function lua(source)
-        local parsed = parser.parse(source, "admit.g.nupp")
+        local parsed = parser.parse(source, "admit.nupp")
         testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
         env.loaded = {}
-        check.check(parsed, "admit.g.nupp", env)
+        check.check(parsed, "admit.nupp", env)
 
-        return gen.generate(parsed, "admit.g.nupp")
+        return gen.generate(parsed, "admit.nupp")
     end
 
     local unproved = lua(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")

@@ -14,11 +14,11 @@ local env = envMod.new(HERE .. "/..")
 
 local function codes(source)
    env.loaded = {}
-   local parsed = parser.parse(source, "test.g.nupp")
+   local parsed = parser.parse(source, "test.nupp")
    testAssert.equal(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(parsed, "test.g.nupp", env)) do
+   for j, d in ipairs(check.check(parsed, "test.nupp", env)) do
       out[j] = d.code
    end
    return table.concat(out, " ")
@@ -351,16 +351,14 @@ function M.aProjectionIsOnlyATypeWhenSomethingStatesIt()
    reports(src(
       "local function stray<T>(x: T): T.Item",
       "   return nil as any",
-      "end",
-      "return stray"), "NUPP2134")
+      "end"), "NUPP2134")
    reports(src(
       "local interface Reader",
       "   associated type Item",
       "end",
       "local function missing<T is Reader>(x: T): T.Missing",
       "   return nil as any",
-      "end",
-      "return missing"), "NUPP2134")
+      "end"), "NUPP2134")
    -- a stated one is a type, and stays opaque while the head is a contract
    clean(src(
       "local interface Reader",

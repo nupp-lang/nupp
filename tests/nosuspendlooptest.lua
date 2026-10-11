@@ -7,10 +7,10 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local sharedEnv = envMod.new(here)
 
 local function diagnose(source)
-    local result = parser.parse(source, "test.g.nupp")
+    local result = parser.parse(source, "test.nupp")
     assert(#result.errors == 0, "loop annotation did not parse")
     local refusals = {}
-    for _, diagnostic in ipairs(check.check(result, "test.g.nupp", sharedEnv)) do
+    for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv)) do
         if diagnostic.code == "NUPP2701" then
             refusals[#refusals + 1] = diagnostic
         end
@@ -85,10 +85,10 @@ table.sort(values, function(left: integer, right: integer): boolean
     return park() and left < right
 end)
 ]]
-    local result = parser.parse(source, "test.g.nupp")
+    local result = parser.parse(source, "test.nupp")
     assert(#result.errors == 0)
     local refusals = {}
-    for _, diagnostic in ipairs(check.check(result, "test.g.nupp", sharedEnv)) do
+    for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv)) do
         if diagnostic.code == "NUPP2702" then
             refusals[#refusals + 1] = diagnostic
         end

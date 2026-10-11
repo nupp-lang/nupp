@@ -3,12 +3,16 @@ local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 -- Full pipeline: parse, check (for reified hints), generate.
 local function compile(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.g.nupp")
+    local diags = check.check(result, "test.nupp", env)
     local code, genDiags = gen.generate(result, "test")
 
     return code, diags, genDiags

@@ -103,7 +103,7 @@ function M.prepare(generated, options)
     assert(generated.entry:match("^[%w_]+$"), "invalid SIMD entry module")
     local entries = {}
     for filename, text in pairs(generated.files) do
-        local module = filename:match("^([%w_]+)%.g%.nupp$") or filename:match("^([%w_]+)%.nupp$")
+        local module = filename:match("^([%w_]+)%.nupp$")
         assert(module, "generated source must be a plain module filename")
         M.write(dir .. "/src/" .. filename, text)
         entries[#entries + 1] = module
@@ -402,9 +402,9 @@ function M.wasm(generated, options)
         preload[#preload + 1] = ("require(%q)"):format(module)
     end
     M.write(
-        dir .. "/src/" .. runner .. ".g.nupp",
+        dir .. "/src/" .. runner .. ".nupp",
         (
-            "local entry=require(%q)\n%s\nif __nuppWasmBeforeRun then __nuppWasmBeforeRun() end\nlocal cases=entry.run()\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+            "local entry=require(%q)\n%s\nlocal beforeRun: any = rawget(_G, \"__nuppWasmBeforeRun\"); if beforeRun then beforeRun() end\nlocal cases=entry.run()\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
         ):format(generated.entry, table.concat(preload, "\n"))
     )
     M.write(

@@ -1314,8 +1314,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
             if c.opts and c.opts.strict and c.moduleType then
-                -- A module's boundary is its contract: under --strict nothing crosses
-                -- it untyped.
+                -- A module's boundary is its contract: nothing crosses it untyped.
                 local function untyped(t)
                     if t == nil then
                         return false

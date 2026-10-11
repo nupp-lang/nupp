@@ -53,7 +53,7 @@ other two.
 What the contract does buy is enforcement in the other direction. A declared
 contract is checked against the value that fulfills it, because a contract
 nothing enforces is the same defect as one never written down: it is rendered,
-documented, and never read. Computed metatables stay gradual, since tracking a
+documented, and never read. Computed metatables stay unchecked, since tracking a
 table's shape through arbitrary construction is a different problem.
 :::
 
@@ -150,7 +150,7 @@ All of this is reported against the declaration, and the misspelling is reported
 against the name.
 
 Only literals are checked. Nothing here can see what a function returns, so
-`setmetatable(t, buildIt())` stays gradual.
+`setmetatable(t, buildIt())` stays unchecked.
 
 ## Supported contracts
 

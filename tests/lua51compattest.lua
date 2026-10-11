@@ -8,9 +8,9 @@ local env = envMod.new("tests", {cache = false})
 local M = {}
 
 local function checked(source, options)
-    local result = parser.parse(source, "compat.g.nupp")
+    local result = parser.parse(source, "compat.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
-    local diags = check.check(result, "compat.g.nupp", env, options or {compat = "lua51"})
+    local diags = check.check(result, "compat.nupp", env, options or {compat = "lua51"})
     return result, diags
 end
 
@@ -67,11 +67,11 @@ return text, total
         local result, diags = checked(source)
         assert(errors(diags) == "", errors(diags))
         optimize.run(result, {level = level})
-        local code, generated = gen.generate(result, "compat.g.nupp")
+        local code, generated = gen.generate(result, "compat.nupp")
         assert(errors(generated) == "", errors(generated))
         local native = checked(source, {})
         optimize.run(native, {level = level})
-        local ordinary = gen.generate(native, "compat.g.nupp")
+        local ordinary = gen.generate(native, "compat.nupp")
         assert(code == ordinary, "compatibility must not select alternate emission")
         local label, total = assert(loadstring(code))()
         assert(label == "ready" and total == 5)
@@ -104,9 +104,9 @@ end
 function M.sameNamedApplicationValuesRemainOrdinary()
     local _, diags = checked(
         [[
-local bit = {bor = function(a, b) return a + b end}
-local jit = {status = function() return true end}
-local table = {new = function() return {} end}
+local bit: {bor: function(number, number): number} = {bor = function(a: number, b: number): number return a + b end}
+local jit: {status: function(): boolean} = {status = function(): boolean return true end}
+local table: {new: function(): {any}} = {new = function(): {any} return {} end}
 return bit.bor(1, 2), jit.status(), table.new()
 ]]
     )
@@ -130,8 +130,8 @@ end
 
 function M.unsafeAnnotationsPreserveCompatibleApplicationValuesAndEmission()
     local source = [[
-@unsafe local bit = {bor = function(a: number, b: number): number return a + b end}
-local jit = {status = function(): string return "application" end}
+@unsafe local bit: {bor: function(number, number): number} = {bor = function(a: number, b: number): number return a + b end}
+local jit: {status: function(): string} = {status = function(): string return "application" end}
 local function pair(): (number, number) return 4, 5 end
 local a, b = @unsafe pair()
 return @unsafe bit.bor(a, b), @unsafe jit.status()
@@ -140,12 +140,12 @@ return @unsafe bit.bor(a, b), @unsafe jit.status()
         local result, diags = checked(source)
         assert(errors(diags) == "", errors(diags))
         optimize.run(result, {level = level})
-        local code, generated = gen.generate(result, "compat.g.nupp")
+        local code, generated = gen.generate(result, "compat.nupp")
         assert(errors(generated) == "", errors(generated))
         local ordinary, ordinaryDiags = checked(source, {})
         assert(errors(ordinaryDiags) == "", errors(ordinaryDiags))
         optimize.run(ordinary, {level = level})
-        assert(code == gen.generate(ordinary, "compat.g.nupp"), "unsafe permission must not select alternate emission")
+        assert(code == gen.generate(ordinary, "compat.nupp"), "unsafe permission must not select alternate emission")
         local sum, label = assert(loadstring(code))()
         assert(sum == 9 and label == "application")
     end
@@ -187,7 +187,7 @@ function M.rejectsRuntimeIdentitiesEscapingInspection()
 end
 
 function M.literalLoadsAreCheckedWithoutExecutingThem()
-    local _, admitted = checked([[return loadstring("return 1")]])
+    local _, admitted = checked([[local chunk = loadstring("return 1"); return chunk ~= nil]])
     assert(errors(admitted) == "", errors(admitted))
     for _, source in ipairs({
         [[return loadstring("return jit.status()")]],
@@ -250,7 +250,7 @@ function M.explicitPureLuaBitLibraryRemainsAnOrdinaryDependency()
         source = source:gsub("@!internal", ""):gsub("module nupp.runtime.provider.scalarbitops", "module bits")
         write("bits.nupp", source)
         write("nupp.lua", 'return {compat="lua51",include={"."}}')
-        write("main.g.nupp", 'local bits = require("bits"); return bits.bor(1,2)')
+        write("main.nupp", 'local bits = require("bits"); return bits.bor(1,2)')
         local options = {diagnostics = {}, produced = {}}
         assert(require("nupp.tools.build.project").check(root, options) == 0, errors(options.diagnostics))
     end)
@@ -259,23 +259,23 @@ end
 function M.incrementalDependenciesRecheckCompatibilityAfterBodyEdits()
     inProject(function(root, write)
         write("nupp.lua", 'return {compat="lua51", include={"."}}')
-        write("dep.g.nupp", 'local value = 1; return {value=value}')
-        write("main.g.nupp", 'local dep = require("dep"); return dep.value')
+        write("dep.nupp", 'local value = 1; return {value=value}')
+        write("main.nupp", 'local dep = require("dep"); return dep.value')
         local inc = require("nupp.compiler.project.incremental").new(root, {cache = false})
         assert(inc.env.compat == "lua51")
-        assert(errors(inc.checkFile(root .. "/main.g.nupp").diags) == "")
-        inc.changeDocument(root .. "/dep.g.nupp", 'const value = 1; return {value=value}')
-        local invalid = errors(inc.checkFile(root .. "/main.g.nupp").diags)
+        assert(errors(inc.checkFile(root .. "/main.nupp").diags) == "")
+        inc.changeDocument(root .. "/dep.nupp", 'const value = 1; return {value=value}')
+        local invalid = errors(inc.checkFile(root .. "/main.nupp").diags)
         assert(invalid:find("NUPP3015", 1, true), invalid)
-        inc.changeDocument(root .. "/dep.g.nupp", 'local value = 1; return {value=value}')
-        assert(errors(inc.checkFile(root .. "/main.g.nupp").diags) == "")
+        inc.changeDocument(root .. "/dep.nupp", 'local value = 1; return {value=value}')
+        assert(errors(inc.checkFile(root .. "/main.nupp").diags) == "")
     end)
 end
 
 function M.projectCacheCannotReuseAnUnrestrictedVerdict()
     inProject(function(root, write)
         write("nupp.lua", 'return {include={"."}, build={kind="modules",outDir="build"}}')
-        write("main.g.nupp", 'const value = 1; return value')
+        write("main.nupp", 'const value = 1; return value')
         local project = require("nupp.tools.build.project")
         local ordinary = {diagnostics = {}, produced = {}}
         assert(project.check(root, ordinary) == 0, errors(ordinary.diagnostics))
@@ -294,10 +294,10 @@ end
 function M.apiCompatibilityDoesNotTrustAnUnrestrictedDependencyCache()
     inProject(function(root, write)
         write("nupp.lua", 'return {include={"."}}')
-        write("dep.g.nupp", 'const value = 1; return {value=value}')
+        write("dep.nupp", 'const value = 1; return {value=value}')
         local projectEnv = envMod.new(root, {cache = false})
         local source = 'local dep = require("dep"); return dep.value'
-        local path = root .. "/main.g.nupp"
+        local path = root .. "/main.nupp"
         assert(errors(check.check(parser.parse(source, path), path, projectEnv)) == "")
         local diags = check.check(parser.parse(source, path), path, projectEnv, {compat = "lua51"})
         assert(errors(diags):find("NUPP3015", 1, true), errors(diags))
@@ -326,7 +326,7 @@ return answer, ok, table.concat(closed, ",")
 ]]
     local result, diags = checked(source)
     assert(errors(diags) == "", errors(diags))
-    local code, generated = gen.generate(result, "compat.g.nupp")
+    local code, generated = gen.generate(result, "compat.nupp")
     assert(errors(generated) == "", errors(generated))
     local environment = setmetatable({}, {__index = _G})
     environment._G = environment
@@ -365,7 +365,7 @@ return work(false)
         assert(errors(diags) == "", errors(diags))
         -- Isolate the emitted effect boundary from each facade's separate
         -- source/runtime eligibility; the authored cleanup does not yield.
-        local _, generated = gen.generate(result, "compat.g.nupp", nil, nil, nil, {[feature] = true})
+        local _, generated = gen.generate(result, "compat.nupp", nil, nil, nil, {[feature] = true})
         local message = errors(generated)
         assert(message:find(feature .. " -> runtime.suspension", 1, true), message)
     end

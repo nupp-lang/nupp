@@ -270,7 +270,7 @@ local u32 = nupp.math.u32
                 ] = '    end\n    return cases\nend\nlocal function run(): number\n    local cases=0\n' .. table.concat(
                     calls
                 ) .. '    return cases\nend\nreturn {run=run,' .. table.concat(exports, ',') .. '}\n'
-                files[module .. '.g.nupp'], probes[module] = table.concat(source), names
+                files[module .. '.nupp'], probes[module] = table.concat(source), names
                 modules[#modules + 1] = module
                 coverage[
                     #coverage + 1

@@ -10,11 +10,11 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
@@ -100,7 +100,7 @@ function M.constIsAPromiseNotToWrite()
    -- a mutable value satisfies a const one
    testAssert.equal(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
    -- the reverse discards the promise
-   testAssert.equal(diagsOf(P .. "\nlocal r: const P\nlocal p: P = r"), "NUPP2001")
+   testAssert.equal(diagsOf(P .. "\nlocal r: const P = nil as any\nlocal p: P = r"), "NUPP2001")
    testAssert.equal(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001",
       "still a non-null pointer")
    testAssert.equal(diagsOf(P .. "\nlocal p: const P*? = nil"), "")
@@ -119,16 +119,10 @@ function M.cFunctionPointersDecodeAsCallbackTypes()
       "a pointer to a function reads as one: " .. rendered)
 end
 
-function M.fixedWidthClaimsRequireEstablishmentInEveryMode()
-   local src = "local x: number = 5\nlocal small: int32 = x"
-   testAssert.equal(diagsOf(src), "NUPP2011")
-   local result = parser.parse(src, "test.g.nupp")
-   local diags = check.check(result, "test.g.nupp", env, {strict = true})
-   testAssert.equal(#diags, 1, "reported under --strict")
-   testAssert.equal(diags[1].code, "NUPP2011")
+function M.fixedWidthClaimsRequireEstablishment()
+   testAssert.equal(diagsOf("local x: number = 5\nlocal small: int32 = x"), "NUPP2011")
    -- A wider target needs no establishment fact.
-   local wide = parser.parse("local x: number = 5\nlocal big: number = x", "test")
-   testAssert.equal(#check.check(wide, "test", env, {strict = true}), 0)
+   testAssert.equal(diagsOf("local x: number = 5\nlocal big: number = x"), "")
 end
 
 function M.theCNamespaceIsTypedFromDeclarations()

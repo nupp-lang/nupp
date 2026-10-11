@@ -170,7 +170,7 @@ end
 function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["hot.g.nupp"] = table.concat({
+      ["hot.nupp"] = table.concat({
          "local function hot(values: {integer}): integer",
          "   local total = 0",
          "   for i = 1, #values do",
@@ -184,7 +184,7 @@ function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
       }, "\n"),
    })
    local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json hot.g.nupp 5 7"))
+      "lsp trace-check --json hot.nupp 5 7"))
    assert(checked.functionName == "hot", "the enclosing function is selected")
    assert(checked.contract == "inspection", "manual inspection does not add @jit")
    assert(checked.addContract and checked.addContract.newText:find("@jit", 1, true),
@@ -204,7 +204,7 @@ end
 function M.traceCheckOffersNoContractForAFunctionExpression()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["expr.g.nupp"] = table.concat({
+      ["expr.nupp"] = table.concat({
          "local hot = function(values: {integer}): integer",
          "   local total = 0",
          "   for i = 1, #values do",
@@ -218,7 +218,7 @@ function M.traceCheckOffersNoContractForAFunctionExpression()
       }, "\n"),
    })
    local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json expr.g.nupp 5 7"))
+      "lsp trace-check --json expr.nupp 5 7"))
    assert(checked.findings and #checked.findings > 0, "the expression is inspected")
    assert(checked.addContract == nil or checked.addContract == json.null,
       "no contract edit is offered for a function expression: "
@@ -229,7 +229,7 @@ end
 function M.traceCheckIncludesARepairableNoncapturingClosure()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["hot.g.nupp"] = table.concat({
+      ["hot.nupp"] = table.concat({
          "local function hot(values: {integer}): nil",
          "   for _, value in ipairs(values) do",
          "      register(function(): integer return 1 end)",
@@ -240,7 +240,7 @@ function M.traceCheckIncludesARepairableNoncapturingClosure()
       }, "\n"),
    })
    local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json hot.g.nupp 2 4"))
+      "lsp trace-check --json hot.nupp 2 4"))
    local found
    for _, finding in ipairs(checked.findings) do
       if finding.reason == "jit/loop-function-construction" then found = finding end
@@ -254,7 +254,7 @@ end
 function M.traceCheckFollowsAnExactImportedCallee()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["lib.g.nupp"] = table.concat({
+      ["lib.nupp"] = table.concat({
          "local lib = {}",
          "function lib.bad(values: {integer}): integer",
          "   local total = 0",
@@ -267,7 +267,7 @@ function M.traceCheckFollowsAnExactImportedCallee()
          "return lib",
          "",
       }, "\n"),
-      ["main.g.nupp"] = table.concat({
+      ["main.nupp"] = table.concat({
          "local lib = require('lib')",
          "@jit",
          "local function hot(values: {integer}): integer",
@@ -278,7 +278,7 @@ function M.traceCheckFollowsAnExactImportedCallee()
       }, "\n"),
    })
    local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json main.g.nupp 4 8"))
+      "lsp trace-check --json main.nupp 4 8"))
    local found
    for _, finding in ipairs(checked.findings) do
       if finding.reason == "jit/loop-function-construction" then found = finding end
@@ -286,7 +286,7 @@ function M.traceCheckFollowsAnExactImportedCallee()
    assert(found, "the exported callee transports its trace summary")
    assert(#found.callPath >= 2 and found.callPath[1] == "hot",
       "the imported call path starts at the inspected function")
-   local diagnostics = json.decode(captureJson(dir, "check --json main.g.nupp"))
+   local diagnostics = json.decode(captureJson(dir, "check --json main.nupp"))
    local contractError
    for _, diagnostic in ipairs(diagnostics.diagnostics or {}) do
       if diagnostic.code == "NUPP2707" then contractError = diagnostic end
@@ -572,10 +572,10 @@ function M.artifactPrintsGeneratedLuaThatDoesNotLoad()
    lines[#lines + 1] = "return f()"
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["many.g.nupp"] = table.concat(lines, "\n") .. "\n",
+      ["many.nupp"] = table.concat(lines, "\n") .. "\n",
    })
-   local text = capture(dir, "lsp artifact --kind lua many.g.nupp 2>&1; echo \"__exit__:$?\"")
-   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json many.g.nupp"))
+   local text = capture(dir, "lsp artifact --kind lua many.nupp 2>&1; echo \"__exit__:$?\"")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json many.nupp"))
    os.execute("rm -rf '" .. dir .. "'")
    contains(text, "local function f", "the generated Lua is printed")
    contains(text, "NUPP3005", "with the reason it does not load")

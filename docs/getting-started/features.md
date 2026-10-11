@@ -20,8 +20,8 @@ print(pending.name)
 
 ## Language
 
-- [Gradual typing](../learn/language/gradual-typing.md) moves annotated `.lua` into
-  `.g.nupp`, then raises the strict floor with `.nupp`.
+- [File types](../learn/language/file-types.md) divides checked `.nupp` source
+  from plain `.lua`, whose type comments are still imported.
 - [Modules](../learn/language/modules.md),
   [named arguments](../learn/language/named-arguments.md),
   [switch expressions](../learn/language/switch-expressions.md), and

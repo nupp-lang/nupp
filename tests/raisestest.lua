@@ -16,9 +16,9 @@ local sharedEnv = envMod.new(".")
 
 -- Every NUPP2506 the source produces.
 local function lint(src, config)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", sharedEnv, config or {})
+    local diags = check.check(result, "test.nupp", sharedEnv, config or {})
     local found = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2506" then
@@ -30,9 +30,9 @@ local function lint(src, config)
 end
 
 local function diagnosticsOf(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    return check.check(result, "test.g.nupp", sharedEnv, {})
+    return check.check(result, "test.nupp", sharedEnv, {})
 end
 
 local function assertFlagged(src, label)
@@ -479,10 +479,10 @@ local function load(path)
    return path
 end
 ]],
-        "test.g.nupp"
+        "test.nupp"
     )
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", sharedEnv, {lints = {["undocumented-raise"] = "off"}})
+    local diags = check.check(result, "test.nupp", sharedEnv, {lints = {["undocumented-raise"] = "off"}})
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP1010" then
             found[#found + 1] = diag

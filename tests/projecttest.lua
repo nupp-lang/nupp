@@ -963,7 +963,7 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
         ] = [[return {build = {kind = "binary", stub = "nupp",
          entries = {"main"}, platforms = {"x86_64-unknown-linux-gnu",
          "aarch64-apple-darwin", "x86_64-pc-windows-msvc"}}}]],
-        ["main.g.nupp"] = "return true\n",
+        ["main.nupp"] = "return true\n",
     })
     local stubDir = dir .. "/stubs"
     os.execute("mkdir -p '" .. stubDir .. "'")
@@ -1120,7 +1120,7 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     records[linux] = originalLinux
     write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
 
-    write(dir .. "/main.g.nupp", 'local lpeg = require("lpeg")\nreturn lpeg\n')
+    write(dir .. "/main.nupp", 'local lpeg = require("lpeg")\nreturn lpeg\n')
     testAssert.equal(
         project.build(dir, {
             platform = linux
@@ -1128,7 +1128,7 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
         1,
         "a payload feature absent from the selected stub is refused"
     )
-    write(dir .. "/main.g.nupp", "return true\n")
+    write(dir .. "/main.nupp", "return true\n")
 
     local windowsOutput = dir .. "/build/default/x86_64-pc-windows-msvc/default.exe"
     os.remove(windowsOutput)
@@ -1558,14 +1558,13 @@ return {
 end
 
 function M.strictnessFollowsTheFileExtensionThroughTheProject()
-    -- The old shape of this test asked whether a flag reached the incremental
-    -- checker. The flag is no longer what decides: the extension is, and it has to
-    -- survive the whole path from the file on disk to the checker.
-    local gradualDir = tempProject({
+    -- The extension decides, and it has to survive the whole path from the file on
+    -- disk to the checker: a `.nupp` reports an unknown name, a `.lua` does not.
+    local luaDir = tempProject({
         ["nupp.lua"] = [[
 return {include = {"src"}, build = {entries = {"main"}}}
 ]],
-        ["src/main.g.nupp"] = "return unknown_project_value\n",
+        ["src/main.lua"] = "return unknown_project_value\n",
     })
     local strictDir = tempProject({
         ["nupp.lua"] = [[
@@ -1576,16 +1575,14 @@ return {include = {"src"}, build = {entries = {"main"}}}
     local errorPath = os.tmpname()
     local originalStderr = io.stderr
     io.stderr = assert(io.open(errorPath, "wb"))
-    local gradual = project.check(gradualDir)
-    local forced = project.check(gradualDir, {strict = true})
+    local plain = project.check(luaDir)
     local strict = project.check(strictDir)
     io.stderr:close()
     io.stderr = originalStderr
     os.remove(errorPath)
-    testAssert.equal(gradual, 0, ".g.nupp permits unknown globals")
-    testAssert.equal(forced, 1, "--strict audits a .g.nupp anyway")
-    testAssert.equal(strict, 1, ".nupp holds the floor with nothing asked for")
-    remove(gradualDir)
+    testAssert.equal(plain, 0, ".lua permits unknown globals")
+    testAssert.equal(strict, 1, ".nupp reports an unknown name")
+    remove(luaDir)
     remove(strictDir)
 end
 
@@ -2014,8 +2011,8 @@ return {
    build = {outDir = "out", entries = {"main"}},
 }
 ]],
-        ["src/main.g.nupp"] = table.concat({"local D = require('dep')", "@noalloc do D.work() end",}, "\n"),
-        ["src/dep.g.nupp"] = allocating,
+        ["src/main.nupp"] = table.concat({"local D = require('dep')", "@noalloc do D.work() end",}, "\n"),
+        ["src/dep.nupp"] = allocating,
     })
 
     assert(project.check(dir, {stats = {}, diagnostics = {}}) ~= 0, "an allocating call is refused in a noalloc region")
@@ -2029,7 +2026,7 @@ return {
     -- The provider gains the guarantee. Its interface does not move, and the
     -- reader's own bytes do not move, so the recorded guarantee is the only thing
     -- that can carry the change across.
-    write(dir .. "/src/dep.g.nupp", quiet)
+    write(dir .. "/src/dep.nupp", quiet)
     testAssert.equal(
         project.check(dir, {
             stats = {},
@@ -2040,7 +2037,7 @@ return {
     )
 
     -- And back the other way, which is the direction that fails silently.
-    write(dir .. "/src/dep.g.nupp", allocating)
+    write(dir .. "/src/dep.nupp", allocating)
     assert(project.check(dir, {stats = {}, diagnostics = {}}) ~= 0, "and refuses again once it allocates again")
 
     remove(dir)
@@ -2681,7 +2678,7 @@ function M.cDependencyUsesTargetIndexedPrebuiltStaticArtifact()
             "nupp.lua"
         ] = [[return {dependencies = {tiny = {kind = "c", linkage = "static",
          sources = {"tiny.c"}}}, build = {entries = {"main"}, dependencies = {"tiny"}}}]],
-        ["main.g.nupp"] = "return true\n",
+        ["main.nupp"] = "return true\n",
         ["tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
     })
     testAssert.equal(project.build(producer), 0)
@@ -4425,7 +4422,7 @@ return {
 }
 ]],
         [
-            "src/main.g.nupp"
+            "src/main.nupp"
         ] = [[
 assert(os.getenv("NUPP_TEST_BUILD") == "coverage", tostring(os.getenv("NUPP_TEST_BUILD")))
 local file = assert(io.open("test-ran", "wb"))

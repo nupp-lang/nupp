@@ -309,7 +309,7 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 report(effect, node, "may invoke code with unknown effects", nil, queries)
             elseif node.gradualIndex and effect == "raises" and not diagnosed[node] then
                 diagnosed[node] = true
-                report(effect, node, "indexes a gradual value, which may raise", nil, queries)
+                report(effect, node, "indexes an untyped value, which may raise", nil, queries)
             elseif node.indexedAccess and effect == "raises" and not node.rangeProvenNoRaise then
                 if not diagnosed[node] then
                     diagnosed[node] = true

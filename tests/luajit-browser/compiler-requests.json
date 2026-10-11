@@ -23,12 +23,12 @@
   {
     "kind": "compile",
     "source": "const value = 2ULL\nreturn value",
-    "filename": "sample.g.nupp"
+    "filename": "sample.nupp"
   },
   {
     "kind": "check",
     "source": "const value = 2ULL\nreturn value",
-    "filename": "sample.g.nupp",
+    "filename": "sample.nupp",
     "options": {
       "compat": "lua51"
     }
@@ -64,7 +64,7 @@
   {
     "kind": "check",
     "source": "const value = 2ULL\nreturn value",
-    "filename": "sample.g.nupp"
+    "filename": "sample.nupp"
   },
   {
     "kind": "compile",
@@ -76,7 +76,7 @@
   },
   {
     "kind": "check",
-    "filename": "ffi.g.nupp",
+    "filename": "ffi.nupp",
     "source": "local ffi = require(\"ffi\"); local value = ffi.new(\"int[3]\"); return value"
   },
   {
@@ -106,7 +106,7 @@
   },
   {
     "kind": "check",
-    "filename": "unsafe-literal.g.nupp",
+    "filename": "unsafe-literal.nupp",
     "source": "return @unsafe 2ULL",
     "expect": {
       "errorCodes": ["NUPP3013"]
@@ -117,7 +117,7 @@
   },
   {
     "kind": "check",
-    "filename": "unsafe-import.g.nupp",
+    "filename": "unsafe-import.nupp",
     "source": "return @unsafe require(\"ffi\")",
     "expect": {
       "errorCodes": ["NUPP3014", "NUPP3015"]

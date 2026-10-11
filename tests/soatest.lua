@@ -9,9 +9,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(source)
-    local parsed = parser.parse(source, "soa-test.g.nupp")
+    local parsed = parser.parse(source, "soa-test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "soa-test.g.nupp", env)
+    local diagnostics = check.check(parsed, "soa-test.nupp", env)
     local errors = {}
     for _, diagnostic in ipairs(diagnostics or {}) do
         if diagnostic.severity == "error" then
@@ -19,7 +19,7 @@ local function compile(source)
         end
     end
     local remarks = optimize.run(parsed, {level = 1})
-    local code, generated = gen.generate(parsed, "soa-test.g.nupp")
+    local code, generated = gen.generate(parsed, "soa-test.nupp")
 
     return code, errors, generated, parsed, remarks
 end
@@ -785,12 +785,12 @@ local aotTargets = require("nupp.compiler.aot.target")
 local aotVerify = require("nupp.compiler.aot.verify")
 
 local function native(source, target)
-    local parsed = parser.parse(source, "soa-native.g.nupp")
+    local parsed = parser.parse(source, "soa-native.nupp")
     testAssert.equal(#parsed.errors, 0, "native syntax")
-    for _, diagnostic in ipairs(check.check(parsed, "soa-native.g.nupp", env)) do
+    for _, diagnostic in ipairs(check.check(parsed, "soa-native.nupp", env)) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    local programs, diagnostics = aotCompile.lower(source, "soa-native.g.nupp", parsed, target)
+    local programs, diagnostics = aotCompile.lower(source, "soa-native.nupp", parsed, target)
 
     return programs, diagnostics, parsed
 end
@@ -837,7 +837,7 @@ function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
     assert(binding:find('rows["dx"]', 1, true), binding)
     assert(not binding:find("ffi.copy", 1, true), binding)
     assert(not binding:find("exclusive __nuppSoa", 1, true), binding)
-    local refusal = aotCompile.legalizeVectors(program, "soa-native.g.nupp", selected)
+    local refusal = aotCompile.legalizeVectors(program, "soa-native.nupp", selected)
     assert(refusal == nil, refusal and refusal[1] and refusal[1].message)
     aotVerify.program(program)
     local text = aotText.program(program)
@@ -938,7 +938,7 @@ function M.nativeSoaAdmissionRemainsNativeCpuOnly()
     end
 
     gpu(parsed.root)
-    programs, diagnostics = aotCompile.lower(DIRECT, "soa-native.g.nupp", parsed)
+    programs, diagnostics = aotCompile.lower(DIRECT, "soa-native.nupp", parsed)
     testAssert.equal(#programs, 0, "GPU row views rejected")
     assert(diagnostics[1].message:find("only by native CPU AOT", 1, true), diagnostics[1].message)
 end

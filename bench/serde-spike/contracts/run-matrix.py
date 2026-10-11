@@ -66,7 +66,7 @@ for key, values in sorted(rows.items()):
         row['verdict'] = 'no supported baseline'
     comparisons.append(row)
 files = list((root / 'src/nupp/serde').glob('*')) + [root / 'src/nupp/codec/json/aot.nupp',
-    root / 'native/crates/native/c/ks_lua.h', here / 'src/contract/matrix.g.nupp', here / 'matrix.lua', Path(__file__)]
+    root / 'native/crates/native/c/ks_lua.h', here / 'src/contract/matrix.nupp', here / 'matrix.lua', Path(__file__)]
 artifacts = [native / 'lib/libcompiled_contracts_aot.dylib', native / 'contract/matrix.lua']
 summary = {'baselineRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=base, text=True).strip(),
     'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),

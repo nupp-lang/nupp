@@ -3,10 +3,10 @@ local check = require("fragment")
 local annotations = require("nupp.compiler.annotations")
 
 local function diagnostics(source)
-    local parsed = parser.parse(source, "test.g.nupp")
+    local parsed = parser.parse(source, "test.nupp")
     assert(#parsed.errors == 0, "invalid test source")
     local codes = {}
-    for _, diagnostic in ipairs(check.check(parsed, "test.g.nupp")) do
+    for _, diagnostic in ipairs(check.check(parsed, "test.nupp")) do
         codes[#codes + 1] = diagnostic.code
     end
 

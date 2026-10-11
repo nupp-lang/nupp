@@ -19,9 +19,9 @@ local sharedEnv = envMod.new(HERE)
 
 local function diagsOf(src, opts)
     sharedEnv.loaded = {}
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.g.nupp", sharedEnv, opts)
+    local diags = check.check(result, "test.nupp", sharedEnv, opts)
     local out = {}
     for j, d in ipairs(diags) do
         out[j] = d.code .. ":" .. d.line
@@ -198,10 +198,10 @@ function M.moduleInitializationKeepsManagedAliasesAndRuntimeIdentity()
 end
 
 function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
-    local result = parser.parse("module nupp.runtime.managed\nexport function install(): nil end\n", "installer.g.nupp")
-    check.check(result, "installer.g.nupp", sharedEnv, {strict = false})
+    local result = parser.parse("module nupp.runtime.managed\nexport function install(): nil end\n", "installer.nupp")
+    check.check(result, "installer.nupp", sharedEnv, {strict = false})
     result.preludeRuntime = 'require("nupp.runtime.managed").install()'
-    local code, diagnostics = gen.generate(result, "installer.g.nupp")
+    local code, diagnostics = gen.generate(result, "installer.nupp")
     testAssert.equal(#diagnostics, 0, "the ownership installer generates")
     for _, name in ipairs(gen.runtimeModules(code)) do
         assert(name ~= "nupp.runtime.managed", "the installer must not load itself through the prelude")
@@ -210,10 +210,10 @@ function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
 end
 
 function M.generatedPreludeLoadsWithoutLoadstring()
-    local result = parser.parse("return 42\n", "prelude.g.nupp")
-    testAssert.equal(#check.check(result, "prelude.g.nupp", sharedEnv), 0, "prelude fixture checks")
+    local result = parser.parse("return 42\n", "prelude.nupp")
+    testAssert.equal(#check.check(result, "prelude.nupp", sharedEnv), 0, "prelude fixture checks")
     result.preludeRuntime = "_G.__testPrelude = true"
-    local code, diagnostics = gen.generate(result, "prelude.g.nupp")
+    local code, diagnostics = gen.generate(result, "prelude.nupp")
     testAssert.equal(#diagnostics, 0, "prelude fixture generates")
 
     local scope = setmetatable({loadstring = false}, {__index = _G})
@@ -432,7 +432,7 @@ function M.oneShotHmacUsesOrdinaryCode()
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
-    local path = HERE .. "/../src/nupp/runtime/browser/http.g.nupp"
+    local path = HERE .. "/../src/nupp/runtime/browser/http.nupp"
     local handle = assert(io.open(path, "rb"))
     local source = handle:read("*a")
     handle:close()
@@ -1724,8 +1724,8 @@ end
 
 function M.stringMethods()
     assertClean("local s: string = ('abc'):sub(1, 2)")
-    assertClean("local s: string\nlocal u: string = s:upper()")
-    testAssert.equal((diagsOf("local s: string\ns:sub('bad')")), "NUPP2006:2")
+    assertClean("local s: string = 'abc'\nlocal u: string = s:upper()")
+    testAssert.equal((diagsOf("local s: string = 'abc'\ns:sub('bad')")), "NUPP2006:2")
 end
 
 function M.mathAndBit()
@@ -2052,9 +2052,9 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
         },
         "\n"
     )
-    local result = parser.parse(source, "outside.g.nupp")
+    local result = parser.parse(source, "outside.nupp")
     testAssert.equal(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.g.nupp", isolated)
+    local diags = check.check(result, "outside.nupp", isolated)
     testAssert.equal(#diags, 0, "the shipped process source supplies its typed surface")
 end
 
@@ -2068,9 +2068,9 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
         },
         "\n"
     )
-    local result = parser.parse(source, "outside.g.nupp")
+    local result = parser.parse(source, "outside.nupp")
     testAssert.equal(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.g.nupp", isolated)
+    local diags = check.check(result, "outside.nupp", isolated)
     testAssert.equal(#diags, 0, "the shipped random source supplies its typed surface")
 end
 
@@ -2087,9 +2087,9 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
         },
         "\n"
     )
-    local result = parser.parse(source, "outside.g.nupp")
+    local result = parser.parse(source, "outside.nupp")
     testAssert.equal(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.g.nupp", isolated)
+    local diags = check.check(result, "outside.nupp", isolated)
     testAssert.equal(#diags, 0, "the shipped streaming hash source supplies its typed surface")
 end
 
@@ -2304,10 +2304,10 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     )
 
     local source = "do\n    local file = assert(io.open('input.txt'))\nend"
-    local parsed = parser.parse(source, "lua-file-owner.g.nupp")
+    local parsed = parser.parse(source, "lua-file-owner.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors in the Lua file ownership fragment")
     sharedEnv.loaded = {}
-    check.check(parsed, "lua-file-owner.g.nupp", sharedEnv)
+    check.check(parsed, "lua-file-owner.nupp", sharedEnv)
     local code = gen.generate(parsed, "lua-file-owner")
     assert(code:find("__nuppCloseFile", 1, true), "a Lua file is closed automatically at the end of its scope")
 
@@ -3126,11 +3126,9 @@ function M.moduleRequireDeclarationFile()
     )
 end
 
-function M.moduleUnresolvedIsAnyUnlessStrict()
-    local src = "local value: number = require('no.such.module')"
-    assertClean(src)
-    testAssert.equal((diagsOf(src, {strict = true})), "NUPP2001:1")
-    assertClean("local value = require('no.such.module') as number", {strict = true})
+function M.anUnresolvedModuleIsUnknown()
+    testAssert.equal((diagsOf("local value: number = require('no.such.module')")), "NUPP2001:1")
+    assertClean("local value = require('no.such.module') as number")
 end
 
 function M.publicResourceAliasesKeepConstructionAndPrivacy()

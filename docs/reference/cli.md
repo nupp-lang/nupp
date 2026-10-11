@@ -37,7 +37,7 @@ The commands, in the order `nupp help` lists them:
 - [`fixpoint`](#fixpoint): verify a byte-identical self-hosting rebuild
 - [`run`](#run): compile and run a Nupp or Lua program
 - [`import-c`](#import-c): generate typed Nupp bindings from a C header
-- [`migrate`](#migrate): migrate typed foreign source into gradual Nupp
+- [`migrate`](#migrate): migrate typed foreign source into Nupp
 - [`export-c`](#export-c): export canonical C declarations for Nupp structs
 - [`rock`](#rock): create and package typed LuaRocks libraries
 - [`lsp`](#lsp): language-server and semantic source operations
@@ -649,7 +649,7 @@ Examples:
 
     nupp check
     nupp check src/main.nupp
-    nupp check --strict --json
+    nupp check --json
     nupp check --target app
 
 Usage:
@@ -659,7 +659,6 @@ Arguments:
   FILE  Source files to check.
 
 Options:
-  --strict          Treat strict checker rules as errors.
   --compat PROFILE  Enforce the stock Lua 5.1 source subset without
                     compatibility lowering.
   --target NAME     Check a named manifest target.
@@ -674,11 +673,9 @@ Options:
   --no-color        Never color output
 ```
 
-A file's extension decides the floor it is held to, with `.nupp` strict and
-`.g.nupp`, `.d.nupp` and `.lua` gradual. `--strict` overrides that, holding
-every file to the strict floor whatever it is called: unknown variables are
-errors, and module exports need annotations. `--target` names a manifest target
-and cannot be combined with explicit files.
+In a `.nupp` file unknown variables are errors and module exports need
+annotations; a `.lua` file is checked as plain Lua. `--target` names a manifest
+target and cannot be combined with explicit files.
 
 A clean project writes nothing and exits 0. With
 `local shout: number = greet("world")` added to `src/greet.nupp`:
@@ -689,10 +686,8 @@ src/greet.nupp:6:23: error: NUPP2001: cannot initialize shout: string is not a n
    |                       ^~~~~
 ```
 
-See [strictness.md](../learn/language/gradual-typing.md#strict-floor-rules) for what the
-strict floor holds a file to, and
-[strictness.md](../learn/language/gradual-typing.md#file-extensions) for which extension
-carries it.
+See [file-types.md](../learn/language/file-types.md) for what each extension
+holds a file to.
 
 #### Diagnostics as JSON
 
@@ -939,7 +934,6 @@ Options:
   --platform NAME       Build one configured binary platform, or all.
   --standalone          Link native FFI and AOT code into the binary host.
   --output DIR, -o DIR  Output directory, overriding the target's.
-  --strict              Treat strict checker rules as errors.
   --host HOST           Runtime host services.
   --compat PROFILE      Enforce the stock Lua 5.1 source subset without
                         compatibility lowering.
@@ -1210,9 +1204,9 @@ customary-operator              style        warning  a customary operator where
 deprecated                      suspicious   warning  use of an API marked deprecated
 discarded-result                suspicious   warning  a call with nothing to do but return has its result dropped
 else-if                         style        warning  a conditional chain written as separate ifs
+erased-projection               suspicious   warning  an associated type was erased because inference did not reach its head
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
 exit-suffix-binding             suspicious   warning  a binding list takes more than one value from an exit suffix
-gradual-projection              suspicious   warning  an associated type was erased because inference did not reach its head
 jit-boundary                    suspicious   warning  an FFI boundary cannot safely run on a compiled trace
 jit-callback                    suspicious   warning  a C callback left on the JIT
 jit-loop-closure                performance  off      a loop builds a function and so never compiles
@@ -1422,7 +1416,7 @@ Nupp reference chapters
   performance Nupp trace checking, sampling, abort analysis, zones, and benchmark workflow.
 
 Language sections
-  gradual-typing-over-luajit
+  nupp-and-luajit
   declaring-things
   types
   functions
@@ -1869,7 +1863,6 @@ Arguments:
   ARG   Arguments passed to the program.
 
 Options:
-  --strict              Check the program under the strict floor.
   -O0, -O1, -O2         Optimization level.
   --remarks             Report what the optimizer did and what it declined to
                         do.
@@ -2072,7 +2065,7 @@ emitted C, ownership refinements, and supported limits.
 ```text [nupp migrate --help]
 Migrates annotated Lua or retired serialization APIs.
 
-Annotated Lua moves to a checked `.g.nupp` destination. Serialization
+Annotated Lua moves to a checked `.nupp` destination. Serialization
 migrations update `.nupp` files only after the replacement type-checks.
 
 Examples:

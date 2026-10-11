@@ -158,7 +158,7 @@ which is the intro's job. Name the subject and stop.
 | Banned | Write instead |
 | --- | --- |
 | Signing, and what macOS does about it | Signing for macOS |
-| Strict floor, and which files hold it | Strict floor |
+| Extensions, and which files are checked | File extensions |
 | Four declarations, and what each promises | Declaration kinds |
 
 A title listing several subjects is not this. "Writes, shapes, and metatables"
@@ -235,7 +235,6 @@ the fact.
 | Banned | Write instead |
 | --- | --- |
 | Asking what a name is | Querying a name |
-| Where the strict floor is | Strict floor |
 | Where the escape hatches are | Escape hatches |
 | How fast an intrinsic call is | Intrinsic call cost |
 
@@ -513,7 +512,7 @@ The vocabulary is fixed so a reader meets one word per idea:
   type-erased; `struct` is not.
 - **A resource is _dropped_, _transferred_, or _borrowed_.** It is not freed,
   released, or cleaned up unless describing C's side of the boundary.
-- `.nupp`, `.g.nupp`, `.lua`, and `.d.nupp` are always written with their dot
+- `.nupp`, `.lua`, and `.d.nupp` are always written with their dot
   and in code style.
 - Backtick every identifier, filename, extension, flag, and diagnostic code.
   Do not backtick an ordinary English word that happens to also be a keyword.

@@ -21,9 +21,9 @@ local RESOURCE = table.concat(
 )
 
 local function diagnostics(source)
-    local result = parser.parse(RESOURCE .. "\n" .. source, "ownership-flow.g.nupp")
+    local result = parser.parse(RESOURCE .. "\n" .. source, "ownership-flow.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
-    return check.check(result, "ownership-flow.g.nupp", env)
+    return check.check(result, "ownership-flow.nupp", env)
 end
 
 local ROWS = {

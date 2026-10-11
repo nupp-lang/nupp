@@ -441,16 +441,16 @@ end
 function M.importVerdictsExpireWhenAProjectAddsAModule()
     local dir = tempProject({
         ["nupp.lua"] = 'return { include = {"src"} }\n',
-        ["src/app.g.nupp"] = 'return library.tools.count()\n',
+        ["src/app.nupp"] = 'return library.tools.count()\n',
     })
-    local first, initiallyFormatted = run(dir, "fmt --check src/app.g.nupp")
+    local first, initiallyFormatted = run(dir, "fmt --check src/app.nupp")
     assert(initiallyFormatted, first)
     assert(os.execute("mkdir -p '" .. dir .. "/src/library'") == 0)
     local module = assert(io.open(dir .. "/src/library/tools.nupp", "wb"))
     module:write('module library.tools\nexport function count(): integer\nreturn 1\nend\n')
     module:close()
-    local after, stillFormatted = run(dir, "fmt --check src/app.g.nupp")
-    assert(not stillFormatted and after:find("src/app.g.nupp", 1, true), after)
+    local after, stillFormatted = run(dir, "fmt --check src/app.nupp")
+    assert(not stillFormatted and after:find("src/app.nupp", 1, true), after)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -458,11 +458,11 @@ function M.preservesAnExplicitTypeModuleBindingWithItsCanonicalName()
     local dir = tempProject({
         ["nupp.lua"] = 'return { include = {"src"} }\n',
         ["src/shapes.nupp"] = 'module shapes\nexport record Point\nx: number\nend\n',
-        ["src/app.g.nupp"] = 'local shapes = require("shapes")\nlocal value: shapes.Point = nil as any\nreturn value\n',
+        ["src/app.nupp"] = 'local shapes = require("shapes")\nlocal value: shapes.Point = nil as any\nreturn value\n',
     })
-    local out, ok = run(dir, "fmt --write src/app.g.nupp")
+    local out, ok = run(dir, "fmt --write src/app.nupp")
     assert(ok, out)
-    local result = readFile(dir .. "/src/app.g.nupp")
+    local result = readFile(dir .. "/src/app.nupp")
     assert(not result:find('const {type Point}', 1, true), result)
     assert(result:find('value: shapes.Point', 1, true), result)
     os.execute("rm -rf '" .. dir .. "'")

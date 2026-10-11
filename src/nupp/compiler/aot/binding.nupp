@@ -404,7 +404,7 @@ end
 --- Refusing a call whose spans overlap where the entry says they do not.
 ---
 --- A written span is `noalias` in the native entry, which the checker proves at
---- every typed call site. A caller outside it -- plain Lua, or gradual code --
+--- every typed call site. A caller outside it -- plain Lua, or a value typed `any` --
 --- can still hand the wrapper two views of one buffer, and the counts alone do
 --- not show it, so the byte ranges are compared here, once per call and once
 --- per pair. An empty span overlaps nothing.
@@ -718,7 +718,7 @@ function binding.builderLoader(
         "            local loadlib = rawget(package, \"loadlib\")",
         "            local open, why = loadlib(path, " .. prefix .. "Registrar)",
         "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
-        binding.passRuntime and '            registered = open(require("nupp.runtime.aotruntime").table())'
+        binding.passRuntime and '            registered = open((require("nupp.runtime.aotruntime") as any).table())'
         or "            registered = open()",
         "            if type(registered) ~= \"table\" or type(registered[\""
         .. program.name

@@ -790,15 +790,19 @@ function M.projectIndexTracksOverlaysAndDependents()
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
-    local modelPath = dir .. "/model.g.nupp"
-    local mainPath = dir .. "/main.g.nupp"
+    local modelPath = dir .. "/model.nupp"
+    local mainPath = dir .. "/main.nupp"
     local modelFile = assert(io.open(modelPath, "wb"))
     modelFile:write("local record Shared\n   value: number\nend\n")
     modelFile:close()
     local mainFile = assert(io.open(mainPath, "wb"))
-    mainFile:write(
-        table.concat({"local item: Shared = new Shared()", "local value: number = item.value", "return value",}, "\n")
-    )
+    mainFile:write(table.concat({
+        "local function read(item: Shared): number",
+        "   local value: number = item.value",
+        "   return value",
+        "end",
+        "return read",
+    }, "\n"))
     mainFile:close()
 
     local inc = incremental.new(dir)
@@ -1100,7 +1104,7 @@ function M.aRequireCycleEnteredByFileLeavesItsInterfaceForLaterDependents()
     end
 
     write(
-        "cycle_a.g.nupp",
+        "cycle_a.nupp",
         table.concat(
             {
                 "local cycleB = require('cycle_b')",
@@ -1113,7 +1117,7 @@ function M.aRequireCycleEnteredByFileLeavesItsInterfaceForLaterDependents()
         )
     )
     write(
-        "cycle_b.g.nupp",
+        "cycle_b.nupp",
         table.concat(
             {
                 "local cycleA = require('cycle_a')",
@@ -1127,8 +1131,8 @@ function M.aRequireCycleEnteredByFileLeavesItsInterfaceForLaterDependents()
     write("user.nupp", "local cycleA = require('cycle_a')\nlocal wrong: string = cycleA.base()\nreturn wrong\n")
 
     local inc = incremental.new(dir, {cache = false})
-    testAssert.equal(#inc.checkFile(dir .. "/cycle_a.g.nupp").diags, 0, "the cycle's first member checks clean")
-    testAssert.equal(#inc.checkFile(dir .. "/cycle_b.g.nupp").diags, 0, "and so does its second")
+    testAssert.equal(#inc.checkFile(dir .. "/cycle_a.nupp").diags, 0, "the cycle's first member checks clean")
+    testAssert.equal(#inc.checkFile(dir .. "/cycle_b.nupp").diags, 0, "and so does its second")
     local user = inc.checkFile(dir .. "/user.nupp").diags
     testAssert.equal(user[1] and user[1].code, "NUPP2001", "the dependent sees the member's real result type")
     testAssert.equal(#user, 1, "and nothing else")

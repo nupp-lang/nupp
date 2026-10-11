@@ -51,9 +51,9 @@ local function officialRe(lpeg)
 end
 
 local function compile(source)
-    local parsed = parser.parse(source, "peg_materialize_test.g.nupp")
+    local parsed = parser.parse(source, "peg_materialize_test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "peg_materialize_test.g.nupp", env)
+    local diagnostics = check.check(parsed, "peg_materialize_test.nupp", env)
     local code, generated = gen.generate(parsed, "peg_materialize_test")
     for _, diagnostic in ipairs(generated) do
         diagnostics[#diagnostics + 1] = diagnostic
@@ -1075,7 +1075,7 @@ return {
     printableSpace = classes.print:match(" "),
     printableNewline = classes.print:match("\n"),
     invalidStack = invalidStack,
-}
+} as unknown
 ]==]
     )
 
@@ -1253,7 +1253,7 @@ return {
     invalidOrder = invalidOrder,
     flat = flat,
     overflow = overflow,
-}
+} as unknown
 ]==]
     )
     testAssert.equal(got.luaType, "userdata", "patterns are opaque userdata")

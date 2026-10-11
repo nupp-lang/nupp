@@ -161,7 +161,7 @@ local u32 = nupp.math.u32
                 .. "    return cases\nend\nreturn {run=run,"
                 .. table.concat(exports, ",")
                 .. "}\n"
-            files[name .. ".g.nupp"], probes[name] = table.concat(source), names
+            files[name .. ".nupp"], probes[name] = table.concat(source), names
             modules[#modules + 1] = name
             coverage[
                 #coverage + 1

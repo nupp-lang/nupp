@@ -44,20 +44,12 @@ const shareButton = el("share-button");
 
 // --- Compiler options ---------------------------------------------------------
 
-// What the Options menu sets and the worker acts on. Strict is on here where
-// the command line leaves it off: every example checks clean under it, and a
-// playground is where seeing the stricter answer first is the point — the
-// switch is right there for anyone who wants the gradual one. Kept as one
-// object because it travels as one: into every worker request, into a shared
-// link, out of a fragment.
+// What the Options menu sets and the worker acts on. Kept as one object
+// because it travels as one: into every worker request, into a shared link,
+// out of a fragment.
 const OPTION_DEFAULTS = DEFAULT_OPTIONS;
 
 const OPTION_FIELDS = [
-  {
-    key: "strict",
-    label: "Strict",
-    hint: "Report an exported signature that leaves any as its type.",
-  },
   {
     key: "optimize",
     label: "Optimize",
@@ -756,11 +748,9 @@ function renderOptionsPanel() {
     box.checked = options[field.key];
     box.addEventListener("change", () => {
       options[field.key] = box.checked;
+      // Optimize only shows up in generated Lua, which the next Compile
+      // produces anyway, so nothing reruns here.
       saveOptions(options);
-      // Strict changes what the checker reports, so the buffer on screen is
-      // answering the old question until it runs again. Optimize only shows up
-      // in generated Lua, which the next Compile produces anyway.
-      if (field.key === "strict") checkNow();
     });
     const text = document.createElement("span");
     text.className = "options-text";

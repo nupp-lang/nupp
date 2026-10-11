@@ -27,9 +27,9 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local function generate(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     assert(#result.errors == 0, "syntax errors")
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     assert(#diags == 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local code, genDiags = gen.generate(result, "test")
     assert(#genDiags == 0, "gen diagnostics")

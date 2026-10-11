@@ -11,7 +11,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagnostics(source)
     env.loaded = {}
-    local parsed = parser.parse(source, "test.g.nupp")
+    local parsed = parser.parse(source, "test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test", env)
 end

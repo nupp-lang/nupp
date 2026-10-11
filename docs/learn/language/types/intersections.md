@@ -48,7 +48,7 @@ A `Failure` is a `Timeout`, or a value carrying both a code and a message.
 
 Nested intersections flatten, duplicate members disappear, and member order
 does not affect identity, so `A & (B & A)` and `B & A` are one type. `unknown`
-and gradual `any` add no constraint. `never` makes the whole intersection
+and `any` add no constraint. `never` makes the whole intersection
 `never`, since nothing can satisfy a member no value inhabits. See [Primitive
 types](primitives.md#never-the-bottom-type) for what `never` means elsewhere.
 
@@ -169,8 +169,8 @@ cares about the pair.
 
 No. Intersections are erased, exactly as the rest of the structural type layer
 is, so `A & B` lowers to whatever the underlying value already was. See [Type
-system](index.md#strict-floor) for what does and does not survive to run
-time.
+system](index.md#does-anything-survive-to-run-time) for what does and does not
+survive to run time.
 
 ### Why is intersecting two records empty?
 

@@ -209,10 +209,10 @@ local function codesFor(source, target)
         cache = false,
         config = {build = {entries = {"main"}, layoutTarget = target}},
     })
-    local result = parser.parse(source, "test.g.nupp")
+    local result = parser.parse(source, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
     local out = {}
-    for _, diagnostic in ipairs(check.check(result, "test.g.nupp", env)) do
+    for _, diagnostic in ipairs(check.check(result, "test.nupp", env)) do
         out[#out + 1] = diagnostic.code
     end
 

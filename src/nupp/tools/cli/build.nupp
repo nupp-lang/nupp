@@ -348,7 +348,6 @@ local function run(options: any): integer
             standalone = values.standalone,
             compat = values.compat,
             host = values.host,
-            strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
             remarksFile = settings.remarksFile,
@@ -434,9 +433,9 @@ local function run(options: any): integer
             if path:sub(1, 1) == "/" or path:match("^[A-Za-z]:/") then
                 relative = path:match("([^/]+)$") or path
             end
-            outPath = outDir .. "/" .. relative:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
+            outPath = outDir .. "/" .. relative:gsub("%.nupp$", "") .. ".lua"
         else
-            outPath = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
+            outPath = path:gsub("%.nupp$", "") .. ".lua"
         end
         report:at("write")
         local wrote, err = fs.writeFile(outPath, code)
@@ -487,7 +486,7 @@ local function run(options: any): integer
                     failed = true
                 end
             elseif path == nil or path:match("%.lua$") then
-                for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp"}) do
+                for _, suffix in ipairs({".nupp", "/init.nupp"}) do
                     local relative = name:gsub("%.", "/") .. suffix
                     local source = carried.source("/" .. relative)
                     if source then
@@ -556,9 +555,6 @@ local record Build
     --- Output directory, overriding the target's.
     @cli(short = "o", value = "DIR")
     output: string?
-
-    --- Treat strict checker rules as errors.
-    strict: boolean = false
 
     --- Runtime host services.
     @cli(value = "HOST", choices = {"native", "browser"})

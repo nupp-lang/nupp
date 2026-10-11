@@ -8,13 +8,16 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
+-- A fixture's `return` is how the case hands its answer back, not a module
+-- boundary anything imports, so the typed-export rule (NUPP2106) is not asked
+-- of it.
 local function run(src, tolerate)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local diags = {}
-   for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
-      if d.code ~= tolerate then diags[#diags + 1] = d end
+   for _, d in ipairs(check.check(result, "test.nupp", env)) do
+      if d.code ~= tolerate and d.code ~= "NUPP2106" then diags[#diags + 1] = d end
    end
    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
@@ -27,10 +30,10 @@ local function run(src, tolerate)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors")
    local out = {}
-   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 

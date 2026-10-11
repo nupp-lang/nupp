@@ -9,9 +9,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function compile(source)
-    local parsed = parser.parse(source, "runtime_reflection.g.nupp")
+    local parsed = parser.parse(source, "runtime_reflection.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "runtime_reflection.g.nupp", env)
+    local diagnostics = check.check(parsed, "runtime_reflection.nupp", env)
     testAssert.equal(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
     local code, generated = gen.generate(parsed, "runtime_reflection")
     testAssert.equal(#generated, 0, "generation diagnostics")
@@ -45,7 +45,7 @@ local bus: events.MessageBus<integer> = events.newMessageBus()
 local result = 0
 bus:observe(1, Action, |event| -> do result = event:evaluate() end)
 bus:emit(1, Action, callback = function(): integer return 7 end)
-return {construction = description.types[description.root].construction, result = result}
+return {construction = description.types[description.root].construction as unknown, result = result}
 ]]
     )
     testAssert.equal(#result.construction.params, 2)
@@ -72,8 +72,8 @@ return {
     witness = witness == User,
     distinct = User ~= value,
     cached = first == second,
-    name = first.name,
-    field = first.fields[1].name,
+    name = first.name as string,
+    field = first.fields[1].name as string,
 }
 ]]
     )
@@ -101,7 +101,7 @@ end
 function M.extensionsAreTypedAndLazy()
     local User = run([[
 local record User id: integer end
-return {target = User, info = User.reflect()}
+return {target = User, info = User.reflect() as nupp.reflect.Info}
 ]])
     local reflection = _G.nupp.reflect
     local calls = 0
@@ -169,7 +169,7 @@ end
 function M.localWitnessDescriptorsFollowTheirOwnersLifetime()
     local make = run(
         [[
-return function()
+return function(): (unknown, nupp.reflect.Info)
     local record Item
         value: integer
     end

@@ -269,19 +269,19 @@ A cycle is reported once per component, wherever it is entered from. A cyclic
 default stays latent on the interface that states it and
 surfaces on the first concrete implementor.
 
-## Gradual projections
+## Erased projections
 
 A projection whose head inference never worked out is checked as `any`, which
 is the feature declining to say anything rather than saying the call is right.
-That is reported by the `gradual-projection` lint, once per call and member,
+That is reported by the `erased-projection` lint, once per call and member,
 where the erasure happened:
 
 ```nupp:fragment
-local erased = collect(nil as any) -- warning: gradual-projection
+local erased = collect(nil as any) -- warning: erased-projection
 ```
 
 An answer somebody wrote as `any` is a different thing and does not warn.
-Suppress the lint with `@allow("gradual-projection")` like any other. See
+Suppress the lint with `@allow("erased-projection")` like any other. See
 [lints.md](../../../reference/lints.md#local-suppressions) for the suppression rules.
 
 ## Parameters are chosen by the caller
@@ -329,5 +329,5 @@ answer](#structural-values-cannot-answer).
 - [refinements.md](refinements.md) for `satisfies` and what fixing a requirement
   buys it
 - [lints.md](../../../reference/lints.md#local-suppressions) for suppressing
-  `gradual-projection`
+  `erased-projection`
 :::

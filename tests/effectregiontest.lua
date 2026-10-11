@@ -8,9 +8,9 @@ local incremental = require("nupp.compiler.project.incremental")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function refusals(src)
-    local parsed = parser.parse(src, "effect-region.g.nupp")
+    local parsed = parser.parse(src, "effect-region.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax")
-    local diags = check.check(parsed, "effect-region.g.nupp", envMod.new(HERE))
+    local diags = check.check(parsed, "effect-region.nupp", envMod.new(HERE))
     local found = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2710" or diag.code == "NUPP2711" then
@@ -44,7 +44,7 @@ end
 function M.directOperationsAreCheckedAndRegionsErase()
     local found, parsed = refusals("@noalloc do local t = {} end")
     testAssert.equal(#found, 1, "table construction is an allocation")
-    local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.g.nupp")
+    local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.nupp")
     assert(generated:find("do", 1, true), "region emits a block")
     assert(not generated:find("noalloc", 1, true), "no runtime guard remains")
 end
@@ -268,7 +268,7 @@ local function withProject(consumer, fn)
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'"))
-    local depPath, mainPath = dir .. "/dep.g.nupp", dir .. "/main.g.nupp"
+    local depPath, mainPath = dir .. "/dep.nupp", dir .. "/main.nupp"
 
     local function write(path, text)
         local f = assert(io.open(path, "w"));
@@ -645,9 +645,9 @@ end
         end
         return envMod.resolveCallableFact(self, module, member, family)
     end
-    local parsed = parser.parse(source, "forged.g.nupp")
+    local parsed = parser.parse(source, "forged.nupp")
     local found = 0
-    for _, diag in ipairs(check.check(parsed, "forged.g.nupp", env)) do
+    for _, diag in ipairs(check.check(parsed, "forged.nupp", env)) do
         if diag.code == "NUPP2711" then
             found = found + 1
         end

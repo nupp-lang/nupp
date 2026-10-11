@@ -27,7 +27,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       if(!response.ok())throw new Error(`Shared playground returned HTTP ${response.status()}: ${address}`);
       await ready();
       await page.locator('#options-button').click();
-      for(const [label, checked] of [[/^Strict/,expected.strict],[/^Optimize/,expected.optimize],
+      for(const [label, checked] of [[/^Optimize/,expected.optimize],
         ['Require stock Lua 5.1 compatibility',expected.compat==='lua51']]) {
         if(await page.getByLabel(label).isChecked()!==checked)throw new Error(`Shared link changed ${label}`);
       }
@@ -38,8 +38,8 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       await locator.click();
       return locator.evaluate(anchor=>anchor.href);
     };
-    const defaults={strict:true,optimize:true};
-    const conflicting={strict:false,optimize:false,compat:'lua51'};
+    const defaults={optimize:true};
+    const conflicting={optimize:false,compat:'lua51'};
     const response = await page.goto(url);
     if (!response.ok()) throw new Error(`Playground returned HTTP ${response.status()}: ${url}`);
     await run('pay rent is high priority');

@@ -4026,7 +4026,7 @@ end
 function M.rootedByteViewsRequireAnEntryParameter()
     local dir = project{
         [
-            "local-view.g.nupp"
+            "local-view.nupp"
         ] = [[
 local array = require("nupp.mem.array")
 local builder = require("nupp.codec.valuebuilder")
@@ -4046,10 +4046,10 @@ local function quotes(source: string, nullValue: any): (any, uint32, uint32)
     return builder.finish(state), found, 0
 end
 
-return {quotes = quotes}
+return {quotes = quotes} as unknown
 ]]
     }
-    local out, code = run(dir, "local-view.g.nupp")
+    local out, code = run(dir, "local-view.nupp")
     test.equal(code, 1, out)
     assert(out:find("rooted string parameter", 1, true), out)
 end
@@ -4059,7 +4059,7 @@ end
 function M.rootedByteViewsAreNotValues()
     local dir = project{
         [
-            "escaped-view.g.nupp"
+            "escaped-view.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
 
@@ -4073,10 +4073,10 @@ local function quotes(source: string, nullValue: any): (any, uint32, uint32)
     return builder.finish(state), 0, 0
 end
 
-return {quotes = quotes}
+return {quotes = quotes} as unknown
 ]]
     }
-    local out, code = run(dir, "escaped-view.g.nupp")
+    local out, code = run(dir, "escaped-view.nupp")
     test.equal(code, 1, out)
     assert(out:find("a vector load may read it and nothing else", 1, true), out)
 end
@@ -4088,7 +4088,7 @@ end
 function M.rootedByteViewsCarryTheSameCursorProof()
     local dir = project{
         [
-            "rooted.g.nupp"
+            "rooted.nupp"
         ] = [[
 local array = require("nupp.mem.array")
 local builder = require("nupp.codec.valuebuilder")
@@ -4114,10 +4114,10 @@ local function quotes(borrows source: string | Buffer, nullValue: any): (any, ui
     return builder.finish(state), found, loose
 end
 
-return {quotes = quotes}
+return {quotes = quotes} as unknown
 ]]
     }
-    local decoded, raw, code, where = lowered(dir, "--json rooted.g.nupp")
+    local decoded, raw, code, where = lowered(dir, "--json rooted.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_load.load", 1, true), where .. "\n" .. decoded.ir)
     assert(decoded.ir:find("span:source", 1, true), where .. ": the parameter is the load's root\n" .. decoded.ir)
@@ -4566,7 +4566,7 @@ function builder.finish(state: any): any return nil end
 return builder
 ]],
         [
-            "stream.g.nupp"
+            "stream.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
 @aot
@@ -4601,10 +4601,10 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
         nupp.math.u32.add(direct, packedState)
     )
 end
-return {decode = decode}
+return {decode = decode} as unknown
 ]],
     }
-    local out, code = run(dir, "--json stream.g.nupp")
+    local out, code = run(dir, "--json stream.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     assert(decoded.ir:find("lua_builder_open_object", 1, true), decoded.ir)
@@ -4743,7 +4743,7 @@ function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
 return builder
 ]],
         [
-            "read.g.nupp"
+            "read.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
 @aot
@@ -4753,7 +4753,7 @@ end
 return {read = read}
 ]],
     }
-    local out, code = run(dir, "read.g.nupp")
+    local out, code = run(dir, "read.nupp")
     test.equal(code, 1, out)
     assert(out:find("needs offset < length(bytes) to dominate the read", 1, true), out)
 end
@@ -4769,7 +4769,7 @@ end
 function M.aConstantStringIsPlacedAsTheBytesItDenotes()
     local dir = project{
         [
-            "classes.g.nupp"
+            "classes.nupp"
         ] = [[
 local valueBuilder = require("nupp.codec.valuebuilder")
 
@@ -4787,10 +4787,10 @@ local function entry(index: uint32, nullValue: any): any
     return valueBuilder.finish(state)
 end
 
-return {entry = entry}
+return {entry = entry} as unknown
 ]]
     }
-    local out, code = run(dir, PINNED .. "--emit llvm classes.g.nupp")
+    local out, code = run(dir, PINNED .. "--emit llvm classes.nupp")
     test.equal(code, 0, out)
     assert(
         out:find('constant [5 x i8] c"\\01\\02\\22\\5C\\00"', 1, true),
@@ -4968,7 +4968,7 @@ function M.aLengthAliasDoesNotOutliveItsScope()
     -- name, and the verifier caught it -- as a traceback with no line in it.
     local dir = project{
         [
-            "stale.g.nupp"
+            "stale.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
 @aot
@@ -4987,11 +4987,11 @@ end
 return {decode = decode}
 ]],
     }
-    local out, code = run(dir, "stale.g.nupp")
+    local out, code = run(dir, "stale.nupp")
     test.equal(code, 1, "an unproved read is refused\n" .. out)
     assert(
         out:find(
-            "stale.g.nupp:11:18: aot: NUPP2905: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
+            "stale.nupp:11:18: aot: NUPP2905: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
             1,
             true
         ),
@@ -5085,7 +5085,7 @@ function M.aShadowedStringIsNotThePreludes()
     -- function compiled as the prelude's.
     local dir = project{
         [
-            "shadow.g.nupp"
+            "shadow.nupp"
         ] = [[
 local string = {byte = function(text: string, index: number): number return 7 end}
 @aot
@@ -5095,10 +5095,10 @@ end
 return {first = first}
 ]],
     }
-    local out, code = run(dir, "--emit ir shadow.g.nupp")
+    local out, code = run(dir, "--emit ir shadow.nupp")
     test.equal(code, 1, "the rebound name is not an intrinsic\n" .. out)
     assert(
-        out:find("shadow.g.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper", 1, true),
+        out:find("shadow.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper", 1, true),
         "and is refused as the call it is: " .. out
     )
 end

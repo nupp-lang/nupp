@@ -13,7 +13,7 @@ local checkedRun = 0
 local function checked(source)
     checkedRun = checkedRun + 1
     env.loaded = {}
-    local filename = ("automatic-destruction-test-%d.g.nupp"):format(checkedRun)
+    local filename = ("automatic-destruction-test-%d.nupp"):format(checkedRun)
     local result = parser.parse(source, filename)
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax")
     local diags = check.check(result, filename, env)
@@ -81,7 +81,7 @@ end
 function M.withIsContextualAndScopesAnAffineOwner()
     local ordinary = parser.parse(
         "local with = function(value) return value end\nreturn with(1)",
-        "automatic-destruction-test.g.nupp"
+        "automatic-destruction-test.nupp"
     )
     testAssert.equal(#ordinary.errors, 0)
 
@@ -360,12 +360,12 @@ function M.withFormatsWrappedBindingsIdempotently()
         .. "name that forces wrapping'), second_resource = open_resource('another "
         .. "very long resource name that forces wrapping') do\n"
         .. "use(first_resource, second_resource)\nend"
-    local formatted, errors = fmt.format(source, "with-test.g.nupp")
+    local formatted, errors = fmt.format(source, "with-test.nupp")
     testAssert.equal(#errors, 0)
     assert(formatted:find("with\n    first_resource", 1, true), formatted)
     assert(formatted:find("\n    second_resource", 1, true), formatted)
     assert(formatted:find("\ndo\n", 1, true), formatted)
-    local again = fmt.format(formatted, "with-test.g.nupp")
+    local again = fmt.format(formatted, "with-test.nupp")
     testAssert.equal(again, formatted)
 end
 

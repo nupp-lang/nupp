@@ -383,7 +383,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         },
     }
     for _, case in ipairs(cases) do
-        local filename = "simd-domain-" .. case[1] .. ".g.nupp"
+        local filename = "simd-domain-" .. case[1] .. ".nupp"
         local source = [[local simd = require("nupp.simd")
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")

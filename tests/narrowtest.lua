@@ -4,11 +4,15 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local narrowing = require("nupp.compiler.types.narrowing")
 local T = require("nupp.compiler.types")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test.g.nupp")
+   local diags = check.check(result, "test.nupp", env)
    local out = {}
    for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
    return table.concat(out, " "), diags
@@ -76,7 +80,7 @@ end
 
 function M.isNarrowing()
    assertClean(table.concat({
-      "local v: number | string",
+      "local v: number | string = nil as any",
       "if v is string then",
       "   local s: string = v",
       "else",
@@ -146,16 +150,16 @@ end
 
 function M.genericsInstantiation()
    assertClean(table.concat({
-      "local id: function<T>(x: T): T",
+      "local id: function<T>(x: T): T = nil as any",
       "local n: number = id(42)",
       "local s: string = id('hi')",
    }, "\n"))
    testAssert.equal((diagsOf(table.concat({
-      "local id: function<T>(x: T): T",
+      "local id: function<T>(x: T): T = nil as any",
       "local n: number = id('hi')",
    }, "\n"))), "NUPP2001:2")
    assertClean(table.concat({
-      "local first: function<V>(xs: {V}): V",
+      "local first: function<V>(xs: {V}): V = nil as any",
       "local n: number = first({1, 2, 3})",
    }, "\n"))
 end
@@ -217,7 +221,7 @@ function M.isRefusesATestNoValueCouldPass()
 end
 
 -- And leaves alone every test whose answer is not settled: a downcast, an alternative
--- of the union the subject already is, a gradual subject, an unsubstituted binder, and
+-- of the union the subject already is, an `any` subject, an unsubstituted binder, and
 -- a target whose runtime test is coarser than the type written.
 function M.isLeavesATestItCannotRuleOut()
    assertClean(table.concat({
@@ -234,12 +238,12 @@ function M.isLeavesATestItCannotRuleOut()
       "end",
       "local function downcast(v: Named): boolean return v is Circle end",
       "local function alternative(v: Circle | Square): boolean return v is Circle end",
-      "local function gradual(v: any): boolean return v is Circle end",
+      "local function dynamic(v: any): boolean return v is Circle end",
       "local function binder<T>(v: T): boolean return v is string end",
       "local function coarse(v: {integer}): boolean return v is table end",
       "local function optional(v: string?): boolean return v is nil end",
       "local function grouped(v: Circle | Square): boolean return not (v is Circle) end",
-      "print(downcast, alternative, gradual, binder, coarse, optional, grouped)",
+      "print(downcast, alternative, dynamic, binder, coarse, optional, grouped)",
    }, "\n"))
 end
 
@@ -283,7 +287,7 @@ end
 
 function M.genericMapIteration()
    assertClean(table.concat({
-      "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V)",
+      "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V) = nil as any",
       "local m: {[string]: number} = {}",
       "for k, v in pairs2(m) do",
       "   local s: string = k",

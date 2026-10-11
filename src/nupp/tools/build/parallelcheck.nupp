@@ -66,7 +66,7 @@ end
 --- Checks, or builds, a cold project in dependency-ready components.
 ---
 --- `input` carries `queue` (the build's `{name, path}` work list), `inc` (the
---- coordinator's session), `root`, `outDir`, `config`, `target`, `strict`,
+--- coordinator's session), `root`, `outDir`, `config`, `target`,
 --- `state` (the new build state) and `reporter`. A build also sets `build`, the
 --- `constSelection` its modules generate against, and the `linked` dependency
 --- modules it compiles from source. Returns `{records, codes}` -- the records
@@ -499,7 +499,6 @@ function parallelcheck.run(input: any): (any?, string?)
                 },
                 projectPaths = projectPaths,
                 staged = input.staged,
-                strict = input.strict,
                 build = input.build == true,
                 constSelection = input.constSelection,
                 linked = input.linked,

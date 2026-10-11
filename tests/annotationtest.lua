@@ -12,10 +12,10 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src, registry)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax")
     local out = {}
-    for j, d in ipairs(check.check(result, "test.g.nupp", env, {annotations = registry})) do
+    for j, d in ipairs(check.check(result, "test.nupp", env, {annotations = registry})) do
         out[j] = d.code
     end
 
@@ -88,9 +88,9 @@ end
 
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     for _, source in ipairs({
-        "src/nupp/tools/cli/annotation.g.nupp",
-        "/checkout/src/nupp/tools/cli/annotation.g.nupp",
-        "C:\\checkout\\src\\nupp\\compiler\\cli\\annotation.g.nupp",
+        "src/nupp/tools/cli/annotation.nupp",
+        "/checkout/src/nupp/tools/cli/annotation.nupp",
+        "C:\\checkout\\src\\nupp\\compiler\\cli\\annotation.nupp",
     }) do
         local registry = annotations.new()
         local builtin = registry:get("cli")
@@ -107,11 +107,11 @@ function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
 end
 
 checked = function(src)
-    local result = parser.parse(src, "test.g.nupp")
+    local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax")
     -- The environment this file already shares, rather than another one built
     -- exactly like it: building one means checking the prelude from source.
-    local diags = check.check(result, "test.g.nupp", env)
+    local diags = check.check(result, "test.nupp", env)
     local codes = {}
     for j, diagnostic in ipairs(diags) do
         codes[j] = diagnostic.code
@@ -249,7 +249,7 @@ function M.effectContractsCannotHideBodyEffects()
     )
     testAssert.equal(
         checked(
-            table.concat({"@effects()", "local function opaque(value: table)", "    unknown(value)", "end",}, "\n")
+            table.concat({"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",}, "\n")
         ),
         "NUPP2112"
     )
@@ -353,7 +353,7 @@ function M.projectEnvironmentsOwnAnExtensibleRegistry()
     assert(projectEnv.annotations:define({name = "profile", arguments = "none", targets = {"function"},}))
     local result = parser.parse("@profile local function f() end", "test")
     testAssert.equal(#result.errors, 0, "syntax")
-    testAssert.equal(#check.check(result, "test.g.nupp", projectEnv), 0)
+    testAssert.equal(#check.check(result, "test.nupp", projectEnv), 0)
 end
 
 function M.customAnnotationsCanLimitTheirTargets()
@@ -491,7 +491,7 @@ function M.jitChecksSemanticCFunctionBoundaries()
             "local type Visitor = function(int32)",
             "cdef function each(fn: Visitor, n: int32)",
             "local function visit(value: int32) print(value) end",
-            "local function run() each(visit, 1) end",
+            "local function run(): nil each(visit, 1) end",
             "return run",
         },
         "\n"
@@ -506,7 +506,7 @@ function M.jitChecksSemanticCFunctionBoundaries()
             "cdef function each(fn: function(int32), n: int32)",
             "local function visit(value: int32) print(value) end",
             "jit.off(visit)",
-            "local function run() each(visit, 1) end",
+            "local function run(): nil each(visit, 1) end",
             "return run",
         },
         "\n"
@@ -517,7 +517,7 @@ function M.jitChecksSemanticCFunctionBoundaries()
         {
             "cdef function each(fn: function(int32), n: int32)",
             "local function visit(value: int32) print(value) end",
-            "local function run() each(visit, 1) end",
+            "local function run(): nil each(visit, 1) end",
             "jit.off(run)",
             "return run",
         },
@@ -528,7 +528,7 @@ function M.jitChecksSemanticCFunctionBoundaries()
     local variadic = table.concat(
         {
             "cdef function printf(format: cstring, ...): int32",
-            "local function run() printf('%d', 1) end",
+            "local function run(): nil printf('%d', 1) end",
             "return run",
         },
         "\n"
@@ -539,7 +539,7 @@ function M.jitChecksSemanticCFunctionBoundaries()
         {
             "cdef function printf(format: cstring, ...): int32",
             "@jit",
-            "local function run() printf('%d', 1) end",
+            "local function run(): nil printf('%d', 1) end",
             "return run",
         },
         "\n"
@@ -862,7 +862,7 @@ function M.unsafeStatementTargetsAndSiblingBoundaries()
         "do local a = p[0] end",
         "if p[0] > 0 then p[0] = q[0] elseif q[0] > 0 then q[0] = p[0] else p[0] = 0 end",
         "for i = p[0], q[0], p[1] do p[i] = q[i] end",
-        "for i in iterator(p[0]) do p[i] = q[i] end",
+        "for i in ipairs({p[0]}) do p[i] = q[i] end",
         "while p[0] > 0 do p[0] = q[0] end",
         "repeat p[0] = q[0] until p[0] == q[0]",
         "local a = p[0]",
@@ -1055,21 +1055,21 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
     testAssert.equal(codes_, "")
     local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,6,7,8,9,4,5,4,5"
     for _, level in ipairs({0, 1, 2}) do
-        local fresh = parser.parse(source, "test.g.nupp")
-        local diagnostics = check.check(fresh, "test.g.nupp", env)
+        local fresh = parser.parse(source, "test.nupp")
+        local diagnostics = check.check(fresh, "test.nupp", env)
         testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        require("nupp.compiler.lua.optimize").run(fresh, {level = level, filename = "test.g.nupp"})
-        local output, errors = gen.generate(fresh, "test.g.nupp")
+        require("nupp.compiler.lua.optimize").run(fresh, {level = level, filename = "test.nupp"})
+        local output, errors = gen.generate(fresh, "test.nupp")
         testAssert.equal(#errors, 0, errors[1] and errors[1].msg)
         assert(not output:find("@unsafe", 1, true), output)
         local chunk = assert(loadstring(output))
         local values = {chunk()}
         testAssert.equal(table.concat(values, "|"), expected, "O" .. level)
     end
-    local formatted, diagnostics = fmt.format(source, "test.g.nupp")
+    local formatted, diagnostics = fmt.format(source, "test.nupp")
     testAssert.equal(#(diagnostics or {}), 0)
     testAssert.equal(checked(formatted), "")
-    testAssert.equal(fmt.format(formatted, "test.g.nupp"), formatted, "formatting idempotence")
+    testAssert.equal(fmt.format(formatted, "test.nupp"), formatted, "formatting idempotence")
 end
 
 return M

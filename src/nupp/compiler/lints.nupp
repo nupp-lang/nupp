@@ -106,7 +106,7 @@ lints.all = {
         summary = "a record whose fields would all live in C memory"
     ),
     new lints.Lint(
-        name = "gradual-projection",
+        name = "erased-projection",
         code = "NUPP2511",
         category = "suspicious",
         level = "warning",

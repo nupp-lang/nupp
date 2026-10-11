@@ -81,12 +81,12 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
                 native = {host = "native", outDir = "out/native"},
             }
         }}]],
-        ["src/main.g.nupp"] = source,
+        ["src/main.nupp"] = source,
     })
     local ok, why = pcall(function()
         -- An editor opens the manifest directly, without build's private _target.
         local environment = require("nupp.compiler.project.env").new(dir, {cache = false})
-        local path = dir .. "/src/main.g.nupp"
+        local path = dir .. "/src/main.nupp"
         local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
         assert(#parsed.errors == 0)
         local diagnostics = require("fragment").check(parsed, path, environment)
@@ -132,7 +132,7 @@ function M.fixedHostLibrariesRemainOrdinaryBundleImports()
             kind = "bundle", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
-        ["src/main.g.nupp"] = [[local re = require("re")
+        ["src/main.nupp"] = [[local re = require("re")
 return re.match("aaa", "'a'+")]],
     })
     testAssert.equal(project.build(dir), 0, "bundle with host LPeg")

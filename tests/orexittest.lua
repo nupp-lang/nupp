@@ -12,7 +12,7 @@ local fmt = require("nupp.tools.fmt")
 local optimize = require("nupp.compiler.lua.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local FILE = "or-exit.g.nupp"
+local FILE = "or-exit.nupp"
 
 -- One environment for the whole suite. The eligibility rules are about result
 -- packs the prelude declares -- `pcall`'s union above all -- so these cases need

@@ -103,8 +103,7 @@ local function run(options: any): integer
         for segment in (moduleName as string):gmatch("[^.]+") do
             if not segment:match("^[a-z][a-z0-9]*$") then
                 local escaped = segment:gsub("%p", "%%%0")
-                local suggested = out:gsub(escaped .. "(%.g%.nupp)$", headerModuleName(segment) .. "%1")
-                suggested = suggested:gsub(escaped .. "(%.nupp)$", headerModuleName(segment) .. "%1")
+                local suggested = out:gsub(escaped .. "(%.nupp)$", headerModuleName(segment) .. "%1")
                 local problem = (
                     "%s names module segment %q; module segments are lowercase luacase"
                 ):format(out, segment)

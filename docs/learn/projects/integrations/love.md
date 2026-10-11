@@ -52,12 +52,12 @@ file is copied into `build/` and the definition repository is not vendored.
 ## Existing games
 
 Keep existing files as `.lua` while you migrate. Nupp reads their LuaCATS
-comments, and a `.g.nupp` file can adopt typed syntax before it reaches the
-strict `.nupp` boundary. The generated game can continue to require ordinary
+comments, and a file moves to `.nupp` when it is ready for typed syntax. The
+generated game can continue to require ordinary
 Lua modules and use LuaJIT's FFI APIs.
 
 ::: seealso
 - [LuaCATS definitions](luacats.md) for pinning or updating the API source
-- [Gradual typing](../../language/gradual-typing.md) for the file-by-file migration
+- [File types](../../language/file-types.md) for the file-by-file migration
 - [Build targets](../build.md#targets-and-outputs)
 :::

@@ -82,12 +82,14 @@ function M.declarationKeywordsRemainOrdinaryNames()
          "i = 1",             -- single assignment
          "print(i)",          -- ordinary call
       }) do
-         local src = ("local %s\n%s\n"):format(kw, follow)
-         local result = parser.parse(src, "kw.g.nupp")
+         -- `i` and `j` are declared ahead of the pair under test, so a strict
+         -- check has nothing to say about them.
+         local src = ("local i, j = 0, 0\nlocal %s\n%s\n"):format(kw, follow)
+         local result = parser.parse(src, "kw.nupp")
          assert(#result.errors == 0,
             ("`local %s` + `%s` must stay ordinary Lua: %s")
                :format(kw, follow, result.errors[1] and result.errors[1].msg or ""))
-         local diags = check.check(result, "kw.g.nupp", env)
+         local diags = check.check(result, "kw.nupp", env)
          assert(#diags == 0, ("`local %s` + `%s`: %s")
             :format(kw, follow, diags[1] and diags[1].msg or ""))
       end

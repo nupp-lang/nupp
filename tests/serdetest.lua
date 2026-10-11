@@ -7,15 +7,15 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagnostics(source)
-    local parsed = parser.parse(source, "serde_test.g.nupp")
+    local parsed = parser.parse(source, "serde_test.nupp")
     assert(#parsed.errors == 0, "serde fixture parses")
-    return check.check(parsed, "serde_test.g.nupp", env)
+    return check.check(parsed, "serde_test.nupp", env)
 end
 
 local function run(source)
-    local parsed = parser.parse(source, "serde_test.g.nupp")
+    local parsed = parser.parse(source, "serde_test.nupp")
     assert(#parsed.errors == 0, "serde fixture parses")
-    local problems = check.check(parsed, "serde_test.g.nupp", env)
+    local problems = check.check(parsed, "serde_test.nupp", env)
     for _, problem in ipairs(problems) do
         if problem.severity ~= "warning" and problem.severity ~= "note" then
             error(problem.code .. ": " .. problem.msg, 2)

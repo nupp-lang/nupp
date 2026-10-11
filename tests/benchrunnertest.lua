@@ -73,7 +73,7 @@ end
 function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     local working = workspace()
     local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
     local command = (
         "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
     ):format(NUPP, fixture, NUPP, directory, stdout)
@@ -127,7 +127,7 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
         .. "/stdout.json", working
         .. "/history.jsonl", working
         .. "/baseline.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
 
     local function run(extra)
         local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
@@ -197,7 +197,7 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
         .. "/stdout.json", working
         .. "/stderr.txt", working
         .. "/baseline.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
 
     local function run(extra)
         local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"):format(NUPP, fixture, extra, stdout, stderr)
@@ -265,7 +265,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local casesOut = working .. "/cases.jsonl"
     local stdout = working .. "/stdout.txt"
     local recordOut = working .. "/record.json"
-    local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
@@ -301,7 +301,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     local stdout = working .. "/stdout.txt"
     local stderr = working .. "/stderr.txt"
     local recordOut = working .. "/record.json"
-    local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_suite.nupp"
 
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
@@ -361,8 +361,8 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local history = working .. "/history.jsonl"
     local stdout = working .. "/stdout.txt"
     local profiles = working .. "/profiles"
-    local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
-    local simpleFixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_suite.nupp"
+    local simpleFixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local ran = os.execute(
         inWorkspace(
@@ -442,7 +442,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     assert(profilePath ~= nil, "the sampling pass names its collapsed-stack file")
     local collapsed = read(profilePath)
     assert(
-        collapsed == "" or collapsed:find("^bench_protocol%.g%.nupp:") ~= nil,
+        collapsed == "" or collapsed:find("^bench_protocol%.nupp:") ~= nil,
         "collected stacks are trimmed to the benchmark program"
     )
     assert(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
@@ -457,7 +457,7 @@ end
 function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     local working = workspace()
     local stdout = working .. "/stdout.json"
-    local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local ran = os.execute(
         inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
@@ -503,7 +503,7 @@ end
 function M.pilotSizesTheRunWithoutReportingAResult()
     local working = workspace()
     local stdout = working .. "/stdout.txt"
-    local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local ran = os.execute(inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)))
     testAssert.equal(ran, 0, "a pilot exits successfully")
@@ -528,7 +528,7 @@ end
 function M.eachSelectorNarrowsOnItsOwn()
     local working = workspace()
     local stdout = working .. "/stdout.txt"
-    local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
+    local fixture = HERE .. "/fixtures/bench_suite.nupp"
 
     local function listed(...)
         local flags = table.concat({...}, " ")

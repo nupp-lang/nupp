@@ -4,9 +4,9 @@ local check = require("fragment")
 local env = require("nupp.compiler.project.env").new(".")
 
 local function compile(source, optimized)
-    local parsed = parser.parse(source, "indexedassignment.g.nupp")
+    local parsed = parser.parse(source, "indexedassignment.nupp")
     assert(#parsed.errors == 0, "fixture parse failure")
-    local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env)
+    local diagnostics = check.check(parsed, "indexedassignment.nupp", env)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
     end
@@ -148,9 +148,9 @@ end
 return apply
 ]]
     do
-        local parsed = parser.parse(source, "indexedassignment.g.nupp")
+        local parsed = parser.parse(source, "indexedassignment.nupp")
         assert(#parsed.errors == 0)
-        local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env)
+        local diagnostics = check.check(parsed, "indexedassignment.nupp", env)
         local refused = false
         for _, diagnostic in ipairs(diagnostics) do
             if diagnostic.code == "NUPP2619" then

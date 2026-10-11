@@ -822,7 +822,7 @@ jobs:
       - name: Compile every homepage example in LuaJIT mode
         shell: bash
         run: >-
-          ./bin/nupp build --strict -O1
+          ./bin/nupp build -O1
           -o build/ci-playground-examples
           editors/playground/src/examples/*.nupp
 

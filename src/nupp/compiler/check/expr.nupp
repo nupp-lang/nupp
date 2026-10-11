@@ -1371,7 +1371,7 @@ function expr.install(c: state.Checker): nil
                 local advice, isModule, fixes = c.missingRequire(nameText)
                 if advice then
                     c.diag("missing-require", node, advice, fixes)
-                elseif not isModule and c.opts and c.opts.strict then
+                elseif not isModule and c.opts and c.opts.strict and not runtimeNode.newTypeOperand then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
                     c.diag("NUPP2105", nameTok, ("unknown variable %q"):format(nameText), fixes, {
                         help = fixes and "use the suggested visible name"
@@ -1400,7 +1400,7 @@ function expr.install(c: state.Checker): nil
                 entry.unassigned = nil
             end
             c.fixedWidth.copyBinding(node, entry)
-            return capturedType or (entry and entry.t or T.any) -- unknown names are any unless --strict
+            return capturedType or (entry and entry.t or T.any) -- an unknown name is any in plain Lua
         elseif kind == "paren" then
             local inner = node.expr
             local out = inner and c.infer(inner) or T.any
@@ -1441,6 +1441,12 @@ function expr.install(c: state.Checker): nil
                 end
                 c.diag("NUPP2206", call.obj or node, ("%s cannot be constructed"):format(named), nil, {help = why})
                 call.newReported = true
+                -- The operand was answered as the type it names. A type with no value
+                -- under the name is what was just reported, so the value lookup that
+                -- follows is not asked to report it again as an unknown name.
+                if call.obj then
+                    (call.obj as any).newTypeOperand = true
+                end
             end
             local result = c.infer(call)
             node.partitionFields = call.partitionFields

@@ -21,13 +21,13 @@ local simd = require("nupp.simd")
 ]]
 
 local function compile(src)
-    local result = parser.parse(src, "lane.g.nupp")
+    local result = parser.parse(src, "lane.nupp")
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
-    local diagnostics = check.check(result, "lane.g.nupp", env)
+    local diagnostics = check.check(result, "lane.nupp", env)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
     local code, diags = gen.generate(result, "lane")
     testAssert.equal(#diags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@lane.g.nupp")
+    local chunk, err = loadstring(code, "@lane.nupp")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
     end

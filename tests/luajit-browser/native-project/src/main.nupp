@@ -1,5 +1,4 @@
 local valueBuilder = require("nupp.codec.valuebuilder")
-local table = require("table")
 
 @aot
 local function rows(count: integer): {number}

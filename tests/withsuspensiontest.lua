@@ -8,9 +8,9 @@ local sharedEnv = envMod.new(HERE)
 local M = {}
 
 local function diagnose(source)
-    local result = parser.parse(source, "with-suspension.g.nupp")
+    local result = parser.parse(source, "with-suspension.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
-    return check.check(result, "with-suspension.g.nupp", sharedEnv), result
+    return check.check(result, "with-suspension.nupp", sharedEnv), result
 end
 
 local function runGenerated(source)
@@ -84,7 +84,7 @@ function M.returnDischargesInstallation()
                 "local released = 0",
                 "local h = {park = function() end, canPark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
-                "local function run()",
+                "local function run(): (integer, number)",
                 '    with installation = require("nupp.suspension.host").install(h) do',
                 "        return 1, released",
                 "    end",
@@ -199,7 +199,7 @@ function M.nestedInstallationsRestoreTheOuterHandler()
                 'local s = require("nupp.suspension")',
                 'local host = require("nupp.suspension.host")',
                 HANDLER,
-                "local outer, inner, restored",
+                "local outer: boolean?, inner: boolean?, restored: boolean?",
                 "with first = host.install(h) do",
                 "    outer = s.handled()",
                 "    with second = host.install(h) do",

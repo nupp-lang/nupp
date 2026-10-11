@@ -50,7 +50,19 @@ end
 local imports, corpus, probes
 local entry = "algorithm"
 local random = true
-write("src/corpusmath.g.nupp", snapshot("tests/simd/corpusmath.lua"))
+-- The PRNG is plain Lua shared with the stock-VM oracle, compiled here as a
+-- module whose exports have to say their types.
+local corpusmath = snapshot("tests/simd/corpusmath.lua")
+for _, signature in ipairs({
+    {"function M.randomseed(value)\n", "function M.randomseed(value: number): nil\n"},
+    {"function M.random(first, last)\n", "function M.random(first: number?, last: number?): number\n"},
+    {"function M.fingerprint()\n", "function M.fingerprint(): string\n"},
+}) do
+    local start, finish = corpusmath:find(signature[1], 1, true)
+    assert(start, "missing corpusmath signature")
+    corpusmath = corpusmath:sub(1, start - 1) .. signature[2] .. corpusmath:sub(finish + 1)
+end
+write("src/corpusmath.nupp", corpusmath)
 if name == "utf8simd" then
     copy("bench/utf8simd/src/utf8simd.nupp", "utf8simd.nupp")
     copy("bench/utf8simd/src/utf8reference.nupp", "utf8reference.nupp")
@@ -73,7 +85,7 @@ elseif name == "simd-json" then
     copy("bench/simd-json/src/simd_json/indexer.nupp", "simd_json/indexer.nupp")
     copy("bench/simd-json/src/simd_json/indexer_reference.nupp", "simd_json/indexer_reference.nupp")
     write(
-        "src/tape.g.nupp",
+        "src/tape.nupp",
         [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
@@ -104,18 +116,18 @@ return {indexed = indexed}
 else
     error("unknown owned algorithm: " .. name)
 end
-local prelude = random and 'local math=require("corpusmath")\n' or ""
+local prelude = random and 'local math: any = require("corpusmath")\n' or ""
 write(
-    "src/" .. entry:gsub("%.", "/") .. ".g.nupp",
-    prelude .. imports .. "local function run()\n" .. corpus .. "\nreturn checks end\nreturn {run=run" .. (
-        random and ",randomFingerprint=math.fingerprint" or ""
+    "src/" .. entry:gsub("%.", "/") .. ".nupp",
+    prelude .. imports .. "local function run(): number\n" .. corpus .. "\nreturn checks end\nreturn {run=run" .. (
+        random and ",randomFingerprint=function(): string return math.fingerprint() end" or ""
     ) .. "}\n"
 )
 local runner = "__nupp_wasm_runner"
 write(
-    "src/" .. runner .. ".g.nupp",
+    "src/" .. runner .. ".nupp",
     (
-        "local entry=require(%q)\nif __nuppWasmBeforeRun then __nuppWasmBeforeRun() end\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+        "local entry=require(%q)\nlocal beforeRun: any = rawget(_G, \"__nuppWasmBeforeRun\"); if beforeRun then beforeRun() end\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
     ):format(entry)
 )
 r.write(

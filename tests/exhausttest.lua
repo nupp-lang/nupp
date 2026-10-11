@@ -9,17 +9,17 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+   local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
 local function messageOf(src)
-   local result = parser.parse(src, "test.g.nupp")
-   local d = check.check(result, "test.g.nupp", env)[1]
+   local result = parser.parse(src, "test.nupp")
+   local d = check.check(result, "test.nupp", env)[1]
    return d and d.msg or ""
 end
 
@@ -156,7 +156,7 @@ function M.theRemainingMembersNarrowInLaterBranches()
    -- subtraction composes, so a later branch sees only what is left
    testAssert.equal(diagsOf(COLOR .. table.concat({
       "",
-      "local c: Color",
+      "local c: Color = nil as any",
       "if c == 'red' then",
       "else",
       "    local still: Color = c",
