@@ -572,8 +572,8 @@ jobs:
         run: ./bin/nupp test --jobs=1 --group=measurement
 
       # The runner defaults to one shard per core. On macOS and Windows, run
-      # shell suites with one worker: benchmark checks spawn their own children,
-      # and concurrent cold AOT builds otherwise consume the platform timeout.
+      # shell suites with two workers: benchmark checks spawn their own children,
+      # and more concurrent cold AOT builds consume the platform timeout.
       #
       # `--exclude-group` names what earlier steps in this job already ran, and
       # `wasm-conformance`, which the SIMD conformance workflow runs sharded.
@@ -603,7 +603,7 @@ jobs:
           if [ "$RUNNER_OS" != Linux ]; then
             ./bin/nupp test --lane=shared \
               --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
-            ./bin/nupp test --lane=shell --jobs=1 \
+            ./bin/nupp test --lane=shell --jobs=2 \
               --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
           fi
 
@@ -683,7 +683,7 @@ jobs:
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
           ./bin/nupp test --lane=shared \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
-          ./bin/nupp test --lane=shell --jobs=1 \
+          ./bin/nupp test --lane=shell --jobs=2 \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
 
       # What the suite saved, named in the log so a reader knows what the

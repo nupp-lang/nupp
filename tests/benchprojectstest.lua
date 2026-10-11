@@ -13,11 +13,10 @@
 -- packages (`pkgConfig`) this machine's pkg-config cannot resolve: checking it reads
 -- their flags, and CI's runners carry neither simdjson nor a luajit.pc.
 --
--- Each check starts cold in CI and reads the standard library it reaches, so they run
--- two at a time. All of them at once -- eight cold checks, each with its own
--- comptime worker -- swamped a three-core macOS runner beside the other shell
--- suites, and every macOS leg sat at the shell-suite join until its timeout.
-local CONCURRENT_CHECKS = 2
+-- Each check starts cold in CI and reads the standard library it reaches.
+-- Even two checks ran for over thirty minutes together on a three-core macOS
+-- runner, so keep a benchmark project's check from competing with another.
+local CONCURRENT_CHECKS = 1
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if HERE:sub(1, 1) ~= "/" and not HERE:match("^%a:[/\\]") then
@@ -77,8 +76,10 @@ local function projects()
     for line in pipe:lines() do
         local name = line:gsub("/$", "")
         local dir = ROOT .. "/bench/" .. name
-        if exists(dir .. "/nupp.lua") and not exists(dir .. "/prepare.sh")
-            and nativePackagesResolve(read(dir .. "/nupp.lua")) then
+        if exists(dir .. "/nupp.lua")
+            and not exists(dir .. "/prepare.sh")
+            and nativePackagesResolve(read(dir .. "/nupp.lua"))
+        then
             names[#names + 1] = name
         end
     end
@@ -98,7 +99,9 @@ function M.everyBenchmarkProjectChecks()
         local commands = {}
         for index = first, math.min(#names, first + CONCURRENT_CHECKS - 1) do
             local name = names[index]
-            commands[#commands + 1] = (
+            commands[
+                #commands + 1
+            ] = (
                 "(cd '%s/bench/%s' && NO_COLOR=1 '%s' check >'%s/%s.log' 2>&1; echo $? >'%s/%s.status') &"
             ):format(ROOT, name, NUPP, scratch, name, scratch, name)
         end
@@ -109,11 +112,9 @@ function M.everyBenchmarkProjectChecks()
     for _, name in ipairs(names) do
         local status = read(scratch .. "/" .. name .. ".status"):match("%d+")
         if status ~= "0" then
-            problems[#problems + 1] = ("bench/%s (status %s):\n%s"):format(
-                name,
-                tostring(status),
-                read(scratch .. "/" .. name .. ".log")
-            )
+            problems[
+                #problems + 1
+            ] = ("bench/%s (status %s):\n%s"):format(name, tostring(status), read(scratch .. "/" .. name .. ".log"))
         end
     end
     os.execute("rm -rf '" .. scratch .. "'")

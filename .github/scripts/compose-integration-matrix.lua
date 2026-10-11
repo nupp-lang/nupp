@@ -16,15 +16,15 @@ local platforms = {
     },
     {
         variable = "SELECTED_MACOS",
-        -- The Rust-native gate and broad suite reached the 150-minute limit on
-        -- a cold three-core runner.
-        entry = {name = "macOS arm64", os = "macos-15", timeout = 180, artifact = "macos-arm64"},
+        -- The Rust-native gate and broad suite need room for cold checks on
+        -- a three-core runner.
+        entry = {name = "macOS arm64", os = "macos-15", timeout = 240, artifact = "macos-arm64"},
     },
     {
         variable = "SELECTED_WINDOWS",
-        -- A cold Rust-native artifact gate leaves the broad suite beyond 120
+        -- A cold Rust-native artifact gate and broad suite exceeded 180
         -- minutes; keep the timeout above both stages.
-        entry = {name = "Windows x64", os = "windows-2022", timeout = 180, artifact = "windows-x64"},
+        entry = {name = "Windows x64", os = "windows-2022", timeout = 240, artifact = "windows-x64"},
     },
 }
 
