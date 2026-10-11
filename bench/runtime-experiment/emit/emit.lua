@@ -103,6 +103,36 @@ local function exprAs(f, node, want, dst)
     return coerce(f, r, c, want, dst)
 end
 
+-- A static call under the typed convention: value arguments into dst+1..,
+-- float arguments into a fresh float window; the result lands in dst or in
+-- the float window's first register, by the callee's return class.
+local function callTyped(f, callee, node, dst, extraSelf)
+    local args = node.args and node.args.exprs or {}
+    local all = {}
+    if extraSelf then all[1] = extraSelf end
+    for _, a in ipairs(args) do all[#all + 1] = a end
+    assert(#all == #callee.sig, "arity for " .. callee.name)
+    local nv, nf = 0, 0
+    for _, c in ipairs(callee.sig) do if c == "f" then nf = nf + 1 else nv = nv + 1 end end
+    local base = dst
+    while f.nregs < base + nv + 1 do f:reg() end
+    local fbase = f.nfregs
+    for _ = 1, math.max(nf, 1) do f:freg() end
+    local vi, fi = 0, 0
+    for i, a in ipairs(all) do
+        if callee.sig[i] == "f" then
+            if type(a) == "number" then f:op("FUnbox", fbase + fi, a) else exprAs(f, a, "f", fbase + fi) end
+            fi = fi + 1
+        else
+            vi = vi + 1
+            if type(a) == "number" then f:op("Move", base + vi, a) else exprAs(f, a, "v", base + vi) end
+        end
+    end
+    f:op("CallT", callee.id, base, fbase, #all)
+    if callee.ret == "f" then return fbase, "f" end
+    return base, "v"
+end
+
 local function callInto(f, node, dst, extraSelf)
     -- Common call layout: base = dst, args at dst+1..; registers above dst are temporaries.
     local base = dst
@@ -232,8 +262,8 @@ expr = function(f, node, dst, want)
             for i, a in ipairs(args) do exprAs(f, a, "v", base + i) end
             f:op("PCall", base, #args - 1)
         elseif callee.kind == "name" and funcByName[tokText(callee.token)] and not f:lookup(tokText(callee.token)) then
-            local base, nargs = callInto(f, node, dst)
-            f:op("Call", funcByName[tokText(callee.token)].id, base, nargs)
+            local r, c = callTyped(f, funcByName[tokText(callee.token)], node, dst)
+            return r, c
         else
             local fr = exprAs(f, callee, "v")
             local base, nargs = callInto(f, node, dst)
@@ -244,8 +274,8 @@ expr = function(f, node, dst, want)
         local mname = tokText(node.name)
         local o = exprAs(f, node.obj, "v")
         if tyTag(objTy) == "nominal" and funcByName[objTy.name .. "." .. mname] then
-            local base, nargs = callInto(f, node, dst, o)
-            f:op("Call", funcByName[objTy.name .. "." .. mname].id, base, nargs)
+            local r, c = callTyped(f, funcByName[objTy.name .. "." .. mname], node, dst, o)
+            return r, c
         else
             local base, nargs = callInto(f, node, dst, o)
             f:op("CallMethod", f:const("str", mname), base, nargs)
@@ -327,7 +357,7 @@ local function stmt(f, node)
     elseif k == "returnStmt" then
         if #node.exprs == 0 then f:op("RetNil") else
             local r, c = expr(f, node.exprs[1], nil, nil)
-            if c == "f" then f:op("FRet", r) else f:op("Ret", r) end
+            if f.ret == "f" then local fr = coerce(f, r, c, "f"); f:op("FRet", fr) else local vr = coerce(f, r, c, "v"); f:op("Ret", vr) end
         end
     elseif k == "ifStmt" then
         local exits = {}
@@ -377,16 +407,29 @@ block = function(f, node)
     f:pop()
 end
 
+-- The calling convention: parameters of numeric type travel in float
+-- registers, in declaration order among the float parameters; everything
+-- else travels in value registers, in declaration order among those. The
+-- result travels as a float when the declared return type is numeric.
+local function signatureOf(f, funcbody)
+    -- The checker's signature type carries the resolved parameter and result types.
+    local st = funcbody.signatureType or {}
+    local params = funcbody.params or {}
+    f.sig = {}
+    f.nparams = #params
+    for i = 1, #params do
+        f.sig[i] = isNumeric(st.params and st.params[i]) and "f" or "v"
+    end
+    f.ret = (st.rets and st.rets[1] and isNumeric(st.rets[1])) and "f" or "v"
+end
+
 local function defineFunction(f, funcbody)
     local params = funcbody.params or {}
-    f.nparams = #params
-    local unbox = {}
-    for _, p in ipairs(params) do
-        local v = f:declare(tokText(p.name), "v")
-        local ty = p.type and p.type.resolvedType
-        if isNumeric(ty) then unbox[#unbox + 1] = {tokText(p.name), v} end
+    -- Float parameters are float registers 0.., value parameters value registers 1..
+    local nf = 0
+    for i, p in ipairs(params) do
+        if f.sig[i] == "f" then f:declare(tokText(p.name), "f"); nf = nf + 1 else f:declare(tokText(p.name), "v") end
     end
-    for _, u in ipairs(unbox) do local fr = f:declare(u[1], "f"); f:op("FUnbox", fr, u[2]) end
     block(f, funcbody.body)
     if f.code[#f.code] == nil or (f.code[#f.code][1] ~= "Ret" and f.code[#f.code][1] ~= "RetNil") then f:op("RetNil") end
 end
@@ -397,12 +440,13 @@ local stats = root.blocks[1].stats
 for _, s in ipairs(stats) do if s.kind == "recordDecl" then declareShape(s) end end
 local pending = {}
 for _, s in ipairs(stats) do
-    if s.kind == "localFuncStmt" then pending[#pending + 1] = {newFn(tokText(s.name)), s.body}
+    if s.kind == "localFuncStmt" then local fn = newFn(tokText(s.name)); signatureOf(fn, s.body); pending[#pending + 1] = {fn, s.body}
     elseif s.kind == "recordDecl" then
         local shape = shapes[tokText(s.name)]
         for _, entry in ipairs(s.entries) do
             if entry.kind == "inlineMethod" then
                 local fn = newFn(shape.name .. "." .. tokText(entry.name))
+                signatureOf(fn, entry.body)
                 shape.methods[tokText(entry.name)] = fn.id
                 pending[#pending + 1] = {fn, entry.body}
             end
@@ -422,7 +466,7 @@ for _, shape in ipairs(shapeOrder) do
     emit(table.concat(parts, " "))
 end
 for _, f in ipairs(functions) do
-    emit(("function %s %d %d %d %d"):format(f.name, f.id, f.nparams, f.nregs + 2, f.nfregs + 2))
+    emit(("function %s %d %d %d %d %s:%s"):format(f.name, f.id, f.nparams, f.nregs + 2, f.nfregs + 2, table.concat(f.sig or {}), f.ret or "v"))
     for i, c in ipairs(f.consts) do
         if c.kind == "str" then emit(("  const %d str %s"):format(i - 1, q(c.value))) else emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value))) end
     end

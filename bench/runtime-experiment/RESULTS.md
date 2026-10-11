@@ -315,3 +315,37 @@ on a record-array loop, to within 10%, with three lowering items still
 open. It does not show anything about collection under compiled
 allocation (no stack maps), about closures, or about the untyped tier,
 which is unchanged at 3x LuaJIT's interpreter.
+
+## The typed calling convention
+
+Date: 2026-10-11, same branch. Signatures are now part of the image: the
+emitter reads the checker's signature type and classes each parameter as
+float or value and the return as float when numeric. Float parameters are
+the callee's first float registers and value parameters its first value
+registers, in declaration order within each class; a float result returns
+in the caller's float window. `CALLT` carries both windows. The
+interpreter copies the float window on a call and delivers a float result
+unboxed; compiled callers pass f64 in registers; the interpreter reaches a
+compiled function through a generated boxed wrapper that unboxes on the
+way in and boxes on the way out, so the handoff stays per-arity. Nothing
+boxes between typed code any more.
+
+The first run with it was slower, 52 to 59 us, and the compiled loop said
+why: the JIT had computed storage pointer and length for every value
+parameter in every prologue, and inlining `Point.length` put those two
+helper calls into the loop per element. They are now emitted only in
+functions that touch storage.
+
+| `hot` per call | |
+| --- | ---: |
+| before the convention | 52 us |
+| typed convention, prologue fixed (three runs) | 41, 42, 46 us |
+| LuaJIT trace compiler | 47 us |
+
+The compiled loop is 25 instructions per element: the inline array read
+with its kind, integrality and bounds checks, two unboxed slot loads, three
+float operations, and spills of the accumulator and the index across the
+loop header, which Cranelift's variable-based SSA construction leaves in
+when values cross many small blocks. The index is still boxed before the
+array read because the emitter chose the value-index form; that and the
+spills are what remain.

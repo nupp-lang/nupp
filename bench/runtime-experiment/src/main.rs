@@ -135,7 +135,7 @@ fn cpu_now() -> f64 {
 }
 
 fn func(name: &'static str, nparams: u8, nregs: u8, consts: Vec<Value>, code: Vec<Op>) -> Function {
-    Function { name, code, consts, nparams, nregs, nireg: 8, nfreg: 8, nvreg: 8 }
+    Function { name, sig: vec![b'v'; nparams as usize], ret: b'v', code, consts, nparams, nregs, nireg: 8, nfreg: 8, nvreg: 8 }
 }
 
 const FIB: u32 = 0;

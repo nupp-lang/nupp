@@ -1,5 +1,5 @@
 shape 0 Point x:num y:num name:str method:length=0
-function Point.length 0 1 4 9
+function Point.length 0 1 4 9 v:f
   GetSlotF 0 1 0
   GetSlotF 1 1 0
   FMul 2 0 1
@@ -10,14 +10,14 @@ function Point.length 0 1 4 9
   FRet 6
   RetNil
 end
-function describe 1 1 7 2
+function describe 1 1 7 2 v:v
   const 0 str "!"
   GetSlot 3 1 2
   K 4 0
   Concat 2 3 4
   Ret 2
 end
-function total 2 1 7 11
+function total 2 1 7 11 v:f
   FK 1 0
   FMov 0 1
   FK 3 1
@@ -25,20 +25,19 @@ function total 2 1 7 11
   LenF 4 1
   FK 5 1
   FCmpLe 6 2 4
-  JmpIfIZero 6 9
+  JmpIfIZero 6 8
   FBox 4 2
   GetIdx 3 1 4
   Move 3 3
-  Call 0 2 1
-  FUnbox 7 2
+  CallT 0 2 7 1
   FAdd 8 0 7
   FMov 0 8
   FAdd 2 2 5
-  Jmp -11
+  Jmp -10
   FRet 0
   RetNil
 end
-function fromAny 3 1 6 3
+function fromAny 3 1 6 3 v:f
   Move 3 1
   TagCheckRec 3 3 0
   Move 2 3
@@ -46,7 +45,7 @@ function fromAny 3 1 6 3
   FRet 0
   RetNil
 end
-function safe 4 1 9 2
+function safe 4 1 9 2 v:v
   const 0 func 3
   K 6 0
   Move 4 6
@@ -55,7 +54,7 @@ function safe 4 1 9 2
   Move 2 3
   Ret 2
 end
-function main 5 0 31 15
+function main 5 0 31 19 :f
   const 0 str "p"
   const 1 true 
   const 2 str "p1!"
@@ -81,28 +80,28 @@ function main 5 0 31 15
   FAdd 0 0 3
   Jmp -15
   Move 9 1
-  Call 2 8 1
-  FUnbox 7 8
+  CallT 2 8 8 1
+  FMov 7 8
   NewTable 11
   Move 10 11
-  FK 8 1
-  FBox 15 8
+  FK 10 1
+  FBox 15 10
   GetIdx 14 1 15
   Move 13 14
-  Call 1 12 1
+  CallT 1 12 9 1
   K 16 1
   SetIdx 10 12 16
-  FK 9 5
-  FBox 17 9
-  FK 10 2
-  FBox 23 10
+  FK 11 5
+  FBox 17 11
+  FK 13 2
+  FBox 23 13
   GetIdx 22 1 23
   Move 21 22
-  Call 4 20 1
+  CallT 4 20 12 1
   Move 19 20
   JmpIfNot 19 4
   Move 26 17
-  Call 4 25 1
+  CallT 4 25 14 1
   Not 24 25
   Move 19 24
   Move 18 19
@@ -113,12 +112,12 @@ function main 5 0 31 15
   JmpIfNot 18 2
   FRet 7
   Jmp 0
-  FK 11 1
-  FNeg 12 11
-  FRet 12
+  FK 15 1
+  FNeg 16 15
+  FRet 16
   RetNil
 end
-function hot 6 0 10 18
+function hot 6 0 10 18 :f
   const 0 str "p"
   NewTable 2
   Move 1 2
@@ -146,14 +145,13 @@ function hot 6 0 10 18
   FK 11 200
   FK 12 1
   FCmpLe 13 9 11
-  JmpIfIZero 13 7
+  JmpIfIZero 13 6
   Move 7 1
-  Call 2 6 1
-  FUnbox 14 6
+  CallT 2 6 14 1
   FAdd 15 7 14
   FMov 7 15
   FAdd 9 9 12
-  Jmp -9
+  Jmp -8
   FRet 7
   RetNil
 end

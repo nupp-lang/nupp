@@ -22,6 +22,10 @@ pub enum Op {
     JmpIfNot(u8, i32),
     /// Call function `fid` with arguments at base+1.., result into `base`.
     Call(u32, u8, u8),
+    /// Typed call: value arguments at base+1.., float arguments in the float
+    /// window starting at fbase; the float result returns to fbase, a value
+    /// result to base.
+    CallT(u32, u8, u8, u8),
     CallDyn(u8, u8, u8),
     Ret(u8),
     RetNil,
@@ -114,6 +118,9 @@ pub enum Op {
 
 pub struct Function {
     pub name: &'static str,
+    /// Parameter classes in declaration order, b'f' or b'v', and the return class.
+    pub sig: Vec<u8>,
+    pub ret: u8,
     pub code: Vec<Op>,
     pub consts: Vec<Value>,
     pub nparams: u8,
@@ -124,7 +131,8 @@ pub struct Function {
 }
 
 #[derive(Clone, Copy)]
-struct Frame { func: u32, pc: u32, base: u32, ibase: u32, fbase: u32, vbase: u32, ret: u32 }
+struct Frame { func: u32, pc: u32, base: u32, ibase: u32, fbase: u32, vbase: u32, ret: u32, /// Where a float result goes in the caller's float window, when the callee returns one.
+    ret_f: u32, ret_is_f: bool }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State { Runnable, Parked(u64), Done }
@@ -175,7 +183,7 @@ impl Interp {
         let f = &self.funcs[fid as usize];
         let mut t = Task { regs: vec![Value::NIL; f.nregs as usize + 1], iregs: vec![0; f.nireg as usize], fregs: vec![0.0; f.nfreg as usize], vregs: vec![[0.0; 2]; f.nvreg as usize], frames: Vec::new(), state: State::Runnable, result: Value::NIL };
         for (i, &a) in args.iter().enumerate() { t.regs[i + 1] = a; }
-        t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0 });
+        t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0, ret_f: 0, ret_is_f: false });
         self.tasks.push(t);
         self.tasks.len() - 1
     }
@@ -261,6 +269,31 @@ impl Interp {
                             continue;
                         }
                         self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break;
+                    }
+                    Op::CallT(f, b, fb, nargs) => {
+                        let callee_sig = self.funcs[f as usize].sig.clone();
+                        let callee_ret = self.funcs[f as usize].ret;
+                        if let Some(Some(entry)) = self.compiled.get(f as usize) {
+                            // Boxed wrapper: every argument as a value word, in declaration order.
+                            let entry = *entry;
+                            let (mut vi, mut fi) = (0u8, 0u8);
+                            let args: Vec<u64> = callee_sig.iter().map(|&c| if c == b'f' { let v = Value::num(fr!(fb + fi)).0; fi += 1; v } else { vi += 1; r!(b + vi).0 }).collect();
+                            let result = unsafe { match args.len() { 0 => std::mem::transmute::<_, extern "C" fn() -> u64>(entry)(), 1 => std::mem::transmute::<_, extern "C" fn(u64) -> u64>(entry)(args[0]), 2 => std::mem::transmute::<_, extern "C" fn(u64, u64) -> u64>(entry)(args[0], args[1]), 3 => std::mem::transmute::<_, extern "C" fn(u64, u64, u64) -> u64>(entry)(args[0], args[1], args[2]), _ => std::mem::transmute::<_, extern "C" fn(u64, u64, u64, u64) -> u64>(entry)(args[0], args[1], args[2], args[3]) } };
+                            if callee_ret == b'f' { fr!(fb) = Value(result).as_num(); } else { r!(b) = Value(result); }
+                            continue;
+                        }
+                        let nv = callee_sig.iter().filter(|&&c| c != b'f').count() as u8;
+                        let nfp = callee_sig.len() as u8 - nv;
+                        self.push_frame(tid, f, base + b as usize, nv, pc, fid, base, ibase, fbase, vbase, base + b as usize);
+                        // Float parameters: copy the caller's float window into the callee's first float registers.
+                        let t = &mut self.tasks[tid];
+                        let frame = *t.frames.last().unwrap();
+                        for i in 0..nfp as usize { t.fregs[frame.fbase as usize + i] = t.fregs[fbase + fb as usize + i]; }
+                        let fr_ = t.frames.last_mut().unwrap();
+                        fr_.ret_f = (fbase + fb as usize) as u32;
+                        fr_.ret_is_f = callee_ret == b'f';
+                        let _ = nargs;
+                        break;
                     }
                     Op::CallDyn(fr, b, nargs) => { let f = r!(fr).as_func().unwrap_or_else(|| self.err("call of a non-function")); self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break; }
                     Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
@@ -438,7 +471,7 @@ impl Interp {
         if t.iregs.len() < ni + callee.nireg as usize { t.iregs.resize(ni + callee.nireg as usize, 0); }
         if t.fregs.len() < nf + callee.nfreg as usize { t.fregs.resize(nf + callee.nfreg as usize, 0.0); }
         if t.vregs.len() < nv + callee.nvreg as usize { t.vregs.resize(nv + callee.nvreg as usize, [0.0; 2]); }
-        t.frames.push(Frame { func: f, pc: 0, base: base as u32, ibase: ni as u32, fbase: nf as u32, vbase: nv as u32, ret: ret as u32 });
+        t.frames.push(Frame { func: f, pc: 0, base: base as u32, ibase: ni as u32, fbase: nf as u32, vbase: nv as u32, ret: ret as u32, ret_f: 0, ret_is_f: false });
     }
 
     /// Pops the frame, delivering `v` to the caller's result register; true when
@@ -446,6 +479,13 @@ impl Interp {
     fn pop_frame(&mut self, tid: usize, v: Value) -> bool {
         let t = &mut self.tasks[tid];
         let frame = t.frames.pop().unwrap();
+        if frame.ret_is_f && !t.frames.is_empty() {
+            // A float result for a typed caller: into its float window, unboxed.
+            let top = (frame.base as usize + self.funcs[frame.func as usize].nregs as usize + 1).min(t.regs.len());
+            for r in &mut t.regs[frame.base as usize..top] { *r = Value::NIL; }
+            t.fregs[frame.ret_f as usize] = v.as_num();
+            return false;
+        }
         // The popped frame's window is dead: clear it so it does not keep
         // garbage alive. Windows above it were cleared when they popped.
         let top = (frame.base as usize + self.funcs[frame.func as usize].nregs as usize + 1).min(t.regs.len());
@@ -457,5 +497,5 @@ impl Interp {
 }
 
 impl std::ops::Index<usize> for Function { type Output = Op; fn index(&self, i: usize) -> &Op { &self.code[i] } }
-impl Clone for Function { fn clone(&self) -> Self { Function { name: self.name, code: self.code.clone(), consts: self.consts.clone(), nparams: self.nparams, nregs: self.nregs, nireg: self.nireg, nfreg: self.nfreg, nvreg: self.nvreg } } }
+impl Clone for Function { fn clone(&self) -> Self { Function { name: self.name, sig: self.sig.clone(), ret: self.ret, code: self.code.clone(), consts: self.consts.clone(), nparams: self.nparams, nregs: self.nregs, nireg: self.nireg, nfreg: self.nfreg, nvreg: self.nvreg } } }
 pub fn storage_ptr(v: Value) -> Option<NonNull<crate::heap::Object>> { v.as_obj() }

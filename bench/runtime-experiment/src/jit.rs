@@ -19,7 +19,7 @@ const QNAN: i64 = 0x7ff8_0000_0000_0000u64 as i64;
 const PAYLOAD: i64 = (1i64 << 48) - 1;
 const NIL: i64 = (0x7ff8_0000_0000_0000u64 | (1 << 48)) as i64;
 
-pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
+pub struct Jit { module: JITModule, ctx: cranelift_codegen::Context, fbc: FunctionBuilderContext, storage_ptr: FuncId, storage_len: FuncId, helpers: HashMap<&'static str, FuncId>, pub funcs: HashMap<u32, (FuncId, Vec<u8>, u8)>, /// CLIF of compiled functions, kept for inlining into later callers.
     bodies: HashMap<FuncId, cranelift_codegen::ir::Function>, pub inline: bool, pub compile_micros: Vec<(String, u128)> }
 
 struct Inliner<'a> { bodies: &'a HashMap<FuncId, cranelift_codegen::ir::Function>, refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> }
@@ -68,18 +68,21 @@ impl Jit {
     pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
         for op in &f.code {
             let ok = match op {
-                Op::Call(callee, ..) => self.funcs.contains_key(callee),
+                Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
                 Op::IK(..) | Op::IAdd(..) | Op::ISub(..) | Op::IAddK(..) | Op::IMaskU32(..) | Op::IToF(..) | Op::FToI(..) | Op::FK(..) | Op::FUnbox(..) | Op::FAdd(..) | Op::FSub(..) | Op::FMul(..) | Op::FDiv(..) | Op::FNeg(..) | Op::FFma(..) | Op::ICmpLe(..) | Op::ICmpLt(..) | Op::FCmpLe(..) | Op::FCmpLt(..) | Op::FCmpEq(..) | Op::FCmpNe(..) | Op::IAnd(..) | Op::JmpIfIZero(..) | Op::Jmp(..) | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VSplat(..) | Op::VLoad(..) | Op::VStore(..) | Op::VAdd(..) | Op::VMul(..) | Op::VFma(..) | Op::VLane(..) | Op::VLoadM(..) | Op::VStoreM(..) | Op::LoopFact(..) | Op::GuardLenLe(..) | Op::IMov(..) | Op::FMov(..) | Op::VMov(..) | Op::FRet(..) | Op::RetNil | Op::FBox(..) | Op::GetSlotF(..) | Op::SetSlotF(..) | Op::LenF(..) | Op::GetIdxF(..) | Op::GetIdx(..) | Op::Move(..) | Op::K(..) | Op::Ret(..) | Op::BoolFromI(..) | Op::JmpIfNot(..) | Op::JmpIf(..) => true,
                 _ => false,
             };
             if !ok { return Err(format!("{:?}", op)); }
         }
         let start = std::time::Instant::now();
+        // The typed signature: float parameters as f64, the rest as value words.
+        let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
+        let ret_f = f.ret == b'f';
         let mut sig = self.module.make_signature();
-        for _ in 0..f.nparams { sig.params.push(AbiParam::new(types::I64)); }
-        sig.returns.push(AbiParam::new(types::I64));
+        for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); }
+        sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
         let id = self.module.declare_function(f.name, Linkage::Local, &sig).unwrap();
-        if fid != u32::MAX { self.funcs.insert(fid, (id, f.nparams)); }
+        if fid != u32::MAX { self.funcs.insert(fid, (id, classes.clone(), f.ret)); }
         self.ctx.func.signature = sig;
         self.ctx.want_disasm = std::env::var("DISASM").is_ok();
         let frontend = self.module.target_config();
@@ -88,7 +91,7 @@ impl Jit {
             let sp = self.module.declare_func_in_func(self.storage_ptr, b.func);
             let sl = self.module.declare_func_in_func(self.storage_len, b.func);
             let helper_refs: HashMap<&'static str, cranelift_codegen::ir::FuncRef> = self.helpers.iter().map(|(n, id)| (*n, self.module.declare_func_in_func(*id, b.func))).collect();
-            let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, u8)> = self.funcs.iter().map(|(k, (id, n))| (*k, (self.module.declare_func_in_func(*id, b.func), *n))).collect();
+            let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = self.funcs.iter().map(|(k, (id, sg, r))| (*k, (self.module.declare_func_in_func(*id, b.func), sg.clone(), *r))).collect();
             let consts: Vec<u64> = f.consts.iter().map(|v| v.0).collect();
             let entry = b.create_block();
             b.append_block_params_for_function_params(entry);
@@ -106,10 +109,22 @@ impl Jit {
             let params: Vec<Value> = b.block_params(entry).to_vec();
             let mut vals: HashMap<u8, Value> = HashMap::new();
             let mut ptrs: HashMap<u8, (Value, Value)> = HashMap::new();
+            // Storage pointer and length per value parameter, only in functions
+            // that access storage; a function without such opcodes pays nothing
+            // in its prologue, which matters once it is inlined into a loop.
+            let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
+            let (mut vi, mut fi) = (0u8, 0u8);
             for (i, p) in params.iter().enumerate() {
-                let r = (i + 1) as u8;
+                if classes[i] == b'f' {
+                    b.def_var(fvars[fi as usize], *p);
+                    fi += 1;
+                    continue;
+                }
+                vi += 1;
+                let r = vi;
                 vals.insert(r, *p);
                 b.def_var(rvars[r as usize], *p);
+                if !uses_storage { continue; }
                 let c1 = b.ins().call(sp, &[*p]);
                 let ptr = b.inst_results(c1)[0];
                 let c2 = b.ins().call(sl, &[*p]);
@@ -207,7 +222,15 @@ impl Jit {
                         slots_cache.clear();
                         setr!(d, b.block_params(join)[0]);
                     }
-                    Op::Call(callee, base, nargs) => { let (fref, _) = callee_refs[&callee]; let args: Vec<Value> = (0..nargs).map(|i| rv!(base + 1 + i)).collect(); let c = b.ins().call(fref, &args); setr!(base, b.inst_results(c)[0]); }
+                    Op::Call(callee, base, nargs) => { let (fref, _, _) = &callee_refs[&callee]; let args: Vec<Value> = (0..nargs).map(|i| rv!(base + 1 + i)).collect(); let c = b.ins().call(*fref, &args); setr!(base, b.inst_results(c)[0]); }
+                    Op::CallT(callee, base, fb, _nargs) => {
+                        let (fref, csig, cret) = callee_refs[&callee].clone();
+                        let (mut vi, mut fi) = (0u8, 0u8);
+                        let args: Vec<Value> = csig.iter().map(|&c| if c == b'f' { let v = fv!(fb + fi); fi += 1; v } else { vi += 1; rv!(base + vi) }).collect();
+                        let c = b.ins().call(fref, &args);
+                        let r = b.inst_results(c)[0];
+                        if cret == b'f' { setf!(fb, r); } else { setr!(base, r); }
+                    }
                     Op::Ret(r) => { let v = rv!(r); b.ins().return_(&[v]); terminated = true; }
                     Op::FAdd(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fadd(p, q)); }
                     Op::FSub(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fsub(p, q)); }
@@ -282,6 +305,8 @@ impl Jit {
                     Op::FMov(d, a) => { let v = fv!(a); setf!(d, v); }
                     Op::VMov(d, a) => { let v = vv!(a); setv!(d, v); }
                     Op::GuardLenLe(x, y) => { let (p, q) = (iv!(x), iv!(y)); let bad = b.ins().icmp(IntCC::UnsignedGreaterThan, p, q); b.ins().trapnz(bad, cranelift_codegen::ir::TrapCode::user(2).unwrap()); }
+                    Op::FRet(x) if ret_f => { let v = fv!(x); b.ins().return_(&[v]); terminated = true; }
+                    Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); terminated = true; }
                     Op::FRet(x) => {
                         let v = fv!(x);
                         let bits = b.ins().bitcast(types::I64, cast, v);
@@ -296,9 +321,9 @@ impl Jit {
                     other => panic!("{}: opcode not supported by the JIT: {other:?}", f.name),
                 }
             }
-            if !terminated { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); }
+            if !terminated { if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
             b.seal_all_blocks();
-            let refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> = callee_refs.iter().filter_map(|(fid, (fr, _))| self.funcs.get(fid).map(|(id, _)| (*fr, *id))).collect();
+            let refs: HashMap<cranelift_codegen::ir::FuncRef, FuncId> = callee_refs.iter().filter_map(|(fid, (fr, _, _))| self.funcs.get(fid).map(|(id, _, _)| (*fr, *id))).collect();
             b.finalize(frontend);
             refs
         };
@@ -313,8 +338,37 @@ impl Jit {
         self.module.define_function(id, &mut self.ctx).unwrap_or_else(|e| panic!("{}: {e}", f.name));
         if std::env::var("DISASM").is_ok() { if let Some(code) = self.ctx.compiled_code() { eprintln!("==== {} ({} bytes)\n{}", f.name, code.code_buffer().len(), code.vcode.as_deref().unwrap_or("")); } }
         self.module.clear_context(&mut self.ctx);
+        // The boxed wrapper the interpreter calls: value words in, unboxed to
+        // the typed entry, the result boxed back.
+        let needs_wrapper = ret_f || classes.iter().any(|&c| c == b'f');
+        let wrapper = if needs_wrapper {
+            let mut wsig = self.module.make_signature();
+            for _ in 0..classes.len() { wsig.params.push(AbiParam::new(types::I64)); }
+            wsig.returns.push(AbiParam::new(types::I64));
+            let wid = self.module.declare_function(&format!("{}.boxed", f.name), Linkage::Local, &wsig).unwrap();
+            self.ctx.func.signature = wsig;
+            {
+                let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
+                let callee = self.module.declare_func_in_func(id, b.func);
+                let entry = b.create_block();
+                b.append_block_params_for_function_params(entry);
+                b.switch_to_block(entry);
+                b.seal_block(entry);
+                let cast = MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
+                let params: Vec<Value> = b.block_params(entry).to_vec();
+                let args: Vec<Value> = params.iter().zip(&classes).map(|(p, &c)| if c == b'f' { b.ins().bitcast(types::F64, cast, *p) } else { *p }).collect();
+                let c = b.ins().call(callee, &args);
+                let r = b.inst_results(c)[0];
+                let out = if ret_f { let bits = b.ins().bitcast(types::I64, cast, r); let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) } else { r };
+                b.ins().return_(&[out]);
+                b.finalize(frontend);
+            }
+            self.module.define_function(wid, &mut self.ctx).unwrap_or_else(|e| panic!("{} wrapper: {e}", f.name));
+            self.module.clear_context(&mut self.ctx);
+            Some(wid)
+        } else { None };
         self.module.finalize_definitions().unwrap();
         self.compile_micros.push((f.name.to_string(), start.elapsed().as_micros()));
-        Ok(self.module.get_finalized_function(id))
+        Ok(self.module.get_finalized_function(wrapper.unwrap_or(id)))
     }
 }

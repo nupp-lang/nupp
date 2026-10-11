@@ -315,7 +315,7 @@ pub fn lower(f: &IrFunction) -> Function {
     for (i, op) in hoisted.into_iter().enumerate() { l.code.insert(prologue_end + i, op); }
     if !matches!(l.code.last(), Some(Op::RetNil) | Some(Op::FRet(_))) { l.code.push(Op::RetNil); }
     assert!(l.ni < 250 && l.nf < 250 && l.nv < 250, "register pressure beyond the prototype's 8-bit operands");
-    Function { name: Box::leak(f.name.clone().into_boxed_str()), code: l.code, consts: Vec::new(), nparams: f.params.len() as u8, nregs: l.nregs + 1, nireg: l.ni + 1, nfreg: l.nf + 1, nvreg: l.nv + 2 }
+    Function { name: Box::leak(f.name.clone().into_boxed_str()), sig: vec![b'v'; f.params.len()], ret: b'v', code: l.code, consts: Vec::new(), nparams: f.params.len() as u8, nregs: l.nregs + 1, nireg: l.ni + 1, nfreg: l.nf + 1, nvreg: l.nv + 2 }
 }
 
 // ---------------------------------------------------------------------------
