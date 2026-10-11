@@ -591,6 +591,24 @@ fn main() {
         eprintln!("objects live {} allocated {}", it.heap.object_count(), it.heap.stats.allocated);
         return;
     }
+    if mode == "fib-threaded" {
+        // The same fib bytecode on a tail-call-threaded C core (csrc/threaded.c).
+        #[repr(C)] #[derive(Clone, Copy)] struct Ins { op: u8, a: u8, b: u8, c: u8, imm: i32, k: i64 }
+        extern "C" { fn threaded_run(code: *const Ins, consts: *const u64, nregs: u32, stack: *mut u64, cap: usize, arg: f64) -> f64; }
+        let f = &it.funcs[FIB as usize];
+        let code: Vec<Ins> = f.code.iter().map(|op| match *op {
+            Op::K(a, k) => Ins { op: 0, a, b: k as u8, c: 0, imm: 0, k: 0 }, Op::Move(a, b) => Ins { op: 1, a, b, c: 0, imm: 0, k: 0 },
+            Op::Add(a, b, c) => Ins { op: 2, a, b, c, imm: 0, k: 0 }, Op::Sub(a, b, c) => Ins { op: 3, a, b, c, imm: 0, k: 0 }, Op::Lt(a, b, c) => Ins { op: 4, a, b, c, imm: 0, k: 0 },
+            Op::JmpIfNot(a, off) => Ins { op: 5, a, b: 0, c: 0, imm: off, k: 0 }, Op::Jmp(off) => Ins { op: 6, a: 0, b: 0, c: 0, imm: off, k: 0 },
+            Op::Call(_, b, n) => Ins { op: 7, a: 0, b, c: n, imm: 0, k: 0 }, Op::Ret(a) => Ins { op: 8, a, b: 0, c: 0, imm: 0, k: 0 },
+            other => panic!("fib uses {other:?}"),
+        }).collect();
+        let consts: Vec<u64> = f.consts.iter().map(|v| v.0).collect();
+        let mut stack = vec![0u64; 1 << 16];
+        let nregs = f.nregs as u32;
+        for _ in 0..5 { let s = cpu_now(); let r = unsafe { threaded_run(code.as_ptr(), consts.as_ptr(), nregs, stack.as_mut_ptr(), stack.len(), 30.0) }; let e = cpu_now() - s; assert_eq!(r, 832040.0); println!("fib30-threaded\t{:.6}", e); }
+        return;
+    }
     if mode == "fibloop" { let it = &mut it; for _ in 0..60 { black_box(run_to_end(it, FIB, &[Value::num(30.0)]).as_num()); } return; }
     if mode == "paths" { paths_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "base64" { base64_mode(&mut it, &args[2], &args[3]); return; }

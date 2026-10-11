@@ -870,3 +870,35 @@ locals, so the JIT refuses all of them; the typed tier's number for the
 lexer needs the emitter to keep the checker's types for locals and
 parameters (it discards them for dynamic calls) and the JIT to take
 closures and upvalues. That is the next step for this slice.
+
+## Threaded dispatch: the call row closed
+
+Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the
+time in the dispatch loop, so the dispatch design was the open gate. The
+test is `csrc/threaded.c`: the nine opcodes fib uses, on the same one-stack
+frame layout, each handler ending in a `musttail` call to the next
+instruction's handler through a table, with the pc, the window, the
+context and the frame in the argument registers throughout. No frame
+record push beyond the header words, no re-entry of an outer loop on call
+or return. Built by `build.rs` with clang at -O3; mode `fib-threaded`
+translates the interpreter's fib bytecode into the C core's instruction
+form at startup.
+
+| fib(30), three interleaved runs | ms |
+| --- | ---: |
+| Rust `match` loop, inline frames | 43-44 |
+| tail-call-threaded C, same frames | 24.8-25.4 |
+| PUC Lua 5.5 | 20-22 |
+
+Threaded dispatch takes the call row from 2.05x to 1.2x PUC, inside the
+2x price with room. Each instruction is now one indirect branch with its
+own predictor slot, and a call is twelve stores and a jump. What this
+decides for P3: the interpreter's dispatch is tail-call threaded. The
+handlers are the bodies, already decided to be Nupp; the skeleton needs
+guaranteed tail calls, which clang gives C through `musttail` and which
+Cranelift gives any function compiled with its `tail` calling convention
+and `return_call_indirect`. So the loop can be produced by the runtime's
+own JIT from the Nupp handlers, each handler a Cranelift function that
+ends by tail-calling the next handler through the opcode table, with no C
+in the path and no second dispatch mechanism for the browser to port.
+That is the P3 design; this measurement is its gate.
