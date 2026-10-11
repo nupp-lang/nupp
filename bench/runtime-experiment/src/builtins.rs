@@ -13,6 +13,9 @@ pub const NAMES: &[&str] = &[
 ];
 
 pub static STATS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// `string.sub` answers with a slice of its subject instead of an interned
+/// copy: the plan's `StringSlice` in its boxed form, for the A/B on the lexer.
+pub static SLICES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 const N_0: u32 = 0; // string.byte
 const N_1: u32 = 1; // string.sub
 const N_2: u32 = 2; // string.find
@@ -93,7 +96,7 @@ fn type_name(it: &Interp, v: Value) -> &'static str {
     if v == Value::NIL { return "nil"; }
     if v == Value::TRUE || v == Value::FALSE { return "boolean"; }
     if v.as_func().is_some() || v.as_builtin().is_some() { return "function"; }
-    match v.as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Str { .. } => "string", Body::Table { .. } => "table", Body::Record { .. } => "table", Body::Closure { .. } => "function", Body::Iter { .. } => "function", Body::Bytes { .. } => "userdata", Body::Storage { .. } => "userdata", _ => "userdata" } }, None => { let _ = it; "nil" } }
+    match v.as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Str { .. } | Body::Slice { .. } => "string", Body::Table { .. } => "table", Body::Record { .. } => "table", Body::Closure { .. } => "function", Body::Iter { .. } => "function", Body::Bytes { .. } => "userdata", Body::Storage { .. } => "userdata", _ => "userdata" } }, None => { let _ = it; "nil" } }
 }
 
 /// Lua's `tostring`.
@@ -127,6 +130,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let mut i = int(args, 1, 1); let mut j = int(args, 2, -1);
             if i < 0 { i += n + 1; } if j < 0 { j += n + 1; }
             if i < 1 { i = 1; } if j > n { j = n; }
+            if SLICES.load(std::sync::atomic::Ordering::Relaxed) && i <= j && !arg(args, 0).is_num() { let src = arg(args, 0); let v = it.new_slice(src, (i - 1) as u32, (j - i + 1) as u32); return outs![v]; }
             if i > j { Vec::new() } else { s[(i - 1) as usize..j as usize].to_vec() } };
             outs![str_of(it, &out)]
         }

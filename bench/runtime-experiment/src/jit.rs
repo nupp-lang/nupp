@@ -4,7 +4,7 @@
 //! prologue.
 
 use crate::interp::{Function, Op};
-use crate::heap::{KIND_CLOSURE, KIND_RECORD, KIND_STR, KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
+use crate::heap::{KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::inline::{Inline, InlineCommand};
@@ -568,7 +568,7 @@ impl Jit {
                         b.set_cold_block(slow);
                         let tag = b.ins().band_imm(v, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
                         let o = b.ins().band_imm(v, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_str = b.ins().icmp_imm(IntCC::Equal, kind, KIND_STR as i64);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_s = b.ins().icmp_imm(IntCC::Equal, kind, KIND_STR as i64); let is_sl = b.ins().icmp_imm(IntCC::Equal, kind, KIND_SLICE as i64); let is_str = b.ins().bor(is_s, is_sl);
                         let ok = b.ins().band(is_obj, is_str);
                         b.ins().brif(ok, fast, &[], slow, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
@@ -769,6 +769,31 @@ impl Jit {
                         let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64);
                         setr!(d, b.ins().select(cv, t, fa));
                         cond_of.insert(d, cv);
+                    }
+                    Op::Eq(d, x, y) | Op::Ne(d, x, y) if self.helpers.contains_key("rt_eq_slow") => {
+                        // Equal words are equal; unequal words that are both objects
+                        // may still be equal by content (slices), so they ask the
+                        // runtime; anything else is unequal.
+                        let (p, q) = (rv!(x), rv!(y));
+                        let same = b.ins().icmp(IntCC::Equal, p, q);
+                        let objs = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I8);
+                        b.set_cold_block(slow);
+                        let one = b.ins().iconst(types::I8, 1); let zero = b.ins().iconst(types::I8, 0);
+                        b.ins().brif(same, join, &[one.into()], objs, &[]);
+                        b.switch_to_block(objs); b.seal_block(objs);
+                        let tp = b.ins().band_imm(p, !PAYLOAD); let po = b.ins().icmp_imm(IntCC::Equal, tp, QNAN | T_OBJ_TAG);
+                        let tq = b.ins().band_imm(q, !PAYLOAD); let qo = b.ins().icmp_imm(IntCC::Equal, tq, QNAN | T_OBJ_TAG);
+                        let both = b.ins().band(po, qo);
+                        b.ins().brif(both, slow, &[], join, &[zero.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let c = b.ins().call(helper_refs["rt_eq_slow"], &[p, q]); let r = b.inst_results(c)[0]; let r8 = b.ins().ireduce(types::I8, r);
+                        b.ins().jump(join, &[r8.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let eq = b.block_params(join)[0];
+                        let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64);
+                        let (yes, no) = if matches!(*op, Op::Eq(..)) { (t, fa) } else { (fa, t) };
+                        setr!(d, b.ins().select(eq, yes, no));
                     }
                     Op::Eq(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = b.ins().icmp(IntCC::Equal, p, q); let t = b.ins().iconst(types::I64, (QNAN as u64 | (3 << 48)) as i64); let fa = b.ins().iconst(types::I64, (QNAN as u64 | (2 << 48)) as i64); setr!(d, b.ins().select(c, t, fa)); }
                     Op::TagCheckNum(d, x) => {

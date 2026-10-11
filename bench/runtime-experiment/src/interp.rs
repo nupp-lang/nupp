@@ -436,7 +436,7 @@ impl Interp {
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
         let recv = args[0];
         let p = recv.as_obj().unwrap_or_else(|| self.err("method call on a non-object"));
-        if unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. }) } {
+        if unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. } | Body::Slice { .. }) } {
             let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
             let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
             return crate::builtins::call(self, id, args).to_vec();
@@ -444,10 +444,29 @@ impl Interp {
         let method = unsafe { match &(*p.as_ptr()).body { Body::Record { shape, .. } => *self.heap.shapes[*shape as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method")), _ => self.err("method call on a non-record") } };
         self.call_value(method, args)
     }
+    /// Equality: identical words, or two string-like objects with the same
+    /// bytes (a slice against a string, or two slices).
+    pub fn values_equal(&self, x: Value, y: Value) -> bool {
+        if x == y { return true; }
+        if let (Some(p), Some(q)) = (x.as_obj(), y.as_obj()) {
+            let strish = |p: std::ptr::NonNull<crate::heap::Object>| unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. } | Body::Slice { .. }) };
+            if strish(p) && strish(q) { return self.bytes_of(x) == self.bytes_of(y); }
+        }
+        false
+    }
+    /// A slice used as a table key is looked up by content: the interned
+    /// string with those bytes, or none, in which case the key is absent.
+    fn key_of(&mut self, key: Value) -> Option<Value> {
+        if let Some(p) = key.as_obj() { if unsafe { matches!(&(*p.as_ptr()).body, Body::Slice { .. }) } { let s = unsafe { std::str::from_utf8_unchecked(self.bytes_of(key)) }.to_string(); return self.heap.intern_lookup(&s); } }
+        Some(key)
+    }
     pub fn get_field(&self, t: Value, name: Value) -> Value { self.get_index(t, name) }
     pub fn set_field(&mut self, t: Value, name: Value, v: Value) { self.set_index(t, name, v) }
     pub fn set_cell(&mut self, c: Value, v: Value) { let p = c.as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Cell { value } => *value = v, _ => self.err("not a cell") } } }
     pub fn new_cell(&mut self, v: Value) -> Value { self.heap.new_cell(v, roots!(self)) }
+    pub fn new_slice(&mut self, src: Value, off: u32, len: u32) -> Value { let scope = self.open_scope(); self.handles.push(src); let v = self.heap.new_slice(src, off, len, roots!(self)); self.close_scope(scope); v }
+    /// An index read whose key may be a slice: by content, then as `get_index`.
+    pub fn get_index_any(&mut self, t: Value, k: Value) -> Value { match self.key_of(k) { Some(k) => self.get_index(t, k), None => Value::NIL } }
     pub fn new_closure(&mut self, fid: u32, caps: Vec<Value>) -> Value { self.heap.new_closure(fid, caps, roots!(self)) }
     pub fn new_table_sized(&mut self, n: usize, m: usize) -> Value { self.heap.new_table_sized(n, m, roots!(self)) }
     pub fn tagcheck_rec(&self, v: Value, shape: u32) { let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } }
@@ -608,7 +627,7 @@ impl Interp {
     }
     pub fn bytes_of(&self, v: Value) -> &[u8] {
         let p = v.as_obj().unwrap_or_else(|| self.err(&format!("bytes of a non-object {:#x}", v.0)));
-        unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), Body::Bytes { data } => data, _ => self.err("not bytes") } }
+        unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), Body::Bytes { data } => data, Body::Slice { .. } => { let o = &*p.as_ptr(); std::slice::from_raw_parts(o.aux_ptr, o.aux_len as usize) } _ => self.err("not bytes") } }
     }
     pub fn bytes_mut(&self, v: Value) -> &mut [u8] {
         let p = v.as_obj().unwrap_or_else(|| self.err("bytes of a non-object"));
@@ -623,6 +642,7 @@ impl Interp {
         } }
     }
     pub fn set_index(&mut self, tv: Value, iv: Value, v: Value) {
+        let iv = match self.key_of(iv) { Some(k) => k, None => { let s = unsafe { std::str::from_utf8_unchecked(self.bytes_of(iv)) }.to_string(); self.intern(&s) } };
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         self.heap.barrier(p, iv);
         self.heap.barrier(p, v);
@@ -652,7 +672,7 @@ impl Interp {
             SlotTy::Any => true,
             SlotTy::Num => v.is_num(),
             SlotTy::Bool => v == Value::TRUE || v == Value::FALSE,
-            SlotTy::Str => v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false),
+            SlotTy::Str => v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. } | Body::Slice { .. }) }).unwrap_or(false),
             SlotTy::Record(s) => v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape, .. } if shape == s) }).unwrap_or(false),
         }
     }
@@ -721,7 +741,7 @@ impl Interp {
                     Op::RequireV(d, r) => { let text = self.bytes_of(r!(r)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
                     Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() <= y.as_num()) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) } }
-                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(x == y) }
+                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.values_equal(x, y)) }
                     Op::Jmp(off) => {
                         pc = (pc as i64 + off as i64) as usize;
                         if off < 0 {
@@ -772,13 +792,13 @@ impl Interp {
                     Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Outcome::Done(Value::NIL); } break; }
                     Op::GetSlot(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), Body::Freed(_) => self.err("use after free"), _ => self.err("slot of a non-record") } }; }
                     Op::SetSlot(t, i, s) => { let v = r!(s); let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, Body::Freed(_) => self.err("use after free"), _ => self.err("slot of a non-record") } } }
-                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(x != y) }
+                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.values_equal(x, y)) }
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
                     Op::Neg(d, a) => { let x = r!(a); if !x.is_num() { self.err("negate a non-number") } r!(d) = Value::num(-x.as_num()) }
-                    Op::Len(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; r!(d) = Value::num(n as f64) }
+                    Op::Len(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), Body::Slice { len, .. } => *len as usize, _ => self.err("length of a non-object") } }; r!(d) = Value::num(n as f64) }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Record { shape: s, .. } if s == shape) }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => unsafe { match &(*p.as_ptr()).body { Body::Record { shape: s, .. } => format!("record shape {s}"), Body::Table { .. } => "table".into(), Body::Str { .. } => "string".into(), _ => "other".into() } }, None => format!("non-object {:#x}", v.0) }; self.err(&format!("value is not an instance of record shape {shape}: {what}, in {} at pc {}", self.funcs[fid as usize].name, pc)) } r!(d) = v; }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
-                    Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
+                    Op::TagCheckStr(d, a) => { let v = r!(a); if !v.as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. } | Body::Slice { .. }) }).unwrap_or(false) { self.err("value is not a string") } r!(d) = v; }
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.heap.new_closure(f, caps, roots!(self)); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.heap.new_cell(v, roots!(self)); r!(d) = c; }
                     Op::GetCell(d, c) => { let cv = r!(c); let p = cv.as_obj().unwrap_or_else(|| self.err(&format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c))); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Cell { value } => *value, _ => self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } }; }
@@ -789,7 +809,7 @@ impl Interp {
                     Op::SetSlotF(t, i, a) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = Value::num(fr!(a)); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, _ => self.err("slot of a non-record") } } }
                     Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
-                    Op::LenF(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), _ => self.err("length of a non-object") } }; fr!(d) = n as f64; }
+                    Op::LenF(d, a) => { let p = r!(a).as_obj().unwrap_or_else(|| self.err("length of a non-object")); let n = unsafe { match &(*p.as_ptr()).body { Body::Table { array, .. } => array.len(), Body::Str { text, .. } => text.len(), Body::Slice { len, .. } => *len as usize, _ => self.err("length of a non-object") } }; fr!(d) = n as f64; }
                     Op::GetIdxF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("index of a non-table")); let k = fr!(i); let v = unsafe { match &(*p.as_ptr()).body { Body::Table { array, hash } => { if k >= 1.0 && (k as usize) <= array.len() && k.fract() == 0.0 { array[k as usize - 1] } else { *hash.get(&Value::num(k)).unwrap_or(&Value::NIL) } } _ => self.err("index of a non-table") } }; r!(d) = v; }
                     Op::SetIdxF(t, i, sv) => {
                         let (tv, k, v) = (r!(t), fr!(i), r!(sv));
@@ -835,7 +855,7 @@ impl Interp {
                     Op::ICmpEq(d, a, b) => ir!(d) = (ir!(a) == ir!(b)) as i64,
                     Op::BytesLen(d, s) => ir!(d) = self.bytes_of(r!(s)).len() as i64,
                     Op::LoadU8K(d, s, i) => { let bytes = self.bytes_of(r!(s)); ir!(d) = bytes[ir!(i) as usize] as i64; }
-                    Op::StrByte(d, s, i) => { let v = r!(s); let p = v.as_obj().unwrap_or_else(|| self.err("byte of a non-string")); let bytes = unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), _ => self.err("byte of a non-string") } }; let i = ir!(i); r!(d) = if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64) } else { Value::NIL }; }
+                    Op::StrByte(d, s, i) => { let v = r!(s); let p = v.as_obj().unwrap_or_else(|| self.err("byte of a non-string")); let bytes = unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), Body::Slice { .. } => { let o = &*p.as_ptr(); std::slice::from_raw_parts(o.aux_ptr, o.aux_len as usize) } _ => self.err("byte of a non-string") } }; let i = ir!(i); r!(d) = if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64) } else { Value::NIL }; }
                     Op::LoadU8(d, s, i) => { let bytes = self.bytes_of(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte read out of range") } ir!(d) = bytes[i] as i64; }
                     Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
                     Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }
@@ -986,7 +1006,7 @@ impl Interp {
                         let name = unsafe { *consts.add(k as usize) };
                         let recv = r!(b + 1);
                         let p = recv.as_obj().unwrap_or_else(|| self.err("method call on a non-object"));
-                        let is_str = unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. }) };
+                        let is_str = unsafe { matches!(&(*p.as_ptr()).body, Body::Str { .. } | Body::Slice { .. }) };
                         if is_str {
                             // A string's methods are the string library.
                             let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
@@ -1058,6 +1078,7 @@ impl Interp {
         let _ = (|| 0i64);
         
                         let (tv, iv) = (r!(t), r!(i));
+                        let iv = match self.key_of(iv) { Some(k) => k, None => { r!(d) = Value::NIL; return; } };
                         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
                         let v = unsafe { match &(*p.as_ptr()).body {
                             Body::Table { array, hash } => { if iv.is_num() { let k = iv.as_num(); if k >= 1.0 && (k as usize) <= array.len() && k.fract() == 0.0 { array[k as usize - 1] } else { *hash.get(&iv).unwrap_or(&Value::NIL) } } else { *hash.get(&iv).unwrap_or(&Value::NIL) } }
@@ -1076,6 +1097,7 @@ impl Interp {
         let _ = (|| 0i64);
         
                         let (tv, iv, v) = (r!(t), r!(i), r!(s));
+                        let iv = match self.key_of(iv) { Some(k) => k, None => { let st = unsafe { std::str::from_utf8_unchecked(self.bytes_of(iv)) }.to_string(); self.intern(&st) } };
                         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
                         self.heap.barrier(p, iv);
                         self.heap.barrier(p, v);

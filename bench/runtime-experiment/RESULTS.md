@@ -1077,6 +1077,48 @@ a loop-header transfer that loads forty registers to use six is the
 difference the pass removes. Every regression mode passes with the
 pass on, including the loop-header transfers in `run-image`.
 
+## StringSlice, boxed, on the lexer
+
+Date: 2026-10-11. The P3 item asks for the lexer measured with tokens as
+slices against tokens as strings. The prototype now has the boxed form
+(`Body::Slice { source, off, len }`, kind 9): it reads as a string
+everywhere (`bytes_of`, `#`, `string.byte`, the library through
+`bytes_ref`, `type` answers "string", method calls), equality is by
+content past the word compare (interpreter and JIT, the JIT's `Eq`/`Ne`
+asking a helper only when both words are objects and differ), and a
+slice used as a table key is looked up by content against the intern
+table without allocating (a miss is an absent key; a store interns).
+`SLICES=1` makes `string.sub` answer with a slice of its subject instead
+of an interned copy, so the same image lexes both ways; the lexer's
+`text = sub(source, start, pos - 1)` is the only producer.
+
+| the lexer's own source, per lex | interned copies | slices |
+| --- | ---: | ---: |
+| compiled, warm (median of 7) | 1.45-1.50 ms | 1.43-1.45 ms |
+| compiled, first lex, cold intern table | 1.44-1.47 ms | 1.44-1.45 ms |
+| interpreted, warm | 8.1-8.5 ms | 8.1-8.4 ms |
+| objects per lex | 7,249 (16 strings) | 10,114 (2,881 slices) |
+
+Neutral, within noise, cold or warm. What the numbers say: interning a
+substring is a hash of the bytes and a table probe, and on this
+workload almost every probe hits (the intern table keeps the texts
+alive across lexes; even the cold first lex allocates only the distinct
+texts, about 1,500); a boxed slice replaces that with an allocation of
+its own, and the keyword lookup `KEYWORDS[text]` then pays the hash it
+saved at `sub`. The two costs cancel. The boxed form therefore buys
+nothing here, and the table-key rule costs nothing.
+
+What this says for the plan. The slice's value is not throughput in the
+boxed form; it is (a) no allocation at all in the unboxed two-word form
+inside typed code, which needs the typed register class and a two-word
+record slot before the lexer's `Token.text` can hold one, and (b) the
+retention trade: a slice keeps its 41 KB source alive while any token
+lives, an interned copy keeps only the distinct texts. Both are P4
+questions (tokens as slices) and neither is answered by the lexer's
+speed. The P3 item's measurement is done with that result; the "small
+result retention of large sources" half needs the typed form to be
+worth deciding.
+
 ## Threaded dispatch: the call row closed
 
 Date: 2026-10-11. The frame layout left fib at 2.05x PUC with 75% of the

@@ -91,6 +91,10 @@ pub struct Shape {
 
 pub enum Body {
     Str { text: Box<str>, hash: u64 },
+    /// A view of `len` bytes at `off` into a string: the boxed form of the
+    /// plan's `StringSlice`. It reads as a string everywhere; equality and
+    /// table keys go by content.
+    Slice { source: Value, off: u32, len: u32 },
     Table { array: Vec<Value>, hash: ValueMap },
     Record { shape: u32, slots: Vec<Value> },
     /// Owned numeric storage a typed span borrows: the non-moving space.
@@ -117,9 +121,10 @@ pub const KIND_CLOSURE: u8 = 5;
 pub const KIND_CELL: u8 = 6;
 pub const KIND_BYTES: u8 = 7;
 pub const KIND_ITER: u8 = 8;
+pub const KIND_SLICE: u8 = 9;
 /// Objects per allocation chunk.
 pub const CHUNK: usize = 1024;
-pub static ALLOC_KINDS: std::sync::Mutex<[u64; 9]> = std::sync::Mutex::new([0; 9]);
+pub static ALLOC_KINDS: std::sync::Mutex<[u64; 10]> = std::sync::Mutex::new([0; 10]);
 
 /// The header has a fixed layout so compiled code reads an object's kind, the
 /// pointer to its payload (slots, array part, storage, bytes) and that
@@ -151,6 +156,7 @@ impl Object {
     pub fn refresh(&mut self) {
         match &mut self.body {
             Body::Str { text, .. } => { self.kind = KIND_STR; self.aux_ptr = text.as_ptr() as *mut u8; self.aux_len = text.len() as u64; }
+            Body::Slice { source, off, len } => { self.kind = KIND_SLICE; let base = unsafe { (*source.as_obj().unwrap().as_ptr()).aux_ptr }; self.aux_ptr = unsafe { base.add(*off as usize) }; self.aux_len = *len as u64; }
             Body::Table { array, .. } => { self.kind = KIND_TABLE; self.aux_ptr = array.as_mut_ptr() as *mut u8; self.aux_len = array.len() as u64; }
             Body::Record { shape, slots } => { self.kind = KIND_RECORD; self.aux_ptr = slots.as_mut_ptr() as *mut u8; self.aux_len = slots.len() as u64 | ((*shape as u64) << 32); }
             Body::Storage { data } => { self.kind = KIND_STORAGE; self.aux_ptr = data.as_mut_ptr() as *mut u8; self.aux_len = data.len() as u64; }
@@ -212,7 +218,7 @@ impl Heap {
     }
 
     fn alloc_raw(&mut self, body: Body, bytes: usize) -> NonNull<Object> {
-        if crate::builtins::STATS.load(std::sync::atomic::Ordering::Relaxed) { let k = match &body { Body::Str { .. } => 0, Body::Table { .. } => 1, Body::Record { .. } => 2, Body::Storage { .. } => 3, Body::Bytes { .. } => 4, Body::Closure { .. } => 5, Body::Cell { .. } => 6, Body::Iter { .. } => 7, Body::Freed(_) => 8 }; let mut c = ALLOC_KINDS.lock().unwrap(); c[k] += 1; }
+        if crate::builtins::STATS.load(std::sync::atomic::Ordering::Relaxed) { let k = match &body { Body::Str { .. } => 0, Body::Table { .. } => 1, Body::Record { .. } => 2, Body::Storage { .. } => 3, Body::Bytes { .. } => 4, Body::Closure { .. } => 5, Body::Cell { .. } => 6, Body::Iter { .. } => 7, Body::Freed(_) => 8, Body::Slice { .. } => 9 }; let mut c = ALLOC_KINDS.lock().unwrap(); c[k] += 1; }
         // New objects are allocated black while a cycle is in progress, so a
         // cycle never frees what it did not scan and a sweep in progress never
         // frees what was allocated after marking ended. The sweep whitens
@@ -273,6 +279,23 @@ impl Heap {
     }
     pub fn new_closure(&mut self, fid: u32, captures: Vec<Value>, roots: &dyn Roots) -> Value { let n = captures.len(); Value::obj(self.alloc(Body::Closure { fid, captures }, 32 + 8 * n, roots)) }
     pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value, keys: Vec<Value>, roots: &dyn Roots) -> Value { let n = keys.len(); Value::obj(self.alloc(Body::Iter { kind, obj, pattern, pos: 0, keys }, 48 + 8 * n, roots)) }
+    /// A slice of a string object; a slice of a slice shares the base string.
+    pub fn new_slice(&mut self, source: Value, off: u32, len: u32, roots: &dyn Roots) -> Value {
+        let (base, off) = unsafe { match &(*source.as_obj().unwrap().as_ptr()).body { Body::Slice { source: b, off: o, .. } => (*b, o + off), _ => (source, off) } };
+        Value::obj(self.alloc(Body::Slice { source: base, off, len }, 32, roots))
+    }
+    /// The interned string with these bytes, if one is alive: a content
+    /// lookup for slice keys that allocates nothing on a miss.
+    pub fn intern_lookup(&mut self, s: &str) -> Option<Value> {
+        let p = *self.interned.get(s)?;
+        unsafe {
+            match (self.phase, (*p.as_ptr()).color) {
+                (Phase::Marking, Color::White) => { (*p.as_ptr()).color = Color::Gray; self.gray.push(p); self.stats.barrier_grays += 1; Some(Value::obj(p)) }
+                (Phase::Sweeping, Color::White) if (*p.as_ptr()).epoch < self.stats.cycles => { self.interned.remove(s); None }
+                _ => Some(Value::obj(p)),
+            }
+        }
+    }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Cell { value }, 32, roots)) }
     /// A growable buffer with room for a short result before it reallocates.
     pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value { Value::obj(self.alloc(Body::Bytes { data: Vec::with_capacity(64) }, 24 + 64, roots)) }
@@ -374,6 +397,7 @@ impl Heap {
                 Body::Record { slots, .. } => { for &v in slots { push(v); } }
                 Body::Closure { captures, .. } => { for &v in captures { push(v); } }
                 Body::Cell { value } => push(*value),
+                Body::Slice { source, .. } => push(*source),
                 Body::Iter { obj, pattern, keys, .. } => { push(*obj); push(*pattern); for &v in keys { push(v); } }
                 Body::Str { .. } | Body::Storage { .. } | Body::Bytes { .. } | Body::Freed(_) => {}
             }
@@ -430,7 +454,7 @@ impl Heap {
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
                 // detectable by the oracle instead of being undefined behaviour.
-                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Iter { kind, .. } => format!("iterator {kind}"), Body::Freed(w) => w.clone() };
+                let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Slice { off, len, .. } => format!("slice {off}+{len}"), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Iter { kind, .. } => format!("iterator {kind}"), Body::Freed(w) => w.clone() };
                 // A tombstone: dropped from the heap's accounting and never
                 // swept or reused, but its memory stays so a dangling
                 // reference reaches a Freed body rather than a new object.
@@ -488,7 +512,7 @@ impl Heap {
         }
         let survivors: Vec<usize> = self.objects().iter().filter(|p| unsafe { !matches!((*p.as_ptr()).body, Body::Freed(_)) }).map(|p| p.as_ptr() as usize).collect();
         let set: std::collections::HashSet<usize> = survivors.iter().copied().collect();
-        for s in &seen { if !set.contains(s) { let o = unsafe { &*(*s as *const Object) }; let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Bytes { data } => format!("bytes {}", data.len()), _ => "other".into() }; panic!("oracle: a reachable object is missing from the heap: {what} used={} kind={} color={:?} epoch={} cycles={}", o.used, o.kind, o.color, o.epoch, self.stats.cycles); } }
+        for s in &seen { if !set.contains(s) { let o = unsafe { &*(*s as *const Object) }; let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Slice { off, len, .. } => format!("slice {off}+{len}"), Body::Bytes { data } => format!("bytes {}", data.len()), _ => "other".into() }; panic!("oracle: a reachable object is missing from the heap: {what} used={} kind={} color={:?} epoch={} cycles={}", o.used, o.kind, o.color, o.epoch, self.stats.cycles); } }
         if exact {
             for s in &survivors { assert!(seen.contains(s), "oracle: an unreachable object survived"); }
             assert_eq!(seen.len(), survivors.len(), "oracle: reachable and surviving sets differ");
