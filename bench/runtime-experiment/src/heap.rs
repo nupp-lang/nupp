@@ -311,13 +311,33 @@ impl Heap {
         self.mark_roots(roots);
     }
 
-    fn mark_roots(&mut self, roots: &dyn Roots) {
-        let gray = &mut self.gray;
-        roots.each_root(&mut |v| {
-            if let Some(p) = v.as_obj() {
-                unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } }
+    /// Whether `p` is a live object slot: inside a chunk, on a slot boundary,
+    /// and in use. A register window a frame has not written yet can hold a
+    /// word of another class from a frame that occupied the same stack
+    /// region, which may decode as a pointer; the root walk is precise for
+    /// written registers and this filter makes the unwritten ones harmless,
+    /// at worst keeping an object alive one cycle longer.
+    pub fn is_live_slot(&self, p: NonNull<Object>) -> bool {
+        let addr = p.as_ptr() as usize;
+        let size = std::mem::size_of::<std::mem::MaybeUninit<Object>>();
+        for chunk in &self.chunks {
+            let base = chunk.as_ptr() as usize;
+            if addr >= base && addr < base + CHUNK * size {
+                if (addr - base) % size != 0 { return false; }
+                return unsafe { (*p.as_ptr()).used };
             }
-        });
+        }
+        false
+    }
+
+    fn mark_roots(&mut self, roots: &dyn Roots) {
+        let mut cands: Vec<NonNull<Object>> = Vec::new();
+        roots.each_root(&mut |v| { if let Some(p) = v.as_obj() { cands.push(p); } });
+        for p in cands {
+            if !self.is_live_slot(p) { continue; }
+            unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; self.gray.push(p); } }
+        }
+        let gray = &mut self.gray;
         for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == Color::White { (*p.as_ptr()).color = Color::Gray; gray.push(p); } } } } }
     }
 
@@ -425,7 +445,7 @@ impl Heap {
         let mut stack: Vec<(NonNull<Object>, String)> = Vec::new();
         let mut visit = |v: Value, via: String, stack: &mut Vec<(NonNull<Object>, String)>| { if let Some(p) = v.as_obj() { stack.push((p, via)); } };
         let mut n = 0;
-        roots.each_root(&mut |v| { n += 1; visit(v, format!("root #{n}"), &mut stack) });
+        roots.each_root(&mut |v| { n += 1; if let Some(p) = v.as_obj() { if !self.is_live_slot(p) { return; } } visit(v, format!("root #{n}"), &mut stack) });
         for s in &self.shapes { for &nm in s.names.iter().chain(s.methods.keys()) { visit(nm, "shape".into(), &mut stack); } }
         while let Some((p, via)) = stack.pop() {
             if !seen.insert(p.as_ptr() as usize) { continue; }

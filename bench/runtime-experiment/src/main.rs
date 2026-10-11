@@ -530,6 +530,7 @@ fn main() {
         }
         return;
     }
+    if mode == "fibloop" { let it = &mut it; for _ in 0..60 { black_box(run_to_end(it, FIB, &[Value::num(30.0)]).as_num()); } return; }
     if mode == "paths" { paths_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "base64" { base64_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "handlers" { handlers_mode(&mut it, &args[2]); return; }
@@ -682,7 +683,7 @@ fn main() {
         let mut rounds = 0;
         while done < ts.len() {
             for &t in &ts {
-                if it.tasks[t].state == State::Runnable { match it.run(t) { Outcome::Done(v) => { assert_eq!(v.as_num(), 5.0); done += 1; } Outcome::Parked(k) => { assert_eq!(k, it.tasks[t].regs[2].0); it.resume(t); } } }
+                if it.tasks[t].state == State::Runnable { match it.run(t) { Outcome::Done(v) => { assert_eq!(v.as_num(), 5.0); done += 1; } Outcome::Parked(k) => { assert_eq!(k, it.reg(t, 2).0); it.resume(t); } } }
             }
             rounds += 1;
         }

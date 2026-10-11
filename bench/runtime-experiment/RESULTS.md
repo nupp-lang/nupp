@@ -737,3 +737,41 @@ sample and closure images. What remains per object is the body's own
 allocation, a `Vec` for a table or a `Box<str>` for a string, and the
 write of the fixed header; inline string storage and tables that start
 with a sized array part are the next two steps, both P3.
+
+## One stack, inline frames: the P3 layout, measured
+
+Date: 2026-10-11. The plan's answer to the untyped call row (fib 2.2x
+PUC) was the frame layout: one stack per task, each frame a four-word
+header followed by its value, integer, float and vector windows, a call
+placing the callee's frame after the caller's whole frame and copying the
+arguments. It is implemented (`Task { stack, cur }`, `push_frame`,
+`pop_frame`, `HDR`), with one capacity check per call instead of four and
+no frame-record vector. The root walk follows the caller chain through
+the headers and scans each frame's value window.
+
+Two things fell out. Clearing the callee's value window on every push
+(so the root walk never reads a stale word of another class left by an
+earlier frame on the same region) cost 5% in `memset`; it is gone, and
+instead the root walk filters candidates through `Heap::is_live_slot`,
+which the chunked allocator makes cheap: a word that decodes as a pointer
+is a root only if it addresses a used slot. A stale integer that happens
+to equal a live object's address keeps that object one cycle longer,
+nothing worse. And the caller's frame size lives in its own header, so a
+push looks up only the callee.
+
+| medians of three | before | after | PUC 5.5 |
+| --- | ---: | ---: | ---: |
+| fib(30) | 44 ms | 40-42 ms | 19.5 ms |
+| binary trees | 47 ms | 45 ms | 54 ms |
+| field updates | 50 ms | 50 ms | 31 ms |
+| 1000 tasks x 1000 parks | 9.6 ms | 8.3 ms | |
+
+The layout was worth 5-10% on calls, not the 2x the plan assumed. The
+sampler puts 75% of fib in the dispatch loop itself and 25% in the push,
+before and after; what a call costs is leaving the inner loop and
+re-entering it with everything re-derived, twice per call, plus the
+decode and `match` per instruction, and that is the shape of a Rust
+`match` interpreter rather than of the frame. fib stands at 2.05x PUC,
+on the price line. The row is not closed by layout; it is closed, if at
+all, by the dispatch design P3 chooses, which this prototype's loop is
+not (its handlers are to be Nupp, its loop language open).

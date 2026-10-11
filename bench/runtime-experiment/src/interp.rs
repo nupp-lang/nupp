@@ -181,22 +181,37 @@ pub struct Function {
     pub jump_tables: Vec<(i32, Vec<i32>)>,
 }
 
-#[derive(Clone, Copy)]
-struct Frame { func: u32, pc: u32, base: u32, ibase: u32, fbase: u32, vbase: u32, ret: u32, /// The closure this activation runs, or nil for a plain function.
-    closure: Value, /// Where a float result goes in the caller's float window, when the callee returns one.
-    ret_f: u32, ret_is_f: bool }
+/// A frame is inline in the task's one stack of words: four header words,
+/// then the value, integer, float and vector windows in that order (contracts
+/// 5.1, P3 layout). A call places the callee's frame after the caller's whole
+/// frame and copies the arguments, so no window of any class overlaps.
+pub const HDR: usize = 4;
+/// Header word 0: function id in the low half, pc in the high half.
+/// Word 1: caller's frame start in the low half (NONE at the entry frame), the
+/// absolute index of the caller's result register in the high half.
+/// Word 2: the closure this activation runs, or nil.
+/// Word 3: the absolute index of the caller's float result register in the
+/// low half, and whether the result is a float in the high half.
+const NONE: u32 = u32::MAX;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State { Runnable, Parked(u64), Done }
 
 pub struct Task {
-    pub regs: Vec<Value>,
-    iregs: Vec<i64>,
-    fregs: Vec<f64>,
-    vregs: Vec<[f64; 2]>,
-    frames: Vec<Frame>,
+    /// Every frame's header and windows, in call order.
+    pub stack: Vec<u64>,
+    /// The start of the top frame.
+    cur: usize,
     pub state: State,
     pub result: Value,
+}
+
+impl Function {
+    /// Words a frame of this function occupies: header, then each class window.
+    #[inline] pub fn frame_words(&self) -> usize { HDR + self.nregs as usize + 1 + self.nireg as usize + self.nfreg as usize + 2 * self.nvreg as usize }
+    #[inline] fn off_i(&self) -> usize { HDR + self.nregs as usize + 1 }
+    #[inline] fn off_f(&self) -> usize { self.off_i() + self.nireg as usize }
+    #[inline] fn off_v(&self) -> usize { self.off_f() + self.nfreg as usize }
 }
 
 pub struct Interp {
@@ -231,10 +246,20 @@ pub static HELPER_FP: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomic
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
-            // Only registers below the live top are roots: the top frame's window
-            // end, which also covers every frame beneath it.
-            let top = t.frames.last().map(|fr| (fr.base as usize + self.funcs[fr.func as usize].nregs as usize + 1).min(t.regs.len())).unwrap_or(0);
-            for &v in &t.regs[..top] { f(v); }
+            // Each frame's value window, walked from the top frame down the
+            // caller chain; the other windows hold no references.
+            let mut s = t.cur;
+            if t.state != State::Done && !t.stack.is_empty() {
+                loop {
+                    let h0 = t.stack[s]; let fid = (h0 & 0xffff_ffff) as usize;
+                    let n = self.funcs[fid].nregs as usize + 1;
+                    for &w in &t.stack[s + HDR..s + HDR + n] { f(Value(w)); }
+                    f(Value(t.stack[s + 2]));
+                    let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
+                    if caller == NONE { break; }
+                    s = caller as usize;
+                }
+            }
             f(t.result);
         }
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
@@ -267,18 +292,26 @@ impl Interp {
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
         let f = &self.funcs[fid as usize];
-        let mut t = Task { regs: vec![Value::NIL; f.nregs as usize + 1], iregs: vec![0; f.nireg as usize], fregs: vec![0.0; f.nfreg as usize], vregs: vec![[0.0; 2]; f.nvreg as usize], frames: Vec::new(), state: State::Runnable, result: Value::NIL };
+        let words = f.frame_words();
+        let mut t = Task { stack: vec![0u64; words + 64], cur: 0, state: State::Runnable, result: Value::NIL };
+        t.stack[0] = fid as u64;
+        t.stack[1] = NONE as u64;
+        t.stack[2] = Value::NIL.0;
+        t.stack[3] = (words as u64) << 33;
+        for w in &mut t.stack[HDR..HDR + f.nregs as usize + 1] { *w = Value::NIL.0; }
         // Entry arguments follow the typed convention: float parameters land in
         // the float window, the rest in value registers, each in declaration order.
         let typed = f.sig.len() == f.nparams as usize;
         let (mut vi, mut fi) = (0usize, 0usize);
-        for (i, &a) in args.iter().enumerate() { if typed && f.sig[i] == b'f' { t.fregs[fi] = a.as_num(); fi += 1; } else { vi += 1; t.regs[vi] = a; } }
-        t.frames.push(Frame { func: fid, pc: 0, base: 0, ibase: 0, fbase: 0, vbase: 0, ret: 0, ret_f: 0, ret_is_f: false, closure: Value::NIL });
+        let off_f = f.off_f();
+        for (i, &a) in args.iter().enumerate() { if typed && f.sig[i] == b'f' { t.stack[off_f + fi] = a.as_num().to_bits(); fi += 1; } else { vi += 1; t.stack[HDR + vi] = a.0; } }
         self.tasks.push(t);
         self.tasks.len() - 1
     }
 
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
+    /// Value register `i` of task `tid`'s top frame.
+    pub fn reg(&self, tid: usize, i: usize) -> Value { let t = &self.tasks[tid]; Value(t.stack[t.cur + HDR + i]) }
     pub fn new_record(&mut self, shape: u32) -> Value { self.heap.new_record(shape, roots!(self)) }
     pub fn new_storage(&mut self, n: usize) -> Value { self.heap.new_storage(n, roots!(self)) }
     pub fn full_cycle(&mut self) { self.heap.full_cycle(roots!(self)) }
@@ -370,18 +403,22 @@ impl Interp {
     pub fn run(&mut self, tid: usize) -> Outcome {
         assert_eq!(self.tasks[tid].state, State::Runnable);
         loop {
-            let frame = *self.tasks[tid].frames.last().unwrap();
-            let (fid, mut pc, base, ibase, fbase, vbase) = (frame.func, frame.pc as usize, frame.base as usize, frame.ibase as usize, frame.fbase as usize, frame.vbase as usize);
-            let code: *const Op = self.funcs[fid as usize].code.as_ptr();
-            let ncode = self.funcs[fid as usize].code.len();
-            let consts: *const Value = self.funcs[fid as usize].consts.as_ptr();
-            // The register windows as raw pointers for the duration of this
-            // activation. Every op that can grow the register stacks (a call)
-            // leaves the inner loop, so the pointers are re-derived after it.
-            let regs: *mut Value = unsafe { self.tasks[tid].regs.as_mut_ptr().add(base) };
-            let iregs: *mut i64 = unsafe { self.tasks[tid].iregs.as_mut_ptr().add(ibase) };
-            let fregs: *mut f64 = unsafe { self.tasks[tid].fregs.as_mut_ptr().add(fbase) };
-            let vregs: *mut [f64; 2] = unsafe { self.tasks[tid].vregs.as_mut_ptr().add(vbase) };
+            let s = self.tasks[tid].cur;
+            let h0 = self.tasks[tid].stack[s];
+            let (fid, mut pc) = ((h0 & 0xffff_ffff) as u32, (h0 >> 32) as usize);
+            let func = &self.funcs[fid as usize];
+            let code: *const Op = func.code.as_ptr();
+            let ncode = func.code.len();
+            let consts: *const Value = func.consts.as_ptr();
+            let (base, ibase, fbase, vbase) = (s + HDR, s + func.off_i(), s + func.off_f(), s + func.off_v());
+            // The windows as raw pointers for the duration of this activation.
+            // Every op that can grow the stack (a call) leaves the inner loop,
+            // so the pointers are re-derived after it.
+            let sp: *mut u64 = self.tasks[tid].stack.as_mut_ptr();
+            let regs: *mut Value = unsafe { sp.add(base) as *mut Value };
+            let iregs: *mut i64 = unsafe { sp.add(ibase) as *mut i64 };
+            let fregs: *mut f64 = unsafe { sp.add(fbase) as *mut f64 };
+            let vregs: *mut [f64; 2] = unsafe { sp.add(vbase) as *mut [f64; 2] };
             let win = Win { regs, iregs, fregs, consts, base, ibase, fbase, vbase, fid };
             macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
             macro_rules! ir { ($i:expr) => { (*unsafe { &mut *iregs.add($i as usize) }) } }
@@ -448,7 +485,7 @@ impl Interp {
                             r!(b) = Value(result);
                             continue;
                         }
-                        self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); break;
+                        self.push_frame(tid, f, base + b as usize, nargs, pc); break;
                     }
                     Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Outcome::Done(v); } break; }
                     Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Outcome::Done(Value::NIL); } break; }
@@ -465,7 +502,7 @@ impl Interp {
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.heap.new_cell(v, roots!(self)); r!(d) = c; }
                     Op::GetCell(d, c) => { let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Cell { value } => *value, _ => self.err("not a cell") } }; }
                     Op::SetCell(c, a) => { let v = r!(a); let p = r!(c).as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { match &mut (*p.as_ptr()).body { Body::Cell { value } => *value = v, _ => self.err("not a cell") } } }
-                    Op::GetUpval(d, i) => { let clo = self.tasks[tid].frames.last().unwrap().closure; let p = clo.as_obj().unwrap_or_else(|| self.err("upvalue outside a closure")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Closure { captures, .. } => captures[i as usize], _ => self.err("not a closure") } }; }
+                    Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let p = clo.as_obj().unwrap_or_else(|| self.err("upvalue outside a closure")); r!(d) = unsafe { match &(*p.as_ptr()).body { Body::Closure { captures, .. } => captures[i as usize], _ => self.err("not a closure") } }; }
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
                     Op::GetSlotF(d, t, i) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked(i as usize), _ => self.err("slot of a non-record") } }; fr!(d) = v.as_num(); }
                     Op::SetSlotF(t, i, a) => { let p = r!(t).as_obj().unwrap_or_else(|| self.err("slot of a non-record")); let v = Value::num(fr!(a)); unsafe { match &mut (*p.as_ptr()).body { Body::Record { slots, .. } => *slots.get_unchecked_mut(i as usize) = v, _ => self.err("slot of a non-record") } } }
@@ -485,7 +522,7 @@ impl Interp {
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
-                    Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; t.frames.last_mut().unwrap().pc = pc as u32; t.state = State::Parked(key); return Outcome::Parked(key); }
+                    Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Outcome::Parked(key); }
                     Op::Checkpoint => { self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,
                     Op::IAdd(d, a, b) => ir!(d) = ir!(a).wrapping_add(ir!(b)),
@@ -593,13 +630,12 @@ impl Interp {
                             if callee_ret == b'f' { fr!(fb) = Value(result).as_num(); } else { r!(b) = Value(result); }
                             return Flow::Next;
                         }
-                        self.push_frame(tid, f, base + b as usize, nv, pc, fid, base, ibase, fbase, vbase, base + b as usize);
+                        self.push_frame(tid, f, base + b as usize, nv, pc);
+                        let callee_off_f = self.funcs[f as usize].off_f();
                         let t = &mut self.tasks[tid];
-                        let frame = t.frames.last_mut().unwrap();
-                        let callee_fbase = frame.fbase as usize;
-                        frame.ret_f = (fbase + fb as usize) as u32;
-                        frame.ret_is_f = callee_ret == b'f';
-                        for i in 0..nfp as usize { t.fregs[callee_fbase + i] = t.fregs[fbase + fb as usize + i]; }
+                        let s = t.cur;
+                        t.stack[s + 3] = (t.stack[s + 3] & !0x1_ffff_ffff) | (fbase + fb as usize) as u64 | ((callee_ret == b'f') as u64) << 32;
+                        for i in 0..nfp as usize { t.stack[s + callee_off_f + i] = t.stack[fbase + fb as usize + i]; }
                         return Flow::Reenter;
                     
     }
@@ -613,29 +649,26 @@ impl Interp {
         let _ = (|| 0i64);
         
                         let callee = r!(fr);
-                        if let Some(f) = callee.as_func() { self.push_frame(tid, f, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); return Flow::Reenter; }
+                        if let Some(f) = callee.as_func() { self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter; }
                         let p = callee.as_obj().unwrap_or_else(|| self.err("call of a non-function"));
                         let f = unsafe { match &(*p.as_ptr()).body { Body::Closure { fid, .. } => *fid, _ => self.err("call of a non-function") } };
                         // Dynamic calls pass values; a typed callee unboxes its float parameters on entry.
                         let (nv, nfp) = { let c = &self.funcs[f as usize]; (c.nv_params, c.nf_params) };
-                        self.push_frame(tid, f, base + b as usize, nv, pc, fid, base, ibase, fbase, vbase, base + b as usize);
-                        if nfp > 0 {
-                            let frame = *self.tasks[tid].frames.last().unwrap();
-                            let callee_base = frame.base as usize;
-                            let (mut vi, mut fi) = (0usize, 0usize);
-                            let n = self.funcs[f as usize].sig.len();
-                            for i in 0..n {
-                                let c = self.funcs[f as usize].sig[i];
-                                let t = &mut self.tasks[tid];
-                                if c == b'f' { let v = t.regs[callee_base + 1 + i]; t.fregs[frame.fbase as usize + fi] = v.as_num(); fi += 1; }
-                                else { vi += 1; t.regs[callee_base + vi] = t.regs[callee_base + 1 + i]; }
-                            }
-                        }
+                        // A dynamic call carries every argument as a value; the
+                        // typed callee's float parameters are unboxed on entry.
+                        let n = self.funcs[f as usize].sig.len();
+                        let all: Vec<Value> = (0..n).map(|i| r!(b + 1 + i as u8)).collect();
+                        self.push_frame(tid, f, base + b as usize, nv, pc);
+                        let (off_f, sig) = { let c = &self.funcs[f as usize]; (c.off_f(), c.sig.clone()) };
                         let t = &mut self.tasks[tid];
-                        let fr_ = t.frames.last_mut().unwrap();
-                        fr_.closure = callee;
-                        fr_.ret_is_f = false;
-                        let _ = nargs;
+                        let s = t.cur;
+                        let (mut vi, mut fi) = (0usize, 0usize);
+                        for (i, c) in sig.iter().enumerate() {
+                            if *c == b'f' { t.stack[s + off_f + fi] = all[i].as_num().to_bits(); fi += 1; }
+                            else { vi += 1; t.stack[s + HDR + vi] = all[i].0; }
+                        }
+                        t.stack[s + 2] = callee.0;
+                        let _ = (nargs, nfp);
                         return Flow::Reenter;
                     
     }
@@ -652,7 +685,7 @@ impl Interp {
                         let recv = r!(b + 1);
                         let p = recv.as_obj().unwrap_or_else(|| self.err("method call on a non-object"));
                         let fid = unsafe { match &(*p.as_ptr()).body { Body::Record { shape, .. } => *self.heap.shapes[*shape as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method")), _ => self.err("method call on a non-record") } };
-                        self.push_frame(tid, fid, base + b as usize, nargs, pc, fid, base, ibase, fbase, vbase, base + b as usize); return Flow::Reenter;
+                        self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter;
                     
     }
     #[inline(never)]
@@ -801,38 +834,56 @@ impl Interp {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize, _caller: u32, _base: usize, ibase: usize, fbase: usize, vbase: usize, ret: usize) {
-        let callee = &self.funcs[f as usize];
+    /// Pushes the callee's frame after the caller's: saves the caller's pc,
+    /// places the header, nils the value window, copies the value arguments
+    /// from `args_at + 1..` into the callee's r1.. and records `args_at` as the
+    /// result slot. One capacity check; the stack may move, so callers
+    /// re-derive their pointers.
+    #[inline(always)]
+    fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
+        let callee = unsafe { self.funcs.get_unchecked(f as usize) };
         // The value-argument count: float parameters travel in the float window.
-        let expected = if callee.sig.len() == callee.nparams as usize { callee.sig.iter().filter(|&&c| c != b'f').count() as u8 } else { callee.nparams };
-        assert_eq!(expected, nargs, "arity of {}", callee.name);
+        let expected = if callee.sig.len() == callee.nparams as usize { callee.nv_params } else { callee.nparams };
+        debug_assert_eq!(expected, nargs, "arity of {}", callee.name);
+        let (nv, words) = (callee.nregs as usize + 1, callee.frame_words());
         let t = &mut self.tasks[tid];
-        t.frames.last_mut().unwrap().pc = pc as u32;
-        // The callee's window starts at the caller's result slot, so its r1 is the first argument.
-        let base = args_at;
-        let need = base + callee.nregs as usize + 1;
-        if t.regs.len() < need { t.regs.resize(need, Value::NIL); }
-        let caller = &self.funcs[t.frames.last().unwrap().func as usize];
-        let (ni, nf, nv) = (ibase + caller.nireg as usize, fbase + caller.nfreg as usize, vbase + caller.nvreg as usize);
-        if t.iregs.len() < ni + callee.nireg as usize { t.iregs.resize(ni + callee.nireg as usize, 0); }
-        if t.fregs.len() < nf + callee.nfreg as usize { t.fregs.resize(nf + callee.nfreg as usize, 0.0); }
-        if t.vregs.len() < nv + callee.nvreg as usize { t.vregs.resize(nv + callee.nvreg as usize, [0.0; 2]); }
-        t.frames.push(Frame { func: f, pc: 0, base: base as u32, ibase: ni as u32, fbase: nf as u32, vbase: nv as u32, ret: ret as u32, ret_f: 0, ret_is_f: false, closure: Value::NIL });
+        let s = t.cur;
+        // The caller's frame size is in its own header (word 3, bits 33..),
+        // written when it was pushed, so no second function lookup.
+        let caller_fid = (t.stack[s] & 0xffff_ffff) as u64;
+        t.stack[s] = caller_fid | ((pc as u64) << 32);
+        let ns = s + (t.stack[s + 3] >> 33) as usize;
+        if t.stack.len() < ns + words { let n = (ns + words).max(t.stack.len() * 2); t.stack.resize(n, 0); }
+        // No register is cleared: the root walk filters words that are not
+        // live object slots (`Heap::is_live_slot`), and a register the function
+        // reads before writing is a verifier error.
+        let _ = nv;
+        unsafe {
+            let st = t.stack.as_mut_ptr();
+            *st.add(ns) = f as u64;
+            *st.add(ns + 1) = s as u64 | ((args_at as u64) << 32);
+            *st.add(ns + 2) = Value::NIL.0;
+            *st.add(ns + 3) = (words as u64) << 33;
+            for i in 0..nargs as usize { *st.add(ns + HDR + 1 + i) = *st.add(args_at + 1 + i); }
+        }
+        t.cur = ns;
     }
 
     /// Pops the frame, delivering `v` to the caller's result register; true when
     /// the task is finished.
+    #[inline]
     fn pop_frame(&mut self, tid: usize, v: Value) -> bool {
         let t = &mut self.tasks[tid];
-        let frame = t.frames.pop().unwrap();
-        // Registers above the caller's window are not roots (see the root set),
-        // so nothing is cleared on return.
-        if frame.ret_is_f && !t.frames.is_empty() {
-            t.fregs[frame.ret_f as usize] = v.as_num();
-            return false;
-        }
-        if t.frames.is_empty() { t.state = State::Done; t.result = v; return true; }
-        t.regs[frame.ret as usize] = v;
+        let s = t.cur;
+        let h1 = t.stack[s + 1];
+        let caller = (h1 & 0xffff_ffff) as u32;
+        if caller == NONE { t.state = State::Done; t.result = v; return true; }
+        let h3 = t.stack[s + 3];
+        // The popped frame's words stay as they are: they lie above the live
+        // top the root set walks, and the next push nils its value window.
+        if (h3 >> 32) & 1 != 0 { t.stack[(h3 & 0xffff_ffff) as usize] = v.as_num().to_bits(); }
+        else { t.stack[(h1 >> 32) as usize] = v.0; }
+        t.cur = caller as usize;
         false
     }
 }
