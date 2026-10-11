@@ -37,7 +37,7 @@ enum C {
     FK, FMov, FAdd, FSub, FMul, FDiv, FMod, FNeg, FUnbox, FBox, FCmpEq, FCmpNe, FCmpLe, FCmpLt,
     GetUpval, GetCell, GetSlot, GetSlotF, SetSlotF, Len, LenF, StrByte,
     Call, CallK, CallDyn, Ret, RetNil, RetN,
-    GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord,
+    GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
 }
 
 /// The core's encoding of one opcode; anything it does not handle is `Slow`,
@@ -117,6 +117,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::SetSlot(t, s, v) if s < 256 => i(C::SetSlot, t, s as u8, v),
         Op::TagCheckNum(d, a) => i(C::TagCheckNum, d, a, 0),
         Op::NewRecord(d, shape) => Ins { k: shape as i64, ..i(C::NewRecord, d, 0, 0) },
+        Op::GetIdx(d, t, key) => i(C::GetIdx, d, t, key),
         _ => i(C::Slow, 0, 0, 0),
     }
 }
@@ -188,6 +189,13 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
 pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     let (it, _) = enter_rust(unsafe { &mut *ctx });
     it.get_index(Value(obj), Value(name)).0
+}
+/// A read by any value key outside the core's array fast path: hash part,
+/// record, or a key that is a slice or an uninterned string.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
+    let (it, _) = enter_rust(unsafe { &mut *ctx });
+    it.get_index_any(Value(obj), Value(key)).0
 }
 /// A table or record read by integer index outside the core's array fast path.
 #[unsafe(no_mangle)]

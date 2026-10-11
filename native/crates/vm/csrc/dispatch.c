@@ -52,6 +52,7 @@ extern void rt_call_builtin(Ctx* ctx, uint32_t id, uint64_t base, uint32_t nargs
 extern void rt_call_iter(Ctx* ctx, Value iter, uint64_t base);
 extern Value rt_new_record(Ctx* ctx, uint32_t shape);
 extern uint64_t rt_len(Ctx* ctx, Value v);
+extern Value rt_get_index(Ctx* ctx, Value obj, Value key);
 
 // Opcode numbers, matched by `threaded.rs`.
 enum {
@@ -62,7 +63,7 @@ enum {
     OP_FK, OP_FMOV, OP_FADD, OP_FSUB, OP_FMUL, OP_FDIV, OP_FMOD, OP_FNEG, OP_FUNBOX, OP_FBOX, OP_FCMPEQ, OP_FCMPNE, OP_FCMPLE, OP_FCMPLT,
     OP_GETUPVAL, OP_GETCELL, OP_GETSLOT, OP_GETSLOTF, OP_SETSLOTF, OP_LEN, OP_LENF, OP_STRBYTE,
     OP_CALL, OP_CALLK, OP_CALLDYN, OP_RET, OP_RETNIL, OP_RETN,
-    OP_GETFIELD, OP_GETIDXI, OP_SETIDXI, OP_SETCELL, OP_SETSLOT, OP_TAGCHECKNUM, OP_NEWRECORD,
+    OP_GETFIELD, OP_GETIDXI, OP_SETIDXI, OP_SETCELL, OP_SETSLOT, OP_TAGCHECKNUM, OP_NEWRECORD, OP_GETIDX,
     OP_COUNT
 };
 
@@ -388,6 +389,21 @@ static Value h_setslot(ARGS) {
     if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
     SLOW;
 }
+// A read by a value key: an integral number within a table's array part in
+// place, anything else (hash part, records, slices as keys) through the helper.
+static Value h_getidx(ARGS) {
+    Value t = regs[pc->b]; Value key = regs[pc->c];
+    if (__builtin_expect(is_obj(t), 1)) {
+        if (obj_kind(t) == KIND_TABLE && is_num(key)) {
+            double d = as_num(key); uint64_t n = obj_len(t);
+            if (d >= 1.0 && d <= (double)n && d == (double)(uint64_t)d) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint64_t)d - 1]; pc++; NEXT; }
+        }
+        regs[pc->a] = rt_get_index(ctx, t, key);
+        frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
+        pc++; NEXT;
+    }
+    SLOW;
+}
 static Value h_tagchecknum(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_num(v), 1)) { regs[pc->a] = v; pc++; NEXT; } SLOW; }
 static Value h_newrecord(ARGS) {
     Value v = rt_new_record(ctx, (uint32_t)pc->k);
@@ -403,7 +419,7 @@ static const Handler dispatch[OP_COUNT] = {
     [OP_FK] = h_fk, [OP_FMOV] = h_fmov, [OP_FADD] = h_fadd, [OP_FSUB] = h_fsub, [OP_FMUL] = h_fmul, [OP_FDIV] = h_fdiv, [OP_FMOD] = h_fmod, [OP_FNEG] = h_fneg, [OP_FUNBOX] = h_funbox, [OP_FBOX] = h_fbox, [OP_FCMPEQ] = h_fcmpeq, [OP_FCMPNE] = h_fcmpne, [OP_FCMPLE] = h_fcmple, [OP_FCMPLT] = h_fcmplt,
     [OP_GETUPVAL] = h_getupval, [OP_GETCELL] = h_getcell, [OP_GETSLOT] = h_getslot, [OP_GETSLOTF] = h_getslotf, [OP_SETSLOTF] = h_setslotf, [OP_LEN] = h_len, [OP_LENF] = h_lenf, [OP_STRBYTE] = h_strbyte,
     [OP_CALL] = h_call, [OP_CALLK] = h_calldyn, [OP_CALLDYN] = h_calldyn, [OP_RET] = h_ret, [OP_RETNIL] = h_retnil, [OP_RETN] = h_retn,
-    [OP_GETFIELD] = h_getfield, [OP_GETIDXI] = h_getidxi, [OP_SETIDXI] = h_setidxi, [OP_SETCELL] = h_setcell, [OP_SETSLOT] = h_setslot, [OP_TAGCHECKNUM] = h_tagchecknum, [OP_NEWRECORD] = h_newrecord,
+    [OP_GETFIELD] = h_getfield, [OP_GETIDXI] = h_getidxi, [OP_SETIDXI] = h_setidxi, [OP_SETCELL] = h_setcell, [OP_SETSLOT] = h_setslot, [OP_TAGCHECKNUM] = h_tagchecknum, [OP_NEWRECORD] = h_newrecord, [OP_GETIDX] = h_getidx,
 };
 
 // Runs the context's task from its top frame until it finishes or parks;
