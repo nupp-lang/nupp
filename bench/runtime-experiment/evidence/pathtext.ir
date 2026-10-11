@@ -1,0 +1,152 @@
+native-ir 45
+function normalizeImpl
+symbol ks_normalize_impl
+entry lua-builder
+runtime lua-5.1 registrar(ks_register_5e40cbbf873d89d7)
+layouts
+params
+  scalar text:lua_string source(string) @205:30
+  uniform windows:bool source(boolean) @205:44
+aliasing
+helpers
+relations
+guards
+results lua_string
+block
+  let stack:lua_table = lua.new_table(constant:f64 0, constant:f64 0){}
+  var count:f64 = constant:f64 0
+  let length:u32 = lua.length(local:lua_string text)
+  var prefix:f64 = constant:f64 0
+  if and(uniform:bool windows, ge(local:u32 length, constant:f64 2))
+    let first:f64 = lua.byte(local:lua_string text, constant:f64 1)
+    let second:f64 = lua.byte(local:lua_string text, constant:f64 2)
+    let drive:bool = or(and(ge(local:f64 first, constant:f64 65), le(local:f64 first, constant:f64 90)), and(ge(local:f64 first, constant:f64 97), le(local:f64 first, constant:f64 122)))
+    if and(local:bool drive, eq(local:f64 second, constant:f64 58))
+      set prefix = constant:f64 2
+    elseif and(or(eq(local:f64 first, constant:f64 47), eq(local:f64 first, constant:f64 92)), or(eq(local:f64 second, constant:f64 47), eq(local:f64 second, constant:f64 92)))
+      var cursor:f64 = constant:f64 2
+      var parts:f64 = constant:f64 2
+      if ge(local:u32 length, constant:f64 4)
+        let third:f64 = lua.byte(local:lua_string text, constant:f64 3)
+        let fourth:f64 = lua.byte(local:lua_string text, constant:f64 4)
+        if and(or(eq(local:f64 third, constant:f64 63), eq(local:f64 third, constant:f64 46)), or(eq(local:f64 fourth, constant:f64 47), eq(local:f64 fourth, constant:f64 92)))
+          set parts = constant:f64 1
+        end
+      end
+      var seen:f64 = constant:f64 0
+      while lt(local:f64 seen, local:f64 parts) carrying cursor:f64, seen:f64
+        while lt(local:f64 cursor, local:u32 length) carrying cursor:f64
+          let current:f64 = lua.byte(local:lua_string text, add(local:f64 cursor, constant:f64 1))
+          if or(eq(local:f64 current, constant:f64 47), eq(local:f64 current, constant:f64 92))
+            break
+          end
+          set cursor = add(local:f64 cursor, constant:f64 1)
+        end
+        set seen = add(local:f64 seen, constant:f64 1)
+        if lt(local:f64 seen, local:f64 parts)
+          while lt(local:f64 cursor, local:u32 length) carrying cursor:f64
+            let current:f64 = lua.byte(local:lua_string text, add(local:f64 cursor, constant:f64 1))
+            if and(ne(local:f64 current, constant:f64 47), ne(local:f64 current, constant:f64 92))
+              break
+            end
+            set cursor = add(local:f64 cursor, constant:f64 1)
+          end
+          if eq(local:f64 cursor, local:u32 length)
+            break
+          end
+        end
+      end
+      set prefix = local:f64 cursor
+    end
+  end
+  var at:f64 = local:f64 prefix
+  var rooted:bool = bool false
+  if lt(local:f64 at, local:u32 length)
+    var current:f64 = lua.byte(local:lua_string text, add(local:f64 at, constant:f64 1))
+    if or(eq(local:f64 current, constant:f64 47), and(uniform:bool windows, eq(local:f64 current, constant:f64 92)))
+      set rooted = bool true
+      while lt(local:f64 at, local:u32 length) carrying current:f64, at:f64
+        set current = lua.byte(local:lua_string text, add(local:f64 at, constant:f64 1))
+        if and(ne(local:f64 current, constant:f64 47), or(not(uniform:bool windows), ne(local:f64 current, constant:f64 92)))
+          break
+        end
+        set at = add(local:f64 at, constant:f64 1)
+      end
+    end
+  end
+  while lt(local:f64 at, local:u32 length) carrying at:f64, count:f64
+    let start:f64 = add(local:f64 at, constant:f64 1)
+    while lt(local:f64 at, local:u32 length) carrying at:f64
+      let current:f64 = lua.byte(local:lua_string text, add(local:f64 at, constant:f64 1))
+      if or(eq(local:f64 current, constant:f64 47), and(uniform:bool windows, eq(local:f64 current, constant:f64 92)))
+        break
+      end
+      set at = add(local:f64 at, constant:f64 1)
+    end
+    let width:f64 = add(sub(local:f64 at, local:f64 start), constant:f64 1)
+    if and(ne(local:f64 width, constant:f64 0), not(and(eq(local:f64 width, constant:f64 1), eq(lua.byte(local:lua_string text, local:f64 start), constant:f64 46))))
+      let parent:bool = and(and(eq(local:f64 width, constant:f64 2), eq(lua.byte(local:lua_string text, local:f64 start), constant:f64 46)), eq(lua.byte(local:lua_string text, add(local:f64 start, constant:f64 1)), constant:f64 46))
+      var cancelled:bool = and(and(local:bool parent, local:bool rooted), eq(local:f64 count, constant:f64 0))
+      if and(local:bool parent, gt(local:f64 count, constant:f64 0))
+        if gt(lua.get_index(local:lua_table stack, local:f64 count), constant:f64 0)
+          set count = sub(local:f64 count, constant:f64 1)
+          set cancelled = bool true
+        end
+      end
+      if not(local:bool cancelled)
+        set count = add(local:f64 count, constant:f64 1)
+        var retained:f64 = local:f64 start
+        if local:bool parent
+          set retained = constant:f64 0
+        end
+        lua_set_index local:lua_table stack[local:f64 count] = local:f64 retained
+      end
+    end
+    while lt(local:f64 at, local:u32 length) carrying at:f64
+      let current:f64 = lua.byte(local:lua_string text, add(local:f64 at, constant:f64 1))
+      if and(ne(local:f64 current, constant:f64 47), or(not(uniform:bool windows), ne(local:f64 current, constant:f64 92)))
+        break
+      end
+      set at = add(local:f64 at, constant:f64 1)
+    end
+  end
+  if and(and(eq(local:f64 count, constant:f64 0), eq(local:f64 prefix, constant:f64 0)), not(local:bool rooted))
+    return lua.string "."
+  end
+  let answer:lua_string_buffer = lua.string_buffer(lua.string "")
+  var copied:f64 = constant:f64 1
+  while le(local:f64 copied, local:f64 prefix) carrying copied:f64
+    let current:f64 = lua.byte(local:lua_string text, local:f64 copied)
+    if and(uniform:bool windows, eq(local:f64 current, constant:f64 92))
+      lua.string_buffer_append(local:lua_string_buffer answer, lua.string "/")
+    else
+      lua.string_buffer_append(local:lua_string_buffer answer, lua.substring(local:lua_string text, local:f64 copied, local:f64 copied))
+    end
+    set copied = add(local:f64 copied, constant:f64 1)
+  end
+  if local:bool rooted
+    lua.string_buffer_append(local:lua_string_buffer answer, lua.string "/")
+  end
+  var needsSeparator:bool = bool false
+  let $value_29:f64 = local:f64 count
+  for index = constant:i32 1 .. local:f64 $value_29 carrying needsSeparator:bool
+    let start:f64 = lua.get_index(local:lua_table stack, local:f64 index)
+    if local:bool needsSeparator
+      lua.string_buffer_append(local:lua_string_buffer answer, lua.string "/")
+    end
+    if eq(local:f64 start, constant:f64 0)
+      lua.string_buffer_append(local:lua_string_buffer answer, lua.string "..")
+    else
+      var finish:f64 = local:f64 start
+      while lt(local:f64 finish, local:u32 length) carrying finish:f64
+        let current:f64 = lua.byte(local:lua_string text, add(local:f64 finish, constant:f64 1))
+        if or(eq(local:f64 current, constant:f64 47), and(uniform:bool windows, eq(local:f64 current, constant:f64 92)))
+          break
+        end
+        set finish = add(local:f64 finish, constant:f64 1)
+      end
+      lua.string_buffer_append(local:lua_string_buffer answer, lua.substring(local:lua_string text, local:f64 start, local:f64 finish))
+    end
+    set needsSeparator = bool true
+  end
+  return lua.string_buffer_finish(local:lua_string_buffer answer)

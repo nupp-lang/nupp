@@ -47,9 +47,14 @@ extern "C" fn rt_concat(a: u64, b: u64) -> u64 { enter_helper!(); let v = ctx().
 /// per-call allocation and zeroing cost.
 static SCRATCH: std::sync::Mutex<Vec<(usize, u64)>> = std::sync::Mutex::new(Vec::new());
 extern "C" fn rt_new_bytes(n: u64) -> u64 {
-    if std::env::var("REUSE_SCRATCH").is_ok() { let mut s = SCRATCH.lock().unwrap(); if let Some((_, v)) = s.iter().find(|(k, _)| *k == n as usize) { return *v; } enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); ctx().handles.insert(0, v); s.push((n as usize, v.0)); return v.0; }
+    if std::env::var("REUSE_SCRATCH").is_ok() { let mut s = SCRATCH.lock().unwrap(); if let Some((_, v)) = s.iter().find(|(k, _)| *k == n as usize) { return *v; } enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); ctx().register(v); s.push((n as usize, v.0)); return v.0; }
     enter_helper!(); let v = ctx().heap_new_bytes(n as usize); leave_helper!(); v.0
 }
+extern "C" fn rt_new_buffer() -> u64 { enter_helper!(); let v = ctx().heap_new_bytes(0); leave_helper!(); v.0 }
+extern "C" fn rt_buf_append(buf: u64, s: u64) -> u64 { let it = ctx(); let text = it.bytes_of(Value(s)).to_vec(); it.buf_append(Value(buf), &text); 0 }
+extern "C" fn rt_buf_append_sub(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); let text = it.sub_bytes(Value(s), i as i64, j as i64).to_vec(); it.buf_append(Value(buf), &text); 0 }
+extern "C" fn rt_substring(s: u64, i: u64, j: u64) -> u64 { enter_helper!(); let v = ctx().substring(Value(s), i as i64, j as i64); leave_helper!(); v.0 }
+extern "C" fn rt_buf_finish(buf: u64) -> u64 { enter_helper!(); let it = ctx(); let n = it.bytes_of(Value(buf)).len(); let v = it.bytes_to_str(Value(buf), n); leave_helper!(); v.0 }
 extern "C" fn rt_bytes_to_str(s: u64, n: u64) -> u64 { enter_helper!(); let v = ctx().bytes_to_str(Value(s), n as usize); leave_helper!(); v.0 }
 /// The slow path of dynamic arithmetic and comparison: reached only when an
 /// operand is not a number, which this prototype treats as an error.
@@ -261,6 +266,64 @@ fn template(subject: &Function, h_add: u32, h_sub: u32, h_lt: u32) -> Function {
     f
 }
 
+/// The compiler's path normaliser (`nupp aot --emit ir src/nupp/io/path/pathtext.nupp`)
+/// through the IR lowering, checked against the shipped implementation's
+/// answers over a corpus and timed on both tiers.
+fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {
+    let text = std::fs::read_to_string(ir_path).expect("IR file");
+    let funcs = ir::parse(&text).expect("parse IR");
+    let f = funcs.iter().find(|f| f.name == "normalizeImpl").expect("normalizeImpl");
+    let itp: *mut Interp = it;
+    let lowered = lower_ir::lower_with(f, &[], Box::new(move |s| unsafe { let v = (*itp).intern(s); (*itp).handles.push(v); v }));
+    match lower_ir::verify(&lowered) { Ok(()) => eprintln!("verify\tnormalizeImpl\tok\t{} ops", lowered.code.len()), Err(e) => panic!("verify: {e}") }
+    if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in lowered.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
+    let fid = it.funcs.len() as u32;
+    it.funcs.push(lowered.clone());
+    CTX.store(it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+    let mut j = jit::Jit::with_helpers(rt_storage_ptr as *const u8, rt_storage_len as *const u8, &[("rt_record_slots", rt_record_slots as *const u8, 1), ("rt_len", rt_len as *const u8, 1), ("rt_get_index", rt_get_index as *const u8, 2), ("rt_new_record", rt_new_record as *const u8, 1), ("rt_new_table", rt_new_table as *const u8, 0), ("rt_set_slot", rt_set_slot as *const u8, 3), ("rt_set_index", rt_set_index as *const u8, 3), ("rt_concat", rt_concat as *const u8, 2), ("rt_arith_slow", rt_arith_slow as *const u8, 3), ("rt_new_bytes", rt_new_bytes as *const u8, 1), ("rt_bytes_to_str", rt_bytes_to_str as *const u8, 2), ("rt_new_buffer", rt_new_buffer as *const u8, 0), ("rt_buf_append", rt_buf_append as *const u8, 2), ("rt_buf_append_sub", rt_buf_append_sub as *const u8, 4), ("rt_substring", rt_substring as *const u8, 3), ("rt_buf_finish", rt_buf_finish as *const u8, 1)]);
+    it.compiled = vec![None; it.funcs.len()];
+    let ptr = j.try_compile(&lowered, fid).unwrap_or_else(|e| panic!("compile: {e}"));
+    for (n, us) in &j.compile_micros { eprintln!("compile\t{n}\t{us} us"); }
+    let norm: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(ptr) };
+    let corpus: Vec<(String, bool, String)> = std::fs::read_to_string(corpus_path).expect("corpus").lines().map(|l| { let mut p = l.split('\t'); (p.next().unwrap().to_string(), p.next().unwrap() == "1", p.next().unwrap_or("").to_string()) }).collect();
+    let text_of = |it: &Interp, v: Value| -> String { String::from_utf8(it.bytes_of(v).to_vec()).unwrap() };
+    let inputs: Vec<Value> = corpus.iter().map(|(p, _, _)| { let v = it.heap.new_string(p.clone(), &interp::NoRoots); it.handles.push(v); v }).collect();
+    let mut checks = 0;
+    let mut failures = 0;
+    for (k, (p, w, want)) in corpus.iter().enumerate() {
+        if std::env::var("DEBUG_CASE").is_ok() { eprintln!("case {k}: {p:?} windows={w}"); }
+        let got = run_to_end(it, fid, &[inputs[k], Value::boolean(*w)]);
+        let got = text_of(it, got);
+        if &got != want { failures += 1; if failures <= 5 { eprintln!("interp mismatch: {p:?} windows={w}: got {got:?} want {want:?}"); } }
+        let got = text_of(it, Value(norm(inputs[k].0, Value::boolean(*w).0)));
+        if &got != want { failures += 1; if failures <= 5 { eprintln!("jit mismatch: {p:?} windows={w}: got {got:?} want {want:?}"); } }
+        checks += 2;
+    }
+    assert_eq!(failures, 0, "mismatches");
+    it.heap.stress = true; it.heap.oracle = true; it.heap.quarantine = true;
+    for k in (0..corpus.len()).step_by(37) { let (_, w, want) = &corpus[k]; assert_eq!(&text_of(it, Value(norm(inputs[k].0, Value::boolean(*w).0))), want); checks += 1; }
+    it.heap.stress = false; it.heap.stress_steps = true;
+    for k in (0..corpus.len()).step_by(37) { let (_, w, want) = &corpus[k]; assert_eq!(&text_of(it, Value(norm(inputs[k].0, Value::boolean(*w).0))), want); checks += 1; }
+    it.heap.stress_steps = false; it.heap.oracle = false; it.heap.quarantine = false;
+    eprintln!("PASS paths {checks} checks over {} cases", corpus.len());
+    let total_bytes: usize = corpus.iter().map(|(p, _, _)| p.len()).sum();
+    let flags: Vec<u64> = corpus.iter().map(|(_, w, _)| Value::boolean(*w).0).collect();
+    let (in2, fl2) = (inputs.clone(), flags.clone());
+    let mut runners: Vec<(&str, Box<dyn FnMut(&mut Interp) -> f64>)> = vec![
+        ("jit", Box::new(move |_| { let mut s = 0u64; for (v, w) in inputs.iter().zip(&flags) { s = s.wrapping_add(norm(v.0, *w)); } s as f64 })),
+        ("interp", Box::new(move |it| { let mut s = 0u64; for (v, w) in in2.iter().zip(&fl2) { s = s.wrapping_add(run_to_end(it, fid, &[*v, Value(*w)]).0); } s as f64 })),
+    ];
+    let seconds = 0.1; let rounds = 9;
+    let mut calls = Vec::new(); let mut sink = 0.0;
+    for (_, r) in runners.iter_mut() { let mut count = 1usize; loop { let s = cpu_now(); for _ in 0..count { sink += black_box(r(it)); } let e = cpu_now() - s; if e >= seconds { break; } count = (count * 2).max((count as f64 * seconds / e.max(1e-7)).ceil() as usize); } calls.push(count); }
+    let mut samples: Vec<Vec<f64>> = vec![Vec::new(); runners.len()];
+    for round in 0..rounds { for k in 0..runners.len() { let idx = (k + round) % runners.len(); let s = cpu_now(); for _ in 0..calls[idx] { sink += black_box((runners[idx].1)(it)); } samples[idx].push((cpu_now() - s) / calls[idx] as f64); } }
+    let med = |v: &mut Vec<f64>| { v.sort_by(|a, b| a.partial_cmp(b).unwrap()); v[v.len() / 2] };
+    let m: Vec<f64> = samples.iter_mut().map(med).collect();
+    for (i, (name, _)) in runners.iter().enumerate() { println!("paths\t{name}\t{:.2} ns per input byte\t{:.3} us per call\t({} cases, {} bytes)", m[i] / total_bytes as f64 * 1e9, m[i] / corpus.len() as f64 * 1e6, corpus.len(), total_bytes); }
+    black_box(sink);
+}
+
 /// The standard encoder, for checking.
 fn base64_ref(input: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -284,11 +347,12 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
     let src = std::fs::read_to_string(src_path).expect("source");
     let alphabet = { let start = src.find("const ALPHABET = \"").expect("alphabet") + "const ALPHABET = \"".len(); let end = src[start..].find('"').unwrap() + start; src[start..end].to_string() };
     let alpha = it.intern(&alphabet); it.handles.push(alpha);
-    let lowered = lower_ir::lower_with(enc, &[("konst_0".to_string(), alpha, alphabet.len())]);
+    let lowered = lower_ir::lower_with(enc, &[("konst_0".to_string(), alpha, alphabet.len())], Box::new(|s| panic!("string literal {s:?}")));
     eprintln!("proven lookups\t{}\tchecked byte reads\t{}", lowered.code.iter().filter(|o| matches!(o, Op::LoadU8K(..))).count(), lowered.code.iter().filter(|o| matches!(o, Op::LoadU8(..))).count());
     // Negative control: a proven lookup whose mask is not below the length must be rejected.
     { let mut bad = lowered.clone(); for op in bad.code.iter_mut() { if let Op::IK(d, 63) = *op { *op = Op::IK(d, 64); } } assert!(lower_ir::verify(&bad).is_err(), "a lookup masked at the length must be rejected"); }
-    match lower_ir::verify(&lowered) { Ok(()) => eprintln!("verify\tencodeAot\tok\t{} ops", lowered.code.len()), Err(e) => panic!("verify: {e}") }
+    let t = std::time::Instant::now(); let mut reps = 0; while t.elapsed().as_millis() < 200 { lower_ir::verify(&lowered).unwrap_or_else(|e| panic!("verify: {e}")); reps += 1; }
+    eprintln!("verify\tencodeAot\tok\t{} ops\t{:.1} us per verification", lowered.code.len(), t.elapsed().as_micros() as f64 / reps as f64);
     if std::env::var("DUMP_OPS").is_ok() { for (pc, op) in lowered.code.iter().enumerate() { eprintln!("  {pc:3} {op:?}"); } }
     let fid = it.funcs.len() as u32;
     it.funcs.push(lowered.clone());
@@ -305,10 +369,12 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
         let v = it.heap_new_bytes(n); it.handles.push(v);
         it.bytes_mut(v).copy_from_slice(&bytes);
         (v, bytes)
+        // The caller's scope releases it.
     };
     let text_of = |it: &Interp, v: Value| -> String { String::from_utf8(it.bytes_of(v).to_vec()).unwrap() };
     let mut checks = 0;
     for n in (0..=200usize).chain([1024, 65_536, 1_048_576]) {
+        let scope = it.open_scope();
         let (v, bytes) = input_of(it, n);
         let want = base64_ref(&bytes);
         let got = run_to_end(it, fid, &[v, Value::NIL]);
@@ -316,18 +382,19 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
         let got = Value(enc_fn(v.0, Value::NIL.0));
         assert_eq!(text_of(it, got), want, "jit at {n}");
         checks += 2;
-        it.handles.pop();
+        it.close_scope(scope);
     }
     // Under collector stress with the oracle: the compiled encoder allocates
     // its scratch and its result with value registers live.
     it.heap.stress = true; it.heap.oracle = true; it.heap.quarantine = true;
-    for n in [0usize, 7, 200, 1024] { let (v, bytes) = input_of(it, n); let want = base64_ref(&bytes); assert_eq!(text_of(it, Value(enc_fn(v.0, Value::NIL.0))), want, "jit under stress at {n}"); let r = run_to_end(it, fid, &[v, Value::NIL]); assert_eq!(text_of(it, r), want); it.handles.pop(); checks += 2; }
+    for n in [0usize, 7, 200, 1024] { let scope = it.open_scope(); let (v, bytes) = input_of(it, n); let want = base64_ref(&bytes); assert_eq!(text_of(it, Value(enc_fn(v.0, Value::NIL.0))), want, "jit under stress at {n}"); let r = run_to_end(it, fid, &[v, Value::NIL]); assert_eq!(text_of(it, r), want); it.close_scope(scope); checks += 2; }
     it.heap.stress = false; it.heap.stress_steps = true;
-    for n in [0usize, 7, 200, 1024] { let (v, bytes) = input_of(it, n); let want = base64_ref(&bytes); assert_eq!(text_of(it, Value(enc_fn(v.0, Value::NIL.0))), want, "jit interleaved at {n}"); it.handles.pop(); checks += 1; }
+    for n in [0usize, 7, 200, 1024] { let scope = it.open_scope(); let (v, bytes) = input_of(it, n); let want = base64_ref(&bytes); assert_eq!(text_of(it, Value(enc_fn(v.0, Value::NIL.0))), want, "jit interleaved at {n}"); it.close_scope(scope); checks += 1; }
     it.heap.stress_steps = false; it.heap.oracle = false; it.heap.quarantine = false;
     eprintln!("PASS base64 {checks} checks");
     let seconds = 0.05; let rounds = 9;
     for n in [1024usize, 65_536, 1_048_576] {
+        let scope = it.open_scope();
         let (v, _) = input_of(it, n);
         let mut runners: Vec<(&str, Box<dyn FnMut(&mut Interp) -> f64>)> = vec![
             ("jit", Box::new(move |_| { let r = Value(enc_fn(v.0, Value::NIL.0)); r.0 as f64 })),
@@ -346,7 +413,7 @@ fn base64_mode(it: &mut Interp, ir_path: &str, src_path: &str) {
         let m: Vec<f64> = samples.iter_mut().map(med).collect();
         for (i, (name, _)) in runners.iter().enumerate() { println!("{n}\t{name}\t{:.3} ns per input byte\t{:.1} us per call", m[i] / n as f64 * 1e9, m[i] * 1e6); }
         black_box(sink);
-        it.handles.pop();
+        it.close_scope(scope);
     }
 }
 
@@ -434,6 +501,7 @@ fn main() {
     let point = build(&mut it);
     let x = it.intern("x");
     if mode == "image" { image_mode(&mut it, &args[2]); return; }
+    if mode == "paths" { paths_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "base64" { base64_mode(&mut it, &args[2], &args[3]); return; }
     if mode == "handlers" { handlers_mode(&mut it, &args[2]); return; }
     if mode == "run-image" {

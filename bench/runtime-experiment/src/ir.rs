@@ -10,6 +10,8 @@ pub enum Expr {
     Constant { ty: String, value: String },
     Span(String),
     Count(String),
+    /// `lua.string "..."`: a string literal.
+    Str(String),
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,9 @@ pub enum Stmt {
     Return(Vec<Expr>),
     /// `op local:T target[index] = value`: a store into a scratch buffer.
     Store { op: String, target: String, index: Expr, value: Expr },
+    /// `for var = start .. stop`: a numeric loop, inclusive.
+    For { var: String, start: Expr, stop: Expr, body: Vec<Stmt> },
+    Break,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +118,19 @@ fn parse_block(lines: &[&str], mut i: usize, depth: usize) -> Result<(Vec<Stmt>,
             if lines.get(i).map(|l| l.trim()) != Some("end") { return Err(format!("if without end at line {i}")); }
             i += 1;
             body.push(Stmt::If { cond, body: inner, else_body });
-        } else if t.starts_with("lua.scratch_u8_set") {
+        } else if t == "break" {
+            body.push(Stmt::Break);
+            i += 1;
+        } else if let Some(rest) = t.strip_prefix("for ") {
+            let (var, range) = rest.split_once(" = ").ok_or("for without range")?;
+            let range = match range.split_once(" carrying ") { Some((r, _)) => r, None => range };
+            let (start, stop) = range.split_once(" .. ").ok_or("for without ..")?;
+            let (inner, next) = parse_block(lines, i + 1, depth + 2)?;
+            i = next;
+            if lines.get(i).map(|l| l.trim()) != Some("end") { return Err(format!("for without end at line {i}")); }
+            i += 1;
+            body.push(Stmt::For { var: var.trim().to_string(), start: parse_expr(start)?, stop: parse_expr(stop)?, body: inner });
+        } else if t.starts_with("lua.scratch_u8_set") || t.starts_with("lua_set_index ") {
             let (lhs, rhs) = t.split_once(" = ").ok_or_else(|| format!("store without value: {t}"))?;
             let (op, target) = lhs.split_once(' ').ok_or("store without target")?;
             let open = target.find('[').ok_or("store without index")?;
@@ -162,6 +179,9 @@ fn split_top(s: &str) -> Vec<&str> {
 
 pub fn parse_expr(s: &str) -> Result<Expr, String> {
     let s = s.trim();
+    if let Some(rest) = s.strip_prefix("lua.string \"") { return Ok(Expr::Str(rest.trim_end_matches('"').replace("\\n", "\n"))); }
+    if let Some(rest) = s.strip_prefix("bool ") { return Ok(Expr::Constant { ty: "bool".into(), value: rest.trim().into() }); }
+    let s = s.strip_suffix("{}").unwrap_or(s);
     if let Some(rest) = s.strip_prefix("local:") { let (ty, name) = rest.split_once(' ').ok_or("local")?; return Ok(Expr::Local { ty: ty.into(), name: name.trim().into() }); }
     if let Some(rest) = s.strip_prefix("uniform:") { let (ty, name) = rest.split_once(' ').ok_or("uniform")?; return Ok(Expr::Uniform { ty: ty.into(), name: name.trim().into() }); }
     if let Some(rest) = s.strip_prefix("constant:") { let (ty, value) = rest.split_once(' ').ok_or("constant")?; return Ok(Expr::Constant { ty: ty.into(), value: value.trim().into() }); }

@@ -48,6 +48,15 @@ pub enum Op {
     NewBytes(u8, u8),
     /// A string from the first n bytes of a byte buffer.
     BytesToStr(u8, u8, u8),
+    ICmpNe(u8, u8, u8),
+    /// 1 when the value register is neither nil nor false.
+    Truthy(u8, u8),
+    /// A growable byte buffer and its operations; substrings are 1-based inclusive.
+    NewBuffer(u8),
+    BufAppend(u8, u8),
+    BufAppendSub(u8, u8, u8, u8),
+    Substring(u8, u8, u8, u8),
+    BufFinish(u8, u8),
     /// Call function `fid` with arguments at base+1.., result into `base`.
     Call(u32, u8, u8),
     /// Typed call: value arguments at base+1.., float arguments in the float
@@ -194,7 +203,12 @@ pub struct Interp {
     pub heap: Heap,
     pub funcs: Vec<Function>,
     pub tasks: Vec<Task>,
+    /// Handle scopes (contracts 4.7): values a native caller holds are roots
+    /// until the scope that pushed them closes.
     pub handles: Vec<Value>,
+    /// Registered handles: roots a native caller keeps across calls and
+    /// releases explicitly.
+    pub registered: Vec<Value>,
     back_edges: u32,
     pub parks: u64,
     pub trace: bool,
@@ -210,7 +224,7 @@ pub struct Interp {
     pub osr_transfers: u64,
 }
 
-struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value] }
+struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value] }
 /// The frame pointer of the runtime helper currently entered from compiled
 /// code, or zero; the root set walks compiled frames from here.
 pub static HELPER_FP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -225,6 +239,7 @@ impl Roots for TaskRoots<'_> {
         }
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
+        for &v in self.registered { f(v); }
         let fp = HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
         if fp != 0 { crate::jit::walk_compiled_roots(fp, &mut |bits| f(Value(bits))); }
     }
@@ -240,12 +255,15 @@ pub struct Win { regs: *mut Value, iregs: *mut i64, fregs: *mut f64, consts: *co
 /// What an outlined handler asks the dispatch loop to do next.
 pub enum Flow { Next, Reenter, Return(Outcome) }
 
-macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles } } }
+/// No roots: for allocations made while nothing else is live yet.
+pub struct NoRoots;
+impl crate::heap::Roots for NoRoots { fn each_root(&self, _f: &mut dyn FnMut(Value)) {} }
+macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered } } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0 } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_OPS").is_ok(), compiled: Vec::new(), entry2: None, loop_counts: std::collections::HashMap::new(), osr_entries: std::collections::HashMap::new(), osr_compile: None, osr_threshold: 50, osr_transfers: 0 } }
 
-    pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles }; self.heap.intern(s, &r) }
+    pub fn intern(&mut self, s: &str) -> Value { let r = TaskRoots { tasks: &self.tasks, funcs: &self.funcs, handles: &self.handles, registered: &self.registered }; self.heap.intern(s, &r) }
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
         let f = &self.funcs[fid as usize];
@@ -268,8 +286,28 @@ impl Interp {
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Record { slots, .. } = &mut (*p.as_ptr()).body { slots[i] = v } } }
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { let p = rec.as_obj().unwrap(); unsafe { match &(*p.as_ptr()).body { Body::Record { slots, .. } => slots[i], _ => panic!("use after free or not a record") } } }
     pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { if let Body::Table { array, .. } = &mut (*p.as_ptr()).body { array.push(v) } (*p.as_ptr()).refresh(); } }
+    /// Opens a handle scope: the mark to close it with.
+    pub fn open_scope(&self) -> usize { self.handles.len() }
+    /// Closes a scope, releasing every handle pushed since it opened.
+    pub fn close_scope(&mut self, mark: usize) { self.handles.truncate(mark); }
+    /// A root the caller keeps until it releases it.
+    pub fn register(&mut self, v: Value) -> usize { self.registered.push(v); self.registered.len() - 1 }
+    pub fn release(&mut self, h: usize) { self.registered[h] = Value::NIL; }
     pub fn heap_new_bytes(&mut self, n: usize) -> Value { self.heap.new_bytes(n, roots!(self)) }
     pub fn bytes_to_str(&mut self, s: Value, n: usize) -> Value { let text = String::from_utf8(self.bytes_of(s)[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); self.heap.new_string(text, roots!(self)) }
+    /// Lua's substring clamping: 1-based inclusive, out-of-range ends clamp, an empty range is empty.
+    pub fn sub_bytes(&self, v: Value, i: i64, j: i64) -> &[u8] {
+        let b = self.bytes_of(v);
+        let n = b.len() as i64;
+        let i = if i < 1 { 1 } else { i };
+        let j = if j > n { n } else { j };
+        if i > j { &b[0..0] } else { &b[(i - 1) as usize..j as usize] }
+    }
+    pub fn substring(&mut self, s: Value, i: i64, j: i64) -> Value { let text = String::from_utf8(self.sub_bytes(s, i, j).to_vec()).unwrap_or_else(|_| self.err("not text")); self.heap.new_string(text, roots!(self)) }
+    pub fn buf_append(&mut self, buf: Value, text: &[u8]) {
+        let p = buf.as_obj().unwrap_or_else(|| self.err("append to a non-buffer"));
+        unsafe { match &mut (*p.as_ptr()).body { Body::Bytes { data } => { data.extend_from_slice(text); } _ => self.err("not a buffer") } (*p.as_ptr()).refresh(); }
+    }
     pub fn bytes_of(&self, v: Value) -> &[u8] {
         let p = v.as_obj().unwrap_or_else(|| self.err("bytes of a non-object"));
         unsafe { match &(*p.as_ptr()).body { Body::Str { text, .. } => text.as_bytes(), Body::Bytes { data } => data, _ => self.err("not bytes") } }
@@ -473,6 +511,13 @@ impl Interp {
                     Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
                     Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }
                     Op::StoreU32(s, i, v) => { let x = ir!(v) as u32; let bytes = self.bytes_mut(r!(s)); let off = ir!(i) as usize; if off + 4 > bytes.len() { self.err("word write out of range") } bytes[off..off + 4].copy_from_slice(&x.to_le_bytes()); }
+                    Op::ICmpNe(d, a, b) => ir!(d) = (ir!(a) != ir!(b)) as i64,
+                    Op::Truthy(d, v) => ir!(d) = r!(v).truthy() as i64,
+                    Op::NewBuffer(d) => { let v = self.heap.new_bytes(0, roots!(self)); r!(d) = v; }
+                    Op::BufAppend(bf, s) => { let text = self.bytes_of(r!(s)).to_vec(); self.buf_append(r!(bf), &text); }
+                    Op::BufAppendSub(bf, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = self.sub_bytes(r!(s), i, j).to_vec(); self.buf_append(r!(bf), &text); }
+                    Op::Substring(d, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = String::from_utf8(self.sub_bytes(r!(s), i, j).to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
+                    Op::BufFinish(d, bf) => { let text = String::from_utf8(self.bytes_of(r!(bf)).to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
                     Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap.new_bytes(n, roots!(self)); r!(d) = v; }
                     Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = String::from_utf8(self.bytes_of(r!(s))[..n].to_vec()).unwrap_or_else(|_| self.err("not text")); let v = self.heap.new_string(text, roots!(self)); r!(d) = v; }
                     Op::Switch(r, t) => {

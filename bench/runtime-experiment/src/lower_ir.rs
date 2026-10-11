@@ -36,12 +36,25 @@ struct Lowerer {
     consts: Vec<crate::heap::Value>,
     /// Value registers holding pool constant strings, with their lengths.
     const_len: HashMap<u8, usize>,
+    /// Interns a string literal into the heap for the constant pool.
+    intern: Box<dyn FnMut(&str) -> crate::heap::Value>,
+    /// Break jumps to patch, per open loop.
+    breaks: Vec<Vec<usize>>,
+}
+
+/// Whether an expression can neither trap nor touch memory: locals,
+/// constants and arithmetic or logic over them.
+fn pure(e: &Expr) -> bool {
+    match e {
+        Expr::Call { op, args, .. } => !(op.starts_with("lua") || op.starts_with("simd_load") || op.starts_with("simd_store")) && args.iter().all(pure),
+        _ => true,
+    }
 }
 
 fn class_of(ty: &str) -> Class {
     match ty {
         "f64" | "f32" => Class::F,
-        "lua_string" | "lua_value" | "lua_builder" | "lua_scratch_u8" => Class::Val,
+        "lua_string" | "lua_value" | "lua_builder" | "lua_scratch_u8" | "lua_table" | "lua_string_buffer" => Class::Val,
         t if t.starts_with("simd_vector_") => Class::V4,
         t if t.starts_with("simd_species_") => Class::Species,
         _ => Class::I, // u32, u64, i32, i64, bool, masks (active lane count)
@@ -68,10 +81,12 @@ impl Lowerer {
         match e {
             Expr::Local { name, .. } | Expr::Uniform { name, .. } => *self.names.get(name).unwrap_or_else(|| panic!("unknown name {name}")),
             Expr::Constant { ty, value } => {
+                if ty == "bool" { let d = self.ireg(); self.code.push(Op::IK(d, (value == "true") as i64)); return Reg { class: Class::I, idx: d }; }
                 if class_of(ty) == Class::F { let d = self.freg(); self.code.push(Op::FK(d, value.parse().unwrap())); Reg { class: Class::F, idx: d } }
                 else { let d = self.ireg(); self.code.push(Op::IK(d, value.parse::<f64>().unwrap() as i64)); Reg { class: Class::I, idx: d } }
             }
             Expr::Span(name) => Reg { class: Class::Span, idx: self.span_value[name] },
+            Expr::Str(text) => { let v = (self.intern)(text); let k = self.consts.len() as u16; self.consts.push(v); let d = self.alloc(Class::Val); self.code.push(Op::K(d.idx, k)); self.const_len.insert(d.idx, text.len()); d }
             Expr::Count(name) => Reg { class: Class::I, idx: self.span_len[name] },
             Expr::Call { op, ty, args } => self.call(op, ty.as_deref(), args),
         }
@@ -89,10 +104,13 @@ impl Lowerer {
     }
 
     fn compare(&mut self, args: &[Expr], iop: fn(u8, u8, u8) -> Op, fop: fn(u8, u8, u8) -> Op) -> Reg {
-        let r = self.binary_scalar(args, iop, fop);
-        // Comparisons always land in an integer register; a float compare
-        // already does, so only the destination class needs stating.
-        Reg { class: Class::I, idx: r.idx }
+        // Comparisons land in an integer register whichever class they compare.
+        let a = self.expr(&args[0]);
+        let b = self.expr(&args[1]);
+        let d = self.ireg();
+        if a.class == Class::F || b.class == Class::F { let (x, y) = (self.to_f(a), self.to_f(b)); self.code.push(fop(d, x, y)); }
+        else { self.code.push(iop(d, a.idx, b.idx)); }
+        Reg { class: Class::I, idx: d }
     }
 
     /// The IR writes a span index as a 1-based number, `int_to_f64(u32_add(cursor, 1))`.
@@ -168,6 +186,41 @@ impl Lowerer {
             "mul" => self.binary_scalar(args, |d, a, b| Op::IAdd(d, a, b), Op::FMul),
             "le" => self.compare(args, Op::ICmpLe, Op::FCmpLe),
             "lt" => self.compare(args, Op::ICmpLt, Op::FCmpLt),
+            "ge" => { let sw = [args[1].clone(), args[0].clone()]; self.compare(&sw, Op::ICmpLe, Op::FCmpLe) }
+            "gt" => { let sw = [args[1].clone(), args[0].clone()]; self.compare(&sw, Op::ICmpLt, Op::FCmpLt) }
+            "ne" => self.compare(args, Op::ICmpNe, Op::FCmpNe),
+            "or" => { let a = self.expr(&args[0]); let b = self.expr(&args[1]); let d = self.ireg(); self.code.push(Op::IOr(d, a.idx, b.idx)); Reg { class: Class::I, idx: d } }
+            "not" => { let a = self.expr(&args[0]); let z = self.ireg(); self.code.push(Op::IK(z, 0)); let d = self.ireg(); self.code.push(Op::ICmpEq(d, a.idx, z)); Reg { class: Class::I, idx: d } }
+            "lua.byte" => { let s = self.expr(&args[0]); let r = self.expr(&args[1]); let i1 = self.to_i(r); let i = self.ireg(); self.code.push(Op::IAddK(i, i1, -1)); let d = self.ireg(); self.code.push(Op::LoadU8(d, s.idx, i)); Reg { class: Class::I, idx: d } }
+            "lua.new_table" => { let d = self.alloc(Class::Val); self.code.push(Op::NewTable(d.idx)); d }
+            "lua.get_index" => { let t = self.expr(&args[0]); let r = self.expr(&args[1]); let i = self.to_f(r); let d = self.alloc(Class::Val); self.code.push(Op::GetIdxF(d.idx, t.idx, i)); let f = self.freg(); self.code.push(Op::FUnbox(f, d.idx)); Reg { class: Class::F, idx: f } }
+            "lua.string_buffer" => { let d = self.alloc(Class::Val); self.code.push(Op::NewBuffer(d.idx)); if !matches!(&args[0], Expr::Str(s) if s.is_empty()) { let s = self.expr(&args[0]); self.code.push(Op::BufAppend(d.idx, s.idx)); } d }
+            "lua.string_buffer_append" => {
+                let buf = self.expr(&args[0]);
+                // An appended substring is copied straight from the source.
+                if let Expr::Call { op, args: sub, .. } = &args[1] { if op == "lua.substring" { let s = self.expr(&sub[0]); let r = self.expr(&sub[1]); let i = self.to_i(r); let r2 = self.expr(&sub[2]); let j = self.to_i(r2); self.code.push(Op::BufAppendSub(buf.idx, s.idx, i, j)); return Reg { class: Class::I, idx: 0 }; } }
+                let s = self.expr(&args[1]); self.code.push(Op::BufAppend(buf.idx, s.idx)); Reg { class: Class::I, idx: 0 }
+            }
+            "lua.substring" => { let s = self.expr(&args[0]); let r = self.expr(&args[1]); let i = self.to_i(r); let r2 = self.expr(&args[2]); let j = self.to_i(r2); let d = self.alloc(Class::Val); self.code.push(Op::Substring(d.idx, s.idx, i, j)); d }
+            "lua.string_buffer_finish" => { let buf = self.expr(&args[0]); let d = self.alloc(Class::Val); self.code.push(Op::BufFinish(d.idx, buf.idx)); d }
+            // `and` and `or` are Lua's: the right operand runs only when the
+            // left decides nothing. Pure, trap-free operands lower eagerly so
+            // the loop facts the verifier reads stay single instructions.
+            "and" if !pure(&args[1]) => {
+                let a = self.expr(&args[0]); let d = self.ireg(); self.code.push(Op::IMov(d, a.idx));
+                let branch = self.code.len(); self.code.push(Op::JmpIfIZero(d, 0));
+                let b = self.expr(&args[1]); self.code.push(Op::IMov(d, b.idx));
+                let end = self.code.len(); self.code[branch] = Op::JmpIfIZero(d, end as i32 - (branch as i32 + 1));
+                Reg { class: Class::I, idx: d }
+            }
+            "or" if !pure(&args[1]) => {
+                let a = self.expr(&args[0]); let d = self.ireg(); self.code.push(Op::IMov(d, a.idx));
+                let z = self.ireg(); self.code.push(Op::IK(z, 0)); let t = self.ireg(); self.code.push(Op::ICmpEq(t, d, z));
+                let branch = self.code.len(); self.code.push(Op::JmpIfIZero(t, 0));
+                let b = self.expr(&args[1]); self.code.push(Op::IMov(d, b.idx));
+                let end = self.code.len(); self.code[branch] = Op::JmpIfIZero(t, end as i32 - (branch as i32 + 1));
+                Reg { class: Class::I, idx: d }
+            }
             "and" => { let a = self.expr(&args[0]); let b = self.expr(&args[1]); let d = self.ireg(); self.code.push(Op::IAnd(d, a.idx, b.idx)); Reg { class: Class::I, idx: d } }
             "simd_species.species" => Reg { class: Class::Species, idx: 0 },
             "simd_lanes_generic.lanes" => { let d = self.ireg(); self.code.push(Op::IK(d, 4)); Reg { class: Class::I, idx: d } }
@@ -315,12 +368,14 @@ impl Lowerer {
                     }
                     let saved = self.facts.len();
                     self.facts.extend(facts);
+                    self.breaks.push(Vec::new());
                     self.block(body);
                     self.facts.truncate(saved);
                     let back = self.code.len();
                     self.code.push(Op::Jmp(header as i32 - (back as i32 + 1)));
                     let exit = self.code.len();
                     self.code[branch] = Op::JmpIfIZero(c.idx, exit as i32 - (branch as i32 + 1));
+                    for at in self.breaks.pop().unwrap() { self.code[at] = Op::Jmp(exit as i32 - (at as i32 + 1)); }
                 }
                 Stmt::If { cond, body, else_body } => {
                     let c = self.expr(cond);
@@ -340,12 +395,31 @@ impl Lowerer {
                         self.code[skip] = Op::Jmp(end as i32 - (skip as i32 + 1));
                     }
                 }
+                Stmt::For { var, start, stop, body } => {
+                    // A float loop index, inclusive stop, step one.
+                    let idx = self.alloc(Class::F);
+                    let s = self.expr(start); self.assign(idx, s);
+                    let st = self.expr(stop); let stop_f = self.to_f(st);
+                    let stop_reg = self.freg(); self.code.push(Op::FMov(stop_reg, stop_f));
+                    self.names.insert(var.clone(), idx);
+                    let header = self.code.len();
+                    let c = self.ireg(); self.code.push(Op::FCmpLe(c, idx.idx, stop_reg));
+                    let branch = self.code.len(); self.code.push(Op::JmpIfIZero(c, 0));
+                    self.breaks.push(Vec::new());
+                    self.block(body);
+                    let one = self.freg(); self.code.push(Op::FK(one, 1.0)); self.code.push(Op::FAdd(idx.idx, idx.idx, one));
+                    let back = self.code.len(); self.code.push(Op::Jmp(header as i32 - (back as i32 + 1)));
+                    let exit = self.code.len();
+                    self.code[branch] = Op::JmpIfIZero(c, exit as i32 - (branch as i32 + 1));
+                    for at in self.breaks.pop().unwrap() { self.code[at] = Op::Jmp(exit as i32 - (at as i32 + 1)); }
+                }
+                Stmt::Break => { let at = self.code.len(); self.code.push(Op::Jmp(0)); self.breaks.last_mut().expect("break outside a loop").push(at); }
                 Stmt::Expr(e) => { self.expr(e); }
                 Stmt::Store { op, target, index, value } => {
                     let s = self.names[target];
-                    let ir = self.expr(index); let i = self.to_i(ir);
-                    let vr = self.expr(value); let v = self.to_i(vr);
-                    match op.as_str() { "lua.scratch_u8_set4" => self.code.push(Op::StoreU32(s.idx, i, v)), "lua.scratch_u8_set" => self.code.push(Op::StoreU8(s.idx, i, v)), other => panic!("store {other}") }
+                    let ir = self.expr(index); let i = if op == "lua_set_index" { 0 } else { self.to_i(ir) };
+                    let vr = self.expr(value); let v = if op == "lua_set_index" { 0 } else { self.to_i(vr) };
+                    match op.as_str() { "lua.scratch_u8_set4" => self.code.push(Op::StoreU32(s.idx, i, v)), "lua.scratch_u8_set" => self.code.push(Op::StoreU8(s.idx, i, v)), "lua_set_index" => { let fi = self.to_f(ir); let fv = self.to_f(vr); let b = self.alloc(Class::Val); self.code.push(Op::FBox(b.idx, fv)); self.code.push(Op::SetIdxF(s.idx, fi, b.idx)); } other => panic!("store {other}") }
                 }
                 Stmt::Return(values) => {
                     if values.is_empty() { self.code.push(Op::RetNil); }
@@ -359,17 +433,21 @@ impl Lowerer {
 
 /// Lowers one IR function. Span and uniform parameters arrive as values in
 /// registers 1.. in declaration order.
-pub fn lower(f: &IrFunction) -> Function { lower_with(f, &[]) }
+pub fn lower(f: &IrFunction) -> Function { lower_with(f, &[], Box::new(|s| panic!("string literal {s:?} with no heap"))) }
 
 /// Lowers with named constants (the kernel's `konst_N` strings) bound to
 /// value registers loaded from the constant pool in the prologue.
-pub fn lower_with(f: &IrFunction, consts: &[(String, crate::heap::Value, usize)]) -> Function {
-    let mut l = Lowerer { code: Vec::new(), names: HashMap::new(), span_value: HashMap::new(), span_len: HashMap::new(), ni: 0, nf: 0, ni_high: 0, nf_high: 0, nv: 0, nregs: 1, facts: Vec::new(), relations: Vec::new(), fuse: std::env::var("NO_FMA").is_err(), hoisted_splats: HashMap::new(), prologue: Vec::new(), pending_string: None, consts: Vec::new(), const_len: HashMap::new() };
+pub fn lower_with(f: &IrFunction, consts: &[(String, crate::heap::Value, usize)], intern: Box<dyn FnMut(&str) -> crate::heap::Value>) -> Function {
+    let mut l = Lowerer { code: Vec::new(), names: HashMap::new(), span_value: HashMap::new(), span_len: HashMap::new(), ni: 0, nf: 0, ni_high: 0, nf_high: 0, nv: 0, nregs: 1, facts: Vec::new(), relations: Vec::new(), fuse: std::env::var("NO_FMA").is_err(), hoisted_splats: HashMap::new(), prologue: Vec::new(), pending_string: None, consts: Vec::new(), const_len: HashMap::new(), intern, breaks: Vec::new() };
     for (i, p) in f.params.iter().enumerate() {
         let vreg = (i + 1) as u8;
         l.nregs = vreg + 1;
         if p.ty.starts_with("lua_") {
             l.names.insert(p.name.clone(), Reg { class: Class::Val, idx: vreg });
+        } else if p.ty == "bool" {
+            let ir = l.ireg();
+            l.code.push(Op::Truthy(ir, vreg));
+            l.names.insert(p.name.clone(), Reg { class: Class::I, idx: ir });
         } else if p.kind.ends_with("span") {
             l.span_value.insert(p.name.clone(), vreg);
             let len = l.ireg();
@@ -513,7 +591,7 @@ pub fn verify(f: &Function) -> Result<(), String> {
 
 /// The integer register an opcode defines, if any.
 fn lower_dest(o: &Op) -> Option<u8> {
-    match *o { Op::IMov(d, _) | Op::IK(d, _) | Op::IAdd(d, ..) | Op::IAddK(d, ..) | Op::ISub(d, ..) | Op::IMaskU32(d, _) | Op::FToI(d, _) | Op::StorageLen(d, _) | Op::ICmpLe(d, ..) | Op::ICmpLt(d, ..) | Op::ICmpEq(d, ..) | Op::IAnd(d, ..) | Op::IOr(d, ..) | Op::IShl(d, ..) | Op::IShrU(d, ..) | Op::IBswap32(d, _) | Op::BytesLen(d, _) | Op::LoadU8(d, ..) | Op::LoadU8K(d, ..) | Op::LoadU32W(d, ..) | Op::IUnbox(d, _) | Op::ICmpSLt(d, ..) | Op::ICmpSLe(d, ..) => Some(d), _ => None }
+    match *o { Op::IMov(d, _) | Op::IK(d, _) | Op::IAdd(d, ..) | Op::IAddK(d, ..) | Op::ISub(d, ..) | Op::IMaskU32(d, _) | Op::FToI(d, _) | Op::StorageLen(d, _) | Op::ICmpLe(d, ..) | Op::ICmpLt(d, ..) | Op::ICmpEq(d, ..) | Op::ICmpNe(d, ..) | Op::Truthy(d, _) | Op::IAnd(d, ..) | Op::IOr(d, ..) | Op::IShl(d, ..) | Op::IShrU(d, ..) | Op::IBswap32(d, _) | Op::BytesLen(d, _) | Op::LoadU8(d, ..) | Op::LoadU8K(d, ..) | Op::LoadU32W(d, ..) | Op::IUnbox(d, _) | Op::ICmpSLt(d, ..) | Op::ICmpSLe(d, ..) => Some(d), _ => None }
 }
 
 /// Whether register `idx` at `at` was computed as `cursor + 1 - 1` through the
