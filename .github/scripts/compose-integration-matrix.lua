@@ -16,9 +16,9 @@ local platforms = {
     },
     {
         variable = "SELECTED_MACOS",
-        -- A cold Rust and toolchain rebuild plus the broad suite runs about 125
-        -- minutes on this three-core runner.
-        entry = {name = "macOS arm64", os = "macos-15", timeout = 150, artifact = "macos-arm64"},
+        -- The Rust-native gate and broad suite reached the 150-minute limit on
+        -- a cold three-core runner.
+        entry = {name = "macOS arm64", os = "macos-15", timeout = 180, artifact = "macos-arm64"},
     },
     {
         variable = "SELECTED_WINDOWS",
