@@ -13,13 +13,13 @@ use crate::heap::{OFF_T_HASH_PTR, OFF_T_HASH_MASK, OFF_T_META, VT_EMPTY, HEADER,
 use crate::interp::{Function, Op};
 use crate::compiled::{CODE_MAPS, helper_table};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, GlobalValue, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
+use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, FuncRef, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 #[cfg(feature = "aot")]
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 use std::collections::{BTreeSet, HashMap};
 
 
@@ -39,7 +39,17 @@ const MISS: i64 = (0x7ff8_0000_0000_0000u64 | (7 << 48)) as i64;
 pub struct Stubs { pub probe: FuncId, pub dispatch: FuncId, pub iter: FuncId }
 pub struct StubRefs { pub probe: cranelift_codegen::ir::FuncRef, pub dispatch: cranelift_codegen::ir::FuncRef, pub iter: cranelift_codegen::ir::FuncRef }
 
+#[derive(Default)]
+struct RegisteredCode(Vec<(usize, usize)>);
+impl Drop for RegisteredCode {
+    fn drop(&mut self) {
+        if self.0.is_empty() { return; }
+        CODE_MAPS.lock().unwrap().retain(|(start, end, _)| !self.0.contains(&(*start, *end)));
+    }
+}
+
 pub struct Compiler<M: Module> {
+    registered: RegisteredCode,
     module: M,
     ctx: cranelift_codegen::Context,
     fbc: FunctionBuilderContext,
@@ -65,16 +75,17 @@ pub struct Compiler<M: Module> {
     /// Per function: parameter count and whether every parameter and the
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
-    runtime_data: Option<DataId>,
+    runtime_data: Option<FuncId>,
     pub object_maps: Vec<(u32, usize, Vec<(u32, u32, Vec<u32>)>)>,
 }
 
 pub type Jit = Compiler<JITModule>;
 
-fn runtime_addr(b: &mut FunctionBuilder, table: Option<GlobalValue>, slot: i32, jit_addr: i64) -> Value {
+fn runtime_addr(b: &mut FunctionBuilder, table: Option<FuncRef>, slot: i32, jit_addr: i64) -> Value {
     if let Some(table) = table {
-        let base = b.ins().symbol_value(types::I64, table);
-        b.ins().load(types::I64, MemFlagsData::new().with_notrap(), base, slot * 8)
+        let slot = b.ins().iconst(types::I64, slot as i64);
+        let call = b.ins().call(table, &[slot]);
+        b.inst_results(call)[0]
     } else {
         b.ins().iconst(types::I64, jit_addr)
     }
@@ -99,11 +110,18 @@ impl Compiler<JITModule> {
         for (name, ptr, _) in &table { jb.symbol(*name, *ptr); }
         Compiler::with_module(JITModule::new(jb), None)
     }
+    /// The owning VM has stopped running; no exported entry remains callable.
+    pub(crate) unsafe fn free(self) {
+        let Self { module, registered, .. } = self;
+        drop(registered);
+        unsafe { module.free_memory(); }
+    }
     pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
         let (id, primary, code_len, maps) = self.compile_function(f, fid, false)?;
         self.module.finalize_definitions().unwrap();
         let start_addr = self.module.get_finalized_function(primary) as usize;
         CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
+        self.registered.0.push((start_addr, start_addr + code_len));
         Ok(self.module.get_finalized_function(id))
     }
     /// Heap-frame entry. Returns the bytecode PC at the next runtime boundary.
@@ -112,6 +130,7 @@ impl Compiler<JITModule> {
         self.module.finalize_definitions().unwrap();
         let start = self.module.get_finalized_function(primary) as usize;
         CODE_MAPS.lock().unwrap().push((start, start + code_len, maps));
+        self.registered.0.push((start, start + code_len));
         Ok(self.module.get_finalized_function(id))
     }
 
@@ -129,8 +148,8 @@ impl Compiler<ObjectModule> {
         let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(fb)).unwrap();
         let builder = ObjectBuilder::new(isa, "nupp-vm", cranelift_module::default_libcall_names()).unwrap();
         let module = ObjectModule::new(builder);
-        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime"));
-        // Object code reads the actual addresses through nupp_vm_runtime.
+        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime_v2"));
+        // Object code reads the actual addresses through nupp_vm_runtime_v2.
         // Nonzero placeholders only select the same lowering paths as the JIT.
         compiler.extra_addr = 1;
         compiler.last_nres_addr = 1;
@@ -164,14 +183,19 @@ impl<M: Module> Compiler<M> {
             hs.returns.push(AbiParam::new(types::I64));
             helpers.insert(name, module.declare_function(name, Linkage::Import, &hs).unwrap());
         }
-        let runtime_data = runtime_symbol.map(|name| module.declare_data(name, Linkage::Import, true, false).unwrap());
+        let runtime_data = runtime_symbol.map(|name| {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function(name, Linkage::Import, &sig).unwrap()
+        });
         let ctx = module.make_context();
-        Compiler { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new() }
+        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
     /// One stub: `params` i64 arguments, one i64 result, the body given the builder and its parameters.
-    fn build_stub(&mut self, name: &str, params: usize, body: impl FnOnce(&mut FunctionBuilder, &[Value], Option<GlobalValue>) -> Value) -> FuncId {
+    fn build_stub(&mut self, name: &str, params: usize, body: impl FnOnce(&mut FunctionBuilder, &[Value], Option<FuncRef>) -> Value) -> FuncId {
         let mut sig = self.module.make_signature();
         for _ in 0..params { sig.params.push(AbiParam::new(types::I64)); }
         sig.returns.push(AbiParam::new(types::I64));
@@ -180,7 +204,7 @@ impl<M: Module> Compiler<M> {
         self.ctx.func.signature = sig;
         {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
-            let runtime = self.runtime_data.map(|d| self.module.declare_data_in_func(d, b.func));
+            let runtime = self.runtime_data.map(|d| self.module.declare_func_in_func(d, b.func));
             let entry = b.create_block(); b.append_block_params_for_function_params(entry); b.switch_to_block(entry); b.seal_block(entry);
             let ps: Vec<Value> = b.block_params(entry).to_vec();
             let r = body(&mut b, &ps, runtime);
@@ -351,7 +375,7 @@ impl<M: Module> Compiler<M> {
         let frontend = self.module.target_config();
         {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
-            let runtime = self.runtime_data.map(|d| self.module.declare_data_in_func(d, b.func));
+            let runtime = self.runtime_data.map(|d| self.module.declare_func_in_func(d, b.func));
             let helper_refs: HashMap<&'static str, cranelift_codegen::ir::FuncRef> = self.helpers.iter().map(|(n, id)| (*n, self.module.declare_func_in_func(*id, b.func))).collect();
             let stub_refs: Option<StubRefs> = self.stubs.as_ref().map(|st| StubRefs { probe: self.module.declare_func_in_func(st.probe, b.func), dispatch: self.module.declare_func_in_func(st.dispatch, b.func), iter: self.module.declare_func_in_func(st.iter, b.func) });
             let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = f.code.iter().filter_map(|op| {
@@ -419,6 +443,7 @@ impl<M: Module> Compiler<M> {
                     _ => {}
                 }
             }
+            starts.retain(|&pc| pc < f.code.len());
             let blocks: HashMap<usize, Block> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
             // Where a propagating raise leaves this function: the sentinel
             // returned upward, as its callers and the runtime expect (6.5).
@@ -472,15 +497,29 @@ impl<M: Module> Compiler<M> {
                 }
                 if terminated { continue; }
                 let target = |off: i32| blocks[&((pc as i64 + 1 + off as i64) as usize)];
-                if frame && frame_boundary(op) {
+                let backedge = matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0);
+                let poll_cont = if frame && backedge && !crate::frame::boundary(op) {
+                    let call = b.ins().call(helper_refs["j_frame_poll"], &[]);
+                    let stop = b.inst_results(call)[0];
+                    let spill = b.create_block();
+                    let cont = b.create_block();
+                    b.ins().brif(stop, spill, &[], cont, &[]);
+                    b.switch_to_block(spill); b.seal_block(spill);
+                    Some(cont)
+                } else { None };
+                if frame && (crate::frame::boundary(op) || poll_cont.is_some()) {
                     for (i, &var) in rvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((crate::interp::HDR + i) * 8) as i32); }
                     for (i, &var) in ivars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_i() + i) * 8) as i32); }
                     for (i, &var) in fvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_f() + i) * 8) as i32); }
                     for (i, &var) in vvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_v() + 2 * i) * 8) as i32); }
                     let next = b.ins().iconst(types::I64, pc as i64);
                     b.ins().return_(&[next]);
-                    terminated = true;
-                    continue;
+                    if let Some(cont) = poll_cont {
+                        b.switch_to_block(cont); b.seal_block(cont);
+                    } else {
+                        terminated = true;
+                        continue;
+                    }
                 }
                 match *op {
                     Op::IK(d, k) => { seti!(d, b.ins().iconst(types::I64, k)); }
@@ -1217,13 +1256,3 @@ impl<M: Module> Compiler<M> {
 }
 
 impl Default for Jit { fn default() -> Self { Self::new() } }
-
-/// These operations can change frame ownership or enter arbitrary Nupp code.
-/// Returning to the driver before them prevents native callers surviving a park.
-fn frame_boundary(op: &Op) -> bool {
-    matches!(op, Op::Call(..) | Op::CallT(..) | Op::CallDyn(..) | Op::CallK(..)
-        | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)
-        | Op::CallMethod(..) | Op::PCall(..) | Op::Ret(..) | Op::RetN(..)
-        | Op::RetNil | Op::FRet(..) | Op::Park(..) | Op::Checkpoint
-        | Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::VarargN(..) | Op::VarargTable(..) | Op::Require(..) | Op::RequireV(..))
-}

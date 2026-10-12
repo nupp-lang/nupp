@@ -181,17 +181,8 @@ fn main() {
             f.nparams as u64 | ((plain as u64) << 8)
         }).collect();
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
-        unsafe {
-            nupp_vm::compiled::nupp_vm_runtime = nupp_vm::compiled::RuntimeAddresses {
-                current_closure: nupp_vm::compiled::closure_address(),
-                extra: &it.extra as *const [Value; 8] as u64,
-                last_nres: &it.last_nres as *const usize as u64,
-                entries: it.entries.as_ptr() as u64,
-                calltab: it.calltab.as_ptr() as u64,
-                probe: it.shape_probe.as_ptr() as u64,
-                consts: aot_consts.as_ptr() as u64,
-            };
-        }
+        it.runtime_consts = aot_consts;
+        it.linked_frames = it.frame_entries.clone();
         nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         nupp_vm::compiled::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
     }
@@ -263,12 +254,13 @@ fn main() {
                 }
                 if it.tasks.iter().any(|t| t.state == State::Runnable) { continue; }
                 if it.scheduler.as_ref().unwrap().next_wakeup().is_none() && it.host_waiters.is_empty() && !it.has_workers() { eprintln!("task scheduler has no event source for parked tasks"); std::process::exit(1); }
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                std::thread::park_timeout(std::time::Duration::from_millis(1));
             }
             let t = &it.tasks[task.index];
             let results = if t.results.is_empty() { vec![t.result] } else { t.results.clone() };
             it.release_task(task).unwrap();
             eprintln!("compiled frame entries: {}", it.compiled_frame_entries);
+            eprintln!("worker compiled entries: {}; compile {:.3} ms", it.worker_compiled_entries, it.worker_compile_micros as f64 / 1000.0);
             return results;
         }
         let t = it.spawn_closure(f, &call_args);

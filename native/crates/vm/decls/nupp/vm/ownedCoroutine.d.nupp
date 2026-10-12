@@ -1,0 +1,17 @@
+local __nuppCloseCoroutine: function(takes value: any): nil
+
+local record Wrapped
+    metamethod __call: function(borrows self: Wrapped, ...: any): ...any
+end
+
+local record Coroutines
+    create: function(body: any): affine(thread, __nuppCloseCoroutine)
+    resume: function(borrows thread: thread, ...: any): ...any
+    yield: function(...: any): ...any
+    status: function(borrows thread: thread): string
+    close: function(takes thread: thread): (boolean, any)
+    wrap: function(body: any): affine(Wrapped, __nuppCloseCoroutine)
+    running: function(): (thread?, boolean)
+    isyieldable: function(): boolean
+end
+return Coroutines

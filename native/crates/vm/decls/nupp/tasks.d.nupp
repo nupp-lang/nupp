@@ -1,4 +1,4 @@
--- The single-VM task surface supplied by the native host.
+-- Task ownership supplied by the native host.
 local record Task<R...>
     await: function(self: Task<R...>): R...
     isDone: function(self: Task<R...>): boolean
@@ -27,14 +27,20 @@ local record Scope is nupp.Closeable
     close: function(takes self: Scope): nil
 end
 
-local record Channel<T>
-    send: function(self: Channel<T>, value: T): nil
-    receive: function(self: Channel<T>): (T?, boolean)
-    close: function(self: Channel<T>): nil
+local record ChannelEndpoint<T>
+    send: function(self: ChannelEndpoint<T>, value: T): nil
+    receive: function(self: ChannelEndpoint<T>): (T?, boolean)
+end
+
+local record Channel<T> is nupp.Closeable
+    send: function(borrows self: Channel<T>, value: T): nil
+    receive: function(borrows self: Channel<T>): (T?, boolean)
+    share: function(borrows self: Channel<T>): ChannelEndpoint<T>
+    close: function(takes self: Channel<T>): nil
 end
 
 local record Tasks
-    channel: function<T>(capacity: integer): Channel<T>
+    channel: function<T>(capacity: integer): affine(Channel<T>)
     open: function(limit: integer?, timeoutMs: number?): affine(Scope)
     run: function<R...>(scoped body: function(borrows scope: Scope): R...): R...
         & function<R...>(limit: integer?, timeoutMs: number?, scoped body: function(borrows scope: Scope): R...): R...

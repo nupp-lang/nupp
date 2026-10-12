@@ -63,25 +63,27 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
     }
 }
 
-#[repr(C)]
-pub struct RuntimeAddresses {
-    pub current_closure: u64,
-    pub extra: u64,
-    pub last_nres: u64,
-    pub entries: u64,
-    pub calltab: u64,
-    pub probe: u64,
-    pub consts: u64,
-}
-
+/// Object code asks the current thread's VM for addresses. No process-global
+/// mutable address table is shared by parent and worker heaps.
 #[unsafe(no_mangle)]
-pub static mut nupp_vm_runtime: RuntimeAddresses = RuntimeAddresses {
-    current_closure: 0, extra: 0, last_nres: 0, entries: 0, calltab: 0, probe: 0, consts: 0,
-};
+pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
+    let it = ctx();
+    match slot {
+        0 => closure_address(),
+        1 => it.extra.as_ptr() as u64,
+        2 => &it.last_nres as *const usize as u64,
+        3 => it.entries.as_ptr() as u64,
+        4 => it.calltab.as_ptr() as u64,
+        5 => it.shape_probe.as_ptr() as u64,
+        6 => it.runtime_consts.as_ptr() as u64,
+        _ => unreachable!("invalid runtime address slot"),
+    }
+}
 
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
+        ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
@@ -91,6 +93,17 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_new_buffer", j_new_buffer as *const u8, 0), ("j_buf_append", j_buf_append as *const u8, 2), ("j_buf_append_sub", j_buf_append_sub as *const u8, 4), ("j_substring", j_substring as *const u8, 3), ("j_buf_finish", j_buf_finish as *const u8, 1),
         ("j_str_byte", j_str_byte as *const u8, 2), ("j_pow", j_pow as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
     ]
+}
+
+// Backedges yield a bounded worker turn without retaining native frames.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_poll() -> u64 {
+    let it = ctx();
+    if let Some(left) = it.instruction_budget.as_mut() {
+        *left = left.saturating_sub(1);
+        return (*left == 0) as u64;
+    }
+    0
 }
 
 // ---- runtime helpers --------------------------------------------------------

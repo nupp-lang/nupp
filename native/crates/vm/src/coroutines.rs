@@ -3,7 +3,7 @@
 use crate::{
     interp::Interp,
     scheduler::{Status, TaskId},
-    task_api::{Answer, field, put},
+    task_api::{field, put, Answer},
     value::Value,
 };
 fn id(vm: &mut Interp, h: Value) -> Option<TaskId> {
@@ -66,6 +66,21 @@ pub(crate) fn finished(vm: &mut Interp, tid: usize) {
 }
 pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> Answer {
     let arg = |i| args.get(i).copied().unwrap_or(Value::NIL);
+    if name == "tasks.coDispose" {
+        let mut h = arg(0);
+        let wrapped = wrapped(vm, h);
+        if wrapped != Value::NIL {
+            h = wrapped;
+        }
+        return match call(vm, tid, "tasks.coClose", &[h]) {
+            Answer::Values(values) if values.first() == Some(&Value::FALSE) => {
+                std::panic::panic_any(crate::builtins::LuaError(
+                    values.get(1).copied().unwrap_or(Value::NIL).0,
+                ))
+            }
+            answer => answer,
+        };
+    }
     match name {
         "tasks.coWrap" => {
             let Answer::Values(values) = call(vm, tid, "tasks.coCreate", args) else {

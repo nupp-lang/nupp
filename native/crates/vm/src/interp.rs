@@ -319,7 +319,6 @@ impl Function {
 }
 
 pub struct Interp {
-    pub(crate) channels: std::collections::HashMap<Value,crate::channels::Channel>,
     pub(crate) channel_registry: crate::channels::Shared,
     pub(crate) workers: std::collections::HashMap<u64,crate::workers::Worker>,
     pub(crate) instruction_budget: Option<usize>,
@@ -396,6 +395,10 @@ pub struct Interp {
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
     pub compiled_frame_entries: u64,
+    pub worker_compiled_entries: u64,
+    pub worker_compile_micros: u128,
+    pub linked_frames: Vec<u64>,
+    pub runtime_consts: Vec<u64>,
     pub lazy_compiled: usize,
     pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
@@ -475,7 +478,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { channels: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, compiled_frame_entries: 0, #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -1805,3 +1808,12 @@ pub fn op_name(op: &Op) -> &'static str {
 }
 
 pub fn storage_ptr(v: Value) -> Option<NonNull<Header>> { v.as_obj() }
+
+#[cfg(feature = "jit")]
+impl Drop for Interp {
+    fn drop(&mut self) {
+        // Dropping a VM owns the end of its compiled-entry lifetime. This matters
+        // for short-lived worker VMs: Cranelift otherwise retains their code pages.
+        if let Some(jit) = self.jit.take() { unsafe { jit.free(); } }
+    }
+}

@@ -1558,8 +1558,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        if isCoroutine and c.unsafeDepth > 0 then
-            -- Written inside an `@unsafe` construct: the author answers for the
+        if isCoroutine and (c.unsafeDepth > 0 or c.env and c.env.managedCoroutines) then
+            -- An owning runtime drains abandoned continuations. Otherwise, inside
+            -- an `@unsafe` construct the author answers for the
             -- continuation, the way a handler does for a handled suspension. A driver
             -- that forwards a nested thread's park to whoever resumes it is the shape
             -- this is for.
@@ -1926,6 +1927,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if stableMember and baseName == "coroutine" or isCoroutine then
             local intrinsic = isCoroutine and "yield" or memberName
             node.coroutineIntrinsic = intrinsic
+            local resultOwner = first and first.tag == "affine" and first or nil
             local actual = node.argumentPack or T.pack({})
 
             local function unknownPack()
@@ -1964,6 +1966,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             elseif intrinsic == "resume" then
                 local threadType = T.packAt(actual, 1)
+                if threadType and threadType.tag == "affine" then
+                    threadType = threadType.inner
+                end
                 if threadType and threadType.tag == "protocolThread" then
                     local threadArg = argExprs[1]
                     local threadEntry = threadArg
@@ -2066,7 +2071,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 first = T.union(statuses)
                 pack, rets = T.pack({first}), {first}
-            elseif intrinsic == "wrap" then
+            elseif intrinsic == "wrap" and (not resultOwner or resultOwner.inner.tag == "func") then
                 local bodyType = T.packAt(actual, 1)
                 if bodyType and bodyType.tag == "func" then
                     local wrappedReturns = T.packUnion({bodyType.yieldPack or unknownPack(), bodyType.retPack})
@@ -2100,6 +2105,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     )
                     pack, rets = T.pack({first}), {first}
                 end
+            end
+            -- Refining a coroutine protocol must retain the resolved API's owner.
+            if resultOwner and first.tag ~= "affine" then
+                first = T.affine(first, resultOwner.cleanups, resultOwner.transferOnly, resultOwner.obligation)
+                pack, rets = T.pack({first}), {first}
             end
         end
         -- A literal grammar has already told the compiler its capture shape. Ask the

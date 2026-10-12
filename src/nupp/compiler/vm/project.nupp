@@ -40,6 +40,9 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
     -- than the LuaJIT-backed library implementations in the source checkout.
     local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
+    env.managedCoroutines = true
+    -- The VM coroutine surface participates in ordinary affine cleanup.
+    env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
 
     return lower.emit(
         entry,

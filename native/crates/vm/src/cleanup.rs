@@ -216,15 +216,28 @@ impl Interp {
                 self.tasks[tid].cleanups.pop();
                 continue;
             }
-            if c.callback.as_builtin() == crate::builtins::id_of("tasks.close") {
+            if c.callback.as_builtin() == crate::builtins::id_of("tasks.close")
+                || c.callback.as_builtin() == crate::builtins::id_of("tasks.coDispose")
+                || c.callback.as_builtin() == crate::builtins::id_of("tasks.channelClose")
+            {
+                let operation = if c.callback.as_builtin()
+                    == crate::builtins::id_of("tasks.coDispose")
+                {
+                    "tasks.coDispose"
+                } else if c.callback.as_builtin() == crate::builtins::id_of("tasks.channelClose") {
+                    "tasks.channelClose"
+                } else {
+                    "tasks.close"
+                };
+                let disposing = operation != "tasks.close";
                 let mode = field(self, state, "mode");
-                if self.bytes_of(mode) != b"normal" {
+                if !disposing && self.bytes_of(mode) != b"normal" {
                     for task in crate::task_api::scope_children(self, c.value) {
                         self.cancel_task(task).unwrap();
                     }
                 }
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::task_api::call(self, tid, "tasks.close", &[c.value])
+                    crate::task_api::call(self, tid, operation, &[c.value])
                 }));
                 match outcome {
                     Ok(crate::task_api::Answer::Wait(task)) => {

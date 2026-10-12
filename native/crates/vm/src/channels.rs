@@ -2,7 +2,7 @@
 use crate::{
     interp::Interp,
     persist::{self, Policies, ResourceCodec, ResourceCodecs},
-    task_api::{Answer, put},
+    task_api::{put, Answer},
     value::Value,
 };
 use std::{
@@ -31,6 +31,7 @@ pub(crate) struct Codec {
 impl ResourceCodec for Codec {
     fn save(&mut self, vm: &Interp, object: Value) -> Result<Vec<u8>> {
         let q = vm
+            .heap
             .channels
             .get(&object)
             .ok_or("unknown channel")?
@@ -107,13 +108,14 @@ impl ResourceCodec for Codec {
                 q
             }
         };
-        vm.channels.insert(object, channel);
+        vm.heap.channels.insert(object, channel);
         install_methods(vm, object);
         Ok(())
     }
 }
 fn install_methods(vm: &mut Interp, object: Value) {
     for (n, b) in [
+        ("share", "tasks.channelShare"),
         ("send", "tasks.channelSend"),
         ("receive", "tasks.channelReceive"),
         ("close", "tasks.channelClose"),
@@ -157,13 +159,17 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
             c
         };
         let object = vm.new_table();
-        vm.resources.insert(object, KIND.into());
-        vm.channels.insert(object, channel);
+        let root = vm.register(object);
+        vm.heap.channels.insert(object, channel);
         install_methods(vm, object);
+        vm.release(root);
         return Answer::Values(vec![object]);
     }
     let object = at(0);
-    if !vm.channels.contains_key(&object)
+    if name == "tasks.channelShare" {
+        return Answer::Values(vec![object]);
+    }
+    if !vm.heap.channels.contains_key(&object)
         && crate::task_api::field(vm, object, "_closed") == Value::TRUE
     {
         return match name {
@@ -173,6 +179,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
         };
     }
     let channel = vm
+        .heap
         .channels
         .get(&object)
         .cloned()
@@ -183,7 +190,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
             put(vm, object, "_closed", Value::TRUE);
             crate::task_api::wake_event(vm, object);
             if channel.lock().unwrap().messages.is_empty() {
-                vm.channels.remove(&object);
+                vm.heap.channels.remove(&object);
                 vm.resources.remove(&object);
             }
             Answer::Values(vec![])
@@ -231,7 +238,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
                 } {
                     put(vm, object, "_closed", Value::TRUE);
                     crate::task_api::wake_event(vm, object);
-                    vm.channels.remove(&object);
+                    vm.heap.channels.remove(&object);
                     vm.resources.remove(&object);
                 }
                 let values = persist::load_graph(vm, &b, &Policies::default(), None)
@@ -256,7 +263,7 @@ impl Interp {
                 if c.status == crate::scheduler::Status::Active {
                     if let crate::interp::State::Parked(k) = self.tasks[tid].state {
                         let value = Value(k);
-                        if self.channels.contains_key(&value) {
+                        if self.heap.channels.contains_key(&value) {
                             return Some(value);
                         }
                     }

@@ -17,6 +17,8 @@ enum Command {
 pub struct Progress {
     pub status: Status,
     pub values: Option<Vec<u8>>,
+    pub compiled_entries: u64,
+    pub compile_micros: u128,
 }
 enum Reply {
     Step(Result<Progress>),
@@ -45,9 +47,11 @@ impl Worker {
             false,
         )?;
         let recipe = parent.code_events.clone();
+        let linked_frames = parent.linked_frames.clone();
         Self::start(move || {
             let mut vm = Interp::new();
             vm.channel_registry = registry.clone();
+            vm.linked_frames = linked_frames;
             for event in recipe {
                 match event {
                     CodeEvent::Image(s) => {
@@ -71,9 +75,13 @@ impl Worker {
         })
     }
     pub fn restore(bytes: Vec<u8>) -> Result<Self> {
-        Self::restore_shared(bytes, Default::default())
+        Self::restore_shared(bytes, Default::default(), Vec::new())
     }
-    fn restore_shared(bytes: Vec<u8>, registry: crate::channels::Shared) -> Result<Self> {
+    fn restore_shared(
+        bytes: Vec<u8>,
+        registry: crate::channels::Shared,
+        linked_frames: Vec<u64>,
+    ) -> Result<Self> {
         Self::start(move || {
             let mut vm = persist::load_vm_channels(
                 &bytes,
@@ -89,6 +97,7 @@ impl Worker {
                 .min_by_key(|t| t.generation)
                 .ok_or("worker checkpoint has no task")?;
             vm.threaded = false;
+            vm.linked_frames = linked_frames;
             Ok((vm, task))
         })
     }
@@ -96,6 +105,7 @@ impl Worker {
         let (tx, rx) = mpsc::channel();
         let (out, replies) = mpsc::channel();
         let (ready, started) = mpsc::sync_channel(1);
+        let host_thread = thread::current();
         let thread = thread::Builder::new()
             .name("nupp-worker".into())
             .spawn(move || {
@@ -111,6 +121,31 @@ impl Worker {
                         return;
                     }
                 };
+                vm.calltab = vm
+                    .funcs
+                    .iter()
+                    .map(|f| {
+                        f.nparams as u64
+                            | (((f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)
+                                as u64)
+                                << 8)
+                    })
+                    .collect();
+                vm.shape_probe = vm
+                    .heap
+                    .shapes
+                    .iter()
+                    .map(|s| (s.table.as_ptr() as u64, s.mask))
+                    .collect();
+                vm.runtime_consts = vm.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
+                #[cfg(feature = "compiled-runtime")]
+                if !vm.linked_frames.is_empty() {
+                    vm.frame_entries = vm.linked_frames.clone();
+                }
+                #[cfg(feature = "jit")]
+                if vm.linked_frames.is_empty() && std::env::var_os("NO_JIT").is_none() {
+                    vm.jit = Some(Box::new(crate::jit::Jit::new()));
+                }
                 let token = vm.scheduler.as_ref().unwrap().cancellation(task).unwrap();
                 if ready.send(Ok(token)).is_err() {
                     return;
@@ -154,11 +189,32 @@ impl Worker {
                                         &Policies::default(),
                                     )?)
                                 };
-                                Ok(Progress { status, values })
+                                let compile_micros = {
+                                    #[cfg(feature = "jit")]
+                                    {
+                                        vm.jit
+                                            .as_ref()
+                                            .map(|j| {
+                                                j.compile_micros.iter().map(|(_, us)| *us).sum()
+                                            })
+                                            .unwrap_or(0)
+                                    }
+                                    #[cfg(not(feature = "jit"))]
+                                    {
+                                        0
+                                    }
+                                };
+                                Ok(Progress {
+                                    status,
+                                    values,
+                                    compiled_entries: vm.compiled_frame_entries,
+                                    compile_micros,
+                                })
                             })();
                             if out.send(Reply::Step(result)).is_err() {
                                 break;
                             }
+                            host_thread.unpark();
                         }
                     }
                 }
@@ -300,6 +356,7 @@ impl Interp {
                 let worker = Worker::restore_shared(
                     self.bytes_of(data).to_vec(),
                     self.channel_registry.clone(),
+                    self.linked_frames.clone(),
                 )?;
                 self.workers.insert(task.generation, worker);
             }
@@ -330,6 +387,8 @@ impl Interp {
                 }
             };
             if let Some(p) = progress.filter(|p| p.status != Status::Active) {
+                self.worker_compiled_entries += p.compiled_entries;
+                self.worker_compile_micros += p.compile_micros;
                 let roots =
                     match persist::load_graph(self, &p.values.unwrap(), &Policies::default(), None)
                     {

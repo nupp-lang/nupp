@@ -240,7 +240,7 @@ function main.channels(): number
     do
         local channel = tasks.channel<number>(1)
         with scope = tasks.open() do
-            local sender = scope:fork(channel, function(channel: any): number
+            local sender = scope:fork(channel:share(), function(channel: any): number
                 channel:send(20)
                 channel:send(22)
                 return 1
@@ -250,7 +250,6 @@ function main.channels(): number
             assert(firstOk and secondOk and assert(first) + assert(second) == 42)
             assert(sender:await() == 1)
         end
-        channel:close()
     end
 
     return 42
@@ -269,6 +268,54 @@ function main.generators(): number
         assert(present and first == 20)
     end
     assert(state.closed == 1)
+
+    return 42
+end
+
+function main.automaticClose(): number
+    local state: any = {closed = 0}
+    do
+        local co = coroutine.create(function(): nil
+            with owned = resource(state) do
+                coroutine.yield(1)
+                coroutine.yield(2)
+            end
+        end)
+        local ok = coroutine.resume(co)
+        assert(ok)
+    end
+    assert(state.closed == 1, "coroutine scope exit must close its resources")
+    do
+        local step = coroutine.wrap(function(): nil
+            with owned = resource(state) do
+                coroutine.yield(1)
+                coroutine.yield(2)
+                coroutine.yield(3)
+            end
+        end)
+        assert(step() == 1 and step() == 2)
+    end
+    assert(state.closed == 2, "wrapped coroutine must close on scope exit")
+    local ok = pcall(function(): nil
+        local co = coroutine.create(function(): nil
+            with owned = resource(state) do
+                coroutine.yield(1)
+            end
+        end)
+        assert(coroutine.resume(co))
+        error("stop")
+    end)
+    assert(not ok and state.closed == 3)
+    local endpoint: any
+    do
+        local channel = tasks.channel<number>(1)
+        endpoint = channel:share()
+        channel:send(42)
+    end
+    local value, present = endpoint:receive()
+    assert(present and value == 42)
+    local _, more = endpoint:receive()
+    assert(not more, "channel scope exit must close after draining")
 
     return 42
 end

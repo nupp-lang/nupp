@@ -701,7 +701,7 @@ pub(crate) fn save_graph_with(
             if !whole_vm && (crate::coroutines::is_coroutine(vm,v) || crate::coroutines::wrapped(vm,v)!=Value::NIL) {
                 return Err("coroutine continuations require a whole-VM checkpoint".into());
             }
-            if let Some(kind) = vm.resources.get(&v).cloned() {
+            if let Some(kind) = vm.resources.get(&v).cloned().or_else(|| vm.heap.channels.contains_key(&v).then(|| crate::channels::KIND.to_owned())) {
                 if unsafe { v.as_obj().unwrap().as_ref().kind } != KIND_TABLE {
                     return Err(format!("resource {kind} requires a table identity"));
                 }
@@ -1354,7 +1354,7 @@ pub(crate) fn load_graph_with(
                     .get_mut(kind)
                     .unwrap()
                     .restore(vm, objects[i], data)?;
-                vm.resources.insert(objects[i], kind.clone());
+                if kind != crate::channels::KIND { vm.resources.insert(objects[i], kind.clone()); }
             }
         }
         for (i, n) in g.nodes.iter().enumerate() {
@@ -2008,7 +2008,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     vm.parks = parks;
     vm.resources.clear();
     for (id, kind) in resources {
-        vm.resources.insert(get_root(&roots, id)?, kind);
+        if kind != crate::channels::KIND { vm.resources.insert(get_root(&roots, id)?, kind); }
     }
     for (mut t, results, positions) in tasks {
         t.result = get_root(&roots, t.result.0 as usize)?;

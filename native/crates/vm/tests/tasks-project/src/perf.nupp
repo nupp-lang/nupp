@@ -1,0 +1,63 @@
+module perf
+
+local tasks = require("nupp.tasks")
+local perf = {}
+
+local function sum(n: number): number
+    local s = 0
+    for i = 1, n do
+        s = s + i
+    end
+
+    return s
+end
+
+function perf.cpu(): number
+    return sum(2000000)
+end
+
+function perf.worker(): number
+    with scope = tasks.open() do
+        local child = scope:fork(2000000, sum)
+        return child:await()
+    end
+end
+
+function perf.checkpoints(): number
+    for i = 1, 10000 do
+        tasks.checkpoint()
+    end
+    return 10000
+end
+
+function perf.channels(): number
+    local channel = tasks.channel<number>(1)
+    local total = 0
+    for i = 1, 10000 do
+        channel:send(i)
+        local value, present = channel:receive()
+        assert(present)
+        total = total + assert(value)
+    end
+
+    return total
+end
+
+function perf.coroutines(): number
+    local co = coroutine.create(function(): number
+        for i = 1, 10000 do
+            coroutine.yield(i)
+        end
+        return 0
+    end)
+    local total = 0
+    for i = 1, 10000 do
+        local ok, value = coroutine.resume(co)
+        assert(ok)
+        total = total + (value as number)
+    end
+
+    return total
+end
+
+export = perf

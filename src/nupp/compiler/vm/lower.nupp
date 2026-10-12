@@ -2102,6 +2102,7 @@ function lower.emit(
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
+    local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"
     deferCleanup = function(f, value, cleanup, guard)
         if guard and cleanup.kind ~= "field" then
             local copy = f:reg()
@@ -2114,6 +2115,10 @@ function lower.emit(
         if cleanup.kind == "method" or cleanup.kind == "closure" then
             local name = cleanup.kind == "closure" and "__nuppRelease" or cleanup.name
             f:op("DeferMethod", value, f:const("str", name))
+        elseif cleanup.kind == "function" and cleanup.key:sub(-#coroutineCleanupSuffix) == coroutineCleanupSuffix then
+            local callback = f:reg()
+            f:op("K", callback, f:const("builtin", "tasks.coDispose"))
+            f:op("Defer", value, callback)
         elseif cleanup.kind == "function" and cleanup.key == "nupp:lua.d.nupp#__nuppCloseFile" then
             local callback = f:reg()
             f:op("K", callback, f:const("builtin", "file.close"))

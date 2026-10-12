@@ -265,6 +265,9 @@ const CHUNK_HEADER: usize = 64;
 pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barrier_grays: u64, pub steps: u64, pub chunks: u64, pub large: u64 }
 
 pub struct Heap {
+    // Native queue references follow their managed endpoint's lifetime. This
+    // side table does not root endpoints; sweep drops the Arc before slot reuse.
+    pub(crate) channels: HashMap<Value, crate::channels::Channel>,
     /// Every chunk in allocation order, as its base address.
     chunks: Vec<usize>,
     chunk_set: HashSet<usize>,
@@ -306,7 +309,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), stats: Stats::default(), alloc_kinds: [0; 10], marking: 0 }
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), stats: Stats::default(), alloc_kinds: [0; 10], marking: 0 }
     }
 
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
@@ -681,7 +684,7 @@ impl Heap {
             self.live_count -= 1;
             if h.flags & F_INTERNED != 0 { self.interned.remove(h.bytes()); }
             match h.kind {
-                KIND_TABLE => { let t = h.table(); std::ptr::drop_in_place(t); }
+                KIND_TABLE => { self.channels.remove(&Value::obj(p)); let t = h.table(); std::ptr::drop_in_place(t); }
                 KIND_STORAGE => { let s = h.storage(); std::ptr::drop_in_place(s); }
                 KIND_BYTES => { let b = h.byte_buffer(); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),
@@ -725,6 +728,8 @@ impl Heap {
         for &h in &self.large { if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); } }
         out
     }
+
+    pub fn channel_count(&self) -> usize { self.channels.len() }
 
     pub fn full_cycle(&mut self, roots: &dyn Roots) {
         // Finish an in-progress incremental cycle, then collect from current

@@ -1,11 +1,14 @@
 //! Compiled heap-frame entries. Native code returns at every call/park boundary;
 //! the interpreter performs the transfer, then re-enters the current frame.
-use crate::interp::Interp;
+use crate::interp::{Interp, Op};
 
 impl Interp {
     #[cfg(feature = "compiled-runtime")]
     pub(crate) fn run_compiled_frame(&mut self, tid: usize, fid: u32, pc: usize) -> usize {
         use std::sync::atomic::Ordering;
+        // Runtime boundaries execute in the driver. Entering native code at
+        // one would only load and spill the same frame before returning here.
+        if boundary(&self.funcs[fid as usize].code[pc]) { return pc; }
         self.frame_entries.resize(self.funcs.len(), 0);
         if self.frame_entries[fid as usize] == 0 {
             #[cfg(not(feature = "jit"))]
@@ -49,4 +52,14 @@ impl Interp {
         assert!((next as usize) < self.funcs[fid as usize].code.len());
         next as usize
     }
+}
+
+/// These operations can change frame ownership or enter arbitrary Nupp code.
+/// Returning to the driver before them prevents native callers surviving a park.
+pub(crate) fn boundary(op: &Op) -> bool {
+    matches!(op, Op::Call(..) | Op::CallT(..) | Op::CallDyn(..) | Op::CallK(..)
+        | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)
+        | Op::CallMethod(..) | Op::PCall(..) | Op::Ret(..) | Op::RetN(..)
+        | Op::RetNil | Op::FRet(..) | Op::Park(..) | Op::Checkpoint
+        | Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::VarargN(..) | Op::VarargTable(..) | Op::Require(..) | Op::RequireV(..))
 }

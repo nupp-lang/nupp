@@ -15,7 +15,8 @@ SetField 1 0 2
 Ret 1
 end
 function loop 1 0 2 1 :v
-Checkpoint
+IK 0 0
+IAddK 0 0 1
 Jmp -2
 end
 function channel 2 0 8 1 :v
@@ -99,6 +100,10 @@ fn isolated_heap_results_and_cycles_cross_as_graphs() {
     let mut worker = Worker::spawn(&mut vm, Value::func(0), &[table]).unwrap();
     let p = finish(&mut worker);
     assert_eq!(p.status, Status::Completed);
+    #[cfg(feature = "jit")]
+    if std::env::var_os("NO_JIT").is_none() {
+        assert!(p.compiled_entries > 0);
+    }
     let key = vm.intern("answer");
     assert_eq!(vm.get_index(table, key), Value::NIL);
     let roots =
@@ -249,4 +254,27 @@ fn worker_transfer_error_fails_once_without_restarting_child() {
     assert!(!vm.has_workers());
     vm.run_ready(16).unwrap();
     assert!(!vm.has_workers());
+}
+
+#[test]
+fn closed_unread_channels_do_not_root_their_native_queues() {
+    let mut vm = fixture();
+    for _ in 0..100 {
+        let ch = channel(&mut vm);
+        let root = vm.register(ch);
+        vm.schedule(Value::func(4), &[ch, Value::num(42.0)], None)
+            .unwrap();
+        vm.run_ready(8).unwrap();
+        vm.schedule(Value::func(6), &[ch], None).unwrap();
+        vm.run_ready(8).unwrap();
+        let tasks: Vec<_> = vm.scheduler.as_ref().unwrap().tasks().collect();
+        for task in tasks {
+            vm.release_task(task).unwrap();
+        }
+        vm.release(root);
+    }
+    // Explicit collection must reclaim queued bytes even when nobody drained
+    // the closed queue. Endpoint side-table entries cannot keep objects alive.
+    vm.full_cycle();
+    assert_eq!(vm.heap.channel_count(), 0);
 }

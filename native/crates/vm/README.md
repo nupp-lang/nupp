@@ -865,7 +865,8 @@ requests made during a scheduler batch are noticed before the next activation.
 thread. Code recipes are replayed and captured graphs/arguments/results are
 copied through the binary serializer. No ordinary heap address crosses threads.
 The host drives worker turns, cancellation and clocks. The implementation caps
-concurrent worker threads at 64; pooling and a compiled worker tier are future
+concurrent worker threads at 64. Workers now compile heap-frame entries on their
+own threads, or attach the parent's verified linked AOT entries. Pooling remains
 performance work. Native capabilities without transfer codecs are refused. Failed result transfer
 fails the task once; it never restarts an old worker snapshot.
 Compiled helper context, closure roots and helper frame pointers are thread-local.
@@ -873,8 +874,10 @@ Compiled helper context, closure roots and helper frame pointers are thread-loca
 `tasks.channel<T>(capacity)` is a shared, bounded channel. `send(value)` parks
 when full; `receive()` returns `(value, true)`, including a nil value, or
 `(nil, false)` once closed and drained. `close()` wakes waiters and rejects future
-sends. Messages are serialized copies. Channel endpoints are explicitly closed;
-closing and draining releases their native registration. Worker transfer shares
+sends. Messages are serialized copies. `channel()` returns an affine owner: scope
+exit closes it, including error unwinding. `share()` returns a send/receive endpoint
+that can cross worker boundaries; the owner controls the queue's lifetime. Closing
+still permits draining queued messages. Closing and draining releases registration. Worker transfer shares
 only the queue, through a VM-owned registry and codec. Checkpointing pauses worker
 turns, saves each worker VM and the channel queues, and restores shared queue
 identity. Pending external OS requests still require the existing drain gate.
@@ -882,9 +885,11 @@ identity. Pending external OS requests still require the existing drain gate.
 `coroutine.create/resume/yield/wrap/status/running/isyieldable/close` use scheduler
 frames. Nested resume and host parking preserve result positions and resumer
 relationships across restore. Standalone value serde refuses coroutine
-continuations; they require a whole-VM checkpoint. Abandoned suspended coroutines must be explicitly
-closed in this runtime: collection of unreachable coroutine continuations is
-not implemented. The typed `nupp.generator.create<T>(body)` facade returns an
+continuations; they require a whole-VM checkpoint. Nupp's VM declarations make
+`coroutine.create` and `coroutine.wrap` affine owners, so leaving their scope closes
+suspended continuations and drains resources. A wrapped coroutine is a reusable
+owning callable. The typed
+`nupp.generator.create<T>(body)` facade returns an
 owner with `next(): (T?, boolean)` and `close`; its `with` scope closes a partially
 consumed body and drains its affine resources automatically.
 
@@ -909,3 +914,61 @@ at 6,927,267 bytes. The generator fixture also passes linked frame AOT execution
 and fresh-process checkpoint restore with executable memory denied.
 Formatting, a cold repository check, default/no-JIT Rust suites, and the legacy
 compiler's byte-identical fixpoint also pass.
+
+
+## Compiled workers and uniform ownership (2026-10-12)
+
+Worker JITs are created and retained on their worker thread. A loop backedge polls
+the bounded-turn budget, including loops without calls or explicit checkpoints;
+a save or cancellation never requires interrupting a native activation. Restored
+workers compile again on demand. Worker teardown frees generated code and removes
+its stack maps. Linked frame AOT works in workers too: object
+code obtains VM addresses through `nupp_vm_runtime_v2` on the executing thread.
+The previous process-global address table is gone. Older objects must be re-emitted.
+
+Ordinary Nupp locals returned by `tasks.channel`, `coroutine.create`, or
+`coroutine.wrap` now close at lexical scope exit, just like generators. Explicit
+close consumes the owner; subsequent use is rejected. Channel endpoints from
+`share()` are shareable capabilities with no cleanup ownership. After owner close,
+receivers can drain queued messages and then see end-of-stream; sends fail. Native
+queue references follow managed endpoint reachability, so a closed unread queue
+does not stay alive through a registry root.
+The private coroutine provider remains the unowned mechanism used internally by
+the generator facade, whose public result already carries its cleanup obligation.
+
+The checker retains ownership when refining a coroutine's typed protocol. The VM
+target declares that it drains owned continuations, permitting resources to remain
+live across yield; the Lua target's existing suspension rule is unchanged. Tests
+cover early scope exit, repeated wrapped calls, error unwinding, and rejection of
+use after explicit close, under interpreted/compiled execution and GC stress.
+
+### Measured costs
+
+Release build on the same loaded machine as the preceding experiments. Three
+alternating interpreter/compiled process pairs, each with one first call and five
+repeats; the table is the median of the three process medians. Reproduce with
+`python3 native/crates/vm/tests/concurrency-perf.py COMPILER_IMAGE`.
+
+| workload | interpreter | compiled frame tier |
+| --- | ---: | ---: |
+| sum 1..2,000,000 on main VM | 32.43 ms | 9.10 ms |
+| same sum in a fresh worker | 40.58 ms | 12.65 ms |
+| 10,000 cancellation checkpoints | 0.282 ms | 0.480 ms |
+| 10,000 numeric channel send/receive pairs, same VM | 4.84 ms | 6.11 ms |
+| 10,000 coroutine resume/yield pairs | 7.83 ms | 9.09 ms |
+
+Each worker sample includes thread/VM creation, graph transfer, scheduling, and
+fresh worker compilation. Worker compilation itself was 0.50 ms; the compiled
+first invocation including parent compilation was 13.74 ms. CPU-heavy workers
+improve about 3.2x. Tiny control/message loops still favor the interpreter: the
+frame tier's runtime transfers and full-window loads/spills outweigh their little
+arithmetic. Cancellation checkpoints do not park; coroutine handoffs do. These
+results do not establish compiler throughput or worker scaling across core counts.
+The runner now wakes promptly on worker replies instead of imposing a 1 ms sleep.
+
+Validation on the final revision: cold repository check and both byte-identical
+compiler fixpoints (VM image: 6,930,222 bytes); default/no-JIT Rust suites; source
+ownership/task tests with GC stress/oracle/quarantine; persistence hooks on all
+three tiers; linked AOT worker and automatic-close fixtures with fresh-process
+restore and executable memory denied. The unread-channel test confirms collection
+releases queued native storage after all managed endpoints are dropped.
