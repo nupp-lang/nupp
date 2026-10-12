@@ -1020,3 +1020,49 @@ Validation: default and no-JIT Rust suites; source task/ownership fixtures under
 GC stress, oracle, quarantine, and JIT verification; persistence hooks and restore
 on all three tiers; frame AOT cleanup and worker restore with executable memory
 denied. No Nupp compiler sources or bytecode format changed.
+
+## Check image dependencies (2026-10-12)
+
+The project builder loads AOT code generation, packaging, hot-reload support,
+and the documentation builder when a target requests them. GPU declaration
+detection stays in the lightweight checking policy. Dynamic dependency markers preserve
+the existing cache fingerprints, and AOT builds restore their cached inputs
+through a factory in the backend. Stub catalogs read the host ABI version from
+platform metadata without loading the LuaJIT packager.
+
+The compiler loads the native process provider when it starts an isolated
+child. Its typed loader retains the affine process result and automatic
+cleanup, while ordinary checking can emit without that provider's source.
+The filesystem host creates directories and removes files, links, and directory
+trees. Recursive removal leaves symlink targets intact.
+
+The VM emitter excludes imports the checker marked as type-only. Runtime
+library tables expose the existing string, table, and math builtins, including
+numeric `math.huge` and `math.pi`. Concatenation assignments use a temporary
+accumulator so later operands can still read the destination's previous value.
+Capture analysis includes named cleanup functions from affine metadata, even
+when no source expression refers to them. Assignments to global names write
+the VM's shared global table, including `_` in a multiple assignment.
+Project loading registers the VM library root for module names and type
+resolution. Qualified module references use the checker's resolved projection;
+the repository manifest cannot become the global `nupp` namespace.
+The intrinsic namespace is a runtime table. Labels and jumps resolve within
+their lexical block and unwind affine cleanups when leaving a scope.
+
+```sh
+python3 native/crates/vm/tests/cli-image-smoke.py /path/to/project-compiler.image
+python3 native/crates/vm/tests/project-smoke.py /path/to/project-compiler.image
+```
+
+The CLI image test asks the VM compiler to emit the real `check` command,
+verifies its bytecode, and rejects legacy AOT lowering, LLVM code generation,
+C-header parsing, LuaJIT packaging, hot-reload, native processes, and
+documentation backends in its module list.
+Static target descriptions remain available for manifest checking. The project
+fixture exercises erased imports, library tables, concatenation and global
+assignments, and named affine cleanup on both interpreters and the JIT, followed
+by the compiler-image fixpoint.
+
+This gate covers image construction. Full CLI execution, repository checking,
+and the classified corpus remain open. CLI derivations, reflection registry
+initialization, and the remaining runtime host services still need that work.

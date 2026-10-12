@@ -953,6 +953,37 @@ print("done")
     assert(out == "done\n", "requiring a command module loads its grammar, not the compiler:\n" .. out)
 end
 
+function M.projectLoadingDoesNotLoadCodeGeneration()
+    local runtimePipe = assert(io.popen(("'%s/../scripts/toolchain' luajit"):format(HERE)))
+    local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
+    runtimePipe:close()
+    local probe = (
+        [[
+package.path = %q
+require("nupp.tools.build.project")
+local policy = require("nupp.tools.build.aotcheck")
+assert(policy.mentionsGpuTarget('@aot(target = "gpu")'))
+assert(not policy.mentionsGpuTarget('@aot local function plain() end'))
+assert(not policy.mentionsGpuTarget('target = "gpu"'))
+for _, name in ipairs({"nupp.tools.build.aot", "nupp.tools.build.aotllvm",
+    "nupp.compiler.aot.llvm.codegen", "nupp.tools.build.kits",
+    "nupp.tools.hotsession", "nupp.tools.doc", "nupp.tools.build.package"}) do
+    assert(not package.loaded[name], "loaded " .. name)
+end
+print("done")
+]]
+    ):format(package.path)
+    local script = os.tmpname()
+    local file = assert(io.open(script, "wb"))
+    file:write(probe)
+    file:close()
+    local pipe = assert(io.popen(("'%s' '%s' 2>&1"):format(runtime, script)))
+    local out = pipe:read("*a")
+    pipe:close()
+    os.remove(script)
+    assert(out == "done\n", "project checking loads code generation:\n" .. out)
+end
+
 -- `--json` positions come from an index of where each line starts; a diagnostic
 -- on the last line of a file, and one on the first, both have to land where the
 -- text form would put them.
@@ -1142,9 +1173,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     )
     assert(report.regions == nil, "automatic regions remain opt-in")
 
-    local regions = json.decode(
-        captureJson(("ownership-audit --json --regions '%s/surface.nupp'"):format(dir))
-    ).regions
+    local regions = json.decode(captureJson(("ownership-audit --json --regions '%s/surface.nupp'"):format(dir))).regions
     assert(#regions == 1 and regions[1].owners[1].name == "value", "automatic cleanup sites are enumerable")
     assert(
         regions[1].id:find("function:", 1, true)

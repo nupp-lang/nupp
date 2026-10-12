@@ -215,6 +215,7 @@ function lower.emit(
         f.captured = {}
         f.parent = parent
         f.breaks = {}
+        f.labelScopes = {}
         f.yields = {}
         f.tables = {}
         setmetatable(f, Fn)
@@ -468,8 +469,20 @@ function lower.emit(
     local LIBS = {string = true, table = true, math = true, bit = true, os = true, io = true}
     local BITOPS = {["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor", ["<<"] = "IShl", [">>"] = "IShrU"}
     -- Global tables the runtime provides as modules.
-    local GLOBAL_MODULES = {_G = true, package = true, os = true, io = true, bit = true, debug = true}
+    local GLOBAL_MODULES = {
+        _G = true,
+        package = true,
+        os = true,
+        io = true,
+        bit = true,
+        debug = true,
+        math = true,
+        string = true,
+        table = true
+    }
     local OPTIONAL_GLOBALS = {
+        nupp = true,
+        _VERSION = true,
         jit = true,
         arg = true,
         coroutine = true,
@@ -557,11 +570,11 @@ function lower.emit(
     end
 
     local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, deferCleanup
-    local nuppChain, modulePathOf, queueModule
+    local queueModule
     -- Expression kinds that write their destination only after every read of
     -- their operands, so the destination may be a register the operands name.
-    -- A table constructor writes first and then reads its fields; `and`, `or`
-    -- and `??` write the left operand before evaluating the right.
+    -- A table constructor writes first and then reads its fields; `and`, `or`,
+    -- `??` and the concatenation accumulator write before later operands.
     local DST_SAFE = {
         call = true,
         methodCall = true,
@@ -585,7 +598,7 @@ function lower.emit(
         end
         if node.kind == "binop" then
             local op = tokText(node.op);
-            return op ~= "and" and op ~= "or" and op ~= "??"
+            return op ~= "and" and op ~= "or" and op ~= "??" and op ~= ".."
         end
 
         return DST_SAFE[node.kind] == true
@@ -595,34 +608,6 @@ function lower.emit(
         local pass = (want == "v" and dst and dstSafe(node)) and dst or nil
         local r, c = expr(f, node, pass, want)
         return coerce(f, r, c, want, dst)
-    end
-
-    -- Whether `node` is a dotted chain rooted at the global `nupp` namespace;
-    -- answers the longest prefix that names a module and the parts after it.
-    -- The module is queued for compilation.
-    nuppChain = function(f, node)
-        local parts = {}
-        local n = node
-        while n.kind == "dotIndex" do
-            table.insert(parts, 1, tokText(n.name));
-            n = n.obj
-        end
-        if n.kind ~= "name" or tokText(n.token) ~= "nupp" or f:binding("nupp") then
-            return nil
-        end
-        for i = #parts, 0, -1 do
-            local name = "nupp" .. (i > 0 and ("." .. table.concat(parts, ".", 1, i)) or "")
-            if modulePathOf(name) then
-                local rest = {}
-                for j = i + 1, #parts do
-                    rest[#rest + 1] = parts[j]
-                end
-                queueModule(name)
-                return name, rest
-            end
-        end
-
-        return nil
     end
 
     -- Emits a condition and the branch taken when it is false: a typed
@@ -1495,6 +1480,17 @@ function lower.emit(
             f:op("K", dst, f:const("false", ""))
         elseif k == "nil" or k == "nilExpr" then
             f:op("Nil", dst)
+        elseif (k == "name" or k == "dotIndex") and (node.qualifiedModule or node.compilerModule) then
+            -- The checker resolves namespace projections, including shadowing.
+            -- A matching file alone is not evidence of a runtime module.
+            local name = node.qualifiedModule or node.compilerModule
+            queueModule(name)
+            f:op("Require", dst, f:const("str", name))
+            for _, member in ipairs(node.qualifiedMembers or {}) do
+                local t = f:reg();
+                f:op("GetField", t, dst, f:const("str", member));
+                f:op("Move", dst, t)
+            end
         elseif k == "name" then
             local name = tokText(node.token)
             if BUILTINS[name] then
@@ -1602,16 +1598,6 @@ function lower.emit(
             f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
             exprAs(f, node.ifFalse, "v", dst)
             f:patch(skip, "Jmp", f:offset(skip, f:here()))
-        elseif k == "dotIndex" and nuppChain(f, node) then
-            -- `nupp.a.b.c` on the global namespace: the longest prefix that is a
-            -- module is required (and compiled), the rest read as fields.
-            local modName, rest = nuppChain(f, node)
-            f:op("Require", dst, f:const("str", modName))
-            for _, part in ipairs(rest) do
-                local t = f:reg();
-                f:op("GetField", t, dst, f:const("str", part));
-                f:op("Move", dst, t)
-            end
         elseif k == "dotIndex" then
             local fname = tokText(node.name)
             if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:binding(tokText(node.obj.token)) then
@@ -2053,9 +2039,16 @@ function lower.emit(
             elseif r then
                 coerce(f, valueReg, "v", c, r)
             else
-                local ui = assert(f:upvalue(tokText(target.token)), "assign to unknown name " .. tokText(target.token))
-                local cellReg = f:upvalReg(ui);
-                f:op("SetCell", cellReg, valueReg)
+                local name = tokText(target.token)
+                local ui = f:upvalue(name)
+                if ui then
+                    local cellReg = f:upvalReg(ui);
+                    f:op("SetCell", cellReg, valueReg)
+                else
+                    local globals = f:reg();
+                    f:op("Require", globals, f:const("str", "_G"));
+                    f:op("SetField", globals, f:const("str", name), valueReg)
+                end
             end
         elseif target.kind == "dotIndex" then
             local shape = shapeOf(target.obj.inferredType)
@@ -2099,6 +2092,12 @@ function lower.emit(
         for _, at in ipairs(list) do
             f:patch(at, "Jmp", f:offset(at, f:here()))
         end
+    end
+
+    local function patchGoto(f, jump, label)
+        assert(label.depth <= jump.depth, "goto enters a cleanup scope")
+        f:patch(jump.unwind, "Unwind", label.depth)
+        f:patch(jump.branch, "Jmp", f:offset(jump.branch, label.pc))
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
@@ -2236,6 +2235,30 @@ function lower.emit(
             exprsInto(f, exprs, #targets, base)
             for i, target in ipairs(targets) do
                 assignTo(f, target, base + i - 1)
+            end
+        elseif k == "gotoStmt" then
+            local name = tokText(node.name)
+            local label
+            for i = #f.labelScopes, 1, -1 do
+                label = f.labelScopes[i].labels[name]
+                if label then
+                    break
+                end
+            end
+            assert(label, "no visible label " .. name)
+            local jump = {unwind = f:op("Unwind", 0), branch = f:op("Jmp", 0), depth = f.cleanupDepth or 0}
+            if label.pc then
+                patchGoto(f, jump, label)
+            else
+                label.pending[#label.pending + 1] = jump
+            end
+        elseif k == "labelStmt" then
+            local scope = f.labelScopes[#f.labelScopes]
+            local label = assert(scope.labels[tokText(node.name)])
+            label.pc = f:here()
+            label.depth = label.atEnd and scope.depth or (f.cleanupDepth or 0)
+            for _, jump in ipairs(label.pending) do
+                patchGoto(f, jump, label)
             end
         elseif k == "yieldStmt" then
             local y = assert(f.yields and f.yields[#f.yields], "yield outside a do expression")
@@ -2685,8 +2708,22 @@ function lower.emit(
 
     block = function(f, node)
         local depth = f.cleanupDepth or 0
+        local stats = node.stats or node.body and node.body.stats or {}
+        local scope = {labels = {}, depth = depth}
+        local atEnd = true
+        for i = #stats, 1, -1 do
+            local st = stats[i]
+            if st.kind == "labelStmt" then
+                local name = tokText(st.name)
+                assert(not scope.labels[name], "duplicate label " .. name)
+                scope.labels[name] = {atEnd = atEnd, pending = {}}
+            elseif st.kind ~= "emptyStmt" then
+                atEnd = false
+            end
+        end
+        f.labelScopes[#f.labelScopes + 1] = scope
         f:push()
-        for _, s in ipairs(node.stats or node.body and node.body.stats or {}) do
+        for _, s in ipairs(stats) do
             stmtReclaim(f, s)
         end
         if (f.cleanupDepth or 0) > depth then
@@ -2694,6 +2731,7 @@ function lower.emit(
             f.cleanupDepth = depth
         end
         f:pop()
+        f.labelScopes[#f.labelScopes] = nil
     end
 
     -- The CST keeps every syntax child in a node's array part (`cst.add`), and
@@ -2759,6 +2797,29 @@ function lower.emit(
         end
     end
 
+    -- Named affine terminals are reads introduced by the checker. They need
+    -- the same cells as source-level reads when cleanup runs in a closure.
+    local function noteCleanup(chain, cleanup, here)
+        if cleanup.kind == "function" then
+            noteUse(chain, cleanup.name, here)
+        elseif cleanup.kind == "field" then
+            noteCleanup(chain, cleanup.cleanup, here)
+        end
+    end
+
+    local function noteCleanups(node, chain, here)
+        for _, cleanup in ipairs(node.ownerCleanups or {}) do
+            noteCleanup(chain, cleanup, here)
+        end
+        for _, owner in pairs(node.automaticOwners or {}) do
+            if owner.lowerable then
+                for _, cleanup in ipairs(owner.cleanups or {}) do
+                    noteCleanup(chain, cleanup, here)
+                end
+            end
+        end
+    end
+
     local analyzeExpr, analyzeBlock, analyzeStmt
     -- Expressions: names and nested functions, through any node shape.
     analyzeExpr = function(node, chain, here, seen)
@@ -2766,6 +2827,7 @@ function lower.emit(
             return
         end
         seen[node] = true
+        noteCleanups(node, chain, here)
         if node.kind == "name" and node.token then
             noteUse(chain, tokText(node.token), here);
             return
@@ -2796,6 +2858,7 @@ function lower.emit(
     analyzeStmt = function(st, chain, here, seen)
         local k = st.kind
         local scope = chain[#chain]
+        noteCleanups(st, chain, here)
         if k == "localStmt" then
             for _, e in ipairs(st.exprs or {}) do
                 analyzeExpr(e, chain, here, seen)
@@ -2866,6 +2929,7 @@ function lower.emit(
             chain[#chain + 1] = {}
             for _, binding in ipairs(st.bindings or {}) do
                 analyzeExpr(binding.expr, chain, here, seen)
+                noteCleanups(binding, chain, here)
                 chain[#chain][tokText(binding.name)] = here
             end
             analyzeBlock(st.body, chain, here, seen)
@@ -2912,6 +2976,9 @@ function lower.emit(
         fnStack[#fnStack + 1] = funcbody
         for _, capture in ipairs(funcbody.takenCaptures or {}) do
             noteUse(chain, capture.name, here)
+            for _, cleanup in ipairs(capture.type.cleanups or {}) do
+                noteCleanup(chain, cleanup, here)
+            end
         end
         analyzeBlock(funcbody.body, chain, here, seen)
         fnStack[#fnStack] = nil
@@ -3071,7 +3138,6 @@ function lower.emit(
     -- Modules ----------------------------------------------------------------------
     local modules, moduleOrder = {}, {}
     local modulePath = resolve
-    modulePathOf = resolve
     local pendingModules = {}
     queueModule = function(name)
         pendingModules[#pendingModules + 1] = name
@@ -3080,6 +3146,9 @@ function lower.emit(
     local function requiresOf(tree)
         local names = {}
         walkSyntax(tree, {}, function(n)
+            if n.typeOnlyRequire then
+                return false
+            end
             if n.kind == "call"
                 and n.obj
                 and n.obj.kind == "name"

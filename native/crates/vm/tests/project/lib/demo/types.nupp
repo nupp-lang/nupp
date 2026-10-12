@@ -1,0 +1,5 @@
+module demo.types
+
+export type Answer = number
+
+error("a type-only dependency must not execute")

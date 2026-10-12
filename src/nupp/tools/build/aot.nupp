@@ -268,15 +268,12 @@ local function mentionsAot(text: string): boolean
     return text:find("@aot", 1, true) ~= nil
 end
 
---- Whether source may need the compiler-carried GPU runtime while it is checked.
---- Allowed to answer yes for a comment or string, like `mentionsAot`; a false
---- positive stages one unused source file, while a false negative makes a real GPU
---- declaration impossible to type.
+--- Returns whether source may need the GPU runtime while it is checked.
 function aot.mentionsGpuTarget(text: string): boolean
-    return mentionsAot(text) and text:match("target%s*=%s*[\"']gpu[\"']") ~= nil
+    return aotcheck.mentionsGpuTarget(text)
 end
 
-local mentionsGpuTarget = aot.mentionsGpuTarget
+local mentionsGpuTarget = aotcheck.mentionsGpuTarget
 
 --- A source's checked tree, or nothing when there is no sound one to lower.
 ---
@@ -1244,6 +1241,15 @@ record aot.Carried
 
     --- What the code generator said about itself last time.
     toolchain: aot.Remembered?
+end
+
+--- Restores the typed cache inputs for an AOT build.
+function aot.carried(
+    objects: {[string]: string}?,
+    modules: {[string]: aot.WasmModule}?,
+    toolchain: aot.Remembered?
+): aot.Carried
+    return new aot.Carried(objects = objects, modules = modules, toolchain = toolchain)
 end
 
 local function replayFile(files: {[string]: string}, path: string?): nil

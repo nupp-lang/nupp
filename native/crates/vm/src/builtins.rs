@@ -22,6 +22,7 @@ pub const NAMES: &[&str] = &[
     "vm.loadImage", "vm.processId", "vm.sha256", "vm.saveValue", "vm.loadValue", "vm.loadInto",
     "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "affine.release", "tasks.fork", "tasks.channel", "tasks.channelSend", "tasks.channelReceive", "tasks.channelClose", "tasks.coCreate", "tasks.coResume", "tasks.coYield", "tasks.coStatus", "tasks.coRunning", "tasks.coClose", "tasks.coWrap", "tasks.coIsYieldable", "tasks.channelShare", "tasks.coDispose",
     "terminal.isTerminal", "terminal.columns", "clock.now",
+    "files.remove",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -170,7 +171,7 @@ fn path_object(it: &mut Interp, text: &str) -> Value {
     it.release(h); t
 }
 /// The file-system minimum the compiler reads through `nupp.io.files` and
-/// `nupp.io.path`, answered by the host directly; writes are refused.
+/// `nupp.io.path`, answered by the host directly.
 fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     match name {
         "files.info" => {
@@ -196,7 +197,33 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 Err(e) => { let msg = it.heap_new_string(&format!("{p}: {e}")); outs![Value::NIL, msg] }
             }
         }
-        "files.createDirectory" => { let msg = it.heap_new_string("writing is not available on this runtime"); outs![Value::boolean(false), msg] }
+        "files.createDirectory" | "files.remove" => {
+            let p = path_text(it, arg(args, 0));
+            if name == "files.remove" && !matches!(arg(args, 1), Value::NIL | Value::TRUE | Value::FALSE) {
+                return it.err("nupp: io.files recursive must be a boolean");
+            }
+            let result = if name == "files.createDirectory" {
+                std::fs::create_dir_all(&p)
+            } else {
+                std::fs::symlink_metadata(&p).and_then(|m| {
+                    if m.file_type().is_symlink() {
+                        // Windows directory links require remove_dir. Neither
+                        // operation follows the link into the target tree.
+                        #[cfg(windows)]
+                        { use std::os::windows::fs::FileTypeExt; if m.file_type().is_symlink_dir() { return std::fs::remove_dir(&p); } }
+                        std::fs::remove_file(&p)
+                    } else if m.is_dir() {
+                        if arg(args, 1).truthy() { std::fs::remove_dir_all(&p) } else { std::fs::remove_dir(&p) }
+                    } else {
+                        std::fs::remove_file(&p)
+                    }
+                })
+            };
+            match result {
+                Ok(()) => outs![Value::boolean(true)],
+                Err(e) => { let msg = it.heap_new_string(&format!("{p}: {e}")); outs![Value::boolean(false), msg] }
+            }
+        }
         "path.currentDirectory" => { let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| ".".to_string()); outs![path_object(it, &cwd)] }
         "path.newPath" => { let p = path_text(it, arg(args, 0)); outs![path_object(it, &p)] }
         "path.toString" => { let p = path_text(it, arg(args, 0)); outs![str_of(it, p.as_bytes())] }

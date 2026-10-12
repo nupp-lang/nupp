@@ -10,7 +10,6 @@ acquisition waits until the standalone compiler carries HTTP/TLS itself.
 
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
-local packaging = require("nupp.tools.build.package")
 local distribution = require("nupp.tools.build.platform")
 
 local stubs = {}
@@ -104,10 +103,10 @@ local function catalog(): any?, string?
     if type(value) ~= "table" or not safeComponent(value.catalogRelease) then
         return nil, "stub catalog requires a safe non-empty catalogRelease"
     end
-    if value.hostAbi ~= packaging.hostAbiVersion then
+    if value.hostAbi ~= distribution.hostAbiVersion then
         return nil, (
             "stub catalog %s has hostAbi %s but this compiler requires %d"
-        ):format(value.catalogRelease, tostring(value.hostAbi), packaging.hostAbiVersion)
+        ):format(value.catalogRelease, tostring(value.hostAbi), distribution.hostAbiVersion)
     end
     if type(value.stubs) ~= "table" then
         return nil, "stub catalog " .. value.catalogRelease .. " requires a stubs table"

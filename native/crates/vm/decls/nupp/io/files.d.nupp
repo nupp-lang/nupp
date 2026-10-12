@@ -15,5 +15,6 @@ local record Files
     exists: function(path: string): boolean
     list: function(path: string): ({Entry}?, string?)
     createDirectory: function(path: string): (boolean, string?)
+    remove: function(path: string, recursive: boolean?): (boolean, string?)
 end
 return Files

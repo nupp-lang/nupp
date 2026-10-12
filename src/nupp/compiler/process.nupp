@@ -9,8 +9,16 @@ that will read it. Windows and POSIX disagree about how, so quoting is the whole
 of this module, and callers pass an argv and never build a command line.
 ]]
 
-const {type Process as NativeProcess} = require("nupp.io.process")
+const {type Process as NativeProcess, type Options as NativeOptions} = require("nupp.io.process")
 const {type Error as IoError} = require("nupp.io")
+
+local type ProcessHost = {spawn: function(NativeOptions): (affine(NativeProcess)?, IoError?)}
+
+-- Only isolated children need the native provider. Retain its fingerprint and
+-- its ownership contract when loading it on demand.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.io.process"
+local loadProcess: function(string): ProcessHost = require
 
 local process = {}
 
@@ -289,8 +297,8 @@ end
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
-    local native = require("nupp.io.process")
-    local nativeOptions: native.Options = {
+    local native = loadProcess("nupp.io.process")
+    local nativeOptions: NativeOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -368,8 +376,8 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         "process.startIsolated leaves deadlines and cancellation to the session caller"
     )
     local args = boundedArgs(argv, opts)
-    local native = require("nupp.io.process")
-    local nativeOptions: native.Options = {
+    local native = loadProcess("nupp.io.process")
+    local nativeOptions: NativeOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,

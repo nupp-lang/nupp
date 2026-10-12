@@ -911,6 +911,10 @@ impl Interp {
         self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
+        let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
+        let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort"]);
+        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp"]);
+        for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
         let io = table_of(self, &["io.write", "io.open", "io.read"]);
         // The standard streams: objects whose `write` is a method.
@@ -919,7 +923,7 @@ impl Interp {
         let debug = table_of(self, &["debug.getinfo"]);
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
         // modules: a `require` finds them before the image's.
-        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile"]);
+        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove"]);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
@@ -954,13 +958,16 @@ impl Interp {
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
         let g = self.new_table(); self.registered.push(g);
+        // Runtime libraries populate the intrinsic namespace independently of
+        // modules selected through qualified names.
+        let nupp = self.new_table(); self.registered.push(nupp); let k = self.intern("nupp"); self.set_index(g, k, nupp);
         let co=self.loaded["coroutine"];let k=self.intern("coroutine");self.set_index(g,k,co);
-        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
+        for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
         for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
         let k = self.intern("__nupp_load_image");
         self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.loadImage").unwrap()));
         let k = self.intern("_G"); self.set_index(g, k, g);
-        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
+        for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
     }
     /// The host table a module gets from `require`: one builtin per service.
     pub fn host_table(&mut self) -> Value {

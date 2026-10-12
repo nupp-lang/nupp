@@ -22,7 +22,6 @@ local deps = require("nupp.tools.build.deps")
 local generators = require("nupp.tools.build.generators")
 local spi = require("nupp.tools.build.spi")
 local modules = require("nupp.tools.build.modules")
-local packaging = require("nupp.tools.build.package")
 local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
 local native = require("nupp.tools.build.native")
@@ -160,11 +159,21 @@ local toolFingerprint = fingerprint.toolFingerprint
 local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
-local aotPolicy = require("nupp.tools.build.aot")
+local aotcheck = require("nupp.tools.build.aotcheck")
+-- Optional build tools are loaded only by a target that requests them. Keep
+-- their dependencies visible to module fingerprinting.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.tools.build.aot
+@requires-dynamically nupp.tools.hotsession
+@requires-dynamically nupp.tools.doc
+@requires-dynamically nupp.tools.build.package
+]]
+local loadBuildTool: function(string): any = require
 
 local function mentionsGpuTarget(path: string): boolean
     local source = fs.readFile(path)
-    return source ~= nil and aotPolicy.mentionsGpuTarget(source as string)
+    return source ~= nil and aotcheck.mentionsGpuTarget(source as string)
 end
 
 --- A check does not enter the AOT phase that normally stages this runtime before
@@ -243,12 +252,6 @@ local function aotInputSources(root: string, outDir: string, config: any, target
 
     return sources
 end
-
-local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
-local componentOutput = packaging.componentOutput
-local binaryOutput = packaging.binaryOutput
-local stampFile = packaging.stampFile
-local payloadBytes = packaging.payloadBytes
 
 --- Reads and validates a project's manifest. See nupp.tools.build.manifest.
 project.loadManifest = manifest.load
@@ -427,7 +430,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- of what watch generation writes into a module, so a component generated
         -- without it is not the code the session would produce for it.
         local read, pinned = pcall(
-            require("nupp.tools.hotsession").libraries,
+            loadBuildTool("nupp.tools.hotsession").libraries,
             config,
             require("nupp.compiler.fs").absolute(root)
         )
@@ -458,7 +461,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             say(opts, "NUPP0004", "nupp: " .. tostring(depErr) .. "\n")
             return 1
         end
-        return (require("nupp.tools.doc").build(root, config, target, {
+        return (loadBuildTool("nupp.tools.doc").build(root, config, target, {
             checkOnly = opts.checkOnly,
             output = opts.outDir,
         }))
@@ -616,7 +619,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local aotWasmModules: {string} = {}
     local aotGpu = false
     local aotRemarks: {any} = {}
-    if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
+    if not opts.checkOnly and aotcheck.applies(target.aot) then
+        local aotPolicy = loadBuildTool("nupp.tools.build.aot")
         report:at("aot")
         report:step(
             (target.aot == "require" or target.aot == "require-wasm") and "compiling ahead-of-time code"
@@ -709,12 +713,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 target.aotFeatures,
                 target.aotTarget as string?,
                 aotLinkage,
-                new aotPolicy.Carried(
-                    objects = oldState.aotObjects,
+                aotPolicy.carried(
+                    oldState.aotObjects,
                     -- The state holds what JSON read back; these are the records
                     -- the AOT stage wrote into it, and it checks each before use.
-                    modules = oldState.aotModules as {[string]: aotPolicy.WasmModule}?,
-                    toolchain = oldState.aotToolchain as aotPolicy.Remembered?
+                    oldState.aotModules,
+                    oldState.aotToolchain
                 ),
                 report,
                 aotScope
@@ -927,7 +931,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         table.sort(runtimeModules)
         local requiredHostFeatures = nativeFeatures.requiredHostFeatureNames(resolvedEffects)
-        local text, bundleErr, unreachable = bundleText(
+        local text, bundleErr, unreachable = loadBuildTool(
+            "nupp.tools.build.package"
+        ).bundleText(
             root,
             config,
             target,
@@ -958,7 +964,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local name = target.name or opts.target or (target.platforms and "default") or target.kind
         local output
         if target.kind == "binary" then
-            output = binaryOutput(root, target, name, outDir, selectedPlatform, opts.outDir ~= nil)
+            output = loadBuildTool(
+                "nupp.tools.build.package"
+            ).binaryOutput(root, target, name, outDir, selectedPlatform, opts.outDir ~= nil)
             if target.payloadOutput ~= nil then
                 local payloadOutput = join(root, target.payloadOutput as string)
                 if normalize(payloadOutput) == normalize(output) then
@@ -1024,12 +1032,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
                 return 1
             end
-            local payload, payloadFlags, payloadErr = payloadBytes(text, selectedPlatform)
+            local payload, payloadFlags, payloadErr = loadBuildTool(
+                "nupp.tools.build.package"
+            ).payloadBytes(text, selectedPlatform)
             if not payload then
                 say(opts, "NUPP0004", "nupp: " .. tostring(payloadErr) .. "\n")
                 return 1
             end
-            local stamped, stampErr, archive = stampFile(output, stub, payload, selectedPlatform, payloadFlags)
+            local stamped, stampErr, archive = loadBuildTool(
+                "nupp.tools.build.package"
+            ).stampFile(output, stub, payload, selectedPlatform, payloadFlags)
             if not stamped then
                 say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
                 return 1
@@ -1038,8 +1050,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 newState.outputs[archive] = true
             end
         else
-            output = target.kind == "component" and componentOutput(root, target, name, opts.outDir)
-                or bundleOutput(root, target, name, opts.outDir)
+            output = target.kind == "component"
+                and loadBuildTool("nupp.tools.build.package").componentOutput(root, target, name, opts.outDir)
+                or loadBuildTool("nupp.tools.build.package").bundleOutput(root, target, name, opts.outDir)
             local written, writeErr = writeFile(output, text)
             if not written then
                 say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
@@ -1097,7 +1110,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             local packagedManifest = join(packagedRoot, "units.json")
             -- Packaged for another process to read, so it is held to its format here
             -- rather than discovered wrong there.
-            local _, manifestErr = aotPolicy.readUnitsManifest(aotManifest as string)
+            local _, manifestErr = loadBuildTool("nupp.tools.build.aot").readUnitsManifest(aotManifest as string)
             if manifestErr ~= nil then
                 say(opts, "NUPP0001", "nupp: " .. manifestErr .. "\n")
                 return 1
@@ -1565,7 +1578,9 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
             local outDir = normalize(target.outDir or "build")
             local candidates: {string} = {}
             for _, selectedPlatform in ipairs(selected) do
-                local raw = binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
+                local raw = loadBuildTool(
+                    "nupp.tools.build.package"
+                ).binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
                 candidates[#candidates + 1] = raw
                 if require("nupp.tools.build.platform").isPosix(selectedPlatform) then
                     candidates[#candidates + 1] = raw .. ".tar"
@@ -1705,7 +1720,9 @@ local function stage0Text(root: string, config: manifest.Config): string?, strin
     -- than everything that has since appeared beside them.
     local outDir = target.outDir or "build"
     local state = loadState(join(root, join(outDir, ".nupp-state.json")))
-    local text, bundleErr = bundleText(
+    local text, bundleErr = loadBuildTool(
+        "nupp.tools.build.package"
+    ).bundleText(
         root,
         config,
         target,

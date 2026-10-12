@@ -44,7 +44,7 @@ end
 
 --- Runtime contract between a compiler-owned payload and host. Container format
 --- compatibility remains `PAYLOAD_VERSION`; target C layout has its own ABI.
-local hostAbiVersion = 1
+local hostAbiVersion = require("nupp.tools.build.platform").hostAbiVersion
 
 -- Named by module path rather than required: nothing of these is wanted at run time.
 const {type Config} = require("nupp.tools.build.manifest")

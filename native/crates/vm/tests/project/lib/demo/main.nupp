@@ -1,13 +1,93 @@
 module demo.main
 
-local math = require("demo.math")
+const {type Answer} = require("demo.types")
+local arithmetic = require("demo.math")
 local main = {}
+
+local record Lease
+    state: any
+end
+
+local function destroyLease(takes self: Lease): nil
+    self.state.closed = self.state.closed + 1
+end
+
+local function lease(state: any): affine(Lease, destroyLease)
+    return new Lease(state = state)
+end
 
 local function pack(...)
     return {n = select("#", ...), "prefix", ...}
 end
 
-function main.run(): number
+function main.run(): Answer
+    local state: any = {closed = 0}
+
+    local function useLease(): nil
+        local owned = lease(state)
+        assert(owned.state.closed == 0)
+    end
+
+    useLease()
+    assert(state.closed == 1)
+    with owned = lease(state) do
+        assert(owned.state.closed == 1)
+    end
+    assert(state.closed == 2)
+    local dropped = lease(state)
+    nupp.drop(dropped)
+    assert(state.closed == 3)
+    local moduleName = "contracts.tail"
+    moduleName = "nupp.codec.json.spi" .. moduleName:sub(10)
+    assert(moduleName == "nupp.codec.json.spi.tail")
+    local repeated = "x"
+    repeated = "prefix" .. repeated .. repeated
+    assert(repeated == "prefixxx")
+    local previous = rawget(_G, "_")
+    local status = ""
+    _, status = 17, "assigned"
+    assert(rawget(_G, "_") == 17 and status == "assigned")
+    _ = 23
+    assert(rawget(_G, "_") == 23)
+    _G._ = previous
+    local intrinsic: any = nupp
+    assert(intrinsic == rawget(_G, "nupp"))
+    intrinsic.vmSmoke = 9
+    assert(rawget(rawget(_G, "nupp"), "vmSmoke") == 9)
+    assert(demo.math.twice(21) == 42)
+    do
+        local demo = {math = {answer = 7}}
+        assert(demo.math.answer == 7)
+    end
+    local jumps = 0
+    ::again::
+    jumps += 1
+    if jumps < 3 then
+        goto again
+    end
+    do
+        with owned = lease(state) do
+            assert(owned.state.closed == 3)
+            goto cleaned
+        end
+    end
+    ::cleaned::
+    assert(jumps == 3 and state.closed == 4)
+    for i = 1, 2 do
+        if i == 1 then
+            goto nextIteration
+        end
+        local owned = lease(state)
+        assert(owned.state.closed == 4)
+        ::nextIteration::
+    end
+    assert(state.closed == 5)
+    local libraries: {table} = {math, string, table}
+    local floor = rawget(libraries[1], "floor")
+    assert(floor(3.75) == 3 and rawget(libraries[1], "huge") > 1e300)
+    assert(rawget(libraries[1], "pi") == math.pi)
+    assert(libraries[2].sub("library", 1, 3) == "lib")
+    assert(libraries[3].concat({"a", "b"}, ":") == "a:b")
     local values = pack(1, nil, 3, 4, 5, 6, 7, 8, 9, 10, 11, nil)
     assert(values.n == 12 and values[1] == "prefix" and values[2] == 1)
     assert(values[3] == nil and values[12] == 11 and values[13] == nil)
@@ -28,7 +108,7 @@ function main.run(): number
     local tiny = 1e-20
     assert(bigB - bigA == 1 and tiny > 0)
 
-    return math.twice(20) + 2
+    return arithmetic.twice(20) + 2
 end
 
 export = main

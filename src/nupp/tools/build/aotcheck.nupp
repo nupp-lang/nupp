@@ -82,6 +82,13 @@ function aotcheck.applies(policy: string?): boolean
     return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
 end
 
+--- Returns whether source may need the GPU runtime while it is checked.
+--- Comments and strings may select an unused runtime; actual annotations must
+--- always select it. This scan only stages declarations before checking.
+function aotcheck.mentionsGpuTarget(text: string): boolean
+    return text:find("@aot", 1, true) ~= nil and text:match("target%s*=%s*[\"']gpu[\"']") ~= nil
+end
+
 --- Whether a build looks for `@aot` functions in `path`.
 ---
 --- Under the include roots, or the project directory when there are none, and

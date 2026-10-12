@@ -16,6 +16,7 @@ binary = str(Path(sys.argv[2] if len(sys.argv) > 2 else "build/rust/target/relea
 root = str(Path.cwd())
 env = dict(os.environ, NO_JIT="1")
 env.pop("EMIT_STUBS", None)
+env.pop("EMIT_SURVEY", None)
 for key in ("JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "NO_THREADED"):
     env.pop(key, None)
 
@@ -38,6 +39,7 @@ with tempfile.TemporaryDirectory() as directory:
     image = json.loads(run(seed, "emit", fixture, "demo.main").stdout)
     assert image == json.loads(run(seed, "emit", fixture, "demo.main", rust=True).stdout)
     assert image == json.loads(run(seed, "emit", fixture, "demo.main", gc=True).stdout)
+    assert "module demo.types " not in image, "type-only import entered the runtime image"
     program = output / "program.image"
     program.write_text(image)
     for mode in ("threaded", "rust", "jit"):

@@ -45,6 +45,53 @@ fn filesystem_builtins_do_not_enter_scalar_dispatch() {
 }
 
 #[test]
+fn filesystem_host_creates_and_removes_without_following_links() {
+    use std::path::{Path, PathBuf};
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    fn call(it: &mut Interp, name: &str, path: &Path, recursive: Value) -> Vec<Value> {
+        let module = it.require("nupp.io.files");
+        let key = it.intern(name);
+        let function = it.get_index(module, key);
+        let path = it.heap_new_string(&path.to_string_lossy());
+        it.call_value(function, &[path, recursive])
+    }
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = Scratch(std::env::temp_dir().join(format!("nupp-vm-files-{}-{nonce}", std::process::id())));
+    let nested = root.0.join("tree/nested");
+    let mut it = Interp::new();
+    it.install_globals();
+    assert_eq!(call(&mut it, "createDirectory", &nested, Value::NIL), vec![Value::TRUE]);
+    assert_eq!(call(&mut it, "createDirectory", &nested, Value::NIL), vec![Value::TRUE]);
+    let file = nested.join("kept.txt");
+    std::fs::write(&file, "kept").unwrap();
+    let failed = call(&mut it, "remove", &nested, Value::FALSE);
+    assert_eq!(failed[0], Value::FALSE);
+    assert!(!it.bytes_of(failed[1]).is_empty());
+    assert!(file.exists());
+    assert_eq!(call(&mut it, "remove", &file, Value::NIL), vec![Value::TRUE]);
+    assert_eq!(call(&mut it, "remove", &nested, Value::FALSE), vec![Value::TRUE]);
+    assert_eq!(call(&mut it, "remove", &file, Value::NIL)[0], Value::FALSE);
+    #[cfg(unix)]
+    {
+        let outside = root.0.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("kept.txt"), "kept").unwrap();
+        let link = root.0.join("tree/link");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert_eq!(call(&mut it, "remove", &link, Value::TRUE), vec![Value::TRUE]);
+        assert!(outside.join("kept.txt").exists());
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert_eq!(call(&mut it, "remove", &root.0.join("tree"), Value::TRUE), vec![Value::TRUE]);
+        assert!(outside.join("kept.txt").exists());
+    }
+    assert_eq!(call(&mut it, "remove", &root.0, Value::TRUE), vec![Value::TRUE]);
+    assert!(!root.0.exists());
+}
+
+#[test]
 fn compiler_host_sha256_and_process_identity() {
     let mut it = Interp::new();
     it.install_globals();
