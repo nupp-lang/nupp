@@ -161,8 +161,9 @@ static Value slow(ARGS) {
     uint32_t r = rt_exec_op(ctx, (uint32_t)(pc - fi->code));
     if (r == ST_DONE || r == ST_PARKED || r == ST_ERROR) { ctx->status = r; return 0; }
     if (r == ST_REENTER) { REENTER; }
-    // The stack may have moved under an allocation or a push inside the helper.
+    // The stack or dispatch tables may have moved inside the helper.
     frame = ctx->stack + ctx->cur;
+    fi = FUNC_OF(frame);
     regs = (Value*)(frame + HDR);
     iregs = (int64_t*)(frame + fi->off_i);
     fregs = (double*)(frame + fi->off_f);
@@ -313,6 +314,7 @@ static Value h_calldyn(ARGS) {
         uint32_t id = (uint32_t)callee;
         if (id >= HOST_BASE) SLOW;
  NOTE_PC;        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs); CHECK_ERR;
+        fi = FUNC_OF(ctx->stack + ctx->cur);
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }

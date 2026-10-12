@@ -144,6 +144,9 @@ fn sync(ctx: &mut Ctx, it: &mut Interp) {
     ctx.cap = t.stack.len() as u64;
     ctx.cur = t.cur() as u64;
     ctx.last_nres = it.last_nres as u64;
+    ctx.funcs = it.finfo.as_ptr(); ctx.nfuncs = it.finfo.len() as u64;
+    ctx.shapes = it.shape_info.as_ptr(); ctx.nshapes = it.shape_info.len() as u64;
+    ctx.entries = it.entries.as_ptr();
 }
 
 /// Executes one opcode of the context's task in Rust and answers the next
@@ -204,6 +207,7 @@ pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.index(Value(obj), Value(name)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
+    sync(ctx, it);
     v.0
 }
 /// A read by any value key outside the core's array fast path: hash part,
@@ -214,6 +218,7 @@ pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.index_any(Value(obj), Value(key)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
+    sync(ctx, it);
     v.0
 }
 /// A table or record read by integer index outside the core's array fast path.
@@ -223,6 +228,7 @@ pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.index(Value(obj), Value::num(i as f64)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
+    sync(ctx, it);
     v.0
 }
 /// A store by integer index: the array part's growth, the hash part, a record's children.

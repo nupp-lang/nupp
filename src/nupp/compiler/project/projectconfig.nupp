@@ -17,7 +17,6 @@ validated and types what comes back (`nupp.tools.build.tasks`).
 ]]
 
 local fs = require("nupp.compiler.fs")
-local process = require("nupp.compiler.process")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, exists = fs.readFile, fs.exists
@@ -116,8 +115,7 @@ local function absolute(path)
         return path
     end
     if not currentDirectory then
-        local _, printed = process.capture(windows and {"cmd", "/d", "/c", "cd"} or {"pwd"})
-        currentDirectory = normalize(((printed or "."):gsub("%s+$", "")))
+        currentDirectory = normalize(fs.absolute("."))
     end
     if path == "" or path == "." then
         return currentDirectory

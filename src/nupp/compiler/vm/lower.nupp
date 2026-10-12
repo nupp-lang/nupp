@@ -224,7 +224,7 @@ function lower.emit(
     end
 
     function Fn:const(kind, value)
-        local key = kind .. "\0" .. tostring(value)
+        local key = kind .. "\0" .. (kind == "num" and ("%.17g"):format(value) or tostring(value))
         if self.constIndex[key] then
             return self.constIndex[key]
         end
@@ -1656,7 +1656,7 @@ function lower.emit(
             -- Each field's temporaries die with it: a constructor with hundreds
             -- of entries must not hold a register per entry.
             local fieldMark = f.nregs
-            for _, field in ipairs(node.fields) do
+            for fieldIndex, field in ipairs(node.fields) do
                 f.nregs = math.max(fieldMark, f.declTop or 0)
                 if field.kind == "fieldNamed" then
                     local v = exprAs(f, field.value, "v")
@@ -1665,8 +1665,34 @@ function lower.emit(
                     n = n + 1
                     local i = f:reg();
                     f:op("K", i, f:const("num", n))
-                    local v = exprAs(f, field.value, "v")
-                    f:op("SetIdx", dst, i, v)
+                    if fieldIndex == #node.fields and field.value.kind == "vararg" then
+                        -- A trailing vararg expands even after named or positional
+                        -- fields. Count it explicitly so nil holes survive.
+                        local values = f:reg()
+                        f:op("VarargTable", values)
+                        local count = f:reg()
+                        local argument = f:reg()
+                        local callee = f:reg()
+                        f:op("K", argument, f:const("str", "#"))
+                        f:op("K", callee, f:const("builtin", "select"))
+                        f:op("CallDyn", callee, count, 129)
+                        local index, one, condition, value = f:reg(), f:reg(), f:reg(), f:reg()
+                        f:op("K", index, f:const("num", 1))
+                        f:op("K", one, f:const("num", 1))
+                        local top = f:here()
+                        f:op("Le", condition, index, count)
+                        local done = f:op("JmpIfNot", condition, 0)
+                        f:op("GetIdx", value, values, index)
+                        f:op("SetIdx", dst, i, value)
+                        f:op("Add", index, index, one)
+                        f:op("Add", i, i, one)
+                        local back = f:op("Jmp", 0)
+                        f:patch(back, "Jmp", f:offset(back, top))
+                        f:patch(done, "JmpIfNot", condition, f:offset(done, f:here()))
+                    else
+                        local v = exprAs(f, field.value, "v")
+                        f:op("SetIdx", dst, i, v)
+                    end
                 elseif field.kind == "fieldBracket" then
                     local kreg = exprAs(f, field.key, "v");
                     local v = exprAs(f, field.value, "v")
@@ -1733,8 +1759,8 @@ function lower.emit(
         local inner = newFn(name, f)
         inner.sig = {}
         inner.implicitSelf = implicitSelf
-        -- A vararg parameter is not a parameter: the runtime packs the surplus
-        -- arguments into a table in the register after the last fixed one.
+        -- A vararg parameter is not a fixed parameter. Surplus arguments
+        -- remain in the frame and are read or spread when requested.
         local fixed = {}
         for _, p in ipairs(funcbody.params or {}) do
             if p.vararg then
@@ -3012,6 +3038,8 @@ function lower.emit(
         for i, c in ipairs(f.consts) do
             if c.kind == "str" then
                 emit(("  const %d str %s"):format(i - 1, q(c.value)))
+            elseif c.kind == "num" then
+                emit(("  const %d num %.17g"):format(i - 1, c.value))
             elseif c.kind == "builtin" then
                 emit(("  const %d builtin %s"):format(i - 1, c.value))
             else
@@ -3019,7 +3047,11 @@ function lower.emit(
             end
         end
         for _, op in ipairs(f.code) do
-            emit("  " .. table.concat(op, " "))
+            local parts = {}
+            for i, value in ipairs(op) do
+                parts[i] = type(value) == "number" and ("%.17g"):format(value) or value
+            end
+            emit("  " .. table.concat(parts, " "))
         end
         emit("end")
     end

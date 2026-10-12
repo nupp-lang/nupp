@@ -223,31 +223,9 @@ end
 --- `os.tmpname` draws from a sequence that restarts in every process, which is
 --- the same trap in a different place, and an address is only as unpredictable
 --- as the allocator. Windows exposes the same operation as `_getpid`.
-local stagingToken = (function(): string
-    local ok, ffi = pcall(require, "ffi")
-    if not ok then
-        return "0"
-    end
-    local declared: boolean
-    local read: boolean
-    local pid: any
-    if package.config:sub(1, 1) == "\\" then
-        declared = pcall(ffi.cdef, "int _getpid(void);")
-        read, pid = pcall(function(): integer
-            return ffi.C._getpid() as integer
-        end)
-    else
-        declared = pcall(ffi.cdef, "int getpid(void);")
-        read, pid = pcall(function(): integer
-            return ffi.C.getpid() as integer
-        end)
-    end
-    if not declared or not read then
-        return "0"
-    end
+local hostpid = require("nupp.compiler.hostpid")
 
-    return tostring(pid)
-end)()
+local stagingToken = tostring(hostpid.get() or 0)
 
 --- This process's id, or nil where the runtime cannot say.
 local function processId(): number?

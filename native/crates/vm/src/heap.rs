@@ -423,6 +423,9 @@ impl Heap {
             (h.payload() as *mut SlicePayload).write(SlicePayload { source: base, off, len });
             h.aux_ptr = (*base.as_obj().unwrap().as_ptr()).aux_ptr.add(off as usize); h.aux_len = len as u64;
         }
+        // Allocation is black during marking; initial references need the
+        // same insertion barrier as later stores.
+        if self.phase == Phase::Marking { self.scan(p); }
         Value::obj(p)
     }
 
@@ -448,16 +451,25 @@ impl Heap {
     pub fn new_closure(&mut self, fid: u32, captures: &[Value], roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_CLOSURE, 8 * captures.len(), roots);
         unsafe { let h = &mut *p.as_ptr(); h.aux = fid; h.aux_len = captures.len() as u64; h.slots_mut().copy_from_slice(captures); }
+        // Allocation is black during marking; initial references need the
+        // same insertion barrier as later stores.
+        if self.phase == Phase::Marking { self.scan(p); }
         Value::obj(p)
     }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_CELL, 8, roots);
         unsafe { let h = &mut *p.as_ptr(); h.aux_len = 1; h.slots_mut()[0] = value; }
+        // Allocation is black during marking; initial references need the
+        // same insertion barrier as later stores.
+        if self.phase == Phase::Marking { self.scan(p); }
         Value::obj(p)
     }
     pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value, keys: Vec<Value>, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_ITER, std::mem::size_of::<IterPayload>(), roots);
         unsafe { let h = &mut *p.as_ptr(); h.aux = kind as u32; (h.payload() as *mut IterPayload).write(IterPayload { obj, pattern, pos: 0, keys }); h.refresh(); }
+        // Allocation is black during marking; initial references need the
+        // same insertion barrier as later stores.
+        if self.phase == Phase::Marking { self.scan(p); }
         Value::obj(p)
     }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value {
@@ -794,6 +806,41 @@ mod tests {
         let _ = big;
         h.full_cycle(&r); h.check_oracle(&r);
         assert_eq!(h.object_count(), 501);
+    }
+
+    #[test]
+    fn initialized_black_objects_trace_their_children() {
+        for kind in 0..4 {
+            let mut heap = Heap::new();
+            let roots = R(std::cell::RefCell::new(Vec::new()));
+            let child = heap.new_string("kept", &roots);
+            roots.0.borrow_mut().push(child);
+            // Leave marking busy on an unrelated chain. The constructor's
+            // source is reachable, but still white behind that chain.
+            let mut chain = child;
+            let mut source_parent = Value::NIL;
+            for _ in 0..3000 {
+                let cell = heap.new_cell(chain, &roots);
+                if source_parent == Value::NIL { source_parent = cell; }
+                roots.0.borrow_mut()[0] = cell;
+                chain = cell;
+            }
+            heap.debt = 0;
+            heap.start(&roots);
+            let made = match kind {
+                0 => heap.new_cell(child, &roots),
+                1 => heap.new_closure(0, &[child], &roots),
+                2 => heap.new_slice(child, 0, 4, &roots),
+                _ => heap.new_iter(0, child, child, vec![child], &roots),
+            };
+            assert!(heap.phase == Phase::Marking);
+            roots.0.borrow_mut()[0] = made;
+            // Transfer the reference: the old gray chain no longer reaches it.
+            unsafe { (*source_parent.as_obj().unwrap().as_ptr()).slots_mut()[0] = Value::NIL; }
+            heap.full_cycle(&roots);
+            assert!(heap.is_live_slot(child.as_obj().unwrap()), "constructor {kind}");
+            heap.check_oracle_with(&roots, false);
+        }
     }
 
     #[test]

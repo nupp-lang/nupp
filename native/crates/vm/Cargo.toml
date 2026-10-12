@@ -28,7 +28,7 @@ compiled-runtime = []
 jit = ["compiled-runtime", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 aot = ["jit", "aot-linked", "dep:cranelift-object"]
 # Run prebuilt native objects without shipping any code generator.
-aot-linked = ["compiled-runtime", "dep:sha2"]
+aot-linked = ["compiled-runtime"]
 # Count executed opcodes by name (OP_STATS=1 at run time); off by default
 # because the check costs the dispatch loop a branch per opcode.
 opstats = []
@@ -40,7 +40,7 @@ cranelift-jit = { version = "0.135", optional = true }
 cranelift-module = { version = "0.135", optional = true }
 cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = "0.10"
 
 [build-dependencies]
 cc = "1"

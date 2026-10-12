@@ -484,7 +484,72 @@ python3 native/crates/vm/tests/lowering-smoke.py /private/tmp/nupp-emitbench.ima
 ```
 
 `nupp-vm verify IMAGE` loads and runs the existing verifier without executing
-module initialization or compiling native code. This verifies compilation
-of an input module without imports and an emitter fixpoint, **not a full
-compiler image fixpoint**. Whole-project loading, Lua manifests, replacing the host
-driver, and rebuilding the complete compiler image on the VM remain.
+module initialization or compiling native code. This first gate verifies
+closed-input lowering and the emitter fixpoint. The project gate below
+extends it to the complete compiler core.
+
+
+## Project loading, manifests, and compiler-image fixpoint
+
+`nupp.compiler.vm.project` reads projects through the existing compiler module
+resolver, checks each source, and emits the reachable image. The compiler core
+includes its computed project dependencies; a Rust runner calls `emit`, `manifest`,
+or `rebuild`. The four-line `emit/project.lua` only seeds it with the existing host.
+
+Lua manifests execute on the VM. `nupp.compiler.vm.chunks` parses source when it
+is loaded and lowers it when the returned function is first called. This also
+validates generated Lua that the compiler loads only to check syntax. A manifest
+can compute its include roots; it is not restricted to a literal configuration
+object. Syntax errors fail before project emission.
+
+The host supplies filesystem/path operations, process identity, and SHA-256.
+Their target declarations live in `decls/`; the compiler still checks their call
+sites. The LuaJIT host retains its process-ID implementation behind the same
+module. Project configuration gets its current directory from the filesystem
+service. Diagnostic severity policy is separate from terminal rendering, so the
+compiler core does not acquire the CLI's native terminal dependencies.
+
+The measured compiler image has **2,522 functions and 6,905,030 bytes**.
+Stages two and three are byte-identical. Interpreter rebuilds took 53.4–54.5 s
+of CPU time in this run; this is a correctness gate, not a startup-performance result.
+
+The project gate rebuilds the complete compiler core three times without a host
+compiler after the seed, verifies every image, compares stages two and three
+byte-for-byte, then uses stage three to compile a separate project. That project
+uses a computed Lua manifest and a transitive import. Its image must agree
+between both interpreters and under collector verification, and execute on the
+Rust loop, threaded core, and typed tier. It also tests mixed vararg constructors,
+`pcall` result counts, nil holes, and numeric constant precision.
+
+```sh
+./bin/nupp run native/crates/vm/emit/project.lua "$PWD" > /private/tmp/nupp-project.image
+cargo build --release -p nupp-vm
+python3 native/crates/vm/tests/project-smoke.py /private/tmp/nupp-project.image
+```
+
+This workload exposed and fixed:
+
+- filesystem builtins incorrectly entering the scalar dispatch range;
+- trailing varargs in mixed table constructors being truncated to one value;
+- interpreted `pcall` counts omitting the success flag and retaining stale counts
+  on failure;
+- black allocations missing barriers for initial closure, cell, slice, and iterator
+  references during incremental marking;
+- decimal constant output and constant-pool keys rounding distinct numbers together.
+  The image writer now uses 17 significant digits, including opcode immediates.
+
+Dynamic image loading refreshes interpreter dispatch tables after callbacks. It
+currently requires interpreter execution; loading into an active JIT/AOT VM is
+rejected. `--load IMAGE` adds an image before startup for development. Neither is
+a versioned plugin ABI or an untrusted-image security boundary. The compiler gate
+still needs a source checkout and does not include the full CLI, native C-header
+services, or release packaging. P4's repository-wide CLI check remains a separate
+gate.
+
+Validation also passed the existing LuaJIT bootstrap fixpoint, six focused
+project tests, and 2,172 shared-suite cases across the initial run and recovery
+of a failed shard. The shared suite was not fully green: its worker-startup test
+requires the unavailable standalone worker host, and the unchanged
+`spiinterfacetest/runtimeImplementationInterfacesArePublic` fixture declares
+`application` while being checked as `typed-interface.nupp`. Native VM tests
+pass with and without the JIT feature.

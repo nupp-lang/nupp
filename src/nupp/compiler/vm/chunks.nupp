@@ -1,0 +1,65 @@
+module nupp.compiler.vm.chunks
+
+local parser = require("nupp.compiler.syntax.parser")
+local lower = require("nupp.compiler.vm.lower")
+local chunks = {}
+
+--- Lower a Lua chunk without assigning Nupp types to its dynamic tables.
+--- @raises string when parsing or lowering fails.
+function chunks.image(source: string, filename: string?): string
+    local path = filename or "=(loadstring)"
+    local tree = parser.parse(source, path)
+    assert(#tree.errors == 0, "chunk did not parse: " .. path)
+    return lower.emit(
+        "vm.chunk",
+        {},
+        function(name: string): string?
+            return name == "vm.chunk" and path or nil
+        end,
+        function(_: string, _: string): table
+            return tree.root
+        end
+    )
+end
+
+--- Install source loading only in a host that exposes the image loader.
+function chunks.install(): boolean
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if not loadImage then
+        return false
+    end
+
+    local function compileChunk(source: string, filename: string?): (any, string?)
+        local path = filename or "=(loadstring)"
+        local tree = parser.parse(source, path)
+        if #tree.errors > 0 then
+            return nil, "chunk did not parse: " .. path
+        end
+        -- The Lua backend loads generated text to validate its syntax. Native
+        -- lowering is needed only if the returned function is actually called.
+        local compiled = nil
+
+        return function(...)
+            if not compiled then
+                compiled = loadImage(chunks.image(source, path))
+            end
+            return compiled(...)
+        end, nil
+    end
+
+    rawset(_G, "__nupp_compile_chunk", compileChunk)
+    rawset(_G, "loadfile", function(path: string): (any, string?)
+        local file, problem = io.open(path, "rb")
+        if not file then
+            return nil, problem
+        end
+        local source = file:read("*a")
+        file:close()
+
+        return compileChunk(source, path)
+    end)
+
+    return true
+end
+
+export = chunks

@@ -1,0 +1,5 @@
+-- The provider-independent SHA-256 operation supplied by the VM.
+local record Digest
+    sha256: function(value: string): string
+end
+return Digest

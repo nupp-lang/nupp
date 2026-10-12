@@ -24,20 +24,10 @@ See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 
 local diagnostics = {}
 
-local REPORTED = {note = "note", warning = "warning"}
+local policy = require("nupp.compiler.diagnosticpolicy")
 
---- Whether a diagnostic stops a build. A note and a warning are reported and stepped
---- over; everything else is an error, including a diagnostic with no severity, since
---- everything that predates severities was one.
-function diagnostics.isFatal(e: {@readonly severity: string?}): boolean
-    return REPORTED[e.severity] == nil
-end
-
---- The severity a diagnostic is reported under: its own when it is one of the two
---- that are stepped over, and `error` for everything else, by the same rule.
-function diagnostics.severityOf(e: {@readonly severity: string?}): string
-    return REPORTED[e.severity] or "error"
-end
+diagnostics.isFatal = policy.isFatal
+diagnostics.severityOf = policy.severityOf
 
 local function readFile(path)
     local file = io.open(path, "rb")
@@ -111,7 +101,7 @@ function diagnostics.report(values: {any}): boolean
     end
 
     for _, diagnostic in ipairs(values) do
-        local severity = REPORTED[diagnostic.severity] or "error"
+        local severity = policy.severityOf(diagnostic)
         if severity == "error" then
             failed = true
         end

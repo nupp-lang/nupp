@@ -838,19 +838,27 @@ impl Interp {
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
         let io = table_of(self, &["io.write", "io.open", "io.read"]);
         // The standard streams: objects whose `write` is a method.
-        for (field, name) in [("stderr", "io.stderr.write"), ("stdout", "io.stdout.write")] { let stream = table_of(self, &[name]); let k = self.intern(field); self.set_index(io, k, stream); }
+        for (field, name) in [("stderr", "io.stderr.write"), ("stdout", "io.stdout.write")] { let stream = self.new_table(); self.registered.push(stream); let write = self.intern("write"); self.set_index(stream, write, Value::builtin(crate::builtins::id_of(name).unwrap())); let k = self.intern(field); self.set_index(io, k, stream); }
         let debug = table_of(self, &["debug.getinfo"]);
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
         // modules: a `require` finds them before the image's.
         let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile"]);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
+        let pid = self.new_table(); self.registered.push(pid);
+        let get = self.intern("get"); self.set_index(pid, get, Value::builtin(crate::builtins::id_of("vm.processId").unwrap()));
+        self.loaded.insert("nupp.compiler.hostpid".into(), pid);
+        let digest = self.new_table(); self.registered.push(digest);
+        let k = self.intern("sha256"); self.set_index(digest, k, Value::builtin(crate::builtins::id_of("vm.sha256").unwrap()));
+        self.loaded.insert("nupp.digest.internal.sha256".into(), digest);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
         let g = self.new_table(); self.registered.push(g);
         for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
         for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
+        let k = self.intern("__nupp_load_image");
+        self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.loadImage").unwrap()));
         let k = self.intern("_G"); self.set_index(g, k, g);
         for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
     }
@@ -1394,8 +1402,8 @@ impl Interp {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, &args)));
         std::panic::set_hook(hook);
         match outcome {
-            Ok(outs) => { r!(b) = Value::TRUE; self.deliver(regs, b as usize + 1, &outs); }
-            Err(payload) => { let v = self.error_value(payload); r!(b) = Value::FALSE; r!(b + 1) = v; }
+            Ok(mut outs) => { outs.insert(0, Value::TRUE); self.deliver(regs, b as usize, &outs); }
+            Err(payload) => { let v = self.error_value(payload); self.deliver(regs, b as usize, &[Value::FALSE, v]); }
         }
     }
     #[inline(never)]

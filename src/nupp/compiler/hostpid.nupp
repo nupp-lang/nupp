@@ -1,0 +1,31 @@
+module nupp.compiler.hostpid
+
+-- The LuaJIT host implementation. Other hosts supply this module directly.
+local host = {}
+function host.get(): number?
+    local ok, ffi = pcall(require, "ffi")
+    if not ok then
+        return nil
+    end
+    local declared: boolean
+    local read: boolean
+    local pid: any
+    if package.config:sub(1, 1) == "\\" then
+        declared = pcall(ffi.cdef, "int _getpid(void);")
+        read, pid = pcall(function(): integer
+            return ffi.C._getpid() as integer
+        end)
+    else
+        declared = pcall(ffi.cdef, "int getpid(void);")
+        read, pid = pcall(function(): integer
+            return ffi.C.getpid() as integer
+        end)
+    end
+    if declared and read then
+        return tonumber(pid)
+    end
+
+    return nil
+end
+
+export = host

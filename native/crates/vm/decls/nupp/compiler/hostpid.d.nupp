@@ -1,0 +1,5 @@
+-- The compiler host's process identity, absent when the host has no process.
+local record HostPid
+    get: function(): number?
+end
+return HostPid

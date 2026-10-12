@@ -14,11 +14,12 @@ pub const NAMES: &[&str] = &[
     "bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "os.getenv", "os.clock", "os.time", "io.write", "loadstring", "require", "debug.getinfo",
     "table.sort", "string.reverse", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "io.open", "io.stderr.write", "io.stdout.write", "os.remove", "os.tmpname", "os.execute", "os.rename", "io.read", "file.read", "file.close", "file.lines", "file.write",
     // The fixed-width scalar intrinsics the checker names on a call (`nupp.math.u32.add`),
-    // dispatched by name from SCALAR_BASE on.
+    // dispatched by name.
     "scalar.i32.add", "scalar.i32.sub", "scalar.i32.mul", "scalar.i32.andBits", "scalar.i32.orBits", "scalar.i32.xorBits", "scalar.i32.notBits", "scalar.i32.shiftLeft", "scalar.i32.rotateLeft", "scalar.i32.rotateRight", "scalar.i32.lessThan", "scalar.i32.lessOrEqual", "scalar.i32.shiftRightArithmetic", "scalar.i32.wrap", "scalar.i32.fromU32", "scalar.i32.toU32",
     "scalar.u32.add", "scalar.u32.sub", "scalar.u32.mul", "scalar.u32.andBits", "scalar.u32.orBits", "scalar.u32.xorBits", "scalar.u32.notBits", "scalar.u32.shiftLeft", "scalar.u32.rotateLeft", "scalar.u32.rotateRight", "scalar.u32.lessThan", "scalar.u32.lessOrEqual", "scalar.u32.shiftRightLogical", "scalar.u32.wrap", "scalar.u32.fromI32", "scalar.u32.toI32", "scalar.u32.popcount", "scalar.u32.trailingZeros", "scalar.u32.leadingZeros", "scalar.u32.div", "scalar.u32.mod",
     "files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "path.currentDirectory", "path.newPath", "path.toString", "path.canonicalize",
     "scalar.f32.narrow", "scalar.f32.round", "scalar.f32.add", "scalar.f32.sub", "scalar.f32.mul", "scalar.f32.div", "scalar.f32.sqrt", "scalar.f32.min", "scalar.f32.max", "scalar.f32.fma", "scalar.f32.exp", "scalar.f32.fromBits", "scalar.f32.toBits",
+    "vm.loadImage", "vm.processId", "vm.sha256",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -149,8 +150,7 @@ impl Outs {
 impl std::iter::FromIterator<Value> for Outs { fn from_iter<I: IntoIterator<Item = Value>>(it: I) -> Outs { let mut o = Outs::new(); for x in it { o.push(x); } o } }
 impl std::ops::Index<usize> for Outs { type Output = Value; fn index(&self, i: usize) -> &Value { &self.v[i] } }
 macro_rules! outs { ($($x:expr),* $(,)?) => {{ let mut o = Outs::new(); $( o.push($x); )* o }} }
-static SCALAR_BASE: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| NAMES.iter().position(|n| n.starts_with("scalar.")).unwrap());
-static FILES_BASE: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| NAMES.iter().position(|n| n.starts_with("files.")).unwrap());
+
 
 /// The path a `nupp.io.files` call names: a string, or a path object (`_text`).
 fn path_text(it: &mut Interp, v: Value) -> String {
@@ -262,6 +262,21 @@ fn bytes_ref<'a>(it: &'a Interp, v: Value, scratch: &'a mut Vec<u8>) -> &'a [u8]
     it.bytes_of(v)
 }
 pub fn num_text(n: f64) -> String { if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { let s = format!("{:.14}", n); let s = s.trim_end_matches('0').trim_end_matches('.').to_string(); s } }
+// `%g` selects fixed or scientific notation from the rounded exponent.
+// Explicit precision is also the portable image writer's round-trip format.
+fn general_number(n: f64, precision: usize) -> String {
+    let precision = precision.max(1);
+    if !n.is_finite() { return n.to_string(); }
+    let scientific = format!("{:.*e}", precision - 1, n);
+    let (mantissa, exponent) = scientific.split_once('e').unwrap();
+    let exponent: i32 = exponent.parse().unwrap();
+    let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
+    if exponent < -4 || exponent >= precision as i32 {
+        format!("{}e{:+03}", trim(mantissa.to_string()), exponent)
+    } else {
+        trim(format!("{:.*}", (precision as i32 - 1 - exponent).max(0) as usize, n))
+    }
+}
 fn str_of(it: &mut Interp, b: &[u8]) -> Value { it.string_of(b) }
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if v.is_num() { v.as_num() as i64 } else { default } }
@@ -290,8 +305,28 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
     if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }
     if STATS.load(std::sync::atomic::Ordering::Relaxed) { let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
-    if id as usize >= *FILES_BASE && (id as usize) < *SCALAR_BASE { return files(it, NAMES[id as usize], args); }
-    if id as usize >= *SCALAR_BASE && (id as usize) < NAMES.len() { return scalar(it, &NAMES[id as usize][7..], args); }
+    if NAMES.get(id as usize) == Some(&"vm.sha256") {
+        use sha2::Digest;
+        let bytes = bytes_of(it, arg(args, 0));
+        if bytes.len() > 0x7fff_ffff { it.err("nupp: SHA-256 input is too long"); }
+        let digest = sha2::Sha256::digest(&bytes);
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        return outs![it.heap_new_string(&hex)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.processId") { return outs![Value::num(std::process::id() as f64)]; }
+    if NAMES.get(id as usize) == Some(&"vm.loadImage") {
+        if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
+        let bytes = bytes_of(it, arg(args, 0));
+        let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
+        let entry = crate::image::load(it, text).unwrap_or_else(|e| it.err(&e));
+        it.entries.resize(it.funcs.len(), 0);
+        if it.threaded { it.prepare_threaded(); }
+        return outs![Value::func(entry)];
+    }
+    if let Some(name) = NAMES.get(id as usize) {
+        if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
+        if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
+    }
     match id {
         N_0 => {
             let mut scratch = Vec::new(); let s = bytes_ref(it, arg(args, 0), &mut scratch); let n = s.len() as i64;
@@ -391,7 +426,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                     b'x' => format!("{:x}", v.as_num() as i64).into_bytes(),
                     b'X' => format!("{:X}", v.as_num() as i64).into_bytes(),
                     b'f' => format!("{:.*}", prec.unwrap_or(6), v.as_num()).into_bytes(),
-                    b'g' => num_text(v.as_num()).into_bytes(),
+                    b'g' => general_number(v.as_num(), prec.unwrap_or(6)).into_bytes(),
                     b'q' => { let t = bytes_of(it, v); let mut q = vec![b'"']; for &c in &t { match c { b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\n"), b'\r' => q.extend_from_slice(b"\\r"), 0 => q.extend_from_slice(b"\\0"), c if c < 32 || c == 127 => q.extend_from_slice(format!("\\{}", c).as_bytes()), c => q.push(c) } } q.push(b'"'); q }
                     b'c' => vec![v.as_num() as u8],
                     other => panic!("runtime error: string.format conversion %{}", other as char),
@@ -470,7 +505,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         49 => { use std::io::Write; let mut o = std::io::stdout(); for a in args { o.write_all(&bytes_of(it, *a)).unwrap(); } Outs::new() }
         // `loadstring("return <literal>")`: every use in the compiler decodes a
         // number or string literal this way. The answer is a closure over the
-        // value; anything else is refused as Lua's `load` refuses, nil and a message.
+        // value; other chunks go to the installed Nupp source loader.
         50 => {
             let src = bytes_of(it, arg(args, 0));
             match literal_chunk(&src) {
@@ -478,9 +513,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 Some(Lit::Str(b)) => { let s = it.new_string_bytes(&b); let h = it.register(s); let cell = it.new_cell(s); let h2 = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h2); it.release(h); outs![c] }
                 Some(Lit::Bool(x)) => { let cell = it.new_cell(Value::boolean(x)); let h = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h); outs![c] }
                 Some(Lit::Nil) => { let cell = it.new_cell(Value::NIL); let h = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h); outs![c] }
-                // Anything else loads (its syntax is not checked here) and raises
-                // when run: the generator loads its output only to validate it.
-                None => { let c = it.new_closure(it.unavailable_fid, &[]); outs![c] }
+                // The project compiler installs a validating source loader.
+                // Older closed-input harnesses retain their unavailable thunk.
+                None => {
+                    let globals = it.require("_G");
+                    let key = it.intern("__nupp_compile_chunk");
+                    let hook = it.get_index(globals, key);
+                    if hook != Value::NIL { return it.call_outs(hook, args); }
+                    let c = it.new_closure(it.unavailable_fid, &[]); outs![c]
+                }
             }
         }
         51 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); outs![it.require(&name)] }

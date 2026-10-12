@@ -1,0 +1,101 @@
+module nupp.compiler.vm.project
+
+local parser = require("nupp.compiler.syntax.parser")
+local checkMod = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local fs = require("nupp.compiler.fs")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
+local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
+local lower = require("nupp.compiler.vm.lower")
+local chunks = require("nupp.compiler.vm.chunks")
+
+local project = {}
+
+local function names(csv: string?): {string}
+    local out: {string} = {}
+    for name in (csv or ""):gmatch("[^,]+") do
+        out[#out + 1] = name
+    end
+
+    return out
+end
+
+--- Read, check and lower a project using the compiler's module resolver.
+--- Explicit include roots allow bootstrapping before manifest execution.
+--- @raises string when a source cannot be read, checked or lowered.
+function project.emit(root: string, entry: string, extras: string?, includes: string?): string
+    triviaarena.install(tableProvider)
+    chunks.install()
+    local config: table = {include = names(includes or "src")}
+    if not includes and fs.exists(root .. "/nupp.lua") then
+        local loader = assert(rawget(_G, "loadfile"), "source loader unavailable")
+        local chunk, problem = loader(root .. "/nupp.lua")
+        assert(chunk, problem)
+        config = chunk()
+        assert(type(config) == "table", "manifest must return a table")
+    end
+    local env = envMod.new(root, {cache = false, nativeCompilerServices = false, config = config})
+
+    -- These declarations describe the modules this VM host supplies, rather
+    -- than the LuaJIT-backed library implementations in the source checkout.
+    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
+    table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
+
+    return lower.emit(
+        entry,
+        names(extras),
+        function(name: string): string?
+            if name == "nupp.io.files"
+            or name == "nupp.io.path"
+            or name == "nupp.compiler.hostpid"
+            or name == "nupp.digest.internal.sha256"
+            then
+                return nil
+            end
+
+            return envMod.findRuntimeModulePath(env, name)
+        end,
+        function(name: string, path: string): table
+            local source = assert(fs.readFile(path), "cannot read " .. path)
+            local parsed = parser.parse(source, path)
+            assert(#parsed.errors == 0, "parse failed: " .. path)
+            local diagnostics = checkMod.check(parsed, path, env as any, {})
+            for _, d in ipairs(diagnostics) do
+                if d.severity == "error" or not d.severity then
+                    error(
+                        name .. ":" .. tostring(
+                            d.line
+                        ) .. ":" .. tostring(d.col) .. ": " .. tostring(d.code) .. " " .. tostring(d.msg)
+                    )
+                end
+            end
+
+            return parsed.root
+        end
+    )
+end
+
+--- Rebuild the compiler image, including its computed module dependencies.
+--- @raises string when the compiler sources fail to compile.
+function project.rebuild(root: string): string
+    return project.emit(
+        root,
+        "nupp.compiler.vm.project",
+        "nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache"
+    )
+end
+
+--- Evaluate a manifest through the installed source loader.
+--- @raises string when a manifest cannot be loaded or does not return a table.
+function project.manifest(path: string): table
+    triviaarena.install(tableProvider)
+    chunks.install()
+    local chunk, problem = assert(rawget(_G, "loadfile"))(path)
+    assert(chunk, problem)
+    local config = chunk()
+    assert(type(config) == "table", "manifest must return a table")
+
+    return config
+end
+
+export = project

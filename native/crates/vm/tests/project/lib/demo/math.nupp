@@ -1,0 +1,8 @@
+module demo.math
+
+local math = {}
+function math.twice(value: number): number
+    return value * 2
+end
+
+export = math

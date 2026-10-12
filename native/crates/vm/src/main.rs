@@ -125,11 +125,12 @@ fn main() {
         println!("verified {} functions", it.funcs.len());
         return;
     }
-    if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN]"); std::process::exit(2); }
-    let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new();
+    if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE]"); std::process::exit(2); }
+    let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
     while i < args.len() {
-        match args[i].as_str() { "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 2; } "--host" => { host = true; i += 1; } "--setup" => { setup = Some(args[i + 1].clone()); i += 2; } a => { call_args_text.push(a.to_string()); i += 1; } }
+        match args[i].as_str() {
+            "--load" if i + 1 < args.len() => { additional_images.push(args[i + 1].clone()); i += 2; } "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 2; } "--host" => { host = true; i += 1; } "--setup" => { setup = Some(args[i + 1].clone()); i += 2; } a => { call_args_text.push(a.to_string()); i += 1; } }
     }
     let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
     let mut it = Interp::new();
@@ -137,6 +138,10 @@ fn main() {
     if std::env::var("TABLE_STATS").is_ok() { nupp_vm::interp::TABLE_STATS.store(true, std::sync::atomic::Ordering::Relaxed); }
     let t0 = cpu_now();
     image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+    for path in additional_images {
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| { eprintln!("{path}: {e}"); std::process::exit(1) });
+        image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
+    }
     let load_s = cpu_now() - t0;
     it.entries = vec![0u64; it.funcs.len()];
     it.prepare_threaded();

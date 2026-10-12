@@ -1,0 +1,10 @@
+-- Paths supplied by the VM compiler host, with no LuaJIT FFI dependency.
+local record Path
+    toString: function(self): string
+    canonicalize: function(self): (Path?, string?)
+end
+local record Paths
+    currentDirectory: function(): (Path?, string?)
+    newPath: function(path: string): Path
+end
+return Paths

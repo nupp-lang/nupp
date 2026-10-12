@@ -1,0 +1,19 @@
+-- The filesystem surface supplied by the VM compiler host.
+local type Info = {
+    kind: string,
+    size: number,
+    modified: number
+}
+local type Entry = {
+    name: string,
+    kind: string
+}
+local record Files
+    info: function(path: string): (Info?, string?)
+    isDirectory: function(path: string): boolean
+    isFile: function(path: string): boolean
+    exists: function(path: string): boolean
+    list: function(path: string): ({Entry}?, string?)
+    createDirectory: function(path: string): (boolean, string?)
+end
+return Files
