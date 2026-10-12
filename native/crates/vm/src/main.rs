@@ -64,6 +64,7 @@ fn main() {
         nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         let mut j = nupp_vm::jit::Jit::new();
         j.extra_addr = &it.extra as *const [Value; 8] as i64;
+        j.last_nres_addr = &it.last_nres as *const usize as i64;
         j.entries_addr = it.entries.as_ptr() as i64;
         j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
         let tj = cpu_now();
@@ -72,9 +73,12 @@ fn main() {
         // those names interpreted: the bisection controls.
         let limit: usize = std::env::var("JIT_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
         let skip: Vec<String> = std::env::var("JIT_SKIP").map(|s| s.split(',').map(|x| x.to_string()).collect()).unwrap_or_default();
+        // JIT_ONLY=a,b compiles those names and nothing else.
+        let only: Vec<String> = std::env::var("JIT_ONLY").map(|s| s.split(',').map(|x| x.to_string()).collect()).unwrap_or_default();
         for fid in 0..it.funcs.len() {
             let f = it.funcs[fid].clone();
             if f.name.starts_with("module:") || compiled >= limit || skip.iter().any(|n| *n == f.name) { continue; }
+            if !only.is_empty() && !only.iter().any(|n| *n == f.name) { continue; }
             match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.entries[fid] = ptr as u64; compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
         }
         let compile_s = cpu_now() - tj;
@@ -102,7 +106,9 @@ fn main() {
         if let Err(payload) = outcome {
             let v = it.error_value(payload);
             eprintln!("error: {}", show(it, v));
-            eprintln!("{}", it.backtrace(t));
+            // A callback or module chunk runs on a task of its own, left in
+            // place by the unwind: innermost first.
+            for tid in (t..it.tasks.len()).rev() { let b = it.backtrace(tid); if !b.is_empty() { eprintln!("{}", b); } }
             std::process::exit(1);
         }
         let task = &it.tasks[t];

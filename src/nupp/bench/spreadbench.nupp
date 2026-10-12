@@ -1,0 +1,39 @@
+module nupp.bench.spreadbench
+
+--- Trailing-call argument spreading across the tiers: a call's results
+--- as the last arguments, into fixed and vararg callees, through pcall.
+local bench = {}
+
+local function two(): (number, number)
+    return 1, 2
+end
+
+local function one(): number
+    return 7
+end
+
+local function pack(...: any): number
+    local t = {...}
+    return #t
+end
+
+local function sum3(a: number?, b: number?, c: number?): number
+    return (a or 0) * 100 + (b or 0) * 10 + (c or 0)
+end
+
+local function fails(_: number, _: number): number
+    error("boom")
+end
+
+function bench.run(): (number, number, number, number, number, boolean)
+    local a = sum3(5, two())
+    local b = sum3(5, one())
+    local c = pack(9, two())
+    local d = pack(one())
+    local ok, v = pcall(sum3, 5, two())
+    local ok2 = pcall(fails, two())
+
+    return a, b, c, d, (ok and v or -1), ok2
+end
+
+export = bench

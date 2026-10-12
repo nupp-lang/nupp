@@ -1,0 +1,94 @@
+module nupp.bench.checkbench
+
+--- Runs the compiler's checker on the runtime: parse a source text, check
+--- it in a memory-only environment, and answer a checksum over the
+--- diagnostics and the inferred types so a run can be checked against
+--- LuaJIT.
+local parser = require("nupp.compiler.syntax.parser")
+
+local checkMod = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
+local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
+
+local bench = {}
+
+function bench.setup(): boolean
+    triviaarena.install(tableProvider)
+    return true
+end
+
+--- Every node's inferred type tag, folded into one number, with the count
+--- of typed nodes.
+local function walk(node: any, sum: number, count: number): (number, number)
+    local kind = node.kind
+    if kind == nil then
+        return sum, count
+    end
+    local t = node.inferredType
+    if t ~= nil and type(t) == "table" and type(t.tag) == "string" then
+        const tag = t.tag as string
+        for i = 1, #tag do
+            sum = (sum * 31 + string.byte(tag, i)) % 1000000007
+        end
+        count = count + 1
+    end
+    for _, child in ipairs(node) do
+        sum, count = walk(child, sum, count)
+    end
+
+    return sum, count
+end
+
+--- Checks `source` and returns the diagnostic count, the typed node count
+--- and the checksum.
+function bench.check(source: string): (number, number, number)
+    local result = parser.parse(source, "bench.nupp")
+    if #result.errors > 0 then
+        return -1, #result.errors, 0
+    end
+    local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diags = checkMod.check(result, "bench.nupp", env as any, {})
+    local sum, count = walk(result.root, 0, 0)
+    for _, d in ipairs(diags) do
+        const code = tostring(d.code)
+        for i = 1, #code do
+            sum = (sum * 31 + string.byte(code, i)) % 1000000007
+        end
+    end
+
+    return #diags, count, sum
+end
+
+--- The diagnostics one per line, for diffing two runtimes.
+function bench.dump(source: string): string
+    local result = parser.parse(source, "bench.nupp")
+    local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diags = checkMod.check(result, "bench.nupp", env as any, {})
+    local out: {string} = {}
+    for _, d in ipairs(diags) do
+        out[#out + 1] = tostring(d.code) .. " " .. tostring(d.line) .. ":" .. tostring(d.col) .. " " .. tostring(d.msg)
+    end
+
+    return table.concat(out, "\n")
+end
+
+--- The pieces behind bundled-module resolution, for comparing two runtimes.
+function bench.probe(name: string): string
+    local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local bundledMod = require("nupp.compiler.bundled")
+    local parts: {string} = {}
+    parts[#parts + 1] = "moduleDir=" .. tostring(bundledMod.moduleDir())
+    parts[#parts + 1] = "compilerRoot=" .. tostring(envMod.compilerRoot())
+    parts[#parts + 1] = "implementation=" .. tostring((env as any).bundledImplementation(name))
+    local source = bundledMod.source("/" .. name:gsub("%.", "/") .. "/init.nupp")
+    parts[#parts + 1] = "source=" .. tostring(source and #source or nil)
+    local ok, loaded = pcall((env as any).loadBundledModule, name)
+    parts[#parts + 1] = "loaded=" .. tostring(ok) .. "/" .. type(loaded) .. (ok and "" or ("/" .. tostring(loaded)))
+    local viaIndex = (env as any).bundled[name]
+    parts[#parts + 1] = "viaIndex=" .. type(viaIndex)
+
+    return table.concat(parts, "\n")
+end
+
+export = bench

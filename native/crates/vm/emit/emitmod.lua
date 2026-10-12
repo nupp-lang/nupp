@@ -19,13 +19,33 @@ local function tokText(tok) return tok.value ~= nil and tok.value or tok.text en
 local function tyTag(t) return type(t) == "table" and t.tag or "?" end
 
 -- Shapes ---------------------------------------------------------------------
+-- A shape is keyed by its record's nominal type, which is one object per
+-- declaration across the module graph; two modules may each declare an
+-- `Error`. `shapes` maps the bare name to the shapes declared under it,
+-- the current module's first, for the syntax that names a record bare
+-- (`function R:m()`, `x is R`).
 local shapes, shapeOrder = {}, {}
+local shapesByNominal = setmetatable({}, {__mode = "k"})
+local currentModule = nil
+local function shapeOfNominal(t)
+    if type(t) ~= "table" then return nil end
+    local s = shapesByNominal[t]
+    if s then return s end
+    if t.declarationKey and shapesByNominal[t.declarationKey] then return shapesByNominal[t.declarationKey] end
+    return nil
+end
+local function shapeByBareName(name)
+    local list = shapes[name]
+    if not list then return nil end
+    for _, s in ipairs(list) do if s.module == currentModule then return s end end
+    return list[1]
+end
 local function slotTy(t)
     local tag = tyTag(t)
     if tag == "number" or tag == "integer" then return "num" end
     if tag == "string" then return "str" end
     if tag == "boolean" then return "bool" end
-    if tag == "nominal" and shapes[t.name] then return "rec:" .. shapes[t.name].id end
+    if tag == "nominal" and shapeOfNominal(t) then return "rec:" .. shapeOfNominal(t).id end
     if tag == "literal" then return slotTy(t.base) end
     return "any"
 end
@@ -33,16 +53,36 @@ local function declareShape(node)
     -- An interface has no runtime identity: no shape, erased casts, field access by name.
     if node.declKind == "interface" then return nil end
     local name = tokText(node.name)
-    if shapes[name] then return shapes[name] end
-    local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}, node = node}
-    shapes[name] = shape
-    shapeOrder[#shapeOrder + 1] = shape
     local nominal = node.resolvedType
+    if nominal and shapeOfNominal(nominal) then return shapeOfNominal(nominal) end
+    if not nominal then
+        -- A record the checker gave no type (a declaration inside a function
+        -- it did not reach): one shape per bare name is all there is.
+        local known = shapes[name] and shapes[name][1]
+        if known then return known end
+    end
+    local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}, node = node, module = currentModule}
+    shapes[name] = shapes[name] or {}
+    table.insert(shapes[name], shape)
+    if nominal then shapesByNominal[nominal] = shape; if nominal.declarationKey then shapesByNominal[nominal.declarationKey] = shape end end
+    shapeOrder[#shapeOrder + 1] = shape
+    local methods = {}
     for _, entry in ipairs(node.entries) do
         if entry.kind == "fieldDecl" then
             local fname = tokText(entry.name)
             shape.slotIndex[fname] = #shape.slots
             shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(nominal and nominal.byname and nominal.byname[fname])}
+        elseif entry.kind == "inlineMethod" then methods[tokText(entry.name)] = true end
+    end
+    -- The members a supertype contributes (`record R is Hints`), which the
+    -- checker folded into the nominal type: slots after the declared ones.
+    if nominal and type(nominal.byname) == "table" then
+        local inherited = {}
+        for fname in pairs(nominal.byname) do if type(fname) == "string" and shape.slotIndex[fname] == nil and not methods[fname] then inherited[#inherited + 1] = fname end end
+        table.sort(inherited)
+        for _, fname in ipairs(inherited) do
+            shape.slotIndex[fname] = #shape.slots
+            shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(nominal.byname[fname])}
         end
     end
     return shape
@@ -62,14 +102,17 @@ local function structShape(ty)
     shapeOrder[#shapeOrder + 1] = shape
     for _, fname in ipairs(names) do
         shape.slotIndex[fname] = #shape.slots
-        shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(ty.byname and ty.byname[fname])}
+        -- Untyped slots: a constructor's field type is inferred from its first
+        -- value, and `x and y or nil` is typed without the nil, so a numeric
+        -- slot here would refuse a nil the program means to store.
+        shape.slots[#shape.slots + 1] = {name = fname, ty = "any"}
     end
     return shape
 end
 local function shapeOf(ty)
     -- An ownership qualifier wraps the type it qualifies.
     while type(ty) == "table" and (ty.tag == "borrowed" or ty.tag == "affine" or ty.tag == "owned") and ty.inner do ty = ty.inner end
-    if tyTag(ty) == "nominal" then return shapes[ty.name] or shapes[(ty.name or ""):match("([%w_]+)$") or ""] end
+    if tyTag(ty) == "nominal" then return shapeOfNominal(ty) or shapeByBareName((ty.name or ""):match("([%w_]+)$") or "") end
 end
 
 -- Functions --------------------------------------------------------------------
@@ -77,7 +120,7 @@ local functions = {}
 local Fn = {}
 Fn.__index = Fn
 local function newFn(name, parent)
-    local f = setmetatable({name = name, consts = {}, constIndex = {}, code = {}, nregs = 1, nfregs = 0, scopes = {{}}, nparams = 0, upvals = {}, upvalIndex = {}, captured = {}, parent = parent, breaks = {}, yields = {}, tables = {}}, Fn)
+    local f = setmetatable({name = name, module = currentModule, consts = {}, constIndex = {}, code = {}, nregs = 1, nfregs = 0, scopes = {{}}, nparams = 0, upvals = {}, upvalIndex = {}, captured = {}, parent = parent, breaks = {}, yields = {}, tables = {}}, Fn)
     functions[#functions + 1] = f
     f.id = #functions - 1
     return f
@@ -159,19 +202,25 @@ function Fn:upvalReg(ui)
     self.upvalRegs[ui] = r
     return r
 end
-function Fn:upvalue(name)
+-- `speculative` is the entry-time preallocation, which over-approximates
+-- the free names: a parent local that is not a cell then means the name
+-- was never captured (a nested function's own local of that name), not
+-- an analysis miss.
+function Fn:upvalue(name, speculative)
     if self.upvalIndex[name] then return self.upvalIndex[name] end
     if not self.parent then return nil end
     local preg, _, pcell, pspill = self.parent:lookup(name)
     local source
     if pspill then
+        if speculative and not pcell then return nil end
         assert(pcell, "captured spilled local " .. name .. " is not a cell in " .. self.parent.name)
         source = {kind = "spill", key = pspill}
     elseif preg then
+        if speculative and not pcell then return nil end
         assert(pcell, "captured local " .. name .. " is not a cell in " .. self.parent.name)
         source = {kind = "local", reg = preg}
     else
-        local pi = self.parent:upvalue(name)
+        local pi = self.parent:upvalue(name, speculative)
         if not pi then return nil end
         source = {kind = "upval", index = pi}
     end
@@ -191,7 +240,8 @@ for _, n in ipairs({"pairs", "ipairs", "next", "type", "tostring", "tonumber", "
 local LIBS = {string = true, table = true, math = true, bit = true, os = true, io = true}
 local BITOPS = {["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor", ["<<"] = "IShl", [">>"] = "IShrU"}
 -- Global tables the runtime provides as modules.
-local GLOBAL_MODULES = {_G = true, package = true, os = true, io = true, bit = true}
+local GLOBAL_MODULES = {_G = true, package = true, os = true, io = true, bit = true, debug = true}
+local OPTIONAL_GLOBALS = {jit = true, arg = true, coroutine = true, ffi = true, newproxy = true, collectgarbage = true, dofile = true, loadfile = true, xpcall = true}
 
 local function isNumeric(t)
     local tag = tyTag(t)
@@ -231,7 +281,7 @@ local function coerce(f, reg, class, want, dst)
     return dst
 end
 
-local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill
+local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall
 local nuppChain, modulePathOf, queueModule
 -- Expression kinds that write their destination only after every read of
 -- their operands, so the destination may be a register the operands name.
@@ -317,15 +367,15 @@ emitIs = function(f, node, dst)
     elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then typeTest(IS_TYPE[t.base.text])
     elseif t.primitiveTest then typeTest(t.primitiveTest)
     elseif t.kind == "tfunc" then typeTest("function")
-    elseif t.recordName and shapes[t.recordName] then
-        local v = exprAs(f, node.expr, "v"); f:op("IsRec", dst, v, shapes[t.recordName].id)
+    elseif t.recordName and (shapeOfNominal(t.resolvedType) or shapeByBareName(t.recordName)) then
+        local v = exprAs(f, node.expr, "v"); f:op("IsRec", dst, v, (shapeOfNominal(t.resolvedType) or shapeByBareName(t.recordName)).id)
     elseif t.recordNames then
         -- One of several records: the subject is read once, tested in order.
         local v = exprAs(f, node.expr, "v")
         local exits = {}
         for i, rn in ipairs(t.recordNames) do
-            assert(shapes[rn], "is-test against unknown record " .. tostring(rn))
-            f:op("IsRec", dst, v, shapes[rn].id)
+            local sh = assert(shapeByBareName(rn), "is-test against unknown record " .. tostring(rn))
+            f:op("IsRec", dst, v, sh.id)
             if i < #t.recordNames then exits[#exits + 1] = f:op("JmpIf", dst, 0) end
         end
         for _, at in ipairs(exits) do f:patch(at, "JmpIf", dst, f:offset(at, f:here())) end
@@ -341,14 +391,21 @@ callInto = function(f, node, dst, extraSelf)
     local args = node.args and node.args.exprs or {}
     local argRegs = {}
     if extraSelf then nargs = nargs + 1; argRegs[1] = extraSelf end
-    local spread
-    for i, a in ipairs(args) do if a.kind == "vararg" and i == #args then spread = a else nargs = nargs + 1; argRegs[nargs] = a end end
+    local spread, trailing
+    for i, a in ipairs(args) do
+        if a.kind == "vararg" and i == #args then spread = a
+        elseif (a.kind == "call" or a.kind == "methodCall") and i == #args and not a.ownershipIntrinsic and not a.scalarIntrinsic then trailing = a
+        else nargs = nargs + 1; argRegs[nargs] = a end
+    end
     -- Only the arguments are reserved: a callee's extra results land above
     -- the top, which nothing holds live, inside the frame's nine-word slack.
     while f.nregs < base + nargs + 1 do f:reg() end
     for i, a in ipairs(argRegs) do
         if type(a) == "number" then if a ~= base + i then f:op("Move", base + i, a) end else exprAs(f, a, "v", base + i) end
     end
+    -- A trailing call passes everything it returned, flagged by 64 on the
+    -- count: its results follow the fixed arguments in the registers.
+    if trailing then emitCall(f, trailing, base + nargs + 1, 8, true); return base, nargs + 64 end
     -- A trailing `...` spreads this frame's own varargs, flagged by 128 on
     -- the count; the runtime copies them from below the header.
     if spread then assert(f.vararg, "... outside a vararg function"); return base, nargs + 128 end
@@ -381,7 +438,9 @@ local function emitStrByte(f, node, dst, nres)
     f:op("StrByte", dst, s, i)
     return true
 end
-local function emitCall(f, node, dst, nres)
+-- `all` asks for everything the call returns (a trailing `return f()`),
+-- which `RetN` reads from `last_nres`; otherwise exactly `nres` values.
+emitCall = function(f, node, dst, nres, all)
     nres = nres or 1
     if node.ownershipIntrinsic then
         -- The checker's ownership helpers are identities at run time here:
@@ -405,23 +464,48 @@ local function emitCall(f, node, dst, nres)
         error("ownership intrinsic " .. tostring(oi) .. " is not in this emitter")
     end
     local callee = node.obj
+    if node.scalarIntrinsic then
+        -- A fixed-width scalar intrinsic the checker named: a builtin of the
+        -- runtime, whatever path spelled it.
+        local top = dst == f.nregs - 1
+        local sargs = node.args and node.args.exprs or {}
+        local argc = #sargs
+        local lastArg = sargs[#sargs]
+        local slack = (lastArg and (lastArg.kind == "call" or lastArg.kind == "methodCall") and not lastArg.ownershipIntrinsic and not lastArg.scalarIntrinsic) and 8 or 0
+        local base, fr
+        if top then base = dst; while f.nregs < base + argc + 2 + slack do f:reg() end; fr = f:reg() else fr = f:reg(); base = math.max(dst, f.nregs) end
+        f:op("K", fr, f:const("builtin", "scalar." .. node.scalarIntrinsic))
+        local base2, nargs = callInto(f, node, base)
+        f:op("CallDyn", fr, base2, nargs)
+        if nres > 1 and not all then f:op("PadResults", base2, nres) end
+        if base2 ~= dst then for i = 0, nres - 1 do f:op("Move", dst + i, base2 + i) end end
+        return
+    end
     if callee.kind == "name" then
         local bnd = f:binding(tokText(callee.token))
         if bnd and bnd.builtin == "string.byte" and emitStrByte(f, node, dst, nres) then return end
     elseif callee.kind == "dotIndex" and callee.obj.kind == "name" and tokText(callee.obj.token) == "string" and tokText(callee.name) == "byte" and not f:binding("string") then
         if emitStrByte(f, node, dst, nres) then return end
     end
-    local function finish(base) if base ~= dst then for i = 0, nres - 1 do f:op("Move", dst + i, base + i) end end end
+    local function finish(base)
+        if nres > 1 and not all then f:op("PadResults", base, nres) end
+        if base ~= dst then for i = 0, nres - 1 do f:op("Move", dst + i, base + i) end end
+    end
     -- When the destination is the highest register in use, the call's window
     -- starts there and the results land in place; the callee and receiver
     -- are evaluated above the reserved window.
     local top = dst == f.nregs - 1
     local argc = 0
-    for _, a in ipairs(node.args and node.args.exprs or {}) do if a.kind ~= "vararg" then argc = argc + 1 end end
+    local args0 = node.args and node.args.exprs or {}
+    for _, a in ipairs(args0) do if a.kind ~= "vararg" then argc = argc + 1 end end
+    -- A trailing call's results land past the arguments: the callee and
+    -- receiver, evaluated above the window, must stay clear of them.
+    local lastArg = args0[#args0]
+    local slack = (lastArg and (lastArg.kind == "call" or lastArg.kind == "methodCall") and not lastArg.ownershipIntrinsic and not lastArg.scalarIntrinsic) and 8 or 0
     if node.kind == "methodCall" then
         -- Otherwise the window is placed above the receiver once it exists.
         local base, o
-        if top then base = dst; while f.nregs < base + argc + 3 do f:reg() end; o = exprAs(f, node.obj, "v", base + 1)
+        if top then base = dst; while f.nregs < base + argc + 3 + slack do f:reg() end; o = exprAs(f, node.obj, "v", base + 1)
         else o = exprAs(f, node.obj, "v"); base = math.max(dst, f.nregs) end
         local base, nargs = callInto(f, node, base, o)
         f:op("CallMethod", f:const("str", tokText(node.name)), base, nargs)
@@ -430,15 +514,17 @@ local function emitCall(f, node, dst, nres)
     end
     if callee.kind == "name" then
         local name = tokText(callee.token)
-        if name == "pcall" and not f:lookup(name) then
+        if name == "pcall" and not f:binding(name) then
             local args = node.args.exprs
             local base = dst
             while f.nregs < base + #args + 1 do f:reg() end
-            for i, a in ipairs(args) do exprAs(f, a, "v", base + i) end
-            f:op("PCall", base, #args - 1)
+            local last = args[#args]
+            local trailing = #args > 1 and (last.kind == "call" or last.kind == "methodCall") and not last.ownershipIntrinsic and not last.scalarIntrinsic
+            for i, a in ipairs(args) do if not (trailing and i == #args) then exprAs(f, a, "v", base + i) end end
+            if trailing then emitCall(f, last, base + #args, 8, true); f:op("PCall", base, (#args - 2) + 64) else f:op("PCall", base, #args - 1) end
             return
         end
-        if name == "require" and not f:lookup(name) then
+        if name == "require" and not f:binding(name) then
             local a = node.args.exprs[1]
             if a.kind == "string" then
                 f:op("Require", dst, f:const("str", (loadstring("return " .. tokText(a.token)))()))
@@ -450,7 +536,7 @@ local function emitCall(f, node, dst, nres)
     end
     -- Otherwise the window is placed above the callee once it exists.
     local base, fr
-    if top then base = dst; while f.nregs < base + argc + 2 do f:reg() end; fr = exprAs(f, callee, "v")
+    if top then base = dst; while f.nregs < base + argc + 2 + slack do f:reg() end; fr = exprAs(f, callee, "v")
     else fr = exprAs(f, callee, "v"); base = math.max(dst, f.nregs) end
     local base, nargs = callInto(f, node, base)
     local fid = callee.kind == "name" and f:knownFid(tokText(callee.token))
@@ -546,7 +632,7 @@ expr = function(f, node, dst, want)
         local fname = tokText(node.name)
         if shape and shape.slotIndex[fname] and shape.slots[shape.slotIndex[fname] + 1].ty == "num" then
             local o = exprAs(f, node.obj, "v")
-            local d = f:freg(); f:op("GetSlotF", d, o, shape.slotIndex[fname]); return d, "f"
+            local d = f:freg(); f:op("GetSlotF", d, o, shape.slotIndex[fname], shape.id); return d, "f"
         end
     end
     if numeric and k == "bracketIndex" then
@@ -601,6 +687,10 @@ expr = function(f, node, dst, want)
         elseif GLOBAL_MODULES[name] then f:op("Require", dst, f:const("str", name))
         elseif name == "loadstring" or name == "load" then f:op("K", dst, f:const("builtin", "loadstring"))
         elseif name == "require" then f:op("K", dst, f:const("builtin", "require"))
+        elseif OPTIONAL_GLOBALS[name] then
+            -- A global a module tests for before using (`if jit then`): read
+            -- from `_G`, nil unless the runtime installs it.
+            f:op("Require", dst, f:const("str", "_G")); local t = f:reg(); f:op("GetField", t, dst, f:const("str", name)); f:op("Move", dst, t)
         else error("unresolved name " .. name .. " in " .. f.name) end
     elseif k == "binop" then
         local op = tokText(node.op)
@@ -655,12 +745,18 @@ expr = function(f, node, dst, want)
         for _, part in ipairs(rest) do local t = f:reg(); f:op("GetField", t, dst, f:const("str", part)); f:op("Move", dst, t) end
     elseif k == "dotIndex" then
         local fname = tokText(node.name)
-        if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:lookup(tokText(node.obj.token)) then
-            f:op("K", dst, f:const("builtin", tokText(node.obj.token) .. "." .. fname))
+        if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:binding(tokText(node.obj.token)) then
+            local full = tokText(node.obj.token) .. "." .. fname
+            -- Library members that are values rather than functions.
+            if full == "math.huge" then f:op("K", dst, f:const("num", math.huge))
+            elseif full == "math.pi" then f:op("K", dst, f:const("num", math.pi))
+            elseif full == "io.stderr" or full == "io.stdout" or full == "io.stdin" then
+                f:op("Require", dst, f:const("str", "io")); local t = f:reg(); f:op("GetField", t, dst, f:const("str", fname)); f:op("Move", dst, t)
+            else f:op("K", dst, f:const("builtin", full)) end
         else
             local shape = shapeOf(node.obj.inferredType)
             local o = exprAs(f, node.obj, "v")
-            if shape and shape.slotIndex[fname] then f:op("GetSlot", dst, o, shape.slotIndex[fname])
+            if shape and shape.slotIndex[fname] then f:op("GetSlot", dst, o, shape.slotIndex[fname], shape.id)
             else f:op("GetField", dst, o, f:const("str", fname)) end
         end
     elseif k == "bracketIndex" then
@@ -684,8 +780,8 @@ expr = function(f, node, dst, want)
         for _, a in ipairs(call.args.exprs or {}) do
             assert(a.kind == "namedArg", "new with positional arguments")
             local slot = assert(shape.slotIndex[tokText(a.name)], "field " .. tokText(a.name))
-            if shape.slots[slot + 1].ty == "num" then local v = exprAs(f, a.value, "f"); f:op("SetSlotF", dst, slot, v)
-            else local v = exprAs(f, a.value, "v"); f:op("SetSlot", dst, slot, v) end
+            if shape.slots[slot + 1].ty == "num" then local v = exprAs(f, a.value, "f"); f:op("SetSlotF", dst, slot, v, shape.id)
+            else local v = exprAs(f, a.value, "v"); f:op("SetSlot", dst, slot, v, shape.id) end
         end
     elseif k == "tableExpr" then
         local items, named = 0, 0
@@ -698,8 +794,8 @@ expr = function(f, node, dst, want)
                 f:op("NewRecord", dst, struct.id)
                 for _, field in ipairs(node.fields) do
                     local slot = struct.slotIndex[tokText(field.name)]
-                    if struct.slots[slot + 1].ty == "num" then local fv = exprAs(f, field.value, "f"); f:op("SetSlotF", dst, slot, fv)
-                    else local v = exprAs(f, field.value, "v"); f:op("SetSlot", dst, slot, v) end
+                    if struct.slots[slot + 1].ty == "num" then local fv = exprAs(f, field.value, "f"); f:op("SetSlotF", dst, slot, fv, struct.id)
+                    else local v = exprAs(f, field.value, "v"); f:op("SetSlot", dst, slot, v, struct.id) end
                 end
                 return dst, "v"
             end
@@ -730,9 +826,10 @@ expr = function(f, node, dst, want)
     elseif k == "castExpr" then
         local target = node.inferredType
         local v = exprAs(f, node.expr, "v", dst)
-        local shape = shapeOf(target)
-        if shape then f:op("TagCheckRec", dst, v, shape.id)
-        elseif tyTag(target) == "number" or tyTag(target) == "integer" then f:op("TagCheckNum", dst, v)
+        -- A cast to a record is erased, as the Lua backend erases it: the
+        -- `setmetatable({...}, R) as R` idiom hands on a struct-shaped
+        -- record, and every slot access guards the shape it assumed.
+        if tyTag(target) == "number" or tyTag(target) == "integer" then f:op("TagCheckNum", dst, v)
         elseif tyTag(target) == "string" then f:op("TagCheckStr", dst, v)
         else if v ~= dst then f:op("Move", dst, v) end end
     else
@@ -826,7 +923,7 @@ local function assignTo(f, target, valueReg)
         local fname = tokText(target.name)
         if shape and shape.slotIndex[fname] then
             local slot = shape.slotIndex[fname]
-            if shape.slots[slot + 1].ty == "num" then local fv = f:freg(); f:op("FUnbox", fv, valueReg); f:op("SetSlotF", o, slot, fv) else f:op("SetSlot", o, slot, valueReg) end
+            if shape.slots[slot + 1].ty == "num" then local fv = f:freg(); f:op("FUnbox", fv, valueReg); f:op("SetSlotF", o, slot, fv, shape.id) else f:op("SetSlot", o, slot, valueReg, shape.id) end
         else f:op("SetField", o, f:const("str", fname), valueReg) end
     elseif target.kind == "bracketIndex" then
         local o = exprAs(f, target.obj, "v")
@@ -936,7 +1033,7 @@ stmt = function(f, node)
                 -- A trailing call's results are all returned: evaluate the others, then it.
                 while f.nregs < base + n + 1 do f:reg() end
                 for i = 1, n - 1 do exprAs(f, exprs[i], "v", base + i - 1) end
-                emitCall(f, exprs[n], base + n - 1, 8)
+                emitCall(f, exprs[n], base + n - 1, 8, true)
                 -- 128 | fixed: the fixed values, then exactly what the call returned.
                 f:op("RetN", base, 128 + (n - 1))
             else
@@ -1005,8 +1102,33 @@ stmt = function(f, node)
         exprAs(f, node.start, "f", var)
         local limit = exprAs(f, node.stop, "f")
         local step = f:freg(); if node.step then exprAs(f, node.step, "f", step) else f:op("FK", step, 1) end
+        -- The exit test follows the step's sign: `var <= limit` counting up,
+        -- `limit <= var` counting down. A literal step settles it here; any
+        -- other is tested once before the loop and selects per round.
+        local function stepSign(e)
+            if not e then return 1 end
+            if e.kind == "number" then local n = tonumber(tokText(e.token)); return n and (n < 0 and -1 or 1) or 0 end
+            if e.kind == "unop" and tokText(e.op) == "-" and e.operand.kind == "number" then return -1 end
+            if e.kind == "paren" and e.expr then return stepSign(e.expr) end
+            return 0
+        end
+        local sign = stepSign(node.step)
+        local up, down
+        if sign == 0 then
+            local zero = f:freg(); f:op("FK", zero, 0)
+            up = f:freg(); f:op("FCmpLe", up, zero, step)
+            local one = f:freg(); f:op("IK", one, 1)
+            down = f:freg(); f:op("ISub", down, one, up)
+        end
         local top = f:here()
-        local c = f:freg(); f:op("FCmpLe", c, var, limit)
+        local c = f:freg()
+        if sign > 0 then f:op("FCmpLe", c, var, limit)
+        elseif sign < 0 then f:op("FCmpLe", c, limit, var)
+        else
+            local c1 = f:freg(); f:op("FCmpLe", c1, var, limit); f:op("IAnd", c1, c1, up)
+            local c2 = f:freg(); f:op("FCmpLe", c2, limit, var); f:op("IAnd", c2, c2, down)
+            f:op("IOr", c, c1, c2)
+        end
         local branch = f:op("JmpIfIZero", c, 0)
         loopBegin(f)
         if varCell then f:push(); local boxed = f:reg(); f:op("FBox", boxed, var); local cr = f:declare(varName, "v"); f:op("NewCell", cr, boxed) end
@@ -1076,10 +1198,10 @@ stmt = function(f, node)
         for _, child in ipairs(fname) do
             if type(child) == "table" and child.kind == "name" and child ~= fname.base and child ~= fname.method then parts[#parts + 1] = tokText(child) end
         end
-        if fname.method and shapes[baseName] then
+        if fname.method and shapeByBareName(baseName) then
             local member = tokText(fname.method)
             local c = f:reg(); emitClosure(f, node.body, c, baseName .. ":" .. member, true)
-            f:op("SetMethod", shapes[baseName].id, f:const("str", member), c)
+            f:op("SetMethod", shapeByBareName(baseName).id, f:const("str", member), c)
         elseif #parts == 0 and not fname.method then
             -- `function name() end`: an assignment to the name.
             local c = f:reg(); emitClosure(f, node.body, c, baseName)
@@ -1152,6 +1274,10 @@ end
 -- in one block and reads an outer `members` in another no longer confuses
 -- the two. Names that resolve to nothing are globals or module names.
 local capturedOf = setmetatable({}, {__mode = "k"})
+-- The names each function reads from an enclosing one, every function on
+-- the way to the owner included: what its upvalue registers hold at entry.
+local freeOf = setmetatable({}, {__mode = "k"})
+local fnStack = {}
 local FUNCTION_KINDS = {funcExpr = true, localFuncStmt = true, funcStmt = true, inlineMethod = true}
 local analyzeFunction
 -- `chain` is a list of scopes, innermost last; each scope maps a name to the
@@ -1162,7 +1288,14 @@ local function lookupChain(chain, name)
 end
 local function noteUse(chain, name, here)
     local owner = lookupChain(chain, name)
-    if owner and owner ~= here then capturedOf[owner] = capturedOf[owner] or {}; capturedOf[owner][name] = true end
+    if owner and owner ~= here then
+        capturedOf[owner] = capturedOf[owner] or {}; capturedOf[owner][name] = true
+        for i = #fnStack, 1, -1 do
+            local fb = fnStack[i]
+            if fb == owner then break end
+            freeOf[fb] = freeOf[fb] or {}; freeOf[fb][name] = true
+        end
+    end
 end
 local analyzeExpr, analyzeBlock, analyzeStmt
 -- Expressions: names and nested functions, through any node shape.
@@ -1241,7 +1374,9 @@ analyzeFunction = function(funcbody, chain, seen, implicitSelf, predeclared)
     if implicitSelf then chain[#chain]["self"] = here end
     chain[#chain]["..."] = here
     for _, name in ipairs(predeclared or {}) do chain[#chain][name] = here end
+    fnStack[#fnStack + 1] = funcbody
     analyzeBlock(funcbody.body, chain, here, seen)
+    fnStack[#fnStack] = nil
     chain[#chain] = nil
 end
 -- Run once per module over its root block; `markCaptures` then reads the result.
@@ -1249,26 +1384,6 @@ local function analyzeModule(rootBlock, predeclared)
     local root = {body = rootBlock, params = {}}
     analyzeFunction(root, {}, {}, false, predeclared)
     return root
-end
--- The free names of a nested function, kept for the upvalue register
--- allocation at function entry (an over-approximation is harmless there).
-local function declaredNames(funcbody, out)
-    for _, p in ipairs(funcbody.params or {}) do if p.name then out[tokText(p.name)] = true end end
-    out["..."] = true
-    walkSyntax(funcbody.body, {}, function(n)
-        if n.kind == "localStmt" then for _, t in ipairs(n.names) do out[tokText(t)] = true end
-        elseif n.kind == "localFuncStmt" then out[tokText(n.name)] = true
-        elseif n.kind == "fornumStmt" then out[tokText(n.var)] = true
-        elseif n.kind == "forinStmt" then for _, t in ipairs(n.names) do out[tokText(t)] = true end end
-    end)
-end
-local function collectFree(funcbody, out)
-    local declared = {}
-    declaredNames(funcbody, declared)
-    walkSyntax(funcbody.body, {}, function(n)
-        if n.kind == "name" and n.token and not declared[tokText(n.token)] then out[tokText(n.token)] = true end
-        if n.kind == "funcname" and n.base and not declared[tokText(n.base)] then out[tokText(n.base)] = true end
-    end)
 end
 -- How many locals a body declares, nested functions included (an
 -- over-count only costs a register in a function that did not need it).
@@ -1313,15 +1428,16 @@ defineFunction = function(f, funcbody)
     if varargParam then assert(not varargParam.name, "a named vararg is not in this emitter") end
     for _, cp in ipairs(cellParams) do local cellReg = f:declare(cp[1]); f:op("NewCell", cellReg, cp[2]) end
     openSpill(f, funcbody.body)
-    -- Every capture the body may read gets its register now, below the
-    -- locals, so no scope's end reclaims it: the free names, over-approximated
-    -- by `collectFree`, that resolve to upvalues.
+    -- Every capture the body reads gets its register now, below the locals,
+    -- so no scope's end reclaims it: the analysis's free names of this
+    -- function that resolve to upvalues (a nested local of the same name
+    -- declared later in the body does not hide them).
     if f.parent then
-        local free, names = {}, {}
-        collectFree(funcbody, free)
-        for name in pairs(free) do names[#names + 1] = name end
+        local names = {}
+        for name in pairs(freeOf[funcbody] or {}) do names[#names + 1] = name end
         table.sort(names)
-        for _, name in ipairs(names) do local ui = f:upvalue(name); if ui then f:upvalReg(ui) end end
+        for _, name in ipairs(names) do local ui = f:upvalue(name, true); if ui then f:upvalReg(ui) end end
+
     end
     -- EMIT_SURVEY=1 keeps going past a construct the emitter lacks: the body
     -- becomes a stub and the failure is tallied, so one run over a module
@@ -1370,9 +1486,23 @@ local function requiresOf(tree)
     end)
     return names
 end
+-- Modules named in EMIT_STUBS (comma-separated) are emitted as empty
+-- exports: for a workload that loads a module whose dependencies cannot
+-- run here, when the workload itself never calls into it.
+local STUBS = {}
+for n in (os.getenv("EMIT_STUBS") or ""):gmatch("[^,]+") do STUBS[n] = true end
 local function compileModule(name, path)
     if modules[name] then return end
     modules[name] = true
+    if STUBS[name] then
+        local chunk = newFn("module:" .. name, nil)
+        chunk.sig, chunk.ret, chunk.nparams = {}, "v", 0
+        local r = chunk:reg(); chunk:op("NewTableN", r, 0, 0); chunk:op("Ret", r)
+        modules[name] = chunk
+        moduleOrder[#moduleOrder + 1] = name
+        io.stderr:write("module ", name, " stubbed\n")
+        return
+    end
     local collected = {}
     local tree = compile.check(path, env, {}, collected)
     for _, d in ipairs(collected) do if d.severity == "error" or not d.severity then io.stderr:write(name, ": ", tostring(d.code), " ", tostring(d.msg), "\n") end end
@@ -1383,6 +1513,7 @@ local function compileModule(name, path)
         local depPath = modulePath(dep)
         if depPath then compileModule(dep, depPath) else io.stderr:write("module ", dep, " not found (left to the runtime)\n") end
     end
+    currentModule = name
     for _, s in ipairs(stats) do if s.kind == "recordDecl" then declareShape(s) elseif s.kind == "exportStmt" and s.stat and s.stat.kind == "recordDecl" then declareShape(s.stat) end end
     -- Records declared inside functions get their shapes now too, so a
     -- constructor in a closure defined before the declaration finds them.
@@ -1433,6 +1564,7 @@ for _, shape in ipairs(shapeOrder) do
 end
 for _, f in ipairs(functions) do
     emit(("function %s %d %d %d %d %s:%s%s"):format(f.name:gsub("%s", "_"), f.id, f.nparams, math.max(f.maxRegs or 0, f.nregs) + 9, math.max(f.maxFregs or 0, f.nfregs) + 2, table.concat(f.sig or {}), f.ret or "v", f.vararg and " vararg" or ""))
+    if f.module then emit("  source " .. f.module) end
     for i, c in ipairs(f.consts) do
         if c.kind == "str" then emit(("  const %d str %s"):format(i - 1, q(c.value)))
         elseif c.kind == "builtin" then emit(("  const %d builtin %s"):format(i - 1, c.value))
@@ -1441,7 +1573,12 @@ for _, f in ipairs(functions) do
     for _, op in ipairs(f.code) do emit("  " .. table.concat(op, " ")) end
     emit("end")
 end
-for _, name in ipairs(moduleOrder) do emit("module " .. name .. " " .. modules[name].id) end
+-- Each module's source path, absolute, for `debug.getinfo(1, "S").source`.
+for _, name in ipairs(moduleOrder) do
+    local p = modulePath(name)
+    if p and p:sub(1, 1) ~= "/" then p = (os.getenv("PWD") or ".") .. "/" .. p end
+    emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))
+end
 emit("entry " .. modules[entryName].id)
 io.write(table.concat(out, "\n"), "\n")
 if os.getenv("EMIT_SURVEY") then local rows = {}; for k, n in pairs(SURVEY) do rows[#rows + 1] = {k, n} end; table.sort(rows, function(a, b) return a[2] > b[2] end); io.stderr:write("survey: ", #functions, " functions, ", #rows, " failure kinds\n"); for _, r in ipairs(rows) do io.stderr:write(string.format("  %5d  %s\n         e.g. %s\n", r[2], r[1], tostring(SURVEY_EXAMPLE and SURVEY_EXAMPLE[r[1]]))) end end

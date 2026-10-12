@@ -76,7 +76,7 @@ pub struct StrPayload { pub hash: u64 /* then the bytes */ }
 #[repr(C)]
 pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
 #[repr(C)]
-pub struct TablePayload { pub array: Vec<Value>, pub hash: ValueMap }
+pub struct TablePayload { pub array: Vec<Value>, pub hash: ValueMap, pub meta: Value }
 #[repr(C)]
 pub struct StoragePayload { pub data: Vec<f64> }
 #[repr(C)]
@@ -359,7 +359,7 @@ impl Heap {
         let p = self.alloc(KIND_TABLE, std::mem::size_of::<TablePayload>(), roots);
         unsafe {
             let h = &mut *p.as_ptr();
-            (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueMap::with_capacity_and_hasher(m, Default::default()) });
+            (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueMap::with_capacity_and_hasher(m, Default::default()), meta: Value::NIL });
             h.refresh();
         }
         self.live_bytes += 8 * n + 24 * m; self.debt += 8 * n + 24 * m;
@@ -491,7 +491,7 @@ impl Heap {
     /// oracle and the serialiser share.
     pub fn each_child(h: &Header, f: &mut dyn FnMut(Value)) {
         match h.kind {
-            KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (&k, &v) in &t.hash { f(k); f(v); } }
+            KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (&k, &v) in &t.hash { f(k); f(v); } if t.meta != Value::NIL { f(t.meta); } }
             KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { for (&k, &v) in m.iter() { f(k); f(v); } } }
             KIND_CLOSURE | KIND_CELL => { for &v in h.slots() { f(v); } }
             KIND_SLICE => f(h.slice().source),

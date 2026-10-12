@@ -40,6 +40,7 @@ enum C {
     GetUpval, GetCell, GetSlot, GetSlotF, SetSlotF, Len, LenF, StrByte,
     Call, CallK, CallDyn, Ret, RetNil, RetN,
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
+    PadResults,
 }
 
 /// The core's encoding of one opcode; anything it does not handle is `Slow`,
@@ -100,9 +101,9 @@ pub fn encode(op: &Op) -> Ins {
         Op::FCmpLt(d, a, b) => i(C::FCmpLt, d, a, b),
         Op::GetUpval(d, u) => i(C::GetUpval, d, u, 0),
         Op::GetCell(d, c) => i(C::GetCell, d, c, 0),
-        Op::GetSlot(d, t, s) if s < 256 => i(C::GetSlot, d, t, s as u8),
-        Op::GetSlotF(d, t, s) if s < 256 => i(C::GetSlotF, d, t, s as u8),
-        Op::SetSlotF(t, s, a) if s < 256 => i(C::SetSlotF, t, s as u8, a),
+        Op::GetSlot(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::GetSlot, d, t, s as u8) },
+        Op::GetSlotF(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::GetSlotF, d, t, s as u8) },
+        Op::SetSlotF(t, s, a, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::SetSlotF, t, s as u8, a) },
         Op::Len(d, a) => i(C::Len, d, a, 0),
         Op::LenF(d, a) => i(C::LenF, d, a, 0),
         Op::StrByte(d, s, ix) => i(C::StrByte, d, s, ix),
@@ -116,7 +117,8 @@ pub fn encode(op: &Op) -> Ins {
         Op::GetIdxI(d, t, ix) => i(C::GetIdxI, d, t, ix),
         Op::SetIdxI(t, ix, v) => i(C::SetIdxI, t, ix, v),
         Op::SetCell(c, v) => i(C::SetCell, c, v, 0),
-        Op::SetSlot(t, s, v) if s < 256 => i(C::SetSlot, t, s as u8, v),
+        Op::SetSlot(t, s, v, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::SetSlot, t, s as u8, v) },
+        Op::PadResults(base, n) => i(C::PadResults, base, n, 0),
         Op::TagCheckNum(d, a) => i(C::TagCheckNum, d, a, 0),
         Op::NewRecord(d, shape) => Ins { k: shape as i64, ..i(C::NewRecord, d, 0, 0) },
         Op::GetIdx(d, t, key) => i(C::GetIdx, d, t, key),
@@ -152,6 +154,8 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     // The core moved frames on its own; the task record learns the top first.
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.last_nres = ctx.last_nres as usize;
+    // The frame's pc, for the backtrace of an error this op raises.
+    it.tasks[tid].note_pc(pc as usize + 1);
     let (win, _) = it.window(tid);
     #[cfg(feature = "opstats")]
     if let Some(st) = it.op_stats.as_mut() { let op = it.funcs[win.fid as usize].code[pc as usize]; *st.entry(crate::interp::op_name(&op)).or_insert(0) += 1; }
@@ -187,6 +191,7 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
     it.tasks[tid].set_cur(ctx.cur as usize);
+    it.tasks[tid].note_pc(ctx.pc as usize + 1);
     (it, tid)
 }
 /// A field read by name the core could not resolve from the shape: a table's
@@ -195,7 +200,7 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
 pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.get_index(Value(obj), Value(name)));
+    let v = it.guarded(|it| it.index(Value(obj), Value(name)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
     v.0
 }
@@ -205,7 +210,7 @@ pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
 pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.get_index_any(Value(obj), Value(key)));
+    let v = it.guarded(|it| it.index_any(Value(obj), Value(key)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
     v.0
 }
@@ -214,7 +219,7 @@ pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
 pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.get_index(Value(obj), Value::num(i as f64)));
+    let v = it.guarded(|it| it.index(Value(obj), Value::num(i as f64)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
     v.0
 }
@@ -223,7 +228,7 @@ pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
 pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let r = it.guarded(|it| { it.set_index(Value(obj), Value::num(i as f64), Value(v)); Value::NIL });
+    let r = it.guarded(|it| { let t = Value(obj); if it.metatable_of(t) != Value::NIL { it.newindex(t, Value::num(i as f64), Value(v)); } else { it.set_index(t, Value::num(i as f64), Value(v)); } Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; }
     sync(ctx, it);
 }

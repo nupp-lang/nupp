@@ -202,3 +202,87 @@ The parser's three inputs and `jitbench` agree with LuaJIT on every tier
 and collector mode after all of it, at the same times as above. The survey
 proves emission, not execution: running the checker on the VM is the next
 step, and needs the host services it reads files and environment through.
+
+**The checker runs (2026-10-11).** `nupp.bench.checkbench` parses a source
+and checks it in a memory-only environment (`envMod.new` builds the prelude
+from `decls/*.d.nupp`, through comptime), answering the diagnostic count, the
+typed node count and a checksum over inferred type tags and diagnostic codes.
+The image is emitted with the modules `compilerPrivate` loads dynamically
+named on the command line and the two `nupp.io` modules stubbed
+(`EMIT_STUBS=nupp.io.files,nupp.io.path`); the runtime provides those two
+natively (below). Every tier agrees with LuaJIT:
+
+| source | result (diagnostics, typed nodes, checksum) | typed tier | threaded core | Rust loop | LuaJIT |
+| --- | --- | ---: | ---: | ---: | ---: |
+| small sample (20 lines) | 0, 77, 758055804 | 153 ms | 293 ms | 462 ms | 76 ms |
+| lexer.nupp (41 KB) | 4, 3643, 467446496 | 305 ms | 585 ms | 915 ms | 232 ms |
+
+(Medians of seven on a machine with a stray process at 100% of one core;
+LuaJIT's includes its own warm-up across the repeats. The typed tier compiles
+the image's 3,063 functions in about 6.1 s before the first call, 2 ms each,
+reported apart from the run time; 16 are refused: 13 vararg, 3 with more than
+eight parameters.) The interleaved collector with the oracle and quarantine
+passes under compiled code (65 cycles on the small sample). The lexer-source
+result differs from LuaJIT's `6, 3641, 379691941` only in the diagnostics the
+project index contributes: the repository's `nupp.lua` manifest is a 700-line
+Lua program, and this runtime evaluates no Lua, so there is no project index
+and `require` of an internal stdlib module is not reported. That is the
+self-hosting question the plan has to answer: the compiler evaluates Lua in
+exactly two places, manifests and the Lua it generates, and both need a
+decision (a manifest subset the compiler itself reads, and the backend
+emitting images rather than Lua source).
+
+What it took to get the checker running, each a runtime decision:
+
+- **Casts to records are erased**, as the Lua backend erases them, because
+  the compiler builds its own records as `setmetatable({...}, R) as R`: a
+  struct-shaped table where a nominal one was declared. So every slot access
+  by offset is **guarded by the shape the emitter assumed** (`GetSlot d o
+  slot shape` and the three others), inline in the core and the typed tier,
+  with a by-name slow path; and a nominal record keeps unknown fields in its
+  overflow part rather than refusing them. The checker's own types decide
+  slot offsets, the guard decides whether they apply.
+- **Constructor-inferred shapes have untyped slots**: the checker types
+  `x and y or nil` without the nil, and a numeric slot would refuse the nil
+  the program stores. Declared record fields keep typed slots.
+- **A trailing call argument spreads its results** (`f(a, g())`,
+  `pcall(f, g())`): the argument count carries flag 64 and the callee's
+  results follow the fixed arguments in registers, at most eight; every call
+  path normalises the count from `last_nres`. `PadResults` after a call that
+  wanted several results nils the ones it did not return, since a single
+  `Ret` writes one register. Every compiled return now records its count.
+- **`t[#t] = nil` shrinks the array part** (Lua's border rule) on every store
+  path; `tonumber` of a non-string is nil; `require` of a missing module
+  raises Lua's message, which `nupp.spi` probes for.
+- **Metatables on tables**: `__index` (function or table), `__newindex`,
+  `__call`, stored by `setmetatable` and walked by the collector; records
+  have none. A method call that finds no shape method calls the field of
+  that name, which is how the compiler's class idiom dispatches.
+- **`loadstring`** evaluates `return <literal>` (numbers, strings with Lua's
+  escapes, booleans, nil), which is what every compiler use decodes, as a
+  closure over the value; anything else loads and raises when called, since
+  the generator loads its output only to validate it.
+- **Host surface**: `io.open` for reading (a file object whose methods are
+  fields), `io.stderr`/`io.stdout` objects, `os.*` and `io.read` stubs that
+  answer as failed calls, `debug.getinfo(1, "S").source` from the calling
+  function's module path (the image records each module's source path, and
+  compiled code passes its function id through dynamic calls), `package.loaded`
+  as a live mirror, `table.sort` with a comparator, the `bit`/`math`/`string`
+  extras, the fixed-width scalar intrinsics (`nupp.math.u32.*` and the i32
+  and f32 families) as builtins the checker's intrinsic marks select, and
+  `nupp.io.files`/`nupp.io.path` natively since `nupp.io` is FFI-backed and
+  cannot load here.
+- **Diagnostics**: an uncaught error prints every task's backtrace, innermost
+  first, and the core records the pc before any helper that can raise.
+- **Emitter**: inherited record fields are slots; shapes are keyed by nominal
+  type identity rather than bare name (two modules each declare an `Error`);
+  a `for` with a negative step tests `limit <= var`; `..` chains fold left;
+  spilled locals; upvalue registers come from the analysis's exact free names
+  (a nested local of the same name declared later no longer hides a capture).
+
+Bugs the checker found in the runtime: the closure word of a vararg entry
+frame was written at a fixed offset rather than after the surplus arguments
+(the frame corrupted on return); a compiled function with more than eight
+parameters lost the rest; the compiled multi-value return read its values
+from the wrong slots; `install_globals` held an interned key across an
+allocation.

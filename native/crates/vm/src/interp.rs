@@ -103,8 +103,10 @@ pub enum Op {
     SetField(u8, u16, u8),
     NewRecord(u8, u32),
     /// Slot by offset, the typed path: no check on read or write.
-    GetSlot(u8, u8, u16),
-    SetSlot(u8, u16, u8),
+    /// Slot access by offset, guarded by the shape the emitter assumed:
+    /// another shape reads or writes the slot's name instead.
+    GetSlot(u8, u8, u16, u32),
+    SetSlot(u8, u16, u8, u32),
     Park(u8),
     Checkpoint,
     Ne(u8, u8, u8),
@@ -121,6 +123,9 @@ pub enum Op {
     TagCheckStr(u8, u8),
     /// Whether a value is a record of the shape: `x is R`, a boolean.
     IsRec(u8, u8, u32),
+    /// After a call that wanted `n` results: the registers past what it
+    /// returned (`last_nres`) are nil, as Lua pads a result list.
+    PadResults(u8, u8),
     /// The frame's first `n` surplus arguments into `dst..`, nil-filled.
     VarargN(u8, u8),
     /// A table of the frame's surplus arguments: `{...}`.
@@ -133,8 +138,8 @@ pub enum Op {
     /// Capture i of the running closure.
     GetUpval(u8, u8),
     FBox(u8, u8),
-    GetSlotF(u8, u8, u16),
-    SetSlotF(u8, u16, u8),
+    GetSlotF(u8, u8, u16, u32),
+    SetSlotF(u8, u16, u8, u32),
     FDiv(u8, u8, u8),
     FNeg(u8, u8),
     LenF(u8, u8),
@@ -200,6 +205,8 @@ pub enum Op {
 #[derive(Clone)]
 pub struct Function {
     pub name: String,
+    /// The module the function was emitted in, for `debug.getinfo`.
+    pub module: String,
     /// Parameter classes in declaration order, b'f' or b'v', and the return class.
     pub sig: Vec<u8>,
     pub ret: u8,
@@ -262,6 +269,8 @@ pub struct Task {
 impl Task {
     pub fn cur(&self) -> usize { self.cur }
     pub fn set_cur(&mut self, s: usize) { self.cur = s; }
+    /// Records the top frame's pc in its header, where the backtrace reads it.
+    pub fn note_pc(&mut self, pc: usize) { let s = self.cur; self.stack[s] = (self.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); }
 }
 
 impl Function {
@@ -296,8 +305,23 @@ pub struct Interp {
     /// that hands on exactly what `f` returned.
     pub last_nres: usize,
     /// Module chunks by name, and the export value of each loaded one.
+    /// `TRACE_OPS`: every opcode the Rust loop executes, to stderr.
+    pub trace_ops: bool,
     pub modules: std::collections::HashMap<String, u32>,
+    /// Each module's source path, as the image recorded it.
+    pub module_paths: std::collections::HashMap<String, String>,
+    /// The function a `loadstring("return <literal>")` closure runs: it
+    /// returns its one upvalue. Registered by `install_globals`.
+    pub literal_fid: u32,
+    /// The compiled function a dynamic call came from (u32::MAX between
+    /// such calls): what `debug.getinfo` names when no frame was pushed.
+    pub jit_fid: u32,
+    /// The function behind `loadstring` of anything else: loads, and raises
+    /// when called, since the runtime evaluates no Lua.
+    pub unavailable_fid: u32,
     pub loaded: std::collections::HashMap<String, Value>,
+    /// `package.loaded`: the same registry as a table a module can read.
+    pub loaded_table: Value,
     /// The threaded core's per-function and per-shape tables, and whether it runs tasks.
     pub finfo: Vec<crate::threaded::FuncInfo>,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
@@ -370,7 +394,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), loaded: std::collections::HashMap::new(), finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -407,7 +431,7 @@ impl Interp {
         let h = hdr!(self, callee, "spawn of a non-closure");
         if h.kind != KIND_CLOSURE { self.err("spawn of a non-closure") }
         let tid = self.spawn(h.fid(), args);
-        self.tasks[tid].stack[2] = callee.0;
+        { let t = &mut self.tasks[tid]; let s0 = t.cur(); t.stack[s0 + 2] = callee.0; }
         tid
     }
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
@@ -534,6 +558,10 @@ impl Interp {
     }
     /// Writes call results into the window from `at`, nil when there are none.
     #[inline]
+    /// An argument count flagged 64 appends what the last call returned: its
+    /// results already sit after the fixed arguments, so the count is plain
+    /// arithmetic (at most the eight the frame's slack holds).
+    #[inline] pub fn spread_count(&self, nargs: u8) -> u8 { if nargs & 64 != 0 && nargs < 128 { (nargs & 63) + self.last_nres.min(8) as u8 } else { nargs } }
     fn deliver(&mut self, regs: *mut Value, at: usize, outs: &[Value]) {
         self.last_nres = outs.len().min(8);
         unsafe { if outs.is_empty() { *regs.add(at) = Value::NIL; } for (i, v) in outs.iter().take(8).enumerate() { *regs.add(at + i) = *v; } }
@@ -591,12 +619,12 @@ impl Interp {
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
             let h = hdr!(self, callee, &format!("call_value of a non-function {:#x}", callee.0));
-            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
+            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE => { let f = self.call_handler(callee); if f == Value::NIL { self.err("call of a table without __call") } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
         let entry = self.entry_of(fid);
         if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
         let scratch = self.spawn(fid, args);
-        self.tasks[scratch].stack[2] = closure.0;
+        { let t = &mut self.tasks[scratch]; let s0 = t.cur(); t.stack[s0 + 2] = closure.0; }
         let outcome = self.run(scratch);
         let outs = match outcome { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") };
         self.tasks.truncate(scratch);
@@ -609,6 +637,15 @@ impl Interp {
         if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }
         self.call_value(callee, args).into_iter().collect()
     }
+    /// What `recv:name(...)` calls: a record's shape method, else a field of
+    /// the record or table holding a function (`{define = Registry.define}`
+    /// and the Lua class idiom). Strings are handled by the callers.
+    pub fn resolve_method(&self, recv: Value, name: Value) -> Value {
+        let h = hdr!(self, recv, "method call on a non-object");
+        if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
+        if h.kind == KIND_RECORD || h.kind == KIND_TABLE { let v = self.get_index(recv, name); if v != Value::NIL { return v; } }
+        self.err(&format!("no such method {}", String::from_utf8_lossy(self.bytes_of(name))))
+    }
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
         let recv = args[0];
         let h = hdr!(self, recv, "method call on a non-object");
@@ -617,8 +654,7 @@ impl Interp {
             let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
             return crate::builtins::call(self, id, args).to_vec();
         }
-        if h.kind != KIND_RECORD { self.err("method call on a non-record") }
-        let method = *self.heap.shapes[h.shape() as usize].methods.get(&name).unwrap_or_else(|| self.err("no such method"));
+        let method = self.resolve_method(recv, name);
         self.call_value(method, args)
     }
     /// pcall as values: ok first, then the results or the error value.
@@ -648,11 +684,14 @@ impl Interp {
     /// The export value of a module, running its chunk the first time.
     pub fn require(&mut self, name: &str) -> Value {
         if let Some(v) = self.loaded.get(name) { return *v; }
-        let fid = *self.modules.get(name).unwrap_or_else(|| self.err(&format!("module '{name}' not in the image")));
+        // Raised as Lua's `require` raises it, message and all: a module that
+        // probes for an optional one reads the prefix.
+        let fid = match self.modules.get(name) { Some(f) => *f, None => { let msg = self.heap_new_string(&format!("module '{name}' not found: not in the image")); std::panic::panic_any(crate::builtins::LuaError(msg.0)) } };
         let outs = self.call_value(Value::func(fid), &[]);
         let v = outs.first().copied().unwrap_or(Value::NIL);
         self.registered.push(v);
         self.loaded.insert(name.to_string(), v);
+        if self.loaded_table != Value::NIL { let h = self.register(v); let k = self.heap_new_string(name); self.set_index(self.loaded_table, k, v); self.release(h); }
         v
     }
 
@@ -706,17 +745,33 @@ impl Interp {
     /// The global tables the compiler's modules reach for (`bit`, `os`, `io`,
     /// `package`, `_G`), served by `require` as runtime-provided modules.
     pub fn install_globals(&mut self) {
+        // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
+        self.literal_fid = self.funcs.len() as u32;
+        self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
+        self.unavailable_fid = self.funcs.len() as u32;
+        let msg = self.intern("a chunk loaded from Lua source cannot run: this runtime evaluates no Lua"); self.registered.push(msg);
+        let err_id = crate::builtins::id_of("error").unwrap();
+        self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
-        let os = table_of(self, &["os.getenv", "os.clock", "os.time"]);
-        let io = table_of(self, &["io.write"]);
+        let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
+        let io = table_of(self, &["io.write", "io.open", "io.read"]);
+        // The standard streams: objects whose `write` is a method.
+        for (field, name) in [("stderr", "io.stderr.write"), ("stdout", "io.stdout.write")] { let stream = table_of(self, &[name]); let k = self.intern(field); self.set_index(io, k, stream); }
+        let debug = table_of(self, &["debug.getinfo"]);
+        // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
+        // modules: a `require` finds them before the image's.
+        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile"]);
+        let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
+        for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
         let package = self.new_table(); self.registered.push(package);
+        { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
         let g = self.new_table(); self.registered.push(g);
-        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package)] { let k = self.intern(name); self.set_index(g, k, t); }
+        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
         for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
         let k = self.intern("_G"); self.set_index(g, k, g);
-        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("_G", g)] { self.loaded.insert(name.to_string(), t); }
+        for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
     }
     /// The host table a module gets from `require`: one builtin per service.
     pub fn host_table(&mut self) -> Value {
@@ -790,7 +845,7 @@ impl Interp {
         Some(key)
     }
     /// The key as stored: interned when it is a slice or an uninterned string.
-    fn key_for_store(&mut self, key: Value) -> Value {
+    pub fn key_for_store(&mut self, key: Value) -> Value {
         match self.key_of(key) { Some(k) => k, None => { let s = unsafe { std::str::from_utf8_unchecked(self.bytes_of(key)) }.to_string(); self.intern(&s) } }
     }
 
@@ -811,15 +866,53 @@ impl Interp {
         self.heap.barrier(p, v);
         let h = unsafe { &mut *p.as_ptr() };
         match h.kind {
-            KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { t.array.push(v) } else { t.array[k - 1] = v } } else { t.hash.insert(iv, v); } h.refresh(); }
+            // `t[#t] = nil` shrinks the array part, as Lua's border rule reads it.
+            KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { if v != Value::NIL { t.array.push(v) } } else { t.array[k - 1] = v; if v == Value::NIL && k == t.array.len() { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } } } } else { if v == Value::NIL { t.hash.remove(&iv); } else { t.hash.insert(iv, v); } } h.refresh(); }
             // A record written by name: the shape is closed, so an unknown name is an error.
             KIND_RECORD => {
-                if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { a.push(v) } else { a[k - 1] = v } return; } self.err("record index outside its children") }
-                let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == iv) { Some(i) => h.slots_mut()[i] = v, None => { if !sh.structural { self.err(&format!("record {} has no field {}", sh.name, String::from_utf8_lossy(self.bytes_of(iv)))) } h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
+                if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } return; } self.err("record index outside its children") }
+                let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
             }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
     }
+    /// A slot access whose object is not of the shape the site assumed (a
+    /// struct-shaped table cast to the record, say): by the slot's name.
+    pub fn slot_get_slow(&self, o: Value, shape: u32, slot: u16) -> Value { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.get_index(o, name) }
+    pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.set_index(o, name, v) }
+    /// A table's metatable, or nil (records and other objects have none).
+    pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else { Value::NIL } } None => Value::NIL } }
+    fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
+    /// A read that follows `__index` (a function or a table) when a table
+    /// lacks the key; raw for records and anything else.
+    pub fn index(&mut self, t: Value, key: Value) -> Value {
+        let mut t = t;
+        for _ in 0..100 {
+            let v = self.get_index(t, key);
+            if v != Value::NIL { return v; }
+            let h = self.meta_field(t, "__index");
+            if h == Value::NIL { return Value::NIL; }
+            if h.as_obj().map(|p| unsafe { (*p.as_ptr()).kind } == KIND_TABLE).unwrap_or(false) { t = h; continue; }
+            let outs = self.call_value(h, &[t, key]);
+            return outs.first().copied().unwrap_or(Value::NIL);
+        }
+        self.err("__index chain too long")
+    }
+    pub fn index_any(&mut self, t: Value, k: Value) -> Value { match self.key_of(k) { Some(k) => self.index(t, k), None => Value::NIL } }
+    /// A store that calls `__newindex` when a table lacks the key and its
+    /// metatable has one; raw otherwise.
+    pub fn newindex(&mut self, t: Value, key: Value, v: Value) {
+        if self.metatable_of(t) != Value::NIL && self.get_index(t, key) == Value::NIL {
+            let h = self.meta_field(t, "__newindex");
+            if h != Value::NIL {
+                if h.as_obj().map(|p| unsafe { (*p.as_ptr()).kind } == KIND_TABLE).unwrap_or(false) { return self.newindex(h, key, v); }
+                self.call_value(h, &[t, key, v]); return;
+            }
+        }
+        self.set_index(t, key, v)
+    }
+    /// The function behind a callable table (`__call`), or nil.
+    pub fn call_handler(&mut self, t: Value) -> Value { self.meta_field(t, "__call") }
     pub fn get_field(&self, t: Value, name: Value) -> Value { self.get_index(t, name) }
     pub fn set_field(&mut self, t: Value, name: Value, v: Value) { self.set_index(t, name, v) }
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { hdr!(self, rec, "not a record").slots()[i] }
@@ -905,6 +998,9 @@ impl Interp {
         loop {
             let (win, mut pc) = self.window(tid);
             loop {
+                // The frame's pc, for the backtrace of an error this op raises.
+                self.tasks[tid].note_pc(pc + 1);
+                if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
                 match self.step(tid, &win, pc) {
                     Step::Next(next) => pc = next,
                     Step::Reenter => break,
@@ -985,23 +1081,23 @@ impl Interp {
                     Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::RequireV(d, rg) => { let text = self.bytes_of(r!(rg)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
-                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
+                    Op::Call(f, b, nargs) => { let nargs = self.spread_count(nargs); self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match self.op_call_dyn(tid, &win, pc, frg, b, nargs) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallMethod(k, b, nargs) => match self.op_call_method(tid, &win, pc, k, b, nargs) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::PCall(b, nargs) => self.op_pcall(&win, b, nargs),
+                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { let nargs = self.spread_count(nargs); self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallMethod(k, b, nargs) => match { let nargs = self.spread_count(nargs); self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::PCall(b, nargs) => { let nargs = self.spread_count(nargs); self.op_pcall(&win, b, nargs) }
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
-                    Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); self.set_index(tv, iv, v); }
+                    Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); if self.metatable_of(tv) != Value::NIL { let iv = self.key_for_store(iv); self.newindex(tv, iv, v); } else { self.set_index(tv, iv, v); } }
                     Op::GetField(d, t, k) => self.op_get_field(&win, d, t, k),
                     Op::SetField(t, k, s) => self.op_set_field(&win, t, k, s),
                     Op::NewTable(d) => { let v = self.new_table(); r!(d) = v; }
                     Op::NewTableN(d, n, m) => { let v = self.new_table_sized(n as usize, m as usize); r!(d) = v; }
                     Op::NewRecord(d, shape) => { let v = self.new_record(shape); r!(d) = v; }
-                    Op::GetSlot(d, t, i) => { let h = rec!(t, "slot of a non-record"); r!(d) = h.slots()[i as usize]; }
-                    Op::SetSlot(t, i, s) => { let v = r!(s); let tv = r!(t); let h = rec!(t, "slot of a non-record"); self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; }
-                    Op::GetSlotF(d, t, i) => { let h = rec!(t, "slot of a non-record"); fr!(d) = h.slots()[i as usize].as_num(); }
-                    Op::SetSlotF(t, i, a) => { let h = rec!(t, "slot of a non-record"); h.slots_mut()[i as usize] = Value::num(fr!(a)); }
+                    Op::GetSlot(d, t, i, sh) => { let h = rec!(t, "slot of a non-record"); if h.shape() == sh { r!(d) = h.slots()[i as usize]; } else { let v = self.slot_get_slow(r!(t), sh, i); r!(d) = v; } }
+                    Op::SetSlot(t, i, s, sh) => { let v = r!(s); let tv = r!(t); let h = rec!(t, "slot of a non-record"); if h.shape() == sh { self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
+                    Op::GetSlotF(d, t, i, sh) => { let h = rec!(t, "slot of a non-record"); let v = if h.shape() == sh { h.slots()[i as usize] } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
+                    Op::SetSlotF(t, i, a, sh) => { let h = rec!(t, "slot of a non-record"); if h.shape() == sh { h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
                     Op::Len(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; r!(d) = Value::num(n as f64) }
                     Op::LenF(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; fr!(d) = n as f64; }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
@@ -1010,6 +1106,7 @@ impl Interp {
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
                     Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
+                    Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in got..n as usize { r!(base as usize + i) = Value::NIL; } }
                     Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
                     Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }
                     Op::GetCell(d, c) => { let cv = r!(c); let h = hdr!(self, cv, &format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c)); if h.kind != KIND_CELL { self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } r!(d) = h.slots()[0]; }
@@ -1018,10 +1115,10 @@ impl Interp {
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
                     Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
-                    Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.get_index(tv, Value::num(k)); }
+                    Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.index(tv, Value::num(k)); }
                     Op::SetIdxF(t, i, sv) => { let (tv, k, v) = (r!(t), fr!(i), r!(sv)); self.set_index(tv, Value::num(k), v); }
-                    Op::GetIdxI(d, t, i) => { let key = Value::num(ir!(i) as f64); let tv = r!(t); r!(d) = self.get_index(tv, key); }
-                    Op::SetIdxI(t, i, s) => { let key = Value::num(ir!(i) as f64); let (tv, v) = (r!(t), r!(s)); self.set_index(tv, key, v); }
+                    Op::GetIdxI(d, t, i) => { let key = Value::num(ir!(i) as f64); let tv = r!(t); r!(d) = self.index(tv, key); }
+                    Op::SetIdxI(t, i, s) => { let key = Value::num(ir!(i) as f64); let (tv, v) = (r!(t), r!(s)); if self.metatable_of(tv) != Value::NIL { self.newindex(tv, key, v); } else { self.set_index(tv, key, v); } }
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
@@ -1143,6 +1240,10 @@ impl Interp {
         }
         let h = hdr!(self, callee, &format!("call of a non-function ({:#x}) in {} at pc {} register {}", callee.0, self.funcs[fid as usize].name, pc, fr));
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+        if h.kind == KIND_TABLE {
+            let n = (nargs & 127) as usize; let mut full = Vec::with_capacity(n + 1); full.push(callee); for i in 0..n { full.push(r!(b + 1 + i as u8)); }
+            let outs = self.call_value(callee, &full[1..]); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
+        }
         if h.kind != KIND_CLOSURE { self.err(&format!("call of a non-function object ({}) in {} at pc {} register {}", Heap::describe(h), self.funcs[fid as usize].name, pc, fr)) }
         let f = h.fid();
         let e = self.entry_of(f);
@@ -1182,9 +1283,14 @@ impl Interp {
             self.deliver(regs, b as usize, outs.as_slice());
             return Flow::Next;
         }
-        if h.kind != KIND_RECORD { self.err("method call on a non-record") }
-        let method = *self.heap.shapes[h.shape() as usize].methods.get(&name).unwrap_or_else(|| self.err(&format!("no such method {}", String::from_utf8_lossy(self.bytes_of(name)))));
+        let method = self.resolve_method(recv, name);
         if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
+        if let Some(id) = method.as_builtin() {
+            let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
+            let outs = crate::builtins::call(self, id, &buf[..n]);
+            self.deliver(regs, b as usize, outs.as_slice());
+            return Flow::Next;
+        }
         let ch = hdr!(self, method, "method is not a function");
         if ch.kind != KIND_CLOSURE { self.err("method is not a function") }
         let e = self.entry_of(ch.fid());
@@ -1214,7 +1320,7 @@ impl Interp {
         let regs = w.regs;
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let (tv, iv) = (r!(t), r!(i));
-        let v = self.get_index_any(tv, iv);
+        let v = self.index_any(tv, iv);
         r!(d) = v;
     }
     #[inline(never)]
@@ -1224,7 +1330,7 @@ impl Interp {
         let name = unsafe { *consts.add(k as usize) };
         let h = hdr!(self, r!(t), &format!("field {} of a non-object", String::from_utf8_lossy(self.bytes_of(name))));
         let v = match h.kind {
-            KIND_TABLE => *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL),
+            KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
             // An untyped read of a field the shape lacks is nil, as the
             // compiler's own `x.trivia ~= nil` tests on `any` expect (2.4 amended).
             KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|&n| n == name) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&name).copied()).unwrap_or(Value::NIL) } }
@@ -1240,6 +1346,7 @@ impl Interp {
         let v = r!(s);
         let tv = r!(t);
         let p = tv.as_obj().unwrap_or_else(|| self.err("field of a non-object"));
+        if self.metatable_of(tv) != Value::NIL { self.newindex(tv, name, v); return; }
         self.heap.barrier(p, v);
         let h = unsafe { &mut *p.as_ptr() };
         match h.kind {
@@ -1248,7 +1355,7 @@ impl Interp {
                 // The enforced write (2.5): an untyped store into a record checks
                 // the slot's declared type, so typed reads never check.
                 let sh = &self.heap.shapes[h.shape() as usize];
-                let i = match sh.names.iter().position(|&n| n == name) { Some(i) => i, None => { if sh.structural { h.record_extra().get_or_insert_with(Default::default).insert(name, v); return; } self.err(&format!("record {} has no field {}", sh.name, String::from_utf8_lossy(self.bytes_of(name)))) } };
+                let i = match sh.names.iter().position(|&n| n == name) { Some(i) => i, None => { h.record_extra().get_or_insert_with(Default::default).insert(name, v); return; } };
                 if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
                 h.slots_mut()[i] = v;
             }
@@ -1339,6 +1446,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::TagCheckNum(..) => "TagCheckNum",
         Op::TagCheckStr(..) => "TagCheckStr",
         Op::IsRec(..) => "IsRec",
+        Op::PadResults(..) => "PadResults",
         Op::VarargN(..) => "VarargN",
         Op::VarargTable(..) => "VarargTable",
         Op::NewClosure(..) => "NewClosure",

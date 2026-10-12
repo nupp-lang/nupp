@@ -66,6 +66,7 @@ enum {
     OP_GETUPVAL, OP_GETCELL, OP_GETSLOT, OP_GETSLOTF, OP_SETSLOTF, OP_LEN, OP_LENF, OP_STRBYTE,
     OP_CALL, OP_CALLK, OP_CALLDYN, OP_RET, OP_RETNIL, OP_RETN,
     OP_GETFIELD, OP_GETIDXI, OP_SETIDXI, OP_SETCELL, OP_SETSLOT, OP_TAGCHECKNUM, OP_NEWRECORD, OP_GETIDX,
+    OP_PADRESULTS,
     OP_COUNT
 };
 
@@ -76,6 +77,8 @@ enum {
 #define ST_ERROR 0xfffffffcu
 // After a helper that may raise: the error status ends the run here.
 #define CHECK_ERR if (ctx->status == ST_ERROR) return 0
+// Before a helper that may raise: the pc, for the error's backtrace.
+#define NOTE_PC ctx->pc = (uint32_t)(pc - (&ctx->funcs[(uint32_t)(frame)[0]])->code)
 
 #define QNAN 0x7ff8000000000000ull
 #define TAG_SHIFT 48
@@ -226,12 +229,14 @@ FCMP(h_fcmplt, p < q)
 
 static Value h_getupval(ARGS) { Value clo = frame[2]; if (__builtin_expect(is_obj(clo), 1)) { regs[pc->a] = ((Value*)obj_ptr(clo))[pc->b]; pc++; NEXT; } SLOW; }
 static Value h_getcell(ARGS) { Value c = regs[pc->b]; if (__builtin_expect(is_obj(c) && obj_kind(c) == KIND_CELL, 1)) { regs[pc->a] = ((Value*)obj_ptr(c))[0]; pc++; NEXT; } SLOW; }
-static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { regs[pc->a] = ((Value*)obj_ptr(r))[pc->c]; pc++; NEXT; } SLOW; }
-static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { fregs[pc->a] = as_num(((Value*)obj_ptr(r))[pc->c]); pc++; NEXT; } SLOW; }
+// Slots by offset, guarded by the shape the emitter assumed (imm): any
+// other shape takes the slow path, which reads the slot's name.
+static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { regs[pc->a] = ((Value*)obj_ptr(r))[pc->c]; pc++; NEXT; } SLOW; }
+static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } } SLOW; }
 // A number stored into a slot needs no barrier: it is not a reference.
-static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
-static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } if (k == KIND_RECORD) { uint64_t n = rt_len(ctx, v); CHECK_ERR; regs[pc->a] = num((double)n); pc++; NEXT; } } SLOW; }
-static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } if (k == KIND_RECORD) { uint64_t n = rt_len(ctx, v); CHECK_ERR; fregs[pc->a] = (double)n; pc++; NEXT; } } SLOW; }
+static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
+static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } if (k == KIND_RECORD) { NOTE_PC; uint64_t n = rt_len(ctx, v); CHECK_ERR; regs[pc->a] = num((double)n); pc++; NEXT; } } SLOW; }
+static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } if (k == KIND_RECORD) { NOTE_PC; uint64_t n = rt_len(ctx, v); CHECK_ERR; fregs[pc->a] = (double)n; pc++; NEXT; } } SLOW; }
 static Value h_strbyte(ARGS) {
     Value s = regs[pc->b];
     if (__builtin_expect(is_obj(s), 1)) {
@@ -282,7 +287,7 @@ static Value enter(ARGS) {
 static Value h_call(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
     uint32_t fid = (uint32_t)pc->k;
-    if (ctx->funcs[fid].vararg) SLOW;
+    if (ctx->funcs[fid].vararg || pc->b >= 64) SLOW;
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->a), pc->b, (uint32_t)(pc - fi->code) + 1, T_NIL);
     ENTER;
 }
@@ -290,7 +295,7 @@ static Value h_calldyn(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
     Value callee = regs[pc->a];
     uint32_t nargs = pc->c;
-    if (nargs >= 128) SLOW;
+    if (nargs >= 64) SLOW;
     uint32_t fid; Value closure;
     if (is_obj(callee) && obj_kind(callee) == KIND_CLOSURE) { fid = obj_aux(callee); closure = callee; }
     else if (is_func(callee) && ((callee >> 32) & 0xffff) == 0) { fid = (uint32_t)callee; closure = T_NIL; }
@@ -298,12 +303,12 @@ static Value h_calldyn(ARGS) {
         // A builtin; a host service may park, so it goes to Rust whole.
         uint32_t id = (uint32_t)callee;
         if (id >= HOST_BASE) SLOW;
-        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs); CHECK_ERR;
+ NOTE_PC;        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
     else if (is_obj(callee) && obj_kind(callee) == KIND_ITER) {
-        rt_call_iter(ctx, callee, ctx->cur + HDR + pc->b); CHECK_ERR;
+ NOTE_PC;        rt_call_iter(ctx, callee, ctx->cur + HDR + pc->b); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
@@ -312,7 +317,7 @@ static Value h_calldyn(ARGS) {
     uint64_t entry = ctx->entries[fid];
     if (entry) {
         // The typed tier has this function: call it with the window's arguments.
-        rt_enter_compiled(ctx, entry, closure, ctx->cur + HDR + pc->b, nargs, ctx->funcs[fid].nparams); CHECK_ERR;
+ NOTE_PC;        rt_enter_compiled(ctx, entry, closure, ctx->cur + HDR + pc->b, nargs, ctx->funcs[fid].nparams); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
@@ -364,7 +369,7 @@ static Value h_getfield(ARGS) {
             const Value* names = ctx->shapes[shape].names; uint64_t n = ctx->shapes[shape].n;
             for (uint64_t i = 0; i < n; i++) if (names[i] == name) { regs[pc->a] = ((Value*)obj_ptr(t))[i]; pc++; NEXT; }
         }
-        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
+ NOTE_PC;        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
         pc++; NEXT;
     }
@@ -378,16 +383,17 @@ static Value h_getidxi(ARGS) {
         uint64_t n = obj_len(t);
         if (i >= 1 && (uint64_t)i <= n) { regs[pc->a] = ((Value*)obj_ptr(t))[i - 1]; pc++; NEXT; }
     }
-    if (is_obj(t)) { regs[pc->a] = rt_get_index_num(ctx, t, i); CHECK_ERR; pc++; NEXT; }
+    if (is_obj(t)) { NOTE_PC; regs[pc->a] = rt_get_index_num(ctx, t, i); CHECK_ERR; pc++; NEXT; }
     SLOW;
 }
 static Value h_setidxi(ARGS) {
     Value t = regs[pc->a]; int64_t i = iregs[pc->b]; Value v = regs[pc->c];
     if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE, 1)) {
         uint64_t n = obj_len(t);
-        if (i >= 1 && (uint64_t)i <= n) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
+        // A nil at the end shrinks the array part (the border rule): helper.
+        if (i >= 1 && (uint64_t)i <= n && (v != T_NIL || (uint64_t)i < n)) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
     }
-    if (is_obj(t)) { rt_set_index_num(ctx, t, i, v); CHECK_ERR; frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
+    if (is_obj(t)) { NOTE_PC; rt_set_index_num(ctx, t, i, v); CHECK_ERR; frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
     SLOW;
 }
 // Stores of references: the barrier's slow path only while marking (3.6).
@@ -396,9 +402,11 @@ static Value h_setcell(ARGS) {
     if (__builtin_expect(is_obj(c) && obj_kind(c) == KIND_CELL, 1)) { if (*ctx->marking) rt_barrier(ctx, c, v); ((Value*)obj_ptr(c))[0] = v; pc++; NEXT; }
     SLOW;
 }
+// Results a call did not return are nil (ctx->last_nres is kept by every return path).
+static Value h_padresults(ARGS) { uint32_t n = pc->b; for (uint64_t i = ctx->last_nres; i < n; i++) regs[pc->a + i] = T_NIL; pc++; NEXT; }
 static Value h_setslot(ARGS) {
     Value r = regs[pc->a]; Value v = regs[pc->c];
-    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
+    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
     SLOW;
 }
 // A read by a value key: an integral number within a table's array part in
@@ -410,7 +418,7 @@ static Value h_getidx(ARGS) {
             double d = as_num(key); uint64_t n = obj_len(t);
             if (d >= 1.0 && d <= (double)n && d == (double)(uint64_t)d) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint64_t)d - 1]; pc++; NEXT; }
         }
-        regs[pc->a] = rt_get_index(ctx, t, key); CHECK_ERR;
+ NOTE_PC;        regs[pc->a] = rt_get_index(ctx, t, key); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
         pc++; NEXT;
     }
@@ -418,7 +426,7 @@ static Value h_getidx(ARGS) {
 }
 static Value h_tagchecknum(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_num(v), 1)) { regs[pc->a] = v; pc++; NEXT; } SLOW; }
 static Value h_newrecord(ARGS) {
-    Value v = rt_new_record(ctx, (uint32_t)pc->k); CHECK_ERR;
+ NOTE_PC;    Value v = rt_new_record(ctx, (uint32_t)pc->k); CHECK_ERR;
     frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
     regs[pc->a] = v; pc++; NEXT;
 }
@@ -432,6 +440,7 @@ static const Handler dispatch[OP_COUNT] = {
     [OP_GETUPVAL] = h_getupval, [OP_GETCELL] = h_getcell, [OP_GETSLOT] = h_getslot, [OP_GETSLOTF] = h_getslotf, [OP_SETSLOTF] = h_setslotf, [OP_LEN] = h_len, [OP_LENF] = h_lenf, [OP_STRBYTE] = h_strbyte,
     [OP_CALL] = h_call, [OP_CALLK] = h_calldyn, [OP_CALLDYN] = h_calldyn, [OP_RET] = h_ret, [OP_RETNIL] = h_retnil, [OP_RETN] = h_retn,
     [OP_GETFIELD] = h_getfield, [OP_GETIDXI] = h_getidxi, [OP_SETIDXI] = h_setidxi, [OP_SETCELL] = h_setcell, [OP_SETSLOT] = h_setslot, [OP_TAGCHECKNUM] = h_tagchecknum, [OP_NEWRECORD] = h_newrecord, [OP_GETIDX] = h_getidx,
+    [OP_PADRESULTS] = h_padresults,
 };
 
 // Runs the context's task from its top frame until it finishes or parks;

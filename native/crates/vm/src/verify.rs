@@ -152,17 +152,20 @@ fn derives_from_cursor(code: &[Op], at: usize, idx: u8, cursor: u8) -> bool {
 pub enum C { V, I, F, X }
 
 /// The register operands of an opcode by class, and its branch offsets.
+/// The fixed arguments a flagged count names: 128 appends the frame's
+/// varargs and 64 the last call's results, neither in named registers.
+fn fixed_args(nargs: u8) -> u8 { if nargs >= 128 { nargs & 127 } else { nargs & 63 } }
 pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     use Op::*;
     use C::*;
     let r = |list: &[(C, u8)]| (list.to_vec(), Vec::new());
     match *op {
         K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) | VarargTable(d) => r(&[(V, d)]),
-        VarargN(d, n) => { let mut l = Vec::new(); for i in 0..n { if let Some(rg) = d.checked_add(i) { l.push((V, rg)); } } (l, Vec::new()) }
+        PadResults(d, n) | VarargN(d, n) => { let mut l = Vec::new(); for i in 0..n { if let Some(rg) = d.checked_add(i) { l.push((V, rg)); } } (l, Vec::new()) }
         Move(d, s) | Not(d, s) | Neg(d, s) | Len(d, s) | TagCheckNum(d, s) | TagCheckStr(d, s) | NewCell(d, s) | GetCell(d, s) | SetCell(d, s) | BufAppend(d, s) | BufFinish(d, s) => r(&[(V, d), (V, s)]),
         Add(d, a, b) | Sub(d, a, b) | Mul(d, a, b) | Lt(d, a, b) | Le(d, a, b) | Eq(d, a, b) | Ne(d, a, b) | Concat(d, a, b) | GetIdx(d, a, b) | SetIdx(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
-        CallDyn(fr, base, nargs) => { let n = (nargs & 127) as usize; let mut l = vec![(V, fr), (V, base)]; for i in 1..=n { if let Some(rg) = base.checked_add(i as u8) { l.push((V, rg)); } } (l, Vec::new()) }
-        CallK(_, fr, base, nargs0, nres) => { let nargs = nargs0 & 127; let mut l = vec![(V, fr), (V, base)]; for i in 0..nargs.max(1) { l.push((V, base + 1 + i)); } for i in 1..nres { l.push((V, base + i)); } (l, Vec::new()) }
+        CallDyn(fr, base, nargs) => { let n = fixed_args(nargs) as usize; let mut l = vec![(V, fr), (V, base)]; for i in 1..=n { if let Some(rg) = base.checked_add(i as u8) { l.push((V, rg)); } } (l, Vec::new()) }
+        CallK(_, fr, base, nargs0, nres) => { let nargs = fixed_args(nargs0); let mut l = vec![(V, fr), (V, base)]; for i in 0..nargs.max(1) { l.push((V, base + 1 + i)); } for i in 1..nres { l.push((V, base + i)); } (l, Vec::new()) }
         JmpIf(c, off) | JmpIfNot(c, off) => (vec![(V, c)], vec![off]),
         Jmp(off) => (Vec::new(), vec![off]),
         Switch(i, _) => r(&[(I, i)]),
@@ -186,14 +189,14 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         GetField(d, t, _) => r(&[(V, d), (V, t)]),
         SetField(t, _, v) => r(&[(V, t), (V, v)]),
         NewRecord(d, _) => r(&[(V, d)]),
-        GetSlot(d, o, _) => r(&[(V, d), (V, o)]),
-        SetSlot(o, _, v) => r(&[(V, o), (V, v)]),
+        GetSlot(d, o, _, _) => r(&[(V, d), (V, o)]),
+        SetSlot(o, _, v, _) => r(&[(V, o), (V, v)]),
         TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
         FBox(d, f) => r(&[(V, d), (F, f)]),
-        GetSlotF(f, o, _) => r(&[(F, f), (V, o)]),
-        SetSlotF(o, _, f) => r(&[(V, o), (F, f)]),
+        GetSlotF(f, o, _, _) => r(&[(F, f), (V, o)]),
+        SetSlotF(o, _, f, _) => r(&[(V, o), (F, f)]),
         FDiv(d, a, b) | FSub(d, a, b) | FMul(d, a, b) | FAdd(d, a, b) => r(&[(F, d), (F, a), (F, b)]),
         FNeg(d, a) | FMov(d, a) => r(&[(F, d), (F, a)]),
         LenF(f, v) | FUnbox(f, v) => r(&[(F, f), (V, v)]),
@@ -292,11 +295,11 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
         BufAppend(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
         RetN(start, n) => { let n = if n >= 128 { 8 } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }
         // Calls: arguments above the window base are read, results from the base written.
-        CallDyn(fr, base, nargs) => { let nargs = nargs & 127; ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }
+        CallDyn(fr, base, nargs) => { let nargs = fixed_args(nargs); ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }
         CallK(_, fr, base, nargs, nres) => { let nargs = nargs & 127; ((0..nres.max(1)).map(|i| (V, base + i)).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }
-        Call(_, base, nargs) => (vec![(V, base)], (1..=nargs).map(|i| (V, base + i)).collect()),
-        CallMethod(_, base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=nargs).map(|i| (V, base + i)).collect()),
-        PCall(base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=nargs + 1).map(|i| (V, base + i)).collect()),
+        Call(_, base, nargs) => (vec![(V, base)], (1..=fixed_args(nargs)).map(|i| (V, base + i)).collect()),
+        CallMethod(_, base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=fixed_args(nargs)).map(|i| (V, base + i)).collect()),
+        PCall(base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=fixed_args(nargs) + 1).map(|i| (V, base + i)).collect()),
         CallT(..) => (all.clone(), all.clone()),
         NewClosure(d, _, base, n) => (vec![(V, d)], (1..=n).map(|i| (V, base + i)).collect()),
         _ => first_def(&all),

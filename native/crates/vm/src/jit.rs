@@ -78,6 +78,10 @@ pub struct Jit {
     /// with, the extra-results array, and the compiled-entry table.
     pub cur_closure_addr: i64,
     pub extra_addr: i64,
+    /// `&interp.last_nres`: every compiled return records one result there
+    /// (a multi-value return's helper records its count), as the interpreter's
+    /// returns do, so a caller's result padding and spreading read a fresh count.
+    pub last_nres_addr: i64,
     pub entries_addr: i64,
     /// Per function: parameter count and whether every parameter and the
     /// result are plain values, which a known-callee call needs to go direct.
@@ -90,8 +94,8 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
-        ("j_call_dyn", j_call_dyn as *const u8, 3), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
-        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_is_rec", j_is_rec as *const u8, 2), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
+        ("j_call_dyn", j_call_dyn as *const u8, 4), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
+        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_is_rec", j_is_rec as *const u8, 2), ("j_slot_get", j_slot_get as *const u8, 3), ("j_slot_set", j_slot_set as *const u8, 4), ("j_last_nres", j_last_nres as *const u8, 0), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
         ("j_new_table_sized", j_new_table_sized as *const u8, 2), ("j_ret_extra", j_ret_extra as *const u8, 2), ("j_pcall", j_pcall as *const u8, 2), ("j_new_bytes", j_new_bytes as *const u8, 1), ("j_bytes_to_str", j_bytes_to_str as *const u8, 2),
         ("j_new_buffer", j_new_buffer as *const u8, 0), ("j_buf_append", j_buf_append as *const u8, 2), ("j_buf_append_sub", j_buf_append_sub as *const u8, 4), ("j_substring", j_substring as *const u8, 3), ("j_buf_finish", j_buf_finish as *const u8, 1),
         ("j_str_byte", j_str_byte as *const u8, 2), ("j_pow", j_pow as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
@@ -118,7 +122,7 @@ impl Jit {
             helpers.insert(*name, module.declare_function(name, Linkage::Import, &hs).unwrap());
         }
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, entries_addr: 0, callee_info: Vec::new() }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, callee_info: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -126,6 +130,9 @@ impl Jit {
         // A vararg function keeps its surplus arguments in the interpreter's
         // frame, which compiled code has no window onto.
         if f.vararg { return Err("vararg".to_string()); }
+        // The runtime's call paths hand a compiled entry at most eight
+        // arguments (the frame's result slack); a wider signature stays interpreted.
+        if f.nparams > 8 { return Err("more than eight parameters".to_string()); }
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
@@ -171,6 +178,9 @@ impl Jit {
             { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
             let (cur_closure_addr, extra_addr, entries_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr);
+            let fid_const = fid as i64;
+            let last_nres_addr = self.last_nres_addr;
+            macro_rules! note_one_result { () => {{ if last_nres_addr != 0 { let a = b.ins().iconst(types::I64, last_nres_addr); let one = b.ins().iconst(types::I64, 1); b.ins().store(flags, one, a, 0); } }} }
             if uses_closure { let a = b.ins().iconst(types::I64, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
             let (mut vi, mut fi) = (0u8, 0u8);
             for (i, p) in params.iter().enumerate() {
@@ -220,6 +230,9 @@ impl Jit {
             macro_rules! box_f64 { ($v:expr) => {{ let v = $v; let bits = b.ins().bitcast(types::I64, cast, v); let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); b.ins().select(is_nan, canon, bits) }} }
             macro_rules! bool_word { ($c:expr) => {{ let c = $c; let t = b.ins().iconst(types::I64, TRUE); let fa = b.ins().iconst(types::I64, FALSE); b.ins().select(c, t, fa) }} }
             macro_rules! falsy { ($v:expr) => {{ let v = $v; let nil = b.ins().iconst(types::I64, NIL); let fa = b.ins().iconst(types::I64, FALSE); let a = b.ins().icmp(IntCC::Equal, v, nil); let c = b.ins().icmp(IntCC::Equal, v, fa); b.ins().bor(a, c) }} }
+            // A slot of `$argc` words from base+1: registers the function does
+            // not have are nil, so a helper that counts past them reads nil.
+            macro_rules! args_slot_pad { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = if base + 1 + i <= f.nregs as usize { rv!(base + 1 + i) } else { b.ins().iconst(types::I64, NIL) }; b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
             macro_rules! args_slot { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = rv!(base + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
             macro_rules! read_extras { ($base:expr, $want:expr) => {{ let (base, want) = ($base as usize, $want as usize); let ea = b.ins().iconst(types::I64, extra_addr); for i in 1..want.min(8) { if base + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base + i, v); } }} }
             for (pc, op) in f.code.iter().enumerate() {
@@ -259,10 +272,31 @@ impl Jit {
                     Op::Jmp(off) => { b.ins().jump(target(off), &[]); terminated = true; }
                     // Slot access: the receiver is a record by the emitter's typing
                     // (a TagCheckRec or a typed parameter), as the verifier re-checks.
-                    Op::GetSlot(d, r, i) => { let o = obj_of!(r); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setr!(d, v); }
-                    Op::GetSlotF(d, r, i) => { let o = obj_of!(r); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); setf!(d, b.ins().bitcast(types::F64, cast, v)); }
-                    Op::SetSlotF(r, i, x) => { let o = obj_of!(r); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = fv!(x); let boxed = box_f64!(v); b.ins().store(flags, boxed, slots, (i as i32) * 8); }
-                    Op::SetSlot(r, i, x) => { let (obj, v) = (rv!(r), rv!(x)); let idx = b.ins().iconst(types::I64, i as i64); hcall!("j_set_slot", &[obj, idx, v]); }
+                    // Slots by offset behind a guard on the shape the emitter assumed
+                    // (and that the value is a record at all); any other object goes
+                    // to the helper, which reads or writes the slot's name.
+                    Op::GetSlot(d, r, i, sh) | Op::GetSlotF(d, r, i, sh) => {
+                        let tv = rv!(r);
+                        let chk = b.create_block(); let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        b.append_block_param(join, types::I64);
+                        b.set_cold_block(slow);
+                        let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+                        b.ins().brif(is_obj, chk, &[], slow, &[]);
+                        b.switch_to_block(chk); b.seal_block(chk);
+                        let o = b.ins().band_imm(tv, PAYLOAD);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
+                        let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, shape, sh as i64); let hit = b.ins().band(is_rec, same);
+                        b.ins().brif(hit, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); b.ins().jump(join, &[v.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); let c = hcall!("j_slot_get", &[tv, shv, iv]); let rres = b.inst_results(c)[0]; b.ins().jump(join, &[rres.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let v = b.block_params(join)[0];
+                        if matches!(*op, Op::GetSlotF(..)) { setf!(d, b.ins().bitcast(types::F64, cast, v)); } else { setr!(d, v); }
+                    }
+                    Op::SetSlotF(r, i, x, sh) => { let tv = rv!(r); let v = fv!(x); let boxed = box_f64!(v); let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); hcall!("j_slot_set", &[tv, shv, iv, boxed]); }
+                    Op::SetSlot(r, i, x, sh) => { let (obj, v) = (rv!(r), rv!(x)); let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); hcall!("j_slot_set", &[obj, shv, iv, v]); }
                     Op::FMod(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let qv = b.ins().fdiv(p, q); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, q); setf!(d, b.ins().fsub(p, m)); }
                     Op::LenF(d, r) => { let v = rv!(r); let c = hcall!("j_len", &[v]); let n = b.inst_results(c)[0]; setf!(d, b.ins().fcvt_from_sint(types::F64, n)); }
                     Op::Len(d, a) => { let v = rv!(a); let c = hcall!("j_len", &[v]); let n = b.inst_results(c)[0]; let fl = b.ins().fcvt_from_uint(types::F64, n); setr!(d, box_f64!(fl)); }
@@ -380,7 +414,7 @@ impl Jit {
                         let r = b.inst_results(c)[0];
                         if cret == b'f' { let bits = b.ins().bitcast(types::I64, cast, r); check_err!(bits); setf!(fb, r); } else { check_err!(r); setr!(base, r); }
                     }
-                    Op::Ret(r) => { let v = rv!(r); b.ins().return_(&[v]); terminated = true; }
+                    Op::Ret(r) => { let v = rv!(r); note_one_result!(); b.ins().return_(&[v]); terminated = true; }
                     Op::NewRecord(d, shape) => { let sh = b.ins().iconst(types::I64, shape as i64); let c = hcall!("j_new_record", &[sh]); setr!(d, b.inst_results(c)[0]); }
                     Op::NewTable(d) => { let c = hcall!("j_new_table", &[]); setr!(d, b.inst_results(c)[0]); }
                     Op::NewTableN(d, n, m) => { let nv = b.ins().iconst(types::I64, n as i64); let mv = b.ins().iconst(types::I64, m as i64); let c = hcall!("j_new_table_sized", &[nv, mv]); setr!(d, b.inst_results(c)[0]); }
@@ -444,16 +478,20 @@ impl Jit {
                         // Through the runtime: arguments in a stack slot the helper
                         // roots, the first result back, the rest from `extra`.
                         let cv = rv!(fr);
-                        let addr = args_slot!(base, nargs & 127);
+                        // A trailing call's results follow the fixed arguments in the
+                        // registers: copy them too, and the helper counts from `last_nres`.
+                        let copy = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + 8 } else { (nargs & 127) as usize };
+                        let addr = args_slot_pad!(base, copy);
                         let nv = b.ins().iconst(types::I64, nargs as i64);
-                        let c = hcall!("j_call_dyn", &[cv, addr, nv]);
+                        let c = { let fidv = b.ins().iconst(types::I64, fid_const); hcall!("j_call_dyn", &[cv, addr, nv, fidv]) };
                         cond_of.clear();
                         setr!(base, b.inst_results(c)[0]);
                         read_extras!(base, 8);
                     }
                     Op::PCall(base, nargs) => {
-                        let addr = args_slot!(base, nargs as usize + 1);
-                        let nv = b.ins().iconst(types::I64, nargs as i64 + 1);
+                        let copy = if nargs & 64 != 0 { (nargs & 63) as usize + 1 + 8 } else { nargs as usize + 1 };
+                        let addr = args_slot_pad!(base, copy);
+                        let nv = b.ins().iconst(types::I64, if nargs & 64 != 0 { (nargs as i64 & 63) + 1 + 64 } else { nargs as i64 + 1 });
                         let c = hcall!("j_pcall", &[addr, nv]);
                         cond_of.clear();
                         setr!(base, b.inst_results(c)[0]);
@@ -467,7 +505,7 @@ impl Jit {
                         // two compares; the callee's id is in the closure header.
                         let (argc, want) = ((nargs & 127) as usize, (nres as usize).max(1));
                         let info = self.callee_info.get(fid_ as usize).copied();
-                        let direct = nargs < 128 && info.map(|(_, plain)| plain).unwrap_or(false) && entries_addr != 0 && std::env::var("NO_DIRECT").is_err();
+                        let direct = nargs < 64 && info.map(|(_, plain)| plain).unwrap_or(false) && entries_addr != 0 && std::env::var("NO_DIRECT").is_err();
                         let cv = rv!(fr);
                         let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
                         for _ in 0..want { b.append_block_param(join, types::I64); }
@@ -504,9 +542,9 @@ impl Jit {
                             b.switch_to_block(fast); b.seal_block(fast); b.ins().trap(TrapCode::unwrap_user(3));
                         }
                         b.switch_to_block(slow); b.seal_block(slow);
-                        let addr = args_slot!(base, argc);
+                        let addr = args_slot_pad!(base, if nargs & 64 != 0 && nargs < 128 { (argc & 63) + 8 } else { argc });
                         let nv = b.ins().iconst(types::I64, nargs as i64);
-                        let c = hcall!("j_call_dyn", &[cv, addr, nv]);
+                        let c = { let fidv = b.ins().iconst(types::I64, fid_const); hcall!("j_call_dyn", &[cv, addr, nv, fidv]) };
                         let xa = b.ins().iconst(types::I64, extra_addr);
                         let mut outs = vec![b.inst_results(c)[0]];
                         for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
@@ -517,7 +555,8 @@ impl Jit {
                         for (i, v) in outs.into_iter().enumerate() { setr!(base as usize + i, v); }
                     }
                     Op::CallMethod(k, base, nargs) => {
-                        let addr = args_slot!(base, nargs);
+                        let copy = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + 8 } else { nargs as usize };
+                        let addr = args_slot_pad!(base, copy);
                         let nv = b.ins().iconst(types::I64, nargs as i64); let name = b.ins().iconst(types::I64, consts[k as usize] as i64);
                         let c = hcall!("j_call_method", &[name, addr, nv]);
                         cond_of.clear();
@@ -588,6 +627,11 @@ impl Jit {
                         let r = if matches!(*op, Op::Div(..)) { b.ins().fdiv(fp, fq) } else { let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, fq); b.ins().fsub(fp, m) };
                         setr!(d, box_f64!(r));
                     }
+                    Op::PadResults(base, n) => {
+                        // Registers past what the call returned become nil.
+                        let c = hcall!("j_last_nres", &[]); let got = b.inst_results(c)[0];
+                        for i in 1..n as usize { if base as usize + i >= f.nregs as usize { break; } let iv = b.ins().iconst(types::I64, i as i64); let have = b.ins().icmp(IntCC::UnsignedLessThan, iv, got); let cur = rv!(base as usize + i); let nil = b.ins().iconst(types::I64, NIL); let v = b.ins().select(have, cur, nil); setr!(base as usize + i, v); }
+                    }
                     Op::TagCheckStr(d, a) => { let v = rv!(a); hcall!("j_tagcheck_str", &[v]); setr!(d, v); }
                     Op::IsRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); let c = hcall!("j_is_rec", &[v, s]); setr!(d, b.inst_results(c)[0]); }
                     Op::TagCheckRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); hcall!("j_tagcheck_rec", &[v, s]); setr!(d, v); }
@@ -597,7 +641,9 @@ impl Jit {
                         // call returned, which the helper knows from `last_nres`.
                         if n >= 128 {
                             let fixed = (n & 127) as usize;
-                            let addr = args_slot!(start.wrapping_sub(1), fixed + 8);
+                            // The fixed values then the call's results, all in registers
+                            // from `start` (the call's extras were read back after it).
+                            let addr = args_slot_pad!(start.wrapping_sub(1), fixed + 8);
                             let nv = b.ins().iconst(types::I64, 128 + fixed as i64);
                             hcall!("j_ret_extra", &[addr, nv]);
                             let r = rv!(start); b.ins().return_(&[r]); terminated = true;
@@ -752,14 +798,14 @@ impl Jit {
                     Op::FMov(d, a) => { let v = fv!(a); setf!(d, v); }
                     Op::VMov(d, a) => { let v = vv!(a); setv!(d, v); }
                     Op::GuardLenLe(x, y) => { let (p, q) = (iv!(x), iv!(y)); let bad = b.ins().icmp(IntCC::UnsignedGreaterThan, p, q); b.ins().trapnz(bad, TrapCode::user(2).unwrap()); }
-                    Op::FRet(x) if ret_f => { let v = fv!(x); b.ins().return_(&[v]); terminated = true; }
-                    Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); terminated = true; }
-                    Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); b.ins().return_(&[r]); terminated = true; }
-                    Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
+                    Op::FRet(x) if ret_f => { let v = fv!(x); note_one_result!(); b.ins().return_(&[v]); terminated = true; }
+                    Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); note_one_result!(); b.ins().return_(&[z]); terminated = true; }
+                    Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
+                    Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
                     Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
-            if !terminated { if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
+            if !terminated { note_one_result!(); if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
             b.switch_to_block(err_block);
             { let e = b.ins().iconst(types::I64, ERROR); if ret_f { let ef = b.ins().bitcast(types::F64, cast, e); b.ins().return_(&[ef]); } else { b.ins().return_(&[e]); } }
             b.seal_all_blocks();
@@ -825,7 +871,7 @@ extern "C" fn j_set_slot(obj: u64, i: u64, v: u64) -> u64 { let it = ctx(); it.g
 extern "C" fn j_set_index(t: u64, k: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_index_impl(t, k, v))).0 }
 extern "C" fn j_concat(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_concat_impl(a, b))).0 }
 extern "C" fn j_arith_slow(a: u64, b: u64, op: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_arith_slow_impl(a, b, op))).0 }
-extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0 }
+extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0; it.jit_fid = prev; r }
 extern "C" fn j_call_method(name: u64, argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_call_method_impl(name, argv, nargs))).0 }
 extern "C" fn j_pcall(argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pcall_impl(argv, nargs))).0 }
 extern "C" fn j_get_field(t: u64, name: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_field_impl(t, name))).0 }
@@ -834,6 +880,9 @@ extern "C" fn j_set_field(t: u64, name: u64, v: u64) -> u64 { let it = ctx(); it
 extern "C" fn j_new_cell(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_cell_impl(v))).0 }
 extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_cell_impl(c, v))).0 }
 extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
+extern "C" fn j_last_nres() -> u64 { ctx().last_nres as u64 }
+extern "C" fn j_slot_get(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_get_impl(o, shape, slot))).0 }
+extern "C" fn j_slot_set(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_set_impl(o, shape, slot, v))).0 }
 extern "C" fn j_is_rec(v: u64, shape: u64) -> u64 { V::boolean(ctx().is_rec(V(v), shape as u32)).0 }
 extern "C" fn j_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_rec_impl(v, shape))).0 }
 extern "C" fn j_tagcheck_str(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_str_impl(v))).0 }
@@ -861,12 +910,12 @@ macro_rules! leave_helper { ($prev:expr) => { HELPER_FP.store($prev, std::sync::
 fn j_storage_ptr_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_ptr as u64 }, None => 0 } }
 fn j_storage_len_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_len }, None => 0 } }
 fn j_len_impl(v: u64) -> u64 { let it = ctx(); match it.kind_of(V(v)) { Some(KIND_TABLE) | Some(KIND_RECORD) => it.array_len(V(v)) as u64, _ => it.bytes_of(V(v)).len() as u64 } }
-fn j_get_index_impl(t: u64, k: u64) -> u64 { let it = ctx(); it.get_index_any(V(t), V(k)).0 }
+fn j_get_index_impl(t: u64, k: u64) -> u64 { let it = ctx(); it.index_any(V(t), V(k)).0 }
 fn j_new_record_impl(shape: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(_hp); v.0 }
 fn j_new_table_impl() -> u64 { let _hp = enter_helper!(); let v = ctx().new_table(); leave_helper!(_hp); v.0 }
 fn j_new_table_sized_impl(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
 fn j_set_slot_impl(obj: u64, i: u64, v: u64) -> u64 { ctx().set_slot(V(obj), i as usize, V(v)); 0 }
-fn j_set_index_impl(t: u64, k: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().set_index(V(t), V(k), V(v)); leave_helper!(_hp); 0 }
+fn j_set_index_impl(t: u64, k: u64, v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = V(t); if it.metatable_of(t) != V::NIL { let k = it.key_for_store(V(k)); it.newindex(t, k, V(v)); } else { it.set_index(t, V(k), V(v)); } leave_helper!(_hp); 0 }
 fn j_concat_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().concat(V(a), V(b)); leave_helper!(_hp); v.0 }
 /// Arithmetic and comparison past the number fast path: strings compare by
 /// content (codes 3 and 4 answer a boolean word); anything else is an error.
@@ -881,7 +930,7 @@ fn j_arith_slow_impl(a: u64, b: u64, op: u64) -> u64 {
 fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let n = (nargs & 127) as usize;
+    let n = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + it.last_nres.min(8) } else { (nargs & 127) as usize };
     let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, n) };
     let scope = it.open_scope(); for &a in args { it.handles.push(a); } it.handles.push(V(callee));
     if nargs >= 128 { it.err("a spread call from compiled code"); }
@@ -896,7 +945,8 @@ fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
 fn j_call_method_impl(name: u64, argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, nargs as usize) };
+    let nargs = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + it.last_nres.min(8) } else { nargs as usize };
+    let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, nargs) };
     let scope = it.open_scope(); for &a in args { it.handles.push(a); }
     let outs = it.call_method(V(name), args);
     it.close_scope(scope);
@@ -909,7 +959,8 @@ fn j_call_method_impl(name: u64, argv: *const u64, nargs: u64) -> u64 {
 fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let args: Vec<V> = (0..nargs as usize).map(|i| V(unsafe { *argv.add(i) })).collect();
+    let nargs = if nargs & 64 != 0 { (nargs & 63) as usize + it.last_nres.min(8) } else { nargs as usize };
+    let args: Vec<V> = (0..nargs).map(|i| V(unsafe { *argv.add(i) })).collect();
     let scope = it.open_scope(); for &a in &args { it.handles.push(a); }
     let outs = it.pcall_values(args[0], &args[1..]);
     it.close_scope(scope);
@@ -918,7 +969,7 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     leave_helper!(_hp);
     outs[0].0
 }
-fn j_get_field_impl(t: u64, name: u64) -> u64 { ctx().get_index(V(t), V(name)).0 }
+fn j_get_field_impl(t: u64, name: u64) -> u64 { ctx().index(V(t), V(name)).0 }
 /// A field read that missed its site cache: resolve by name and, for a
 /// record whose shape names the field, remember the shape and slot.
 fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
@@ -927,12 +978,14 @@ fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
         let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_RECORD { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.names.iter().position(|n| n.0 == name) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } return h.slots()[i].0; } }
     }
-    it.get_index(tv, V(name)).0
+    it.index(tv, V(name)).0
 }
-fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().set_field(V(t), V(name), V(v)); leave_helper!(_hp); 0 }
+fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = V(t); if it.metatable_of(t) != V::NIL { it.newindex(t, V(name), V(v)); } else { it.set_field(t, V(name), V(v)); } leave_helper!(_hp); 0 }
 fn j_new_cell_impl(v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let scope = it.open_scope(); it.handles.push(V(v)); let c = it.new_cell(V(v)); it.close_scope(scope); leave_helper!(_hp); c.0 }
 fn j_set_cell_impl(c: u64, v: u64) -> u64 { ctx().set_cell(V(c), V(v)); 0 }
 fn j_new_closure_impl(fid: u64, argv: *const u64, n: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let caps: Vec<V> = (0..n as usize).map(|i| V(unsafe { *argv.add(i) })).collect(); let scope = it.open_scope(); for &c in &caps { it.handles.push(c); } let v = it.new_closure(fid as u32, &caps); it.close_scope(scope); leave_helper!(_hp); v.0 }
+fn j_slot_get_impl(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); let v = V(o); if let Some(p) = v.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.shape() == shape as u32 { return h.slots()[slot as usize].0; } } it.slot_get_slow(v, shape as u32, slot as u16).0 }
+fn j_slot_set_impl(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); let ov = V(o); if let Some(p) = ov.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.shape() == shape as u32 { it.set_slot(ov, slot as usize, V(v)); return 0; } } it.slot_set_slow(ov, shape as u32, slot as u16, V(v)); 0 }
 fn j_tagcheck_rec_impl(v: u64, shape: u64) -> u64 { ctx().tagcheck_rec(V(v), shape as u32); 0 }
 fn j_tagcheck_str_impl(v: u64) -> u64 { let it = ctx(); if !it.is_stringish(V(v)) { it.err("value is not a string") } 0 }
 /// Results past the first of a compiled return: `n` plain values from
@@ -941,16 +994,15 @@ fn j_tagcheck_str_impl(v: u64) -> u64 { let it = ctx(); if !it.is_stringish(V(v)
 fn j_ret_extra_impl(argv: *const u64, n: u64) -> u64 {
     let it = ctx();
     if n >= 128 {
+        // argv[i] is register start+i: the fixed values first, then the call's
+        // results, which the call lowering read back into the registers that
+        // follow. The first of them all is the function's own return value.
         let fixed = (n & 127) as usize;
-        // argv points one below the first fixed value: argv[1..=fixed] are the
-        // fixed extras after the first result, then the call's own results.
+        let total = (fixed + it.last_nres).min(8);
         let mut outs: Vec<V> = Vec::new();
-        for i in 1..=fixed { outs.push(V(unsafe { *argv.add(i) })); }
-        // The call's first result is at argv[fixed + 1]; its extras in `extra`.
-        let call_n = it.last_nres;
-        if call_n > 0 { outs.push(V(unsafe { *argv.add(fixed + 1) })); for i in 0..it.extra_n.min(call_n.saturating_sub(1)) { outs.push(it.extra[i]); } }
-        it.extra_n = outs.len().min(8); for (i, v) in outs.iter().take(8).enumerate() { it.extra[i] = *v; }
-        it.last_nres = it.extra_n + 1;
+        for i in 1..total { outs.push(V(unsafe { *argv.add(i) })); }
+        it.extra_n = outs.len(); for (i, v) in outs.iter().enumerate() { it.extra[i] = *v; }
+        it.last_nres = total.max(1);
         return 0;
     }
     it.extra_n = (n as usize).min(8); for i in 0..it.extra_n { it.extra[i] = V(unsafe { *argv.add(i) }); }
