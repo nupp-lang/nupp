@@ -1,0 +1,5 @@
+local record BytecodeCache
+    install: function(): nil
+    refresh: function(outDir: string, modules: {[string]: any}): nil
+end
+return BytecodeCache

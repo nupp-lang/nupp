@@ -1417,6 +1417,7 @@ dependencies = [
  "cranelift-native",
  "cranelift-object",
  "crc32fast",
+ "libc",
  "sha2",
 ]
 

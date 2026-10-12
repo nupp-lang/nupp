@@ -1,0 +1,61 @@
+@!internal
+
+module nupp.cli.internal.terminalhost
+
+-- The LuaJIT terminal provider. Other runtimes supply this small host surface.
+local host = {}
+
+function host.isTerminal(fd: integer): boolean
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return false
+    end
+    pcall(ffi.cdef, "int isatty(int);")
+    local ok, result = pcall(function()
+        local C: any = ffi.C
+        return C.isatty(fd)
+    end)
+    if ok then
+        return result ~= 0
+    end
+    pcall(ffi.cdef, "int _isatty(int);")
+    local retried, retriedResult = pcall(function()
+        local C: any = ffi.C
+        return C._isatty(fd)
+    end)
+
+    return retried and retriedResult ~= 0
+end
+
+-- These are the request codes LuaJIT knows for the two supported Unix families.
+local WINDOW_SIZE = {OSX = 0x40087468, BSD = 0x40087468, Linux = 0x5413}
+
+function host.columns(fd: integer): integer?
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return nil
+    end
+    local library: any = ffi
+    local request = WINDOW_SIZE[library.os or ""]
+    if request == nil then
+        return nil
+    end
+    pcall(ffi.cdef, "struct nupp_winsize { unsigned short ws_row, ws_col, ws_x, ws_y; };")
+    pcall(ffi.cdef, "int ioctl(int, unsigned long, ...);")
+    local ok, answer = pcall(function(): number?
+        local C: any = library.C
+        local size: any = library.new("struct nupp_winsize")
+        if C.ioctl(fd, request, size) ~= 0 then
+            return nil
+        end
+
+        return tonumber(size.ws_col)
+    end)
+    if not ok or answer == nil or (answer as number) <= 0 then
+        return nil
+    end
+
+    return math.floor(answer as number)
+end
+
+export = host

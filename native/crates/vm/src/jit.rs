@@ -441,7 +441,11 @@ impl<M: Module> Compiler<M> {
                 }
             }
             starts.retain(|&pc| pc < f.code.len());
-            let blocks: HashMap<usize, Block> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
+            let mut blocks: HashMap<usize, Block> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
+            // Verified jumps may land just after the last instruction. Keep that
+            // target separate from resumable PCs, whose liveness ends at code.len().
+            let exit = b.create_block();
+            blocks.insert(f.code.len(), exit);
             // Where a propagating raise leaves this function: the sentinel
             // returned upward, as its callers and the runtime expect (6.5).
             let err_block = b.create_block();
@@ -1240,7 +1244,11 @@ impl<M: Module> Compiler<M> {
                     Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
-            if !terminated { note_one_result!(); if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
+            if !terminated { b.ins().jump(exit, &[]); }
+            b.switch_to_block(exit);
+            note_one_result!();
+            if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); }
+            else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); }
             b.switch_to_block(err_block);
             { let e = b.ins().iconst(types::I64, ERROR); if ret_f { let ef = b.ins().bitcast(types::F64, cast, e); b.ins().return_(&[ef]); } else { b.ins().return_(&[e]); } }
             b.seal_all_blocks();

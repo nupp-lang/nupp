@@ -1,0 +1,5 @@
+-- Wall time supplied by the VM host in milliseconds.
+local record ClockHost
+    now: function(): number
+end
+return ClockHost

@@ -914,6 +914,7 @@ impl Interp {
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
         let io = table_of(self, &["io.write", "io.open", "io.read"]);
         // The standard streams: objects whose `write` is a method.
+        let stdin = self.new_table(); self.registered.push(stdin); let k = self.intern("stdin"); self.set_index(io, k, stdin);
         for (field, name) in [("stderr", "io.stderr.write"), ("stdout", "io.stdout.write")] { let stream = self.new_table(); self.registered.push(stream); let write = self.intern("write"); self.set_index(stream, write, Value::builtin(crate::builtins::id_of(name).unwrap())); let k = self.intern(field); self.set_index(io, k, stream); }
         let debug = table_of(self, &["debug.getinfo"]);
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
@@ -921,6 +922,10 @@ impl Interp {
         let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile"]);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
+        let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
+        self.loaded.insert("nupp.cli.internal.terminalhost".into(), terminal);
+        let clock = table_of(self, &["clock.now"]);
+        self.loaded.insert("nupp.tools.build.clockhost".into(), clock);
         let pid = self.new_table(); self.registered.push(pid);
         let get = self.intern("get"); self.set_index(pid, get, Value::builtin(crate::builtins::id_of("vm.processId").unwrap()));
         self.loaded.insert("nupp.compiler.hostpid".into(), pid);

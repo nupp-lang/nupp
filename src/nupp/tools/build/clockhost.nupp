@@ -1,0 +1,41 @@
+@!internal
+
+module nupp.tools.build.clockhost
+
+-- Wall time includes waits on other processes and the disk. LuaJIT's fallback
+-- is CPU time when its FFI cannot provide a wall clock.
+local function makeClock(): function(): number
+    local coarse = function(): number
+        return os.clock() * 1000
+    end
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return coarse
+    end
+    -- The platform writes seconds and microseconds into these two words.
+    pcall(ffi.cdef, "int gettimeofday(void *, void *);")
+    local holder = ffi.new("int64_t[2]") as int64[2]
+    local buffer = ffi.cast("void *", holder)
+
+    local function read(): number
+        @unsafe do
+            ffi.C.gettimeofday(buffer, nil)
+        end
+
+        return (tonumber(holder[0]) or 0) * 1000 + (tonumber(holder[1]) or 0) / 1000
+    end
+
+    -- Refuse a missing symbol or an incompatible timeval layout.
+    local sampled, sample = pcall(read)
+    if not sampled or type(sample) ~= "number" or sample < 1.4e12 or sample > 4.0e12 then
+        return coarse
+    end
+
+    return read
+end
+
+local clock = makeClock()
+
+export function now(): number
+    return clock()
+end

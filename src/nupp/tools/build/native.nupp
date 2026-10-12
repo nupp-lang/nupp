@@ -139,7 +139,11 @@ function stage.linkHost(
 ): (string?, string?)
     local selected = target.layoutTarget
     local host = require("nupp.tools.build.platform").hostKey()
-    local aotllvm = require("nupp.tools.build.aotllvm")
+    -- Only standalone linking needs the legacy LLVM backend.
+    local aotllvm = require("nupp.tools.build." .. "aotllvm") as {
+        selected: function(): (boolean?, string?),
+        linkStandalone: function(string, string, {string}, {string}): string?
+    }
     local compilerRoot = envMod.compilerRoot()
     local featureNames = native.hostFeatureNames(effects)
     local linked = selected or host
@@ -162,7 +166,10 @@ function stage.linkHost(
             return driven(compilerRoot as string, "kit", featureNames)
         end
     end
-    local kit, kitErr = require("nupp.tools.build.kits").resolve(linked as string, featureNames, build)
+    local kits = require(
+        "nupp.tools.build." .. "kits"
+    ) as {resolve: function(string, {string}, (function(): (string?, string?))?): (string?, string?)}
+    local kit, kitErr = kits.resolve(linked as string, featureNames, build)
     if kit == nil then
         return nil, kitErr
     end

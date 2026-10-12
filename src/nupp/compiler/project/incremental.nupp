@@ -26,7 +26,13 @@ local storeMod = require("nupp.compiler.project.store")
 local T = require("nupp.compiler.types")
 
 local incremental = {}
-local hostServices = require("nupp.compiler.hostservices")
+
+-- A compiler session needs its host services; loading the query graph alone
+-- does not. Keep the native implementation outside an alternate runtime image.
+local function hostServices(): any
+    local name = "hostservices"
+    return require("nupp.compiler." .. name)
+end
 
 ----------------------------------------------------------------------------
 -- What the index holds
@@ -212,7 +218,7 @@ type incremental.Observer = {
 ---     assigned to.
 function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
-    opts.compilerServices = opts.compilerServices or hostServices
+    opts.compilerServices = opts.compilerServices or hostServices()
     local env = envMod.new(rootDir, opts)
     local traceInspection = opts.traceInspection == true
     local q = query.new()

@@ -23,8 +23,10 @@ end
 --- Read, check and lower a project using the compiler's module resolver.
 --- Explicit include roots allow bootstrapping before manifest execution.
 --- @raises string when a source cannot be read, checked or lowered.
-function project.emit(root: string, entry: string, extras: string?, includes: string?): string
-    triviaarena.install(tableProvider)
+function project.emit(root: string, entry: string, extras: string?, includes: string?, hostBootstrap: boolean?): string
+    if not hostBootstrap then
+        triviaarena.install(tableProvider)
+    end
     chunks.install()
     local config: table = {include = names(includes or "src")}
     if not includes and fs.exists(root .. "/nupp.lua") then
@@ -52,11 +54,15 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
                 return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
             elseif name == "nupp.tasks" then
                 return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
+            elseif name == "nupp.tools.bytecodecache" then
+                return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
             end
             if name == "nupp.vm.tasks"
             or name == "nupp.vm.coroutine"
             or name == "nupp.io.files"
             or name == "nupp.io.path"
+            or name == "nupp.cli.internal.terminalhost"
+            or name == "nupp.tools.build.clockhost"
             or name == "nupp.compiler.hostpid"
             or name == "nupp.digest.internal.sha256"
             then
@@ -69,7 +75,10 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
             local source = assert(fs.readFile(path), "cannot read " .. path)
             local parsed = parser.parse(source, path)
             assert(#parsed.errors == 0, "parse failed: " .. path)
-            local diagnostics = checkMod.check(parsed, path, env as any, {})
+            local ok, diagnostics = pcall(checkMod.check, parsed, path, env as any, {})
+            if not ok then
+                error("check failed: " .. name .. " (" .. path .. "): " .. tostring(diagnostics), 0)
+            end
             for _, d in ipairs(diagnostics) do
                 if d.severity == "error" or not d.severity then
                     error(
@@ -87,11 +96,13 @@ end
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
-function project.rebuild(root: string): string
+function project.rebuild(root: string, hostBootstrap: boolean?): string
     return project.emit(
         root,
         "nupp.compiler.vm.project",
-        "nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache"
+        "nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache",
+        nil,
+        hostBootstrap
     )
 end
 

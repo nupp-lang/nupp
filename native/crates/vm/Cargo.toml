@@ -42,6 +42,7 @@ cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
 sha2 = "0.10"
 crc32fast = "1.5"
+libc = "0.2"
 
 [build-dependencies]
 cc = "1"

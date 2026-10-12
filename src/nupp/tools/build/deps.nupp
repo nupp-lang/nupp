@@ -12,7 +12,6 @@ any of it changed.
 ]]
 
 local hash = require("nupp.compiler.hash")
-local importc = require("nupp.compiler.cinterop.importc")
 local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
@@ -228,6 +227,8 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     if header:sub(1, 1) ~= "/" then
         header = join(base, header)
     end
+    -- Import-C needs LuaJIT's C parser only when a binding is generated.
+    local importc = require("nupp.compiler.cinterop." .. "importc") as any
     local text, warnings, details = importc.import(header, {
         module = name,
         lib = binding.library or dep.load or libraryPath,

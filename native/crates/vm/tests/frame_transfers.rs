@@ -57,6 +57,23 @@ fn vm(source: &str) -> Box<Interp> {
 }
 
 #[test]
+fn compiled_frame_accepts_a_jump_to_the_end_of_code() {
+    let mut vm = vm(r#"
+function main 0 0 2 1 :v
+const 0 num 42
+K 1 0
+Ret 1
+Jmp 0
+end
+entry 0
+"#);
+    let task = vm.schedule(Value::func(0), &[], None).unwrap();
+    assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Completed);
+    assert_eq!(vm.tasks[task.index].result, Value::num(42.0));
+    assert!(vm.compiled_frame_entries > 0);
+}
+
+#[test]
 fn live_results_and_objects_survive_calls_park_and_snapshot() {
     let mut vm = vm(MULTI);
     let task = vm.schedule(Value::func(1), &[], None).unwrap();

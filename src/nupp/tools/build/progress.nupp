@@ -119,64 +119,13 @@ type progress.Timing = {
 --- report stays something a reader takes in at a glance.
 const progress.SLOWEST = 5
 
--- Wall clock rather than CPU clock, because a build waits on cargo, on luarocks and on
--- the disk, and none of that is this process's CPU time however long the user spends
--- watching it. LuaJIT has no wall clock of its own beyond `os.time`, whose one-second
--- resolution would report most builds as zero, so this goes through the FFI and is
--- guarded at every step the way `nupp.cli` guards `isatty`: a build must not
--- fail to start because a timer could not be declared. The fallback is CPU time, which
--- is wrong in the direction of being too small and is still better than nothing.
-local function makeClock(): function(): number
-    local coarse = function(): number
-        return os.clock() * 1000
-    end
-    local loaded, ffi = pcall(require, "ffi")
-    if not loaded then
-        return coarse
-    end
-    -- Two words rather than a declared `struct timeval`, whose second field is a long
-    -- on Linux and an int on the BSDs: the platform writes seconds into the first word
-    -- and microseconds into the second, and a zero-filled pair reads both back on any
-    -- little-endian 64-bit target whichever width it wrote. That is an assumption about
-    -- the machine, so it is tested below rather than trusted.
-    pcall(ffi.cdef, "int gettimeofday(void *, void *);")
-    local holder = ffi.new("int64_t[2]") as int64[2]
-    -- Through `void *`, because the declaration that wins may not be this one:
-    -- something else in the process may have declared `gettimeofday` against a `struct
-    -- timeval *` first, and a void pointer converts to whichever it turns out to be.
-    -- Cast once, since it is the same buffer every time.
-    local buffer = ffi.cast("void *", holder)
-
-    local function read(): number
-        -- Handing C a pointer is what this is; there is nothing for the checker to
-        -- prove about a two-word buffer the platform fills in.
-        @unsafe do
-            ffi.C.gettimeofday(buffer, nil)
-        end
-
-        return (tonumber(holder[0]) or 0) * 1000 + (tonumber(holder[1]) or 0) / 1000
-    end
-
-    -- Windows declares no `gettimeofday`, so the symbol resolves at the first call
-    -- rather than at the declaration, and a machine that does not lay a `timeval` out
-    -- the way this reads it answers something absurd rather than failing. One reading
-    -- settles both: a clock that does not land between 2014 and 2096 is not a clock,
-    -- and a build is better timed coarsely than timed wrongly.
-    local sampled, sample = pcall(read)
-    if not sampled or type(sample) ~= "number" or sample < 1.4e12 or sample > 4.0e12 then
-        return coarse
-    end
-
-    return read
-end
-
-local clock = makeClock()
+local clock = require("nupp.tools.build.clockhost")
 
 --- Milliseconds on a wall clock. Its zero is the epoch where the platform's clock was
 --- reachable and this process's own start where it was not, so only the difference
 --- between two readings means anything.
 function progress.now(): number
-    return clock()
+    return clock.now()
 end
 
 --- A duration as a reader wants it: milliseconds while a duration is short, and
@@ -280,7 +229,7 @@ record progress.Reporter
     --- is not a no-op and does not need to be: it charges the elapsed time to the same
     --- bucket.
     function at(self, activity: string): nil
-        local moment = clock()
+        local moment = clock.now()
         self.spans[self.activity] = (self.spans[self.activity] or 0) + (moment - self.since)
         if self.spans[activity] == nil then
             self.spans[activity] = 0
@@ -303,7 +252,7 @@ record progress.Reporter
         if not self.showing then
             return
         end
-        local moment = clock()
+        local moment = clock.now()
         if moment - self.paintedAt < (self.rewriting and 40 or 500) then
             return
         end
@@ -415,7 +364,7 @@ record progress.Reporter
         end
 
         return {
-            totalMs = clock() - self.startedAt,
+            totalMs = clock.now() - self.startedAt,
             compiledModules = self.compiled,
             reusedModules = self.reused,
             specializedBodies = self.specialized,
@@ -508,7 +457,7 @@ end
 function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
     local target = stream or io.stderr
     local showing = resolve(mode, target)
-    local started = clock()
+    local started = clock.now()
 
     return new progress.Reporter(
         stream = target,

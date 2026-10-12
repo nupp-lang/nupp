@@ -147,11 +147,9 @@ local RESOURCES = {
     {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
     {source = "src/nupp/cli/internal/decode.nupp", output = "nupp/compiler/nupp/cli/internal/decode.nupp"},
     {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
+    {source = "src/nupp/cli/internal/terminalhost.nupp", output = "nupp/compiler/nupp/cli/internal/terminalhost.nupp"},
     {source = "src/nupp/cli/internal/table.nupp", output = "nupp/compiler/nupp/cli/internal/table.nupp"},
-    {
-        source = "src/nupp/cli/internal/application.nupp",
-        output = "nupp/compiler/nupp/cli/internal/application.nupp"
-    },
+    {source = "src/nupp/cli/internal/application.nupp", output = "nupp/compiler/nupp/cli/internal/application.nupp"},
     {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
     {source = "src/nupp/runtime/uuidprovider.nupp", output = "nupp/compiler/nupp/runtime/uuidprovider.nupp"},
     {source = "src/nupp/runtime/browser/memory.nupp", output = "nupp/compiler/nupp/runtime/browser/memory.nupp"},
@@ -284,37 +282,88 @@ local RESOURCES = {
     {source = "src/nupp/serde/internal/accessors.nupp", output = "nupp/compiler/nupp/serde/internal/accessors.nupp"},
     {source = "src/nupp/serde/internal/context.nupp", output = "nupp/compiler/nupp/serde/internal/context.nupp"},
     {source = "src/nupp/serde/debug.nupp", output = "nupp/compiler/nupp/serde/debug.nupp"},
-    {source = "src/nupp/serde/internal/declaration.nupp", output = "nupp/compiler/nupp/serde/internal/declaration.nupp"},
-    {source = "src/nupp/serde/internal/json/defaults.nupp", output = "nupp/compiler/nupp/serde/internal/json/defaults.nupp"},
+    {
+        source = "src/nupp/serde/internal/declaration.nupp",
+        output = "nupp/compiler/nupp/serde/internal/declaration.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/defaults.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/defaults.nupp"
+    },
     {source = "src/nupp/serde/internal/document.nupp", output = "nupp/compiler/nupp/serde/internal/document.nupp"},
-    {source = "src/nupp/serde/internal/documentcodec.nupp", output = "nupp/compiler/nupp/serde/internal/documentcodec.nupp"},
-    {source = "src/nupp/serde/internal/documentreader.nupp", output = "nupp/compiler/nupp/serde/internal/documentreader.nupp"},
-    {source = "src/nupp/serde/internal/documentwriter.nupp", output = "nupp/compiler/nupp/serde/internal/documentwriter.nupp"},
+    {
+        source = "src/nupp/serde/internal/documentcodec.nupp",
+        output = "nupp/compiler/nupp/serde/internal/documentcodec.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/documentreader.nupp",
+        output = "nupp/compiler/nupp/serde/internal/documentreader.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/documentwriter.nupp",
+        output = "nupp/compiler/nupp/serde/internal/documentwriter.nupp"
+    },
     {source = "src/nupp/serde/internal/errors.nupp", output = "nupp/compiler/nupp/serde/internal/errors.nupp"},
     {source = "src/nupp/serde/adapters.nupp", output = "nupp/compiler/nupp/serde/adapters.nupp"},
     {source = "src/nupp/serde/codec.nupp", output = "nupp/compiler/nupp/serde/codec.nupp"},
     {source = "src/nupp/serde/internal/identity.lua", output = "nupp/compiler/nupp/serde/internal/identity.lua"},
     {source = "src/nupp/serde/document.nupp", output = "nupp/compiler/nupp/serde/document.nupp"},
     {source = "src/nupp/serde/json.nupp", output = "nupp/compiler/nupp/serde/json.nupp"},
-    {source = "src/nupp/serde/internal/json/compiled.nupp", output = "nupp/compiler/nupp/serde/internal/json/compiled.nupp"},
-    {source = "src/nupp/serde/internal/json/encoder.nupp", output = "nupp/compiler/nupp/serde/internal/json/encoder.nupp"},
-    {source = "src/nupp/serde/internal/json/diagnostic.nupp", output = "nupp/compiler/nupp/serde/internal/json/diagnostic.nupp"},
-    {source = "src/nupp/serde/internal/json/document.nupp", output = "nupp/compiler/nupp/serde/internal/json/document.nupp"},
-    {source = "src/nupp/serde/internal/json/extensions.nupp", output = "nupp/compiler/nupp/serde/internal/json/extensions.nupp"},
+    {
+        source = "src/nupp/serde/internal/json/compiled.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/compiled.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/encoder.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/encoder.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/diagnostic.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/diagnostic.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/document.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/document.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/extensions.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/extensions.nupp"
+    },
     {source = "src/nupp/serde/internal/json/lower.nupp", output = "nupp/compiler/nupp/serde/internal/json/lower.nupp"},
     {source = "src/nupp/serde/internal/json/plan.nupp", output = "nupp/compiler/nupp/serde/internal/json/plan.nupp"},
-    {source = "src/nupp/serde/internal/json/reader.nupp", output = "nupp/compiler/nupp/serde/internal/json/reader.nupp"},
-    {source = "src/nupp/serde/internal/json/syntax.nupp", output = "nupp/compiler/nupp/serde/internal/json/syntax.nupp"},
-    {source = "src/nupp/serde/internal/json/writer.nupp", output = "nupp/compiler/nupp/serde/internal/json/writer.nupp"},
+    {
+        source = "src/nupp/serde/internal/json/reader.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/reader.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/syntax.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/syntax.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/json/writer.nupp",
+        output = "nupp/compiler/nupp/serde/internal/json/writer.nupp"
+    },
     {source = "src/nupp/serde/internal/list.nupp", output = "nupp/compiler/nupp/serde/internal/list.nupp"},
     {source = "src/nupp/serde/internal/memo.nupp", output = "nupp/compiler/nupp/serde/internal/memo.nupp"},
     {source = "src/nupp/serde/internal/indexed.nupp", output = "nupp/compiler/nupp/serde/internal/indexed.nupp"},
     {source = "src/nupp/serde/native.nupp", output = "nupp/compiler/nupp/serde/native.nupp"},
-    {source = "src/nupp/serde/internal/native/reader.nupp", output = "nupp/compiler/nupp/serde/internal/native/reader.nupp"},
-    {source = "src/nupp/serde/internal/native/writer.nupp", output = "nupp/compiler/nupp/serde/internal/native/writer.nupp"},
+    {
+        source = "src/nupp/serde/internal/native/reader.nupp",
+        output = "nupp/compiler/nupp/serde/internal/native/reader.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/native/writer.nupp",
+        output = "nupp/compiler/nupp/serde/internal/native/writer.nupp"
+    },
     {source = "src/nupp/serde/internal/numbers.nupp", output = "nupp/compiler/nupp/serde/internal/numbers.nupp"},
-    {source = "src/nupp/serde/internal/persistence.nupp", output = "nupp/compiler/nupp/serde/internal/persistence.nupp"},
-    {source = "src/nupp/serde/internal/publication.nupp", output = "nupp/compiler/nupp/serde/internal/publication.nupp"},
+    {
+        source = "src/nupp/serde/internal/persistence.nupp",
+        output = "nupp/compiler/nupp/serde/internal/persistence.nupp"
+    },
+    {
+        source = "src/nupp/serde/internal/publication.nupp",
+        output = "nupp/compiler/nupp/serde/internal/publication.nupp"
+    },
     {source = "src/nupp/serde/internal/scalar.nupp", output = "nupp/compiler/nupp/serde/internal/scalar.nupp"},
     {source = "src/nupp/serde/internal/structure.nupp", output = "nupp/compiler/nupp/serde/internal/structure.nupp"},
     {source = "src/nupp/serde/internal/timestamps.nupp", output = "nupp/compiler/nupp/serde/internal/timestamps.nupp"},

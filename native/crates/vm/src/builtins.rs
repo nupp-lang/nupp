@@ -21,6 +21,7 @@ pub const NAMES: &[&str] = &[
     "scalar.f32.narrow", "scalar.f32.round", "scalar.f32.add", "scalar.f32.sub", "scalar.f32.mul", "scalar.f32.div", "scalar.f32.sqrt", "scalar.f32.min", "scalar.f32.max", "scalar.f32.fma", "scalar.f32.exp", "scalar.f32.fromBits", "scalar.f32.toBits",
     "vm.loadImage", "vm.processId", "vm.sha256", "vm.saveValue", "vm.loadValue", "vm.loadInto",
     "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "affine.release", "tasks.fork", "tasks.channel", "tasks.channelSend", "tasks.channelReceive", "tasks.channelClose", "tasks.coCreate", "tasks.coResume", "tasks.coYield", "tasks.coStatus", "tasks.coRunning", "tasks.coClose", "tasks.coWrap", "tasks.coIsYieldable", "tasks.channelShare", "tasks.coDispose",
+    "terminal.isTerminal", "terminal.columns", "clock.now",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -204,6 +205,27 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     }
 }
 
+fn terminal(name: &str, args: &[Value]) -> Outs {
+    use std::io::IsTerminal;
+    let fd = int(args, 0, 1) as i32;
+    if name == "terminal.isTerminal" {
+        let answer = match fd {
+            0 => std::io::stdin().is_terminal(),
+            1 => std::io::stdout().is_terminal(),
+            2 => std::io::stderr().is_terminal(),
+            _ => false,
+        };
+        return outs![Value::boolean(answer)];
+    }
+    #[cfg(unix)]
+    {
+        let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+        let status = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) };
+        if status == 0 && size.ws_col > 0 { return outs![Value::num(size.ws_col as f64)]; }
+    }
+    outs![Value::NIL]
+}
+
 /// The fixed-width intrinsics the `Scalar` opcode carries, by kind; the typed
 /// tier lowers them inline, the interpreter calls `scalar_op`.
 pub const SCALAR_OPS: [&str; 25] = ["u32.wrap", "u32.add", "u32.sub", "u32.andBits", "u32.orBits", "u32.xorBits", "u32.shiftLeft", "u32.shiftRightLogical", "u32.fromI32", "u32.toI32", "i32.wrap", "i32.add", "i32.sub", "i32.andBits", "i32.orBits", "i32.xorBits", "i32.fromU32", "i32.toU32", "u32.mul", "i32.mul", "u32.notBits", "i32.notBits", "u32.rotateLeft", "u32.rotateRight", "i32.shiftRightArithmetic"];
@@ -339,6 +361,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         return outs![it.heap_new_string(&hex)];
     }
     if NAMES.get(id as usize) == Some(&"vm.processId") { return outs![Value::num(std::process::id() as f64)]; }
+    if NAMES.get(id as usize) == Some(&"clock.now") {
+        let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default().as_secs_f64() * 1000.0;
+        return outs![Value::num(millis)];
+    }
     if NAMES.get(id as usize) == Some(&"vm.loadImage") {
         if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
         let bytes = bytes_of(it, arg(args, 0));
@@ -350,6 +377,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     }
     if let Some(name) = NAMES.get(id as usize) {
         if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
+        if name.starts_with("terminal.") { return terminal(name, args); }
         if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
     }
     match id {

@@ -1,0 +1,6 @@
+-- Terminal queries supplied by the VM host.
+local record TerminalHost
+    isTerminal: function(fd: integer): boolean
+    columns: function(fd: integer): integer?
+end
+return TerminalHost
