@@ -347,6 +347,24 @@ local function valueDomain(f, node)
     return false
 end
 
+-- A cast to a record whose operand is a table constructor of named fields,
+-- bare or through `setmetatable`: the shape, the constructor, and the
+-- metatable expression to evaluate for its effects (or nil).
+local function recordConstructorCast(f, node)
+    local shape = shapeOf(node.inferredType)
+    if not shape or shape.name:sub(1, 7) == "struct:" then return nil end
+    local e = node.expr
+    while e and e.kind == "paren" and e.expr do e = e.expr end
+    local tbl, meta
+    if e and e.kind == "tableExpr" then tbl = e
+    elseif e and e.kind == "call" and e.obj.kind == "name" and tokText(e.obj.token) == "setmetatable" and not f:binding("setmetatable") then
+        local args = e.args and e.args.exprs or {}
+        if args[1] and args[1].kind == "tableExpr" then tbl = args[1]; meta = args[2] end
+    end
+    if not tbl then return nil end
+    for _, field in ipairs(tbl.fields) do if field.kind ~= "fieldNamed" then return nil end end
+    return shape, tbl, meta
+end
 local IS_TYPE = {string = "string", number = "number", boolean = "boolean", table = "table", thread = "thread", userdata = "userdata", integer = "number", float = "number", ["function"] = "function"}
 -- `x is T`, as the Lua backend decides it: settled by the checker, a nil
 -- test, or a `type()` comparison for a primitive.
@@ -823,6 +841,24 @@ expr = function(f, node, dst, want)
         end
     elseif k == "funcExpr" then
         emitClosure(f, node.body, dst, f.name .. ".fn" .. tostring(#functions))
+    elseif k == "castExpr" and recordConstructorCast(f, node) then
+        -- `setmetatable({...}, R) as R` and `{...} as R`: the table is built
+        -- as a record of R's shape, so every later slot access finds the
+        -- shape it assumed. Records carry no metatable (setmetatable on one
+        -- is a no-op), and nothing in the compiler reads one back.
+        local shape, tbl, meta = recordConstructorCast(f, node)
+        f:op("NewRecord", dst, shape.id)
+        local mark = f.nregs
+        for _, field in ipairs(tbl.fields) do
+            f.nregs = math.max(mark, f.declTop or 0)
+            local fname = tokText(field.name)
+            local slot = shape.slotIndex[fname]
+            if slot and shape.slots[slot + 1].ty == "num" and isNumeric(field.value.inferredType) then local fv = exprAs(f, field.value, "f"); f:op("SetSlotF", dst, slot, fv, shape.id)
+            elseif slot then local v = exprAs(f, field.value, "v"); f:op("SetSlot", dst, slot, v, shape.id)
+            else local v = exprAs(f, field.value, "v"); f:op("SetField", dst, f:const("str", fname), v) end
+        end
+        if meta then f.nregs = math.max(mark, f.declTop or 0); expr(f, meta, nil, "v") end
+        f.nregs = math.max(mark, f.declTop or 0)
     elseif k == "castExpr" then
         local target = node.inferredType
         local v = exprAs(f, node.expr, "v", dst)

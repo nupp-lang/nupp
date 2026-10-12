@@ -299,16 +299,17 @@ shape compare, for measuring what it costs where shapes are known exact.
 | parser.nupp parse | 353,068 | 100% | 19% (158 of 262 sites) | within noise (27.4–28.5 ms both ways, minima equal) |
 | checker on lexer.nupp | 780,236 | 83% | 14% (2,849 of 5,674 sites) | — |
 
-The checker's 135,442 misses are 99.9% one object: the `Checker` built as
-`setmetatable({...}, R) as R`, read at 1,220 sites; the rest are a struct
-cast (`ComptimeTypeArgument`, 132) and erased casts across union members
-(`TypeVar` read as a `Prim`, `Call` as a `MethodCall`, 38). So the guard is
-free on this hardware, and local provenance would let the verifier drop it
-on a fifth of accesses at most; the other four fifths read parameters,
-fields and call results, where the only shape evidence is the checker's
-declared type, and erased casts are exactly what makes that evidence
-inexact. Two ways to make it exact again: lower the constructor idiom to a
-`NewRecord` of the cast target (which removes the checker's misses) and
-make the remaining cross-member casts checking. Until one of those is
-chosen, the guard stays the general rule and the direct load is the
+The checker's 135,442 misses were 99.9% one object: the `Checker` built as
+`setmetatable({...}, R) as R`, read at 1,220 sites. The emitter now lowers
+that idiom, and `{...} as R`, to a `NewRecord` of the cast target with the
+fields in their slots (records carry no metatable, and nothing in the
+compiler reads one back), which leaves 56 misses at 4 sites: erased casts
+across union members (`TypeVar` read as a `Prim`, `Call` as a `MethodCall`),
+a separate semantic decision. With the misses gone the checker's own A/B
+is meaningful: five interleaved pairs on lexer.nupp, guard 297–312 ms
+against no guard 299–315 ms, minima 292–296 both ways, so within noise
+there too. Local provenance would let the verifier drop the guard on a
+fifth of accesses at most; the other four fifths read parameters, fields
+and call results, where the only shape evidence is the checker's declared
+type. The guard stays the general rule and the direct load is the
 verifier's optimisation for the proven fifth.
