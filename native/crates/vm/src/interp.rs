@@ -393,11 +393,11 @@ impl Roots for TaskRoots<'_> {
         for &v in self.registered { f(v); }
         for &v in &self.extra[..self.extra_n.min(8)] { f(v); }
         if let Some(e) = self.pending { f(e); }
-        #[cfg(feature = "jit")]
+        #[cfg(feature = "compiled-runtime")]
         {
-            f(Value(crate::jit::CUR_CLOSURE.load(std::sync::atomic::Ordering::Relaxed)));
-            let fp = crate::jit::HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
-            if fp != 0 { crate::jit::walk_compiled_roots(fp, &mut |bits| f(Value(bits))); }
+            f(Value(crate::compiled::CUR_CLOSURE.load(std::sync::atomic::Ordering::Relaxed)));
+            let fp = crate::compiled::HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
+            if fp != 0 { crate::compiled::walk_compiled_roots(fp, &mut |bits| f(Value(bits))); }
         }
     }
 }
@@ -631,14 +631,14 @@ impl Interp {
     pub fn entry_of(&self, fid: u32) -> u64 { self.entries.get(fid as usize).copied().unwrap_or(0) }
     /// Enters a compiled function with its closure and value arguments through
     /// a per-arity trampoline; the first result returns, extras through `extra`.
-    #[cfg(feature = "jit")]
+    #[cfg(feature = "compiled-runtime")]
     pub fn enter_compiled(&mut self, entry: u64, closure: Value, args: &[Value], nparams: usize) -> crate::builtins::Outs {
         use std::sync::atomic::{compiler_fence, Ordering::SeqCst};
         // Exactly the callee's parameters are passed, missing ones as nil:
         // a compiled function reads its parameter registers unconditionally.
         let mut padded = [Value::NIL; 8]; let n = nparams.min(8); for (i, v) in args.iter().take(n).enumerate() { padded[i] = *v; }
         let args = &padded[..n];
-        crate::jit::CUR_CLOSURE.store(closure.0, std::sync::atomic::Ordering::Relaxed);
+        crate::compiled::CUR_CLOSURE.store(closure.0, std::sync::atomic::Ordering::Relaxed);
         unsafe { std::ptr::write_volatile(&mut self.extra_n, 0); }
         compiler_fence(SeqCst);
         let a = |i: usize| args.get(i).map(|v| v.0).unwrap_or(Value::NIL.0);
@@ -668,7 +668,7 @@ impl Interp {
         self.last_nres = outs.len();
         outs
     }
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(feature = "compiled-runtime"))]
     pub fn enter_compiled(&mut self, _entry: u64, _closure: Value, _args: &[Value], _nparams: usize) -> crate::builtins::Outs { unreachable!("no typed tier in this build") }
     /// Calls any callable value on a scratch task and returns every result:
     /// the path for builtins that call back (gsub) and for module chunks.
@@ -690,7 +690,8 @@ impl Interp {
     }
     /// `call_value` without a heap allocation on the builtin path.
     pub fn call_outs(&mut self, callee: Value, args: &[Value]) -> crate::builtins::Outs {
-        if self.ic_stats { let i = if callee.as_builtin().is_some() { 4 } else { match callee.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_CLOSURE && self.entry_of(h.fid()) != 0 && !self.funcs[h.fid() as usize].vararg { 5 } else { 6 } } None => if callee.as_func().map(|f| self.entry_of(f) != 0).unwrap_or(false) { 5 } else { 6 } } }; crate::jit::IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if i == 6 { let fid = match callee.as_obj() { Some(p) => unsafe { (*p.as_ptr()).fid() }, None => callee.as_func().unwrap_or(u32::MAX) }; let mut g = crate::jit::INTERP_CALLEES.lock().unwrap(); *g.get_or_insert_with(Default::default).entry(fid).or_insert(0) += 1; } }
+        #[cfg(feature = "compiled-runtime")]
+        if self.ic_stats { let i = if callee.as_builtin().is_some() { 4 } else { match callee.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_CLOSURE && self.entry_of(h.fid()) != 0 && !self.funcs[h.fid() as usize].vararg { 5 } else { 6 } } None => if callee.as_func().map(|f| self.entry_of(f) != 0).unwrap_or(false) { 5 } else { 6 } } }; crate::compiled::IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if i == 6 { let fid = match callee.as_obj() { Some(p) => unsafe { (*p.as_ptr()).fid() }, None => callee.as_func().unwrap_or(u32::MAX) }; let mut g = crate::compiled::INTERP_CALLEES.lock().unwrap(); *g.get_or_insert_with(Default::default).entry(fid).or_insert(0) += 1; } }
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args); }
         if let Some(f) = callee.as_func() { let e = self.entry_of(f); if e != 0 && !self.funcs[f as usize].vararg { let np = self.funcs[f as usize].nparams as usize; return self.enter_compiled(e, Value::NIL, args, np); } }
         if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }

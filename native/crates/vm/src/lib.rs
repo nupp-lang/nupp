@@ -15,3 +15,6 @@ pub mod host;
 pub mod threaded;
 #[cfg(feature = "jit")]
 pub mod jit;
+
+#[cfg(feature = "compiled-runtime")]
+pub mod compiled;

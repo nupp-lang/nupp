@@ -12,10 +12,10 @@ use nupp_vm::host::Host;
 use nupp_vm::image;
 use nupp_vm::interp::{Interp, Outcome, State};
 use nupp_vm::value::Value;
-#[cfg(feature = "aot")]
+#[cfg(feature = "aot-linked")]
 use sha2::Digest;
 
-#[cfg(feature = "aot")]
+#[cfg(feature = "aot-linked")]
 mod aot_link { include!(concat!(env!("OUT_DIR"), "/aot_entries.rs")); }
 
 #[cfg(feature = "aot")]
@@ -133,11 +133,11 @@ fn main() {
     let load_s = cpu_now() - t0;
     it.entries = vec![0u64; it.funcs.len()];
     it.prepare_threaded();
-    #[cfg(feature = "aot")]
+    #[cfg(feature = "aot-linked")]
     let aot_entries = if std::env::var("NO_AOT").is_ok() { Vec::new() } else { aot_link::entries() };
-    #[cfg(feature = "aot")]
+    #[cfg(feature = "aot-linked")]
     let aot_consts: Vec<u64> = it.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
-    #[cfg(feature = "aot")]
+    #[cfg(feature = "aot-linked")]
     if !aot_entries.is_empty() {
         let digest: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
         if aot_link::image_hash() != digest {
@@ -151,8 +151,8 @@ fn main() {
         }).collect();
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
         unsafe {
-            nupp_vm::jit::nupp_vm_runtime = nupp_vm::jit::RuntimeAddresses {
-                current_closure: &raw const nupp_vm::jit::CUR_CLOSURE as *const _ as u64,
+            nupp_vm::compiled::nupp_vm_runtime = nupp_vm::compiled::RuntimeAddresses {
+                current_closure: &raw const nupp_vm::compiled::CUR_CLOSURE as *const _ as u64,
                 extra: &it.extra as *const [Value; 8] as u64,
                 last_nres: &it.last_nres as *const usize as u64,
                 entries: it.entries.as_ptr() as u64,
@@ -161,18 +161,18 @@ fn main() {
                 consts: aot_consts.as_ptr() as u64,
             };
         }
-        nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
-        nupp_vm::jit::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
+        nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        nupp_vm::compiled::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
     }
-    #[cfg(feature = "aot")]
+    #[cfg(all(feature = "jit", feature = "aot-linked"))]
     let has_aot = !aot_entries.is_empty();
-    #[cfg(not(feature = "aot"))]
+    #[cfg(all(feature = "jit", not(feature = "aot-linked")))]
     let has_aot = false;
     // The typed tier: every function it accepts, callees first by id, with
     // its compile time reported apart from the run time.
     #[cfg(feature = "jit")]
     let _jit = if std::env::var("NO_JIT").is_err() && !has_aot {
-        nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         let mut j = nupp_vm::jit::Jit::new();
         j.extra_addr = &it.extra as *const [Value; 8] as i64;
         j.last_nres_addr = &it.last_nres as *const usize as i64;
@@ -249,9 +249,10 @@ fn main() {
     if std::env::var("BUILTIN_STATS").is_ok() { let c = builtins::CALLS.lock().unwrap(); let mut rows: Vec<(usize, u64)> = c.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect(); rows.sort_by(|a, b| b.1.cmp(&a.1)); eprintln!("builtin calls:"); for (i, n) in rows.iter().take(16) { eprintln!("  {n}\t{}", builtins::NAMES[*i]); } }
     if std::env::var("TABLE_STATS").is_ok() { let c: Vec<u64> = nupp_vm::interp::TABLE_COUNTS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("index reads: table by number {}, table by key {}, record by number {}, record by key {}, other {}; table key reads met hash parts of 0: {}, 1-4: {}, 5-16: {}, 17-64: {}, 65+: {}; stores by number {}, by key {}; tables made {}", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], nupp_vm::heap::NEW_TABLES.load(std::sync::atomic::Ordering::Relaxed)); }
     if it.jit_threshold != 0 { eprintln!("jit: compiled {} functions lazily in {:.2} ms", it.lazy_compiled, it.lazy_micros as f64 / 1e3); }
-    if it.ic_stats { let c: Vec<u64> = nupp_vm::jit::IC_STATS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("field-cache helper calls: record with empty cache {}, record after another shape (polymorphic) {}, table {}, other {}", c[0], c[1], c[2], c[3]); eprintln!("dynamic calls from compiled code: builtin {}, compiled callee {}, interpreted (spawned task) {}", c[4], c[5], c[6]);
-        if let Some(m) = nupp_vm::jit::INTERP_CALLEES.lock().unwrap().as_ref() { let mut rows: Vec<(&u32, &u64)> = m.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); eprintln!("interpreted callees from compiled code:"); for (fid, n) in rows.iter().take(12) { let f = it.funcs.get(**fid as usize); eprintln!("  {n}\t{} in {} ({})", f.map(|f| f.name.as_str()).unwrap_or("?"), f.map(|f| f.module.as_str()).unwrap_or("?"), f.map(|f| if f.vararg { "vararg" } else if f.nparams > 8 { ">8 params" } else if it.entries.get(**fid as usize).copied().unwrap_or(0) == 0 { "no entry" } else { "has entry" }).unwrap_or("?")); } }
-        if let Some(sites) = nupp_vm::jit::IC_SITES.lock().unwrap().as_ref() { let mut hist = std::collections::BTreeMap::new(); for set in sites.values() { *hist.entry(set.len().min(9)).or_insert(0usize) += 1; } eprintln!("record field sites by distinct shapes seen: {:?}", hist); } }
+    #[cfg(feature = "compiled-runtime")]
+    if it.ic_stats { let c: Vec<u64> = nupp_vm::compiled::IC_STATS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("field-cache helper calls: record with empty cache {}, record after another shape (polymorphic) {}, table {}, other {}", c[0], c[1], c[2], c[3]); eprintln!("dynamic calls from compiled code: builtin {}, compiled callee {}, interpreted (spawned task) {}", c[4], c[5], c[6]);
+        if let Some(m) = nupp_vm::compiled::INTERP_CALLEES.lock().unwrap().as_ref() { let mut rows: Vec<(&u32, &u64)> = m.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); eprintln!("interpreted callees from compiled code:"); for (fid, n) in rows.iter().take(12) { let f = it.funcs.get(**fid as usize); eprintln!("  {n}\t{} in {} ({})", f.map(|f| f.name.as_str()).unwrap_or("?"), f.map(|f| f.module.as_str()).unwrap_or("?"), f.map(|f| if f.vararg { "vararg" } else if f.nparams > 8 { ">8 params" } else if it.entries.get(**fid as usize).copied().unwrap_or(0) == 0 { "no entry" } else { "has entry" }).unwrap_or("?")); } }
+        if let Some(sites) = nupp_vm::compiled::IC_SITES.lock().unwrap().as_ref() { let mut hist = std::collections::BTreeMap::new(); for set in sites.values() { *hist.entry(set.len().min(9)).or_insert(0usize) += 1; } eprintln!("record field sites by distinct shapes seen: {:?}", hist); } }
     if let Some(st) = it.slot_stats.as_ref() {
         let (mut hits, mut misses) = (0u64, 0u64); let mut miss_sites: Vec<((u32, usize), u64)> = Vec::new(); let mut hit_sites = 0usize;
         for (&(f, pc, ok), &n) in st.iter() { if ok { hits += n; hit_sites += 1; } else { misses += n; miss_sites.push(((f, pc), n)); } }

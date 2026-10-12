@@ -3,7 +3,7 @@
 The Nupp runtime of the runtime plan (`~/projects/nupp-plans/todo/nupp-runtime.md`,
 contracts in `nupp-runtime-contracts.md`), started 2026-10-11 as the real P3
 build after the prototype in `bench/runtime-experiment` had answered its design
-questions. No JIT here: that is P5. What is here is the object model, the heap
+questions. It now includes the P5 typed tier. What is here is the object model, the heap
 and collector, the interpreter with one-stack frames and parking, the library,
 the image loader and verifier, and the host services on the parking surface.
 
@@ -19,7 +19,8 @@ the image loader and verifier, and the host services on the parking surface.
 | `image` | the loader for the emitter's text image |
 | `host` | a pool of host threads serving file, sleep, process and directory requests as plain data |
 | `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
-| `jit` | the typed tier: Cranelift lowering, its helpers, the stack-map root walk |
+| `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
+| `compiled` | runtime helpers, runtime address table and stack-map root walk, without Cranelift |
 | `emit/emitmod.lua` | the module-graph emitter from the checker's tree, run with `nupp run` from `emit/` |
 
 ## Decisions the layout fixes
@@ -401,8 +402,43 @@ linking took 1.26 s wall while its measured load and first call totaled
 0.26 s; cold filesystem startup is not yet characterized. The linked AOT
 checker also passes the interleaved collector with oracle and quarantine.
 
-This is a host-native object path. The `aot` feature still includes the JIT
-code generator in the executable, and the emitted object still needs the
-interpreter for the 16 refused functions. A no-JIT console binary needs the
-runtime helpers split from the code generator and either AOT coverage of
-those functions or the interpreter linked explicitly.
+**No-code-generator build (2026-10-12).** The runtime helpers, root walk and
+address table now live in `compiled`, independent of the Cranelift module.
+The build host uses `aot`; the deployed executable uses `aot-linked` with
+default features disabled:
+
+```sh
+cargo build --release -p nupp-vm --features aot
+build/rust/target/release/nupp-vm aot native/crates/vm/check.image /private/tmp/nupp-check.o
+NUPP_AOT_OBJECT=/private/tmp/nupp-check.o cargo build --release -p nupp-vm --no-default-features --features aot-linked
+build/rust/target/release/nupp-vm run native/crates/vm/check.image nupp.bench.checkbench check @src/nupp/compiler/syntax/lexer.nupp --setup setup
+```
+
+| features | interpreter | compiled runtime | Cranelift |
+| --- | --- | --- | --- |
+| `--no-default-features` | yes | no | no |
+| default (`jit`) | yes | yes | JIT |
+| `--features aot` | yes | yes | JIT and object emitter |
+| `--no-default-features --features aot-linked` | yes | yes | no |
+
+The linked checker executable is 43,761,176 bytes (41.7 MiB, unstripped).
+Its dependency tree and symbol table contain no Cranelift. With the macOS
+executable-memory denial harness active, three warm-filesystem process runs
+took 401, 286 and 294 ms, against 513, 523 and 523 ms interpreted in the same
+binary. Five repeated checks gave a 176 ms median. These are startup and
+packaging results, not an improvement to the generated machine code.
+The result remains `4 / 3643 / 467446496`; interleaved GC with oracle and
+quarantine passes (77 cycles).
+
+`tests/no-jit-smoke.sh` builds both ends, checks the dependency and symbol
+tables, compares linked code with the interpreter, exercises recursive
+closures and `pcall` under stress GC, and rejects an image digest mismatch.
+On macOS, `tests/deny-exec.c` rejects executable `mmap`, `MAP_JIT` and
+executable `mprotect` requests; negative probes verify both allocation and
+protection-change rejection before running the VM. This is a host API
+interposition test, not an OS sandbox or console certification.
+
+The interpreter is linked explicitly and handles module chunks and the 16
+functions refused by the current lowering. The image still ships beside
+the executable. SIMD, compiled suspension, snapshot restore, plugin refusal
+and actual console SDK validation remain gates for the full no-JIT target.

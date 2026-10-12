@@ -6,7 +6,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NUPP_AOT_OBJECT");
     let generated = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("aot_entries.rs");
     if let Ok(object) = std::env::var("NUPP_AOT_OBJECT") {
-        assert!(std::env::var("CARGO_FEATURE_AOT").is_ok(), "NUPP_AOT_OBJECT requires --features aot");
+        assert!(std::env::var("CARGO_FEATURE_AOT_LINKED").is_ok(), "NUPP_AOT_OBJECT requires --features aot-linked (or aot)");
         let object = std::fs::canonicalize(object).unwrap();
         let object = object.to_str().unwrap();
         println!("cargo:rerun-if-changed={object}");

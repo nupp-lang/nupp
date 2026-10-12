@@ -8,7 +8,7 @@ publish.workspace = true
 # The Nupp runtime of the runtime plan: NaN-boxed values, a variable-size
 # non-moving heap with an incremental collector, one-stack frames, the
 # interpreter, the image loader and verifier, and the host services on the
-# parking surface. No JIT here; that is P5.
+# parking surface, with optional Cranelift code generation (P5).
 
 build = "build.rs"
 
@@ -24,8 +24,11 @@ default = ["jit"]
 # The typed tier: Cranelift lowering of the bytecode (P5). Off, the crate is
 # the interpreter alone, which is what the browser build and a bootstrap
 # without Cranelift need.
-jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
-aot = ["jit", "dep:cranelift-object"]
+compiled-runtime = []
+jit = ["compiled-runtime", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
+aot = ["jit", "aot-linked", "dep:cranelift-object"]
+# Run prebuilt native objects without shipping any code generator.
+aot-linked = ["compiled-runtime", "dep:sha2"]
 # Count executed opcodes by name (OP_STATS=1 at run time); off by default
 # because the check costs the dispatch loop a branch per opcode.
 opstats = []
@@ -37,7 +40,7 @@ cranelift-jit = { version = "0.135", optional = true }
 cranelift-module = { version = "0.135", optional = true }
 cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
-sha2 = "0.10"
+sha2 = { version = "0.10", optional = true }
 
 [build-dependencies]
 cc = "1"
