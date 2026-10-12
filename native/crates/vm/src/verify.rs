@@ -192,6 +192,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         GetSlot(d, o, _, _) => r(&[(V, d), (V, o)]),
         SetSlot(o, _, v, _) => r(&[(V, o), (V, v)]),
         TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
+        Scalar(_, d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
         FBox(d, f) => r(&[(V, d), (F, f)]),

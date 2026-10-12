@@ -126,6 +126,9 @@ pub enum Op {
     /// After a call that wanted `n` results: the registers past what it
     /// returned (`last_nres`) are nil, as Lua pads a result list.
     PadResults(u8, u8),
+    /// A fixed-width scalar intrinsic (`builtins::SCALAR_OPS[kind]`) on two
+    /// number registers (a unary one names its operand twice).
+    Scalar(u8, u8, u8, u8),
     /// The frame's first `n` surplus arguments into `dst..`, nil-filled.
     VarargN(u8, u8),
     /// A table of the frame's surplus arguments: `{...}`.
@@ -312,6 +315,13 @@ pub struct Interp {
     /// Module chunks by name, and the export value of each loaded one.
     /// `TRACE_OPS`: every opcode the Rust loop executes, to stderr.
     pub trace_ops: bool,
+    /// Stacks of finished scratch tasks, kept for the next spawn: a dynamic
+    /// call into interpreted code from a helper happens a million times a
+    /// run, and a fresh zeroed vector each time was a tenth of it.
+    pub stack_pool: Vec<Vec<u64>>,
+    /// `IC_STATS=1`: field-cache helper calls by case (record, cache empty;
+    /// record, cache held another shape; table; other).
+    pub ic_stats: bool,
     pub modules: std::collections::HashMap<String, u32>,
     /// Each module's source path, as the image recorded it.
     pub module_paths: std::collections::HashMap<String, String>,
@@ -334,6 +344,8 @@ pub struct Interp {
     /// The typed tier's compiled entry per function (0 when interpreted),
     /// and the buffer results past the first travel through.
     pub entries: Vec<u64>,
+    /// Per function, `nparams | plain << 8`, for compiled dynamic calls.
+    pub calltab: Vec<u64>,
     pub extra: [Value; 8],
     pub extra_n: usize,
     /// The value of a raise that is propagating as `Value::ERROR` returns.
@@ -399,7 +411,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -411,7 +423,12 @@ impl Interp {
         let words = f.frame_words();
         // A vararg entry's surplus arguments lie below its header.
         let nvar = if f.vararg { args.len().saturating_sub(f.nparams as usize) } else { 0 };
-        let mut t = Task { stack: vec![0u64; nvar + words + 64], cur: nvar, state: State::Runnable, result: Value::NIL, deliver_at: 0, results: Vec::new() };
+        // Only the header, the registers and the varargs are written below;
+        // a pooled stack's other words are stale and never read before written
+        // (the root walk filters words that are not live object slots).
+        let need = nvar + words + 64;
+        let stack = match self.stack_pool.pop() { Some(mut s) => { if s.len() < need { s.resize(need, 0); } s } None => vec![0u64; need] };
+        let mut t = Task { stack, cur: nvar, state: State::Runnable, result: Value::NIL, deliver_at: 0, results: Vec::new() };
         for i in 0..nvar { t.stack[i] = args[f.nparams as usize + i].0; }
         let s0 = nvar;
         t.stack[s0] = fid as u64;
@@ -632,11 +649,13 @@ impl Interp {
         { let t = &mut self.tasks[scratch]; let s0 = t.cur(); t.stack[s0 + 2] = closure.0; }
         let outcome = self.run(scratch);
         let outs = match outcome { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") };
+        if let Some(t) = self.tasks.pop() { if self.stack_pool.len() < 64 { self.stack_pool.push(t.stack); } }
         self.tasks.truncate(scratch);
         outs
     }
     /// `call_value` without a heap allocation on the builtin path.
     pub fn call_outs(&mut self, callee: Value, args: &[Value]) -> crate::builtins::Outs {
+        if self.ic_stats { let i = if callee.as_builtin().is_some() { 4 } else { match callee.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_CLOSURE && self.entry_of(h.fid()) != 0 && !self.funcs[h.fid() as usize].vararg { 5 } else { 6 } } None => if callee.as_func().map(|f| self.entry_of(f) != 0).unwrap_or(false) { 5 } else { 6 } } }; crate::jit::IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if i == 6 { let fid = match callee.as_obj() { Some(p) => unsafe { (*p.as_ptr()).fid() }, None => callee.as_func().unwrap_or(u32::MAX) }; let mut g = crate::jit::INTERP_CALLEES.lock().unwrap(); *g.get_or_insert_with(Default::default).entry(fid).or_insert(0) += 1; } }
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args); }
         if let Some(f) = callee.as_func() { let e = self.entry_of(f); if e != 0 && !self.funcs[f as usize].vararg { let np = self.funcs[f as usize].nparams as usize; return self.enter_compiled(e, Value::NIL, args, np); } }
         if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }
@@ -876,7 +895,7 @@ impl Interp {
             // A record written by name: the shape is closed, so an unknown name is an error.
             KIND_RECORD => {
                 if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } return; } self.err("record index outside its children") }
-                let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
+                let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
             }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
@@ -1111,6 +1130,7 @@ impl Interp {
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
                     Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
+                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !x.is_num() || !y.is_num() { self.err("scalar intrinsic on a non-number") } r!(d) = Value::num(crate::builtins::scalar_op(k, x.as_num(), y.as_num())); }
                     Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in got..n as usize { r!(base as usize + i) = Value::NIL; } }
                     Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
                     Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }
@@ -1338,7 +1358,7 @@ impl Interp {
             KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
             // An untyped read of a field the shape lacks is nil, as the
             // compiler's own `x.trivia ~= nil` tests on `any` expect (2.4 amended).
-            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|&n| n == name) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&name).copied()).unwrap_or(Value::NIL) } }
+            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&name).copied()).unwrap_or(Value::NIL) } }
             _ => self.err(&format!("field {} of a non-object ({})", String::from_utf8_lossy(self.bytes_of(name)), Heap::describe(h))),
         };
         r!(d) = v;
@@ -1360,7 +1380,7 @@ impl Interp {
                 // The enforced write (2.5): an untyped store into a record checks
                 // the slot's declared type, so typed reads never check.
                 let sh = &self.heap.shapes[h.shape() as usize];
-                let i = match sh.names.iter().position(|&n| n == name) { Some(i) => i, None => { h.record_extra().get_or_insert_with(Default::default).insert(name, v); return; } };
+                let i = match sh.slot_of(name) { Some(i) => i, None => { h.record_extra().get_or_insert_with(Default::default).insert(name, v); return; } };
                 if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
                 h.slots_mut()[i] = v;
             }
@@ -1452,6 +1472,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::TagCheckStr(..) => "TagCheckStr",
         Op::IsRec(..) => "IsRec",
         Op::PadResults(..) => "PadResults",
+        Op::Scalar(..) => "Scalar",
         Op::VarargN(..) => "VarargN",
         Op::VarargTable(..) => "VarargTable",
         Op::NewClosure(..) => "NewClosure",

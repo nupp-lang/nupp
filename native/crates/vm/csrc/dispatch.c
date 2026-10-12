@@ -35,7 +35,7 @@ typedef struct {
     uint32_t pc;
     uint64_t result;
     uint64_t last_nres;
-    const struct { const Value* names; uint64_t n; }* shapes;
+    const struct { const Value* names; uint64_t n; const uint64_t* table; uint64_t mask; }* shapes;
     uint64_t nshapes;
     const uint8_t* marking;
     const uint64_t* entries; // the typed tier's compiled entry per function, or 0
@@ -366,8 +366,10 @@ static Value h_getfield(ARGS) {
     if (__builtin_expect(is_obj(t), 1)) {
         if (obj_kind(t) == KIND_RECORD) {
             uint32_t shape = obj_aux(t);
-            const Value* names = ctx->shapes[shape].names; uint64_t n = ctx->shapes[shape].n;
-            for (uint64_t i = 0; i < n; i++) if (names[i] == name) { regs[pc->a] = ((Value*)obj_ptr(t))[i]; pc++; NEXT; }
+            // The shape's slot table: (name bits, slot) pairs, open addressing, as Heap::slot_of.
+            const uint64_t* table = ctx->shapes[shape].table; uint64_t mask = ctx->shapes[shape].mask;
+            uint64_t k = (((name >> 4) * 0x9E3779B97F4A7C15ull) >> 32) & mask;
+            for (;;) { uint64_t b = table[2 * k]; if (b == name) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; pc++; NEXT; } if (b == 0) break; k = (k + 1) & mask; }
         }
  NOTE_PC;        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);

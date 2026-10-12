@@ -152,6 +152,16 @@ impl Header {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 
+/// The probe the shape tables and the core share: the interned string's
+/// address bits, spread.
+#[inline] pub fn slot_hash(bits: u64) -> u64 { (bits >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32 }
+impl Shape {
+    /// The slot a name occupies, by the table.
+    #[inline] pub fn slot_of(&self, name: Value) -> Option<usize> {
+        let mut k = slot_hash(name.0) & self.mask;
+        loop { let (b, i) = self.table[k as usize]; if b == name.0 { return Some(i as usize); } if b == 0 { return None; } k = (k + 1) & self.mask; }
+    }
+}
 pub struct Shape {
     pub name: String,
     /// A structural shape (a closed constructor's field set) accepts fields
@@ -159,6 +169,11 @@ pub struct Shape {
     pub structural: bool,
     pub names: Vec<Value>, // interned strings
     pub types: Vec<SlotTy>,
+    /// Slot by name: an open-addressed table of (name bits, slot) with a
+    /// power-of-two size, empty entries zero, that the core probes the same
+    /// way; names are interned, so bits compare as identity.
+    pub table: Vec<(u64, u32)>,
+    pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
     pub methods: HashMap<Value, Value>,
 }
@@ -230,7 +245,11 @@ impl Heap {
     }
 
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
-        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new() });
+        let mut size = 8usize; while size < names.len() * 2 { size *= 2; }
+        let mask = (size - 1) as u64;
+        let mut table = vec![(0u64, 0u32); size];
+        for (i, n) in names.iter().enumerate() { let mut k = slot_hash(n.0) & mask; while table[k as usize].0 != 0 { k = (k + 1) & mask; } table[k as usize] = (n.0, i as u32); }
+        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new(), table, mask });
         (self.shapes.len() - 1) as u32
     }
 

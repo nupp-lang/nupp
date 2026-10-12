@@ -9,7 +9,7 @@
 //! entered with so the collector can walk the compiled frames above it
 //! through their stack maps.
 
-use crate::heap::{KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
+use crate::heap::{HEADER, KIND_ITER, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use crate::interp::{Function, Interp, Op};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
@@ -24,6 +24,7 @@ use crate::value::Value as V;
 const QNAN: i64 = 0x7ff8_0000_0000_0000u64 as i64;
 const PAYLOAD: i64 = (1i64 << 48) - 1;
 const T_OBJ_TAG: i64 = 5 << 48;
+const T_FUNC_TAG: i64 = 4 << 48;
 const NIL: i64 = (0x7ff8_0000_0000_0000u64 | (1 << 48)) as i64;
 const TRUE: i64 = (0x7ff8_0000_0000_0000u64 | (3 << 48)) as i64;
 const FALSE: i64 = (0x7ff8_0000_0000_0000u64 | (2 << 48)) as i64;
@@ -83,6 +84,10 @@ pub struct Jit {
     /// returns do, so a caller's result padding and spreading read a fresh count.
     pub last_nres_addr: i64,
     pub entries_addr: i64,
+    /// `&calltab[0]`: per function, `nparams | plain << 8`, read by a dynamic
+    /// call that found a closure to decide whether its entry can be called
+    /// straight with the site's arguments.
+    pub calltab_addr: i64,
     /// Per function: parameter count and whether every parameter and the
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
@@ -95,7 +100,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
         ("j_call_dyn", j_call_dyn as *const u8, 4), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
-        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_is_rec", j_is_rec as *const u8, 2), ("j_slot_get", j_slot_get as *const u8, 3), ("j_slot_set", j_slot_set as *const u8, 4), ("j_last_nres", j_last_nres as *const u8, 0), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
+        ("j_new_cell", j_new_cell as *const u8, 1), ("j_set_cell", j_set_cell as *const u8, 2), ("j_new_closure", j_new_closure as *const u8, 3), ("j_tagcheck_rec", j_tagcheck_rec as *const u8, 2), ("j_is_rec", j_is_rec as *const u8, 2), ("j_slot_get", j_slot_get as *const u8, 3), ("j_slot_set", j_slot_set as *const u8, 4), ("j_last_nres", j_last_nres as *const u8, 0), ("j_scalar", j_scalar as *const u8, 3), ("j_iter_next", j_iter_next as *const u8, 1), ("j_call_builtin", j_call_builtin as *const u8, 4), ("j_tagcheck_str", j_tagcheck_str as *const u8, 1),
         ("j_new_table_sized", j_new_table_sized as *const u8, 2), ("j_ret_extra", j_ret_extra as *const u8, 2), ("j_pcall", j_pcall as *const u8, 2), ("j_new_bytes", j_new_bytes as *const u8, 1), ("j_bytes_to_str", j_bytes_to_str as *const u8, 2),
         ("j_new_buffer", j_new_buffer as *const u8, 0), ("j_buf_append", j_buf_append as *const u8, 2), ("j_buf_append_sub", j_buf_append_sub as *const u8, 4), ("j_substring", j_substring as *const u8, 3), ("j_buf_finish", j_buf_finish as *const u8, 1),
         ("j_str_byte", j_str_byte as *const u8, 2), ("j_pow", j_pow as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
@@ -122,7 +127,7 @@ impl Jit {
             helpers.insert(*name, module.declare_function(name, Linkage::Import, &hs).unwrap());
         }
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, callee_info: Vec::new() }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, callee_info: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -177,7 +182,7 @@ impl Jit {
             b.declare_var_needs_stack_map(closure_var);
             { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
-            let (cur_closure_addr, extra_addr, entries_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr);
+            let (cur_closure_addr, extra_addr, entries_addr, calltab_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr, self.calltab_addr);
             let fid_const = fid as i64;
             let no_slot_guard = std::env::var("NO_SLOT_GUARD").is_ok();
             let last_nres_addr = self.last_nres_addr;
@@ -477,6 +482,119 @@ impl Jit {
                         let fv = b.ins().iconst(types::I64, fid_ as i64); let nv = b.ins().iconst(types::I64, n as i64);
                         let c = hcall!("j_new_closure", &[fv, addr, nv]); setr!(d, b.inst_results(c)[0]);
                     }
+                    Op::CallDyn(fr, base, nargs) if nargs < 128 && entries_addr != 0 && calltab_addr != 0 && std::env::var("NO_DIRECT").is_err() => {
+                        // A closure of a compiled function taking exactly this many
+                        // arguments, all values: straight to its entry, as CallK
+                        // does for a named callee. Anything else through the runtime.
+                        // A trailing call's results follow the fixed arguments; how many
+                        // there are is `last_nres`, read when the arguments are gathered.
+                        let spread = nargs & 64 != 0; let fixed = (nargs & 63) as usize;
+                        let argc = if spread { fixed + 8 } else { nargs as usize }; let want = 8usize;
+                        let cv = rv!(fr);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); let chk = b.create_block(); let chk2 = b.create_block();
+                        for _ in 0..want { b.append_block_param(join, types::I64); }
+                        b.set_cold_block(slow);
+                        // The callee's function id: a closure's header, or a bare function
+                        // value of this image (image 0 in bits 32..48).
+                        let tag = b.ins().band_imm(cv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+                        let bare = b.create_block(); let withfid = b.create_block(); b.append_block_param(withfid, types::I64);
+                        b.ins().brif(is_obj, chk, &[], bare, &[]);
+                        b.switch_to_block(chk); b.seal_block(chk);
+                        let o = b.ins().band_imm(cv, PAYLOAD);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_clo = b.ins().icmp_imm(IntCC::Equal, kind, KIND_CLOSURE as i64);
+                        let notclo = b.create_block(); let iter = b.create_block(); let iter_tbl = b.create_block(); let iter_hit = b.create_block(); let iter_slow = b.create_block();
+                        b.ins().brif(is_clo, chk2, &[], notclo, &[]);
+                        b.switch_to_block(notclo); b.seal_block(notclo);
+                        let is_iter = b.ins().icmp_imm(IntCC::Equal, kind, KIND_ITER as i64);
+                        b.ins().brif(is_iter, iter, &[], slow, &[]);
+                        // An iterator: `ipairs` over a table steps inline (the array part
+                        // at the position after the last), anything else through its helper.
+                        b.switch_to_block(iter); b.seal_block(iter);
+                        let ikind = b.ins().load(types::I32, flags, o, OFF_AUX); let is_ipairs = b.ins().icmp_imm(IntCC::Equal, ikind, 2);
+                        let objv = b.ins().load(types::I64, flags, o, HEADER as i32); let otag = b.ins().band_imm(objv, !PAYLOAD); let obj_is_obj = b.ins().icmp_imm(IntCC::Equal, otag, QNAN | T_OBJ_TAG);
+                        let c1 = b.ins().band(is_ipairs, obj_is_obj);
+                        b.ins().brif(c1, iter_tbl, &[], iter_slow, &[]);
+                        b.switch_to_block(iter_tbl); b.seal_block(iter_tbl);
+                        let t = b.ins().band_imm(objv, PAYLOAD); let tkind = b.ins().load(types::I8, flags, t, OFF_KIND); let is_tbl = b.ins().icmp_imm(IntCC::Equal, tkind, KIND_TABLE as i64);
+                        let pos = b.ins().load(types::I64, flags, o, HEADER as i32 + 16); let i1 = b.ins().iadd_imm(pos, 1);
+                        let len = b.ins().load(types::I64, flags, t, OFF_AUX_LEN); let inb = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, i1, len);
+                        let c2 = b.ins().band(is_tbl, inb);
+                        b.ins().brif(c2, iter_hit, &[], iter_slow, &[]);
+                        b.switch_to_block(iter_hit); b.seal_block(iter_hit);
+                        let arr = b.ins().load(types::I64, flags, t, OFF_AUX_PTR); let off8 = b.ins().ishl_imm(pos, 3); let ea = b.ins().iadd(arr, off8); let v = b.ins().load(types::I64, flags, ea, 0);
+                        let is_nil = b.ins().icmp_imm(IntCC::Equal, v, NIL);
+                        let iter_val = b.create_block();
+                        b.ins().brif(is_nil, iter_slow, &[], iter_val, &[]);
+                        b.switch_to_block(iter_val); b.seal_block(iter_val);
+                        b.ins().store(flags, i1, o, HEADER as i32 + 16);
+                        let la = b.ins().iconst(types::I64, last_nres_addr); let two = b.ins().iconst(types::I64, 2); b.ins().store(flags, two, la, 0);
+                        let fi = b.ins().fcvt_from_sint(types::F64, i1); let key = box_f64!(fi);
+                        let nil = b.ins().iconst(types::I64, NIL);
+                        let mut outs = vec![key, v]; for _ in 2..8 { outs.push(nil); }
+                        let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
+                        b.switch_to_block(iter_slow); b.seal_block(iter_slow);
+                        { let c = hcall!("j_iter_next", &[cv]); let xa4 = b.ins().iconst(types::I64, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..8 { outs.push(b.ins().load(types::I64, flags, xa4, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        b.switch_to_block(chk2); b.seal_block(chk2);
+                        let rid = b.ins().load(types::I32, flags, o, OFF_AUX); let rid64 = b.ins().uextend(types::I64, rid); b.ins().jump(withfid, &[rid64.into()]);
+                        b.switch_to_block(bare); b.seal_block(bare);
+                        let ftag = b.ins().band_imm(cv, !PAYLOAD); let is_fn = b.ins().icmp_imm(IntCC::Equal, ftag, QNAN | T_FUNC_TAG);
+                        let img = b.ins().ushr_imm(cv, 32); let img = b.ins().band_imm(img, 0xffff); let local_img = b.ins().icmp_imm(IntCC::Equal, img, 0);
+                        let is_bare = b.ins().band(is_fn, local_img); let fid_bits = b.ins().band_imm(cv, 0xffff_ffff);
+                        b.ins().brif(is_bare, withfid, &[fid_bits.into()], slow, &[]);
+                        b.switch_to_block(withfid); b.seal_block(withfid);
+                        let rid64 = b.block_params(withfid)[0]; let off = b.ins().ishl_imm(rid64, 3);
+                        let ea = b.ins().iconst(types::I64, entries_addr); let ep = b.ins().iadd(ea, off); let entry = b.ins().load(types::I64, flags, ep, 0); let has = b.ins().icmp_imm(IntCC::NotEqual, entry, 0);
+                        let ta = b.ins().iconst(types::I64, calltab_addr); let tp = b.ins().iadd(ta, off); let info = b.ins().load(types::I64, flags, tp, 0);
+                        // Eight register arguments always, nil past the site's: a callee
+                        // reads only its parameters, and a missing one is nil (the C ABI
+                        // carries eight integer arguments in registers on both targets).
+                        let plain = b.ins().band_imm(info, 1 << 8); let is_plain = b.ins().icmp_imm(IntCC::NotEqual, plain, 0);
+                        let ok = b.ins().band(has, is_plain);
+                        b.ins().brif(ok, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let ca = b.ins().iconst(types::I64, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
+                        let xa = b.ins().iconst(types::I64, extra_addr);
+                        { let nil = b.ins().iconst(types::I64, NIL); for i in 1..want { b.ins().store(flags, nil, xa, ((i - 1) * 8) as i32); } }
+                        let mut args: Vec<Value> = Vec::with_capacity(8);
+                        let live = if spread { let la = b.ins().iconst(types::I64, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); Some(b.ins().iadd_imm(ln, fixed as i64)) } else { None };
+                        for i in 0..8 {
+                            let nil = b.ins().iconst(types::I64, NIL);
+                            let v = if i < argc && base as usize + 1 + i <= f.nregs as usize { rv!(base as usize + 1 + i) } else { nil };
+                            args.push(match live { Some(n) if i >= fixed => { let have = b.ins().icmp_imm(IntCC::UnsignedGreaterThan, n, i as i64); b.ins().select(have, v, nil) } _ => v });
+                        }
+                        let mut csig = self.module.make_signature();
+                        for _ in 0..8 { csig.params.push(AbiParam::new(types::I64)); }
+                        csig.returns.push(AbiParam::new(types::I64));
+                        let sref = b.import_signature(csig);
+                        let c = b.ins().call_indirect(sref, entry, &args);
+                        let r0 = b.inst_results(c)[0]; check_err!(r0);
+                        let mut outs = vec![r0];
+                        for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
+                        let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        // A builtin straight to its table; anything else through the runtime.
+                        let bchk = b.create_block(); let bfast = b.create_block(); let bslow = b.create_block();
+                        b.set_cold_block(bslow);
+                        let ftag = b.ins().band_imm(cv, !PAYLOAD); let is_fn = b.ins().icmp_imm(IntCC::Equal, ftag, QNAN | T_FUNC_TAG);
+                        b.ins().brif(is_fn, bchk, &[], bslow, &[]);
+                        b.switch_to_block(bchk); b.seal_block(bchk);
+                        let img = b.ins().ushr_imm(cv, 32); let img = b.ins().band_imm(img, 0xffff); let is_builtin = b.ins().icmp_imm(IntCC::Equal, img, 0xffff);
+                        b.ins().brif(is_builtin, bfast, &[], bslow, &[]);
+                        b.switch_to_block(bfast); b.seal_block(bfast);
+                        { let addr = args_slot_pad!(base, argc); let id = b.ins().band_imm(cv, 0xffff_ffff); let nv = if spread { let la = b.ins().iconst(types::I64, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); b.ins().iadd_imm(ln, fixed as i64) } else { b.ins().iconst(types::I64, argc as i64) }; let fidv = b.ins().iconst(types::I64, fid_const); let c = hcall!("j_call_builtin", &[id, addr, nv, fidv]); let xa3 = b.ins().iconst(types::I64, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa3, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        b.switch_to_block(bslow); b.seal_block(bslow);
+                        let addr = args_slot_pad!(base, argc);
+                        let nv = b.ins().iconst(types::I64, nargs as i64);
+                        let c = { let fidv = b.ins().iconst(types::I64, fid_const); hcall!("j_call_dyn", &[cv, addr, nv, fidv]) };
+                        let xa2 = b.ins().iconst(types::I64, extra_addr);
+                        let mut outs = vec![b.inst_results(c)[0]];
+                        for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa2, ((i - 1) * 8) as i32)); }
+                        let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
+                        b.switch_to_block(join); b.seal_block(join);
+                        cond_of.clear();
+                        let outs: Vec<Value> = b.block_params(join).to_vec();
+                        for (i, v) in outs.into_iter().enumerate() { if base as usize + i > f.nregs as usize { break; } setr!(base as usize + i, v); }
+                    }
                     Op::CallDyn(fr, base, nargs) => {
                         // Through the runtime: arguments in a stack slot the helper
                         // roots, the first result back, the rest from `extra`.
@@ -629,6 +747,33 @@ impl Jit {
                         let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
                         let r = if matches!(*op, Op::Div(..)) { b.ins().fdiv(fp, fq) } else { let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, fq); b.ins().fsub(fp, m) };
                         setr!(d, box_f64!(r));
+                    }
+                    Op::Scalar(k, d, a, bb) => {
+                        let (p, q) = (rv!(a), rv!(bb));
+                        let both = is_num2!(p, q);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64); b.set_cold_block(slow);
+                        b.ins().brif(both, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
+                        let (xi, yi) = (b.ins().fcvt_to_sint_sat(types::I64, fp), b.ins().fcvt_to_sint_sat(types::I64, fq));
+                        let (x, y) = (b.ins().ireduce(types::I32, xi), b.ins().ireduce(types::I32, yi));
+                        let sh = b.ins().band_imm(y, 31);
+                        let (r32, unsigned): (Value, bool) = match k {
+                            0 | 8 | 17 => (x, true), 9 | 10 | 16 => (x, false),
+                            1 => (b.ins().iadd(x, y), true), 2 => (b.ins().isub(x, y), true), 3 => (b.ins().band(x, y), true), 4 => (b.ins().bor(x, y), true), 5 => (b.ins().bxor(x, y), true),
+                            6 => (b.ins().ishl(x, sh), true), 7 => (b.ins().ushr(x, sh), true),
+                            11 => (b.ins().iadd(x, y), false), 12 => (b.ins().isub(x, y), false), 13 => (b.ins().band(x, y), false), 14 => (b.ins().bor(x, y), false), 15 => (b.ins().bxor(x, y), false),
+                            18 => (b.ins().imul(x, y), true), 19 => (b.ins().imul(x, y), false), 20 => (b.ins().bnot(x), true), 21 => (b.ins().bnot(x), false),
+                            22 => (b.ins().rotl(x, sh), true), 23 => (b.ins().rotr(x, sh), true), 24 => (b.ins().sshr(x, sh), false),
+                            _ => (x, true),
+                        };
+                        let wide = if unsigned { b.ins().uextend(types::I64, r32) } else { b.ins().sextend(types::I64, r32) };
+                        let fr = b.ins().fcvt_from_sint(types::F64, wide);
+                        let boxed = box_f64!(fr); b.ins().jump(join, &[boxed.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let kv = b.ins().iconst(types::I64, k as i64); let c = hcall!("j_scalar", &[kv, p, q]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let r = b.block_params(join)[0]; setr!(d, r);
                     }
                     Op::PadResults(base, n) => {
                         // Registers past what the call returned become nil.
@@ -883,6 +1028,11 @@ extern "C" fn j_set_field(t: u64, name: u64, v: u64) -> u64 { let it = ctx(); it
 extern "C" fn j_new_cell(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_cell_impl(v))).0 }
 extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_cell_impl(c, v))).0 }
 extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
+extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; it.jit_fid = prev; r }
+extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !x.is_num() || !y.is_num() { it.err("scalar intrinsic on a non-number") } V::num(crate::builtins::scalar_op(kind as u8, x.as_num(), y.as_num())) }).0 }
+/// An iterator object called from compiled code: the step, its first result
+/// returned and the rest through `extra`.
+extern "C" fn j_iter_next(iter: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_iter_next_impl(iter))).0 }
 extern "C" fn j_last_nres() -> u64 { ctx().last_nres as u64 }
 extern "C" fn j_slot_get(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_get_impl(o, shape, slot))).0 }
 extern "C" fn j_slot_set(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_set_impl(o, shape, slot, v))).0 }
@@ -930,6 +1080,30 @@ fn j_arith_slow_impl(a: u64, b: u64, op: u64) -> u64 {
         _ => V::boolean(if x.is_num() && y.is_num() { x.as_num() <= y.as_num() } else { it.bytes_of(x) <= it.bytes_of(y) }).0,
     }
 }
+fn j_iter_next_impl(iter: u64) -> u64 {
+    let _hp = enter_helper!();
+    let it = ctx();
+    let outs = crate::builtins::iter_next(it, V(iter));
+    let first = outs.first().copied().unwrap_or(V::NIL);
+    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len();
+    leave_helper!(_hp);
+    first.0
+}
+fn j_call_builtin_impl(id: u64, argv: *const u64, nargs: u64) -> u64 {
+    let _hp = enter_helper!();
+    let it = ctx();
+    let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, nargs as usize) };
+    let scope = it.open_scope(); for &a in args { it.handles.push(a); }
+    // A host service may park, which compiled code cannot do: the runtime path.
+    let outs = if id as u32 >= crate::host::HOST_BASE { it.call_outs(V::builtin(id as u32), args) } else { crate::builtins::call(it, id as u32, args) };
+    it.close_scope(scope);
+    let first = outs.first().copied().unwrap_or(V::NIL);
+    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len();
+    leave_helper!(_hp);
+    first.0
+}
 fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
@@ -975,11 +1149,15 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
 fn j_get_field_impl(t: u64, name: u64) -> u64 { ctx().index(V(t), V(name)).0 }
 /// A field read that missed its site cache: resolve by name and, for a
 /// record whose shape names the field, remember the shape and slot.
+pub static IC_STATS: [std::sync::atomic::AtomicU64; 8] = [const { std::sync::atomic::AtomicU64::new(0) }; 8];
+pub static INTERP_CALLEES: std::sync::Mutex<Option<std::collections::HashMap<u32, u64>>> = std::sync::Mutex::new(None);
+pub static IC_SITES: std::sync::Mutex<Option<std::collections::HashMap<usize, std::collections::HashSet<u32>>>> = std::sync::Mutex::new(None);
 fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
     let it = ctx(); let tv = V(t);
+    if it.ic_stats { let kind = tv.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }); let i = match kind { Some(KIND_RECORD) => if unsafe { *cache } == 0 { 0 } else { 1 }, Some(KIND_TABLE) => 2, _ => 3 }; IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if kind == Some(KIND_RECORD) { let sh = unsafe { (*tv.as_obj().unwrap().as_ptr()).shape() }; let mut g = IC_SITES.lock().unwrap(); g.get_or_insert_with(Default::default).entry(cache as usize).or_default().insert(sh); } }
     if let Some(p) = tv.as_obj() {
         let h = unsafe { &*p.as_ptr() };
-        if h.kind == KIND_RECORD { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.names.iter().position(|n| n.0 == name) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } return h.slots()[i].0; } }
+        if h.kind == KIND_RECORD { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.slot_of(V(name)) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } return h.slots()[i].0; } }
     }
     it.index(tv, V(name)).0
 }

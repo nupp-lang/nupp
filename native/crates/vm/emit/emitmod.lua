@@ -365,6 +365,9 @@ local function recordConstructorCast(f, node)
     for _, field in ipairs(tbl.fields) do if field.kind ~= "fieldNamed" then return nil end end
     return shape, tbl, meta
 end
+-- `builtins::SCALAR_OPS`, by kind.
+local SCALAR_KIND = {}
+for i, n in ipairs({"u32.wrap", "u32.add", "u32.sub", "u32.andBits", "u32.orBits", "u32.xorBits", "u32.shiftLeft", "u32.shiftRightLogical", "u32.fromI32", "u32.toI32", "i32.wrap", "i32.add", "i32.sub", "i32.andBits", "i32.orBits", "i32.xorBits", "i32.fromU32", "i32.toU32", "u32.mul", "i32.mul", "u32.notBits", "i32.notBits", "u32.rotateLeft", "u32.rotateRight", "i32.shiftRightArithmetic"}) do SCALAR_KIND[n] = i - 1 end
 local IS_TYPE = {string = "string", number = "number", boolean = "boolean", table = "table", thread = "thread", userdata = "userdata", integer = "number", float = "number", ["function"] = "function"}
 -- `x is T`, as the Lua backend decides it: settled by the checker, a nil
 -- test, or a `type()` comparison for a primitive.
@@ -482,6 +485,15 @@ emitCall = function(f, node, dst, nres, all)
         error("ownership intrinsic " .. tostring(oi) .. " is not in this emitter")
     end
     local callee = node.obj
+    if node.scalarIntrinsic and SCALAR_KIND[node.scalarIntrinsic] and nres == 1 and node.args and (#node.args.exprs == 1 or #node.args.exprs == 2) and node.args.exprs[#node.args.exprs].kind ~= "vararg" and not (node.args.exprs[#node.args.exprs].kind == "call" and #node.args.exprs == 2 and false) then
+        -- The common fixed-width intrinsics as one opcode the typed tier
+        -- lowers inline; a unary one names its operand twice.
+        local sargs = node.args.exprs
+        local a = exprAs(f, sargs[1], "v")
+        local bb = sargs[2] and exprAs(f, sargs[2], "v") or a
+        f:op("Scalar", SCALAR_KIND[node.scalarIntrinsic], dst, a, bb)
+        return
+    end
     if node.scalarIntrinsic then
         -- A fixed-width scalar intrinsic the checker named: a builtin of the
         -- runtime, whatever path spelled it.
@@ -900,10 +912,12 @@ end
 
 -- Multiple results: evaluate `exprs` for `count` targets into consecutive
 -- registers from `base`, the last call supplying the remainder.
+-- A call whose results are open: an intrinsic's is exactly one.
+local function multiCall(e) return (e.kind == "call" or e.kind == "methodCall") and not e.scalarIntrinsic and not e.ownershipIntrinsic end
 local function exprsInto(f, exprs, count, base)
     while f.nregs < base + count do f:reg() end
     for i, e in ipairs(exprs) do
-        if i == #exprs and i < count and (e.kind == "call" or e.kind == "methodCall") then
+        if i == #exprs and i < count and multiCall(e) then
             emitCall(f, e, base + i - 1, count - i + 1)
             return
         end
@@ -1059,13 +1073,13 @@ stmt = function(f, node)
     elseif k == "returnStmt" then
         local exprs = node.exprs or {}
         if #exprs == 0 then f:op("RetNil")
-        elseif #exprs == 1 and exprs[1].kind ~= "call" and exprs[1].kind ~= "methodCall" then
+        elseif #exprs == 1 and not multiCall(exprs[1]) then
             local r, c = expr(f, exprs[1], nil, nil)
             local vr = coerce(f, r, c, "v"); f:op("Ret", vr)
         else
             local base = f.nregs
             local n = #exprs
-            if exprs[n].kind == "call" or exprs[n].kind == "methodCall" then
+            if multiCall(exprs[n]) then
                 -- A trailing call's results are all returned: evaluate the others, then it.
                 while f.nregs < base + n + 1 do f:reg() end
                 for i = 1, n - 1 do exprAs(f, exprs[i], "v", base + i - 1) end

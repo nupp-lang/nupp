@@ -203,6 +203,20 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     }
 }
 
+/// The fixed-width intrinsics the `Scalar` opcode carries, by kind; the typed
+/// tier lowers them inline, the interpreter calls `scalar_op`.
+pub const SCALAR_OPS: [&str; 25] = ["u32.wrap", "u32.add", "u32.sub", "u32.andBits", "u32.orBits", "u32.xorBits", "u32.shiftLeft", "u32.shiftRightLogical", "u32.fromI32", "u32.toI32", "i32.wrap", "i32.add", "i32.sub", "i32.andBits", "i32.orBits", "i32.xorBits", "i32.fromU32", "i32.toU32", "u32.mul", "i32.mul", "u32.notBits", "i32.notBits", "u32.rotateLeft", "u32.rotateRight", "i32.shiftRightArithmetic"];
+pub fn scalar_op(kind: u8, a: f64, b: f64) -> f64 {
+    let x = (a as i64) as i32; let y = (b as i64) as i32; let sh = (b as i64 as u32) & 31;
+    let u = |v: i32| (v as u32) as f64; let s = |v: i32| v as f64;
+    match kind {
+        0 | 8 => u(x), 9 | 10 | 16 => s(x), 17 => u(x),
+        1 => u(x.wrapping_add(y)), 2 => u(x.wrapping_sub(y)), 3 => u(x & y), 4 => u(x | y), 5 => u(x ^ y), 6 => u(x.wrapping_shl(sh)), 7 => u(((x as u32) >> sh) as i32),
+        11 => s(x.wrapping_add(y)), 12 => s(x.wrapping_sub(y)), 13 => s(x & y), 14 => s(x | y), 15 => s(x ^ y),
+        18 => u(x.wrapping_mul(y)), 19 => s(x.wrapping_mul(y)), 20 => u(!x), 21 => s(!x), 22 => u(x.rotate_left(sh)), 23 => u(x.rotate_right(sh)), 24 => s(x >> sh),
+        _ => f64::NAN,
+    }
+}
 /// The i32/u32/f32 intrinsics, with the folder's semantics (`nupp.compiler.scalarintrinsics`).
 fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let (family, op) = name.split_once('.').unwrap();

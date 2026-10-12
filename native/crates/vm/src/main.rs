@@ -52,6 +52,7 @@ fn main() {
     }
     let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
     let mut it = Interp::new();
+    if std::env::var("BUILTIN_STATS").is_ok() { builtins::STATS.store(true, std::sync::atomic::Ordering::Relaxed); }
     let t0 = cpu_now();
     image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
     let load_s = cpu_now() - t0;
@@ -67,6 +68,8 @@ fn main() {
         j.last_nres_addr = &it.last_nres as *const usize as i64;
         j.entries_addr = it.entries.as_ptr() as i64;
         j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
+        it.calltab = j.callee_info.iter().map(|&(np, plain)| np as u64 | ((plain as u64) << 8)).collect();
+        j.calltab_addr = it.calltab.as_ptr() as i64;
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
         // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
@@ -129,6 +132,10 @@ fn main() {
         let m = samples[samples.len() / 2];
         println!("median {:.3} ms over {repeat}\tmin {:.3} ms", m * 1e3, samples[0] * 1e3);
     }
+    if std::env::var("BUILTIN_STATS").is_ok() { let c = builtins::CALLS.lock().unwrap(); let mut rows: Vec<(usize, u64)> = c.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect(); rows.sort_by(|a, b| b.1.cmp(&a.1)); eprintln!("builtin calls:"); for (i, n) in rows.iter().take(16) { eprintln!("  {n}\t{}", builtins::NAMES[*i]); } }
+    if it.ic_stats { let c: Vec<u64> = nupp_vm::jit::IC_STATS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("field-cache helper calls: record with empty cache {}, record after another shape (polymorphic) {}, table {}, other {}", c[0], c[1], c[2], c[3]); eprintln!("dynamic calls from compiled code: builtin {}, compiled callee {}, interpreted (spawned task) {}", c[4], c[5], c[6]);
+        if let Some(m) = nupp_vm::jit::INTERP_CALLEES.lock().unwrap().as_ref() { let mut rows: Vec<(&u32, &u64)> = m.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); eprintln!("interpreted callees from compiled code:"); for (fid, n) in rows.iter().take(12) { let f = it.funcs.get(**fid as usize); eprintln!("  {n}\t{} in {} ({})", f.map(|f| f.name.as_str()).unwrap_or("?"), f.map(|f| f.module.as_str()).unwrap_or("?"), f.map(|f| if f.vararg { "vararg" } else if f.nparams > 8 { ">8 params" } else if it.entries.get(**fid as usize).copied().unwrap_or(0) == 0 { "no entry" } else { "has entry" }).unwrap_or("?")); } }
+        if let Some(sites) = nupp_vm::jit::IC_SITES.lock().unwrap().as_ref() { let mut hist = std::collections::BTreeMap::new(); for set in sites.values() { *hist.entry(set.len().min(9)).or_insert(0usize) += 1; } eprintln!("record field sites by distinct shapes seen: {:?}", hist); } }
     if let Some(st) = it.slot_stats.as_ref() {
         let (mut hits, mut misses) = (0u64, 0u64); let mut miss_sites: Vec<((u32, usize), u64)> = Vec::new(); let mut hit_sites = 0usize;
         for (&(f, pc, ok), &n) in st.iter() { if ok { hits += n; hit_sites += 1; } else { misses += n; miss_sites.push(((f, pc), n)); } }
