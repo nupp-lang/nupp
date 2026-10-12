@@ -20,7 +20,7 @@ typedef struct { uint8_t op, a, b, c; int32_t imm; int64_t k; } Ins;
 typedef struct {
     const Ins* code;
     const Value* consts;
-    uint32_t frame_words, nregs, nparams, off_i, off_f, vararg, ncode, pad;
+    uint32_t frame_words, nregs, nparams, off_i, off_f, vararg, ncode, calls;
 } FuncInfo;
 
 typedef struct {
@@ -39,6 +39,7 @@ typedef struct {
     uint64_t nshapes;
     const uint8_t* marking;
     const uint64_t* entries; // the typed tier's compiled entry per function, or 0
+    uint32_t jit_threshold, pad2; // the lazy tier's call count, 0 when off
 } Ctx;
 
 // Rust helpers.
@@ -77,6 +78,9 @@ enum {
 #define ST_ERROR 0xfffffffcu
 // After a helper that may raise: the error status ends the run here.
 #define CHECK_ERR if (ctx->status == ST_ERROR) return 0
+// The lazy tier: a function's calls are counted until the threshold, when
+// the Rust path takes the call and compiles it.
+#define COUNT_CALL(fid) do { if (ctx->jit_threshold) { FuncInfo* cf_ = (FuncInfo*)&ctx->funcs[fid]; if (cf_->calls < ctx->jit_threshold && ++cf_->calls == ctx->jit_threshold) SLOW; } } while (0)
 // Before a helper that may raise: the pc, for the error's backtrace.
 #define NOTE_PC ctx->pc = (uint32_t)(pc - (&ctx->funcs[(uint32_t)(frame)[0]])->code)
 
@@ -292,6 +296,7 @@ static Value h_call(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
     uint32_t fid = (uint32_t)pc->k;
     if (ctx->funcs[fid].vararg || pc->b >= 64) SLOW;
+    COUNT_CALL(fid);
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->a), pc->b, (uint32_t)(pc - fi->code) + 1, T_NIL);
     ENTER;
 }
@@ -325,6 +330,7 @@ static Value h_calldyn(ARGS) {
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
         pc++; NEXT;
     }
+    COUNT_CALL(fid);
     uint32_t np = ctx->funcs[fid].nparams;
     if (nargs > np) nargs = np;
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->b), nargs, (uint32_t)(pc - fi->code) + 1, closure);

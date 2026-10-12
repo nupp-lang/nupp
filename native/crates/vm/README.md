@@ -345,3 +345,43 @@ Found on the way: a nil key read of the new table matched its empty marker
 pass more than eight register arguments, so a callee with more parameters
 stays interpreted; the field-cache helper never filled its cache for an
 absent field, so every such read paid the call.
+
+**Startup: compile time and lazy compilation (2026-10-11).** A one-shot
+check pays the typed tier's compile before its first call, so the compile
+is the product problem once steady state is ahead. What this pass found:
+
+- **The inline probes tripled compile time.** The parser's 150 functions
+  went from 290 ms to 798 ms and the checker's 3,063 from 6.1 s to 17.5 s
+  as the field-read, dynamic-call and iterator sites grew; Cranelift's time
+  follows IR size. Those sequences are now three stubs compiled once per
+  JIT (`stub.probe`, `stub.dispatch`, `stub.iter`) that each site calls,
+  which brought the checker to 9.6 s at the same steady state (176 ms).
+- **The optimiser and the IR verifier bought nothing here.** `opt_level=none`
+  measured 170 ms against 176 at steady state and compiled 18% faster; the
+  verifier was a tenth of the compile. Both are off by default now
+  (`JIT_OPT=speed`, `JIT_VERIFY=1` restore them): 6.2 s for the checker's
+  image, 317 ms for the parser's. The compile-phase profile is then
+  register allocation (30%), instruction selection and lowering (35%),
+  the frontend (4%) and allocation; the rest is per-function cost of the
+  tier itself, not of any one lowering.
+- **Lazy compilation does not solve the one-shot.** `JIT_THRESHOLD=n`
+  compiles a function at its nth call (counted in the core and the
+  interpreter). A check of lexer.nupp touches about 960 functions and
+  compiling them costs 4.7 s, 5 ms each, because the hot checker functions
+  are its largest; a threshold of 1 or 2 gives a 4.5–4.9 s first call, 5
+  gives 3.6 s, and from 10 on the steady state suffers because warm
+  functions stay interpreted (lazy 50: 2.8 s first call, 230 ms median).
+  The interpreter alone checks lexer.nupp in 440 ms, so a one-shot is best
+  served by the interpreter today, and by compiling the bundled compiler
+  ahead of time tomorrow.
+
+Ahead-of-time compilation of the bundled compiler, scoped: the lowering
+bakes addresses as constants (the extras and result-count words, the
+entries, call and shape tables, each site's cache, the current closure
+word), which an object file cannot carry; they become loads from one
+runtime table reached through a symbol, with per-site caches in an area
+the image owns. `cranelift-object` then emits the image's functions with
+the helpers as undefined symbols, the build links them into the binary
+or a shared object, and loading binds the helpers and the table. Nothing
+in the lowering changes shape otherwise; the stubs become ordinary
+functions of the object.

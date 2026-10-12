@@ -343,6 +343,13 @@ pub struct Interp {
     pub loaded_table: Value,
     /// The threaded core's per-function and per-shape tables, and whether it runs tasks.
     pub finfo: Vec<crate::threaded::FuncInfo>,
+    /// The lazy typed tier: compile a function at its `jit_threshold`th call
+    /// (0: no lazy compilation; the runner compiles eagerly or not at all).
+    pub jit_threshold: u32,
+    #[cfg(feature = "jit")]
+    pub jit: Option<Box<crate::jit::Jit>>,
+    pub lazy_compiled: usize,
+    pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
     pub threaded: bool,
     /// The typed tier's compiled entry per function (0 when interpreted),
@@ -417,7 +424,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -425,6 +432,7 @@ impl Interp {
     // ---- tasks and frames -------------------------------------------------
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
+        if self.jit_threshold != 0 { self.note_call(fid); }
         let f = &self.funcs[fid as usize];
         let words = f.frame_words();
         // A vararg entry's surplus arguments lie below its header.
@@ -498,7 +506,28 @@ impl Interp {
     /// into the callee's r1.. and records `args_at` as the result slot. The
     /// stack may move, so callers re-derive their pointers.
     #[inline(always)]
+    /// A call of `fid` on an interpreted path: counted, and compiled at the
+    /// threshold so the next call takes the entry.
+    #[inline] pub fn note_call(&mut self, fid: u32) {
+        if self.jit_threshold == 0 || self.entries.get(fid as usize).copied().unwrap_or(1) != 0 { return; }
+        if let Some(fi) = self.finfo.get_mut(fid as usize) { if fi.calls < self.jit_threshold { fi.calls += 1; } if fi.calls >= self.jit_threshold { self.compile_now(fid); } }
+    }
+    #[cfg(feature = "jit")]
+    fn compile_now(&mut self, fid: u32) {
+        let Some(mut j) = self.jit.take() else { return };
+        let f = self.funcs[fid as usize].clone();
+        if !f.name.starts_with("module:") {
+            let t0 = std::time::Instant::now();
+            if let Ok(p) = j.try_compile(&f, fid) { self.entries[fid as usize] = p as u64; self.lazy_compiled += 1; }
+            self.lazy_micros += t0.elapsed().as_micros() as u64;
+        }
+        if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }
+        self.jit = Some(j);
+    }
+    #[cfg(not(feature = "jit"))]
+    fn compile_now(&mut self, _fid: u32) {}
     fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
+        if self.jit_threshold != 0 { self.note_call(f); }
         let callee = unsafe { self.funcs.get_unchecked(f as usize) };
         if self.trace { eprintln!("call {} nargs {}", callee.name, nargs); }
         if nargs >= 128 || callee.vararg { return self.push_frame_cold(tid, f, args_at, nargs, pc); }

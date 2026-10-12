@@ -72,7 +72,9 @@ fn main() {
         it.calltab = j.callee_info.iter().map(|&(np, plain)| np as u64 | ((plain as u64) << 8)).collect();
         j.calltab_addr = it.calltab.as_ptr() as i64;
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
-        j.probe_addr = it.shape_probe.as_ptr() as i64;
+        j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
+        let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+        if threshold > 0 { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); eprintln!("jit: lazy, compiling at the call number {threshold}"); None } else {
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
         // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
@@ -90,7 +92,7 @@ fn main() {
         let compile_s = cpu_now() - tj;
         if std::env::var("JIT_LIST").is_ok() { for (n, us) in &j.compile_micros { eprintln!("jit\t{n}\t{us} us"); } }
         eprintln!("jit: compiled {compiled} functions in {:.2} ms; refused {}{}", compile_s * 1e3, refused.len(), if refused.is_empty() { String::new() } else { format!(": {}", refused.join(", ")) });
-        Some(j)
+        Some(j) }
     } else { None };
     it.install_globals();
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
@@ -137,6 +139,7 @@ fn main() {
     }
     if std::env::var("BUILTIN_STATS").is_ok() { let c = builtins::CALLS.lock().unwrap(); let mut rows: Vec<(usize, u64)> = c.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect(); rows.sort_by(|a, b| b.1.cmp(&a.1)); eprintln!("builtin calls:"); for (i, n) in rows.iter().take(16) { eprintln!("  {n}\t{}", builtins::NAMES[*i]); } }
     if std::env::var("TABLE_STATS").is_ok() { let c: Vec<u64> = nupp_vm::interp::TABLE_COUNTS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("index reads: table by number {}, table by key {}, record by number {}, record by key {}, other {}; table key reads met hash parts of 0: {}, 1-4: {}, 5-16: {}, 17-64: {}, 65+: {}; stores by number {}, by key {}; tables made {}", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], nupp_vm::heap::NEW_TABLES.load(std::sync::atomic::Ordering::Relaxed)); }
+    if it.jit_threshold != 0 { eprintln!("jit: compiled {} functions lazily in {:.2} ms", it.lazy_compiled, it.lazy_micros as f64 / 1e3); }
     if it.ic_stats { let c: Vec<u64> = nupp_vm::jit::IC_STATS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("field-cache helper calls: record with empty cache {}, record after another shape (polymorphic) {}, table {}, other {}", c[0], c[1], c[2], c[3]); eprintln!("dynamic calls from compiled code: builtin {}, compiled callee {}, interpreted (spawned task) {}", c[4], c[5], c[6]);
         if let Some(m) = nupp_vm::jit::INTERP_CALLEES.lock().unwrap().as_ref() { let mut rows: Vec<(&u32, &u64)> = m.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); eprintln!("interpreted callees from compiled code:"); for (fid, n) in rows.iter().take(12) { let f = it.funcs.get(**fid as usize); eprintln!("  {n}\t{} in {} ({})", f.map(|f| f.name.as_str()).unwrap_or("?"), f.map(|f| f.module.as_str()).unwrap_or("?"), f.map(|f| if f.vararg { "vararg" } else if f.nparams > 8 { ">8 params" } else if it.entries.get(**fid as usize).copied().unwrap_or(0) == 0 { "no entry" } else { "has entry" }).unwrap_or("?")); } }
         if let Some(sites) = nupp_vm::jit::IC_SITES.lock().unwrap().as_ref() { let mut hist = std::collections::BTreeMap::new(); for set in sites.values() { *hist.entry(set.len().min(9)).or_insert(0usize) += 1; } eprintln!("record field sites by distinct shapes seen: {:?}", hist); } }

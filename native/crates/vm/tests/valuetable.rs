@@ -41,3 +41,20 @@ fn nil_is_never_a_key() {
     t.insert(Value::NIL, Value::num(5.0));
     assert!(t.get(&Value::NIL).is_none()); assert_eq!(t.iter().count(), 1);
 }
+
+#[test]
+fn churn_stays_bounded() {
+    // Distinct keys stored and then set to nil, a million times: a nil value
+    // keeps its entry until the next rehash, which drops it, so the capacity
+    // follows the live count rather than the history.
+    let mut t = ValueTable::new();
+    let mut max_cap = 0;
+    for i in 0..1_000_000u64 {
+        let k = key(i);
+        t.insert(k, Value::num(1.0));
+        if i >= 8 { t.insert(key(i - 8), Value::NIL); }
+        max_cap = max_cap.max(t.capacity());
+    }
+    assert!(max_cap <= 64, "capacity reached {max_cap}");
+    assert_eq!(t.iter().count(), 8);
+}
