@@ -1,0 +1,26 @@
+function module:checkpoint 0 0 12 2 :v
+const 0 num 0
+const 1 str "step"
+K 1 0
+NewCell 2 1
+Move 4 2
+NewClosure 3 1 3 1
+NewTable 5
+SetField 5 1 3
+Ret 5
+end
+function step 1 0 12 2 :v
+const 0 num 1
+const 1 str "count"
+GetUpval 1 0
+GetCell 2 1
+K 3 0
+Add 4 2 3
+SetCell 1 4
+NewTable 5
+SetField 5 1 4
+GetField 6 5 1
+Ret 6
+end
+module checkpoint 0
+entry 0

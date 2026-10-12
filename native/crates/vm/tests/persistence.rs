@@ -685,3 +685,166 @@ fn native_payload_capacity_accounting_survives_repeated_load_and_collection() {
         assert_eq!(vm.heap.live_bytes, 0);
     }
 }
+
+#[test]
+fn value_hooks_reject_parking_and_clean_up_before_retry() {
+    let mut vm = fixture();
+    let shape = record(&mut vm, "Hooked");
+    let value = vm.new_record(shape);
+    vm.register(value);
+    field(&mut vm, value, "x", Value::num(42.0));
+    let mut policies = Policies::default();
+    policies.shapes.insert(
+        "Hooked".into(),
+        ShapePolicy {
+            before_save_value: Some(Value::func(0)), // entry parks
+            ..Default::default()
+        },
+    );
+    let tasks = vm.tasks.len();
+    let handles = vm.handles.len();
+    let err = persist::save_graph(&mut vm, &[value], &policies).unwrap_err();
+    assert!(
+        err.contains("beforeSave hook") && err.contains("parked"),
+        "{err}"
+    );
+    assert_eq!(vm.tasks.len(), tasks);
+    assert_eq!(vm.handles.len(), handles);
+    assert!(
+        persist::save_vm(&mut vm, &policies, &mut ResourceCodecs::new())
+            .unwrap_err()
+            .contains("VM-local callbacks")
+    );
+    let bytes = persist::save_graph(&mut vm, &[value], &Policies::default()).unwrap();
+    let restored = persist::load_graph(&mut vm, &bytes, &Policies::default(), None).unwrap()[0];
+    assert_eq!(get(&mut vm, restored, "x"), Value::num(42.0));
+}
+
+#[test]
+fn language_policy_validation_rejects_unknown_fields_and_nonfunctions() {
+    let mut vm = fixture();
+    let shape = record(&mut vm, "PolicyTarget");
+    let value = vm.new_record(shape);
+    vm.register(value);
+    let policy = vm.new_table();
+    vm.register(policy);
+    field(&mut vm, policy, "shape", value);
+    let list = vm.new_table();
+    vm.register(list);
+    vm.push_array(list, policy);
+    field(&mut vm, policy, "afterLoad", Value::num(1.0));
+    assert!(
+        persist::policies_from_value(&mut vm, list)
+            .err()
+            .unwrap()
+            .contains("Nupp function")
+    );
+    field(&mut vm, policy, "afterLoad", Value::NIL);
+    let fields = vm.new_table();
+    vm.register(fields);
+    let name = vm.intern("typo");
+    vm.push_array(fields, name);
+    field(&mut vm, policy, "transient", fields);
+    assert!(
+        persist::policies_from_value(&mut vm, list)
+            .err()
+            .unwrap()
+            .contains("unknown transient field")
+    );
+    field(&mut vm, policy, "transient", Value::NIL);
+    vm.push_array(list, policy);
+    assert!(
+        persist::policies_from_value(&mut vm, list)
+            .err()
+            .unwrap()
+            .contains("duplicate policy")
+    );
+}
+
+#[test]
+fn restore_resources_before_record_hooks_use_them() {
+    struct Ready;
+    impl ResourceCodec for Ready {
+        fn save(&mut self, _: &Interp, _: Value) -> persist::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn restore(&mut self, vm: &mut Interp, value: Value, _: &[u8]) -> persist::Result<()> {
+            field(vm, value, "ready", Value::TRUE);
+            Ok(())
+        }
+    }
+    fn after(vm: &mut Interp, value: Value) -> persist::Result<()> {
+        let resource = get(vm, value, "cache");
+        if get(vm, resource, "ready") != Value::TRUE {
+            return Err("resource was not restored before hook".into());
+        }
+        field(vm, value, "x", Value::num(99.0));
+        Ok(())
+    }
+    let mut vm = fixture();
+    let sid = record(&mut vm, "Game");
+    let game = vm.new_record(sid);
+    vm.register(game);
+    field(&mut vm, game, "x", Value::num(0.0));
+    let resource = vm.new_table();
+    vm.resources.insert(resource, "ready".into());
+    field(&mut vm, game, "cache", resource);
+    vm.loaded.insert("game".into(), game);
+    let policies = Policies {
+        shapes: HashMap::from([(
+            "Game".into(),
+            ShapePolicy {
+                after_load: Some(after),
+                ..Default::default()
+            },
+        )]),
+    };
+    let mut codecs: ResourceCodecs =
+        HashMap::from([("ready".into(), Box::new(Ready) as Box<dyn ResourceCodec>)]);
+    let bytes = persist::save_vm(&mut vm, &policies, &mut codecs).unwrap();
+    let mut restored = persist::load_vm(&bytes, &policies, &mut codecs).unwrap();
+    let game = restored.loaded["game"];
+    assert_eq!(get(&mut restored, game, "x"), Value::num(99.0));
+}
+
+#[test]
+fn hook_cannot_submit_a_parking_host_request() {
+    let mut vm = fixture();
+    let start = vm.funcs.len() as u32;
+    image::load(
+        &mut vm,
+        r#"
+function hosthook 0 1 8 2 v:v
+const 0 num 0
+const 1 builtin type
+K 2 0
+K 3 1
+Move 5 2
+CallDyn 3 4 1
+RetNil
+end
+entry 0
+"#,
+    )
+    .unwrap();
+    vm.funcs[start as usize].consts[1] = Value::builtin(nupp_vm::host::HOST_BASE + 2);
+    vm.host = Some(nupp_vm::host::Host::start(1));
+    let shape = record(&mut vm, "NoPark");
+    let value = vm.new_record(shape);
+    vm.register(value);
+    field(&mut vm, value, "x", Value::num(1.0));
+    let policies = Policies {
+        shapes: HashMap::from([(
+            "NoPark".into(),
+            ShapePolicy {
+                before_save_value: Some(Value::func(start)),
+                ..Default::default()
+            },
+        )]),
+    };
+    let error = persist::save_graph(&mut vm, &[value], &policies).unwrap_err();
+    assert!(error.contains("cannot park"), "{error}");
+    assert_eq!(vm.host.as_ref().unwrap().outstanding, 0);
+    assert!(vm.host_waiters.is_empty());
+    assert!(vm.tasks.is_empty());
+}

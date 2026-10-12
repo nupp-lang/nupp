@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the Nupp persistence fixture on the VM; run it on all three tiers."""
+"""Compile and test persistence; optional second argument retains the emitted image."""
 import json
 import os
 from pathlib import Path
@@ -14,9 +14,12 @@ compiled = subprocess.run(
      "native/crates/vm/tests/persist-project", "main"],
     env=env, capture_output=True, text=True, check=True,
 )
+image_text = json.loads(compiled.stdout)
+if len(sys.argv) > 2:
+    Path(sys.argv[2]).write_text(image_text)
 with tempfile.TemporaryDirectory() as directory:
     image = Path(directory) / "persistence.image"
-    image.write_text(json.loads(compiled.stdout))
+    image.write_text(image_text)
     for mode in ("rust", "threaded", "jit"):
         flags = dict(os.environ, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
         for key in ("NO_JIT", "NO_THREADED", "JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
@@ -28,4 +31,4 @@ with tempfile.TemporaryDirectory() as directory:
         result = subprocess.run([binary, "run", str(image), "main", "run"],
                                 env=flags, text=True, capture_output=True, check=True)
         assert result.stdout.strip() == "42", result.stdout
-        print(f"{mode}: cycle and value round-trip passed under GC stress")
+        print(f"{mode}: save/restore hooks, transients, in-place identity and failure recovery passed under GC stress")

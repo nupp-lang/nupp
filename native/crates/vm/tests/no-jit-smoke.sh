@@ -5,7 +5,9 @@ set -eu
 # generation is allowed; the linked runtime must have no Cranelift dependency.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-image=native/crates/vm/jit.image
+image=${1:-native/crates/vm/jit.image}
+module=${2:-nupp.bench.jitbench}
+function=${3:-run}
 binary=build/rust/target/debug/nupp-vm
 
 cargo build -q -p nupp-vm --features aot --offline
@@ -52,15 +54,35 @@ else
     echo 'Executable-memory denial harness skipped: currently macOS only' >&2
 fi
 
-"$binary" run "$image" nupp.bench.jitbench run >"$tmp/aot.out"
-NO_AOT=1 "$binary" run "$image" nupp.bench.jitbench run >"$tmp/interp.out"
+"$binary" run "$image" "$module" "$function" >"$tmp/aot.out"
+NO_AOT=1 "$binary" run "$image" "$module" "$function" >"$tmp/interp.out"
 test "$(head -1 "$tmp/aot.out")" = "$(head -1 "$tmp/interp.out")"
-GC_STRESS=1 GC_ORACLE=1 "$binary" run "$image" nupp.bench.jitbench run >/dev/null
+GC_STRESS=1 GC_ORACLE=1 "$binary" run "$image" "$module" "$function" >/dev/null
 cp "$image" "$tmp/mismatch.image"
 printf '\n' >> "$tmp/mismatch.image"
-if "$binary" run "$tmp/mismatch.image" nupp.bench.jitbench run >"$tmp/mismatch.out" 2>&1; then
+if "$binary" run "$tmp/mismatch.image" "$module" "$function" >"$tmp/mismatch.out" 2>&1; then
     echo 'AOT accepted a different image' >&2
     exit 1
 fi
 grep -q 'aot: linked object was built for another image' "$tmp/mismatch.out"
-echo 'No-JIT smoke passed'
+# The saver exits before either reader starts. No source image is needed by
+# restore: its code recipe, captured cells and initialized modules are saved.
+GC_STRESS=1 GC_ORACLE=1 "$binary" run "$image" "$module" "$function" --checkpoint "$tmp/state.bin" >"$tmp/saved.out"
+GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/state.bin" "$module" "$function" --checkpoint "$tmp/again.bin" >"$tmp/restored.out" 2>"$tmp/restored.err"
+grep -q 'linked entries after restore' "$tmp/restored.err"
+NO_AOT=1 GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/state.bin" "$module" "$function" >"$tmp/restore-interp.out"
+cmp "$tmp/restored.out" "$tmp/restore-interp.out"
+GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/again.bin" "$module" "$function" >"$tmp/again.out"
+if [ "$module" = checkpoint ]; then
+    test "$(cat "$tmp/saved.out")" = 1
+    test "$(cat "$tmp/restored.out")" = 2
+    test "$(cat "$tmp/again.out")" = 3
+fi
+# A well-formed checkpoint made from other code must not acquire these entries.
+NO_AOT=1 "$binary" run "$tmp/mismatch.image" "$module" "$function" --checkpoint "$tmp/mismatch.bin" >/dev/null
+if "$binary" restore "$tmp/mismatch.bin" "$module" "$function" >"$tmp/mismatch-restore.out" 2>&1; then
+    echo 'AOT accepted a checkpoint made from another image' >&2
+    exit 1
+fi
+grep -q 'aot: linked object was built for another image' "$tmp/mismatch-restore.out"
+echo 'No-JIT smoke and checkpoint restore passed'

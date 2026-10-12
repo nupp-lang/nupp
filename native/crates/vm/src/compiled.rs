@@ -168,8 +168,14 @@ pub extern "C" fn j_set_method(shape: u64, name: u64, f: u64) -> u64 { let it = 
 // helpers nest when a callback runs compiled code.
 
 fn ctx() -> &'static mut Interp { unsafe { &mut *CTX.load(std::sync::atomic::Ordering::Relaxed) } }
-macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed) }} }
-macro_rules! leave_helper { ($prev:expr) => { HELPER_FP.store($prev, std::sync::atomic::Ordering::Relaxed) } }
+// Restore the root-walk entry on raises as well as ordinary returns. A hook
+// may catch a callback error and allocate again while the outer helper lives.
+struct HelperFrame(usize);
+impl Drop for HelperFrame {
+    fn drop(&mut self) { HELPER_FP.store(self.0, std::sync::atomic::Ordering::Relaxed); }
+}
+macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; HelperFrame(HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed)) }} }
+macro_rules! leave_helper { ($prev:expr) => { drop($prev) } }
 
 fn j_storage_ptr_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_ptr as u64 }, None => 0 } }
 fn j_storage_len_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_len }, None => 0 } }

@@ -3,14 +3,59 @@ module main
 local persist = require("nupp.vm.persist")
 local main = {}
 
+local record State
+    count: number
+    cache: number
+    self: any
+end
+
 function main.run(): number
-    local value: any = {count = 42}
+    local value = new State(count = 41, cache = 9, self = nil)
     value.self = value
-    local bytes = persist.save(value)
-    assert(type(bytes) == "string" and #bytes > 0)
-    local restored = persist.load(bytes)
+    local saves = 0
+    local loads = 0
+    local policies: {persist.Policy} = {
+        {
+            shape = value,
+            name = "game.State.v1",
+            transient = {"cache"},
+            beforeSave = function(object: any): nil
+                saves = saves + 1
+                object.count = object.count + 1
+            end,
+            afterLoad = function(object: any): nil
+                loads = loads + 1
+                assert(object.self == object and object.cache == nil)
+                object.cache = object.count * 2
+            end,
+        }
+    }
+    local bytes = persist.save(value, policies)
+    assert(type(bytes) == "string" and #bytes > 0 and saves == 1)
+    local restored = persist.load(bytes, nil, policies)
     assert(restored ~= value and restored.self == restored)
-    assert(restored.count == 42)
+    assert(restored.count == 42 and restored.cache == 84 and loads == 1)
+    local target = new State(count = 0, cache = 0, self = nil)
+    assert(persist.loadInto(bytes, target, policies) == target)
+    assert(target.self == target and target.count == 42 and target.cache == 84)
+    assert(loads == 2)
+    local bad: {persist.Policy} = {
+        {
+            shape = value,
+            name = "game.State.v1",
+            transient = {"cache"},
+            afterLoad = function(object: any): nil
+                error("restore failed")
+            end
+        }
+    }
+    local ok, err = pcall(function(): nil
+        persist.load(bytes, nil, bad)
+    end)
+    assert(not ok and tostring(err):find("restore failed") ~= nil)
+    -- A failed hook must leave the caller and future graph loads usable.
+    restored = persist.load(bytes, nil, policies)
+    assert(restored.count == 42 and loads == 3)
 
     return restored.count
 end

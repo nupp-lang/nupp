@@ -1,7 +1,16 @@
--- The VM's binary graph codec. Checkpoints are taken by the embedding host
--- after tasks have parked, outside active calls.
+-- Per-operation policies. shape is a record exemplar or its runtime shape name.
+-- Hooks cannot suspend. afterLoad runs after graph references are relocated.
+type Policy = {
+    shape: any,
+    name: string?,
+    transient: {string}?,
+    beforeSave: (function(value: any): nil)?,
+    afterLoad: (function(value: any): nil)?
+}
+
 local record Persistence
-    save: function(value: any): string
-    load: function(bytes: string, shape: string?): any
+    save: function(value: any, policies: {Policy}?): string
+    load: function(bytes: string, shape: string?, policies: {Policy}?): any
+    loadInto: function(bytes: string, target: any, policies: {Policy}?): any
 end
 return Persistence

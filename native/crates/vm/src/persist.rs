@@ -54,18 +54,185 @@ pub struct ShapePolicy {
     pub transient: HashSet<String>,
     pub before_save: Option<ShapeHook>,
     pub after_load: Option<ShapeHook>,
+    /// VM-local callbacks for graph operations; not transferable between VMs.
+    pub before_save_value: Option<Value>,
+    pub after_load_value: Option<Value>,
 }
 #[derive(Default)]
 pub struct Policies {
     pub shapes: HashMap<String, ShapePolicy>,
 }
 impl Policies {
+    fn root_callbacks(&self, vm: &mut Interp) {
+        for policy in self.shapes.values() {
+            vm.handles.extend(policy.before_save_value);
+            vm.handles.extend(policy.after_load_value);
+        }
+    }
+    fn checkpoint_safe(&self) -> Result<()> {
+        if self
+            .shapes
+            .values()
+            .any(|p| p.before_save_value.is_some() || p.after_load_value.is_some())
+        {
+            return Err(
+                "VM-local callbacks require graph save/load; checkpoints use host restore hooks"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
     fn name(&self, name: &str) -> String {
         self.shapes
             .get(name)
             .and_then(|p| p.name.clone())
             .unwrap_or_else(|| name.into())
     }
+}
+
+/// Decode explicit per-operation Nupp policies. `shape` is a record exemplar or
+/// exact runtime shape name; callbacks remain rooted for the whole operation.
+pub fn policies_from_value(vm: &mut Interp, value: Value) -> Result<Policies> {
+    fn object(vm: &Interp, v: Value) -> Result<&Header> {
+        let p = v
+            .as_obj()
+            .filter(|p| vm.heap.is_live_slot(*p))
+            .ok_or("policy must be a table or record")?;
+        let h = unsafe { p.as_ref() };
+        if h.kind != KIND_TABLE && h.kind != KIND_RECORD {
+            return Err("policy must be a table or record".into());
+        }
+        Ok(h)
+    }
+    fn text(vm: &Interp, v: Value) -> Result<String> {
+        let p = v
+            .as_obj()
+            .filter(|p| vm.heap.is_live_slot(*p))
+            .ok_or("policy name must be a string")?;
+        let h = unsafe { p.as_ref() };
+        if !h.is_stringish() {
+            return Err("policy name must be a string".into());
+        }
+        String::from_utf8(h.bytes().to_vec()).map_err(|_| "policy name must be UTF-8".into())
+    }
+    fn field(vm: &mut Interp, v: Value, name: &str) -> Value {
+        let key = vm.intern(name);
+        vm.get_index(v, key)
+    }
+    fn callback(vm: &Interp, v: Value) -> Result<Option<Value>> {
+        if v == Value::NIL {
+            return Ok(None);
+        }
+        if v.as_func().is_some_and(|f| (f as usize) < vm.funcs.len())
+            || v.as_obj().is_some_and(|p| {
+                vm.heap.is_live_slot(p) && unsafe { p.as_ref().kind == KIND_CLOSURE }
+            })
+        {
+            return Ok(Some(v));
+        }
+        Err("persistence hook must be a Nupp function".into())
+    }
+    let mut out = Policies::default();
+    if value == Value::NIL {
+        return Ok(out);
+    }
+    object(vm, value)?;
+    let scope = vm.open_scope();
+    vm.handles.push(value);
+    let result = (|| {
+        for index in 1..=vm.array_len(value) {
+            let v = vm.get_index(value, Value::num(index as f64));
+            object(vm, v)?;
+            let shape = field(vm, v, "shape");
+            let name = if let Some(p) = shape
+                .as_obj()
+                .filter(|p| vm.heap.is_live_slot(*p) && unsafe { p.as_ref().kind == KIND_RECORD })
+            {
+                vm.heap.shapes[unsafe { p.as_ref().shape() } as usize]
+                    .name
+                    .clone()
+            } else {
+                text(vm, shape)?
+            };
+            let sid = vm
+                .heap
+                .shapes
+                .iter()
+                .position(|s| s.name == name)
+                .ok_or_else(|| format!("unknown policy shape {name}"))?;
+            let mut policy = ShapePolicy::default();
+            let durable = field(vm, v, "name");
+            if durable != Value::NIL {
+                policy.name = Some(text(vm, durable)?);
+            }
+            let transient = field(vm, v, "transient");
+            if transient != Value::NIL {
+                object(vm, transient)?;
+                for i in 1..=vm.array_len(transient) {
+                    let key = text(vm, vm.get_index(transient, Value::num(i as f64)))?;
+                    if !vm.heap.shapes[sid]
+                        .names
+                        .iter()
+                        .any(|&n| vm.bytes_of(n) == key.as_bytes())
+                    {
+                        return Err(format!("unknown transient field {name}.{key}"));
+                    }
+                    policy.transient.insert(key);
+                }
+            }
+            let before = field(vm, v, "beforeSave");
+            let after = field(vm, v, "afterLoad");
+            policy.before_save_value = callback(vm, before)?;
+            policy.after_load_value = callback(vm, after)?;
+            if out.shapes.insert(name.clone(), policy).is_some() {
+                return Err(format!("duplicate policy for {name}"));
+            }
+        }
+        let mut names = HashSet::new();
+        for shape in &vm.heap.shapes {
+            if !names.insert(out.name(&shape.name)) {
+                return Err("duplicate durable shape name".into());
+            }
+        }
+        Ok(out)
+    })();
+    vm.close_scope(scope);
+    result
+}
+
+fn run_value_hook(vm: &mut Interp, hook: Value, value: Value, phase: &str) -> Result<()> {
+    // A failed/parking callback must not leave scratch tasks, root scopes, or
+    // result buffers in the caller. Preserve the caller's multiple-return state.
+    let scope = vm.open_scope();
+    vm.handles.extend([hook, value]);
+    let tasks = vm.tasks.len();
+    let extra = vm.extra;
+    let extra_n = vm.extra_n;
+    let nres = vm.last_nres;
+    vm.handles.extend(extra);
+    vm.persistence_hook_depth += 1;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vm.call_value(hook, &[value])
+    }));
+    vm.persistence_hook_depth -= 1;
+    let result = result.map(|_| ()).map_err(|payload| {
+        let value = vm.error_value(payload);
+        let message = if value
+            .as_obj()
+            .is_some_and(|p| vm.heap.is_live_slot(p) && unsafe { p.as_ref().is_stringish() })
+        {
+            String::from_utf8_lossy(vm.bytes_of(value)).into_owned()
+        } else {
+            format!("value {:#x}", value.0)
+        };
+        format!("{phase} hook: {message}")
+    });
+    vm.tasks.truncate(tasks);
+    vm.extra = extra;
+    vm.extra_n = extra_n;
+    vm.last_nres = nres;
+    vm.close_scope(scope);
+    result
 }
 
 struct Writer(Vec<u8>);
@@ -169,6 +336,15 @@ fn unframe(data: &[u8], kind: u8) -> Result<&[u8]> {
         return Err("persistence checksum mismatch".into());
     }
     Ok(data)
+}
+
+/// Identity of the image occupying function IDs starting at zero. Linked
+/// objects can reattach only after comparing this to their build-time digest.
+pub fn primary_image_hash(vm: &Interp) -> Result<[u8; 32]> {
+    match vm.code_events.first() {
+        Some(CodeEvent::Image(text)) => Ok(Sha256::digest(text.as_bytes()).into()),
+        _ => Err("linked code requires an image loaded before runtime globals".into()),
+    }
 }
 
 /// Conservative code identity: function bodies, signatures, constant contents,
@@ -508,6 +684,7 @@ fn save_graph_with(
 ) -> Result<Vec<u8>> {
     let scope = vm.open_scope();
     vm.handles.extend_from_slice(roots);
+    policies.root_callbacks(vm);
     let result = (|| {
         let mut graph = GraphWriter::new();
         graph.roots = graph.values(vm, roots)?;
@@ -545,6 +722,9 @@ fn save_graph_with(
                     .clone();
                 if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.before_save) {
                     hook(vm, v)?;
+                }
+                if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.before_save_value) {
+                    run_value_hook(vm, hook, v, "beforeSave")?;
                 }
             }
             let h = unsafe { p.as_ref() };
@@ -965,6 +1145,7 @@ fn load_graph_with(
         }
     }
     let scope = vm.open_scope();
+    policies.root_callbacks(vm);
     if let Some(v) = target {
         vm.handles.push(v);
     }
@@ -1006,7 +1187,8 @@ fn load_graph_with(
                     let field = String::from_utf8_lossy(vm.bytes_of(shape.names[index]));
                     let deferred = matches!(value, Ref::Bits(n) if *n == Value::NIL.0)
                         && policies.shapes.get(&shape.name).is_some_and(|p| {
-                            p.transient.contains(field.as_ref()) && p.after_load.is_some()
+                            p.transient.contains(field.as_ref())
+                                && (p.after_load.is_some() || p.after_load_value.is_some())
                         });
                     let fits = match shape.types[index] {
                         SlotTy::Any => true,
@@ -1157,25 +1339,29 @@ fn load_graph_with(
                 vm.heap.barrier(p, child);
             }
         }
+        // Recreate all external identities before object hooks can consult them.
+        // Resource codecs see relocated VM edges, but must not assume another
+        // resource's external state is ready until this pass has completed.
         for (i, n) in g.nodes.iter().enumerate() {
-            let v = objects[i];
-            match n {
-                Node::Record(s, ..) => {
-                    let name = &vm.heap.shapes[shape_ids[*s] as usize].name;
-                    if let Some(hook) = policies.shapes.get(name).and_then(|p| p.after_load) {
-                        hook(vm, v)?;
-                    }
+            if let Node::Resource(kind, data) = n {
+                codecs
+                    .as_deref_mut()
+                    .unwrap()
+                    .get_mut(kind)
+                    .unwrap()
+                    .restore(vm, objects[i], data)?;
+                vm.resources.insert(objects[i], kind.clone());
+            }
+        }
+        for (i, n) in g.nodes.iter().enumerate() {
+            if let Node::Record(s, ..) = n {
+                let name = vm.heap.shapes[shape_ids[*s] as usize].name.clone();
+                if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.after_load) {
+                    hook(vm, objects[i])?;
                 }
-                Node::Resource(kind, data) => {
-                    codecs
-                        .as_deref_mut()
-                        .unwrap()
-                        .get_mut(kind)
-                        .unwrap()
-                        .restore(vm, v, data)?;
-                    vm.resources.insert(v, kind.clone());
+                if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.after_load_value) {
+                    run_value_hook(vm, hook, objects[i], "afterLoad")?;
                 }
-                _ => {}
             }
         }
         validate_types(vm, &objects)?;
@@ -1245,6 +1431,7 @@ pub fn save_vm(
     policies: &Policies,
     codecs: &mut ResourceCodecs,
 ) -> Result<Vec<u8>> {
+    policies.checkpoint_safe()?;
     safepoint(vm)?;
     let recorded: usize = vm
         .code_events
@@ -1449,6 +1636,7 @@ fn frame_positions(vm: &Interp, t: &Task) -> Result<(usize, Vec<usize>)> {
 /// not execute module initializers. Code is verified, graph edges relocated,
 /// then host resources rebound before the caller can resume any task.
 pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) -> Result<Interp> {
+    policies.checkpoint_safe()?;
     let mut r = Reader {
         data: unframe(data, 1)?,
         at: 0,

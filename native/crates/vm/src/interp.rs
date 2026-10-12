@@ -299,6 +299,7 @@ impl Function {
 }
 
 pub struct Interp {
+    pub(crate) persistence_hook_depth: usize,
     pub(crate) code_events: Vec<crate::persist::CodeEvent>,
     pub(crate) execution_depth: std::rc::Rc<std::cell::Cell<usize>>,
     /// Extension-owned objects. Registering one roots its identity until released.
@@ -439,7 +440,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { persistence_hook_depth: 0, code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -791,6 +792,7 @@ impl Interp {
     pub fn host_call(&mut self, id: u32, args: &[Value]) -> Result<crate::builtins::Outs, u64> {
         use crate::host::{Req, HOST_BASE};
         let k = (id - HOST_BASE) as usize;
+        if self.persistence_hook_depth != 0 && k < 5 { self.err("persistence hooks cannot park for host services"); }
         let text = |it: &Interp, i: usize| -> String { args.get(i).map(|v| it.bytes_of(*v)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default() };
         let num = |i: usize| -> f64 { args.get(i).map(|v| v.as_num()).unwrap_or(0.0) };
         let mut outs = crate::builtins::Outs::new();
@@ -861,7 +863,7 @@ impl Interp {
         let k = self.intern("sha256"); self.set_index(digest, k, Value::builtin(crate::builtins::id_of("vm.sha256").unwrap()));
         self.loaded.insert("nupp.digest.internal.sha256".into(), digest);
         let persistence = self.new_table(); self.registered.push(persistence);
-        for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
+        for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }

@@ -12,7 +12,7 @@ use nupp_vm::host::Host;
 use nupp_vm::image;
 use nupp_vm::interp::{Interp, Outcome, State};
 use nupp_vm::value::Value;
-#[cfg(feature = "aot-linked")]
+#[cfg(feature = "aot")]
 use sha2::Digest;
 
 #[cfg(feature = "aot-linked")]
@@ -125,23 +125,33 @@ fn main() {
         println!("verified {} functions", it.funcs.len());
         return;
     }
-    if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE]"); std::process::exit(2); }
+    if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE]"); std::process::exit(2); }
+    let restoring = args[1] == "restore";
+    let mut checkpoint: Option<String> = None;
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
     while i < args.len() {
         match args[i].as_str() {
+            "--checkpoint" if i + 1 < args.len() => { checkpoint = Some(args[i + 1].clone()); i += 2; }
             "--load" if i + 1 < args.len() => { additional_images.push(args[i + 1].clone()); i += 2; } "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 2; } "--host" => { host = true; i += 1; } "--setup" => { setup = Some(args[i + 1].clone()); i += 2; } a => { call_args_text.push(a.to_string()); i += 1; } }
     }
-    let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
-    let mut it = Interp::new();
+    if restoring && (host || !additional_images.is_empty()) { eprintln!("restore cannot replace the saved host or load extra images before native binding"); std::process::exit(2); }
     if std::env::var("BUILTIN_STATS").is_ok() { builtins::STATS.store(true, std::sync::atomic::Ordering::Relaxed); }
     if std::env::var("TABLE_STATS").is_ok() { nupp_vm::interp::TABLE_STATS.store(true, std::sync::atomic::Ordering::Relaxed); }
     let t0 = cpu_now();
-    image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
-    for path in additional_images {
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| { eprintln!("{path}: {e}"); std::process::exit(1) });
-        image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
-    }
+    let mut it = if restoring {
+        let data = std::fs::read(&args[2]).unwrap_or_else(|e| { eprintln!("checkpoint {}: {e}", args[2]); std::process::exit(1) });
+        nupp_vm::persist::load_vm(&data, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("restore: {e}"); std::process::exit(1) })
+    } else {
+        let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
+        let mut vm = Interp::new();
+        image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+        for path in additional_images {
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| { eprintln!("{path}: {e}"); std::process::exit(1) });
+            image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
+        }
+        vm
+    };
     let load_s = cpu_now() - t0;
     it.entries = vec![0u64; it.funcs.len()];
     it.prepare_threaded();
@@ -151,12 +161,13 @@ fn main() {
     let aot_consts: Vec<u64> = it.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
     #[cfg(feature = "aot-linked")]
     if !aot_entries.is_empty() {
-        let digest: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
+        let digest = nupp_vm::persist::primary_image_hash(&it).unwrap_or_else(|e| { eprintln!("aot: {e}"); std::process::exit(1) });
         if aot_link::image_hash() != digest {
             eprintln!("aot: linked object was built for another image");
             std::process::exit(1);
         }
-        for (fid, ptr) in &aot_entries { it.entries[*fid] = *ptr; }
+        for (fid, ptr) in &aot_entries { if *fid >= it.entries.len() { eprintln!("aot: linked function ID outside restored image"); std::process::exit(1); } it.entries[*fid] = *ptr; }
+        eprintln!("aot: attached {} linked entries{}", aot_entries.len(), if restoring { " after restore" } else { "" });
         it.calltab = it.funcs.iter().map(|f| {
             let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
             f.nparams as u64 | ((plain as u64) << 8)
@@ -215,9 +226,9 @@ fn main() {
         eprintln!("jit: compiled {compiled} functions in {:.2} ms; refused {}{}", compile_s * 1e3, refused.len(), if refused.is_empty() { String::new() } else { format!(": {}", refused.join(", ")) });
         Some(j) }
     } else { None };
-    it.install_globals();
+    if !restoring { it.install_globals(); }
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
-    let module = it.require(&args[3]);
+    let module = if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else { it.require(&args[3]) };
     if let Some(name) = &setup { let k = it.intern(name); let sf = it.get_index(module, k); let t = it.spawn_closure(sf, &[]); drive(&mut it, &[t]); it.tasks.truncate(t); }
     let k = it.intern(&args[4]); let f = it.get_index(module, k);
     if f == Value::NIL { eprintln!("{}.{} is nil", args[3], args[4]); std::process::exit(1); }
@@ -257,6 +268,11 @@ fn main() {
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let m = samples[samples.len() / 2];
         println!("median {:.3} ms over {repeat}\tmin {:.3} ms", m * 1e3, samples[0] * 1e3);
+    }
+    if let Some(path) = checkpoint {
+        let bytes = nupp_vm::persist::save_vm(&mut it, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("checkpoint: {e}"); std::process::exit(1) });
+        std::fs::write(&path, &bytes).unwrap_or_else(|e| { eprintln!("checkpoint {path}: {e}"); std::process::exit(1) });
+        eprintln!("checkpoint: wrote {} bytes", bytes.len());
     }
     if std::env::var("BUILTIN_STATS").is_ok() { let c = builtins::CALLS.lock().unwrap(); let mut rows: Vec<(usize, u64)> = c.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect(); rows.sort_by(|a, b| b.1.cmp(&a.1)); eprintln!("builtin calls:"); for (i, n) in rows.iter().take(16) { eprintln!("  {n}\t{}", builtins::NAMES[*i]); } }
     if std::env::var("TABLE_STATS").is_ok() { let c: Vec<u64> = nupp_vm::interp::TABLE_COUNTS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("index reads: table by number {}, table by key {}, record by number {}, record by key {}, other {}; table key reads met hash parts of 0: {}, 1-4: {}, 5-16: {}, 17-64: {}, 65+: {}; stores by number {}, by key {}; tables made {}", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], nupp_vm::heap::NEW_TABLES.load(std::sync::atomic::Ordering::Relaxed)); }

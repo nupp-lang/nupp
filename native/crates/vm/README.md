@@ -442,8 +442,9 @@ interposition test, not an OS sandbox or console certification.
 
 The interpreter is linked explicitly and handles module chunks and the 16
 functions refused by the current lowering. The image still ships beside
-the executable. SIMD, compiled suspension, snapshot restore, plugin refusal
-and actual console SDK validation remain gates for the full no-JIT target.
+the executable on initial load. A checkpoint embeds its code recipe and can
+restore without that image file. SIMD, compiled suspension, plugin refusal and
+actual console SDK validation remain gates for the full no-JIT target.
 
 ## Compiler emitting images on the VM (2026-10-12)
 
@@ -574,13 +575,37 @@ local restored = persist.load(bytes)      -- same graph, new identities
 -- Optional nominal root check: persist.load(bytes, "module.Shape")
 ```
 
-Rust callers supply `Policies` for durable shape names, transient fields and
-before-save/after-load hooks. `load_into` preserves an existing record's identity.
+Nupp callers can supply explicit policies for durable shape names, transient
+fields and before-save/after-load hooks:
+
+```lua
+local policies: {persist.Policy} = {{
+    shape = player, -- record exemplar; an exact runtime shape name also works
+    name = "game.Player.v1",
+    transient = {"cache"},
+    afterLoad = function(value: any): nil
+        value.cache = rebuildCache(value)
+    end,
+}}
+local bytes = persist.save(player, policies)
+local restored = persist.load(bytes, nil, policies)
+persist.loadInto(bytes, player, policies) -- preserves player's identity
+```
+
+Hooks cannot suspend, run once per reachable record, and see all graph references
+relocated on restore. Transient values are excluded from traversal. Unknown fields,
+unknown/duplicate shape policies, and nonfunction hooks are rejected. Failure is a
+normal catchable error; scratch tasks and roots are cleaned up. Policies are scoped
+to the operation, not registered globally. Rust callers have the same mechanism
+through `Policies` and native function callbacks. Nupp closure callbacks belong to
+the current VM and are refused for cross-VM checkpoints; checkpoint resource and
+shape hooks are supplied by the embedding host. `load_into` preserves an existing record's identity.
 Shape fields/types must match; typed fields are checked throughout the graph.
 Transient typed fields require an after-load initializer. Hooks run after all
 references are resolved; hook errors can leave an in-place target modified.
-Selecting/excluding roots is the caller's responsibility. Nupp declarations for
-these policies and Tecs lifecycle integration remain future work.
+Selecting/excluding roots is the caller's responsibility. Tecs lifecycle,
+selection and skipped-value reporting remain future work; the current Tecs
+snapshot path uses LuaJIT FFI storage and needs that storage migration first.
 
 `save_vm` takes an embedding safepoint, outside active VM/native calls. It saves
 module globals, constant pools, shape methods, registered/scoped roots, every
@@ -595,7 +620,8 @@ bound to a SHA-256 of the complete code context, including module/function names
 
 External objects must be explicitly registered in `Interp::resources`. Ordinary
 value saves refuse them. Checkpoints require a named `ResourceCodec` to save and
-reconstruct each one in place, before tasks resume. Missing codecs identify the
+reconstruct each one in place. All resource restore callbacks finish before
+record after-load hooks run, and all hooks finish before tasks resume. Missing codecs identify the
 resource kind; pending host requests block checkpointing until completions are
 drained. Codecs own their external resource lifetime and failure cleanup. Tests
 exit the saving process, restore in a new process, reopen a real Rust-owned
@@ -649,3 +675,44 @@ names and in-place load, corruption/truncation, GC stress/oracle/quarantine,
 nested/vararg/typed parked frames, globals, JIT cache dropping, host-pool restart,
 resource refusal/restoration, and fresh-process continuation. The Nupp fixture
 is compiled by the VM compiler and runs on all three execution tiers.
+
+### Restore into a no-JIT executable (2026-10-12)
+
+The runner now supports saving after a completed call and restoring initialized
+module state in a fresh process:
+
+```sh
+nupp-vm run game.image game update --checkpoint game.save
+nupp-vm restore game.save game update --checkpoint next.save
+```
+
+Restore loads the checkpoint's code recipe without rerunning module initializers.
+An AOT-linked runner checks the primary image SHA-256 before binding any entry,
+then rebuilds the runtime address table from the restored constants, shapes,
+call metadata and entry array. It attaches the executable's stack maps and native
+functions; no serialized address is reused. A mismatched checkpoint is rejected
+before application execution. `NO_AOT=1` keeps restored calls interpreted.
+The CLI uses default host policies; custom resource codecs remain embedding API
+parameters. It calls the named initialized export; it does not automatically wake
+parked tasks or override a saved host with `--host`.
+
+`tests/no-jit-smoke.sh` now checks checkpoint restore as well as initial loading.
+With `tests/checkpoint.image checkpoint step` arguments, separate save/restore
+processes advance a captured counter from 1 to 2 to 3, with native and interpreted
+restore agreeing under GC stress. With the Nupp persistence fixture, the same
+harness exercises hook callbacks, failed-hook recovery and restored closures.
+Reproduce both fixtures with:
+
+```sh
+sh native/crates/vm/tests/no-jit-smoke.sh native/crates/vm/tests/checkpoint.image checkpoint step
+python3 native/crates/vm/tests/persistence-smoke.py /private/tmp/nupp-project.image /private/tmp/hooks.image
+sh native/crates/vm/tests/no-jit-smoke.sh /private/tmp/hooks.image main run
+```
+
+Both dependency and binary-symbol checks exclude Cranelift. The macOS executable
+memory interposer rejects allocation/protection requests during all runtime steps.
+Compiled suspension and console SDK validation remain separate gates.
+
+Hook failure testing also fixed native helper cleanup: the saved GC frame pointer
+is now restored by a drop guard when a callback raises, so the next allocation
+cannot walk an expired native frame.
