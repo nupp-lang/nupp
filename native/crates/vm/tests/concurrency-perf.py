@@ -30,6 +30,9 @@ with tempfile.TemporaryDirectory() as directory:
                 assert p.stdout.splitlines()[0] == expected, p.stdout
                 modes[mode].append(float(re.search(r"median ([\d.]+) ms", p.stdout)[1]))
                 first[mode].append(float(re.search(r"first call ([\d.]+) ms", p.stderr)[1]))
+                if mode == "compiled":
+                    entries = re.search(r"compiled frame entries: (\d+)", p.stderr)
+                    assert entries and int(entries[1]) > 0, p.stderr
                 if function == "worker" and mode == "compiled":
                     entry = re.search(r"worker compiled entries: (\d+); compile ([\d.]+) ms", p.stderr)
                     assert int(entry[1]) > 0, p.stderr

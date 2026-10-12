@@ -360,6 +360,7 @@ impl<M: Module> Compiler<M> {
             };
             if !frame && !ok { return Err(format!("{:?}", op)); }
         }
+        let frame_live = frame.then(|| crate::verify::liveness(f));
         let start = std::time::Instant::now();
         // The typed signature: float parameters as f64, the rest as value words.
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
@@ -428,10 +429,6 @@ impl<M: Module> Compiler<M> {
             if frame {
                 let header = params[0];
                 let c = b.ins().load(types::I64, flags, header, 16); b.def_var(closure_var, c);
-                for (i, &var) in rvars.iter().enumerate() { let v = b.ins().load(types::I64, flags, header, ((crate::interp::HDR + i) * 8) as i32); b.def_var(var, v); }
-                for (i, &var) in ivars.iter().enumerate() { let v = b.ins().load(types::I64, flags, header, ((f.off_i() + i) * 8) as i32); b.def_var(var, v); }
-                for (i, &var) in fvars.iter().enumerate() { let v = b.ins().load(types::F64, flags, header, ((f.off_f() + i) * 8) as i32); b.def_var(var, v); }
-                for (i, &var) in vvars.iter().enumerate() { let v = b.ins().load(types::F64X2, flags, header, ((f.off_v() + 2 * i) * 8) as i32); b.def_var(var, v); }
             }
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
@@ -452,8 +449,17 @@ impl<M: Module> Compiler<M> {
             let mut terminated = false;
             if frame {
                 let mut dispatch = cranelift_frontend::Switch::new();
-                for (&pc, &block) in &blocks { dispatch.set_entry(pc as u128, block); }
+                let loads: Vec<_> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
+                for &(pc, block) in &loads { dispatch.set_entry(pc as u128, block); }
                 dispatch.emit(&mut b, params[1], err_block);
+                for (pc, load) in loads {
+                    b.switch_to_block(load); b.seal_block(load);
+                    let live = &frame_live.as_ref().unwrap().0[pc];
+                    for (class, vars, ty, off, stride) in [(0, &rvars, types::I64, crate::interp::HDR, 1), (1, &ivars, types::I64, f.off_i(), 1), (2, &fvars, types::F64, f.off_f(), 1), (3, &vvars, types::F64X2, f.off_v(), 2)] {
+                        for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) { let v = b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32); b.def_var(var, v); } }
+                    }
+                    b.ins().jump(blocks[&pc], &[]);
+                }
                 terminated = true;
             }
             macro_rules! iv { ($i:expr) => { b.use_var(ivars[$i as usize]) } }
@@ -508,10 +514,37 @@ impl<M: Module> Compiler<M> {
                     Some(cont)
                 } else { None };
                 if frame && (crate::frame::boundary(op) || poll_cont.is_some()) {
-                    for (i, &var) in rvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((crate::interp::HDR + i) * 8) as i32); }
-                    for (i, &var) in ivars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_i() + i) * 8) as i32); }
-                    for (i, &var) in fvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_f() + i) * 8) as i32); }
-                    for (i, &var) in vvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_v() + 2 * i) * 8) as i32); }
+                    let live = &frame_live.as_ref().unwrap().0[pc];
+                    for (class, vars, off, stride) in [(0, &rvars, crate::interp::HDR, 1), (1, &ivars, f.off_i(), 1), (2, &fvars, f.off_f(), 1), (3, &vvars, f.off_v(), 2)] {
+                        for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((off + stride * i) * 8) as i32); } }
+                    }
+                    if poll_cont.is_none() {
+                        let pcv = b.ins().iconst(types::I64, pc as i64);
+                        let c = hcall!("j_frame_step", &[pcv]);
+                        let transfer = b.inst_results(c)[0];
+                        let leave = b.create_block(); let resume = b.create_block();
+                        b.ins().brif(transfer, leave, &[], resume, &[]);
+                        b.switch_to_block(leave); b.seal_block(leave);
+                        let done = b.ins().iconst(types::I64, -1); b.ins().return_(&[done]);
+                        b.switch_to_block(resume); b.seal_block(resume);
+                        // A completing operation keeps the same heap frame. A
+                        // call that grows or switches it always returns above.
+                        // The collector does not move objects. A completing
+                        // call only writes its result window; keep every other
+                        // live value in its native register across the helper.
+                        let live = &frame_live.as_ref().unwrap().1[pc];
+                        for (class, vars, ty, off, stride) in [(0, &rvars, types::I64, crate::interp::HDR, 1), (1, &ivars, types::I64, f.off_i(), 1), (2, &fvars, types::F64, f.off_f(), 1), (3, &vvars, types::F64X2, f.off_v(), 2)] {
+                            for (i, &var) in vars.iter().enumerate() {
+                                let changed = match *op {
+                                    Op::CallDyn(_, base, _) | Op::CallK(_, _, base, _, _) | Op::CallMethod(_, base, _) => class == 0 && i >= base as usize && i < base as usize + 8,
+                                    Op::Checkpoint => false,
+                                    _ => true,
+                                };
+                                if changed && live[class].contains(i as u8) { let v = b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32); b.def_var(var, v); }
+                            }
+                        }
+                        continue;
+                    }
                     let next = b.ins().iconst(types::I64, pc as i64);
                     b.ins().return_(&[next]);
                     if let Some(cont) = poll_cont {

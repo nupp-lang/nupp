@@ -84,6 +84,7 @@ pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
         ("j_frame_poll", j_frame_poll as *const u8, 0),
+        ("j_frame_step", j_frame_step as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
@@ -104,6 +105,31 @@ pub extern "C" fn j_frame_poll() -> u64 {
         return (*left == 0) as u64;
     }
     0
+}
+
+// A frame operation that completes immediately stays in the native entry.
+// Transfers are handed to the driver only after the native activation returns.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_step(pc: u64) -> u64 {
+    let it = ctx();
+    it.guarded(|it| {
+        let tid = it.native_task;
+        let pc = pc as usize;
+        if let Some(left) = it.instruction_budget.as_mut() {
+            if *left == 0 {
+                it.tasks[tid].note_pc(pc);
+                it.native_exit = Some(crate::interp::Step::Return(crate::interp::Outcome::Parked(0)));
+                return V(1);
+            }
+            *left -= 1;
+        }
+        let (win, _) = it.window(tid);
+        it.tasks[tid].note_pc(pc + 1);
+        match it.step(tid, &win, pc) {
+            crate::interp::Step::Next(next) => { assert_eq!(next, pc + 1); V(0) }
+            exit => { it.native_exit = Some(exit); V(1) }
+        }
+    }).0
 }
 
 // ---- runtime helpers --------------------------------------------------------

@@ -809,13 +809,12 @@ It loads the frame windows, runs ordinary lowered instructions, spills at calls,
 returns and parks, and returns to the VM driver. Every suspending call therefore
 uses heap frames, including dynamic calls and functions with varargs or wide
 signatures. `pcall` handlers are heap-frame records and can span suspension.
-The initial implementation spills all windows and routes storage operations
-through the driver; liveness-based spilling and performance tuning remain open.
+The initial implementation spilled all windows and routed storage operations
+through the driver. The live-register transfer follow-up below replaces that path.
 The CLI selects frame entries for images with cleanup regions as well as for
 `--tasks`. Ordinary native entries remain available for synchronous images
 without those regions.
-AOT frame-entry emission is not implemented; no-JIT builds execute these frames
-with the interpreter.
+The AOT follow-up below adds linked frame entries for no-JIT builds.
 
 Checkpoints include cleanup callbacks/receivers, protected-call frames, original
 error values and scheduler wait edges. They contain no native continuations.
@@ -972,3 +971,52 @@ ownership/task tests with GC stress/oracle/quarantine; persistence hooks on all
 three tiers; linked AOT worker and automatic-close fixtures with fresh-process
 restore and executable memory denied. The unread-channel test confirms collection
 releases queued native storage after all managed endpoints are dropped.
+
+
+## Live-register suspension transfers (2026-10-12)
+
+Native task suspension requires no reusable Lua coroutine. Each task owns its
+heap frame stack and continuation PC. Parking returns control to the scheduler;
+resumption enters that continuation. Coroutines and generators use this machinery
+as APIs, and released stack storage can be pooled without reusing a coroutine's
+logical identity. The legacy Lua/browser suspension providers remain separate.
+
+The frame compiler now loads only live-in registers at each continuation and
+spills only live-in registers at runtime boundaries. A guarded frame helper
+executes the operation against that saved frame. If it completes immediately,
+native execution continues; if it changes frames, parks, or finishes, the native
+activation returns a transfer status to the driver. An immediate call reloads
+only its live result registers, retaining other native values. Errors propagate
+through the existing sentinel path. Bounded worker turns still stop at native
+backedges and runtime operations, with no native activation retained when parked.
+
+The liveness pass now conservatively handles partial result writes, padding,
+trailing-call spreads, varargs, and typed call windows. Added regression tests
+carry boxed objects, multiple results, integers, floats, and vectors across calls
+and parks; the object/result test also saves and restores the parked VM.
+
+### Performance after the transfer change
+
+Same release harness and alternating-pair protocol as above, with positive native
+entry counts required for every compiled workload. Warm medians on the loaded
+machine; no other validation jobs were running during this measurement:
+
+| workload | interpreter | compiled frame tier | compiled first call |
+| --- | ---: | ---: | ---: |
+| sum 1..2,000,000 on main VM | 32.50 ms | 7.05 ms | 7.52 ms |
+| same sum in a fresh worker | 39.74 ms | 9.93 ms | 10.96 ms |
+| 10,000 cancellation checkpoints | 0.277 ms | 0.186 ms | 0.491 ms |
+| 10,000 channel send/receive pairs, same VM | 4.95 ms | 4.48 ms | 5.14 ms |
+| 10,000 coroutine resume/yield pairs | 7.59 ms | 7.30 ms | 8.30 ms |
+
+All five warmed workloads now favor compiled execution. Fresh worker compilation
+costs 0.208 ms and is included in every worker sample. First-use JIT compilation
+still outweighs the savings on tiny control workloads; linked AOT avoids that
+compilation cost. These results establish neither general program speedups nor
+multicore scaling. The coroutine row measures real handoffs; checkpoints only
+check cancellation. Compiled control-path regressions remain a release gate.
+
+Validation: default and no-JIT Rust suites; source task/ownership fixtures under
+GC stress, oracle, quarantine, and JIT verification; persistence hooks and restore
+on all three tiers; frame AOT cleanup and worker restore with executable memory
+denied. No Nupp compiler sources or bytecode format changed.

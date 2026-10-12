@@ -153,7 +153,7 @@ pub enum C { V, I, F, X }
 
 /// The register operands of an opcode by class, and its branch offsets.
 /// The fixed arguments a flagged count names: 128 appends the frame's
-/// varargs and 64 the last call's results, neither in named registers.
+/// varargs; 64 appends the last call's results in the argument registers.
 fn fixed_args(nargs: u8) -> u8 { if nargs >= 128 { nargs & 127 } else { nargs & 63 } }
 pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     use Op::*;
@@ -293,21 +293,24 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
     use Op::*;
     use C::*;
     let (all, _) = operands(op);
-    let first_def = |all: &Vec<(C, u8)>| (vec![all[0]], all[1..].to_vec());
+    let first_def = |all: &Vec<(C, u8)>| if all.is_empty() { (Vec::new(), Vec::new()) } else { (vec![all[0]], all[1..].to_vec()) };
     let none_def = |all: &Vec<(C, u8)>| (Vec::new(), all.clone());
+    let call_args = |n| fixed_args(n) + if n < 128 && n & 64 != 0 { 8 } else { 0 };
     match *op {
+        PadResults(..) => none_def(&all), // Only the missing results are overwritten.
+        VarargN(..) => (all.clone(), Vec::new()),
         // Every register named is read.
         SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
         | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
         // Read and written.
         BufAppend(b, s) | AffineMark(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
-        RetN(start, n) => { let n = if n >= 128 { 8 } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }
+        RetN(start, n) => { let n = if n >= 128 { (n & 127).saturating_add(8) } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }
         // Calls: arguments above the window base are read, results from the base written.
-        CallDyn(fr, base, nargs) => { let nargs = fixed_args(nargs); ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }
-        CallK(_, fr, base, nargs, nres) => { let nargs = nargs & 127; ((0..nres.max(1)).map(|i| (V, base + i)).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }
-        Call(_, base, nargs) => (vec![(V, base)], (1..=fixed_args(nargs)).map(|i| (V, base + i)).collect()),
-        CallMethod(_, base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=fixed_args(nargs)).map(|i| (V, base + i)).collect()),
-        PCall(base, nargs) => ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), (1..=fixed_args(nargs) + 1).map(|i| (V, base + i)).collect()),
+        // A dynamic result count guarantees only the first result slot is
+        // written (nil for no results). Preserve other slots conservatively.
+        CallDyn(fr, base, nargs) | CallK(_, fr, base, nargs, _) => (vec![(V, base)], std::iter::once((V, fr)).chain((1..=call_args(nargs)).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()),
+        Call(_, base, nargs) | CallMethod(_, base, nargs) => (vec![(V, base)], (1..=call_args(nargs)).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect()),
+        PCall(base, nargs) => (vec![(V, base)], (1..=call_args(nargs).saturating_add(1)).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect()),
         CallT(..) => (all.clone(), all.clone()),
         NewClosure(d, _, base, n) => (vec![(V, d)], (1..=n).map(|i| (V, base + i)).collect()),
         _ => first_def(&all),
@@ -331,7 +334,14 @@ pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
         s
     }).collect();
     let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
-        let (d, u) = defs_uses(op);
+        let (d, u) = if matches!(op, Op::CallT(..)) {
+            // Its callee signature determines the typed argument windows;
+            // this local pass does not have that signature.
+            (Vec::new(), (0..=f.nregs as u8).map(|r| (C::V, r))
+                .chain((0..f.nireg).map(|r| (C::I, r)))
+                .chain((0..f.nfreg).map(|r| (C::F, r)))
+                .chain((0..f.nvreg).map(|r| (C::X, r))).collect())
+        } else { defs_uses(op) };
         let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
         for (c, r) in d { ds[class_of(c)].insert(r); }
         for (c, r) in u { us[class_of(c)].insert(r); }
