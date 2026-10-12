@@ -1,0 +1,18 @@
+module main
+
+local persist = require("nupp.vm.persist")
+local main = {}
+
+function main.run(): number
+    local value: any = {count = 42}
+    value.self = value
+    local bytes = persist.save(value)
+    assert(type(bytes) == "string" and #bytes > 0)
+    local restored = persist.load(bytes)
+    assert(restored ~= value and restored.self == restored)
+    assert(restored.count == 42)
+
+    return restored.count
+end
+
+export = main

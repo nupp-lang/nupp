@@ -188,6 +188,19 @@ impl Header {
     #[inline]
     pub fn is_stringish(&self) -> bool { self.kind == KIND_STR || self.kind == KIND_SLICE }
 
+    /// Bytes owned outside the inline allocation. A host mutating these raw
+    /// payloads must report capacity changes through Heap::account_resize.
+    pub fn external_bytes(&self) -> usize {
+        match self.kind {
+            KIND_TABLE => { let t = self.table_ref(); 8 * t.array.capacity() + 16 * t.hash.capacity() },
+            KIND_RECORD => 8 * self.record_array_ref().capacity() + self.record_extra_ref().as_ref().map(|m| std::mem::size_of::<ValueTable>() + 16 * m.capacity()).unwrap_or(0),
+            KIND_STORAGE => unsafe { 8 * (*(self.payload() as *const StoragePayload)).data.capacity() },
+            KIND_BYTES => unsafe { (*(self.payload() as *const BytesPayload)).data.capacity() },
+            KIND_ITER => unsafe { 8 * (*(self.payload() as *const IterPayload)).keys.capacity() },
+            _ => 0,
+        }
+    }
+
     /// Re-mirrors the payload pointer and length after a growable payload
     /// changed (2.1: the runtime keeps them current whenever a payload moves).
     pub fn refresh(&mut self) {
@@ -279,7 +292,7 @@ pub struct Heap {
     /// Freed objects stay as tombstones.
     pub quarantine: bool,
     pub shapes: Vec<Shape>,
-    interned: HashMap<Box<str>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
+    interned: HashMap<Box<[u8]>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
     pub stats: Stats,
     pub alloc_kinds: [u64; 10],
     /// 1 while marking: the threaded core reads it to decide whether a store
@@ -303,6 +316,13 @@ impl Heap {
         for (i, n) in names.iter().enumerate() { let mut k = slot_hash(n.0) & mask; while table[k as usize].0 != 0 { k = (k + 1) & mask; } table[k as usize] = (n.0, i as u32); }
         self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new(), table, mask });
         (self.shapes.len() - 1) as u32
+    }
+
+    /// Keep GC pacing and retained-byte accounting consistent with native
+    /// payload capacities, including relocation into freshly restored objects.
+    pub fn account_resize(&mut self, before: usize, after: usize) {
+        if after >= before { self.live_bytes += after - before; self.debt += after - before; }
+        else { self.live_bytes -= before - after; }
     }
 
     // ---- allocation -----------------------------------------------------
@@ -394,16 +414,18 @@ impl Heap {
     /// so equality is identity. The intern table is weak (4.12): a hit while
     /// marking greys a white string; a hit while sweeping on a string an
     /// earlier cycle whitened is a miss, never a resurrection.
-    pub fn intern(&mut self, s: &str, roots: &dyn Roots) -> Value {
-        if let Some(v) = self.intern_lookup(s) { return v; }
-        let v = self.new_string(s, roots);
+    pub fn intern(&mut self, s: &str, roots: &dyn Roots) -> Value { self.intern_bytes(s.as_bytes(), roots) }
+    pub fn intern_bytes(&mut self, s: &[u8], roots: &dyn Roots) -> Value {
+        if let Some(v) = self.intern_lookup_bytes(s) { return v; }
+        let v = self.new_string_bytes(s, roots);
         let p = v.as_obj().unwrap();
-        unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(s.as_bytes()); }
+        unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(s); }
         self.interned.insert(s.into(), p);
         v
     }
     /// The interned string with these bytes, if one is alive, allocating nothing.
-    pub fn intern_lookup(&mut self, s: &str) -> Option<Value> {
+    pub fn intern_lookup(&mut self, s: &str) -> Option<Value> { self.intern_lookup_bytes(s.as_bytes()) }
+    pub fn intern_lookup_bytes(&mut self, s: &[u8]) -> Option<Value> {
         let p = *self.interned.get(s)?;
         unsafe {
             let h = &mut *p.as_ptr();
@@ -437,7 +459,7 @@ impl Heap {
             (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueTable::with_capacity(m), meta: Value::NIL });
             h.refresh();
         }
-        self.live_bytes += 8 * n + 24 * m; self.debt += 8 * n + 24 * m;
+        self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         Value::obj(p)
     }
     pub fn new_table(&mut self, roots: &dyn Roots) -> Value { self.new_table_sized(0, 0, roots) }
@@ -470,6 +492,7 @@ impl Heap {
         // Allocation is black during marking; initial references need the
         // same insertion barrier as later stores.
         if self.phase == Phase::Marking { self.scan(p); }
+        self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         Value::obj(p)
     }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value {
@@ -482,6 +505,7 @@ impl Heap {
     pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
         unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: Vec::with_capacity(64) }); h.refresh(); }
+        self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         Value::obj(p)
     }
     pub fn new_storage(&mut self, n: usize, roots: &dyn Roots) -> Value {
@@ -652,16 +676,16 @@ impl Heap {
     fn free(&mut self, p: NonNull<Header>) {
         unsafe {
             let h = &mut *p.as_ptr();
-            self.live_bytes -= h.size as usize;
+            self.live_bytes -= h.size as usize + h.external_bytes();
             self.stats.freed += 1;
             self.live_count -= 1;
-            if h.flags & F_INTERNED != 0 { let s = std::str::from_utf8_unchecked(h.bytes()); self.interned.remove(s); }
+            if h.flags & F_INTERNED != 0 { self.interned.remove(h.bytes()); }
             match h.kind {
-                KIND_TABLE => { let t = h.table(); self.live_bytes = self.live_bytes.saturating_sub(8 * t.array.capacity() + 16 * t.hash.capacity()); std::ptr::drop_in_place(t); }
-                KIND_STORAGE => { let s = h.storage(); self.live_bytes = self.live_bytes.saturating_sub(8 * s.data.capacity()); std::ptr::drop_in_place(s); }
-                KIND_BYTES => { let b = h.byte_buffer(); self.live_bytes = self.live_bytes.saturating_sub(b.data.capacity()); std::ptr::drop_in_place(b); }
+                KIND_TABLE => { let t = h.table(); std::ptr::drop_in_place(t); }
+                KIND_STORAGE => { let s = h.storage(); std::ptr::drop_in_place(s); }
+                KIND_BYTES => { let b = h.byte_buffer(); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),
-                KIND_RECORD => { let a = h.record_array(); self.live_bytes = self.live_bytes.saturating_sub(8 * a.capacity()); std::ptr::drop_in_place(a); std::ptr::drop_in_place(h.record_extra()); }
+                KIND_RECORD => { let a = h.record_array(); std::ptr::drop_in_place(a); std::ptr::drop_in_place(h.record_extra()); }
                 _ => {}
             }
             let was = h.kind;
@@ -795,7 +819,7 @@ mod tests {
         r.0.borrow_mut().push(keep);
         for i in 0..5000 {
             let s = h.new_string(&format!("s{i}"), &r);
-            if i % 10 == 0 { let kp = keep.as_obj().unwrap(); h.barrier(kp, s); unsafe { let t = (*kp.as_ptr()).table(); t.array.push(s); (*kp.as_ptr()).refresh(); } }
+            if i % 10 == 0 { let kp = keep.as_obj().unwrap(); h.barrier(kp, s); unsafe { let before = (*kp.as_ptr()).external_bytes(); let t = (*kp.as_ptr()).table(); t.array.push(s); (*kp.as_ptr()).refresh(); h.account_resize(before, (*kp.as_ptr()).external_bytes()); } }
         }
         let before = h.object_count();
         h.full_cycle(&r);
@@ -855,7 +879,7 @@ mod tests {
             let t = h.new_table(&r);
             let lp = last.as_obj().unwrap();
             h.barrier(lp, t);
-            unsafe { (*lp.as_ptr()).table().array.push(t); (*lp.as_ptr()).refresh(); }
+            unsafe { let before = (*lp.as_ptr()).external_bytes(); (*lp.as_ptr()).table().array.push(t); (*lp.as_ptr()).refresh(); h.account_resize(before, (*lp.as_ptr()).external_bytes()); }
             if i % 7 == 0 { let s = h.intern(&format!("k{}", i % 50), &r); let tp = t.as_obj().unwrap(); h.barrier(tp, s); unsafe { (*tp.as_ptr()).table().hash.insert(s, Value::num(i as f64)); } }
             last = t;
         }

@@ -18,6 +18,7 @@ the image loader and verifier, and the host services on the parking surface.
 | `verify` | operand classes, branch and callee checks, fact re-derivation, def/use and liveness |
 | `image` | the loader for the emitter's text image |
 | `host` | a pool of host threads serving file, sleep, process and directory requests as plain data |
+| `persist` | versioned binary value graphs, shape policies, resource hooks and VM checkpoints |
 | `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
 | `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
 | `compiled` | runtime helpers, runtime address table and stack-map root walk, without Cranelift |
@@ -54,10 +55,10 @@ the image loader and verifier, and the host services on the parking surface.
 - **Roots** are every task's value windows down the caller chain, each
   frame's closure and vararg words, results, constant pools, handle scopes
   and registered handles; the heap walks shape names and methods itself.
-- **Snapshots are prepared for, not built.** `Heap::each_child` is the one
-  walk the marker and the oracle share and the serialiser will share; the
-  roots are enumerable through one trait; task stacks are plain words. The
-  serialiser and the restore path are P5 work.
+- **Binary graphs and VM checkpoints are implemented.** `persist` shares
+  `Heap::each_child` with the collector, preserves graph identity, and relocates
+  parked frames into a fresh VM. The persistence section below records the
+  tested scope and the remaining Tecs/worker integration gates.
 
 ## Running
 
@@ -553,3 +554,98 @@ requires the unavailable standalone worker host, and the unchanged
 `spiinterfacetest/runtimeImplementationInterfacesArePublic` fixture declares
 `application` while being checked as `typed-interface.nupp`. Native VM tests
 pass with and without the JIT feature.
+
+## Binary graphs and VM checkpoints (2026-10-12)
+
+`persist::save_graph` writes VM objects directly. Object IDs preserve cycles,
+shared references and object keys. Numeric storage and byte buffers use raw
+little-endian spans. Strings are byte strings, including interned non-UTF-8 keys;
+slices retain their source/range. Tables, metatables, record slots/children/overflow,
+closures, cells and iterator positions are covered. Loading allocates objects,
+relocates references and rebuilds hash tables using their new keys. It does not
+copy native pointers or require per-type generated codecs.
+
+The experimental Nupp module is `require("nupp.vm.persist")`:
+
+```lua
+local persist = require("nupp.vm.persist")
+local bytes = persist.save(value)          -- binary string
+local restored = persist.load(bytes)      -- same graph, new identities
+-- Optional nominal root check: persist.load(bytes, "module.Shape")
+```
+
+Rust callers supply `Policies` for durable shape names, transient fields and
+before-save/after-load hooks. `load_into` preserves an existing record's identity.
+Shape fields/types must match; typed fields are checked throughout the graph.
+Transient typed fields require an after-load initializer. Hooks run after all
+references are resolved; hook errors can leave an in-place target modified.
+Selecting/excluding roots is the caller's responsibility. Nupp declarations for
+these policies and Tecs lifecycle integration remain future work.
+
+`save_vm` takes an embedding safepoint, outside active VM/native calls. It saves
+module globals, constant pools, shape methods, registered/scoped roots, every
+task and its value/integer/float/vector windows, varargs, return locations, park
+keys, result counts and idle host-pool configuration. `load_vm` creates a fresh
+VM without rerunning module initializers. Native entries/caches are dropped;
+execution initially resumes in the interpreter. The embedding host can attach
+its compilation policy again. The image loading recipe travels with the file,
+so the compiler source checkout is not needed to reconstruct code (application
+operations may still read source files). Code/closure identity is conservatively
+bound to a SHA-256 of the complete code context, including module/function names.
+
+External objects must be explicitly registered in `Interp::resources`. Ordinary
+value saves refuse them. Checkpoints require a named `ResourceCodec` to save and
+reconstruct each one in place, before tasks resume. Missing codecs identify the
+resource kind; pending host requests block checkpointing until completions are
+drained. Codecs own their external resource lifetime and failure cleanup. Tests
+exit the saving process, restore in a new process, reopen a real Rust-owned
+file at its saved offset, and resume a task holding that same resource identity.
+A separate test restores Rust-owned mutable counter state. The current buffered
+`io.open` implementation already holds file contents as VM data.
+
+This covers the current VM, including its host request pool. Nupp worker VMs and
+channels do not exist here yet; their coordinated checkpoint gate remains open.
+Compiled `Park` is still refused by the real typed tier, so parked-frame proof is
+for both interpreter loops; a separate test drops actual JIT entries on restore.
+The format has versioned framing, CRC32 corruption detection, bounded lengths,
+reference/schema validation and a 256 MiB limit. It is not an authenticated or
+untrusted-bytecode security boundary, nor a stable released file format.
+
+### Measurements
+
+macOS arm64, release build without Cranelift, median of nine measured iterations
+after three warmups. GC cleanup is outside the graph timing. VM save time is the
+pause time; these are memory operations, excluding disk I/O and resource hooks.
+
+| fixture | graph bytes | graph save / load | VM save / restore | harness peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 10,000 two-field records | 400,136 | 1.30 / 1.48 ms | 1.34 / 1.48 ms | 11.3 MiB |
+| three numeric column groups, 10,000 entities | 320,193 | 0.02 / 0.02 ms | 0.04 / 0.04 ms | 5.5 MiB |
+| 16 MiB byte buffer | 16,777,315 | 1.00 / 0.84 ms | 1.99 / 1.33 ms | 99.3 MiB |
+
+Peak RSS includes the live source VM, retained encoded graph/checkpoint buffers,
+temporary save output and restored VM in the benchmark process. The fixtures
+measure the runtime mechanism; they are **not** the actual Tecs snapshot benchmark
+or evidence of meeting its acceptance target. That integration remains open.
+The live compiler also checkpoints after compiling a project: a 23,815,485-byte
+snapshot saved in 102 ms and restored in 183 ms, then emitted an identical program.
+These timings are directional on the shared machine.
+
+This work also fixed UTF-8 assumptions in binary string interning and incorrect
+allocation/free accounting for growable native payloads. Repeated restore/GC now
+returns retained bytes to zero; collector debt includes payload growth.
+
+```sh
+cargo test -p nupp-vm --lib --tests
+cargo test -p nupp-vm --no-default-features --lib --tests
+cargo build --release -p nupp-vm
+python3 native/crates/vm/tests/persistence-smoke.py /private/tmp/nupp-project.image
+cargo run --release -p nupp-vm --no-default-features --example persistence_bench
+cargo run --release -p nupp-vm --no-default-features --example checkpoint_compiler -- /private/tmp/nupp-project.image
+```
+
+The tests cover cycles/aliases, every object kind, typed schema rejection, durable
+names and in-place load, corruption/truncation, GC stress/oracle/quarantine,
+nested/vararg/typed parked frames, globals, JIT cache dropping, host-pool restart,
+resource refusal/restoration, and fresh-process continuation. The Nupp fixture
+is compiled by the VM compiler and runs on all three execution tiers.

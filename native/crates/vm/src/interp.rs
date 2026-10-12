@@ -283,6 +283,7 @@ pub struct Task {
 }
 
 impl Task {
+    pub(crate) fn restored(stack: Vec<u64>, cur: usize, state: State, deliver_at: usize) -> Self { Self { stack, cur, state, deliver_at, result: Value::NIL, results: Vec::new() } }
     pub fn cur(&self) -> usize { self.cur }
     pub fn set_cur(&mut self, s: usize) { self.cur = s; }
     /// Records the top frame's pc in its header, where the backtrace reads it.
@@ -298,6 +299,10 @@ impl Function {
 }
 
 pub struct Interp {
+    pub(crate) code_events: Vec<crate::persist::CodeEvent>,
+    pub(crate) execution_depth: std::rc::Rc<std::cell::Cell<usize>>,
+    /// Extension-owned objects. Registering one roots its identity until released.
+    pub resources: std::collections::HashMap<Value, String>,
     pub heap: Heap,
     /// The host services, once started.
     pub host: Option<crate::host::Host>,
@@ -374,7 +379,7 @@ pub struct Interp {
     pub pending_error: Option<Value>,
 }
 
-struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; 8], extra_n: usize, pending: Option<Value> }
+struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; 8], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String> }
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
@@ -399,6 +404,7 @@ impl Roots for TaskRoots<'_> {
         }
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
+        for &v in self.resources.keys() { f(v); }
         for &v in self.registered { f(v); }
         for &v in &self.extra[..self.extra_n.min(8)] { f(v); }
         if let Some(e) = self.pending { f(e); }
@@ -424,7 +430,7 @@ pub enum Flow { Next, Reenter, Return(Outcome) }
 /// (re-derive the windows), or the task's outcome.
 pub enum Step { Next(usize), Reenter, Return(Outcome) }
 
-macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n, pending: $self.pending_error } } }
+macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n, pending: $self.pending_error, resources: &$self.resources } } }
 
 /// The header behind an object value, or an error; the message is built
 /// only on the error path.
@@ -433,9 +439,10 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
+    pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
 
     // ---- tasks and frames -------------------------------------------------
@@ -682,6 +689,7 @@ impl Interp {
     /// Calls any callable value on a scratch task and returns every result:
     /// the path for builtins that call back (gsub) and for module chunks.
     pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
+        let _execution = crate::persist::Execution::enter(&self.execution_depth);
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
             let h = hdr!(self, callee, &format!("call_value of a non-function {:#x}", callee.0));
@@ -826,6 +834,7 @@ impl Interp {
     /// The global tables the compiler's modules reach for (`bit`, `os`, `io`,
     /// `package`, `_G`), served by `require` as runtime-provided modules.
     pub fn install_globals(&mut self) {
+        self.code_events.push(crate::persist::CodeEvent::Globals);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
         self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
@@ -851,6 +860,9 @@ impl Interp {
         let digest = self.new_table(); self.registered.push(digest);
         let k = self.intern("sha256"); self.set_index(digest, k, Value::builtin(crate::builtins::id_of("vm.sha256").unwrap()));
         self.loaded.insert("nupp.digest.internal.sha256".into(), digest);
+        let persistence = self.new_table(); self.registered.push(persistence);
+        for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
+        self.loaded.insert("nupp.vm.persist".into(), persistence);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
@@ -899,7 +911,7 @@ impl Interp {
     pub fn new_string_bytes(&mut self, b: &[u8]) -> Value { self.heap.new_string_bytes(b, roots!(self)) }
     /// A string with these bytes: interned when short (1.3), fresh otherwise.
     pub fn string_of(&mut self, b: &[u8]) -> Value {
-        if b.len() <= 40 { let s = unsafe { std::str::from_utf8_unchecked(b) }.to_string(); self.intern(&s) } else { self.new_string_bytes(b) }
+        if b.len() <= 40 { self.intern_bytes(b) } else { self.new_string_bytes(b) }
     }
 
     pub fn bytes_of(&self, v: Value) -> &[u8] {
@@ -929,13 +941,13 @@ impl Interp {
     /// key is absent.
     fn key_of(&mut self, key: Value) -> Option<Value> {
         if let Some(h) = key.as_obj().map(|p| unsafe { &*p.as_ptr() }) {
-            if h.kind == KIND_SLICE || (h.kind == KIND_STR && h.flags & heap::F_INTERNED == 0) { let s = unsafe { std::str::from_utf8_unchecked(h.bytes()) }.to_string(); return self.heap.intern_lookup(&s); }
+            if h.kind == KIND_SLICE || (h.kind == KIND_STR && h.flags & heap::F_INTERNED == 0) { return self.heap.intern_lookup_bytes(h.bytes()); }
         }
         Some(key)
     }
     /// The key as stored: interned when it is a slice or an uninterned string.
     pub fn key_for_store(&mut self, key: Value) -> Value {
-        match self.key_of(key) { Some(k) => k, None => { let s = unsafe { std::str::from_utf8_unchecked(self.bytes_of(key)) }.to_string(); self.intern(&s) } }
+        match self.key_of(key) { Some(k) => k, None => { let s = self.bytes_of(key).to_vec(); self.intern_bytes(&s) } }
     }
 
     pub fn get_index(&self, tv: Value, key: Value) -> Value {
@@ -956,16 +968,18 @@ impl Interp {
         self.heap.barrier(p, iv);
         self.heap.barrier(p, v);
         let h = unsafe { &mut *p.as_ptr() };
+        let before = h.external_bytes();
         match h.kind {
             // `t[#t] = nil` shrinks the array part, as Lua's border rule reads it.
             KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { if v != Value::NIL { t.array.push(v) } } else { t.array[k - 1] = v; if v == Value::NIL && k == t.array.len() { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } } } } else { t.hash.insert(iv, v); } h.refresh(); }
             // A record written by name: the shape is closed, so an unknown name is an error.
             KIND_RECORD => {
-                if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } return; } self.err("record index outside its children") }
+                if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } self.heap.account_resize(before, h.external_bytes()); return; } self.err("record index outside its children") }
                 let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
             }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
+        self.heap.account_resize(before, h.external_bytes());
     }
     /// A slot access whose object is not of the shape the site assumed (a
     /// struct-shaped table cast to the record, say): by the slot's name.
@@ -1013,7 +1027,7 @@ impl Interp {
     pub fn tagcheck_rec(&self, v: Value, shape: u32) { let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } }
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
     pub fn array_get(&self, t: Value, i: usize) -> Value { hdr!(self, t, "not a table").table_ref().array[i] }
-    pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { let h = &mut *p.as_ptr(); h.table().array.push(v); h.refresh(); } }
+    pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { let h = &mut *p.as_ptr(); let before = h.external_bytes(); h.table().array.push(v); h.refresh(); self.heap.account_resize(before, h.external_bytes()); } }
     pub fn pop_array(&mut self, t: Value) { let h = hdr!(self, t, "not a table"); let a = if h.kind == KIND_RECORD { h.record_array() } else { &mut h.table().array }; while a.last() == Some(&Value::NIL) { a.pop(); } h.refresh(); }
     /// Every key of a table, array part first, for `pairs` and `next`.
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
@@ -1041,15 +1055,19 @@ impl Interp {
     pub fn buf_finish(&mut self, buf: Value) -> Value {
         let h = hdr!(self, buf, "finish of a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
+        let before = h.external_bytes();
         let bytes = std::mem::take(&mut h.byte_buffer().data);
         h.refresh();
+        self.heap.account_resize(before, h.external_bytes());
         self.string_of(&bytes)
     }
     pub fn buf_append(&mut self, buf: Value, text: &[u8]) {
         let h = hdr!(self, buf, "append to a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
+        let before = h.external_bytes();
         h.byte_buffer().data.extend_from_slice(text);
         h.refresh();
+        self.heap.account_resize(before, h.external_bytes());
     }
     pub fn concat(&mut self, x: Value, y: Value) -> Value {
         let mut joined: Vec<u8> = Vec::new();
@@ -1085,6 +1103,7 @@ impl Interp {
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
     pub fn run_rust(&mut self, tid: usize) -> Outcome {
+        let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         loop {
             let (win, mut pc) = self.window(tid);
@@ -1446,7 +1465,7 @@ impl Interp {
                 // The enforced write (2.5): an untyped store into a record checks
                 // the slot's declared type, so typed reads never check.
                 let sh = &self.heap.shapes[h.shape() as usize];
-                let i = match sh.slot_of(name) { Some(i) => i, None => { h.record_extra().get_or_insert_with(Default::default).insert(name, v); return; } };
+                let i = match sh.slot_of(name) { Some(i) => i, None => { let before = h.external_bytes(); h.record_extra().get_or_insert_with(Default::default).insert(name, v); self.heap.account_resize(before, h.external_bytes()); return; } };
                 if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
                 h.slots_mut()[i] = v;
             }

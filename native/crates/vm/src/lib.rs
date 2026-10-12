@@ -18,3 +18,5 @@ pub mod jit;
 
 #[cfg(feature = "compiled-runtime")]
 pub mod compiled;
+
+pub mod persist;

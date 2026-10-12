@@ -18,7 +18,8 @@ pub enum Done { Text(Result<String, String>), Unit(Result<(), String>), Exit(Res
 pub struct Host {
     tx: Sender<(u64, Req)>,
     rx: Receiver<(u64, Done)>,
-    next: u64,
+    pub(crate) next: u64,
+    pub(crate) threads: usize,
     pub outstanding: usize,
 }
 
@@ -44,7 +45,7 @@ impl Host {
                 if done_tx.send((key, done)).is_err() { return; }
             });
         }
-        Host { tx, rx, next: 1, outstanding: 0 }
+        Host { tx, rx, next: 1, threads, outstanding: 0 }
     }
     pub fn submit(&mut self, req: Req) -> u64 { let key = self.next; self.next += 1; self.outstanding += 1; self.tx.send((key, req)).expect("host thread"); key }
     /// A completion if one has arrived.

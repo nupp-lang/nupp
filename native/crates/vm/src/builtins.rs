@@ -19,7 +19,7 @@ pub const NAMES: &[&str] = &[
     "scalar.u32.add", "scalar.u32.sub", "scalar.u32.mul", "scalar.u32.andBits", "scalar.u32.orBits", "scalar.u32.xorBits", "scalar.u32.notBits", "scalar.u32.shiftLeft", "scalar.u32.rotateLeft", "scalar.u32.rotateRight", "scalar.u32.lessThan", "scalar.u32.lessOrEqual", "scalar.u32.shiftRightLogical", "scalar.u32.wrap", "scalar.u32.fromI32", "scalar.u32.toI32", "scalar.u32.popcount", "scalar.u32.trailingZeros", "scalar.u32.leadingZeros", "scalar.u32.div", "scalar.u32.mod",
     "files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "path.currentDirectory", "path.newPath", "path.toString", "path.canonicalize",
     "scalar.f32.narrow", "scalar.f32.round", "scalar.f32.add", "scalar.f32.sub", "scalar.f32.mul", "scalar.f32.div", "scalar.f32.sqrt", "scalar.f32.min", "scalar.f32.max", "scalar.f32.fma", "scalar.f32.exp", "scalar.f32.fromBits", "scalar.f32.toBits",
-    "vm.loadImage", "vm.processId", "vm.sha256",
+    "vm.loadImage", "vm.processId", "vm.sha256", "vm.saveValue", "vm.loadValue",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -305,6 +305,20 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
     if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }
     if STATS.load(std::sync::atomic::Ordering::Relaxed) { let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
+    if NAMES.get(id as usize) == Some(&"vm.saveValue") {
+        let bytes = crate::persist::save_graph(it, &[arg(args, 0)], &Default::default()).unwrap_or_else(|e| it.err(&e));
+        return outs![it.new_string_bytes(&bytes)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.loadValue") {
+        let data = bytes_of(it, arg(args, 0));
+        let expected = if arg(args, 1) != Value::NIL {
+            let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 1))).into_owned();
+            Some(crate::heap::SlotTy::Record(it.heap.shapes.iter().position(|s| s.name == name).unwrap_or_else(|| it.err("unknown requested shape")) as u32))
+        } else { None };
+        let roots = crate::persist::load_graph(it, &data, &Default::default(), expected).unwrap_or_else(|e| it.err(&e));
+        if roots.len() != 1 { it.err("saveValue payload must have exactly one root"); }
+        return outs![roots[0]];
+    }
     if NAMES.get(id as usize) == Some(&"vm.sha256") {
         use sha2::Digest;
         let bytes = bytes_of(it, arg(args, 0));

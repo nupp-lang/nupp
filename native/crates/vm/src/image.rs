@@ -11,6 +11,7 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
     let scope = it.open_scope();
     let r = load_in(it, text);
     it.close_scope(scope);
+    if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Image(text.to_owned())); }
     r
 }
 fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
@@ -72,6 +73,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
                 let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };
                 let op = match name {
+                    "Park" => Op::Park(a(1) as u8), "Checkpoint" => Op::Checkpoint,
                     "K" => Op::K(a(1) as u8, a(2) as u16), "Move" => Op::Move(a(1) as u8, a(2) as u8), "Nil" => Op::Nil(a(1) as u8),
                     "Add" => Op::Add(a(1) as u8, a(2) as u8, a(3) as u8), "Sub" => Op::Sub(a(1) as u8, a(2) as u8, a(3) as u8), "Mul" => Op::Mul(a(1) as u8, a(2) as u8, a(3) as u8),
                     "Lt" => Op::Lt(a(1) as u8, a(2) as u8, a(3) as u8), "Le" => Op::Le(a(1) as u8, a(2) as u8, a(3) as u8), "Eq" => Op::Eq(a(1) as u8, a(2) as u8, a(3) as u8), "Ne" => Op::Ne(a(1) as u8, a(2) as u8, a(3) as u8),

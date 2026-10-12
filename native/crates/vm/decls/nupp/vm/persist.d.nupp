@@ -1,0 +1,7 @@
+-- The VM's binary graph codec. Checkpoints are taken by the embedding host
+-- after tasks have parked, outside active calls.
+local record Persistence
+    save: function(value: any): string
+    load: function(bytes: string, shape: string?): any
+end
+return Persistence
