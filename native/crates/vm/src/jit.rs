@@ -179,6 +179,7 @@ impl Jit {
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
             let (cur_closure_addr, extra_addr, entries_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr);
             let fid_const = fid as i64;
+            let no_slot_guard = std::env::var("NO_SLOT_GUARD").is_ok();
             let last_nres_addr = self.last_nres_addr;
             macro_rules! note_one_result { () => {{ if last_nres_addr != 0 { let a = b.ins().iconst(types::I64, last_nres_addr); let one = b.ins().iconst(types::I64, 1); b.ins().store(flags, one, a, 0); } }} }
             if uses_closure { let a = b.ins().iconst(types::I64, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
@@ -285,7 +286,9 @@ impl Jit {
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
                         let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
-                        let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, shape, sh as i64); let hit = b.ins().band(is_rec, same);
+                        // NO_SLOT_GUARD=1 drops the shape compare, for measuring what it costs
+                        // on a workload whose shapes are known to be exact (the parser).
+                        let hit = if no_slot_guard { is_rec } else { let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, shape, sh as i64); b.ins().band(is_rec, same) };
                         b.ins().brif(hit, fast, &[], slow, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
                         let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); b.ins().jump(join, &[v.into()]);

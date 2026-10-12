@@ -286,3 +286,29 @@ frame was written at a fixed offset rather than after the surplus arguments
 parameters lost the rest; the compiled multi-value return read its values
 from the wrong slots; `install_globals` held an interned key across an
 allocation.
+
+**Slot guards, measured (2026-10-11).** `SLOT_STATS=1` on the Rust loop
+counts every slot access by whether the object had the shape the emitter
+assumed, and whether a verifier could have proved it exact (the register was
+written by `NewRecord` of that shape in the same function, in straight-line
+code, with no redefinition since). `NO_SLOT_GUARD=1` drops the typed tier's
+shape compare, for measuring what it costs where shapes are known exact.
+
+| workload | slot accesses | assumed shape held | provable exact | guard cost (typed tier) |
+| --- | ---: | ---: | ---: | ---: |
+| parser.nupp parse | 353,068 | 100% | 19% (158 of 262 sites) | within noise (27.4–28.5 ms both ways, minima equal) |
+| checker on lexer.nupp | 780,236 | 83% | 14% (2,849 of 5,674 sites) | — |
+
+The checker's 135,442 misses are 99.9% one object: the `Checker` built as
+`setmetatable({...}, R) as R`, read at 1,220 sites; the rest are a struct
+cast (`ComptimeTypeArgument`, 132) and erased casts across union members
+(`TypeVar` read as a `Prim`, `Call` as a `MethodCall`, 38). So the guard is
+free on this hardware, and local provenance would let the verifier drop it
+on a fifth of accesses at most; the other four fifths read parameters,
+fields and call results, where the only shape evidence is the checker's
+declared type, and erased casts are exactly what makes that evidence
+inexact. Two ways to make it exact again: lower the constructor idiom to a
+`NewRecord` of the cast target (which removes the checker's misses) and
+make the remaining cross-member casts checking. Until one of those is
+chosen, the guard stays the general rule and the direct load is the
+verifier's optimisation for the proven fifth.

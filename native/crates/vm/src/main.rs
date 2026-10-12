@@ -129,6 +129,46 @@ fn main() {
         let m = samples[samples.len() / 2];
         println!("median {:.3} ms over {repeat}\tmin {:.3} ms", m * 1e3, samples[0] * 1e3);
     }
+    if let Some(st) = it.slot_stats.as_ref() {
+        let (mut hits, mut misses) = (0u64, 0u64); let mut miss_sites: Vec<((u32, usize), u64)> = Vec::new(); let mut hit_sites = 0usize;
+        for (&(f, pc, ok), &n) in st.iter() { if ok { hits += n; hit_sites += 1; } else { misses += n; miss_sites.push(((f, pc), n)); } }
+        miss_sites.sort_by(|a, b| b.1.cmp(&a.1));
+        eprintln!("slot accesses: {hits} with the assumed shape at {hit_sites} sites, {misses} without at {} sites", miss_sites.len());
+        for ((f, pc), n) in miss_sites.iter().take(12) { eprintln!("  miss {n}\t{} pc {pc}", it.funcs[*f as usize].name); }
+        // How many accesses a verifier could prove exact: the object register's
+        // last write before the site, in straight-line code with no call between,
+        // is `NewRecord` of the assumed shape.
+        let provable = |f: &nupp_vm::interp::Function, pc: usize| -> bool {
+            use nupp_vm::interp::Op;
+            let (t, sh) = match f.code[pc] { Op::GetSlot(_, t, _, sh) | Op::GetSlotF(_, t, _, sh) => (t, sh), Op::SetSlot(t, _, _, sh) | Op::SetSlotF(t, _, _, sh) => (t, sh), _ => return false };
+            let targets: std::collections::HashSet<usize> = f.code.iter().enumerate().flat_map(|(i, op)| nupp_vm::verify::operands(op).1.into_iter().map(move |off| (i as i64 + 1 + off as i64) as usize)).collect();
+            let mut i = pc; let mut t = t;
+            while i > 0 {
+                i -= 1;
+                if targets.contains(&(i + 1)) { return false; }
+                match f.code[i] {
+                    Op::NewRecord(d, s2) if d == t => return s2 == sh,
+                    // A constructor lands in a temporary and moves to its local.
+                    Op::Move(d, src) if d == t => { t = src; continue; }
+                    // A call delivers results at its base register and up to eight above.
+                    Op::Call(_, b, _) | Op::CallDyn(_, b, _) | Op::CallK(_, _, b, _, _) | Op::CallMethod(_, b, _) | Op::PCall(b, _) => { if t >= b && t < b.saturating_add(9) { return false; } }
+                    Op::CallT(_, b, _, _) => { if t >= b && t < b.saturating_add(9) { return false; } }
+                    Op::Jmp(..) | Op::JmpIf(..) | Op::JmpIfNot(..) | Op::JmpIfIZero(..) | Op::Switch(..) => return false,
+                    // Stores name the object first and write no register.
+                    Op::SetSlot(..) | Op::SetSlotF(..) | Op::SetField(..) | Op::SetIdx(..) | Op::SetIdxI(..) | Op::SetIdxF(..) | Op::SetCell(..) | Op::SetMethod(..) => {}
+                    ref op => { let (ws, _) = nupp_vm::verify::operands(op); if ws.first().map(|(_, r)| *r == t).unwrap_or(false) { return false; } }
+                }
+            }
+            false
+        };
+        let (mut prov_hits, mut prov_sites) = (0u64, 0usize);
+        for (&(f, pc, ok), &n) in st.iter() { if ok && provable(&it.funcs[f as usize], pc) { prov_hits += n; prov_sites += 1; } }
+        eprintln!("  provable exact (the register was written by NewRecord of the shape, in straight-line code): {prov_hits} accesses at {prov_sites} sites");
+        if std::env::var("SLOT_STATS_SITES").is_ok() { let mut rows: Vec<_> = st.iter().filter(|(k, _)| k.2).collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); for ((f, pc, _), n) in rows.iter().take(8) { let func = &it.funcs[*f as usize]; let lo = pc.saturating_sub(3); eprintln!("  site {} pc {pc} x{n} provable={}: {}", func.name, provable(func, *pc), (lo..=*pc).map(|i| format!("{:?}", func.code[i])).collect::<Vec<_>>().join(" ; ")); } }
+        let mut by_shape: Vec<(&(u32, u32), &u64)> = it.slot_miss_shapes.iter().collect(); by_shape.sort_by(|a, b| b.1.cmp(a.1));
+        let name = |s: u32| -> String { if s == u32::MAX { "table".to_string() } else if s == u32::MAX - 1 { "non-object".to_string() } else { it.heap.shapes[s as usize].name.clone() } };
+        for ((a, f), n) in by_shape.iter().take(15) { eprintln!("  assumed {} found {}: {n}", name(*a), name(*f)); }
+    }
     if let Some(st) = it.op_stats.as_ref() { let mut rows: Vec<(&&str, &u64)> = st.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); let total: u64 = st.values().sum(); eprintln!("ops executed {total}"); for (n, c) in rows.iter().take(40) { eprintln!("  {n}\t{c}\t{:.1}%", **c as f64 * 100.0 / total as f64); } }
     let _ = Outcome::Done(Value::NIL);
 }
