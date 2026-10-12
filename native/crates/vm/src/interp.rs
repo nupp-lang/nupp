@@ -561,7 +561,7 @@ impl Interp {
     /// An argument count flagged 64 appends what the last call returned: its
     /// results already sit after the fixed arguments, so the count is plain
     /// arithmetic (at most the eight the frame's slack holds).
-    #[inline] pub fn spread_count(&self, nargs: u8) -> u8 { if nargs & 64 != 0 && nargs < 128 { (nargs & 63) + self.last_nres.min(8) as u8 } else { nargs } }
+    pub fn spread_count(&self, nargs: u8) -> u8 { if nargs & 64 != 0 && nargs < 128 { (nargs & 63) + self.last_nres.min(8) as u8 } else { nargs } }
     fn deliver(&mut self, regs: *mut Value, at: usize, outs: &[Value]) {
         self.last_nres = outs.len().min(8);
         unsafe { if outs.is_empty() { *regs.add(at) = Value::NIL; } for (i, v) in outs.iter().take(8).enumerate() { *regs.add(at + i) = *v; } }
