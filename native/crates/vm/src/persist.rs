@@ -1378,7 +1378,10 @@ fn load_graph_with(
 }
 
 fn safepoint(vm: &Interp) -> Result<()> {
-    if vm.execution_depth.get() != 0 || vm.pending_error.is_some() {
+    if vm.execution_depth.get() != 0
+        || vm.pending_error.is_some()
+        || vm.active_cancellation.is_some()
+    {
         return Err("checkpoint requires a safepoint outside VM calls and exceptions".into());
     }
     if vm
@@ -1433,6 +1436,9 @@ pub fn save_vm(
 ) -> Result<Vec<u8>> {
     policies.checkpoint_safe()?;
     safepoint(vm)?;
+    if let Some(s) = &vm.scheduler {
+        s.validate(vm)?;
+    }
     let recorded: usize = vm
         .code_events
         .iter()
@@ -1558,7 +1564,129 @@ pub fn save_vm(
     }
     let graph = save_graph_with(vm, &roots, policies, Some(codecs))?;
     w.bytes(&graph)?;
+    if let Some(s) = &vm.scheduler {
+        write_scheduler(&mut w, s)?;
+    }
     frame(1, w.0)
+}
+
+// Optional scheduler extension after the original VM graph. Readers accept
+// older checkpoints without it; older readers reject the trailing extension.
+fn write_scheduler(w: &mut Writer, s: &crate::scheduler::Scheduler) -> Result<()> {
+    use crate::scheduler::Status;
+    w.byte(1);
+    w.u64(s.now);
+    w.u64(s.next_timer);
+    w.u64(s.next_generation);
+    w.u32(s.free.len())?;
+    for &tid in &s.free {
+        w.u32(tid)?;
+    }
+    w.u32(s.ready.len())?;
+    for &tid in &s.ready {
+        w.u32(tid)?;
+    }
+    w.u32(s.controls.len())?;
+    for (&tid, c) in &s.controls {
+        w.u32(tid)?;
+        w.u64(c.generation);
+        match &c.status {
+            Status::Active => w.byte(0),
+            Status::Completed => w.byte(1),
+            Status::Cancelled => w.byte(2),
+            Status::Failed(e) => {
+                w.byte(3);
+                w.text(e)?;
+            }
+        }
+        w.byte(c.token.requested() as u8);
+        for at in [c.deadline, c.wake] {
+            match at {
+                Some(n) => {
+                    w.byte(1);
+                    w.u64(n);
+                }
+                None => w.byte(0),
+            }
+        }
+        w.u32(c.last_nres)?;
+    }
+    Ok(())
+}
+fn read_scheduler(r: &mut Reader) -> Result<Option<crate::scheduler::Scheduler>> {
+    use crate::scheduler::{Cancellation, Control, Scheduler, Status};
+    if r.at == r.data.len() {
+        return Ok(None);
+    }
+    if r.byte()? != 1 {
+        return Err("unsupported scheduler checkpoint extension".into());
+    }
+    let mut s = Scheduler::default();
+    s.now = r.u64()?;
+    s.next_timer = r.u64()?;
+    s.next_generation = r.u64()?;
+    if s.next_generation == 0 {
+        return Err("invalid task generation sequence".into());
+    }
+    for _ in 0..r.count()? {
+        s.free.push(r.u32()?);
+    }
+    if s.next_timer == 0 || s.next_timer > (1 << 63) {
+        return Err("invalid scheduler timer sequence".into());
+    }
+    for _ in 0..r.count()? {
+        s.ready.push_back(r.u32()?);
+    }
+    for _ in 0..r.count()? {
+        let tid = r.u32()?;
+        let generation = r.u64()?;
+        let status = match r.byte()? {
+            0 => Status::Active,
+            1 => Status::Completed,
+            2 => Status::Cancelled,
+            3 => Status::Failed(r.text()?),
+            _ => return Err("invalid scheduler status".into()),
+        };
+        let token = Cancellation::default();
+        match r.byte()? {
+            0 => {}
+            1 => token.cancel(),
+            _ => return Err("invalid cancellation flag".into()),
+        }
+        let mut times = [None; 2];
+        for (kind, time) in times.iter_mut().enumerate() {
+            match r.byte()? {
+                0 => {}
+                1 => {
+                    let at = r.u64()?;
+                    *time = Some(at);
+                    s.timers.insert((at, kind as u8, tid));
+                }
+                _ => return Err("invalid scheduler timer".into()),
+            }
+        }
+        let last_nres = r.u32()?;
+        if last_nres > 8 {
+            return Err("invalid scheduler result count".into());
+        }
+        if s.controls
+            .insert(
+                tid,
+                Control {
+                    generation,
+                    token,
+                    status,
+                    deadline: times[0],
+                    wake: times[1],
+                    last_nres,
+                },
+            )
+            .is_some()
+        {
+            return Err("duplicate scheduler task".into());
+        }
+    }
+    Ok(Some(s))
 }
 
 // Exact value locations in live frames; typed numeric/vector words remain raw.
@@ -1762,6 +1890,7 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
         tasks.push((task, results, positions));
     }
     let graph = r.bytes()?;
+    let scheduler = read_scheduler(&mut r)?;
     r.done()?;
     let roots = load_graph_with(&mut vm, graph, policies, None, Some(codecs), true, None)?;
     // Publish every root before doing anything that can allocate in the heap.
@@ -1812,6 +1941,10 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
         }
         vm.tasks.push(t);
     }
+    if let Some(s) = &scheduler {
+        s.validate(&vm)?;
+    }
+    vm.scheduler = scheduler;
     vm.handles.truncate(handles.len());
     vm.entries = vec![0; vm.funcs.len()];
     vm.prepare_threaded();

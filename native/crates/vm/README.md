@@ -17,7 +17,8 @@ the image loader and verifier, and the host services on the parking surface.
 | `builtins` | the library the compiler's modules use (strings with Lua patterns, tables, math, iteration, errors) |
 | `verify` | operand classes, branch and callee checks, fact re-derivation, def/use and liveness |
 | `image` | the loader for the emitter's text image |
-| `host` | a pool of host threads serving file, sleep, process and directory requests as plain data |
+| `host` | a pool of host threads serving file, process and directory requests as plain data; legacy unscheduled sleep |
+| `scheduler` | runnable queues, task generations, logical timers, cancellation, deadlines and host completion batches |
 | `persist` | versioned binary value graphs, shape policies, resource hooks and VM checkpoints |
 | `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
 | `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
@@ -716,3 +717,66 @@ Compiled suspension and console SDK validation remain separate gates.
 Hook failure testing also fixed native helper cleanup: the saved GC frame pointer
 is now restored by a drop guard when a callback raises, so the next allocation
 cannot walk an expired native frame.
+
+## Embedding scheduler and saved timers (2026-10-12)
+
+`Interp::enable_scheduler` enables the cooperative scheduler at an idle boundary.
+`Interp::schedule` creates a task and returns a `TaskId { index, generation }`.
+`run_ready(max_turns)` dispatches FIFO until each task parks or completes, drains
+ready host completions once per batch, and returns terminal events. A failing task
+becomes `Failed(message)` without aborting its siblings. Results remain rooted in
+the task until `release_task`. Releasing reuses the slot with a fresh generation;
+stale task IDs and cancellation tokens cannot affect the replacement. Frame
+stacks return to the bounded existing stack pool (at most 64), and released
+results stop being roots. A 5,000-task churn test retains one slot and one stack.
+
+The clock is explicit monotonic **milliseconds**, driven by `advance_to(now)`.
+`Scheduler::next_wakeup` tells the embedding event loop its next timer/deadline.
+A scheduled `host.sleep` parks on a scheduler timer without using a host thread;
+zero milliseconds yields to the next batch. It returns the same `true` completion
+as the existing host sleep. Manual `wake_task` is idempotent for event parks and
+refuses to bypass a timer or native I/O wait. At a matching timestamp, a deadline
+cancels before a sleep can resume application code. Ordinary native requests still
+run on the host pool. Late completions of cancelled tasks are drained without
+resurrecting them; releasing such a task waits for that completion to drain.
+
+A cloneable `Cancellation` token can be requested from another host thread without
+touching the heap. The VM observes it at scheduled entry/exit, `CHECKPOINT`, `PARK`
+and host-call boundaries. Scheduling is cooperative, not instruction-preemptive;
+a function with no poll point cannot be interrupted before it returns. Deadlines
+use the host-driven logical clock, not an independently advancing wall clock.
+The current VM has no affine drop-region instructions: running those during
+cancellation remains a separate language/runtime gate. The existing `nupp.tasks`
+facade, coroutine generators, workers and channels are not migrated by this step.
+
+VM checkpoints now include the queue order, clock, timers, deadlines, requested
+cancellations, terminal status, task-local result counts, free slots and generation
+sequence. Restore rebuilds cancellation tokens and timer indexes. A 20 ms sleep
+saved at time 5 still has 15 ms left after restart; time spent with the process
+absent does not consume it. The optional versioned scheduler extension accepts
+older checkpoints with no scheduler; older readers reject the new extension.
+Pending OS requests retain the existing drain-before-save rule; scheduler timers
+have no OS state and can be saved while pending. Native-code attachment after
+restore remains the embedding host's responsibility as before.
+
+`tests/scheduler.rs` covers both interpreter loops under GC stress/oracle/quarantine:
+FIFO and batch limits, nested-frame sleeps, zero/invalid durations, equal-time
+deadlines, cross-thread cancellation of a checkpoint loop, sibling isolation,
+late OS completions, fresh-process timer/object restore, malformed metadata, and
+bounded task churn with stale handles. `examples/scheduler_bench.rs` runs 1,000
+three-frame tasks through a million parks. Release build without Cranelift, median
+of five after two warmups on the shared macOS arm64 host:
+
+| per park/resume | raw task driver | scheduler with cancellation and queues |
+| --- | ---: | ---: |
+| Rust loop | 13.3 ns | 46.8 ns |
+| threaded loop | 18.3 ns | 48.5 ns |
+
+This measures the scheduler's added cost, not compiled suspension; `Park` is still
+refused by the real typed tier. No timer elapses or native request completes in
+that benchmark. Reproduce with:
+
+```sh
+cargo test -p nupp-vm --test scheduler
+cargo run --release -p nupp-vm --no-default-features --example scheduler_bench
+```

@@ -299,6 +299,8 @@ impl Function {
 }
 
 pub struct Interp {
+    pub scheduler: Option<crate::scheduler::Scheduler>,
+    pub(crate) active_cancellation: Option<crate::scheduler::Cancellation>,
     pub(crate) persistence_hook_depth: usize,
     pub(crate) code_events: Vec<crate::persist::CodeEvent>,
     pub(crate) execution_depth: std::rc::Rc<std::cell::Cell<usize>>,
@@ -440,7 +442,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { persistence_hook_depth: 0, code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { scheduler: None, active_cancellation: None, persistence_hook_depth: 0, code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -791,6 +793,7 @@ impl Interp {
     /// `Err(key)` when the request was submitted and the caller must park.
     pub fn host_call(&mut self, id: u32, args: &[Value]) -> Result<crate::builtins::Outs, u64> {
         use crate::host::{Req, HOST_BASE};
+        crate::scheduler::checkpoint(self);
         let k = (id - HOST_BASE) as usize;
         if self.persistence_hook_depth != 0 && k < 5 { self.err("persistence hooks cannot park for host services"); }
         let text = |it: &Interp, i: usize| -> String { args.get(i).map(|v| it.bytes_of(*v)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default() };
@@ -800,6 +803,12 @@ impl Interp {
             5 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs.push(Value::num(t)); return Ok(outs); }
             6 => { let name = text(self, 0); match std::env::var(&name) { Ok(v) => { let s = self.heap_new_string(&v); outs.push(s); } Err(_) => outs.push(Value::NIL) } return Ok(outs); }
             _ => {}
+        }
+        if k == 2 && self.scheduler.is_some() && self.active_cancellation.is_some() {
+            let delay = num(0);
+            if !delay.is_finite() || delay < 0.0 || delay.fract() != 0.0 || delay >= u64::MAX as f64 { self.err("sleep duration must be a nonnegative integer in milliseconds"); }
+            let key = self.scheduler.as_mut().unwrap().timer(delay as u64).unwrap_or_else(|e| self.err(&e));
+            return Err(key);
         }
         let req = match k {
             0 => Req::ReadFile(text(self, 0)),
@@ -1235,8 +1244,8 @@ impl Interp {
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
-                    Op::Park(k) => { let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
-                    Op::Checkpoint => { self.back_edge(); }
+                    Op::Park(k) => { crate::scheduler::checkpoint(self); let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
+                    Op::Checkpoint => { crate::scheduler::checkpoint(self); self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,
                     Op::IAdd(d, a, b) => ir!(d) = ir!(a).wrapping_add(ir!(b)),
                     Op::IAddK(d, a, k) => ir!(d) = ir!(a).wrapping_add(k),
@@ -1343,7 +1352,7 @@ impl Interp {
                 // and is resumed with the completion at `b`.
                 match self.host_call(id, args.as_slice()) {
                     Ok(outs) => { self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
-                    Err(key) => { let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); t.deliver_at = b as usize; self.host_waiters.insert(key, tid); self.parks += 1; return Flow::Return(Outcome::Parked(key)); }
+                    Err(key) => { let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); t.deliver_at = b as usize; if !crate::scheduler::bind_timer(self, key, tid) { self.host_waiters.insert(key, tid); } self.parks += 1; return Flow::Return(Outcome::Parked(key)); }
                 }
             }
             let outs = crate::builtins::call(self, id, args.as_slice());
