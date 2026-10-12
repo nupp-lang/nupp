@@ -100,12 +100,21 @@ impl Compiler<JITModule> {
         Compiler::with_module(JITModule::new(jb), None)
     }
     pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
-        let (id, primary, code_len, maps) = self.compile_function(f, fid)?;
+        let (id, primary, code_len, maps) = self.compile_function(f, fid, false)?;
         self.module.finalize_definitions().unwrap();
         let start_addr = self.module.get_finalized_function(primary) as usize;
         CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
         Ok(self.module.get_finalized_function(id))
     }
+    /// Heap-frame entry. Returns the bytecode PC at the next runtime boundary.
+    pub fn compile_frame(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
+        let (id, primary, code_len, maps) = self.compile_function(f, fid, true)?;
+        self.module.finalize_definitions().unwrap();
+        let start = self.module.get_finalized_function(primary) as usize;
+        CODE_MAPS.lock().unwrap().push((start, start + code_len, maps));
+        Ok(self.module.get_finalized_function(id))
+    }
+
 }
 
 #[cfg(feature = "aot")]
@@ -132,7 +141,7 @@ impl Compiler<ObjectModule> {
     }
 
     pub fn try_compile_object(&mut self, f: &Function, fid: u32) -> Result<(), String> {
-        let (_, _, code_len, maps) = self.compile_function(f, fid)?;
+        let (_, _, code_len, maps) = self.compile_function(f, fid, false)?;
         self.object_maps.push((fid, code_len, maps));
         Ok(())
     }
@@ -307,33 +316,33 @@ impl<M: Module> Compiler<M> {
         });
         self.stubs = Some(Stubs { probe, dispatch, iter });
     }
-    fn compile_function(&mut self, f: &Function, fid: u32) -> Result<(FuncId, FuncId, usize, Vec<(u32, u32, Vec<u32>)>), String> {
+    fn compile_function(&mut self, f: &Function, fid: u32, frame: bool) -> Result<(FuncId, FuncId, usize, Vec<(u32, u32, Vec<u32>)>), String> {
         self.ensure_stubs();
         // A vararg function keeps its surplus arguments in the interpreter's
         // frame, which compiled code has no window onto.
-        if f.vararg { return Err("vararg".to_string()); }
+        if !frame && f.vararg { return Err("vararg".to_string()); }
         // The runtime's call paths hand a compiled entry at most eight
         // arguments (the frame's result slack); a wider signature stays interpreted.
-        if f.nparams > 8 { return Err("more than eight parameters".to_string()); }
+        if !frame && f.nparams > 8 { return Err("more than eight parameters".to_string()); }
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => false,
+                Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => false,
                 _ => true,
             };
-            if !ok { return Err(format!("{:?}", op)); }
+            if !frame && !ok { return Err(format!("{:?}", op)); }
         }
         let start = std::time::Instant::now();
         // The typed signature: float parameters as f64, the rest as value words.
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
-        let ret_f = f.ret == b'f';
+        let ret_f = !frame && f.ret == b'f';
         let mut sig = self.module.make_signature();
-        for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); }
+        if frame { sig.params.extend([AbiParam::new(types::I64), AbiParam::new(types::I64)]); } else { for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); } }
         sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
         let object = self.runtime_data.is_some();
-        let name = if object { format!("nupp_aot_{fid}") } else { format!("{}#{fid}", f.name) };
+        let name = if object { format!("nupp_aot_{fid}") } else { format!("{}#{fid}{}", f.name, if frame { ".frame" } else { "" }) };
         let id = self.module.declare_function(&name, if object { Linkage::Export } else { Linkage::Local }, &sig).unwrap();
-        self.funcs.insert(fid, (id, classes.clone(), f.ret));
+        if !frame { self.funcs.insert(fid, (id, classes.clone(), f.ret)); }
         self.ctx.func.signature = sig;
         let frontend = self.module.target_config();
         {
@@ -376,9 +385,9 @@ impl<M: Module> Compiler<M> {
             let no_slot_guard = std::env::var("NO_SLOT_GUARD").is_ok();
             let last_nres_addr = self.last_nres_addr;
             macro_rules! note_one_result { () => {{ if last_nres_addr != 0 { let a = runtime_addr(&mut b, runtime, 2, last_nres_addr); let one = b.ins().iconst(types::I64, 1); b.ins().store(flags, one, a, 0); } }} }
-            if uses_closure { let a = runtime_addr(&mut b, runtime, 0, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
+            if uses_closure && !frame { let a = runtime_addr(&mut b, runtime, 0, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
             let (mut vi, mut fi) = (0u8, 0u8);
-            for (i, p) in params.iter().enumerate() {
+            for (i, p) in params.iter().enumerate().take(if frame { 0 } else { params.len() }) {
                 if classes[i] == b'f' { b.def_var(fvars[fi as usize], *p); fi += 1; continue; }
                 vi += 1;
                 b.def_var(rvars[vi as usize], *p);
@@ -388,8 +397,17 @@ impl<M: Module> Compiler<M> {
                     ptrs.insert(vi, (ptr, len));
                 }
             }
+            if frame {
+                let header = params[0];
+                let c = b.ins().load(types::I64, flags, header, 16); b.def_var(closure_var, c);
+                for (i, &var) in rvars.iter().enumerate() { let v = b.ins().load(types::I64, flags, header, ((crate::interp::HDR + i) * 8) as i32); b.def_var(var, v); }
+                for (i, &var) in ivars.iter().enumerate() { let v = b.ins().load(types::I64, flags, header, ((f.off_i() + i) * 8) as i32); b.def_var(var, v); }
+                for (i, &var) in fvars.iter().enumerate() { let v = b.ins().load(types::F64, flags, header, ((f.off_f() + i) * 8) as i32); b.def_var(var, v); }
+                for (i, &var) in vvars.iter().enumerate() { let v = b.ins().load(types::F64X2, flags, header, ((f.off_v() + 2 * i) * 8) as i32); b.def_var(var, v); }
+            }
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
+            if frame { starts.extend(0..f.code.len()); }
             for (pc, op) in f.code.iter().enumerate() {
                 match *op {
                     Op::Jmp(off) | Op::JmpIfIZero(_, off) | Op::JmpIf(_, off) | Op::JmpIfNot(_, off) | Op::IJmpIfUle(_, _, off) | Op::IJmpIfUlt(_, _, off) => { starts.insert((pc as i64 + 1 + off as i64) as usize); starts.insert(pc + 1); }
@@ -403,6 +421,12 @@ impl<M: Module> Compiler<M> {
             let err_block = b.create_block();
             b.set_cold_block(err_block);
             let mut terminated = false;
+            if frame {
+                let mut dispatch = cranelift_frontend::Switch::new();
+                for (&pc, &block) in &blocks { dispatch.set_entry(pc as u128, block); }
+                dispatch.emit(&mut b, params[1], err_block);
+                terminated = true;
+            }
             macro_rules! iv { ($i:expr) => { b.use_var(ivars[$i as usize]) } }
             macro_rules! kval { ($i:expr) => {{
                 let index = $i as usize;
@@ -444,6 +468,16 @@ impl<M: Module> Compiler<M> {
                 }
                 if terminated { continue; }
                 let target = |off: i32| blocks[&((pc as i64 + 1 + off as i64) as usize)];
+                if frame && frame_boundary(op) {
+                    for (i, &var) in rvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((crate::interp::HDR + i) * 8) as i32); }
+                    for (i, &var) in ivars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_i() + i) * 8) as i32); }
+                    for (i, &var) in fvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_f() + i) * 8) as i32); }
+                    for (i, &var) in vvars.iter().enumerate() { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((f.off_v() + 2 * i) * 8) as i32); }
+                    let next = b.ins().iconst(types::I64, pc as i64);
+                    b.ins().return_(&[next]);
+                    terminated = true;
+                    continue;
+                }
                 match *op {
                     Op::IK(d, k) => { seti!(d, b.ins().iconst(types::I64, k)); }
                     Op::IAdd(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().iadd(p, q)); }
@@ -1127,7 +1161,7 @@ impl<M: Module> Compiler<M> {
                     Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); note_one_result!(); b.ins().return_(&[z]); terminated = true; }
                     Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
                     Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
-                    Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
+                    Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
             if !terminated { note_one_result!(); if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
@@ -1145,7 +1179,7 @@ impl<M: Module> Compiler<M> {
         self.module.clear_context(&mut self.ctx);
         // The boxed wrapper the interpreter calls: value words in, unboxed to
         // the typed entry, the result boxed back.
-        let needs_wrapper = ret_f || classes.iter().any(|&c| c == b'f');
+        let needs_wrapper = !frame && (ret_f || classes.iter().any(|&c| c == b'f'));
         let wrapper = if needs_wrapper {
             let mut wsig = self.module.make_signature();
             for _ in 0..classes.len() { wsig.params.push(AbiParam::new(types::I64)); }
@@ -1179,3 +1213,13 @@ impl<M: Module> Compiler<M> {
 }
 
 impl Default for Jit { fn default() -> Self { Self::new() } }
+
+/// These operations can change frame ownership or enter arbitrary Nupp code.
+/// Returning to the driver before them prevents native callers surviving a park.
+fn frame_boundary(op: &Op) -> bool {
+    matches!(op, Op::Call(..) | Op::CallT(..) | Op::CallDyn(..) | Op::CallK(..)
+        | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)
+        | Op::CallMethod(..) | Op::PCall(..) | Op::Ret(..) | Op::RetN(..)
+        | Op::RetNil | Op::FRet(..) | Op::Park(..) | Op::Checkpoint
+        | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::VarargN(..) | Op::VarargTable(..) | Op::Require(..) | Op::RequireV(..))
+}

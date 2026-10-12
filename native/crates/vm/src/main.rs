@@ -125,13 +125,15 @@ fn main() {
         println!("verified {} functions", it.funcs.len());
         return;
     }
-    if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE]"); std::process::exit(2); }
+    if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE] [--tasks]"); std::process::exit(2); }
     let restoring = args[1] == "restore";
     let mut checkpoint: Option<String> = None;
+    let mut scheduled = false;
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
     while i < args.len() {
         match args[i].as_str() {
+            "--tasks" => { scheduled = true; i += 1; }
             "--checkpoint" if i + 1 < args.len() => { checkpoint = Some(args[i + 1].clone()); i += 2; }
             "--load" if i + 1 < args.len() => { additional_images.push(args[i + 1].clone()); i += 2; } "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 2; } "--host" => { host = true; i += 1; } "--setup" => { setup = Some(args[i + 1].clone()); i += 2; } a => { call_args_text.push(a.to_string()); i += 1; } }
     }
@@ -206,7 +208,8 @@ fn main() {
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
         let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-        if threshold > 0 { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); eprintln!("jit: lazy, compiling at the call number {threshold}"); None } else {
+        let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
+        if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } None } else {
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
         // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
@@ -239,6 +242,29 @@ fn main() {
         it.registered.push(v); call_args.push(v);
     }
     let run_once = |it: &mut Interp| -> Vec<Value> {
+        if scheduled {
+            it.enable_scheduler().unwrap();
+            let task = it.schedule(f, &call_args, None).unwrap();
+            let start = std::time::Instant::now();
+            let base = it.scheduler.as_ref().unwrap().now();
+            loop {
+                it.advance_to(base + start.elapsed().as_millis() as u64).unwrap();
+                it.run_ready(256).unwrap();
+                match it.scheduler.as_ref().unwrap().status(task).unwrap() {
+                    nupp_vm::scheduler::Status::Completed => break,
+                    nupp_vm::scheduler::Status::Active => {},
+                    status => { eprintln!("task: {status:?}"); std::process::exit(1); }
+                }
+                if it.tasks.iter().any(|t| t.state == State::Runnable) { continue; }
+                if it.scheduler.as_ref().unwrap().next_wakeup().is_none() && it.host_waiters.is_empty() { eprintln!("task scheduler has no event source for parked tasks"); std::process::exit(1); }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let t = &it.tasks[task.index];
+            let results = if t.results.is_empty() { vec![t.result] } else { t.results.clone() };
+            it.release_task(task).unwrap();
+            eprintln!("compiled frame entries: {}", it.compiled_frame_entries);
+            return results;
+        }
         let t = it.spawn_closure(f, &call_args);
         // An error that unwinds to here is reported with its value and the
         // task's frame chain, then the process fails.

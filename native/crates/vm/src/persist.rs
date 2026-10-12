@@ -1522,8 +1522,27 @@ pub fn save_vm(
             w.u64(host.next);
         }
     }
+    let regions = vm
+        .tasks
+        .iter()
+        .any(|t| !t.cleanups.is_empty() || !t.protected.is_empty() || t.error != Value::NIL);
     w.u32(vm.tasks.len())?;
     for t in &vm.tasks {
+        if regions {
+            w.u32(root(&mut roots, t.error))?;
+            w.u32(t.cleanups.len())?;
+            for c in &t.cleanups {
+                w.u32(c.frame)?;
+                w.u32(root(&mut roots, c.value))?;
+                w.u32(root(&mut roots, c.callback))?;
+            }
+            w.u32(t.protected.len())?;
+            for h in &t.protected {
+                w.u32(h.frame)?;
+                w.u32(h.caller)?;
+                w.u32(h.result)?;
+            }
+        }
         match t.state {
             State::Runnable => w.byte(0),
             State::Parked(key) => {
@@ -1567,14 +1586,14 @@ pub fn save_vm(
     if let Some(s) = &vm.scheduler {
         write_scheduler(&mut w, s)?;
     }
-    frame(1, w.0)
+    frame(if regions { 2 } else { 1 }, w.0)
 }
 
 // Optional scheduler extension after the original VM graph. Readers accept
 // older checkpoints without it; older readers reject the trailing extension.
 fn write_scheduler(w: &mut Writer, s: &crate::scheduler::Scheduler) -> Result<()> {
     use crate::scheduler::Status;
-    w.byte(1);
+    w.byte(2);
     w.u64(s.now);
     w.u64(s.next_timer);
     w.u64(s.next_generation);
@@ -1610,6 +1629,13 @@ fn write_scheduler(w: &mut Writer, s: &crate::scheduler::Scheduler) -> Result<()
             }
         }
         w.u32(c.last_nres)?;
+        if let Some(task) = c.waiting {
+            w.byte(1);
+            w.u32(task.index)?;
+            w.u64(task.generation);
+        } else {
+            w.byte(0);
+        }
     }
     Ok(())
 }
@@ -1618,7 +1644,8 @@ fn read_scheduler(r: &mut Reader) -> Result<Option<crate::scheduler::Scheduler>>
     if r.at == r.data.len() {
         return Ok(None);
     }
-    if r.byte()? != 1 {
+    let version = r.byte()?;
+    if version != 1 && version != 2 {
         return Err("unsupported scheduler checkpoint extension".into());
     }
     let mut s = Scheduler::default();
@@ -1669,6 +1696,18 @@ fn read_scheduler(r: &mut Reader) -> Result<Option<crate::scheduler::Scheduler>>
         if last_nres > 8 {
             return Err("invalid scheduler result count".into());
         }
+        let waiting = if version == 2 {
+            match r.byte()? {
+                0 => None,
+                1 => Some(crate::scheduler::TaskId {
+                    index: r.u32()?,
+                    generation: r.u64()?,
+                }),
+                _ => return Err("invalid wait tag".into()),
+            }
+        } else {
+            None
+        };
         if s.controls
             .insert(
                 tid,
@@ -1679,6 +1718,7 @@ fn read_scheduler(r: &mut Reader) -> Result<Option<crate::scheduler::Scheduler>>
                     deadline: times[0],
                     wake: times[1],
                     last_nres,
+                    waiting,
                 },
             )
             .is_some()
@@ -1765,8 +1805,9 @@ fn frame_positions(vm: &Interp, t: &Task) -> Result<(usize, Vec<usize>)> {
 /// then host resources rebound before the caller can resume any task.
 pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) -> Result<Interp> {
     policies.checkpoint_safe()?;
+    let regions = data.get(8) == Some(&2);
     let mut r = Reader {
-        data: unframe(data, 1)?,
+        data: unframe(data, if regions { 2 } else { 1 })?,
         at: 0,
     };
     let digest: [u8; 32] = r.take(32)?.try_into().unwrap();
@@ -1857,6 +1898,31 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
     let n = r.count()?;
     let mut tasks = Vec::new();
     for _ in 0..n {
+        let error = if regions {
+            Value(r.u32()? as u64)
+        } else {
+            Value::NIL
+        };
+        let mut cleanups = Vec::new();
+        let mut protected = Vec::new();
+        if regions {
+            for _ in 0..r.count()? {
+                cleanups.push(crate::interp::Cleanup {
+                    frame: r.u32()?,
+                    value: Value(r.u32()? as u64),
+                    callback: Value(r.u32()? as u64),
+                });
+            }
+        }
+        if regions {
+            for _ in 0..r.count()? {
+                protected.push(crate::interp::Protected {
+                    frame: r.u32()?,
+                    caller: r.u32()?,
+                    result: r.u32()?,
+                });
+            }
+        }
         let state = match r.byte()? {
             0 => State::Runnable,
             1 => State::Parked(r.u32()? as u64),
@@ -1874,6 +1940,9 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
         }
         let positions = read_ids(&mut r)?;
         let mut task = Task::restored(stack, cur, state, deliver_at);
+        task.error = error;
+        task.cleanups = cleanups;
+        task.protected = protected;
         if state != State::Done {
             let expected = frame_positions(&vm, &task)?;
             if expected.0 != task.stack.len() || expected.1 != positions {
@@ -1932,12 +2001,65 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
     }
     for (mut t, results, positions) in tasks {
         t.result = get_root(&roots, t.result.0 as usize)?;
+        if regions {
+            t.error = get_root(&roots, t.error.0 as usize)?;
+        }
         t.results = get_roots(&roots, &results)?;
         if let State::Parked(id) = t.state {
             t.state = State::Parked(get_root(&roots, id as usize)?.0);
         }
         for at in positions {
             t.stack[at] = get_root(&roots, t.stack[at] as usize)?.0;
+        }
+        let mut frames = std::collections::BTreeSet::new();
+        if t.state != State::Done {
+            let mut at = t.cur();
+            loop {
+                frames.insert(at);
+                let caller = t.stack[at + 1] as u32;
+                if caller == u32::MAX {
+                    break;
+                }
+                at = caller as usize;
+            }
+        }
+        let mut previous = None;
+        for h in &t.protected {
+            if !frames.contains(&h.frame)
+                || !frames.contains(&h.caller)
+                || h.frame < h.caller
+                || (h.frame == h.caller
+                    && (h.frame != t.cur()
+                        || !matches!(t.state, State::Parked(_))
+                        || h.result + 1 != h.frame + HDR + t.deliver_at))
+                || previous.is_some_and(|p| h.frame <= p)
+            {
+                return Err("invalid protected frame".into());
+            }
+            let f = &vm.funcs[t.stack[h.caller] as u32 as usize];
+            if h.result < h.caller + HDR || h.result + 1 > h.caller + HDR + f.nregs as usize {
+                return Err("invalid protected result".into());
+            }
+            previous = Some(h.frame);
+        }
+        let mut previous = 0;
+        for c in &mut t.cleanups {
+            if !frames.contains(&c.frame) || c.frame < previous {
+                return Err("invalid cleanup frame".into());
+            }
+            previous = c.frame;
+            c.value = get_root(&roots, c.value.0 as usize)?;
+            c.callback = get_root(&roots, c.callback.0 as usize)?;
+            if c.value != Value::NIL
+                && c.callback.as_func().is_none()
+                && c.callback.as_builtin().is_none()
+                && !c
+                    .callback
+                    .as_obj()
+                    .is_some_and(|p| unsafe { p.as_ref().kind == crate::heap::KIND_CLOSURE })
+            {
+                return Err("invalid cleanup callback".into());
+            }
         }
         vm.tasks.push(t);
     }

@@ -1,0 +1,25 @@
+-- The single-VM task surface supplied by the native host.
+local record Task<R...>
+    await: function(self: Task<R...>): R...
+    isDone: function(self: Task<R...>): boolean
+    status: function(self: Task<R...>): string
+    cancel: function(self: Task<R...>, reason: string?): boolean
+end
+
+local record Scope is nupp.Closeable
+    spawn: function<A..., R...>(
+        borrows self: Scope,
+        takes body: function(A...): R...,
+        ...: A...
+    ): Task<R...> borrows (self)
+    cancel: function(borrows self: Scope, reason: string?): nil
+    close: function(takes self: Scope): nil
+end
+
+local record Tasks
+    open: function(limit: integer?, timeoutMs: number?): affine(Scope)
+    checkpoint: function(): nil
+    deadline: function(): number?
+    isCancelled: function(value: any): boolean
+end
+return Tasks

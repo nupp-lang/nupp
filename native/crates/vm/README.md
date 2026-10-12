@@ -745,9 +745,9 @@ touching the heap. The VM observes it at scheduled entry/exit, `CHECKPOINT`, `PA
 and host-call boundaries. Scheduling is cooperative, not instruction-preemptive;
 a function with no poll point cannot be interrupted before it returns. Deadlines
 use the host-driven logical clock, not an independently advancing wall clock.
-The current VM has no affine drop-region instructions: running those during
-cancellation remains a separate language/runtime gate. The existing `nupp.tasks`
-facade, coroutine generators, workers and channels are not migrated by this step.
+At this milestone affine regions and the Nupp facade were still open; the
+following section records the first source-level path. Coroutine generators,
+workers and channels remain open.
 
 VM checkpoints now include the queue order, clock, timers, deadlines, requested
 cancellations, terminal status, task-local result counts, free slots and generation
@@ -772,11 +772,75 @@ of five after two warmups on the shared macOS arm64 host:
 | Rust loop | 13.3 ns | 46.8 ns |
 | threaded loop | 18.3 ns | 48.5 ns |
 
-This measures the scheduler's added cost, not compiled suspension; `Park` is still
-refused by the real typed tier. No timer elapses or native request completes in
-that benchmark. Reproduce with:
+These measurements predate compiled heap-frame entries and do not measure their
+cost. The ordinary native calling convention still refuses `Park`. No timer
+elapses or native request completes in that benchmark. Reproduce with:
 
 ```sh
 cargo test -p nupp-vm --test scheduler
 cargo run --release -p nupp-vm --no-default-features --example scheduler_bench
+```
+
+## Nupp scopes, affine regions and compiled suspension (2026-10-12)
+
+The first source path is connected to the scheduler: `nupp.tasks.open`, scope
+`spawn/cancel/close`, handle `await/isDone/status/cancel`, and
+`checkpoint/deadline/isCancelled`. The VM declarations describe this supported
+subset. `run ... --tasks` drives the queue and clock; embeddings use the existing
+scheduler methods. Await and a spawn blocked by `limit` park and retry their
+instruction. Closing a scope waits for children. Completed handles retain their
+values while scheduler slots are released and reused with fresh generations;
+the scope prunes settled handles on spawn/close. Wait edges carry full task IDs,
+are checked for cycles, and survive checkpoints.
+
+The emitter reads the checker's cleanup terminals for `with`, automatic local
+owners and explicit `drop`. `Defer`/`DeferMethod` register rooted receiver/callback
+pairs, `Unwind` closes lexical regions, and `DisarmAt` identifies a transferred
+owner by its frame-local slot. Equal values do not identify ownership. Return,
+break, errors and cancellation run the registered callbacks in reverse region
+order; an exceptional scope exit cancels and drains its children. The original
+error remains primary. General callbacks are synchronous: parking host requests
+and task operations are rejected before submission. Native scope close itself
+can park. Affine closure captures, conditional field cleanup and aggregation of
+secondary cleanup failures remain open.
+
+Scheduled functions can use a separate Cranelift ABI `(frame, pc) -> boundary_pc`.
+It loads the frame windows, runs ordinary lowered instructions, spills at calls,
+returns and parks, and returns to the VM driver. Every suspending call therefore
+uses heap frames, including dynamic calls and functions with varargs or wide
+signatures. `pcall` handlers are heap-frame records and can span suspension.
+The initial implementation spills all windows and routes storage operations
+through the driver; liveness-based spilling and performance tuning remain open.
+The CLI selects frame entries for images with cleanup regions as well as for
+`--tasks`. Ordinary native entries remain available for synchronous images
+without those regions.
+AOT frame-entry emission is not implemented; no-JIT builds execute these frames
+with the interpreter.
+
+Checkpoints include cleanup callbacks/receivers, protected-call frames, original
+error values and scheduler wait edges. They contain no native continuations.
+The extended VM payload uses kind 2 only when those extra task records are needed;
+kind 1 remains readable. Scheduler extension 2 adds wait targets and accepts
+extension 1. Compiled parked tasks restore into an interpreter-only VM.
+
+Validation lives in `tests/scheduler.rs` and `tests/tasks-smoke.py`. The latter
+compiles a Nupp fixture and exercises bounded spawning, resource cleanup,
+cancellation through `pcall`, ownership transfers without double close, original
+error identity (including nil), repeated awaits and handle churn with GC
+stress/oracle/quarantine, both interpreted and through actual compiled entries.
+Both compiler fixpoints pass: the legacy compiler rebuilds byte-identically,
+and VM compiler generations two and three are identical at 6,918,539 bytes.
+The repository check, default/no-JIT Rust suites, linked no-executable-memory
+checkpoint gate and three-tier persistence-hook smoke also pass.
+
+This is an initial P5 slice. `tasks.run/gather/race`, named-spawn overload routing,
+worker `fork`, channels and coroutine/generator APIs are not yet migrated.
+Cancellation identity is VM-local; operation/reason metadata still needs the
+full public cancellation representation. No performance claim is made for the
+new frame tier.
+
+```sh
+cargo test --offline -p nupp-vm --lib --tests
+cargo test --offline -p nupp-vm --no-default-features --lib --tests
+python3 native/crates/vm/tests/tasks-smoke.py /path/to/project-compiler.image
 ```

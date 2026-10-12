@@ -556,7 +556,7 @@ function lower.emit(
         return dst
     end
 
-    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall
+    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, deferCleanup
     local nuppChain, modulePathOf, queueModule
     -- Expression kinds that write their destination only after every read of
     -- their operands, so the destination may be a register the operands name.
@@ -822,6 +822,36 @@ function lower.emit(
         local base = dst
         local nargs = 0
         local args = node.args and node.args.exprs or {}
+        if node.args and node.args.loweredArgs then
+            local lowered = node.args.loweredArgs
+            local offset = extraSelf and 1 or 0
+            while f.nregs < base + #lowered + offset + 1 do
+                f:reg()
+            end
+            -- Evaluate in source order, then arrange the checker's parameter map.
+            local evaluated = {}
+            for _, argument in ipairs(args) do
+                local value = (argument.kind == "namedArg" or argument.kind == "pluckArg") and argument.value
+                    or argument
+                evaluated[value] = exprAs(f, value, "v")
+            end
+            if extraSelf then
+                f:op("Move", base + 1, extraSelf)
+            end
+            for i, argument in ipairs(lowered) do
+                local target = base + offset + i
+                if argument.generatedKind == "nil" then
+                    f:op("Nil", target)
+                elseif argument.generatedKind == "field" then
+                    local source = evaluated[argument.source] or exprAs(f, argument.source, "v")
+                    f:op("GetField", target, source, f:const("str", argument.name))
+                else
+                    local source = evaluated[argument.expr] or exprAs(f, argument.expr, "v")
+                    f:op("Move", target, source)
+                end
+            end
+            return base, #lowered + offset
+        end
         local argRegs = {}
         if extraSelf then
             nargs = nargs + 1;
@@ -918,11 +948,24 @@ function lower.emit(
     emitCall = function(f, node, dst, nres, all)
         nres = nres or 1
         if node.ownershipIntrinsic then
-            -- The checker's ownership helpers are identities at run time here:
-            -- no cleanup runtime is in this emitter yet.
+            -- Transfers are erased; resolved terminal operations run cleanups.
             local oi = node.ownershipIntrinsic
             local args = node.args and node.args.exprs or {}
             local src = oi == "region" and args[2] or args[1]
+            if oi == "drop" or oi == "attemptAll" then
+                if node.ownerCleanupGuards and next(node.ownerCleanupGuards) then
+                    error("conditional field cleanup is not yet supported by the VM emitter")
+                end
+                local value = exprAs(f, src, "v")
+                local depth = f.cleanupDepth or 0
+                for i = #(node.ownerCleanups or {}), 1, -1 do
+                    deferCleanup(f, value, node.ownerCleanups[i])
+                end
+                f:op("Unwind", depth)
+                f.cleanupDepth = depth
+                f:op("Nil", dst)
+                return
+            end
             if oi == "adopt"
                 or oi == "release"
                 or oi == "borrow"
@@ -1753,6 +1796,22 @@ function lower.emit(
         return dst, "v"
     end
 
+    local plainExpr = expr
+    expr = function(f, node, dst, want)
+        local r, class = plainExpr(f, node, dst, want)
+        if node.automaticOwnerMove and node.kind ~= "paren" and node.kind ~= "castExpr" then
+            local move = node.automaticOwnerMove
+            local owner = move.owner or move
+            for _, slot in ipairs(f.cleanupOwners and f.cleanupOwners[owner] or {}) do
+                if not move.field or move.field == slot.field then
+                    f:op("DisarmAt", slot.depth)
+                end
+            end
+        end
+
+        return r, class
+    end
+
     -- A closure over `funcbody`: compiled as a nested function, its captures
     -- moved into place, the closure value landing in `dst`.
     emitClosure = function(f, funcbody, dst, name, implicitSelf)
@@ -1972,7 +2031,7 @@ function lower.emit(
     end
 
     local function loopBegin(f)
-        f.breaks[#f.breaks + 1] = {}
+        f.breaks[#f.breaks + 1] = {cleanupDepth = f.cleanupDepth or 0}
     end
 
     local function loopEnd(f)
@@ -1980,6 +2039,33 @@ function lower.emit(
         for _, at in ipairs(list) do
             f:patch(at, "Jmp", f:offset(at, f:here()))
         end
+    end
+
+    -- Cleanup selection comes from the checker's resolved affine terminals.
+    deferCleanup = function(f, value, cleanup)
+        if cleanup.kind == "method" or cleanup.kind == "closure" then
+            local name = cleanup.kind == "closure" and "__nuppRelease" or cleanup.name
+            f:op("DeferMethod", value, f:const("str", name))
+        elseif cleanup.kind == "function" and cleanup.key == "nupp:lua.d.nupp#__nuppCloseFile" then
+            local callback = f:reg()
+            f:op("K", callback, f:const("builtin", "file.close"))
+            f:op("Defer", value, callback)
+        elseif cleanup.kind == "function" then
+            local callback = exprAs(
+                f,
+                {kind = "name", token = {text = cleanup.name}, inferredType = {tag = "any"}},
+                "v"
+            )
+            f:op("Defer", value, callback)
+        elseif cleanup.kind == "field" then
+            local field = f:reg()
+            f:op("GetField", field, value, f:const("str", cleanup.field))
+            deferCleanup(f, field, cleanup.cleanup)
+            return
+        else
+            error("unsupported affine cleanup " .. tostring(cleanup.kind))
+        end
+        f.cleanupDepth = (f.cleanupDepth or 0) + 1
     end
 
     stmt = function(f, node)
@@ -2103,6 +2189,30 @@ function lower.emit(
             end
             local v = exprAs(f, bin, "v")
             assignTo(f, target, v)
+        elseif k == "withStmt" then
+            local depth = f.cleanupDepth or 0
+            f:push()
+            for _, binding in ipairs(node.bindings or {}) do
+                local value = exprAs(f, binding.expr, "v")
+                local reg, cell, spill = f:declare(tokText(binding.name), "v", true)
+                local stored = value
+                if cell then
+                    stored = f:reg()
+                    f:op("NewCell", stored, value)
+                end
+                if spill then
+                    f:storeSpill(spill, stored)
+                else
+                    f:op("Move", reg, stored)
+                end
+                for i = #(binding.ownerCleanups or {}), 1, -1 do
+                    deferCleanup(f, value, binding.ownerCleanups[i])
+                end
+            end
+            block(f, node.body)
+            f:op("Unwind", depth)
+            f.cleanupDepth = depth
+            f:pop()
         elseif k == "doStmt" then
             block(f, node.body or node)
         elseif k == "pragmaStmt" then
@@ -2332,6 +2442,9 @@ function lower.emit(
             loopEnd(f)
             f:pop()
         elseif k == "breakStmt" then
+            if (f.cleanupDepth or 0) > f.breaks[#f.breaks].cleanupDepth then
+                f:op("Unwind", f.breaks[#f.breaks].cleanupDepth)
+            end
             local list = assert(f.breaks[#f.breaks], "break outside a loop")
             list[#list + 1] = f:op("Jmp", 0)
         elseif k == "localFuncStmt" then
@@ -2459,6 +2572,26 @@ function lower.emit(
         f.curStmt = s
         local mark, fmark = f.nregs, f.nfregs
         stmt(f, s)
+        if s.kind == "localStmt" then
+            for index = 1, #(s.names or {}) do
+                local owner = s.automaticOwners and s.automaticOwners[index]
+                if owner and owner.lowerable then
+                    f.cleanupOwners = f.cleanupOwners or {}
+                    local slots = {}
+                    f.cleanupOwners[owner] = slots
+                    local value = exprAs(
+                        f,
+                        {kind = "name", token = {text = owner.name}, inferredType = {tag = "any"}},
+                        "v"
+                    )
+                    for i = #(owner.cleanups or {}), 1, -1 do
+                        local depth = f.cleanupDepth or 0
+                        deferCleanup(f, value, owner.cleanups[i])
+                        slots[#slots + 1] = {depth = depth, field = owner.cleanups[i].field}
+                    end
+                end
+            end
+        end
         if os.getenv("DEBUG_REGS") and f.name:find(os.getenv("DEBUG_REGS"), 1, true) then
             io.stderr:write(
                 f.name,
@@ -2478,9 +2611,14 @@ function lower.emit(
     end
 
     block = function(f, node)
+        local depth = f.cleanupDepth or 0
         f:push()
         for _, s in ipairs(node.stats or node.body and node.body.stats or {}) do
             stmtReclaim(f, s)
+        end
+        if (f.cleanupDepth or 0) > depth then
+            f:op("Unwind", depth)
+            f.cleanupDepth = depth
         end
         f:pop()
     end
@@ -2648,6 +2786,14 @@ function lower.emit(
             chain[#chain + 1] = {}
             for _, t in ipairs(st.names or {}) do
                 chain[#chain][tokText(t)] = here
+            end
+            analyzeBlock(st.body, chain, here, seen)
+            chain[#chain] = nil
+        elseif k == "withStmt" then
+            chain[#chain + 1] = {}
+            for _, binding in ipairs(st.bindings or {}) do
+                analyzeExpr(binding.expr, chain, here, seen)
+                chain[#chain][tokText(binding.name)] = here
             end
             analyzeBlock(st.body, chain, here, seen)
             chain[#chain] = nil

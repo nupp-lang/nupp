@@ -1,0 +1,102 @@
+module main
+
+local tasks = require("nupp.tasks")
+local main = {}
+
+local record Resource is nupp.Closeable
+    state: any
+
+    function close(takes self: Resource): nil
+        self.state.closed = self.state.closed + 1
+    end
+end
+
+local function resource(state: any): affine(Resource)
+    return new Resource(state = state)
+end
+
+function main.run(): number
+    local state: any = {closed = 0}
+    local answer = 0
+    with scope = tasks.open(limit = 1) do
+        local first = scope:spawn(function(): number
+            with owned = resource(state) do
+                tasks.checkpoint()
+                return 20
+            end
+        end)
+        local second = scope:spawn(function(): number
+            with owned = resource(state) do
+                return 22
+            end
+        end)
+        answer = first:await() + second:await()
+    end
+    assert(state.closed == 2)
+
+    return answer
+end
+
+function main.cancellation(): number
+    with scope = tasks.open() do
+        local child = scope:spawn(function(): number
+            error("a cancelled queued task must not start")
+        end)
+        assert(child:cancel())
+        local ok, reason = pcall(function(): number
+            return child:await()
+        end)
+        assert(not ok and tasks.isCancelled(reason))
+        assert(child:isDone() and child:status() == "cancelled")
+    end
+
+    return 42
+end
+
+function main.churn(): number
+    local total = 0
+    with scope = tasks.open(limit = 1) do
+        for i = 1, 1000 do
+            local child = scope:spawn(function(): number
+                return 1
+            end)
+            total = total + child:await()
+            assert(child:isDone() and child:await() == 1)
+        end
+    end
+    assert(total == 1000)
+
+    return 42
+end
+
+function main.ownership(): number
+    local state: any = {closed = 0}
+    do
+        local owned = resource(state)
+        with moved = owned do
+            assert(state.closed == 0)
+        end
+        assert(state.closed == 1)
+    end
+    assert(state.closed == 1)
+    local marker: any = {}
+    local ok, reason = pcall(function()
+        with owned = resource(state) do
+            error(marker)
+        end
+    end)
+    assert(not ok and reason == marker and state.closed == 2)
+    local childOk, childReason = pcall(function()
+        with scope = tasks.open() do
+            local child = scope:spawn(function()
+                error(nil)
+            end)
+            child:await()
+        end
+    end)
+    assert(not childOk and childReason == nil)
+
+    return 42
+end
+
+export = main

@@ -73,6 +73,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
                 let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };
                 let op = match name {
+                    "DeferMethod" => Op::DeferMethod(a(1) as u8, a(2) as u16), "Defer" => Op::Defer(a(1) as u8, a(2) as u8), "DisarmAt" => Op::DisarmAt(a(1) as u16), "Disarm" => Op::Disarm(a(1) as u8), "Unwind" => Op::Unwind(a(1) as u16),
                     "Park" => Op::Park(a(1) as u8), "Checkpoint" => Op::Checkpoint,
                     "K" => Op::K(a(1) as u8, a(2) as u16), "Move" => Op::Move(a(1) as u8, a(2) as u8), "Nil" => Op::Nil(a(1) as u8),
                     "Add" => Op::Add(a(1) as u8, a(2) as u8, a(3) as u8), "Sub" => Op::Sub(a(1) as u8, a(2) as u8, a(3) as u8), "Mul" => Op::Mul(a(1) as u8, a(2) as u8, a(3) as u8),
@@ -99,7 +100,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
     }
     let total = it.funcs.len() + funcs.len();
     for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
-    for f in funcs { it.funcs.push(f); }
+    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..))); it.funcs.push(f); }
     for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
     Ok(entry)
 }

@@ -45,7 +45,8 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
         entry,
         names(extras),
         function(name: string): string?
-            if name == "nupp.io.files"
+            if name == "nupp.tasks"
+            or name == "nupp.io.files"
             or name == "nupp.io.path"
             or name == "nupp.compiler.hostpid"
             or name == "nupp.digest.internal.sha256"

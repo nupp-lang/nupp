@@ -116,6 +116,14 @@ pub enum Op {
     /// another shape reads or writes the slot's name instead.
     GetSlot(u8, u8, u16, u32),
     SetSlot(u8, u16, u8, u32),
+    /// Register a resolved cleanup callback and receiver on this frame.
+    Defer(u8, u8),
+    DeferMethod(u8, u16),
+    /// Disarm the most recent cleanup for a transferred value.
+    Disarm(u8),
+    DisarmAt(u16),
+    /// Run cleanups above this frame-local lexical depth.
+    Unwind(u16),
     Park(u8),
     Checkpoint,
     Ne(u8, u8, u8),
@@ -269,6 +277,12 @@ const NONE: u32 = u32::MAX;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State { Runnable, Parked(u64), Done }
 
+#[derive(Clone, Copy)]
+pub struct Cleanup { pub frame: usize, pub value: Value, pub callback: Value }
+
+#[derive(Clone, Copy)]
+pub struct Protected { pub frame: usize, pub caller: usize, pub result: usize }
+
 pub struct Task {
     /// Every frame's header and windows, in call order.
     pub stack: Vec<u64>,
@@ -276,14 +290,17 @@ pub struct Task {
     cur: usize,
     pub state: State,
     pub result: Value,
+    pub error: Value,
     /// The register of the top frame a host completion is delivered to.
     pub deliver_at: usize,
     /// Every value the entry frame returned, when it returned more than one.
     pub results: Vec<Value>,
+    pub cleanups: Vec<Cleanup>,
+    pub protected: Vec<Protected>,
 }
 
 impl Task {
-    pub(crate) fn restored(stack: Vec<u64>, cur: usize, state: State, deliver_at: usize) -> Self { Self { stack, cur, state, deliver_at, result: Value::NIL, results: Vec::new() } }
+    pub(crate) fn restored(stack: Vec<u64>, cur: usize, state: State, deliver_at: usize) -> Self { Self { stack, cur, state, deliver_at, result: Value::NIL, error: Value::NIL, results: Vec::new(), cleanups: Vec::new(), protected: Vec::new() } }
     pub fn cur(&self) -> usize { self.cur }
     pub fn set_cur(&mut self, s: usize) { self.cur = s; }
     /// Records the top frame's pc in its header, where the backtrace reads it.
@@ -295,13 +312,15 @@ impl Function {
     #[inline] pub fn frame_words(&self) -> usize { HDR + self.nregs as usize + 1 + self.nireg as usize + self.nfreg as usize + 2 * self.nvreg as usize }
     #[inline] pub fn off_i(&self) -> usize { HDR + self.nregs as usize + 1 }
     #[inline] pub fn off_f(&self) -> usize { self.off_i() + self.nireg as usize }
-    #[inline] fn off_v(&self) -> usize { self.off_f() + self.nfreg as usize }
+    #[inline] pub(crate) fn off_v(&self) -> usize { self.off_f() + self.nfreg as usize }
 }
 
 pub struct Interp {
     pub scheduler: Option<crate::scheduler::Scheduler>,
     pub(crate) active_cancellation: Option<crate::scheduler::Cancellation>,
     pub(crate) persistence_hook_depth: usize,
+    pub(crate) nonsuspending_cleanup: usize,
+    pub(crate) callback_depth: std::rc::Rc<std::cell::Cell<usize>>,
     pub(crate) code_events: Vec<crate::persist::CodeEvent>,
     pub(crate) execution_depth: std::rc::Rc<std::cell::Cell<usize>>,
     /// Extension-owned objects. Registering one roots its identity until released.
@@ -365,6 +384,11 @@ pub struct Interp {
     pub jit_threshold: u32,
     #[cfg(feature = "jit")]
     pub jit: Option<Box<crate::jit::Jit>>,
+    #[cfg(feature = "jit")]
+    pub frame_entries: Vec<u64>,
+    pub(crate) frame_mode: bool,
+    pub(crate) frame_required: bool,
+    pub compiled_frame_entries: u64,
     pub lazy_compiled: usize,
     pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
@@ -386,6 +410,8 @@ struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [V
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
+            f(t.error);
+            for c in &t.cleanups { f(c.value); f(c.callback); }
             // Each frame's value window, walked from the top frame down the
             // caller chain; the other windows hold no references.
             let mut s = t.cur;
@@ -442,7 +468,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { scheduler: None, active_cancellation: None, persistence_hook_depth: 0, code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { frame_mode: false, frame_required: false, compiled_frame_entries: 0, #[cfg(feature = "jit")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -461,7 +487,7 @@ impl Interp {
         // (the root walk filters words that are not live object slots).
         let need = nvar + words + 64;
         let stack = match self.stack_pool.pop() { Some(mut s) => { if s.len() < need { s.resize(need, 0); } s } None => vec![0u64; need] };
-        let mut t = Task { stack, cur: nvar, state: State::Runnable, result: Value::NIL, deliver_at: 0, results: Vec::new() };
+        let mut t = Task { stack, cur: nvar, state: State::Runnable, result: Value::NIL, error: Value::NIL, deliver_at: 0, results: Vec::new(), cleanups: Vec::new(), protected: Vec::new() };
         for i in 0..nvar { t.stack[i] = args[f.nparams as usize + i].0; }
         let s0 = nvar;
         t.stack[s0] = fid as u64;
@@ -499,6 +525,10 @@ impl Interp {
         for (i, v) in outs.iter().take(8).enumerate() { t.stack[at + i] = v.0; }
         self.last_nres = outs.len().min(8);
         t.state = State::Runnable;
+        let frame = t.cur;
+        if t.protected.last().is_some_and(|h| h.frame == frame && h.caller == frame) {
+            self.finish_protected(tid, frame);
+        }
     }
     /// The task's frame chain, innermost first: function names and pcs.
     pub fn backtrace(&self, tid: usize) -> String {
@@ -604,6 +634,7 @@ impl Interp {
     /// the task is finished.
     #[inline]
     fn pop_frame(&mut self, tid: usize, v: Value) -> bool {
+        self.unwind_frame(tid);
         let t = &mut self.tasks[tid];
         let s = t.cur;
         let h1 = t.stack[s + 1];
@@ -614,11 +645,13 @@ impl Interp {
         else { t.stack[(h1 >> 32) as usize] = v.0; }
         t.cur = caller as usize;
         self.last_nres = 1;
+        self.finish_protected(tid, s);
         false
     }
     /// Pops the frame delivering `n` values from the callee's window at `from`
     /// (absolute) into the caller's result slots; true when the task finished.
     fn pop_frame_n(&mut self, tid: usize, from: usize, n: usize) -> bool {
+        self.unwind_frame(tid);
         let t = &mut self.tasks[tid];
         let s = t.cur;
         let h1 = t.stack[s + 1];
@@ -630,7 +663,15 @@ impl Interp {
         if n == 0 { t.stack[ret] = Value::NIL.0; }
         t.cur = caller as usize;
         self.last_nres = n.min(8);
+        self.finish_protected(tid, s);
         false
+    }
+    fn finish_protected(&mut self, tid: usize, frame: usize) {
+        if self.tasks[tid].protected.last().is_some_and(|h| h.frame == frame) {
+            let handler = self.tasks[tid].protected.pop().unwrap();
+            self.tasks[tid].stack[handler.result] = Value::TRUE.0;
+            self.last_nres = (self.last_nres + 1).min(8);
+        }
     }
     /// Writes call results into the window from `at`, nil when there are none.
     #[inline]
@@ -647,7 +688,7 @@ impl Interp {
 
     /// The typed tier's entry for a function, if it has one.
     #[inline]
-    pub fn entry_of(&self, fid: u32) -> u64 { self.entries.get(fid as usize).copied().unwrap_or(0) }
+    pub fn entry_of(&self, fid: u32) -> u64 { if self.frame_mode { return 0; } self.entries.get(fid as usize).copied().unwrap_or(0) }
     /// Enters a compiled function with its closure and value arguments through
     /// a per-arity trampoline; the first result returns, extras through `extra`.
     #[cfg(feature = "compiled-runtime")]
@@ -692,6 +733,7 @@ impl Interp {
     /// Calls any callable value on a scratch task and returns every result:
     /// the path for builtins that call back (gsub) and for module chunks.
     pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
+        let _callback = crate::persist::Execution::enter(&self.callback_depth);
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
@@ -795,7 +837,7 @@ impl Interp {
         use crate::host::{Req, HOST_BASE};
         crate::scheduler::checkpoint(self);
         let k = (id - HOST_BASE) as usize;
-        if self.persistence_hook_depth != 0 && k < 5 { self.err("persistence hooks cannot park for host services"); }
+        if (self.persistence_hook_depth != 0 || self.nonsuspending_cleanup != 0 || self.callback_depth.get() != 0) && k < 5 { self.err("this callback cannot park for host services"); }
         let text = |it: &Interp, i: usize| -> String { args.get(i).map(|v| it.bytes_of(*v)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default() };
         let num = |i: usize| -> f64 { args.get(i).map(|v| v.as_num()).unwrap_or(0.0) };
         let mut outs = crate::builtins::Outs::new();
@@ -871,6 +913,10 @@ impl Interp {
         let digest = self.new_table(); self.registered.push(digest);
         let k = self.intern("sha256"); self.set_index(digest, k, Value::builtin(crate::builtins::id_of("vm.sha256").unwrap()));
         self.loaded.insert("nupp.digest.internal.sha256".into(), digest);
+        let tasks = table_of(self, &["tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.isCancelled"]);
+        self.loaded.insert("nupp.tasks".into(), tasks);
+        let cancelled = self.new_table(); self.registered.push(cancelled);
+        self.loaded.insert("nupp.vm.cancellation".into(), cancelled);
         let persistence = self.new_table(); self.registered.push(persistence);
         for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
@@ -1110,20 +1156,57 @@ impl Interp {
 
     /// Run task `tid` until it finishes or parks: on the threaded core when
     /// it is built and enabled, else on the Rust loop.
-    pub fn run(&mut self, tid: usize) -> Outcome { if self.threaded { self.run_threaded(tid) } else { self.run_rust(tid) } }
+    pub fn run(&mut self, tid: usize) -> Outcome {
+        let old = self.frame_mode;
+        // Ownership regions must use the frame driver: C return handlers do
+        // not execute cleanup, and a native caller cannot survive a park.
+        self.frame_mode |= self.frame_required;
+        loop {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| if self.threaded && !self.frame_mode { self.run_threaded(tid) } else { self.run_rust(tid) }));
+            match result {
+                Ok(o) => { self.frame_mode = old; return o; }
+                Err(e) => {
+                    if let Some(handler) = self.tasks[tid].protected.pop() {
+                        let value = self.error_value(e);
+                        let root = self.register(value);
+                        let keep = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < handler.frame).count();
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.unwind_cleanups(tid, keep)));
+                        let t = &mut self.tasks[tid]; t.cur = handler.caller;
+                        t.stack[handler.result] = Value::FALSE.0; t.stack[handler.result + 1] = value.0;
+                        self.last_nres = 2; self.release(root);
+                        continue;
+                    }
+                    self.frame_mode = old;
+                    let value = self.error_value(e); let root = self.register(value);
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.unwind_cleanups(tid, 0)));
+                    self.release(root);
+                    std::panic::panic_any(crate::builtins::LuaError(value.0));
+                }
+            }
+        }
+    }
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
+    fn compiled_frames_active(&self) -> bool {
+        #[cfg(feature = "jit")] { self.frame_mode && self.jit.is_some() }
+        #[cfg(not(feature = "jit"))] { false }
+    }
     pub fn run_rust(&mut self, tid: usize) -> Outcome {
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         loop {
-            let (win, mut pc) = self.window(tid);
+            let (mut win, mut pc) = self.window(tid);
+            #[cfg(feature = "jit")]
+            if self.frame_mode && self.jit.is_some() {
+                pc = self.run_compiled_frame(tid, win.fid, pc);
+                win = self.window(tid).0;
+            }
             loop {
                 // The frame's pc, for the backtrace of an error this op raises.
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
                 match self.step(tid, &win, pc) {
-                    Step::Next(next) => pc = next,
+                    Step::Next(next) => { pc = next; if self.compiled_frames_active() { self.tasks[tid].note_pc(pc); break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return o,
                 }
@@ -1163,6 +1246,14 @@ impl Interp {
         macro_rules! vr { ($i:expr) => { (*unsafe { &mut *vregs.add($i as usize) }) } }
         macro_rules! rec { ($i:expr, $what:expr) => {{ let h = hdr!(self, r!($i), $what); if h.kind != KIND_RECORD { self.err($what) } h }} }
         let op = unsafe { *code.add(pc) };
+        let cleanup_keep = match op {
+            Op::Ret(..) | Op::RetN(..) | Op::RetNil | Op::FRet(..) => Some(self.tasks[tid].cleanups.iter().take_while(|c| c.frame < self.tasks[tid].cur).count()),
+            Op::Unwind(n) => Some(self.tasks[tid].cleanups.iter().take_while(|c| c.frame < self.tasks[tid].cur).count() + n as usize),
+            _ => None,
+        };
+        if let Some(keep) = cleanup_keep {
+            if let Some(key) = self.poll_cleanups(tid, keep, pc) { return Step::Return(Outcome::Parked(key)); }
+        }
         pc += 1;
         #[cfg(feature = "opstats")]
         if let Some(st) = self.op_stats.as_mut() { *st.entry(op_name(&op)).or_insert(0) += 1; }
@@ -1206,7 +1297,28 @@ impl Interp {
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { let nargs = self.spread_count(nargs); self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::CallMethod(k, b, nargs) => match { let nargs = self.spread_count(nargs); self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::PCall(b, nargs) => { let nargs = self.spread_count(nargs); self.op_pcall(&win, b, nargs) }
+                    Op::PCall(b, nargs) => {
+                        let nargs = self.spread_count(nargs);
+                        if self.frame_mode {
+                            let caller = self.tasks[tid].cur;
+                            let scope = self.open_scope();
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.op_call_dyn(tid, &win, pc, b + 1, b + 1, nargs)));
+                            self.close_scope(scope);
+                            match result {
+                                Ok(Flow::Reenter) => { let frame = self.tasks[tid].cur; self.tasks[tid].protected.push(Protected { frame, caller, result: base + b as usize }); return Step::Reenter; }
+                                Ok(Flow::Return(o)) => {
+                                    // A host builtin resumes after this instruction. Task
+                                    // waits retry it instead and need no continuation.
+                                    if (self.tasks[tid].stack[caller] >> 32) as usize == pc {
+                                        self.tasks[tid].protected.push(Protected { frame: caller, caller, result: base + b as usize });
+                                    }
+                                    return Step::Return(o);
+                                }
+                                Ok(Flow::Next) => { r!(b) = Value::TRUE; self.last_nres = (self.last_nres + 1).min(8); }
+                                Err(e) => { let value = self.error_value(e); self.deliver(regs, b as usize, &[Value::FALSE, value]); }
+                            }
+                        } else { self.op_pcall(&win, b, nargs); }
+                    }
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
                     Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); if self.metatable_of(tv) != Value::NIL { let iv = self.key_for_store(iv); self.newindex(tv, iv, v); } else { self.set_index(tv, iv, v); } }
@@ -1244,6 +1356,11 @@ impl Interp {
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
+                    Op::DeferMethod(v, k) => { let value = r!(v); let name = unsafe { *consts.add(k as usize) }; let callback = if value == Value::NIL { Value::NIL } else { self.resolve_method(value, name) }; let frame = self.tasks[tid].cur; self.tasks[tid].cleanups.push(Cleanup { frame, value, callback }); }
+                    Op::Defer(v, c) => { let cleanup = Cleanup { frame: self.tasks[tid].cur, value: r!(v), callback: r!(c) }; self.tasks[tid].cleanups.push(cleanup); }
+                    Op::DisarmAt(depth) => { let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let c = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); c.value = Value::NIL; c.callback = Value::NIL; }
+                    Op::Disarm(v) => { let value = r!(v); if let Some(i) = self.tasks[tid].cleanups.iter().rposition(|c| c.value == value) { self.tasks[tid].cleanups[i].value = Value::NIL; self.tasks[tid].cleanups[i].callback = Value::NIL; } }
+                    Op::Unwind(depth) => { let frame = self.tasks[tid].cur; let keep = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count() + depth as usize; self.unwind_cleanups(tid, keep); }
                     Op::Park(k) => { crate::scheduler::checkpoint(self); let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
                     Op::Checkpoint => { crate::scheduler::checkpoint(self); self.back_edge(); }
                     Op::IK(d, k) => ir!(d) = k,
@@ -1346,6 +1463,12 @@ impl Interp {
         }
         if let Some(id) = callee.as_builtin() {
             let args = self.call_args(tid, base + b as usize + 1, nargs);
+            if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) {
+                match crate::task_api::call(self, tid, crate::builtins::NAMES[id as usize], args.as_slice()) {
+                    crate::task_api::Answer::Values(values) => { self.deliver(regs, b as usize, &values); return Flow::Next; }
+                    crate::task_api::Answer::Wait(target) => { let key = crate::task_api::park(self, tid, target, pc - 1); return Flow::Return(Outcome::Parked(key)); }
+                }
+            }
             if id >= crate::host::HOST_BASE {
                 // A host service: an immediate one answers like a builtin; a
                 // parking one submits its request, parks the task on the key
@@ -1407,6 +1530,7 @@ impl Interp {
         let method = self.resolve_method(recv, name);
         if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
         if let Some(id) = method.as_builtin() {
+            if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) { r!(b) = method; return self.op_call_dyn(tid, w, pc, b, b, nargs); }
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             let outs = crate::builtins::call(self, id, args.as_slice());
             self.deliver(regs, b as usize, outs.as_slice());
@@ -1554,6 +1678,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::NewRecord(..) => "NewRecord",
         Op::GetSlot(..) => "GetSlot",
         Op::SetSlot(..) => "SetSlot",
+        Op::Defer(..) => "Defer", Op::DeferMethod(..) => "DeferMethod", Op::Disarm(..) => "Disarm", Op::DisarmAt(..) => "DisarmAt", Op::Unwind(..) => "Unwind",
         Op::Park(..) => "Park",
         Op::Checkpoint => "Checkpoint",
         Op::Ne(..) => "Ne",

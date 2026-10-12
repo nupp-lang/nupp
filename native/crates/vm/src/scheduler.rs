@@ -51,6 +51,7 @@ pub(crate) struct Control {
     pub deadline: Option<u64>,
     pub wake: Option<u64>,
     pub last_nres: usize,
+    pub waiting: Option<TaskId>,
 }
 pub struct Scheduler {
     pub(crate) now: u64,
@@ -136,6 +137,9 @@ impl Scheduler {
                         || t.result != Value::NIL
                         || !t.results.is_empty()
                         || !t.stack.is_empty()
+                        || t.error != Value::NIL
+                        || !t.cleanups.is_empty()
+                        || !t.protected.is_empty()
                 })
             {
                 return Err("invalid scheduler free slot".into());
@@ -174,6 +178,17 @@ impl Scheduler {
             if c.status != Status::Active && (c.wake.is_some() || c.deadline.is_some()) {
                 return Err("finished task has a timer".into());
             }
+            if let Some(target) = c.waiting {
+                if c.status != Status::Active
+                    || !matches!(task.state, State::Parked(_))
+                    || self
+                        .control(target)
+                        .is_none_or(|t| t.status != Status::Active)
+                    || target.index == tid
+                {
+                    return Err("invalid task wait".into());
+                }
+            }
             if c.wake.is_some() && !matches!(task.state, State::Parked(_)) {
                 return Err("timer task is not parked".into());
             }
@@ -189,7 +204,13 @@ pub(crate) fn checkpoint(vm: &Interp) {
         .as_ref()
         .is_some_and(Cancellation::requested)
     {
-        panic!("task cancelled");
+        std::panic::panic_any(crate::builtins::LuaError(
+            vm.loaded
+                .get("nupp.vm.cancellation")
+                .copied()
+                .unwrap_or(crate::value::Value::NIL)
+                .0,
+        ));
     }
 }
 pub(crate) fn bind_timer(vm: &mut Interp, key: u64, task: usize) -> bool {
@@ -229,6 +250,14 @@ impl Interp {
         if self.execution_depth.get() != 0 {
             return Err("schedule requires an embedding boundary".into());
         }
+        self.schedule_inner(callee, args, deadline)
+    }
+    pub(crate) fn schedule_inner(
+        &mut self,
+        callee: Value,
+        args: &[Value],
+        deadline: Option<u64>,
+    ) -> Result<TaskId> {
         if self.scheduler.is_none() {
             return Err("scheduler is not enabled".into());
         }
@@ -268,6 +297,7 @@ impl Interp {
                 deadline,
                 wake: None,
                 last_nres: 0,
+                waiting: None,
             },
         );
         if let Some(at) = deadline {
@@ -287,7 +317,8 @@ impl Interp {
         if c.status != Status::Active || self.tasks[tid].state == State::Runnable {
             return Ok(false);
         }
-        if c.wake.is_some() || self.host_waiters.values().any(|&t| t == tid) {
+        if c.wake.is_some() || c.waiting.is_some() || self.host_waiters.values().any(|&t| t == tid)
+        {
             return Err("task is waiting for a timer or host request".into());
         }
         self.tasks[tid].state = State::Runnable;
@@ -316,6 +347,7 @@ impl Interp {
         s.controls.remove(&task.index);
         let t = &mut self.tasks[task.index];
         t.result = Value::NIL;
+        t.error = Value::NIL;
         t.results.clear();
         s.free.push(task.index);
         Ok(())
@@ -347,31 +379,62 @@ impl Interp {
                 let at = t.cur() + crate::interp::HDR + t.deliver_at;
                 t.stack[at] = Value::TRUE.0;
                 c.last_nres = 1;
+                if t.protected
+                    .last()
+                    .is_some_and(|h| h.frame == t.cur() && h.caller == h.frame)
+                {
+                    let h = t.protected.pop().unwrap();
+                    t.stack[h.result] = Value::TRUE.0;
+                    c.last_nres = 2;
+                }
                 t.state = State::Runnable;
                 s.ready.push_back(tid);
             }
         }
         Ok(())
     }
-    fn finish_scheduled(&mut self, tid: usize, status: Status) -> Event {
+    pub(crate) fn finish_scheduled(&mut self, tid: usize, status: Status) -> Event {
+        // Cancellation and failures unwind the same registered regions as return.
+        let cleanup = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.unwind_cleanups(tid, 0)
+        }));
+        let status = match cleanup {
+            Ok(()) => status,
+            Err(e) => {
+                let v = self.error_value(e);
+                if self.tasks[tid].error == Value::NIL {
+                    self.tasks[tid].error = v;
+                }
+                let message = if self.is_stringish(v) {
+                    String::from_utf8_lossy(self.bytes_of(v)).into_owned()
+                } else {
+                    format!("error value {:#x}", v.0)
+                };
+                Status::Failed(format!("{status:?}; cleanup failed: {message}"))
+            }
+        };
         let s = self.scheduler.as_mut().unwrap();
         s.remove_timers(tid);
         s.ready.retain(|&t| t != tid);
         s.controls.get_mut(&tid).unwrap().status = status.clone();
+        s.controls.get_mut(&tid).unwrap().waiting = None;
         let task = &mut self.tasks[tid];
         if status != Status::Completed {
             task.result = Value::NIL;
             task.results.clear();
         }
         task.state = State::Done;
+        task.protected.clear();
         let stack = std::mem::take(&mut task.stack);
         if self.stack_pool.len() < 64 {
             self.stack_pool.push(stack);
         }
+        let generation = s.controls[&tid].generation;
+        crate::task_api::wake_dependents(self, tid);
         Event {
             task: TaskId {
                 index: tid,
-                generation: s.controls[&tid].generation,
+                generation,
             },
             status,
         }
@@ -401,6 +464,9 @@ impl Interp {
             .map(|(&tid, _)| tid)
             .collect();
         for tid in cancelled {
+            if self.scheduler.as_ref().unwrap().controls[&tid].status != Status::Active {
+                continue;
+            }
             events.push(self.finish_scheduled(tid, Status::Cancelled));
         }
         for _ in 0..turns {
@@ -412,12 +478,15 @@ impl Interp {
                 .clone();
             self.last_nres = self.scheduler.as_ref().unwrap().controls[&tid].last_nres;
             self.active_cancellation = Some(token.clone());
-            let ntasks = self.tasks.len();
+
             let scope = self.open_scope();
+            let old_frame_mode = self.frame_mode;
+            self.frame_mode = true;
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 checkpoint(self);
                 self.run(tid)
             }));
+            self.frame_mode = old_frame_mode;
             self.active_cancellation = None;
             self.scheduler
                 .as_mut()
@@ -426,7 +495,7 @@ impl Interp {
                 .get_mut(&tid)
                 .unwrap()
                 .last_nres = self.last_nres;
-            self.tasks.truncate(ntasks);
+
             let status = if token.requested() {
                 Some(Status::Cancelled)
             } else {
@@ -435,6 +504,7 @@ impl Interp {
                     Ok(Outcome::Parked(_)) => None,
                     Err(error) => {
                         let value = self.error_value(error);
+                        self.tasks[tid].error = value;
                         let message = if self.is_stringish(value) {
                             String::from_utf8_lossy(self.bytes_of(value)).into_owned()
                         } else {

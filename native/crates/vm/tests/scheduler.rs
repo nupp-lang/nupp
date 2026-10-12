@@ -366,3 +366,281 @@ fn task_churn_reuses_slots_without_reusing_handles_or_retaining_results() {
     assert!(restored.cancel_task(old).is_err());
     assert_eq!(restored.run_ready(1).unwrap()[0].status, Status::Completed);
 }
+
+#[cfg(feature = "jit")]
+#[test]
+fn compiled_nested_frames_park_restore_and_cancel() {
+    // Compiled helpers currently share a process context, so this test owns
+    // the only JIT in this integration-test binary.
+    let mut vm = Box::new(fixture(false));
+    vm.jit = Some(Box::new(nupp_vm::jit::Jit::new()));
+    let task = vm
+        .schedule(Value::func(1), &[Value::num(10.0)], None)
+        .unwrap();
+    assert!(vm.run_ready(1).unwrap().is_empty());
+    assert!(vm.compiled_frame_entries > 0);
+    assert!(matches!(vm.tasks[task.index].state, State::Parked(_)));
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    restored.advance_to(10).unwrap();
+    assert_eq!(restored.run_ready(1).unwrap()[0].status, Status::Completed);
+    assert_eq!(restored.tasks[task.index].result, Value::TRUE);
+    vm.advance_to(10).unwrap();
+    assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Completed);
+    assert_eq!(vm.tasks[task.index].result, Value::TRUE);
+    let cancelled = vm
+        .schedule(Value::func(1), &[Value::num(20.0)], None)
+        .unwrap();
+    vm.run_ready(1).unwrap();
+    vm.cancel_task(cancelled).unwrap();
+    assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Cancelled);
+
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, AFFINE).unwrap();
+    vm.install_globals();
+    vm.enable_scheduler().unwrap();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    vm.jit = Some(Box::new(nupp_vm::jit::Jit::new()));
+    let object = vm.new_table();
+    vm.registered.push(object);
+    let closed = vm.intern("closed");
+    vm.set_index(object, closed, Value::num(0.0));
+    let task = vm
+        .schedule(Value::func(1), &[object, Value::num(123.0)], None)
+        .unwrap();
+    vm.run_ready(1).unwrap();
+    assert!(vm.compiled_frame_entries > 0);
+    vm.cancel_task(task).unwrap();
+    assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Cancelled);
+    assert_eq!(vm.get_index(object, closed), Value::num(1.0));
+}
+
+const AFFINE: &str = r#"
+function close 0 1 12 2 v:v
+const 0 str "closed"
+const 1 num 1
+GetField 2 1 0
+K 3 1
+Add 2 2 3
+SetField 1 0 2
+RetNil
+end
+function owned 1 2 12 2 vv:v
+const 0 func 0
+K 3 0
+Defer 1 3
+Park 2
+Unwind 0
+Ret 1
+end
+function facade 2 0 24 2 :v
+const 0 str "nupp.tasks"
+const 1 str "open"
+const 2 str "spawn"
+const 3 str "await"
+const 4 str "close"
+const 5 func 3
+Require 1 0
+GetField 2 1 1
+CallDyn 2 3 0
+Move 5 3
+K 6 5
+CallMethod 2 4 2
+Move 8 4
+CallMethod 3 7 1
+Move 11 3
+CallMethod 4 10 1
+Ret 7
+end
+function child 3 0 8 2 :v
+const 0 num 42
+K 1 0
+Ret 1
+end
+entry 0
+"#;
+#[test]
+fn affine_checkpoint_cancellation_and_task_surface() {
+    let mut vm = Interp::new();
+    image::load(&mut vm, AFFINE).unwrap();
+    vm.install_globals();
+    vm.enable_scheduler().unwrap();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    let object = vm.new_table();
+    vm.registered.push(object);
+    let closed = vm.intern("closed");
+    vm.set_index(object, closed, Value::num(0.0));
+    let task = vm
+        .schedule(Value::func(1), &[object, Value::num(123.0)], None)
+        .unwrap();
+    vm.run_ready(1).unwrap();
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    let restored_object = restored.tasks[task.index].cleanups[0].value;
+    restored.cancel_task(task).unwrap();
+    restored.run_ready(1).unwrap();
+    let key = restored.intern("closed");
+    assert_eq!(restored.get_index(restored_object, key), Value::num(1.0));
+    vm.wake_task(task).unwrap();
+    vm.run_ready(1).unwrap();
+    assert_eq!(vm.get_index(object, closed), Value::num(1.0));
+    let root = vm.schedule(Value::func(2), &[], None).unwrap();
+    for _ in 0..4 {
+        vm.run_ready(8).unwrap();
+    }
+    assert_eq!(status(&vm, root), Status::Completed);
+    assert_eq!(vm.tasks[root.index].result, Value::num(42.0));
+}
+
+#[test]
+fn protected_call_can_park_checkpoint_and_catch_after_restore() {
+    let program = r#"
+function guarded 0 0 12 2 :v
+const 0 func 1
+K 2 0
+PCall 1 0
+RetN 1 2
+end
+function raising 1 0 12 2 :v
+const 0 num 123
+const 1 builtin error
+const 2 str "after resume"
+K 1 0
+Park 1
+K 2 1
+K 4 2
+CallDyn 2 3 1
+RetNil
+end
+entry 0
+"#;
+    let mut vm = Interp::new();
+    image::load(&mut vm, program).unwrap();
+    vm.install_globals();
+    vm.enable_scheduler().unwrap();
+    let t = vm.schedule(Value::func(0), &[], None).unwrap();
+    vm.run_ready(1).unwrap();
+    assert_eq!(vm.tasks[t.index].protected.len(), 1);
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut vm =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    vm.wake_task(t).unwrap();
+    vm.run_ready(1).unwrap();
+    assert_eq!(status(&vm, t), Status::Completed);
+    assert_eq!(vm.tasks[t.index].results[0], Value::FALSE);
+    assert_eq!(vm.bytes_of(vm.tasks[t.index].results[1]), b"after resume");
+}
+
+#[test]
+fn cleanup_slots_distinguish_equal_values() {
+    // Two owners can hold the same value. Moving one disarms its lexical
+    // cleanup slot, not whichever equal value happens to be registered last.
+    let program = r#"
+function main 0 1 16 2 v:v
+const 0 func 1
+const 1 func 2
+K 2 0
+K 3 1
+Defer 1 2
+Defer 1 3
+DisarmAt 0
+Park 1
+RetNil
+end
+function wrong 1 1 8 2 v:v
+const 0 str "wrong"
+const 1 true
+K 2 1
+SetField 1 0 2
+RetNil
+end
+function right 2 1 8 2 v:v
+const 0 str "right"
+const 1 true
+K 2 1
+SetField 1 0 2
+RetNil
+end
+entry 0
+"#;
+    let mut vm = Interp::new();
+    image::load(&mut vm, program).unwrap();
+    vm.install_globals();
+    vm.enable_scheduler().unwrap();
+    let value = vm.new_table();
+    vm.registered.push(value);
+    let task = vm.schedule(Value::func(0), &[value], None).unwrap();
+    vm.run_ready(1).unwrap();
+    vm.cancel_task(task).unwrap();
+    vm.run_ready(1).unwrap();
+    let wrong = vm.intern("wrong");
+    let right = vm.intern("right");
+    assert_eq!(vm.get_index(value, wrong), Value::NIL);
+    assert_eq!(vm.get_index(value, right), Value::TRUE);
+}
+
+#[test]
+fn protected_host_timer_resumes_with_success_after_restore() {
+    let program = r#"
+function main 0 0 12 0 :v
+const 0 str "nupp.host"
+const 1 str "sleep"
+const 2 num 10
+Require 8 0
+GetField 2 8 1
+K 3 2
+PCall 1 1
+PadResults 1 2
+RetN 1 2
+end
+entry 0
+"#;
+    let mut vm = Interp::new();
+    image::load(&mut vm, program).unwrap();
+    vm.install_globals();
+    let host = vm.host_table();
+    vm.loaded.insert("nupp.host".into(), host);
+    vm.prepare_threaded();
+    vm.enable_scheduler().unwrap();
+    let task = vm.schedule(Value::func(0), &[], None).unwrap();
+    vm.run_ready(1).unwrap();
+    assert_eq!(vm.tasks[task.index].protected.len(), 1);
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    for current in [&mut vm, &mut restored] {
+        current.advance_to(10).unwrap();
+        current.run_ready(1).unwrap();
+        assert_eq!(status(current, task), Status::Completed);
+        assert_eq!(
+            current.tasks[task.index].results,
+            [Value::TRUE, Value::TRUE]
+        );
+        assert!(current.tasks[task.index].protected.is_empty());
+    }
+}

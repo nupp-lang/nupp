@@ -185,6 +185,10 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         BufAppendSub(b, s, i, j) => r(&[(V, b), (V, s), (I, i), (I, j)]),
         Substring(d, s, i, j) => r(&[(V, d), (V, s), (I, i), (I, j)]),
         Call(_, base, _) | CallT(_, base, _, _) | PCall(base, _) | CallMethod(_, base, _) => r(&[(V, base)]),
+        DeferMethod(v, _) => r(&[(V, v)]),
+        Defer(v, c) => r(&[(V, v), (V, c)]),
+        Disarm(v) => r(&[(V, v)]),
+        DisarmAt(_) | Unwind(_) => r(&[]),
         RetNil | Checkpoint | LoopFact(..) => r(&[]),
         GetField(d, t, _) => r(&[(V, d), (V, t)]),
         SetField(t, _, v) => r(&[(V, t), (V, v)]),
@@ -252,7 +256,7 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
             if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
         }
         match *op {
-            Op::K(_, k) if k as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {k} outside the pool of {}", f.consts.len())),
+            Op::K(_, k) | Op::DeferMethod(_, k) if k as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {k} outside the pool of {}", f.consts.len())),
             Op::Switch(_, t) => {
                 let (def, tbl) = f.jump_tables.get(t as usize).ok_or_else(|| format!("pc {pc}: jump table {t} does not exist"))?;
                 for off in std::iter::once(def).chain(tbl.iter()) { let tt = pc as i64 + 1 + *off as i64; if tt < 0 || tt > n as i64 { return Err(format!("pc {pc}: switch target {tt} outside the code")); } }
@@ -291,7 +295,7 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
     match *op {
         // Every register named is read.
         SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
-        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) => none_def(&all),
+        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) => none_def(&all),
         // Read and written.
         BufAppend(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
         RetN(start, n) => { let n = if n >= 128 { 8 } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }
