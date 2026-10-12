@@ -313,3 +313,35 @@ fifth of accesses at most; the other four fifths read parameters, fields
 and call results, where the only shape evidence is the checker's declared
 type. The guard stays the general rule and the direct load is the
 verifier's optimisation for the proven fifth.
+
+**Profiling the checker's typed tier (2026-10-11).** With slot guards ruled
+out, `sample` on the checker found the time in the runtime's helpers rather
+than in compiled code: field reads by name, dynamic calls, builtins, the
+collector and malloc. Each item below is one step on lexer.nupp (medians of
+seven on the loaded machine; LuaJIT 232 ms):
+
+| step | typed tier | helper traffic per check it removed |
+| --- | ---: | --- |
+| start of the pass | 297 ms | — |
+| shapes answer a name through an open-addressed slot table (Rust, C, typed tier) instead of a linear scan | 267 ms | — |
+| a dynamic call to a closure or bare function with a compiled entry calls it straight, eight nil-padded register arguments; builtins straight to their table; `ipairs` steps inline | 249 ms | 3.3M compiled-callee and 3.7M builtin calls through `j_call_dyn`; 1.2M iterator steps |
+| the fixed-width scalar intrinsics as a `Scalar` opcode lowered inline (the digest's `u32.wrap`, `i32.add`, …) | 206 ms | 3.0M builtin calls |
+| an inline shape-table probe behind the per-site cache; module exports as records | 207 ms | 1.4M polymorphic cache misses (273 megamorphic sites) |
+| the table hash part as the same open-addressed table (`ValueTable`), probed inline by the typed tier and the core | 202 ms | 1.4M table reads |
+| absent record fields answered inline, the overflow part the same table | 171 ms | 1.2M absent-field reads |
+
+The small sample went from 153 to 90 ms. What the profile shows now, in
+order: the collector (scan, child walk, sweep: a fifth of samples), malloc
+and free (the `Vec` behind every table's array part and every record's
+children, a sixth), then dynamic calls that still take the helper (1.1M
+per check: trailing-call spread sites through `CallK`, callees with typed
+signatures), `get_index` by value key, and the builtins left
+(`string.byte` on untyped subjects, `tonumber`, `pairs`). The collector and
+the allocator are the plan's P5 items (a nursery, inline small arrays); the
+rest are emitter and tier work of the kind above.
+
+Found on the way: a nil key read of the new table matched its empty marker
+(nil's bits), answering the slot's filler; the compiled dynamic path cannot
+pass more than eight register arguments, so a callee with more parameters
+stays interpreted; the field-cache helper never filled its cache for an
+absent field, so every such read paid the call.

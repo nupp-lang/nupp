@@ -89,6 +89,10 @@ enum {
 #define T_TRUE (QNAN | (3ull << TAG_SHIFT))
 #define T_FUNC (QNAN | (4ull << TAG_SHIFT))
 #define T_OBJ (QNAN | (5ull << TAG_SHIFT))
+// TablePayload: `Vec` array (24 bytes), then the hash part's pointer and mask, cap, len, then the metatable; after the 32-byte header.
+#define OFF_T_HASH_PTR (32 + 24)
+#define OFF_T_HASH_MASK (32 + 32)
+#define OFF_T_META (32 + 56)
 #define HDR 4
 #define NONE 0xffffffffull
 
@@ -370,6 +374,14 @@ static Value h_getfield(ARGS) {
             const uint64_t* table = ctx->shapes[shape].table; uint64_t mask = ctx->shapes[shape].mask;
             uint64_t k = (((name >> 4) * 0x9E3779B97F4A7C15ull) >> 32) & mask;
             for (;;) { uint64_t b = table[2 * k]; if (b == name) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; pc++; NEXT; } if (b == 0) break; k = (k + 1) & mask; }
+        } else if (obj_kind(t) == KIND_TABLE) {
+            // The hash part, probed in place; a nil answer with a metatable goes to the helper.
+            const uint64_t* hp = *(const uint64_t* const*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_PTR); uint64_t mask = *(const uint64_t*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_MASK);
+            Value meta = *(const Value*)((uintptr_t)(t & PAYLOAD) + OFF_T_META);
+            if (hp) {
+                uint64_t k = (((name >> 4) * 0x9E3779B97F4A7C15ull) >> 32) & mask;
+                for (;;) { uint64_t b = hp[2 * k]; if (b == name) { Value v = hp[2 * k + 1]; if (v != T_NIL || meta == T_NIL) { regs[pc->a] = v; pc++; NEXT; } break; } if (b == T_NIL) { if (meta == T_NIL) { regs[pc->a] = T_NIL; pc++; NEXT; } break; } k = (k + 1) & mask; }
+            } else if (meta == T_NIL) { regs[pc->a] = T_NIL; pc++; NEXT; }
         }
  NOTE_PC;        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);

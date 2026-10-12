@@ -64,6 +64,7 @@ pub struct Header {
 }
 
 pub const HEADER: usize = std::mem::size_of::<Header>();
+pub static NEW_TABLES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub const OFF_KIND: i32 = std::mem::offset_of!(Header, kind) as i32;
 pub const OFF_AUX: i32 = std::mem::offset_of!(Header, aux) as i32;
 pub const OFF_AUX_PTR: i32 = std::mem::offset_of!(Header, aux_ptr) as i32;
@@ -75,8 +76,59 @@ const _: () = assert!(HEADER == 32);
 pub struct StrPayload { pub hash: u64 /* then the bytes */ }
 #[repr(C)]
 pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
+/// A table's hash part: open addressing over (key bits, value) pairs, the
+/// key canonical (interned string or number) so bits compare as identity,
+/// nil bits marking an empty entry. A key keeps its entry when its value
+/// becomes nil, as Lua's does, and a rehash drops those. The layout is
+/// fixed so the typed tier and the core probe it inline, with the same hash
+/// the shape slot tables use.
 #[repr(C)]
-pub struct TablePayload { pub array: Vec<Value>, pub hash: ValueMap, pub meta: Value }
+pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64 }
+pub const VT_EMPTY: u64 = Value::NIL.0;
+impl ValueTable {
+    pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0 } }
+    pub fn with_capacity(m: usize) -> ValueTable { let mut t = ValueTable::new(); if m > 0 { let mut c = 8; while c * 3 < m * 4 { c *= 2; } t.alloc(c); } t }
+    fn alloc(&mut self, cap: usize) { let v: Vec<u64> = (0..cap * 2).map(|i| if i % 2 == 0 { VT_EMPTY } else { 0 }).collect(); let b = v.into_boxed_slice(); self.ptr = Box::leak(b).as_mut_ptr(); self.cap = cap as u64; self.mask = (cap - 1) as u64; }
+    #[inline] fn slot(&self, bits: u64) -> Option<usize> {
+        // nil is never a key: its bits are the empty marker.
+        if self.ptr.is_null() || bits == VT_EMPTY { return None; }
+        let mut k = slot_hash(bits) & self.mask;
+        loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == bits { return Some(k as usize); } if b == VT_EMPTY { return None; } k = (k + 1) & self.mask; }
+    }
+    pub fn get(&self, key: &Value) -> Option<&Value> { let k = self.slot(key.0)?; let v = unsafe { &*(self.ptr.add(2 * k + 1) as *const Value) }; if *v == Value::NIL { None } else { Some(v) } }
+    pub fn insert(&mut self, key: Value, v: Value) {
+        if key == Value::NIL { return; }
+        if let Some(k) = self.slot(key.0) { unsafe { *self.ptr.add(2 * k + 1) = v.0; } return; }
+        if v == Value::NIL { return; }
+        if self.ptr.is_null() || (self.len + 1) * 4 > self.cap * 3 { self.grow(); }
+        let mut k = slot_hash(key.0) & self.mask;
+        loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; }
+        unsafe { *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0; }
+        self.len += 1;
+    }
+    fn grow(&mut self) {
+        let live: Vec<(u64, u64)> = self.iter().map(|(k, v)| (k.0, v.0)).collect();
+        let want = live.len() + 1; let mut c = 8; while c * 3 < want * 4 { c *= 2; } if c <= self.cap as usize && (want * 4 > (self.cap as usize) * 3) { c = (self.cap as usize) * 2; }
+        self.free(); self.alloc(c); self.len = 0;
+        for (kb, vb) in live { let mut k = slot_hash(kb) & self.mask; loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; } unsafe { *self.ptr.add(2 * k as usize) = kb; *self.ptr.add(2 * k as usize + 1) = vb; } self.len += 1; }
+    }
+    fn free(&mut self) { if !self.ptr.is_null() { unsafe { drop(Box::from_raw(std::slice::from_raw_parts_mut(self.ptr, self.cap as usize * 2))); } self.ptr = std::ptr::null_mut(); self.cap = 0; self.mask = 0; } }
+    /// Every key with a non-nil value.
+    pub fn iter(&self) -> impl Iterator<Item = (&Value, &Value)> + '_ {
+        let n = if self.ptr.is_null() { 0 } else { self.cap as usize };
+        (0..n).filter_map(move |k| unsafe { let b = *self.ptr.add(2 * k); if b == VT_EMPTY { return None; } let v = &*(self.ptr.add(2 * k + 1) as *const Value); if *v == Value::NIL { None } else { Some((&*(self.ptr.add(2 * k) as *const Value), v)) } })
+    }
+    pub fn len(&self) -> usize { self.len as usize }
+    pub fn capacity(&self) -> usize { self.cap as usize }
+}
+impl Drop for ValueTable { fn drop(&mut self) { self.free(); } }
+impl Default for ValueTable { fn default() -> ValueTable { ValueTable::new() } }
+impl ValueTable { pub fn keys(&self) -> impl Iterator<Item = &Value> + '_ { self.iter().map(|(k, _)| k) } }
+#[repr(C)]
+pub struct TablePayload { pub array: Vec<Value>, pub hash: ValueTable, pub meta: Value }
+pub const OFF_T_HASH_PTR: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, ptr)) as i32;
+pub const OFF_T_HASH_MASK: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, mask)) as i32;
+pub const OFF_T_META: i32 = (HEADER + std::mem::offset_of!(TablePayload, meta)) as i32;
 #[repr(C)]
 pub struct StoragePayload { pub data: Vec<f64> }
 #[repr(C)]
@@ -127,9 +179,9 @@ impl Header {
     /// constructor's shape does not know (an optional field of the declared
     /// type written later). Nominal records never have one (2.5).
     #[inline]
-    pub fn record_extra(&mut self) -> &mut Option<Box<ValueMap>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueMap>>) } }
+    pub fn record_extra(&mut self) -> &mut Option<Box<ValueTable>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueTable>>) } }
     #[inline]
-    pub fn record_extra_ref(&self) -> &Option<Box<ValueMap>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *const Option<Box<ValueMap>>) } }
+    pub fn record_extra_ref(&self) -> &Option<Box<ValueTable>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *const Option<Box<ValueTable>>) } }
     #[inline]
     pub fn fid(&self) -> u32 { debug_assert!(self.kind == KIND_CLOSURE); self.aux }
     /// Whether this object reads as a string: a string or a slice.
@@ -375,10 +427,11 @@ impl Heap {
     }
 
     pub fn new_table_sized(&mut self, n: usize, m: usize, roots: &dyn Roots) -> Value {
+        if crate::interp::TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { crate::interp::TABLE_COUNTS[if n + m == 0 { 4 } else { 4 }].fetch_add(0, std::sync::atomic::Ordering::Relaxed); NEW_TABLES.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         let p = self.alloc(KIND_TABLE, std::mem::size_of::<TablePayload>(), roots);
         unsafe {
             let h = &mut *p.as_ptr();
-            (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueMap::with_capacity_and_hasher(m, Default::default()), meta: Value::NIL });
+            (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueTable::with_capacity(m), meta: Value::NIL });
             h.refresh();
         }
         self.live_bytes += 8 * n + 24 * m; self.debt += 8 * n + 24 * m;
@@ -388,8 +441,8 @@ impl Heap {
 
     pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
         let n = self.shapes[shape as usize].names.len();
-        let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<ValueMap>>>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueMap>>).write(None); }
+        let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<ValueTable>>>(), roots);
+        unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueTable>>).write(None); }
         Value::obj(p)
     }
     pub fn new_closure(&mut self, fid: u32, captures: &[Value], roots: &dyn Roots) -> Value {
@@ -510,8 +563,8 @@ impl Heap {
     /// oracle and the serialiser share.
     pub fn each_child(h: &Header, f: &mut dyn FnMut(Value)) {
         match h.kind {
-            KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (&k, &v) in &t.hash { f(k); f(v); } if t.meta != Value::NIL { f(t.meta); } }
-            KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { for (&k, &v) in m.iter() { f(k); f(v); } } }
+            KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (k, v) in t.hash.iter() { f(*k); f(*v); } if t.meta != Value::NIL { f(t.meta); } }
+            KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { for (k, v) in m.iter() { f(*k); f(*v); } } }
             KIND_CLOSURE | KIND_CELL => { for &v in h.slots() { f(v); } }
             KIND_SLICE => f(h.slice().source),
             KIND_ITER => { let i = unsafe { &*(h.payload() as *const IterPayload) }; f(i.obj); f(i.pattern); for &v in &i.keys { f(v); } }
@@ -592,7 +645,7 @@ impl Heap {
             self.live_count -= 1;
             if h.flags & F_INTERNED != 0 { let s = std::str::from_utf8_unchecked(h.bytes()); self.interned.remove(s); }
             match h.kind {
-                KIND_TABLE => { let t = h.table(); self.live_bytes = self.live_bytes.saturating_sub(8 * t.array.capacity() + 24 * t.hash.capacity()); std::ptr::drop_in_place(t); }
+                KIND_TABLE => { let t = h.table(); self.live_bytes = self.live_bytes.saturating_sub(8 * t.array.capacity() + 16 * t.hash.capacity()); std::ptr::drop_in_place(t); }
                 KIND_STORAGE => { let s = h.storage(); self.live_bytes = self.live_bytes.saturating_sub(8 * s.data.capacity()); std::ptr::drop_in_place(s); }
                 KIND_BYTES => { let b = h.byte_buffer(); self.live_bytes = self.live_bytes.saturating_sub(b.data.capacity()); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),

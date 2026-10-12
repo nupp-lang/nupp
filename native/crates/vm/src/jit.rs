@@ -9,7 +9,7 @@
 //! entered with so the collector can walk the compiled frames above it
 //! through their stack maps.
 
-use crate::heap::{HEADER, KIND_ITER, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
+use crate::heap::{OFF_T_HASH_PTR, OFF_T_HASH_MASK, OFF_T_META, VT_EMPTY, HEADER, KIND_ITER, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use crate::interp::{Function, Interp, Op};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
@@ -88,6 +88,8 @@ pub struct Jit {
     /// call that found a closure to decide whether its entry can be called
     /// straight with the site's arguments.
     pub calltab_addr: i64,
+    /// `&shape_probe[0]`: (slot table, mask) per shape.
+    pub probe_addr: i64,
     /// Per function: parameter count and whether every parameter and the
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
@@ -127,7 +129,7 @@ impl Jit {
             helpers.insert(*name, module.declare_function(name, Linkage::Import, &hs).unwrap());
         }
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, callee_info: Vec::new() }
+        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, callee_info: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -182,7 +184,7 @@ impl Jit {
             b.declare_var_needs_stack_map(closure_var);
             { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
-            let (cur_closure_addr, extra_addr, entries_addr, calltab_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr, self.calltab_addr);
+            let (cur_closure_addr, extra_addr, entries_addr, calltab_addr, probe_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr, self.calltab_addr, self.probe_addr);
             let fid_const = fid as i64;
             let no_slot_guard = std::env::var("NO_SLOT_GUARD").is_ok();
             let last_nres_addr = self.last_nres_addr;
@@ -718,12 +720,12 @@ impl Jit {
                         let cache: &'static mut [u64; 2] = Box::leak(Box::new([0u64; 2]));
                         let cache_addr = cache.as_ptr() as i64;
                         let tv = rv!(t);
-                        let chk = b.create_block(); let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        let chk = b.create_block(); let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); let helper = b.create_block();
                         b.append_block_param(join, types::I64);
-                        b.set_cold_block(slow);
+                        b.set_cold_block(slow); b.set_cold_block(helper);
                         let ca = b.ins().iconst(types::I64, cache_addr);
                         let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
-                        b.ins().brif(is_obj, chk, &[], slow, &[]);
+                        b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
                         let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
@@ -735,6 +737,96 @@ impl Jit {
                         let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let idx = b.ins().load(types::I64, flags, ca, 8); let off = b.ins().ishl_imm(idx, 3); let a = b.ins().iadd(slots, off);
                         let v = b.ins().load(types::I64, flags, a, 0); b.ins().jump(join, &[v.into()]);
                         b.switch_to_block(slow); b.seal_block(slow);
+                        // A record of another shape: its slot table, probed twice inline
+                        // (the name is a constant, so its hash is too); a miss or a
+                        // non-record goes to the helper, which also refills the cache.
+                        if probe_addr != 0 {
+                            let name_bits = consts[k as usize];
+                            let pr = b.create_block(); let p1 = b.create_block(); let p2 = b.create_block(); let hit1 = b.create_block(); let hit2 = b.create_block();
+                            // A table: its hash part, probed twice; an empty entry or a nil
+                            // value is nil unless a metatable may answer.
+                            let tb = b.create_block(); let tb1 = b.create_block(); let tb2 = b.create_block(); let tb3 = b.create_block(); let tbv = b.create_block(); let tbnil = b.create_block(); let tbmeta = b.create_block();
+                            b.append_block_param(tbv, types::I64);
+                            b.ins().brif(is_rec, pr, &[], tb, &[]);
+                            b.switch_to_block(tb); b.seal_block(tb);
+                            let is_tbl = b.ins().icmp_imm(IntCC::Equal, kind, KIND_TABLE as i64);
+                            b.ins().brif(is_tbl, tb1, &[], helper, &[]);
+                            b.switch_to_block(tb1); b.seal_block(tb1);
+                            let hp = b.ins().load(types::I64, flags, o, OFF_T_HASH_PTR); let hmask = b.ins().load(types::I64, flags, o, OFF_T_HASH_MASK);
+                            let no_hash = b.ins().icmp_imm(IntCC::Equal, hp, 0);
+                            b.ins().brif(no_hash, tbnil, &[], tb2, &[]);
+                            b.switch_to_block(tb2); b.seal_block(tb2);
+                            let th = b.ins().iconst(types::I64, crate::heap::slot_hash(name_bits) as i64); let tk0 = b.ins().band(th, hmask);
+                            let te0 = b.ins().ishl_imm(tk0, 4); let te0 = b.ins().iadd(hp, te0); let tb0 = b.ins().load(types::I64, flags, te0, 0);
+                            let tm0 = b.ins().icmp_imm(IntCC::Equal, tb0, name_bits as i64); let tv0 = b.ins().load(types::I64, flags, te0, 8);
+                            let te0_empty = b.ins().icmp_imm(IntCC::Equal, tb0, VT_EMPTY as i64);
+                            let tk1 = b.ins().iadd_imm(tk0, 1); let tk1 = b.ins().band(tk1, hmask); let te1 = b.ins().ishl_imm(tk1, 4); let te1 = b.ins().iadd(hp, te1); let tb1v = b.ins().load(types::I64, flags, te1, 0);
+                            let tm1 = b.ins().icmp_imm(IntCC::Equal, tb1v, name_bits as i64); let tv1 = b.ins().load(types::I64, flags, te1, 8);
+                            let te1_empty = b.ins().icmp_imm(IntCC::Equal, tb1v, VT_EMPTY as i64);
+                            b.ins().brif(tm0, tbv, &[tv0.into()], tb3, &[]);
+                            b.switch_to_block(tb3); b.seal_block(tb3);
+                            let miss0 = b.ins().bor(te0_empty, tm1); let nilc = b.ins().iconst(types::I64, NIL); let pick = b.ins().select(tm1, tv1, nilc);
+                            let nil_or_hit = b.ins().bor(miss0, te1_empty);
+                            b.ins().brif(nil_or_hit, tbv, &[pick.into()], helper, &[]);
+                            b.switch_to_block(tbv); b.seal_block(tbv);
+                            let got = b.block_params(tbv)[0]; let got_nil = b.ins().icmp_imm(IntCC::Equal, got, NIL);
+                            b.ins().brif(got_nil, tbnil, &[], join, &[got.into()]);
+                            b.switch_to_block(tbnil); b.seal_block(tbnil);
+                            let meta = b.ins().load(types::I64, flags, o, OFF_T_META); let no_meta = b.ins().icmp_imm(IntCC::Equal, meta, NIL);
+                            let nilv = b.ins().iconst(types::I64, NIL);
+                            b.ins().brif(no_meta, join, &[nilv.into()], tbmeta, &[]);
+                            b.switch_to_block(tbmeta); b.seal_block(tbmeta); b.ins().jump(helper, &[]);
+                            b.switch_to_block(pr); b.seal_block(pr);
+                            let sh64 = b.ins().uextend(types::I64, shape); let soff = b.ins().ishl_imm(sh64, 4); let pa = b.ins().iconst(types::I64, probe_addr); let pe = b.ins().iadd(pa, soff);
+                            let tp = b.ins().load(types::I64, flags, pe, 0); let mask = b.ins().load(types::I64, flags, pe, 8);
+                            let h0 = b.ins().iconst(types::I64, crate::heap::slot_hash(name_bits) as i64); let k0 = b.ins().band(h0, mask);
+                            let e0 = b.ins().ishl_imm(k0, 4); let e0 = b.ins().iadd(tp, e0); let b0 = b.ins().load(types::I64, flags, e0, 0);
+                            let m0 = b.ins().icmp_imm(IntCC::Equal, b0, name_bits as i64);
+                            b.ins().brif(m0, hit1, &[], p1, &[]);
+                            b.switch_to_block(hit1); b.seal_block(hit1);
+                            let s0 = b.ins().load(types::I32, flags, e0, 8); let s0 = b.ins().uextend(types::I64, s0); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s0, 3); let a0 = b.ins().iadd(slots, so); let v0 = b.ins().load(types::I64, flags, a0, 0); b.ins().jump(join, &[v0.into()]);
+                            // An empty entry: the shape lacks the name, and the answer is
+                            // nil unless the record carries an overflow part (a pointer
+                            // after its slots and its children vector).
+                            let absent = b.create_block(); b.set_cold_block(absent);
+                            b.switch_to_block(p1); b.seal_block(p1);
+                            let empty0 = b.ins().icmp_imm(IntCC::Equal, b0, 0);
+                            b.ins().brif(empty0, absent, &[], p2, &[]);
+                            b.switch_to_block(p2); b.seal_block(p2);
+                            let k1 = b.ins().iadd_imm(k0, 1); let k1 = b.ins().band(k1, mask); let e1 = b.ins().ishl_imm(k1, 4); let e1 = b.ins().iadd(tp, e1); let b1 = b.ins().load(types::I64, flags, e1, 0);
+                            let m1 = b.ins().icmp_imm(IntCC::Equal, b1, name_bits as i64);
+                            let miss2 = b.create_block();
+                            b.ins().brif(m1, hit2, &[], miss2, &[]);
+                            b.switch_to_block(miss2); b.seal_block(miss2);
+                            let empty1 = b.ins().icmp_imm(IntCC::Equal, b1, 0);
+                            b.ins().brif(empty1, absent, &[], helper, &[]);
+                            b.switch_to_block(absent); b.seal_block(absent);
+                            let nslots = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let so8 = b.ins().ishl_imm(nslots, 3); let ea = b.ins().iadd(o, so8); let extra = b.ins().load(types::I64, flags, ea, HEADER as i32 + 24);
+                            let none = b.ins().icmp_imm(IntCC::Equal, extra, 0); let nilr = b.ins().iconst(types::I64, NIL);
+                            // An overflow part is the same open-addressed table: two probes.
+                            let ov = b.create_block(); let ov1 = b.create_block(); let ov2 = b.create_block(); let ovv = b.create_block(); b.append_block_param(ovv, types::I64);
+                            b.ins().brif(none, join, &[nilr.into()], ov, &[]);
+                            b.switch_to_block(ov); b.seal_block(ov);
+                            let xp = b.ins().load(types::I64, flags, extra, 0); let xmask = b.ins().load(types::I64, flags, extra, 8);
+                            let xnull = b.ins().icmp_imm(IntCC::Equal, xp, 0);
+                            b.ins().brif(xnull, join, &[nilr.into()], ov1, &[]);
+                            b.switch_to_block(ov1); b.seal_block(ov1);
+                            let xh = b.ins().iconst(types::I64, crate::heap::slot_hash(name_bits) as i64); let xk0 = b.ins().band(xh, xmask);
+                            let xe0 = b.ins().ishl_imm(xk0, 4); let xe0 = b.ins().iadd(xp, xe0); let xb0 = b.ins().load(types::I64, flags, xe0, 0); let xv0 = b.ins().load(types::I64, flags, xe0, 8);
+                            let xm0 = b.ins().icmp_imm(IntCC::Equal, xb0, name_bits as i64);
+                            b.ins().brif(xm0, ovv, &[xv0.into()], ov2, &[]);
+                            b.switch_to_block(ov2); b.seal_block(ov2);
+                            let xe0_empty = b.ins().icmp_imm(IntCC::Equal, xb0, VT_EMPTY as i64);
+                            let xk1 = b.ins().iadd_imm(xk0, 1); let xk1 = b.ins().band(xk1, xmask); let xe1 = b.ins().ishl_imm(xk1, 4); let xe1 = b.ins().iadd(xp, xe1); let xb1 = b.ins().load(types::I64, flags, xe1, 0); let xv1 = b.ins().load(types::I64, flags, xe1, 8);
+                            let xm1 = b.ins().icmp_imm(IntCC::Equal, xb1, name_bits as i64); let xe1_empty = b.ins().icmp_imm(IntCC::Equal, xb1, VT_EMPTY as i64);
+                            let xpick = b.ins().select(xm1, xv1, nilr); let settled = b.ins().bor(xe0_empty, xm1); let settled = b.ins().bor(settled, xe1_empty);
+                            b.ins().brif(settled, ovv, &[xpick.into()], helper, &[]);
+                            b.switch_to_block(ovv); b.seal_block(ovv);
+                            let xr = b.block_params(ovv)[0]; b.ins().jump(join, &[xr.into()]);
+                            b.switch_to_block(hit2); b.seal_block(hit2);
+                            let s1 = b.ins().load(types::I32, flags, e1, 8); let s1 = b.ins().uextend(types::I64, s1); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s1, 3); let a1 = b.ins().iadd(slots, so); let v1 = b.ins().load(types::I64, flags, a1, 0); b.ins().jump(join, &[v1.into()]);
+                        } else { b.ins().jump(helper, &[]); }
+                        b.switch_to_block(helper); b.seal_block(helper);
                         let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = hcall!("j_get_field_ic", &[tv, name, ca]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
                         b.switch_to_block(join); b.seal_block(join);
                         let r = b.block_params(join)[0]; setr!(d, r);

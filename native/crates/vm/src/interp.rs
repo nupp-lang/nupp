@@ -239,6 +239,10 @@ pub struct Function {
 /// A call places the callee's frame after the caller's whole frame and
 /// copies the arguments, so no window of any class overlaps.
 pub const HDR: usize = 4;
+/// `TABLE_STATS=1`: index traffic by kind and key, and the hash-part size a
+/// table field read met.
+pub static TABLE_STATS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static TABLE_COUNTS: [std::sync::atomic::AtomicU64; 12] = [const { std::sync::atomic::AtomicU64::new(0) }; 12];
 /// Header word 0: function id in the low half, pc in the high half.
 /// Word 1: caller's frame start in the low half (NONE at the entry frame), the
 /// absolute index of the caller's result register in the high half.
@@ -346,6 +350,8 @@ pub struct Interp {
     pub entries: Vec<u64>,
     /// Per function, `nparams | plain << 8`, for compiled dynamic calls.
     pub calltab: Vec<u64>,
+    /// Per shape, the slot table's address and mask, for compiled field reads.
+    pub shape_probe: Vec<(u64, u64)>,
     pub extra: [Value; 8],
     pub extra_n: usize,
     /// The value of a raise that is propagating as `Value::ERROR` returns.
@@ -411,7 +417,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -875,6 +881,7 @@ impl Interp {
 
     pub fn get_index(&self, tv: Value, key: Value) -> Value {
         let h = hdr!(self, tv, "index of a non-table");
+        if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { let i = match h.kind { KIND_TABLE => if key.is_num() { 0 } else { 1 }, KIND_RECORD => if key.is_num() { 2 } else { 3 }, _ => 4 }; TABLE_COUNTS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if h.kind == KIND_TABLE && !key.is_num() { let n = h.table_ref().hash.len(); let b = if n == 0 { 5 } else if n <= 4 { 6 } else if n <= 16 { 7 } else if n <= 64 { 8 } else { 9 }; TABLE_COUNTS[b].fetch_add(1, std::sync::atomic::Ordering::Relaxed); } }
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= t.array.len() && n.fract() == 0.0 { return t.array[n as usize - 1]; } } *t.hash.get(&key).unwrap_or(&Value::NIL) }
             KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); return if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { a[n as usize - 1] } else { Value::NIL }; } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
@@ -884,6 +891,7 @@ impl Interp {
     /// An index read whose key may be a slice: by content, then as `get_index`.
     pub fn get_index_any(&mut self, t: Value, k: Value) -> Value { match self.key_of(k) { Some(k) => self.get_index(t, k), None => Value::NIL } }
     pub fn set_index(&mut self, tv: Value, iv: Value, v: Value) {
+        if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { TABLE_COUNTS[if iv.is_num() { 10 } else { 11 }].fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         let iv = self.key_for_store(iv);
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         self.heap.barrier(p, iv);
@@ -891,7 +899,7 @@ impl Interp {
         let h = unsafe { &mut *p.as_ptr() };
         match h.kind {
             // `t[#t] = nil` shrinks the array part, as Lua's border rule reads it.
-            KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { if v != Value::NIL { t.array.push(v) } } else { t.array[k - 1] = v; if v == Value::NIL && k == t.array.len() { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } } } } else { if v == Value::NIL { t.hash.remove(&iv); } else { t.hash.insert(iv, v); } } h.refresh(); }
+            KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { if v != Value::NIL { t.array.push(v) } } else { t.array[k - 1] = v; if v == Value::NIL && k == t.array.len() { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } } } } else { t.hash.insert(iv, v); } h.refresh(); }
             // A record written by name: the shape is closed, so an unknown name is an error.
             KIND_RECORD => {
                 if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } return; } self.err("record index outside its children") }
@@ -952,7 +960,7 @@ impl Interp {
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
         let h = hdr!(self, t, "pairs of a non-table");
         match h.kind {
-            KIND_TABLE => { let tb = h.table_ref(); let mut keys: Vec<Value> = (1..=tb.array.len()).filter(|&i| tb.array[i - 1] != Value::NIL).map(|i| Value::num(i as f64)).collect(); keys.extend(tb.hash.iter().filter(|(_, v)| **v != Value::NIL).map(|(k, _)| *k)); keys }
+            KIND_TABLE => { let tb = h.table_ref(); let mut keys: Vec<Value> = (1..=tb.array.len()).filter(|&i| tb.array[i - 1] != Value::NIL).map(|i| Value::num(i as f64)).collect(); keys.extend(tb.hash.iter().map(|(k, _)| *k)); keys }
             KIND_RECORD => { let a = h.record_array_ref(); let mut keys: Vec<Value> = (1..=a.len()).map(|i| Value::num(i as f64)).collect(); keys.extend(self.heap.shapes[h.shape() as usize].names.iter().copied()); if let Some(m) = h.record_extra_ref() { keys.extend(m.keys().copied()); } keys }
             _ => self.err("pairs of a non-table"),
         }

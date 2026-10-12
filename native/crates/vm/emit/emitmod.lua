@@ -940,6 +940,26 @@ local function exportedNames(stat)
     elseif stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct") then names[1] = stat.name and tokText(stat.name) end
     return names
 end
+-- The shape of a declared module's export record: one slot per exported
+-- name, in declaration order; nil when the module assigns `export = v`.
+local function exportShape(moduleName, rootBlock)
+    local names, seen = {}, {}
+    for _, st in ipairs(rootBlock.stats or {}) do
+        if st.kind == "exportStmt" then
+            if st.value then return nil end
+            local stat = st.stat
+            while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+            if stat and not (stat.comptimeFunction or stat.comptimeTok or stat.isAnnotationDefinition) then
+                for _, n in ipairs(exportedNames(stat)) do if not seen[n] then seen[n] = true; names[#names + 1] = n end end
+            end
+        end
+    end
+    if #names == 0 then return nil end
+    local shape = {id = #shapeOrder, name = "module:" .. moduleName, slots = {}, slotIndex = {}, module = moduleName}
+    shapeOrder[#shapeOrder + 1] = shape
+    for _, fname in ipairs(names) do shape.slotIndex[fname] = #shape.slots; shape.slots[#shape.slots + 1] = {name = fname, ty = "any"} end
+    return shape
+end
 -- The bare function names a declared module exports: locals of the chunk
 -- from its first instruction, so a closure defined earlier can reach them.
 local function exportedFunctionNames(rootBlock)
@@ -1584,7 +1604,12 @@ local function compileModule(name, path)
     openSpill(chunk, rootNode.blocks[1])
     if declaredModule then
         chunk.exportsReg = chunk:declare("\0exports", "v")
-        chunk:op("NewTableN", chunk.exportsReg, 0, 0)
+        -- The exports as a record of the names the module declares: a
+        -- qualified reference elsewhere (`T.pack`) is then a cached slot read
+        -- rather than a dictionary lookup. A module that assigns `export = v`
+        -- keeps a table, since its value is whatever it chose.
+        local moduleShape = exportShape(name, rootNode.blocks[1])
+        if moduleShape then chunk:op("NewRecord", chunk.exportsReg, moduleShape.id) else chunk:op("NewTableN", chunk.exportsReg, 0, 0) end
         for _, fname in ipairs(exportedFns) do
             local r, cell = chunk:declare(fname, "v")
             if cell then local t = chunk:reg(); chunk:op("Nil", t); chunk:op("NewCell", r, t); chunk.nregs = chunk.nregs - 1 else chunk:op("Nil", r) end
