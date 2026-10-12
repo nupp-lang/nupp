@@ -3,6 +3,20 @@
 // runs its Rust loop and `cfg(threaded)` is unset.
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(threaded)");
+    println!("cargo:rerun-if-env-changed=NUPP_AOT_OBJECT");
+    let generated = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("aot_entries.rs");
+    if let Ok(object) = std::env::var("NUPP_AOT_OBJECT") {
+        assert!(std::env::var("CARGO_FEATURE_AOT").is_ok(), "NUPP_AOT_OBJECT requires --features aot");
+        let object = std::fs::canonicalize(object).unwrap();
+        let object = object.to_str().unwrap();
+        println!("cargo:rerun-if-changed={object}");
+        println!("cargo:rerun-if-changed={object}.rs");
+        println!("cargo:rerun-if-changed={object}.maps");
+        println!("cargo:rustc-link-arg-bin=nupp-vm={object}");
+        std::fs::copy(format!("{object}.rs"), &generated).unwrap();
+    } else {
+        std::fs::write(&generated, "pub fn image_hash() -> [u8; 32] { [0; 32] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> { vec![] }\n").unwrap();
+    }
     println!("cargo:rerun-if-changed=csrc/dispatch.c");
     println!("cargo:rerun-if-env-changed=NUPP_VM_NO_THREADED");
     if std::env::var("NUPP_VM_NO_THREADED").is_ok() { return; }

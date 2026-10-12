@@ -375,13 +375,34 @@ is the product problem once steady state is ahead. What this pass found:
   served by the interpreter today, and by compiling the bundled compiler
   ahead of time tomorrow.
 
-Ahead-of-time compilation of the bundled compiler, scoped: the lowering
-bakes addresses as constants (the extras and result-count words, the
-entries, call and shape tables, each site's cache, the current closure
-word), which an object file cannot carry; they become loads from one
-runtime table reached through a symbol, with per-site caches in an area
-the image owns. `cranelift-object` then emits the image's functions with
-the helpers as undefined symbols, the build links them into the binary
-or a shared object, and loading binds the helpers and the table. Nothing
-in the lowering changes shape otherwise; the stubs become ordinary
-functions of the object.
+**AOT object gate (2026-10-11).** The JIT and object emitter use the same
+Cranelift lowering. Object code reads the current closure, result buffers,
+entry/call/shape tables, and image constants through the bound
+`nupp_vm_runtime` table. Field caches are writable object data. The closure
+is read into a local at each activation, so closures of one function can
+have different captures. The build links helper symbols and the generated
+stack maps into the executable; the loader checks the image's SHA-256 digest.
+
+```sh
+build/rust/target/release/nupp-vm aot native/crates/vm/check.image /private/tmp/nupp-check.o
+NUPP_AOT_OBJECT=/private/tmp/nupp-check.o cargo build --release -p nupp-vm --features aot
+build/rust/target/release/nupp-vm run native/crates/vm/check.image nupp.bench.checkbench check @src/nupp/compiler/syntax/lexer.nupp --setup setup
+```
+
+The checker object contains 3,063 compiled functions; the existing 16
+vararg/wide-parameter functions remain interpreted. Object generation on a
+release build host takes 8.08 s; the object is 32 MB and its uncompressed
+stack-map sidecar is 13 MB. With the linked release executable and a warm
+filesystem cache, completed-check process wall time is 0.26–0.27 s,
+against 0.50 s interpreted (`NO_AOT=1 NO_JIT=1`) and 5.93 s with eager
+JIT compilation (`NO_AOT=1`). The check result is 4 diagnostics, 3,643
+typed nodes, checksum 467446496 on each. An initial run immediately after
+linking took 1.26 s wall while its measured load and first call totaled
+0.26 s; cold filesystem startup is not yet characterized. The linked AOT
+checker also passes the interleaved collector with oracle and quarantine.
+
+This is a host-native object path. The `aot` feature still includes the JIT
+code generator in the executable, and the emitted object still needs the
+interpreter for the 16 refused functions. A no-JIT console binary needs the
+runtime helpers split from the code generator and either AOT coverage of
+those functions or the interpreter linked explicitly.

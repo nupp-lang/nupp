@@ -12,11 +12,13 @@
 use crate::heap::{OFF_T_HASH_PTR, OFF_T_HASH_MASK, OFF_T_META, VT_EMPTY, HEADER, KIND_ITER, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use crate::interp::{Function, Interp, Op};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
+use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, GlobalValue, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module};
+#[cfg(feature = "aot")]
+use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use std::collections::{BTreeSet, HashMap};
 
 use crate::value::Value as V;
@@ -75,8 +77,8 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
     }
 }
 
-pub struct Jit {
-    module: JITModule,
+pub struct Compiler<M: Module> {
+    module: M,
     ctx: cranelift_codegen::Context,
     fbc: FunctionBuilderContext,
     helpers: HashMap<&'static str, FuncId>,
@@ -101,12 +103,41 @@ pub struct Jit {
     /// Per function: parameter count and whether every parameter and the
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
+    runtime_data: Option<DataId>,
+    pub object_maps: Vec<(u32, usize, Vec<(u32, u32, Vec<u32>)>)>,
+}
+
+pub type Jit = Compiler<JITModule>;
+
+#[repr(C)]
+pub struct RuntimeAddresses {
+    pub current_closure: u64,
+    pub extra: u64,
+    pub last_nres: u64,
+    pub entries: u64,
+    pub calltab: u64,
+    pub probe: u64,
+    pub consts: u64,
+}
+
+#[unsafe(no_mangle)]
+pub static mut nupp_vm_runtime: RuntimeAddresses = RuntimeAddresses {
+    current_closure: 0, extra: 0, last_nres: 0, entries: 0, calltab: 0, probe: 0, consts: 0,
+};
+
+fn runtime_addr(b: &mut FunctionBuilder, table: Option<GlobalValue>, slot: i32, jit_addr: i64) -> Value {
+    if let Some(table) = table {
+        let base = b.ins().symbol_value(types::I64, table);
+        b.ins().load(types::I64, MemFlagsData::new().with_notrap(), base, slot * 8)
+    } else {
+        b.ins().iconst(types::I64, jit_addr)
+    }
 }
 
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
-        ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1),
+        ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
         ("j_call_dyn", j_call_dyn as *const u8, 4), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
@@ -117,7 +148,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     ]
 }
 
-impl Jit {
+impl Compiler<JITModule> {
     pub fn new() -> Jit {
         let mut fb = settings::builder();
         // The checker measured the same at steady state with the optimiser off
@@ -134,21 +165,68 @@ impl Jit {
         let mut jb = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         let table = helper_table();
         for (name, ptr, _) in &table { jb.symbol(*name, *ptr); }
-        let mut module = JITModule::new(jb);
+        Compiler::with_module(JITModule::new(jb), None)
+    }
+    pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
+        let (id, primary, code_len, maps) = self.compile_function(f, fid)?;
+        self.module.finalize_definitions().unwrap();
+        let start_addr = self.module.get_finalized_function(primary) as usize;
+        CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
+        Ok(self.module.get_finalized_function(id))
+    }
+}
+
+#[cfg(feature = "aot")]
+impl Compiler<ObjectModule> {
+    pub fn new_object() -> Self {
+        let mut fb = settings::builder();
+        fb.set("opt_level", &std::env::var("JIT_OPT").unwrap_or_else(|_| "none".to_string())).unwrap();
+        fb.set("enable_verifier", "true").unwrap();
+        fb.set("use_colocated_libcalls", "false").unwrap();
+        fb.set("is_pic", "true").unwrap();
+        fb.set("preserve_frame_pointers", "true").unwrap();
+        let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(fb)).unwrap();
+        let builder = ObjectBuilder::new(isa, "nupp-vm", cranelift_module::default_libcall_names()).unwrap();
+        let module = ObjectModule::new(builder);
+        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime"));
+        // Object code reads the actual addresses through nupp_vm_runtime.
+        // Nonzero placeholders only select the same lowering paths as the JIT.
+        compiler.extra_addr = 1;
+        compiler.last_nres_addr = 1;
+        compiler.entries_addr = 1;
+        compiler.calltab_addr = 1;
+        compiler.probe_addr = 1;
+        compiler
+    }
+
+    pub fn try_compile_object(&mut self, f: &Function, fid: u32) -> Result<(), String> {
+        let (_, _, code_len, maps) = self.compile_function(f, fid)?;
+        self.object_maps.push((fid, code_len, maps));
+        Ok(())
+    }
+
+    pub fn emit(self) -> Vec<u8> {
+        self.module.finish().emit().unwrap()
+    }
+}
+
+impl<M: Module> Compiler<M> {
+    fn with_module(mut module: M, runtime_symbol: Option<&str>) -> Self {
         let mut helpers = HashMap::new();
-        for (name, _, arity) in &table {
+        for (name, _, arity) in helper_table() {
             let mut hs = module.make_signature();
-            for _ in 0..*arity { hs.params.push(AbiParam::new(types::I64)); }
+            for _ in 0..arity { hs.params.push(AbiParam::new(types::I64)); }
             hs.returns.push(AbiParam::new(types::I64));
-            helpers.insert(*name, module.declare_function(name, Linkage::Import, &hs).unwrap());
+            helpers.insert(name, module.declare_function(name, Linkage::Import, &hs).unwrap());
         }
+        let runtime_data = runtime_symbol.map(|name| module.declare_data(name, Linkage::Import, true, false).unwrap());
         let ctx = module.make_context();
-        Jit { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new() }
+        Compiler { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
     /// One stub: `params` i64 arguments, one i64 result, the body given the builder and its parameters.
-    fn build_stub(&mut self, name: &str, params: usize, body: impl FnOnce(&mut FunctionBuilder, &[Value]) -> Value) -> FuncId {
+    fn build_stub(&mut self, name: &str, params: usize, body: impl FnOnce(&mut FunctionBuilder, &[Value], Option<GlobalValue>) -> Value) -> FuncId {
         let mut sig = self.module.make_signature();
         for _ in 0..params { sig.params.push(AbiParam::new(types::I64)); }
         sig.returns.push(AbiParam::new(types::I64));
@@ -157,9 +235,10 @@ impl Jit {
         self.ctx.func.signature = sig;
         {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
+            let runtime = self.runtime_data.map(|d| self.module.declare_data_in_func(d, b.func));
             let entry = b.create_block(); b.append_block_params_for_function_params(entry); b.switch_to_block(entry); b.seal_block(entry);
             let ps: Vec<Value> = b.block_params(entry).to_vec();
-            let r = body(&mut b, &ps);
+            let r = body(&mut b, &ps, runtime);
             b.ins().return_(&[r]);
             b.seal_all_blocks(); b.finalize(frontend);
         }
@@ -173,14 +252,14 @@ impl Jit {
         let flags = MemFlagsData::new().with_notrap();
         let (probe_addr, entries_addr, calltab_addr, extra_addr, last_nres_addr) = (self.probe_addr, self.entries_addr, self.calltab_addr, self.extra_addr, self.last_nres_addr);
         // probe(o, name, hash): a record's slot by shape table, then its overflow; a table's hash part. MISS when the runtime must answer.
-        let probe = self.build_stub("stub.probe", 3, |b, p| {
+        let probe = self.build_stub("stub.probe", 3, |b, p, runtime| {
             let (o, name, hash) = (p[0], p[1], p[2]);
             let rec = b.create_block(); let notrec = b.create_block(); let tbl = b.create_block(); let out = b.create_block(); b.append_block_param(out, types::I64);
             let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
             b.ins().brif(is_rec, rec, &[], notrec, &[]);
             // records
             b.switch_to_block(rec); b.seal_block(rec);
-            let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let sh64 = b.ins().uextend(types::I64, shape); let soff = b.ins().ishl_imm(sh64, 4); let pa = b.ins().iconst(types::I64, probe_addr); let pe = b.ins().iadd(pa, soff);
+            let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let sh64 = b.ins().uextend(types::I64, shape); let soff = b.ins().ishl_imm(sh64, 4); let pa = runtime_addr(b, runtime, 5, probe_addr); let pe = b.ins().iadd(pa, soff);
             let tp = b.ins().load(types::I64, flags, pe, 0); let mask = b.ins().load(types::I64, flags, pe, 8);
             let hit1 = b.create_block(); let p1 = b.create_block(); let p2 = b.create_block(); let hit2 = b.create_block(); let absent = b.create_block(); let miss = b.create_block();
             let k0 = b.ins().band(hash, mask); let e0 = b.ins().ishl_imm(k0, 4); let e0 = b.ins().iadd(tp, e0); let b0 = b.ins().load(types::I64, flags, e0, 0);
@@ -243,7 +322,7 @@ impl Jit {
             b.block_params(out)[0]
         });
         // dispatch(callee): the compiled entry of a closure or bare function with a plain signature, else 0.
-        let dispatch = self.build_stub("stub.dispatch", 1, |b, p| {
+        let dispatch = self.build_stub("stub.dispatch", 1, |b, p, runtime| {
             let cv = p[0];
             let chk = b.create_block(); let bare = b.create_block(); let withfid = b.create_block(); b.append_block_param(withfid, types::I64); let out = b.create_block(); b.append_block_param(out, types::I64);
             let zero = b.ins().iconst(types::I64, 0);
@@ -260,15 +339,15 @@ impl Jit {
             b.ins().brif(is_bare, withfid, &[fid_bits.into()], out, &[zero.into()]);
             b.switch_to_block(withfid); b.seal_block(withfid);
             let rid64 = b.block_params(withfid)[0]; let off = b.ins().ishl_imm(rid64, 3);
-            let ea = b.ins().iconst(types::I64, entries_addr); let ep = b.ins().iadd(ea, off); let entry = b.ins().load(types::I64, flags, ep, 0);
-            let ta = b.ins().iconst(types::I64, calltab_addr); let tp = b.ins().iadd(ta, off); let info = b.ins().load(types::I64, flags, tp, 0);
+            let ea = runtime_addr(b, runtime, 3, entries_addr); let ep = b.ins().iadd(ea, off); let entry = b.ins().load(types::I64, flags, ep, 0);
+            let ta = runtime_addr(b, runtime, 4, calltab_addr); let tp = b.ins().iadd(ta, off); let info = b.ins().load(types::I64, flags, tp, 0);
             let plain = b.ins().band_imm(info, 1 << 8); let is_plain = b.ins().icmp_imm(IntCC::NotEqual, plain, 0);
             let r = b.ins().select(is_plain, entry, zero); b.ins().jump(out, &[r.into()]);
             b.switch_to_block(out); b.seal_block(out);
             b.block_params(out)[0]
         });
         // iter(o): an ipairs iterator over a table steps in place; the key comes back, the value through extra[0]; MISS otherwise.
-        let iter = self.build_stub("stub.iter", 1, |b, p| {
+        let iter = self.build_stub("stub.iter", 1, |b, p, runtime| {
             let o = p[0];
             let tblk = b.create_block(); let hit = b.create_block(); let val = b.create_block(); let miss = b.create_block(); let out = b.create_block(); b.append_block_param(out, types::I64);
             let ikind = b.ins().load(types::I32, flags, o, OFF_AUX); let is_ipairs = b.ins().icmp_imm(IntCC::Equal, ikind, 2);
@@ -284,8 +363,8 @@ impl Jit {
             let is_nil = b.ins().icmp_imm(IntCC::Equal, v, NIL); b.ins().brif(is_nil, miss, &[], val, &[]);
             b.switch_to_block(val); b.seal_block(val);
             b.ins().store(flags, i1, o, HEADER as i32 + 16);
-            let la = b.ins().iconst(types::I64, last_nres_addr); let two = b.ins().iconst(types::I64, 2); b.ins().store(flags, two, la, 0);
-            let xa = b.ins().iconst(types::I64, extra_addr); b.ins().store(flags, v, xa, 0);
+            let la = runtime_addr(b, runtime, 2, last_nres_addr); let two = b.ins().iconst(types::I64, 2); b.ins().store(flags, two, la, 0);
+            let xa = runtime_addr(b, runtime, 1, extra_addr); b.ins().store(flags, v, xa, 0);
             let fi = b.ins().fcvt_from_sint(types::F64, i1);
             let cast = MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little); let bits = b.ins().bitcast(types::I64, cast, fi); let masked = b.ins().band_imm(bits, QNAN); let is_nan = b.ins().icmp_imm(IntCC::Equal, masked, QNAN); let canon = b.ins().iconst(types::I64, QNAN); let key = b.ins().select(is_nan, canon, bits);
             b.ins().jump(out, &[key.into()]);
@@ -294,10 +373,9 @@ impl Jit {
             b.switch_to_block(out); b.seal_block(out);
             b.block_params(out)[0]
         });
-        self.module.finalize_definitions().unwrap();
         self.stubs = Some(Stubs { probe, dispatch, iter });
     }
-    pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
+    fn compile_function(&mut self, f: &Function, fid: u32) -> Result<(FuncId, FuncId, usize, Vec<(u32, u32, Vec<u32>)>), String> {
         self.ensure_stubs();
         // A vararg function keeps its surplus arguments in the interpreter's
         // frame, which compiled code has no window onto.
@@ -320,21 +398,32 @@ impl Jit {
         let mut sig = self.module.make_signature();
         for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); }
         sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
-        let id = self.module.declare_function(&format!("{}#{fid}", f.name), Linkage::Local, &sig).unwrap();
+        let object = self.runtime_data.is_some();
+        let name = if object { format!("nupp_aot_{fid}") } else { format!("{}#{fid}", f.name) };
+        let id = self.module.declare_function(&name, if object { Linkage::Export } else { Linkage::Local }, &sig).unwrap();
         self.funcs.insert(fid, (id, classes.clone(), f.ret));
         self.ctx.func.signature = sig;
         let frontend = self.module.target_config();
         {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
+            let runtime = self.runtime_data.map(|d| self.module.declare_data_in_func(d, b.func));
             let helper_refs: HashMap<&'static str, cranelift_codegen::ir::FuncRef> = self.helpers.iter().map(|(n, id)| (*n, self.module.declare_func_in_func(*id, b.func))).collect();
             let stub_refs: Option<StubRefs> = self.stubs.as_ref().map(|st| StubRefs { probe: self.module.declare_func_in_func(st.probe, b.func), dispatch: self.module.declare_func_in_func(st.dispatch, b.func), iter: self.module.declare_func_in_func(st.iter, b.func) });
-            let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = self.funcs.iter().map(|(k, (id, sg, r))| (*k, (self.module.declare_func_in_func(*id, b.func), sg.clone(), *r))).collect();
+            let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = f.code.iter().filter_map(|op| {
+                let fid = match op { Op::Call(fid, ..) | Op::CallT(fid, ..) => *fid, _ => return None };
+                let (id, sg, r) = self.funcs.get(&fid)?;
+                Some((fid, (self.module.declare_func_in_func(*id, b.func), sg.clone(), *r)))
+            }).collect();
             let consts: Vec<u64> = f.consts.iter().map(|v| v.0).collect();
             let entry = b.create_block();
             b.append_block_params_for_function_params(entry);
             b.switch_to_block(entry);
             b.seal_block(entry);
             let flags = MemFlagsData::new().with_notrap();
+            let const_base = if runtime.is_some() {
+                let table = runtime_addr(&mut b, runtime, 6, 0);
+                Some(b.ins().load(types::I64, flags, table, (fid * 8) as i32))
+            } else { None };
             let cast = MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
             // Registers as variables; value registers are stack-map variables.
             let ivars: Vec<Variable> = (0..f.nireg).map(|_| { let v = b.declare_var(types::I64); let z = b.ins().iconst(types::I64, 0); b.def_var(v, z); v }).collect();
@@ -350,12 +439,12 @@ impl Jit {
             b.declare_var_needs_stack_map(closure_var);
             { let z = b.ins().iconst(types::I64, NIL); b.def_var(closure_var, z); }
             let uses_closure = f.code.iter().any(|o| matches!(o, Op::GetUpval(..)));
-            let (cur_closure_addr, extra_addr, entries_addr, calltab_addr, probe_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr, self.calltab_addr, self.probe_addr);
+            let (cur_closure_addr, extra_addr, entries_addr, calltab_addr) = (self.cur_closure_addr, self.extra_addr, self.entries_addr, self.calltab_addr);
             let fid_const = fid as i64;
             let no_slot_guard = std::env::var("NO_SLOT_GUARD").is_ok();
             let last_nres_addr = self.last_nres_addr;
-            macro_rules! note_one_result { () => {{ if last_nres_addr != 0 { let a = b.ins().iconst(types::I64, last_nres_addr); let one = b.ins().iconst(types::I64, 1); b.ins().store(flags, one, a, 0); } }} }
-            if uses_closure { let a = b.ins().iconst(types::I64, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
+            macro_rules! note_one_result { () => {{ if last_nres_addr != 0 { let a = runtime_addr(&mut b, runtime, 2, last_nres_addr); let one = b.ins().iconst(types::I64, 1); b.ins().store(flags, one, a, 0); } }} }
+            if uses_closure { let a = runtime_addr(&mut b, runtime, 0, cur_closure_addr); let c = b.ins().load(types::I64, flags, a, 0); b.def_var(closure_var, c); }
             let (mut vi, mut fi) = (0u8, 0u8);
             for (i, p) in params.iter().enumerate() {
                 if classes[i] == b'f' { b.def_var(fvars[fi as usize], *p); fi += 1; continue; }
@@ -383,6 +472,11 @@ impl Jit {
             b.set_cold_block(err_block);
             let mut terminated = false;
             macro_rules! iv { ($i:expr) => { b.use_var(ivars[$i as usize]) } }
+            macro_rules! kval { ($i:expr) => {{
+                let index = $i as usize;
+                if let Some(base) = const_base { b.ins().load(types::I64, flags, base, (index * 8) as i32) }
+                else { b.ins().iconst(types::I64, consts[index] as i64) }
+            }} }
             macro_rules! fv { ($i:expr) => { b.use_var(fvars[$i as usize]) } }
             macro_rules! vv { ($i:expr) => { b.use_var(vvars[$i as usize]) } }
             macro_rules! seti { ($i:expr, $v:expr) => { let v = $v; b.def_var(ivars[$i as usize], v) } }
@@ -408,7 +502,7 @@ impl Jit {
             // not have are nil, so a helper that counts past them reads nil.
             macro_rules! args_slot_pad { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = if base + 1 + i <= f.nregs as usize { rv!(base + 1 + i) } else { b.ins().iconst(types::I64, NIL) }; b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
             macro_rules! args_slot { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = rv!(base + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
-            macro_rules! read_extras { ($base:expr, $want:expr) => {{ let (base, want) = ($base as usize, $want as usize); let ea = b.ins().iconst(types::I64, extra_addr); for i in 1..want.min(8) { if base + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base + i, v); } }} }
+            macro_rules! read_extras { ($base:expr, $want:expr) => {{ let (base, want) = ($base as usize, $want as usize); let ea = runtime_addr(&mut b, runtime, 1, extra_addr); for i in 1..want.min(8) { if base + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base + i, v); } }} }
             for (pc, op) in f.code.iter().enumerate() {
                 if let Some(&blk) = blocks.get(&pc) {
                     if !terminated { b.ins().jump(blk, &[]); }
@@ -434,7 +528,7 @@ impl Jit {
                     Op::FCmpEq(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let c = b.ins().fcmp(FloatCC::Equal, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::FCmpNe(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let c = b.ins().fcmp(FloatCC::NotEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::Move(d, s) => { let v = rv!(s); setr!(d, v); }
-                    Op::K(d, k) => { setr!(d, b.ins().iconst(types::I64, consts[k as usize] as i64)); }
+                    Op::K(d, k) => { setr!(d, kval!(k)); }
                     Op::BoolFromI(d, x) => { let v = iv!(x); let c = b.ins().icmp_imm(IntCC::NotEqual, v, 0); setr!(d, bool_word!(c)); }
                     Op::JmpIfNot(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, next, &[], target(off), &[]); terminated = true; }
                     Op::JmpIf(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, target(off), &[], next, &[]); terminated = true; }
@@ -667,11 +761,11 @@ impl Jit {
                         let has = b.ins().icmp_imm(IntCC::NotEqual, entry, 0);
                         b.ins().brif(has, fast, &[], notdirect, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
-                        let ca = b.ins().iconst(types::I64, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
-                        let xa = b.ins().iconst(types::I64, extra_addr);
+                        let ca = runtime_addr(&mut b, runtime, 0, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
+                        let xa = runtime_addr(&mut b, runtime, 1, extra_addr);
                         { let nil = b.ins().iconst(types::I64, NIL); for i in 1..want { b.ins().store(flags, nil, xa, ((i - 1) * 8) as i32); } }
                         let mut args: Vec<Value> = Vec::with_capacity(8);
-                        let live = if spread { let la = b.ins().iconst(types::I64, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); Some(b.ins().iadd_imm(ln, fixed as i64)) } else { None };
+                        let live = if spread { let la = runtime_addr(&mut b, runtime, 2, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); Some(b.ins().iadd_imm(ln, fixed as i64)) } else { None };
                         for i in 0..8 {
                             let nil = b.ins().iconst(types::I64, NIL);
                             let v = if i < argc && base as usize + 1 + i <= f.nregs as usize { rv!(base as usize + 1 + i) } else { nil };
@@ -700,21 +794,21 @@ impl Jit {
                         let it_miss = b.ins().icmp_imm(IntCC::Equal, key, MISS);
                         b.ins().brif(it_miss, it_slow, &[], it_hit, &[]);
                         b.switch_to_block(it_hit); b.seal_block(it_hit);
-                        { let xa2 = b.ins().iconst(types::I64, extra_addr); let v = b.ins().load(types::I64, flags, xa2, 0); let nil = b.ins().iconst(types::I64, NIL); let mut outs = vec![key, v]; for _ in 2..want { outs.push(nil); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        { let xa2 = runtime_addr(&mut b, runtime, 1, extra_addr); let v = b.ins().load(types::I64, flags, xa2, 0); let nil = b.ins().iconst(types::I64, NIL); let mut outs = vec![key, v]; for _ in 2..want { outs.push(nil); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
                         b.switch_to_block(it_slow); b.seal_block(it_slow);
-                        { let c = hcall!("j_iter_next", &[cv]); let xa4 = b.ins().iconst(types::I64, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa4, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        { let c = hcall!("j_iter_next", &[cv]); let xa4 = runtime_addr(&mut b, runtime, 1, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa4, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
                         b.switch_to_block(bchk); b.seal_block(bchk);
                         let ftag = b.ins().band_imm(cv, !PAYLOAD); let is_fn = b.ins().icmp_imm(IntCC::Equal, ftag, QNAN | T_FUNC_TAG);
                         let img = b.ins().ushr_imm(cv, 32); let img = b.ins().band_imm(img, 0xffff); let is_builtin = b.ins().icmp_imm(IntCC::Equal, img, 0xffff);
                         let bok = b.ins().band(is_fn, is_builtin);
                         b.ins().brif(bok, bfast, &[], slow, &[]);
                         b.switch_to_block(bfast); b.seal_block(bfast);
-                        { let addr = args_slot_pad!(base, argc); let id = b.ins().band_imm(cv, 0xffff_ffff); let nv = if spread { let la = b.ins().iconst(types::I64, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); b.ins().iadd_imm(ln, fixed as i64) } else { b.ins().iconst(types::I64, argc as i64) }; let fidv = b.ins().iconst(types::I64, fid_const); let c = hcall!("j_call_builtin", &[id, addr, nv, fidv]); let xa3 = b.ins().iconst(types::I64, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa3, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
+                        { let addr = args_slot_pad!(base, argc); let id = b.ins().band_imm(cv, 0xffff_ffff); let nv = if spread { let la = runtime_addr(&mut b, runtime, 2, last_nres_addr); let ln = b.ins().load(types::I64, flags, la, 0); b.ins().iadd_imm(ln, fixed as i64) } else { b.ins().iconst(types::I64, argc as i64) }; let fidv = b.ins().iconst(types::I64, fid_const); let c = hcall!("j_call_builtin", &[id, addr, nv, fidv]); let xa3 = runtime_addr(&mut b, runtime, 1, extra_addr); let mut outs = vec![b.inst_results(c)[0]]; for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa3, ((i - 1) * 8) as i32)); } let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba); }
                         b.switch_to_block(slow); b.seal_block(slow);
                         let addr = args_slot_pad!(base, argc);
                         let nv = b.ins().iconst(types::I64, nargs as i64);
                         let c = { let fidv = b.ins().iconst(types::I64, fid_const); hcall!("j_call_dyn", &[cv, addr, nv, fidv]) };
-                        let xa2 = b.ins().iconst(types::I64, extra_addr);
+                        let xa2 = runtime_addr(&mut b, runtime, 1, extra_addr);
                         let mut outs = vec![b.inst_results(c)[0]];
                         for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa2, ((i - 1) * 8) as i32)); }
                         let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
@@ -768,12 +862,12 @@ impl Jit {
                             b.switch_to_block(chk); b.seal_block(chk);
                             let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_clo = b.ins().icmp_imm(IntCC::Equal, kind, KIND_CLOSURE as i64);
                             let rid = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, rid, fid_ as i64);
-                            let ea = b.ins().iconst(types::I64, entries_addr + 8 * fid_ as i64); let entry = b.ins().load(types::I64, flags, ea, 0); let has = b.ins().icmp_imm(IntCC::NotEqual, entry, 0);
+                            let ea = runtime_addr(&mut b, runtime, 3, entries_addr); let entry = b.ins().load(types::I64, flags, ea, 8 * fid_ as i32); let has = b.ins().icmp_imm(IntCC::NotEqual, entry, 0);
                             let c1 = b.ins().band(is_clo, same); let ok = b.ins().band(c1, has);
                             b.ins().brif(ok, fast, &[], slow, &[]);
                             b.switch_to_block(fast); b.seal_block(fast);
-                            let ca = b.ins().iconst(types::I64, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
-                            let xa = b.ins().iconst(types::I64, extra_addr);
+                            let ca = runtime_addr(&mut b, runtime, 0, cur_closure_addr); b.ins().store(flags, cv, ca, 0);
+                            let xa = runtime_addr(&mut b, runtime, 1, extra_addr);
                             if want > 1 { let nil = b.ins().iconst(types::I64, NIL); for i in 1..want { b.ins().store(flags, nil, xa, ((i - 1) * 8) as i32); } }
                             let mut args: Vec<Value> = Vec::with_capacity(nparams);
                             for i in 0..nparams { args.push(if i < argc { rv!(base as usize + 1 + i) } else { b.ins().iconst(types::I64, NIL) }); }
@@ -794,7 +888,7 @@ impl Jit {
                         let addr = args_slot_pad!(base, if nargs & 64 != 0 && nargs < 128 { (argc & 63) + 8 } else { argc });
                         let nv = b.ins().iconst(types::I64, nargs as i64);
                         let c = { let fidv = b.ins().iconst(types::I64, fid_const); hcall!("j_call_dyn", &[cv, addr, nv, fidv]) };
-                        let xa = b.ins().iconst(types::I64, extra_addr);
+                        let xa = runtime_addr(&mut b, runtime, 1, extra_addr);
                         let mut outs = vec![b.inst_results(c)[0]];
                         for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
                         let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
@@ -806,7 +900,7 @@ impl Jit {
                     Op::CallMethod(k, base, nargs) => {
                         let copy = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + 8 } else { nargs as usize };
                         let addr = args_slot_pad!(base, copy);
-                        let nv = b.ins().iconst(types::I64, nargs as i64); let name = b.ins().iconst(types::I64, consts[k as usize] as i64);
+                        let nv = b.ins().iconst(types::I64, nargs as i64); let name = kval!(k);
                         let c = hcall!("j_call_method", &[name, addr, nv]);
                         cond_of.clear();
                         setr!(base, b.inst_results(c)[0]);
@@ -845,13 +939,25 @@ impl Jit {
                         // (records by shape table and overflow, tables by hash part),
                         // and what that cannot settle goes to the helper, which refills
                         // the cache (2.10).
-                        let cache: &'static mut [u64; 2] = Box::leak(Box::new([0u64; 2]));
-                        let cache_addr = cache.as_ptr() as i64;
+                        let cache_ref = if self.runtime_data.is_some() {
+                            let name = format!("nupp_cache_{fid}_{pc}");
+                            let id = self.module.declare_data(&name, Linkage::Local, true, false).unwrap();
+                            let mut data = DataDescription::new();
+                            data.define_zeroinit(16);
+                            self.module.define_data(id, &data).unwrap();
+                            Some(self.module.declare_data_in_func(id, b.func))
+                        } else { None };
+                        let cache_addr = if cache_ref.is_none() {
+                            let cache: &'static mut [u64; 2] = Box::leak(Box::new([0u64; 2]));
+                            cache.as_ptr() as i64
+                        } else { 0 };
                         let tv = rv!(t);
                         let chk = b.create_block(); let fast = b.create_block(); let probe = b.create_block(); let helper = b.create_block(); let join = b.create_block();
                         b.append_block_param(join, types::I64);
                         b.set_cold_block(helper);
-                        let ca = b.ins().iconst(types::I64, cache_addr);
+                        let ca = if let Some(cache_ref) = cache_ref {
+                            b.ins().symbol_value(types::I64, cache_ref)
+                        } else { b.ins().iconst(types::I64, cache_addr) };
                         let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
                         b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
@@ -866,18 +972,19 @@ impl Jit {
                         let v = b.ins().load(types::I64, flags, a, 0); b.ins().jump(join, &[v.into()]);
                         b.switch_to_block(probe); b.seal_block(probe);
                         if let Some(st) = stub_refs.as_ref() {
-                            let name_bits = consts[k as usize];
-                            let nb = b.ins().iconst(types::I64, name_bits as i64); let hb = b.ins().iconst(types::I64, crate::heap::slot_hash(name_bits) as i64);
+                            let nb = kval!(k);
+                            let hb = if runtime.is_some() { let h = hcall!("j_slot_hash", &[nb]); b.inst_results(h)[0] }
+                                else { b.ins().iconst(types::I64, crate::heap::slot_hash(consts[k as usize]) as i64) };
                             let c = b.ins().call(st.probe, &[o, nb, hb]); let r = b.inst_results(c)[0];
                             let miss = b.ins().icmp_imm(IntCC::Equal, r, MISS);
                             b.ins().brif(miss, helper, &[], join, &[r.into()]);
                         } else { b.ins().jump(helper, &[]); }
                         b.switch_to_block(helper); b.seal_block(helper);
-                        let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = hcall!("j_get_field_ic", &[tv, name, ca]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
+                        let name = kval!(k); let c = hcall!("j_get_field_ic", &[tv, name, ca]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
                         b.switch_to_block(join); b.seal_block(join);
                         let r = b.block_params(join)[0]; setr!(d, r);
                     }
-                    Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); hcall!("j_set_field", &[tv, name, vv]); }
+                    Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = kval!(k); hcall!("j_set_field", &[tv, name, vv]); }
                     Op::Not(d, a) => { let fl = falsy!(rv!(a)); setr!(d, bool_word!(fl)); }
                     Op::Neg(d, a) => { let v = rv!(a); let m = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, m, QNAN); checked!(ok); let fv = b.ins().bitcast(types::F64, cast, v); let n = b.ins().fneg(fv); setr!(d, box_f64!(n)); }
                     Op::Div(d, x, y) | Op::Mod(d, x, y) => {
@@ -942,9 +1049,9 @@ impl Jit {
                             let r = rv!(start); b.ins().return_(&[r]); terminated = true;
                         }
                     }
-                    Op::Require(d, k) => { let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let c = hcall!("j_require", &[name]); setr!(d, b.inst_results(c)[0]); }
+                    Op::Require(d, k) => { let name = kval!(k); let c = hcall!("j_require", &[name]); setr!(d, b.inst_results(c)[0]); }
                     Op::RequireV(d, r) => { let name = rv!(r); let c = hcall!("j_require", &[name]); setr!(d, b.inst_results(c)[0]); }
-                    Op::SetMethod(shape, k, v) => { let sv = b.ins().iconst(types::I64, shape as i64); let name = b.ins().iconst(types::I64, consts[k as usize] as i64); let fv = rv!(v); hcall!("j_set_method", &[sv, name, fv]); }
+                    Op::SetMethod(shape, k, v) => { let sv = b.ins().iconst(types::I64, shape as i64); let name = kval!(k); let fv = rv!(v); hcall!("j_set_method", &[sv, name, fv]); }
                     Op::Switch(r, t) => {
                         let idx = iv!(r);
                         let zero = b.ins().iconst(types::I64, 0);
@@ -1111,7 +1218,8 @@ impl Jit {
             let mut wsig = self.module.make_signature();
             for _ in 0..classes.len() { wsig.params.push(AbiParam::new(types::I64)); }
             wsig.returns.push(AbiParam::new(types::I64));
-            let wid = self.module.declare_function(&format!("{}#{fid}.boxed", f.name), Linkage::Local, &wsig).unwrap();
+            let name = if object { format!("nupp_aot_{fid}_boxed") } else { format!("{}#{fid}.boxed", f.name) };
+            let wid = self.module.declare_function(&name, if object { Linkage::Export } else { Linkage::Local }, &wsig).unwrap();
             self.ctx.func.signature = wsig;
             {
                 let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
@@ -1133,11 +1241,8 @@ impl Jit {
             self.module.clear_context(&mut self.ctx);
             Some(wid)
         } else { None };
-        self.module.finalize_definitions().unwrap();
-        let start_addr = self.module.get_finalized_function(id) as usize;
-        CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
         self.compile_micros.push((f.name.clone(), start.elapsed().as_micros()));
-        Ok(self.module.get_finalized_function(wrapper.unwrap_or(id)))
+        Ok((wrapper.unwrap_or(id), id, code_len, maps))
     }
 }
 
@@ -1146,49 +1251,92 @@ impl Default for Jit { fn default() -> Self { Self::new() } }
 // ---- runtime helpers --------------------------------------------------------
 // Each helper is guarded: a raise inside becomes the ERROR sentinel (see
 // `Interp::guarded`), which the compiled caller returns upward.
-extern "C" fn j_storage_ptr(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_storage_ptr_impl(v))).0 }
-extern "C" fn j_storage_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_storage_len_impl(v))).0 }
-extern "C" fn j_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_len_impl(v))).0 }
-extern "C" fn j_get_index(t: u64, k: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_index_impl(t, k))).0 }
-extern "C" fn j_new_record(shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_record_impl(shape))).0 }
-extern "C" fn j_new_table() -> u64 { let it = ctx(); it.guarded(|_| V(j_new_table_impl())).0 }
-extern "C" fn j_new_table_sized(n: u64, m: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_table_sized_impl(n, m))).0 }
-extern "C" fn j_set_slot(obj: u64, i: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_slot_impl(obj, i, v))).0 }
-extern "C" fn j_set_index(t: u64, k: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_index_impl(t, k, v))).0 }
-extern "C" fn j_concat(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_concat_impl(a, b))).0 }
-extern "C" fn j_arith_slow(a: u64, b: u64, op: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_arith_slow_impl(a, b, op))).0 }
-extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0; it.jit_fid = prev; r }
-extern "C" fn j_call_method(name: u64, argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_call_method_impl(name, argv, nargs))).0 }
-extern "C" fn j_pcall(argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pcall_impl(argv, nargs))).0 }
-extern "C" fn j_get_field(t: u64, name: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_field_impl(t, name))).0 }
-extern "C" fn j_get_field_ic(t: u64, name: u64, cache: *mut u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_field_ic_impl(t, name, cache))).0 }
-extern "C" fn j_set_field(t: u64, name: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_field_impl(t, name, v))).0 }
-extern "C" fn j_new_cell(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_cell_impl(v))).0 }
-extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_cell_impl(c, v))).0 }
-extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
-extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; it.jit_fid = prev; r }
-extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !x.is_num() || !y.is_num() { it.err("scalar intrinsic on a non-number") } V::num(crate::builtins::scalar_op(kind as u8, x.as_num(), y.as_num())) }).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_slot_hash(v: u64) -> u64 { crate::heap::slot_hash(v) }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_storage_ptr(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_storage_ptr_impl(v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_storage_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_storage_len_impl(v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_len_impl(v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_get_index(t: u64, k: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_index_impl(t, k))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_record(shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_record_impl(shape))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_table() -> u64 { let it = ctx(); it.guarded(|_| V(j_new_table_impl())).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_table_sized(n: u64, m: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_table_sized_impl(n, m))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_slot(obj: u64, i: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_slot_impl(obj, i, v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_index(t: u64, k: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_index_impl(t, k, v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_concat(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_concat_impl(a, b))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_arith_slow(a: u64, b: u64, op: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_arith_slow_impl(a, b, op))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0; it.jit_fid = prev; r }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_call_method(name: u64, argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_call_method_impl(name, argv, nargs))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_pcall(argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pcall_impl(argv, nargs))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_get_field(t: u64, name: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_field_impl(t, name))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_get_field_ic(t: u64, name: u64, cache: *mut u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_field_ic_impl(t, name, cache))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_field(t: u64, name: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_field_impl(t, name, v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_cell(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_cell_impl(v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_cell_impl(c, v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; it.jit_fid = prev; r }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !x.is_num() || !y.is_num() { it.err("scalar intrinsic on a non-number") } V::num(crate::builtins::scalar_op(kind as u8, x.as_num(), y.as_num())) }).0 }
 /// An iterator object called from compiled code: the step, its first result
 /// returned and the rest through `extra`.
-extern "C" fn j_iter_next(iter: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_iter_next_impl(iter))).0 }
-extern "C" fn j_last_nres() -> u64 { ctx().last_nres as u64 }
-extern "C" fn j_slot_get(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_get_impl(o, shape, slot))).0 }
-extern "C" fn j_slot_set(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_set_impl(o, shape, slot, v))).0 }
-extern "C" fn j_is_rec(v: u64, shape: u64) -> u64 { V::boolean(ctx().is_rec(V(v), shape as u32)).0 }
-extern "C" fn j_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_rec_impl(v, shape))).0 }
-extern "C" fn j_tagcheck_str(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_str_impl(v))).0 }
-extern "C" fn j_ret_extra(argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_ret_extra_impl(argv, n))).0 }
-extern "C" fn j_new_bytes(n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_bytes_impl(n))).0 }
-extern "C" fn j_bytes_to_str(s: u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_bytes_to_str_impl(s, n))).0 }
-extern "C" fn j_new_buffer() -> u64 { let it = ctx(); it.guarded(|_| V(j_new_buffer_impl())).0 }
-extern "C" fn j_buf_append(buf: u64, s: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_append_impl(buf, s))).0 }
-extern "C" fn j_buf_append_sub(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_append_sub_impl(buf, s, i, j))).0 }
-extern "C" fn j_substring(s: u64, i: u64, j: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_substring_impl(s, i, j))).0 }
-extern "C" fn j_buf_finish(buf: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_finish_impl(buf))).0 }
-extern "C" fn j_str_byte(s: u64, i: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_str_byte_impl(s, i))).0 }
-extern "C" fn j_eq_slow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_eq_slow_impl(a, b))).0 }
-extern "C" fn j_require(name: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_require_impl(name))).0 }
-extern "C" fn j_set_method(shape: u64, name: u64, f: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_method_impl(shape, name, f))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_iter_next(iter: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_iter_next_impl(iter))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_last_nres() -> u64 { ctx().last_nres as u64 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_slot_get(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_get_impl(o, shape, slot))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_slot_set(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_set_impl(o, shape, slot, v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_is_rec(v: u64, shape: u64) -> u64 { V::boolean(ctx().is_rec(V(v), shape as u32)).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_rec_impl(v, shape))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_tagcheck_str(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_tagcheck_str_impl(v))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_ret_extra(argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_ret_extra_impl(argv, n))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_bytes(n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_bytes_impl(n))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_bytes_to_str(s: u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_bytes_to_str_impl(s, n))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_new_buffer() -> u64 { let it = ctx(); it.guarded(|_| V(j_new_buffer_impl())).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_buf_append(buf: u64, s: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_append_impl(buf, s))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_buf_append_sub(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_append_sub_impl(buf, s, i, j))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_substring(s: u64, i: u64, j: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_substring_impl(s, i, j))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_buf_finish(buf: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_buf_finish_impl(buf))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_str_byte(s: u64, i: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_str_byte_impl(s, i))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_eq_slow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_eq_slow_impl(a, b))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_require(name: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_require_impl(name))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_method(shape: u64, name: u64, f: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_set_method_impl(shape, name, f))).0 }
 
 // Each records the frame pointer it was entered with, so the collector walks
 // the compiled frames above it (4.5), and restores the previous one on exit:
@@ -1337,7 +1485,8 @@ fn j_substring_impl(s: u64, i: u64, j: u64) -> u64 { let _hp = enter_helper!(); 
 fn j_buf_finish_impl(buf: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().buf_finish(V(buf)); leave_helper!(_hp); v.0 }
 fn j_str_byte_impl(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(V(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { V::num(bytes[i as usize - 1] as f64).0 } else { V::NIL.0 } }
 fn j_pow_impl(a: u64, b: u64) -> u64 { let it = ctx(); let (x, y) = (V(a), V(b)); if !(x.is_num() && y.is_num()) { it.err("power of a non-number") } V::num(x.as_num().powf(y.as_num())).0 }
-extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }
 fn j_eq_slow_impl(a: u64, b: u64) -> u64 { ctx().values_equal(V(a), V(b)) as u64 }
 fn j_require_impl(name: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let text = String::from_utf8_lossy(it.bytes_of(V(name))).into_owned(); let v = it.require(&text); leave_helper!(_hp); v.0 }
 fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().heap.shapes[shape as usize].methods.insert(V(name), V(f)); 0 }

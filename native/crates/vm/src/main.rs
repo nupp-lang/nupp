@@ -12,6 +12,78 @@ use nupp_vm::host::Host;
 use nupp_vm::image;
 use nupp_vm::interp::{Interp, Outcome, State};
 use nupp_vm::value::Value;
+#[cfg(feature = "aot")]
+use sha2::Digest;
+
+#[cfg(feature = "aot")]
+mod aot_link { include!(concat!(env!("OUT_DIR"), "/aot_entries.rs")); }
+
+#[cfg(feature = "aot")]
+fn emit_object(image_path: &str, output_path: &str) {
+    let text = std::fs::read_to_string(image_path).unwrap();
+    let mut it = Interp::new();
+    image::load(&mut it, &text).unwrap();
+    let mut compiler = nupp_vm::jit::Compiler::<cranelift_object::ObjectModule>::new_object();
+    compiler.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
+    let (mut compiled, mut refused) = (Vec::new(), Vec::new());
+    for (fid, f) in it.funcs.iter().enumerate() {
+        if f.name.starts_with("module:") { continue; }
+        match compiler.try_compile_object(f, fid as u32) {
+            Ok(()) => compiled.push(fid),
+            Err(e) => refused.push(format!("{fid}\t{}\t{e}", f.name)),
+        }
+        if fid != 0 && fid % 250 == 0 { eprintln!("aot: lowered {fid}/{} functions", it.funcs.len()); }
+    }
+    let hash: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
+    let mut linked = format!("unsafe extern \"C\" {{\n");
+    for fid in &compiled {
+        linked.push_str(&format!("    fn nupp_aot_{fid}();\n"));
+        let f = &it.funcs[*fid];
+        if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') {
+            linked.push_str(&format!("    fn nupp_aot_{fid}_boxed();\n"));
+        }
+    }
+    linked.push_str(&format!("}}\npub fn image_hash() -> [u8; 32] {{ {hash:?} }}\npub fn entries() -> Vec<(usize, u64)> {{ vec![\n"));
+    for fid in &compiled {
+        let f = &it.funcs[*fid];
+        let suffix = if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') { "_boxed" } else { "" };
+        linked.push_str(&format!("    ({fid}, nupp_aot_{fid}{suffix} as *const () as usize as u64),\n"));
+    }
+    linked.push_str("] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> {\n");
+    linked.push_str("    let starts: std::collections::HashMap<u32, usize> = [\n");
+    for (fid, _, _) in &compiler.object_maps {
+        linked.push_str(&format!("        ({fid}, nupp_aot_{fid} as *const () as usize),\n"));
+    }
+    linked.push_str("    ].into_iter().collect();\n");
+    let map_path = std::path::absolute(format!("{output_path}.maps")).unwrap();
+    linked.push_str(&format!("    let data = include_bytes!({:?});\n", map_path));
+    linked.push_str("    let mut pos = 0usize;\n    let mut next = || { let n = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()); pos += 4; n };\n    let count = next();\n    let mut out = Vec::with_capacity(count as usize);\n    for _ in 0..count {\n        let fid = next(); let len = next() as usize; let nmap = next();\n        let mut maps = Vec::with_capacity(nmap as usize);\n        for _ in 0..nmap { let off = next(); let span = next(); let nslots = next(); let slots = (0..nslots).map(|_| next()).collect(); maps.push((off, span, slots)); }\n        out.push((starts[&fid], len, maps));\n    }\n    out\n}\n");
+    let mut map_bytes = Vec::new();
+    let mut push = |n: u32| map_bytes.extend_from_slice(&n.to_le_bytes());
+    push(compiler.object_maps.len() as u32);
+    for (fid, len, maps) in &compiler.object_maps {
+        push(*fid); push(*len as u32); push(maps.len() as u32);
+        for (off, span, slots) in maps {
+            push(*off); push(*span); push(slots.len() as u32);
+            for slot in slots { push(*slot); }
+        }
+    }
+    eprintln!("aot: writing object");
+    let bytes = compiler.emit();
+    std::fs::write(output_path, &bytes).unwrap();
+    std::fs::write(format!("{output_path}.rs"), linked).unwrap();
+    std::fs::write(format!("{output_path}.maps"), map_bytes).unwrap();
+    let symbols: Vec<String> = compiled.iter().map(|fid| {
+        let f = &it.funcs[*fid];
+        let suffix = if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') { "_boxed" } else { "" };
+        format!("{fid}\tnupp_aot_{fid}{suffix}")
+    }).collect();
+    let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+    let manifest = format!("image-sha256\t{hex}\nfunctions\t{}\n{}\n", it.funcs.len(), symbols.join("\n"));
+    std::fs::write(format!("{output_path}.manifest"), manifest).unwrap();
+    eprintln!("aot: emitted {} functions ({} bytes), refused {}", compiled.len(), bytes.len(), refused.len());
+    for r in refused { eprintln!("aot: refused {r}"); }
+}
 
 fn cpu_now() -> f64 { std::time::Instant::now().elapsed().as_secs_f64() + START.with(|s| s.elapsed().as_secs_f64()) }
 thread_local! { static START: std::time::Instant = std::time::Instant::now(); }
@@ -44,6 +116,8 @@ fn main() {
     // print each one. The runner reports the one that reaches it.
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(feature = "aot")]
+    if args.len() == 4 && args[1] == "aot" { emit_object(&args[2], &args[3]); return; }
     if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN]"); std::process::exit(2); }
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new();
     let mut i = 5;
@@ -59,10 +133,45 @@ fn main() {
     let load_s = cpu_now() - t0;
     it.entries = vec![0u64; it.funcs.len()];
     it.prepare_threaded();
+    #[cfg(feature = "aot")]
+    let aot_entries = if std::env::var("NO_AOT").is_ok() { Vec::new() } else { aot_link::entries() };
+    #[cfg(feature = "aot")]
+    let aot_consts: Vec<u64> = it.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
+    #[cfg(feature = "aot")]
+    if !aot_entries.is_empty() {
+        let digest: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
+        if aot_link::image_hash() != digest {
+            eprintln!("aot: linked object was built for another image");
+            std::process::exit(1);
+        }
+        for (fid, ptr) in &aot_entries { it.entries[*fid] = *ptr; }
+        it.calltab = it.funcs.iter().map(|f| {
+            let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
+            f.nparams as u64 | ((plain as u64) << 8)
+        }).collect();
+        it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
+        unsafe {
+            nupp_vm::jit::nupp_vm_runtime = nupp_vm::jit::RuntimeAddresses {
+                current_closure: &raw const nupp_vm::jit::CUR_CLOSURE as *const _ as u64,
+                extra: &it.extra as *const [Value; 8] as u64,
+                last_nres: &it.last_nres as *const usize as u64,
+                entries: it.entries.as_ptr() as u64,
+                calltab: it.calltab.as_ptr() as u64,
+                probe: it.shape_probe.as_ptr() as u64,
+                consts: aot_consts.as_ptr() as u64,
+            };
+        }
+        nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        nupp_vm::jit::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
+    }
+    #[cfg(feature = "aot")]
+    let has_aot = !aot_entries.is_empty();
+    #[cfg(not(feature = "aot"))]
+    let has_aot = false;
     // The typed tier: every function it accepts, callees first by id, with
     // its compile time reported apart from the run time.
     #[cfg(feature = "jit")]
-    let _jit = if std::env::var("NO_JIT").is_err() {
+    let _jit = if std::env::var("NO_JIT").is_err() && !has_aot {
         nupp_vm::jit::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         let mut j = nupp_vm::jit::Jit::new();
         j.extra_addr = &it.extra as *const [Value; 8] as i64;
