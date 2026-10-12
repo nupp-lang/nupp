@@ -7,14 +7,34 @@ use crate::value::Value as V;
 
 /// Compiled code ranges and their stack maps: (start, end, [(return offset, frame span, [slot offsets])]).
 pub static CODE_MAPS: std::sync::Mutex<Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)>> = std::sync::Mutex::new(Vec::new());
-/// The frame pointer of the runtime helper currently entered from compiled
-/// code, or zero; the root set walks compiled frames from here.
-pub static HELPER_FP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-/// The closure a compiled function is entered with; its prologue reads it
-/// once, so nested calls may overwrite it freely.
-pub static CUR_CLOSURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// The interpreter the helpers act on. One per process for now.
-pub static CTX: std::sync::atomic::AtomicPtr<Interp> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// Helpers and native roots belong to the thread running this VM. Worker
+// collectors must never walk another thread's native stack.
+use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+thread_local! {
+    static LOCAL_FP: AtomicUsize = const { AtomicUsize::new(0) };
+    static LOCAL_CLOSURE: AtomicU64 = const { AtomicU64::new(0) };
+    static LOCAL_CTX: AtomicPtr<Interp> = const { AtomicPtr::new(std::ptr::null_mut()) };
+}
+pub struct LocalFrame;
+pub static HELPER_FP: LocalFrame = LocalFrame;
+impl LocalFrame {
+    pub fn load(&self, order: Ordering) -> usize { LOCAL_FP.with(|v| v.load(order)) }
+    pub fn store(&self, value: usize, order: Ordering) { LOCAL_FP.with(|v| v.store(value, order)); }
+    pub fn swap(&self, value: usize, order: Ordering) -> usize { LOCAL_FP.with(|v| v.swap(value, order)) }
+}
+pub struct LocalClosure;
+pub static CUR_CLOSURE: LocalClosure = LocalClosure;
+impl LocalClosure {
+    pub fn load(&self, order: Ordering) -> u64 { LOCAL_CLOSURE.with(|v| v.load(order)) }
+    pub fn store(&self, value: u64, order: Ordering) { LOCAL_CLOSURE.with(|v| v.store(value, order)); }
+}
+pub fn closure_address() -> u64 { LOCAL_CLOSURE.with(|v| v as *const AtomicU64 as u64) }
+pub struct LocalContext;
+pub static CTX: LocalContext = LocalContext;
+impl LocalContext {
+    pub fn load(&self, order: Ordering) -> *mut Interp { LOCAL_CTX.with(|v| v.load(order)) }
+    pub fn store(&self, value: *mut Interp, order: Ordering) { LOCAL_CTX.with(|v| v.store(value, order)); }
+}
 
 /// Walks the frame-pointer chain from `fp`, handing every value a compiled
 /// frame's stack map describes to `f`. Frames without a map are skipped.

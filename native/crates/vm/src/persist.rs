@@ -674,13 +674,14 @@ impl GraphWriter {
 /// Saves directly from VM objects, with no user codec or intermediate value tree.
 /// Returned bytes have a checksum and explicit version. Default resource policy is refusal.
 pub fn save_graph(vm: &mut Interp, roots: &[Value], policies: &Policies) -> Result<Vec<u8>> {
-    save_graph_with(vm, roots, policies, None)
+    save_graph_with(vm, roots, policies, None, false)
 }
-fn save_graph_with(
+pub(crate) fn save_graph_with(
     vm: &mut Interp,
     roots: &[Value],
     policies: &Policies,
     mut codecs: Option<&mut ResourceCodecs>,
+    whole_vm: bool,
 ) -> Result<Vec<u8>> {
     let scope = vm.open_scope();
     vm.handles.extend_from_slice(roots);
@@ -697,6 +698,9 @@ fn save_graph_with(
         let mut rooted = 0;
         while index < graph.objects.len() {
             let v = graph.objects[index];
+            if !whole_vm && (crate::coroutines::is_coroutine(vm,v) || crate::coroutines::wrapped(vm,v)!=Value::NIL) {
+                return Err("coroutine continuations require a whole-VM checkpoint".into());
+            }
             if let Some(kind) = vm.resources.get(&v).cloned() {
                 if unsafe { v.as_obj().unwrap().as_ref().kind } != KIND_TABLE {
                     return Err(format!("resource {kind} requires a table identity"));
@@ -1126,7 +1130,7 @@ pub fn load_into(
     )?;
     Ok(out[0])
 }
-fn load_graph_with(
+pub(crate) fn load_graph_with(
     vm: &mut Interp,
     data: &[u8],
     policies: &Policies,
@@ -1436,6 +1440,8 @@ pub fn save_vm(
 ) -> Result<Vec<u8>> {
     policies.checkpoint_safe()?;
     safepoint(vm)?;
+    vm.snapshot_workers()?;
+    codecs.entry(crate::channels::KIND.into()).or_insert_with(|| Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
     if let Some(s) = &vm.scheduler {
         s.validate(vm)?;
     }
@@ -1581,7 +1587,7 @@ pub fn save_vm(
             w.u32(at)?;
         }
     }
-    let graph = save_graph_with(vm, &roots, policies, Some(codecs))?;
+    let graph = save_graph_with(vm, &roots, policies, Some(codecs), true)?;
     w.bytes(&graph)?;
     if let Some(s) = &vm.scheduler {
         write_scheduler(&mut w, s)?;
@@ -1804,6 +1810,9 @@ fn frame_positions(vm: &Interp, t: &Task) -> Result<(usize, Vec<usize>)> {
 /// not execute module initializers. Code is verified, graph edges relocated,
 /// then host resources rebound before the caller can resume any task.
 pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) -> Result<Interp> {
+    load_vm_channels(data,policies,codecs,Default::default())
+}
+pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs, registry:crate::channels::Shared) -> Result<Interp> {
     policies.checkpoint_safe()?;
     let regions = data.get(8) == Some(&2);
     let mut r = Reader {
@@ -1812,6 +1821,8 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
     };
     let digest: [u8; 32] = r.take(32)?.try_into().unwrap();
     let mut vm = Interp::new();
+    vm.channel_registry=registry;
+    codecs.insert(crate::channels::KIND.into(),Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
     let n = r.count()?;
     for _ in 0..n {
         match r.byte()? {

@@ -45,7 +45,13 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
         entry,
         names(extras),
         function(name: string): string?
-            if name == "nupp.tasks"
+            if name == "nupp.generator" then
+                return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
+            elseif name == "nupp.tasks" then
+                return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
+            end
+            if name == "nupp.vm.tasks"
+            or name == "nupp.vm.coroutine"
             or name == "nupp.io.files"
             or name == "nupp.io.path"
             or name == "nupp.compiler.hostpid"

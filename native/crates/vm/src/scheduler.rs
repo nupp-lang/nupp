@@ -13,6 +13,7 @@ use std::{
 };
 
 pub type Result<T> = std::result::Result<T, String>;
+static CANCEL_EPOCH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 const TIMER_BIT: u64 = 1 << 63;
 
 #[derive(Clone, Default)]
@@ -21,6 +22,7 @@ impl Cancellation {
     /// Thread-safe request; VM state is touched only by its owning thread.
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Release);
+        CANCEL_EPOCH.fetch_add(1, Ordering::Release);
     }
     pub fn requested(&self) -> bool {
         self.0.load(Ordering::Acquire)
@@ -205,10 +207,20 @@ pub(crate) fn checkpoint(vm: &Interp) {
         .is_some_and(Cancellation::requested)
     {
         std::panic::panic_any(crate::builtins::LuaError(
-            vm.loaded
-                .get("nupp.vm.cancellation")
-                .copied()
-                .unwrap_or(crate::value::Value::NIL)
+            vm.scheduler
+                .as_ref()
+                .and_then(|s| {
+                    s.controls
+                        .iter()
+                        .find(|(_, c)| {
+                            vm.active_cancellation
+                                .as_ref()
+                                .is_some_and(|active| Arc::ptr_eq(&active.0, &c.token.0))
+                        })
+                        .map(|(&tid, _)| vm.tasks[tid].error)
+                })
+                .filter(|v| *v != Value::NIL)
+                .unwrap_or(vm.loaded["nupp.vm.cancellation"])
                 .0,
         ));
     }
@@ -430,6 +442,8 @@ impl Interp {
             self.stack_pool.push(stack);
         }
         let generation = s.controls[&tid].generation;
+        crate::coroutines::finished(self, tid);
+        crate::task_api::on_finish(self, tid);
         crate::task_api::wake_dependents(self, tid);
         Event {
             task: TaskId {
@@ -437,6 +451,48 @@ impl Interp {
                 generation,
             },
             status,
+        }
+    }
+    fn prepare_cancellations(&mut self, worker_ids: &std::collections::HashSet<usize>) {
+        let cancelled: Vec<usize> = self
+            .scheduler
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .filter(|(tid, c)| {
+                !worker_ids.contains(*tid) && c.status == Status::Active && c.token.requested()
+            })
+            .map(|(&tid, _)| tid)
+            .collect();
+        for tid in cancelled {
+            if self.scheduler.as_ref().unwrap().controls[&tid].status != Status::Active {
+                continue;
+            }
+            let state = self.unwind_state(tid);
+            if state == Value::NIL || {
+                let mode = crate::task_api::field(self, state, "mode");
+                self.bytes_of(mode) == b"normal"
+            } {
+                let pc = (self.tasks[tid].stack[self.tasks[tid].cur()] >> 32) as usize;
+                let error = if self.tasks[tid].error == Value::NIL {
+                    self.loaded["nupp.vm.cancellation"]
+                } else {
+                    self.tasks[tid].error
+                };
+                self.begin_unwind(tid, 0, pc, "cancel", error, None);
+                self.scheduler.as_mut().unwrap().remove_timers(tid);
+                self.scheduler
+                    .as_mut()
+                    .unwrap()
+                    .controls
+                    .get_mut(&tid)
+                    .unwrap()
+                    .waiting = None;
+                self.scheduler.as_mut().unwrap().ready.retain(|&t| t != tid);
+                self.tasks[tid].state = State::Runnable;
+                self.scheduler.as_mut().unwrap().ready.push_front(tid);
+            }
         }
     }
     /// Run at most `turns` queue entries, each until PARK or completion. This is
@@ -453,23 +509,21 @@ impl Interp {
             .now;
         self.advance_to(now)?;
         self.poll_scheduled_host()?;
-        let mut events = Vec::new();
-        let cancelled: Vec<usize> = self
-            .scheduler
-            .as_ref()
-            .unwrap()
-            .controls
-            .iter()
-            .filter(|(_, c)| c.status == Status::Active && c.token.requested())
-            .map(|(&tid, _)| tid)
+        let mut events = self.poll_workers()?;
+        self.poll_channels();
+        let worker_ids: std::collections::HashSet<_> = self
+            .worker_records()
+            .into_iter()
+            .map(|(t, _)| t.index)
             .collect();
-        for tid in cancelled {
-            if self.scheduler.as_ref().unwrap().controls[&tid].status != Status::Active {
-                continue;
-            }
-            events.push(self.finish_scheduled(tid, Status::Cancelled));
-        }
+        let mut cancel_epoch = CANCEL_EPOCH.load(Ordering::Acquire);
+        self.prepare_cancellations(&worker_ids);
         for _ in 0..turns {
+            let epoch = CANCEL_EPOCH.load(Ordering::Acquire);
+            if epoch != cancel_epoch {
+                cancel_epoch = epoch;
+                self.prepare_cancellations(&worker_ids);
+            }
             let Some(tid) = self.scheduler.as_mut().unwrap().ready.pop_front() else {
                 break;
             };
@@ -477,15 +531,16 @@ impl Interp {
                 .token
                 .clone();
             self.last_nres = self.scheduler.as_ref().unwrap().controls[&tid].last_nres;
-            self.active_cancellation = Some(token.clone());
+            self.active_cancellation = if self.unwind_state(tid) == Value::NIL {
+                Some(token.clone())
+            } else {
+                None
+            };
 
             let scope = self.open_scope();
             let old_frame_mode = self.frame_mode;
             self.frame_mode = true;
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                checkpoint(self);
-                self.run(tid)
-            }));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(tid)));
             self.frame_mode = old_frame_mode;
             self.active_cancellation = None;
             self.scheduler
@@ -496,7 +551,7 @@ impl Interp {
                 .unwrap()
                 .last_nres = self.last_nres;
 
-            let status = if token.requested() {
+            let status = if token.requested() && !matches!(outcome, Ok(Outcome::Parked(_))) {
                 Some(Status::Cancelled)
             } else {
                 match outcome {
@@ -519,6 +574,8 @@ impl Interp {
             self.extra_n = 0;
             if let Some(status) = status {
                 events.push(self.finish_scheduled(tid, status));
+            } else if self.tasks[tid].state == State::Runnable {
+                self.scheduler.as_mut().unwrap().ready.push_back(tid);
             }
         }
         Ok(events)

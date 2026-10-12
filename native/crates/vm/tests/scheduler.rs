@@ -60,6 +60,15 @@ fn fixture(threaded: bool) -> Interp {
     vm.heap.quarantine = true;
     vm
 }
+fn drain(vm: &mut Interp, task: TaskId) {
+    for _ in 0..32 {
+        if status(vm, task) != Status::Active {
+            return;
+        }
+        vm.run_ready(32).unwrap();
+    }
+    panic!("task did not settle");
+}
 fn status(vm: &Interp, t: TaskId) -> Status {
     vm.scheduler.as_ref().unwrap().status(t).unwrap().clone()
 }
@@ -419,7 +428,8 @@ fn compiled_nested_frames_park_restore_and_cancel() {
     vm.run_ready(1).unwrap();
     assert!(vm.compiled_frame_entries > 0);
     vm.cancel_task(task).unwrap();
-    assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Cancelled);
+    drain(&mut vm, task);
+    assert_eq!(status(&vm, task), Status::Cancelled);
     assert_eq!(vm.get_index(object, closed), Value::num(1.0));
 }
 
@@ -493,11 +503,11 @@ fn affine_checkpoint_cancellation_and_task_surface() {
         persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
     let restored_object = restored.tasks[task.index].cleanups[0].value;
     restored.cancel_task(task).unwrap();
-    restored.run_ready(1).unwrap();
+    drain(&mut restored, task);
     let key = restored.intern("closed");
     assert_eq!(restored.get_index(restored_object, key), Value::num(1.0));
     vm.wake_task(task).unwrap();
-    vm.run_ready(1).unwrap();
+    drain(&mut vm, task);
     assert_eq!(vm.get_index(object, closed), Value::num(1.0));
     let root = vm.schedule(Value::func(2), &[], None).unwrap();
     for _ in 0..4 {
@@ -592,7 +602,7 @@ entry 0
     let task = vm.schedule(Value::func(0), &[value], None).unwrap();
     vm.run_ready(1).unwrap();
     vm.cancel_task(task).unwrap();
-    vm.run_ready(1).unwrap();
+    drain(&mut vm, task);
     let wrong = vm.intern("wrong");
     let right = vm.intern("right");
     assert_eq!(vm.get_index(value, wrong), Value::NIL);
@@ -643,4 +653,117 @@ entry 0
         );
         assert!(current.tasks[task.index].protected.is_empty());
     }
+}
+
+const ASYNC_CLEANUP: &str = r#"
+function cleanup 0 1 16 2 v:v
+const 0 str "nupp.host"
+const 1 str "sleep"
+const 2 num 5
+const 3 str "closed"
+const 4 num 1
+Require 2 0
+GetField 3 2 1
+K 5 2
+CallDyn 3 4 1
+GetField 6 1 3
+K 7 4
+Add 6 6 7
+SetField 1 3 6
+RetNil
+end
+function owner 1 1 8 2 v:v
+const 0 func 0
+const 1 num 99
+K 2 0
+Defer 1 2
+K 3 1
+Park 3
+Ret 3
+end
+function cleanupError 2 1 8 2 v:v
+const 0 builtin error
+K 2 0
+Move 4 1
+CallDyn 2 3 1
+RetNil
+end
+function failWithCleanup 3 0 12 2 :v
+const 0 func 2
+const 1 str "first cleanup"
+const 2 str "second cleanup"
+const 3 builtin error
+const 4 str "body failure"
+K 1 0
+K 2 1
+Defer 2 1
+K 2 2
+Defer 2 1
+K 3 3
+K 5 4
+CallDyn 3 4 1
+RetNil
+end
+entry 1
+"#;
+fn async_fixture() -> Interp {
+    let mut vm = Interp::new();
+    image::load(&mut vm, ASYNC_CLEANUP).unwrap();
+    vm.install_globals();
+    let host = vm.host_table();
+    vm.loaded.insert("nupp.host".into(), host);
+    vm.enable_scheduler().unwrap();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    vm
+}
+#[test]
+fn cancelled_cleanup_can_sleep_snapshot_and_finish_once() {
+    let mut vm = async_fixture();
+    let obj = vm.new_table();
+    let key = vm.intern("closed");
+    vm.set_index(obj, key, Value::num(0.0));
+    let task = vm.schedule(Value::func(1), &[obj], None).unwrap();
+    vm.run_ready(1).unwrap();
+    vm.cancel_task(task).unwrap();
+    vm.run_ready(8).unwrap();
+    assert_eq!(status(&vm, task), Status::Active);
+    assert_eq!(vm.scheduler.as_ref().unwrap().next_wakeup(), Some(5));
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    restored.heap.stress_steps = true;
+    restored.heap.oracle = true;
+    restored.heap.quarantine = true;
+    let obj = restored.reg(task.index, 1);
+    restored.advance_to(5).unwrap();
+    drain(&mut restored, task);
+    assert_eq!(status(&restored, task), Status::Cancelled);
+    let key = restored.intern("closed");
+    assert_eq!(restored.get_index(obj, key), Value::num(1.0));
+    restored.run_ready(8).unwrap();
+    assert_eq!(restored.get_index(obj, key), Value::num(1.0));
+}
+#[test]
+fn cleanup_failures_preserve_primary_and_reverse_order() {
+    let mut vm = async_fixture();
+    let task = vm.schedule(Value::func(3), &[], None).unwrap();
+    drain(&mut vm, task);
+    assert!(matches!(status(&vm, task), Status::Failed(_)));
+    let error = vm.tasks[task.index].error;
+    let key = vm.intern("primary");
+    let primary = vm.get_index(error, key);
+    assert_eq!(vm.bytes_of(primary), b"body failure");
+    let key = vm.intern("suppressed");
+    let suppressed = vm.get_index(error, key);
+    let first = vm.get_index(suppressed, Value::num(1.0));
+    let second = vm.get_index(suppressed, Value::num(2.0));
+    assert_eq!(vm.bytes_of(first), b"second cleanup");
+    assert_eq!(vm.bytes_of(second), b"first cleanup");
 }

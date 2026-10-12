@@ -32,7 +32,7 @@ function main.run(): number
         end)
         answer = first:await() + second:await()
     end
-    assert(state.closed == 2)
+    assert(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
 
     return answer
 end
@@ -76,9 +76,9 @@ function main.ownership(): number
         with moved = owned do
             assert(state.closed == 0)
         end
-        assert(state.closed == 1)
+        assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     end
-    assert(state.closed == 1)
+    assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     local marker: any = {}
     local ok, reason = pcall(function()
         with owned = resource(state) do
@@ -95,6 +95,180 @@ function main.ownership(): number
         end
     end)
     assert(not childOk and childReason == nil)
+
+    return 42
+end
+
+function main.families(): number
+    local a, b, c = tasks.run(function(borrows scope: any): (number, nil, number)
+        return 20, nil, 22
+    end)
+    assert(a == 20 and b == nil and c == 22)
+    local values, errors = tasks.gather<number>({
+        function(): number
+            return 20
+        end,
+        function(): number
+            error("expected failure")
+        end,
+        function(): number
+            return 22
+        end,
+    })
+    assert(values[1] == 20 and values[2] == nil and values[3] == 22)
+    assert(errors[2] == "expected failure")
+    local value, index = tasks.race<number>({
+        function(): number
+            return 42
+        end,
+        function(): number
+            return 0
+        end
+    })
+    assert(value == 42 and index == 1)
+
+    return 42
+end
+
+function main.captures(): number
+    local state: any = {closed = 0}
+    do
+        local owned = resource(state)
+        local body = function(): number takes (owned)
+            assert(owned.state.closed == 0)
+            return 42
+        end
+        assert(body() == 42)
+    end
+    assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
+    do
+        local owned = resource(state)
+        local body = function(): number takes (owned)
+            error("uncalled closure")
+        end
+    end
+    assert(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
+    with scope = tasks.open() do
+        local owned = resource(state)
+        local child = scope:spawn(function(): number takes (owned)
+            error("cancelled closure")
+        end)
+        child:cancel()
+    end
+    assert(state.closed == 3, "expected three cleanups: " .. tostring(state.closed))
+
+    return 42
+end
+
+function main.workers(): number
+    local source: any = {answer = 1}
+    source.self = source
+    with scope = tasks.open() do
+        local child = scope:fork(source, function(value: any): any
+            value.answer = 42
+            assert(value.self == value)
+            return value
+        end)
+        local result = child:await()
+        assert(result.answer == 42 and result.self == result)
+        assert(source.answer == 1 and result ~= source)
+    end
+
+    return 42
+end
+
+function main.named(): number
+    with scope = tasks.open() do
+        local child = scope:spawn("named job", function(): number
+            return 42
+        end)
+        child:cancel("requested")
+        local ok, reason = pcall(function(): number
+            return child:await()
+        end)
+        assert(not ok and tasks.isCancelled(reason))
+        local cancellation = reason as any
+        assert(cancellation.operation == "named job" and cancellation.reason == "requested")
+    end
+
+    return 42
+end
+
+local record Pair
+    left: Resource
+    right: Resource
+end
+
+local function conditional(flag: boolean, state: any): nil
+    local pair = new Pair(left = resource(state), right = resource(state))
+    if flag then
+        nupp.drop(pair.left)
+    end
+    nupp.drop(pair)
+end
+
+function main.fields(): number
+    local state: any = {closed = 0}
+    conditional(true, state)
+    assert(state.closed == 2)
+    conditional(false, state)
+    assert(state.closed == 4)
+
+    return 42
+end
+
+function main.coroutines(): number
+    local thread = coroutine.create(function(start: number): number
+        local again = coroutine.yield(start, nil)
+        return again + 1
+    end)
+    assert(type(thread) == "thread" and coroutine.status(thread) == "suspended")
+    local ok, value, tail = coroutine.resume(thread, 20)
+    assert(ok and value == 20 and tail == nil)
+    local done, answer = coroutine.resume(thread, 41)
+    assert(done and answer == 42 and coroutine.status(thread) == "dead")
+    local wrapped = coroutine.wrap(function(): number
+        coroutine.yield(20)
+        return 22
+    end)
+    assert(wrapped() + wrapped() == 42)
+
+    return 42
+end
+
+function main.channels(): number
+    do
+        local channel = tasks.channel<number>(1)
+        with scope = tasks.open() do
+            local sender = scope:fork(channel, function(channel: any): number
+                channel:send(20)
+                channel:send(22)
+                return 1
+            end)
+            local first, firstOk = channel:receive()
+            local second, secondOk = channel:receive()
+            assert(firstOk and secondOk and assert(first) + assert(second) == 42)
+            assert(sender:await() == 1)
+        end
+        channel:close()
+    end
+
+    return 42
+end
+
+function main.generators(): number
+    local generator = require("nupp.generator")
+    local state: any = {closed = 0}
+    with values = generator.create<number>(function(emit: function(number): nil): nil
+        with owned = resource(state) do
+            emit(20)
+            emit(22)
+        end
+    end) do
+        local first, present = values:next()
+        assert(present and first == 20)
+    end
+    assert(state.closed == 1)
 
     return 42
 end

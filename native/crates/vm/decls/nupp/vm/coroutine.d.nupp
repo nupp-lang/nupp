@@ -1,0 +1,8 @@
+local record Coroutines
+    create: function(body: any): any
+    resume: function(thread: any, ...: any): ...any
+    yield: function(...: any): ...any
+    status: function(thread: any): string
+    close: function(thread: any): (boolean, any)
+end
+return Coroutines

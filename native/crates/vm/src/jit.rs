@@ -11,7 +11,7 @@
 
 use crate::heap::{OFF_T_HASH_PTR, OFF_T_HASH_MASK, OFF_T_META, VT_EMPTY, HEADER, KIND_ITER, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR, KIND_TABLE, OFF_AUX, OFF_AUX_LEN, OFF_AUX_PTR, OFF_KIND};
 use crate::interp::{Function, Op};
-use crate::compiled::{CODE_MAPS, CUR_CLOSURE, helper_table};
+use crate::compiled::{CODE_MAPS, helper_table};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, GlobalValue, InstBuilder, JumpTableData, MemFlagsData, StackSlotData, StackSlotKind, TrapCode, Value};
 use cranelift_codegen::settings::{self, Configurable};
@@ -141,7 +141,11 @@ impl Compiler<ObjectModule> {
     }
 
     pub fn try_compile_object(&mut self, f: &Function, fid: u32) -> Result<(), String> {
-        let (_, _, code_len, maps) = self.compile_function(f, fid, false)?;
+        self.try_compile_object_mode(f, fid, false)
+    }
+
+    pub fn try_compile_object_mode(&mut self, f: &Function, fid: u32, frame: bool) -> Result<(), String> {
+        let (_, _, code_len, maps) = self.compile_function(f, fid, frame)?;
         self.object_maps.push((fid, code_len, maps));
         Ok(())
     }
@@ -162,7 +166,7 @@ impl<M: Module> Compiler<M> {
         }
         let runtime_data = runtime_symbol.map(|name| module.declare_data(name, Linkage::Import, true, false).unwrap());
         let ctx = module.make_context();
-        Compiler { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: &CUR_CLOSURE as *const std::sync::atomic::AtomicU64 as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new() }
+        Compiler { module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -327,7 +331,7 @@ impl<M: Module> Compiler<M> {
         for op in &f.code {
             let ok = match op {
                 Op::Call(callee, ..) | Op::CallT(callee, ..) => self.funcs.contains_key(callee),
-                Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => false,
+                Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => false,
                 _ => true,
             };
             if !frame && !ok { return Err(format!("{:?}", op)); }
@@ -1161,7 +1165,7 @@ impl<M: Module> Compiler<M> {
                     Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); note_one_result!(); b.ins().return_(&[z]); terminated = true; }
                     Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
                     Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
-                    Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
+                    Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
             if !terminated { note_one_result!(); if ret_f { let z = b.ins().f64const(0.0); b.ins().return_(&[z]); } else { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); } }
@@ -1221,5 +1225,5 @@ fn frame_boundary(op: &Op) -> bool {
         | Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)
         | Op::CallMethod(..) | Op::PCall(..) | Op::Ret(..) | Op::RetN(..)
         | Op::RetNil | Op::FRet(..) | Op::Park(..) | Op::Checkpoint
-        | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::VarargN(..) | Op::VarargTable(..) | Op::Require(..) | Op::RequireV(..))
+        | Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::VarargN(..) | Op::VarargTable(..) | Op::Require(..) | Op::RequireV(..))
 }

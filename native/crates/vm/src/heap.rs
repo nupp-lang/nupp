@@ -727,7 +727,10 @@ impl Heap {
     }
 
     pub fn full_cycle(&mut self, roots: &dyn Roots) {
-        if self.phase == Phase::Idle { self.start(roots); }
+        // Finish an in-progress incremental cycle, then collect from current
+        // roots so an explicit full collection also removes floating garbage.
+        while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
+        self.start(roots);
         while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
         self.debt = 0;
     }

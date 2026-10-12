@@ -844,3 +844,68 @@ cargo test --offline -p nupp-vm --lib --tests
 cargo test --offline -p nupp-vm --no-default-features --lib --tests
 python3 native/crates/vm/tests/tasks-smoke.py /path/to/project-compiler.image
 ```
+
+## Task coverage follow-through (2026-10-12)
+
+This supersedes the open task items above. The native facade now includes
+`run/gather/race`, named spawn, and cancellation values carrying operation/reason.
+Gather preserves independent failures; race selects the first completed branch
+and drains canceled losers. The emitter uses the checker's trailing-callable
+argument order and selected member, preserving source evaluation order.
+
+Affine closures transfer the checker's explicit `takes` captures. Their body or
+uncalled drop closure consumes them once; queued cancellation drops them too.
+Conditional field transfers test the exact cleanup slot before disarming it.
+Scheduled cleanup callbacks run as saved child continuations and may park.
+Errors retain `primary` and reverse-order `suppressed` failures. Cleanup state,
+including an in-progress callback, is part of the checkpoint graph. Cancellation
+requests made during a scheduler batch are noticed before the next activation.
+
+`scope:fork(arguments..., body)` creates an isolated interpreter VM on an OS
+thread. Code recipes are replayed and captured graphs/arguments/results are
+copied through the binary serializer. No ordinary heap address crosses threads.
+The host drives worker turns, cancellation and clocks. The implementation caps
+concurrent worker threads at 64; pooling and a compiled worker tier are future
+performance work. Native capabilities without transfer codecs are refused. Failed result transfer
+fails the task once; it never restarts an old worker snapshot.
+Compiled helper context, closure roots and helper frame pointers are thread-local.
+
+`tasks.channel<T>(capacity)` is a shared, bounded channel. `send(value)` parks
+when full; `receive()` returns `(value, true)`, including a nil value, or
+`(nil, false)` once closed and drained. `close()` wakes waiters and rejects future
+sends. Messages are serialized copies. Channel endpoints are explicitly closed;
+closing and draining releases their native registration. Worker transfer shares
+only the queue, through a VM-owned registry and codec. Checkpointing pauses worker
+turns, saves each worker VM and the channel queues, and restores shared queue
+identity. Pending external OS requests still require the existing drain gate.
+
+`coroutine.create/resume/yield/wrap/status/running/isyieldable/close` use scheduler
+frames. Nested resume and host parking preserve result positions and resumer
+relationships across restore. Standalone value serde refuses coroutine
+continuations; they require a whole-VM checkpoint. Abandoned suspended coroutines must be explicitly
+closed in this runtime: collection of unreachable coroutine continuations is
+not implemented. The typed `nupp.generator.create<T>(body)` facade returns an
+owner with `next(): (T?, boolean)` and `close`; its `with` scope closes a partially
+consumed body and drains its affine resources automatically.
+
+`aot IMAGE OBJECT --frames` emits the heap-frame ABI into ordinary object files.
+The no-JIT host binds these entries after image verification and uses the same
+park/resume driver. `FRAME_AOT=1 tests/no-jit-smoke.sh IMAGE MODULE FUNCTION`
+checks compiled frame execution, GC, fresh-process restore and interpreted
+agreement while executable-memory allocation is denied. Native entries and
+helper pointers are rebound, never serialized.
+
+Acceptance coverage: source-level task/ownership/channel/coroutine/generator
+fixtures on interpreter and frame JIT with GC stress, oracle and quarantine;
+Rust scheduler/worker tests for secondary errors, cleanup sleeping through
+restore, isolated cyclic graphs, channel backpressure and restoring a worker
+waiting on a channel; nested coroutine yield and timer parking through restore.
+These are correctness gates, not new throughput or startup performance claims.
+
+The final source fixtures pass on both task tiers, including a channel shared
+with a worker and early generator close. Persistence hooks pass on the Rust,
+threaded and typed tiers. VM compiler generations two and three are byte-identical
+at 6,927,267 bytes. The generator fixture also passes linked frame AOT execution
+and fresh-process checkpoint restore with executable memory denied.
+Formatting, a cold repository check, default/no-JIT Rust suites, and the legacy
+compiler's byte-identical fixpoint also pass.

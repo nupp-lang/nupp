@@ -19,7 +19,7 @@ use sha2::Digest;
 mod aot_link { include!(concat!(env!("OUT_DIR"), "/aot_entries.rs")); }
 
 #[cfg(feature = "aot")]
-fn emit_object(image_path: &str, output_path: &str) {
+fn emit_object(image_path: &str, output_path: &str, frames: bool) {
     let text = std::fs::read_to_string(image_path).unwrap();
     let mut it = Interp::new();
     image::load(&mut it, &text).unwrap();
@@ -27,8 +27,8 @@ fn emit_object(image_path: &str, output_path: &str) {
     compiler.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
     let (mut compiled, mut refused) = (Vec::new(), Vec::new());
     for (fid, f) in it.funcs.iter().enumerate() {
-        if f.name.starts_with("module:") { continue; }
-        match compiler.try_compile_object(f, fid as u32) {
+        if !frames && f.name.starts_with("module:") { continue; }
+        match compiler.try_compile_object_mode(f, fid as u32, frames) {
             Ok(()) => compiled.push(fid),
             Err(e) => refused.push(format!("{fid}\t{}\t{e}", f.name)),
         }
@@ -39,17 +39,19 @@ fn emit_object(image_path: &str, output_path: &str) {
     for fid in &compiled {
         linked.push_str(&format!("    fn nupp_aot_{fid}();\n"));
         let f = &it.funcs[*fid];
-        if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') {
+        if !frames && (f.ret == b'f' || f.sig.iter().any(|&c| c == b'f')) {
             linked.push_str(&format!("    fn nupp_aot_{fid}_boxed();\n"));
         }
     }
     linked.push_str(&format!("}}\npub fn image_hash() -> [u8; 32] {{ {hash:?} }}\npub fn entries() -> Vec<(usize, u64)> {{ vec![\n"));
     for fid in &compiled {
         let f = &it.funcs[*fid];
-        let suffix = if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') { "_boxed" } else { "" };
+        let suffix = if !frames && (f.ret == b'f' || f.sig.iter().any(|&c| c == b'f')) { "_boxed" } else { "" };
         linked.push_str(&format!("    ({fid}, nupp_aot_{fid}{suffix} as *const () as usize as u64),\n"));
     }
-    linked.push_str("] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> {\n");
+    if frames { linked = linked.replace("pub fn entries()", "pub fn frame_entries()"); linked.push_str("] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\n"); }
+    else { linked.push_str("] }\npub fn frame_entries() -> Vec<(usize, u64)> { vec![] }\n"); }
+    linked.push_str("pub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> {\n");
     linked.push_str("    let starts: std::collections::HashMap<u32, usize> = [\n");
     for (fid, _, _) in &compiler.object_maps {
         linked.push_str(&format!("        ({fid}, nupp_aot_{fid} as *const () as usize),\n"));
@@ -75,7 +77,7 @@ fn emit_object(image_path: &str, output_path: &str) {
     std::fs::write(format!("{output_path}.maps"), map_bytes).unwrap();
     let symbols: Vec<String> = compiled.iter().map(|fid| {
         let f = &it.funcs[*fid];
-        let suffix = if f.ret == b'f' || f.sig.iter().any(|&c| c == b'f') { "_boxed" } else { "" };
+        let suffix = if !frames && (f.ret == b'f' || f.sig.iter().any(|&c| c == b'f')) { "_boxed" } else { "" };
         format!("{fid}\tnupp_aot_{fid}{suffix}")
     }).collect();
     let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
@@ -117,7 +119,7 @@ fn main() {
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
     let args: Vec<String> = std::env::args().collect();
     #[cfg(feature = "aot")]
-    if args.len() == 4 && args[1] == "aot" { emit_object(&args[2], &args[3]); return; }
+    if (args.len() == 4 || args.len() == 5 && args[4] == "--frames") && args[1] == "aot" { emit_object(&args[2], &args[3], args.len() == 5); return; }
     if args.len() == 3 && args[1] == "verify" {
         let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
         let mut it = Interp::new();
@@ -160,16 +162,20 @@ fn main() {
     #[cfg(feature = "aot-linked")]
     let aot_entries = if std::env::var("NO_AOT").is_ok() { Vec::new() } else { aot_link::entries() };
     #[cfg(feature = "aot-linked")]
+    let aot_frames = if std::env::var("NO_AOT").is_ok() { Vec::new() } else { aot_link::frame_entries() };
+    #[cfg(feature = "aot-linked")]
     let aot_consts: Vec<u64> = it.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
     #[cfg(feature = "aot-linked")]
-    if !aot_entries.is_empty() {
+    if !aot_entries.is_empty() || !aot_frames.is_empty() {
         let digest = nupp_vm::persist::primary_image_hash(&it).unwrap_or_else(|e| { eprintln!("aot: {e}"); std::process::exit(1) });
         if aot_link::image_hash() != digest {
             eprintln!("aot: linked object was built for another image");
             std::process::exit(1);
         }
         for (fid, ptr) in &aot_entries { if *fid >= it.entries.len() { eprintln!("aot: linked function ID outside restored image"); std::process::exit(1); } it.entries[*fid] = *ptr; }
-        eprintln!("aot: attached {} linked entries{}", aot_entries.len(), if restoring { " after restore" } else { "" });
+        it.frame_entries.resize(it.funcs.len(), 0);
+        for &(fid, ptr) in &aot_frames { assert!(fid < it.frame_entries.len()); it.frame_entries[fid] = ptr; }
+        eprintln!("aot: attached {} linked entries{}", aot_entries.len() + aot_frames.len(), if restoring { " after restore" } else { "" });
         it.calltab = it.funcs.iter().map(|f| {
             let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
             f.nparams as u64 | ((plain as u64) << 8)
@@ -177,7 +183,7 @@ fn main() {
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
         unsafe {
             nupp_vm::compiled::nupp_vm_runtime = nupp_vm::compiled::RuntimeAddresses {
-                current_closure: &raw const nupp_vm::compiled::CUR_CLOSURE as *const _ as u64,
+                current_closure: nupp_vm::compiled::closure_address(),
                 extra: &it.extra as *const [Value; 8] as u64,
                 last_nres: &it.last_nres as *const usize as u64,
                 entries: it.entries.as_ptr() as u64,
@@ -190,7 +196,7 @@ fn main() {
         nupp_vm::compiled::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
     }
     #[cfg(all(feature = "jit", feature = "aot-linked"))]
-    let has_aot = !aot_entries.is_empty();
+    let has_aot = !aot_entries.is_empty() || !aot_frames.is_empty();
     #[cfg(all(feature = "jit", not(feature = "aot-linked")))]
     let has_aot = false;
     // The typed tier: every function it accepts, callees first by id, with
@@ -208,7 +214,7 @@ fn main() {
         it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
         let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-        let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
+        let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
         if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } None } else {
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
@@ -256,7 +262,7 @@ fn main() {
                     status => { eprintln!("task: {status:?}"); std::process::exit(1); }
                 }
                 if it.tasks.iter().any(|t| t.state == State::Runnable) { continue; }
-                if it.scheduler.as_ref().unwrap().next_wakeup().is_none() && it.host_waiters.is_empty() { eprintln!("task scheduler has no event source for parked tasks"); std::process::exit(1); }
+                if it.scheduler.as_ref().unwrap().next_wakeup().is_none() && it.host_waiters.is_empty() && !it.has_workers() { eprintln!("task scheduler has no event source for parked tasks"); std::process::exit(1); }
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             let t = &it.tasks[task.index];

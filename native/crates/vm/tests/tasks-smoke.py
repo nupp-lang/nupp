@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as directory:
         flags.pop("NO_JIT", None)
         if not jit:
             flags["NO_JIT"] = "1"
-        for function in ("run", "cancellation", "churn", "ownership"):
+        for function in ("run", "cancellation", "churn", "ownership", "families", "captures", "workers", "named", "fields", "coroutines", "channels", "generators"):
             completed = subprocess.run(
                 [binary, "run", str(image), "main", function, "--tasks"],
                 env=flags, text=True, capture_output=True, timeout=120,

@@ -852,6 +852,24 @@ function lower.emit(
             end
             return base, #lowered + offset
         end
+        if node.trailingCallableCall then
+            local offset = extraSelf and 1 or 0
+            while f.nregs < base + #args + offset + 1 do
+                f:reg()
+            end
+            local values = {}
+            for i, argument in ipairs(args) do
+                values[i] = exprAs(f, argument, "v")
+            end
+            if extraSelf then
+                f:op("Move", base + 1, extraSelf)
+            end
+            f:op("Move", base + offset + 1, values[#values])
+            for i = 1, #values - 1 do
+                f:op("Move", base + offset + i + 1, values[i])
+            end
+            return base, #values + offset
+        end
         local argRegs = {}
         if extraSelf then
             nargs = nargs + 1;
@@ -953,13 +971,19 @@ function lower.emit(
             local args = node.args and node.args.exprs or {}
             local src = oi == "region" and args[2] or args[1]
             if oi == "drop" or oi == "attemptAll" then
-                if node.ownerCleanupGuards and next(node.ownerCleanupGuards) then
-                    error("conditional field cleanup is not yet supported by the VM emitter")
+                local guards = {}
+                for i, guard in pairs(node.ownerCleanupGuards or {}) do
+                    for _, slot in ipairs(f.cleanupOwners and f.cleanupOwners[guard.owner] or {}) do
+                        if slot.field == guard.field then
+                            guards[i] = f:reg()
+                            f:op("CleanupLive", guards[i], slot.depth)
+                        end
+                    end
                 end
                 local value = exprAs(f, src, "v")
                 local depth = f.cleanupDepth or 0
                 for i = #(node.ownerCleanups or {}), 1, -1 do
-                    deferCleanup(f, value, node.ownerCleanups[i])
+                    deferCleanup(f, value, node.ownerCleanups[i], guards[i])
                 end
                 f:op("Unwind", depth)
                 f.cleanupDepth = depth
@@ -1126,7 +1150,12 @@ function lower.emit(
                 base = math.max(dst, f.nregs)
             end
             local base, nargs = callInto(f, node, base, o)
-            f:op("CallMethod", f:const("str", tokText(node.name)), base, nargs)
+            f:op(
+                "CallMethod",
+                f:const("str", node.trailingCallableMember or node.overloadMember or tokText(node.name)),
+                base,
+                nargs
+            )
             finish(base)
             return
         end
@@ -1848,7 +1877,38 @@ function lower.emit(
                 f:op("Move", base + i, f:upvalReg(u.index))
             end
         end
+        -- Taking a capture freezes its value at construction. Ordinary captures
+        -- keep sharing cells, while the moved owner has a private cell.
+        for _, capture in ipairs(funcbody.takenCaptures or funcbody.vmCaptureDrops or {}) do
+            local ui = assert(inner.upvalIndex[capture.name], "missing taken capture")
+            local value = f:reg()
+            f:op("GetCell", value, base + ui + 1)
+            f:op("NewCell", base + ui + 1, value)
+        end
         f:op("NewClosure", dst, inner.id, base, #inner.upvals)
+        if #(funcbody.takenCaptures or {}) > 0 then
+            local drop = f:reg()
+            emitClosure(
+                f,
+                {params = {}, body = {stats = {}}, vmCaptureDrops = funcbody.takenCaptures},
+                drop,
+                name .. ".drop"
+            )
+            f:op("AffineMark", dst, drop)
+            for _, capture in ipairs(funcbody.takenCaptures) do
+                local move = capture.move
+                local owner = move and (move.owner or move)
+                local slots = f.cleanupOwners and f.cleanupOwners[owner]
+                if not slots and capture.outer then
+                    slots = f.cleanupOwners and f.cleanupOwners[capture.outer.automaticOwner]
+                end
+                for _, slot in ipairs(slots or {}) do
+                    if not move or not move.field or move.field == slot.field then
+                        f:op("DisarmAt", slot.depth)
+                    end
+                end
+            end
+        end
 
         return inner
     end
@@ -2042,7 +2102,15 @@ function lower.emit(
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
-    deferCleanup = function(f, value, cleanup)
+    deferCleanup = function(f, value, cleanup, guard)
+        if guard and cleanup.kind ~= "field" then
+            local copy = f:reg()
+            f:op("Move", copy, value)
+            local branch = f:op("JmpIf", guard, 0)
+            f:op("Nil", copy)
+            f:patch(branch, "JmpIf", guard, f:offset(branch, f:here()))
+            value = copy
+        end
         if cleanup.kind == "method" or cleanup.kind == "closure" then
             local name = cleanup.kind == "closure" and "__nuppRelease" or cleanup.name
             f:op("DeferMethod", value, f:const("str", name))
@@ -2060,7 +2128,7 @@ function lower.emit(
         elseif cleanup.kind == "field" then
             local field = f:reg()
             f:op("GetField", field, value, f:const("str", cleanup.field))
-            deferCleanup(f, field, cleanup.cleanup)
+            deferCleanup(f, field, cleanup.cleanup, guard)
             return
         else
             error("unsupported affine cleanup " .. tostring(cleanup.kind))
@@ -2088,7 +2156,7 @@ function lower.emit(
                 declared[i] = {name = name, class = class}
             end
             local exprs = node.exprs or {}
-            if #names == 1 and #exprs <= 1 then
+            if #names == 1 and #exprs <= 1 and not node.syntheticCapture then
                 local d = declared[1]
                 local value = exprs[1]
                 local r, cell, spill = f:declare(d.name, d.class, true)
@@ -2837,6 +2905,9 @@ function lower.emit(
             chain[#chain][name] = here
         end
         fnStack[#fnStack + 1] = funcbody
+        for _, capture in ipairs(funcbody.takenCaptures or {}) do
+            noteUse(chain, capture.name, here)
+        end
         analyzeBlock(funcbody.body, chain, here, seen)
         fnStack[#fnStack] = nil
         chain[#chain] = nil
@@ -2936,6 +3007,22 @@ function lower.emit(
                 end
             end
 
+        end
+        if #(funcbody.takenCaptures or {}) > 0 then
+            f:op("AffineEnter")
+        end
+        for _, capture in ipairs(funcbody.vmCaptureDrops or {}) do
+            local value = exprAs(f, {kind = "name", token = {text = capture.name}, inferredType = {tag = "any"}}, "v")
+            local slots = {}
+            f.cleanupOwners = f.cleanupOwners or {}
+            if capture.automaticOwner then
+                f.cleanupOwners[capture.automaticOwner] = slots
+            end
+            for i = #(capture.type.cleanups or {}), 1, -1 do
+                local depth = f.cleanupDepth or 0
+                deferCleanup(f, value, capture.type.cleanups[i])
+                slots[#slots + 1] = {depth = depth, field = capture.type.cleanups[i].field}
+            end
         end
         -- EMIT_SURVEY=1 keeps going past a construct the emitter lacks: the body
         -- becomes a stub and the failure is tallied, so one run over a module

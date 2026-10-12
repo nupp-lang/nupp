@@ -122,6 +122,9 @@ pub enum Op {
     /// Disarm the most recent cleanup for a transferred value.
     Disarm(u8),
     DisarmAt(u16),
+    CleanupLive(u8,u16),
+    AffineMark(u8,u8),
+    AffineEnter,
     /// Run cleanups above this frame-local lexical depth.
     Unwind(u16),
     Park(u8),
@@ -316,6 +319,10 @@ impl Function {
 }
 
 pub struct Interp {
+    pub(crate) channels: std::collections::HashMap<Value,crate::channels::Channel>,
+    pub(crate) channel_registry: crate::channels::Shared,
+    pub(crate) workers: std::collections::HashMap<u64,crate::workers::Worker>,
+    pub(crate) instruction_budget: Option<usize>,
     pub scheduler: Option<crate::scheduler::Scheduler>,
     pub(crate) active_cancellation: Option<crate::scheduler::Cancellation>,
     pub(crate) persistence_hook_depth: usize,
@@ -384,7 +391,7 @@ pub struct Interp {
     pub jit_threshold: u32,
     #[cfg(feature = "jit")]
     pub jit: Option<Box<crate::jit::Jit>>,
-    #[cfg(feature = "jit")]
+    #[cfg(feature = "compiled-runtime")]
     pub frame_entries: Vec<u64>,
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
@@ -468,7 +475,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { frame_mode: false, frame_required: false, compiled_frame_entries: 0, #[cfg(feature = "jit")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { channels: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, compiled_frame_entries: 0, #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -513,6 +520,7 @@ impl Interp {
         if h.kind != KIND_CLOSURE { self.err("spawn of a non-closure") }
         let tid = self.spawn(h.fid(), args);
         { let t = &mut self.tasks[tid]; let s0 = t.cur(); t.stack[s0 + 2] = callee.0; }
+        if self.affine_meta(callee)!=Value::NIL { let frame=self.tasks[tid].cur(); self.tasks[tid].cleanups.push(Cleanup{frame,value:callee,callback:Value::builtin(crate::builtins::id_of("affine.release").unwrap())}); }
         tid
     }
     pub fn resume(&mut self, tid: usize) { self.tasks[tid].state = State::Runnable; }
@@ -554,7 +562,6 @@ impl Interp {
     /// places the header, copies the value arguments from `args_at + 1..`
     /// into the callee's r1.. and records `args_at` as the result slot. The
     /// stack may move, so callers re-derive their pointers.
-    #[inline(always)]
     /// A call of `fid` on an interpreted path: counted, and compiled at the
     /// threshold so the next call takes the entry.
     #[inline] pub fn note_call(&mut self, fid: u32) {
@@ -775,6 +782,7 @@ impl Interp {
     /// the record or table holding a function (`{define = Registry.define}`
     /// and the Lua class idiom). Strings are handled by the callers.
     pub fn resolve_method(&mut self, recv: Value, name: Value) -> Value {
+        if self.kind_of(recv)==Some(KIND_CLOSURE) && self.bytes_of(name)==b"__nuppRelease" { return Value::builtin(crate::builtins::id_of("affine.release").unwrap()); }
         let h = hdr!(self, recv, "method call on a non-object");
         if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
         if h.kind == KIND_RECORD || h.kind == KIND_TABLE { let v = self.index(recv, name); if v != Value::NIL { return v; } }
@@ -913,8 +921,19 @@ impl Interp {
         let digest = self.new_table(); self.registered.push(digest);
         let k = self.intern("sha256"); self.set_index(digest, k, Value::builtin(crate::builtins::id_of("vm.sha256").unwrap()));
         self.loaded.insert("nupp.digest.internal.sha256".into(), digest);
-        let tasks = table_of(self, &["tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.isCancelled"]);
-        self.loaded.insert("nupp.tasks".into(), tasks);
+        let tasks = table_of(self, &["tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "tasks.channel"]);
+        if !self.modules.contains_key("nupp.tasks") { self.loaded.insert("nupp.tasks".into(), tasks); }
+        self.loaded.insert("nupp.vm.tasks".into(), tasks);
+        let tag_key=self.intern("_tag");self.registered.push(tag_key);self.loaded.insert("nupp.vm.tagKey".into(),tag_key);
+        let coroutines=self.new_table();self.registered.push(coroutines);self.loaded.insert("nupp.vm.coroutines".into(),coroutines);
+        let co_tag=self.new_table();self.registered.push(co_tag);self.loaded.insert("nupp.vm.coroutineTag".into(),co_tag);
+        let co=self.new_table();self.registered.push(co);
+        for (name,b) in [("create","tasks.coCreate"),("wrap","tasks.coWrap"),("isyieldable","tasks.coIsYieldable"),("resume","tasks.coResume"),("yield","tasks.coYield"),("status","tasks.coStatus"),("running","tasks.coRunning"),("close","tasks.coClose")]{let k=self.intern(name);self.set_index(co,k,Value::builtin(crate::builtins::id_of(b).unwrap()));}
+        self.loaded.insert("coroutine".into(),co);self.loaded.insert("nupp.vm.coroutines".into(),coroutines);self.loaded.insert("nupp.vm.coroutines.api".into(),co);self.loaded.insert("nupp.vm.coroutine".into(),co);
+        let parents = self.new_table(); self.registered.push(parents); self.loaded.insert("nupp.vm.taskHandles".into(), parents);
+        let tag=self.new_table(); self.registered.push(tag); self.loaded.insert("nupp.vm.affineTag".into(),tag);
+        let workers = self.new_table(); self.registered.push(workers); self.loaded.insert("nupp.vm.workers".into(), workers);
+        let unwinds = self.new_table(); self.registered.push(unwinds); self.loaded.insert("nupp.vm.unwinds".into(), unwinds);
         let cancelled = self.new_table(); self.registered.push(cancelled);
         self.loaded.insert("nupp.vm.cancellation".into(), cancelled);
         let persistence = self.new_table(); self.registered.push(persistence);
@@ -924,6 +943,7 @@ impl Interp {
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
         let g = self.new_table(); self.registered.push(g);
+        let co=self.loaded["coroutine"];let k=self.intern("coroutine");self.set_index(g,k,co);
         for (name, t) in [("bit", bit), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
         for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
         let k = self.intern("__nupp_load_image");
@@ -1162,10 +1182,19 @@ impl Interp {
         // not execute cleanup, and a native caller cannot survive a park.
         self.frame_mode |= self.frame_required;
         loop {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| if self.threaded && !self.frame_mode { self.run_threaded(tid) } else { self.run_rust(tid) }));
+            if let Some(outcome) = self.resume_unwind(tid) { self.frame_mode=old; return outcome; }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && !self.frame_mode { self.run_threaded(tid) } else { self.run_rust(tid) }}));
             match result {
                 Ok(o) => { self.frame_mode = old; return o; }
                 Err(e) => {
+                    if self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) {
+                        let value = self.error_value(e);
+                        let handler = self.tasks[tid].protected.pop();
+                        let keep = handler.map(|h| self.tasks[tid].cleanups.iter().take_while(|c| c.frame < h.frame).count()).unwrap_or(0);
+                        let pc = (self.tasks[tid].stack[self.tasks[tid].cur()] >> 32) as usize;
+                        self.begin_unwind(tid, keep, pc, "raise", value, handler);
+                        continue;
+                    }
                     if let Some(handler) = self.tasks[tid].protected.pop() {
                         let value = self.error_value(e);
                         let root = self.register(value);
@@ -1188,20 +1217,27 @@ impl Interp {
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
     fn compiled_frames_active(&self) -> bool {
-        #[cfg(feature = "jit")] { self.frame_mode && self.jit.is_some() }
-        #[cfg(not(feature = "jit"))] { false }
+        if !self.frame_mode { return false; }
+        #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
+        #[cfg(feature = "compiled-runtime")] if !self.frame_entries.is_empty() { return true; }
+        false
     }
     pub fn run_rust(&mut self, tid: usize) -> Outcome {
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
+        let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
         loop {
             let (mut win, mut pc) = self.window(tid);
-            #[cfg(feature = "jit")]
-            if self.frame_mode && self.jit.is_some() {
+            #[cfg(feature = "compiled-runtime")]
+            if self.compiled_frames_active() {
                 pc = self.run_compiled_frame(tid, win.fid, pc);
                 win = self.window(tid).0;
             }
             loop {
+                if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
+                    if *left == 0 { self.tasks[tid].note_pc(pc); return Outcome::Parked(0); }
+                    *left -= 1;
+                } }
                 // The frame's pc, for the backtrace of an error this op raises.
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
@@ -1356,6 +1392,9 @@ impl Interp {
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
+                    Op::CleanupLive(d, depth) => { let frame=self.tasks[tid].cur; let start=self.tasks[tid].cleanups.iter().take_while(|c|c.frame<frame).count(); r!(d)=Value::boolean(self.tasks[tid].cleanups.get(start+depth as usize).is_some_and(|c|c.value!=Value::NIL)); }
+                    Op::AffineMark(d, drop) => {r!(d)=self.affine_mark(r!(d),r!(drop));}
+                    Op::AffineEnter => {let closure=Value(self.tasks[tid].stack[self.tasks[tid].cur+2]); self.affine_enter(closure);}
                     Op::DeferMethod(v, k) => { let value = r!(v); let name = unsafe { *consts.add(k as usize) }; let callback = if value == Value::NIL { Value::NIL } else { self.resolve_method(value, name) }; let frame = self.tasks[tid].cur; self.tasks[tid].cleanups.push(Cleanup { frame, value, callback }); }
                     Op::Defer(v, c) => { let cleanup = Cleanup { frame: self.tasks[tid].cur, value: r!(v), callback: r!(c) }; self.tasks[tid].cleanups.push(cleanup); }
                     Op::DisarmAt(depth) => { let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let c = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); c.value = Value::NIL; c.callback = Value::NIL; }
@@ -1461,11 +1500,22 @@ impl Interp {
             if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, Value::NIL, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
             self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
         }
+        let coroutine = crate::coroutines::wrapped(self, callee);
+        if coroutine != Value::NIL {
+            let mut args = vec![coroutine]; args.extend_from_slice(self.call_args(tid, base + b as usize + 1, nargs).as_slice());
+            match crate::coroutines::call(self,tid,"tasks.coResume",&args) {
+                crate::task_api::Answer::Values(values)=>{if values[0]!=Value::TRUE {std::panic::panic_any(crate::builtins::LuaError(values[1].0));}self.deliver(regs,b as usize,&values[1..]);return Flow::Next;},
+                crate::task_api::Answer::Event(event)=>{let key=crate::task_api::park_event(self,tid,event,pc-1);return Flow::Return(Outcome::Parked(key));},
+                _=>unreachable!()
+            }
+        }
         if let Some(id) = callee.as_builtin() {
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) {
                 match crate::task_api::call(self, tid, crate::builtins::NAMES[id as usize], args.as_slice()) {
+                    crate::task_api::Answer::Yield(handle) => { self.tasks[tid].note_pc(pc); self.tasks[tid].deliver_at=b as usize; self.tasks[tid].state=State::Parked(handle.0); return Flow::Return(Outcome::Parked(handle.0)); }
                     crate::task_api::Answer::Values(values) => { self.deliver(regs, b as usize, &values); return Flow::Next; }
+                    crate::task_api::Answer::Event(event) => { let key = crate::task_api::park_event(self, tid, event, pc - 1); return Flow::Return(Outcome::Parked(key)); }
                     crate::task_api::Answer::Wait(target) => { let key = crate::task_api::park(self, tid, target, pc - 1); return Flow::Return(Outcome::Parked(key)); }
                 }
             }
@@ -1678,7 +1728,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::NewRecord(..) => "NewRecord",
         Op::GetSlot(..) => "GetSlot",
         Op::SetSlot(..) => "SetSlot",
-        Op::Defer(..) => "Defer", Op::DeferMethod(..) => "DeferMethod", Op::Disarm(..) => "Disarm", Op::DisarmAt(..) => "DisarmAt", Op::Unwind(..) => "Unwind",
+        Op::CleanupLive(..)=>"CleanupLive", Op::AffineMark(..)=>"AffineMark", Op::AffineEnter=>"AffineEnter", Op::Defer(..) => "Defer", Op::DeferMethod(..) => "DeferMethod", Op::Disarm(..) => "Disarm", Op::DisarmAt(..) => "DisarmAt", Op::Unwind(..) => "Unwind",
         Op::Park(..) => "Park",
         Op::Checkpoint => "Checkpoint",
         Op::Ne(..) => "Ne",

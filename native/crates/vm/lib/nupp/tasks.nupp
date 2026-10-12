@@ -1,0 +1,35 @@
+module nupp.tasks
+
+local core = require("nupp.vm.tasks")
+local tasks: any = core
+
+function tasks.run(limit: any, timeout: any, body: any): ...any
+    if type(limit) == "function" then
+        body = limit
+        limit = nil
+        timeout = nil
+    end
+    local invoke: function(borrows scope: nupp.Closeable): ...any = body
+    with scope = core.open(limit, timeout) do
+        return invoke(scope)
+    end
+end
+
+local function family(bodies: any, race: boolean): (any, any)
+    with scope = core.familyOpen() do
+        for i, body in ipairs(bodies) do
+            scope:spawn(body)
+        end
+        return core.familyAwait(scope, race)
+    end
+end
+
+function tasks.gather(bodies: any): (any, any)
+    return family(bodies, false)
+end
+
+function tasks.race(bodies: any): (any, any)
+    return family(bodies, true)
+end
+
+export = tasks

@@ -12,12 +12,36 @@ local record Scope is nupp.Closeable
         takes body: function(A...): R...,
         ...: A...
     ): Task<R...> borrows (self)
+        & function<R...>(
+            borrows self: Scope,
+            takes body: function(): R...,
+            name: string
+        ): Task<R...> borrows (self)
+    _spawnNamed: function<R...>(
+        borrows self: Scope,
+        takes body: function(): R...,
+        name: string
+    ): Task<R...> borrows (self)
+    fork: function<A..., R...>(borrows self: Scope, body: function(A...): R..., ...: A...): Task<R...> borrows (self)
     cancel: function(borrows self: Scope, reason: string?): nil
     close: function(takes self: Scope): nil
 end
 
+local record Channel<T>
+    send: function(self: Channel<T>, value: T): nil
+    receive: function(self: Channel<T>): (T?, boolean)
+    close: function(self: Channel<T>): nil
+end
+
 local record Tasks
+    channel: function<T>(capacity: integer): Channel<T>
     open: function(limit: integer?, timeoutMs: number?): affine(Scope)
+    run: function<R...>(scoped body: function(borrows scope: Scope): R...): R...
+        & function<R...>(limit: integer?, timeoutMs: number?, scoped body: function(borrows scope: Scope): R...): R...
+    gather: function<T>(bodies: {function(): T}): ({T?}, {any})
+    race: function<T>(bodies: {function(): T}): (T?, integer?)
+    familyOpen: function(): affine(Scope)
+    familyAwait: function(borrows scope: Scope, race: boolean): (any, any)
     checkpoint: function(): nil
     deadline: function(): number?
     isCancelled: function(value: any): boolean

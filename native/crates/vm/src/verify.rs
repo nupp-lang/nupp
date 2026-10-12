@@ -185,6 +185,9 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         BufAppendSub(b, s, i, j) => r(&[(V, b), (V, s), (I, i), (I, j)]),
         Substring(d, s, i, j) => r(&[(V, d), (V, s), (I, i), (I, j)]),
         Call(_, base, _) | CallT(_, base, _, _) | PCall(base, _) | CallMethod(_, base, _) => r(&[(V, base)]),
+        CleanupLive(d, _) => r(&[(V,d)]),
+        AffineMark(d,c) => r(&[(V,d),(V,c)]),
+        AffineEnter => r(&[]),
         DeferMethod(v, _) => r(&[(V, v)]),
         Defer(v, c) => r(&[(V, v), (V, c)]),
         Disarm(v) => r(&[(V, v)]),
@@ -295,9 +298,9 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
     match *op {
         // Every register named is read.
         SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
-        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) => none_def(&all),
+        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
         // Read and written.
-        BufAppend(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
+        BufAppend(b, s) | AffineMark(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
         RetN(start, n) => { let n = if n >= 128 { 8 } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }
         // Calls: arguments above the window base are read, results from the base written.
         CallDyn(fr, base, nargs) => { let nargs = fixed_args(nargs); ((0..8u8).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect(), std::iter::once((V, fr)).chain((1..=nargs).filter_map(|i| base.checked_add(i).map(|r| (V, r)))).collect()) }

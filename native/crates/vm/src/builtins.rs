@@ -20,7 +20,7 @@ pub const NAMES: &[&str] = &[
     "files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "path.currentDirectory", "path.newPath", "path.toString", "path.canonicalize",
     "scalar.f32.narrow", "scalar.f32.round", "scalar.f32.add", "scalar.f32.sub", "scalar.f32.mul", "scalar.f32.div", "scalar.f32.sqrt", "scalar.f32.min", "scalar.f32.max", "scalar.f32.fma", "scalar.f32.exp", "scalar.f32.fromBits", "scalar.f32.toBits",
     "vm.loadImage", "vm.processId", "vm.sha256", "vm.saveValue", "vm.loadValue", "vm.loadInto",
-    "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled",
+    "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "affine.release", "tasks.fork", "tasks.channel", "tasks.channelSend", "tasks.channelReceive", "tasks.channelClose", "tasks.coCreate", "tasks.coResume", "tasks.coYield", "tasks.coStatus", "tasks.coRunning", "tasks.coClose", "tasks.coWrap", "tasks.coIsYieldable",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -282,6 +282,7 @@ fn str_of(it: &mut Interp, b: &[u8]) -> Value { it.string_of(b) }
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if v.is_num() { v.as_num() as i64 } else { default } }
 fn type_name(it: &Interp, v: Value) -> &'static str {
+    if crate::coroutines::is_coroutine(it,v) {return "thread";}
     if v.is_num() { return "number"; }
     if v == Value::NIL { return "nil"; }
     if v == Value::TRUE || v == Value::FALSE { return "boolean"; }
@@ -302,6 +303,7 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
+    if Some(id)==id_of("affine.release") { let body=it.affine_take_drop(arg(args,0)); if body!=Value::NIL { return it.call_outs(body,args); } return Outs::new(); }
     // A host service reached from a frame that cannot park: compiled code
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
     if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }

@@ -1,0 +1,8 @@
+local record Generator<T> is nupp.Closeable
+    next: function(borrows self: Generator<T>): (T?, boolean)
+    close: function(takes self: Generator<T>): nil
+end
+local record Generators
+    create: function<T>(body: function(emit: function(T): nil): nil): affine(Generator<T>)
+end
+return Generators

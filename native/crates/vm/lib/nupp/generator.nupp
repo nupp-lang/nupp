@@ -1,0 +1,42 @@
+module nupp.generator
+
+local core = require("nupp.vm.coroutine")
+local generator = {}
+
+record generator.Generator<T> is nupp.Closeable
+    thread: any
+
+    function next(borrows self): (T?, boolean)
+        if core.status(self.thread) == "dead" then
+            return nil, false
+        end
+        local ok, value = core.resume(self.thread)
+        if not ok then
+            error(value)
+        end
+        if core.status(self.thread) == "dead" then
+            return nil, false
+        end
+
+        return value as T, true
+    end
+
+    function close(takes self): nil
+        local ok, reason = core.close(self.thread)
+        if not ok then
+            error(reason)
+        end
+    end
+end
+
+function generator.create<T>(body: function(emit: function(T): nil): nil): affine(generator.Generator<T>)
+    local thread = core.create(function(): nil
+        body(function(value: T): nil
+            core.yield(value)
+        end)
+    end)
+
+    return new generator.Generator<T>(thread = thread)
+end
+
+export = generator
