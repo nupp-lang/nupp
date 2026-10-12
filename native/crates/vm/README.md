@@ -21,7 +21,8 @@ the image loader and verifier, and the host services on the parking surface.
 | `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
 | `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
 | `compiled` | runtime helpers, runtime address table and stack-map root walk, without Cranelift |
-| `emit/emitmod.lua` | the module-graph emitter from the checker's tree, run with `nupp run` from `emit/` |
+| `src/nupp/compiler/vm/lower.nupp` | checked-tree lowering and image writing, with project resolution/checking supplied as callbacks |
+| `emit/emitmod.lua` | the stage-zero project-loading driver for the Nupp emitter |
 
 ## Decisions the layout fixes
 
@@ -442,3 +443,48 @@ The interpreter is linked explicitly and handles module chunks and the 16
 functions refused by the current lowering. The image still ships beside
 the executable. SIMD, compiled suspension, snapshot restore, plugin refusal
 and actual console SDK validation remain gates for the full no-JIT target.
+
+## Compiler emitting images on the VM (2026-10-12)
+
+Lowering and image writing now live in the checked Nupp module
+`nupp.compiler.vm.lower`. `lower.emit(entry, extras, resolve, check)` takes
+project-loading callbacks and returns image text. Shapes, function IDs,
+capture analysis and output buffers belong to one call. The old Lua script
+is a 44-line stage-zero driver, with no copy of the lowering.
+
+`nupp.bench.emitbench` runs parser, checker and lowering on the VM for a
+closed input module. A fresh VM verifies and executes the resulting image.
+The integration fixture exercises captured mutation, descending loops,
+`pcall`, metatable methods (table and function `__index`), and builtin and
+method calls with more than eight arguments. It returns 40 on the Rust
+loop, threaded core and typed tier, under collector verification. Invalid
+source is rejected before an image is returned; repeated emission has no
+state carried over from the previous call.
+
+The emitter also lowers its own source: **223,060 bytes, byte-identical
+between LuaJIT, the VM interpreter and the typed tier**. The generated image
+passes the VM verifier. Loading that emitted module in place of the original
+lowerer and running it reproduces the same image byte-for-byte. The smoke
+script runs this additional gate through `tests/self_lowering.rs`.
+Interpreted parse/check/lower of that source took
+1.07 s, plus 63 ms loading the compiler image, in the measured run.
+
+Two runtime bugs were exposed and fixed: colon calls bypassed `__index`,
+and builtin calls silently truncated arguments at eight. Builtin argument
+windows now retain an inline fast path and allocate only for wider calls,
+including vararg spreading. The lowerer's growing function descriptors
+are explicitly open tables so their method table survives lowering.
+
+Generate the compiler image with the stage-zero driver, then run the gate:
+
+```sh
+EMIT_STUBS=nupp.io.files,nupp.io.path ./bin/nupp run native/crates/vm/emit/emitmod.lua . nupp.bench.emitbench nupp.compiler.fs nupp.compiler.project.projectconfig nupp.compiler.project.store nupp.compiler.project.fingerprint nupp.compiler.hash nupp.compiler.hostservices nupp.compiler.compilerpacks nupp.compiler.project.preludecache > /private/tmp/nupp-emitbench.image
+cargo build --release -p nupp-vm
+python3 native/crates/vm/tests/lowering-smoke.py /private/tmp/nupp-emitbench.image
+```
+
+`nupp-vm verify IMAGE` loads and runs the existing verifier without executing
+module initialization or compiling native code. This verifies compilation
+of an input module without imports and an emitter fixpoint, **not a full
+compiler image fixpoint**. Whole-project loading, Lua manifests, replacing the host
+driver, and rebuilding the complete compiler image on the VM remain.

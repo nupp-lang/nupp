@@ -118,6 +118,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     #[cfg(feature = "aot")]
     if args.len() == 4 && args[1] == "aot" { emit_object(&args[2], &args[3]); return; }
+    if args.len() == 3 && args[1] == "verify" {
+        let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
+        let mut it = Interp::new();
+        image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+        println!("verified {} functions", it.funcs.len());
+        return;
+    }
     if args.len() < 5 || args[1] != "run" { eprintln!("usage: nupp-vm run IMAGE MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN]"); std::process::exit(2); }
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new();
     let mut i = 5;

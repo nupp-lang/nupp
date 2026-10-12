@@ -1,0 +1,50 @@
+module vm.input
+
+local api = {}
+
+function api.run(): number
+    local count = 0
+
+    local function add(n: number): number
+        count = count + n
+        return count
+    end
+
+    local t = {x = 7}
+    for i = 3, 1, -1 do
+        t.x = t.x + add(i)
+    end
+    local ok, why = pcall(function(): never
+        error("expected")
+    end)
+    assert(not ok)
+
+    -- An open receiver looks up its method through __index.
+    local prototype = {}
+    function prototype:value(): number
+        return 11
+    end
+
+    local receiver: table = {}
+    setmetatable(receiver, {__index = prototype})
+    local indirect: table = {}
+    setmetatable(indirect, {
+        __index = function(_, name)
+            local answer = {value = prototype[name]}
+            return answer.value
+        end
+    })
+    assert(indirect:value() == 11)
+
+    -- Both the builtin function and string method paths must keep argument 9.
+    local function formatRest(...)
+        return string.format("%s%s%s%s%s%s%s%s%s", ...)
+    end
+
+    assert(formatRest("1", "2", "3", "4", "5", "6", "7", "8", "9") == "123456789")
+    assert(("%s%s%s%s%s%s%s%s%s"):format("1", "2", "3", "4", "5", "6", "7", "8", "9") == "123456789")
+
+    return t.x + #tostring(why) + receiver:value()
+end
+
+export = api

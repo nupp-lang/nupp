@@ -1,0 +1,50 @@
+module nupp.bench.emitbench
+
+local parser = require("nupp.compiler.syntax.parser")
+local checkMod = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
+local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
+local lower = require("nupp.compiler.vm.lower")
+
+local bench = {}
+
+--- Parse, check and emit a closed input module on the runtime itself.
+--- The resulting image is loaded by a fresh VM in the integration test.
+--- @raises string when parsing, checking or lowering the input fails.
+function bench.emit(source: string, moduleName: string?): string
+    triviaarena.install(tableProvider)
+    local entry = moduleName or "vm.input"
+    local path = entry:gsub("%.", "/") .. ".nupp"
+    local result = parser.parse(source, path)
+    assert(#result.errors == 0, "input did not parse")
+    local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diags = checkMod.check(result, path, env as any, {})
+    for _, d in ipairs(diags) do
+        if d.severity == "error" or not d.severity then
+            error(tostring(d.code) .. ": " .. tostring(d.msg))
+        end
+    end
+
+    return lower.emit(
+        entry,
+        {},
+        function(name: string): string?
+            if name == entry then
+                return path
+            end
+            return nil
+        end,
+        function(name: string, sourcePath: string): table
+            assert(name == entry and sourcePath == path, "unexpected dependency")
+            return result.root
+        end
+    )
+end
+
+--- A second emission must not reuse the first call's lowering state.
+function bench.repeatable(source: string): boolean
+    return bench.emit(source) == bench.emit(source)
+end
+
+export = bench

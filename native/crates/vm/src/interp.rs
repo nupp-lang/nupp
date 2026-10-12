@@ -8,6 +8,15 @@ use std::ptr::NonNull;
 use crate::heap::{self, Header, Heap, Roots, SlotTy, KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_ITER, KIND_RECORD, KIND_SLICE, KIND_STORAGE, KIND_STR, KIND_TABLE};
 use crate::value::Value;
 
+/// An owned argument window: callbacks may relocate the task stack. The
+/// common case stays inline, but builtin calls have no eight-argument limit.
+pub(crate) struct CallArgs { inline: [Value; 8], wide: Vec<Value>, len: usize }
+impl CallArgs {
+    fn new(len: usize) -> Self { Self { inline: [Value::NIL; 8], wide: if len > 8 { vec![Value::NIL; len] } else { Vec::new() }, len } }
+    fn as_mut_slice(&mut self) -> &mut [Value] { if self.len > 8 { &mut self.wide } else { &mut self.inline[..self.len] } }
+    pub(crate) fn as_slice(&self) -> &[Value] { if self.len > 8 { &self.wide } else { &self.inline[..self.len] } }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Op {
     // Untyped tier. Operands are register indices in the frame's window.
@@ -697,13 +706,25 @@ impl Interp {
         if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }
         self.call_value(callee, args).into_iter().collect()
     }
+    /// Copy fixed arguments and, when flagged, the current frame's varargs.
+    /// Trailing-call result counts have already been resolved by the caller.
+    pub(crate) fn call_args(&self, tid: usize, start: usize, nargs: u8) -> CallArgs {
+        let t = &self.tasks[tid];
+        let fixed = (nargs & 127) as usize;
+        let nv = if nargs >= 128 { nvar_of(t.stack[t.cur + 3]) } else { 0 };
+        let mut args = CallArgs::new(fixed + nv);
+        let out = args.as_mut_slice();
+        for i in 0..fixed { out[i] = Value(t.stack[start + i]); }
+        for i in 0..nv { out[fixed + i] = Value(t.stack[t.cur - nv + i]); }
+        args
+    }
     /// What `recv:name(...)` calls: a record's shape method, else a field of
     /// the record or table holding a function (`{define = Registry.define}`
     /// and the Lua class idiom). Strings are handled by the callers.
-    pub fn resolve_method(&self, recv: Value, name: Value) -> Value {
+    pub fn resolve_method(&mut self, recv: Value, name: Value) -> Value {
         let h = hdr!(self, recv, "method call on a non-object");
         if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
-        if h.kind == KIND_RECORD || h.kind == KIND_TABLE { let v = self.get_index(recv, name); if v != Value::NIL { return v; } }
+        if h.kind == KIND_RECORD || h.kind == KIND_TABLE { let v = self.index(recv, name); if v != Value::NIL { return v; } }
         self.err(&format!("no such method {}", String::from_utf8_lossy(self.bytes_of(name))))
     }
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
@@ -1286,18 +1307,17 @@ impl Interp {
             self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
         }
         if let Some(id) = callee.as_builtin() {
-            let mut buf = [Value::NIL; 8]; let fixed = (nargs & 127) as usize; let mut n = fixed.min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
-            if nargs >= 128 { let t = &self.tasks[tid]; let s = t.cur; let nv = nvar_of(t.stack[s + 3]); for i in 0..nv { if n < 8 { buf[n] = Value(t.stack[s - nv + i]); n += 1; } } }
+            let args = self.call_args(tid, base + b as usize + 1, nargs);
             if id >= crate::host::HOST_BASE {
                 // A host service: an immediate one answers like a builtin; a
                 // parking one submits its request, parks the task on the key
                 // and is resumed with the completion at `b`.
-                match self.host_call(id, &buf[..n]) {
+                match self.host_call(id, args.as_slice()) {
                     Ok(outs) => { self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
                     Err(key) => { let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); t.deliver_at = b as usize; self.host_waiters.insert(key, tid); self.parks += 1; return Flow::Return(Outcome::Parked(key)); }
                 }
             }
-            let outs = crate::builtins::call(self, id, &buf[..n]);
+            let outs = crate::builtins::call(self, id, args.as_slice());
             self.deliver(regs, b as usize, outs.as_slice());
             return Flow::Next;
         }
@@ -1341,16 +1361,16 @@ impl Interp {
             // A string's methods are the string library; `nargs` counts the receiver.
             let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
             let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
-            let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
-            let outs = crate::builtins::call(self, id, &buf[..n]);
+            let args = self.call_args(tid, base + b as usize + 1, nargs);
+            let outs = crate::builtins::call(self, id, args.as_slice());
             self.deliver(regs, b as usize, outs.as_slice());
             return Flow::Next;
         }
         let method = self.resolve_method(recv, name);
         if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
         if let Some(id) = method.as_builtin() {
-            let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); }
-            let outs = crate::builtins::call(self, id, &buf[..n]);
+            let args = self.call_args(tid, base + b as usize + 1, nargs);
+            let outs = crate::builtins::call(self, id, args.as_slice());
             self.deliver(regs, b as usize, outs.as_slice());
             return Flow::Next;
         }

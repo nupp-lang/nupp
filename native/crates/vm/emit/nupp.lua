@@ -1,3 +1,1 @@
-return {
-    include = {".", "../../../src"},
-}
+return {include = {".", "../../../../src"},}

@@ -263,10 +263,9 @@ pub extern "C" fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, bas
 pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
-    let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8);
-    for (i, slot) in buf.iter_mut().enumerate().take(n) { *slot = Value(it.tasks[tid].stack[base as usize + 1 + i]); }
+    let args = it.call_args(tid, base as usize + 1, nargs as u8);
     let mut outs = crate::builtins::Outs::new();
-    let r = it.guarded(|it| { outs = crate::builtins::call(it, id, &buf[..n]); Value::NIL });
+    let r = it.guarded(|it| { outs = crate::builtins::call(it, id, args.as_slice()); Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
     let t = &mut it.tasks[tid];
     if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
