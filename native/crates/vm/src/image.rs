@@ -45,6 +45,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let nvp = sig.len() as u8 - nfp;
                 cur = Some(Function { name, module: String::new(), code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), ins: Vec::new() });
             }
+            "vectors" => { if parts.len()!=2 { return Err(format!("line {ln}: vector count")); } cur.as_mut().ok_or("vectors outside function")?.nvreg = parts.get(1).ok_or("missing vector count")?.parse().map_err(|_| "invalid vector count")?; }
             "const" => {
                 let f = cur.as_mut().unwrap();
                 let v = match parts[2] {
@@ -99,6 +100,21 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
             name => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
                 let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };
+                let strict = match name {
+                    "SpanLen" | "VSplatN" | "ICmpEq" | "ICmpNe" | "ICmpLt" | "ICmpLe" => Some(3),
+                    "SpanBounds" | "VPrefix" => Some(5),
+                    "SpanLoad" | "SpanStore" => Some(7),
+                    "VOp" => Some(6), "VExtractN" => Some(4),
+                    "IMaskU32" | "VAny" | "VMov" => Some(2), "Raise" => Some(1), _ => None,
+                };
+                if let Some(count) = strict {
+                    if parts.len()!=count+1 { return Err(format!("line {ln}: {name} operand count")); }
+                    for (i,text) in parts.iter().enumerate().skip(if name=="VOp" {2} else {1}) {
+                        let value = text.parse::<u16>().map_err(|_|format!("line {ln}: invalid {name} operand"))?;
+                        let max = if name=="Raise" {u16::MAX} else if name=="SpanBounds" && i==5 {1} else {u8::MAX as u16};
+                        if value>max { return Err(format!("line {ln}: {name} operand out of range")); }
+                    }
+                }
                 let op = match name {
                     "DeferMethod" => Op::DeferMethod(a(1) as u8, a(2) as u16), "Defer" => Op::Defer(a(1) as u8, a(2) as u8), "CleanupLive" => Op::CleanupLive(a(1) as u8, a(2) as u16),
                 "AffineMark" => Op::AffineMark(a(1) as u8, a(2) as u8),
@@ -114,6 +130,22 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                         let source = if parts.len() == 6 { crate::simd::ELEMENTS.iter().position(|k| *k == parts[5]).ok_or_else(|| format!("line {ln}: unknown SIMD source element"))? as u8 } else { kind };
                         Op::Simd(op, kind, source, base, nargs)
                     },
+                    "SpanLen" => Op::SpanLen(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "SpanBounds" => Op::SpanBounds(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8, a(5) != 0),
+                    "SpanLoad" => Op::SpanLoad(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8, a(5) as u8, a(6) as u8, a(7) as u8),
+                    "SpanStore" => Op::SpanStore(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8, a(5) as u8, a(6) as u8, a(7) as u8),
+                    "VOp" => Op::VOp(crate::simd::operation(parts[1]).ok_or("unknown vector operation")?, a(2) as u8, a(3) as u8, a(4) as u8, a(5) as u8, a(6) as u8),
+                    "VSplatN" => Op::VSplatN(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "VExtractN" => Op::VExtractN(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8),
+                    "IMaskU32" => Op::IMaskU32(a(1) as u8, a(2) as u8),
+                    "ICmpEq" => Op::ICmpEq(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "ICmpNe" => Op::ICmpNe(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "ICmpLt" => Op::ICmpLt(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "ICmpLe" => Op::ICmpLe(a(1) as u8, a(2) as u8, a(3) as u8),
+                    "VPrefix" => Op::VPrefix(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8, a(5) as u8),
+                    "VAny" => Op::VAny(a(1) as u8, a(2) as u8),
+                    "Raise" => Op::Raise(a(1) as u16),
+                    "VMov" => Op::VMov(a(1) as u8, a(2) as u8),
                     "K" => Op::K(a(1) as u8, a(2) as u16), "Move" => Op::Move(a(1) as u8, a(2) as u8), "Nil" => Op::Nil(a(1) as u8),
                     "Add" => Op::Add(a(1) as u8, a(2) as u8, a(3) as u8), "Sub" => Op::Sub(a(1) as u8, a(2) as u8, a(3) as u8), "Mul" => Op::Mul(a(1) as u8, a(2) as u8, a(3) as u8),
                     "Lt" => Op::Lt(a(1) as u8, a(2) as u8, a(3) as u8), "Le" => Op::Le(a(1) as u8, a(2) as u8, a(3) as u8), "Eq" => Op::Eq(a(1) as u8, a(2) as u8, a(3) as u8), "Ne" => Op::Ne(a(1) as u8, a(2) as u8, a(3) as u8),
@@ -141,7 +173,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
     }
     let total = it.funcs.len() + funcs.len();
     for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
-    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter | Op::Simd(..))); it.funcs.push(f); }
+    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
     for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
     Ok(entry)
 }

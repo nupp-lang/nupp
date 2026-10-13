@@ -230,6 +230,40 @@ pub fn emit(
     let a = b.ins().load(ty, flags, ptr, 0);
     let c2 = b.ins().load(ty, flags, ptr, simd::CAPACITY as i32);
     let c3 = b.ins().load(ty, flags, ptr, (simd::CAPACITY * 2) as i32);
+    let result = vector(b, op, kind, a, c2, c3, true)?;
+    b.ins()
+        .store(flags, result, ptr, (simd::CAPACITY * 3) as i32);
+    let next = b.ins().iadd_imm_s(offset, 16);
+    let more = b.ins().icmp(IntCC::UnsignedLessThan, next, bytes);
+    b.ins().brif(more, top, &[next.into()], end, &[]);
+    b.seal_block(top);
+    b.switch_to_block(end);
+    b.seal_block(end);
+    Ok(())
+}
+
+pub(crate) fn vector_type(kind: u8) -> cranelift_codegen::ir::Type {
+    match kind {
+        0 | 1 => types::I8X16,
+        2 | 3 => types::I16X8,
+        4 | 5 => types::I32X4,
+        6 | 7 => types::I64X2,
+        8 => types::F32X4,
+        9 => types::F64X2,
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn vector(
+    b: &mut FunctionBuilder,
+    op: &str,
+    kind: u8,
+    a: Value,
+    c2: Value,
+    c3: Value,
+    normalize: bool,
+) -> Result<Value, String> {
+    let ty = b.func.dfg.value_type(a);
     let float = simd::floating(kind);
     let result = match op {
         "reverse"
@@ -369,7 +403,8 @@ pub fn emit(
             ));
         }
     };
-    let result = if float
+    let result = if normalize
+        && float
         && matches!(
             op,
             "add"
@@ -394,15 +429,7 @@ pub fn emit(
     } else {
         result
     };
-    b.ins()
-        .store(flags, result, ptr, (simd::CAPACITY * 3) as i32);
-    let next = b.ins().iadd_imm_s(offset, 16);
-    let more = b.ins().icmp(IntCC::UnsignedLessThan, next, bytes);
-    b.ins().brif(more, top, &[next.into()], end, &[]);
-    b.seal_block(top);
-    b.switch_to_block(end);
-    b.seal_block(end);
-    Ok(())
+    Ok(result)
 }
 
 fn combine(
@@ -899,7 +926,7 @@ fn canonicalize(b: &mut FunctionBuilder, value: Value) -> Value {
     } else {
         b.ins().f64const(f64::NAN)
     };
-    let mask = b.ins().fcmp(FloatCC::Unordered, value, value);
+    let mask = b.ins().fcmp(FloatCC::NotEqual, value, value);
     if ty.is_vector() {
         let nan = b.ins().splat(ty, nan);
         let mask = b.ins().bitcast(ty, MemFlagsData::new(), mask);
@@ -907,4 +934,124 @@ fn canonicalize(b: &mut FunctionBuilder, value: Value) -> Value {
     } else {
         b.ins().select(mask, nan, value)
     }
+}
+
+pub(crate) fn span_load(
+    b: &mut FunctionBuilder,
+    ptr: Value,
+    index: Value,
+    active: Value,
+    kind: u8,
+    offset: u8,
+    lanes: u8,
+) -> Value {
+    let ty = vector_type(kind);
+    let flags = MemFlagsData::new();
+    let w = simd::width(kind) as i64;
+    let displacement = b.ins().imul_imm_s(index, w);
+    let addr = b.ins().iadd(ptr, displacement);
+    let join = b.create_block();
+    b.append_block_param(join, ty);
+    let tail = b.create_block();
+    if lanes as usize == 16 / simd::width(kind) {
+        let full = b.create_block();
+        let all = b.ins().icmp_imm_s(
+            IntCC::UnsignedGreaterThanOrEqual,
+            active,
+            (offset + lanes) as i64,
+        );
+        b.ins().brif(all, full, &[], tail, &[]);
+        b.switch_to_block(full);
+        b.seal_block(full);
+        let v = b.ins().load(ty, flags, addr, offset as i32 * w as i32);
+        b.ins().jump(join, &[v.into()]);
+    } else {
+        b.ins().jump(tail, &[]);
+    }
+    b.switch_to_block(tail);
+    b.seal_block(tail);
+    let bits = b.ins().iconst(types::I64, 0);
+    let zero = b.ins().splat(types::I64X2, bits);
+    let cast = flags.with_endianness(cranelift_codegen::ir::Endianness::Little);
+    let mut vector = b.ins().bitcast(ty, cast, zero);
+    for lane in 0..lanes {
+        let yes = b.create_block();
+        let next = b.create_block();
+        b.append_block_param(next, ty);
+        let present =
+            b.ins()
+                .icmp_imm_s(IntCC::UnsignedGreaterThan, active, (offset + lane) as i64);
+        b.ins().brif(present, yes, &[], next, &[vector.into()]);
+        b.switch_to_block(yes);
+        b.seal_block(yes);
+        let scalar = b.ins().load(
+            ty.lane_type(),
+            flags,
+            addr,
+            (offset + lane) as i32 * w as i32,
+        );
+        let v = b.ins().insertlane(vector, scalar, lane);
+        b.ins().jump(next, &[v.into()]);
+        b.switch_to_block(next);
+        b.seal_block(next);
+        vector = b.block_params(next)[0];
+    }
+    b.ins().jump(join, &[vector.into()]);
+    b.switch_to_block(join);
+    b.seal_block(join);
+    b.block_params(join)[0]
+}
+
+pub(crate) fn span_store(
+    b: &mut FunctionBuilder,
+    ptr: Value,
+    index: Value,
+    active: Value,
+    kind: u8,
+    offset: u8,
+    lanes: u8,
+    vector: Value,
+) {
+    let flags = MemFlagsData::new();
+    let w = simd::width(kind) as i64;
+    let displacement = b.ins().imul_imm_s(index, w);
+    let addr = b.ins().iadd(ptr, displacement);
+    let done = b.create_block();
+    let tail = b.create_block();
+    if lanes as usize == 16 / simd::width(kind) {
+        let full = b.create_block();
+        let all = b.ins().icmp_imm_s(
+            IntCC::UnsignedGreaterThanOrEqual,
+            active,
+            (offset + lanes) as i64,
+        );
+        b.ins().brif(all, full, &[], tail, &[]);
+        b.switch_to_block(full);
+        b.seal_block(full);
+        b.ins().store(flags, vector, addr, offset as i32 * w as i32);
+        b.ins().jump(done, &[]);
+    } else {
+        b.ins().jump(tail, &[]);
+    }
+    b.switch_to_block(tail);
+    b.seal_block(tail);
+    for lane in 0..lanes {
+        let yes = b.create_block();
+        let next = b.create_block();
+        let present =
+            b.ins()
+                .icmp_imm_s(IntCC::UnsignedGreaterThan, active, (offset + lane) as i64);
+        b.ins().brif(present, yes, &[], next, &[]);
+        b.switch_to_block(yes);
+        b.seal_block(yes);
+        let scalar = b.ins().extractlane(vector, lane);
+        b.ins()
+            .store(flags, scalar, addr, (offset + lane) as i32 * w as i32);
+        b.ins().jump(next, &[]);
+        b.switch_to_block(next);
+        b.seal_block(next);
+    }
+    b.ins().jump(done, &[]);
+    b.switch_to_block(done);
+    b.seal_block(done);
 }

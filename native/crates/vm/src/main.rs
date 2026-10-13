@@ -334,7 +334,7 @@ fn main() {
         for _ in 0..repeat { let s = cpu_now(); let o = run_once(&mut it); samples.push(cpu_now() - s); assert_eq!(o.len(), outs.len()); }
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let m = samples[samples.len() / 2];
-        println!("median {:.3} ms over {repeat}\tmin {:.3} ms", m * 1e3, samples[0] * 1e3);
+        println!("median {:.6} ms over {repeat}\tmin {:.6} ms", m * 1e3, samples[0] * 1e3);
     }
     if let Some(path) = checkpoint {
         let bytes = nupp_vm::persist::save_vm(&mut it, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("checkpoint: {e}"); std::process::exit(1) });

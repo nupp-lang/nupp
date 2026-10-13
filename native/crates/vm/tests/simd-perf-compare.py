@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pair two VM binaries against the same previously emitted simd11 image."""
+"""Pair two VM binaries against the identical simd11 sources."""
 import argparse
 import ctypes as ct
 import hashlib
@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("baseline", type=Path)
 parser.add_argument("candidate", type=Path)
 parser.add_argument("image", type=Path)
+parser.add_argument("--baseline-image", type=Path, help="baseline emission of the identical sources")
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--forks", type=int, default=9)
 parser.add_argument("--repeat", type=int, default=21)
@@ -39,7 +40,7 @@ for n in (63, 65539):
             order = ("baseline", "candidate") if fork % 2 == 0 else ("candidate", "baseline")
             for role in order:
                 binary = getattr(args, role).resolve()
-                command = [str(binary), "run", str(args.image.resolve()), f"nupp.tests.vmsimdperf{n}", function, "--setup", "setup", "--repeat", str(args.repeat), "--tasks"]
+                command = [str(binary), "run", str((args.baseline_image if role=="baseline" and args.baseline_image else args.image).resolve()), f"nupp.tests.vmsimdperf{n}", function, "--setup", "setup", "--repeat", str(args.repeat), "--tasks"]
                 run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=180)
                 (args.output / f"{n}-{function}-{fork}-{role}.log").write_text(run.stdout + run.stderr)
                 expected = ((n % 97) - 48) * 0.03125 * 1.25 + 2.0
@@ -58,7 +59,7 @@ for n in (63, 65539):
         rows.append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "pairs"}), flush=True)
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-report = dict(host=platform.platform(), baseline=dict(path=str(args.baseline), sha256=digest(args.baseline)), candidate=dict(path=str(args.candidate), sha256=digest(args.candidate)), imageSha256=digest(args.image), sourceSha256=digest(Path("bench/simd11/kernels.nupp")), forks=args.forks, repeats=args.repeat, practicalMargin=args.margin, scope="Unmodified simd11 map/explicitMap; same image, alternating process order; setup excluded; each sample is a process median. Interval is a paired bootstrap of the geometric mean speedup, not a within-process interval.", results=rows)
+report = dict(host=platform.platform(), baseline=dict(path=str(args.baseline), sha256=digest(args.baseline)), candidate=dict(path=str(args.candidate), sha256=digest(args.candidate)), imageSha256=digest(args.image), baselineImageSha256=digest(args.baseline_image or args.image), sourceSha256=digest(Path("bench/simd11/kernels.nupp")), forks=args.forks, repeats=args.repeat, practicalMargin=args.margin, scope="Unmodified simd11 map/explicitMap; separately emitted images when specified, alternating process order; setup excluded; each sample is a process median. Interval is a paired bootstrap of the geometric mean speedup, not a within-process interval.", results=rows)
 if args.controls:
     metadata = json.loads((args.controls / "metadata.json").read_text())
     assert metadata["sourceSha256"] == report["sourceSha256"], "native controls use a different benchmark source"

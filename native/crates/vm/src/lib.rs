@@ -9,6 +9,7 @@ pub mod value;
 pub mod numeric;
 mod storage;
 pub mod simd;
+mod native_simd;
 mod simd_reduce;
 #[cfg(feature = "jit")]
 mod simd_jit;

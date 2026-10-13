@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-13",
+  "baseCommit": "19f6488f0c9b1069f8987e0d8db824c781b71d24",
+  "scope": "Checked native SIMD kernels on the host Cranelift backend. General vector transport across arbitrary calls and the full API/performance matrix remain open.",
+  "implementation": [
+    "Reuse checked native IR, its numeric representations, borrows, shapes, guards, masks, and structured control flow. No source-text pattern matching or new annotation.",
+    "Ten physical numeric kinds use 128-bit native registers; logical species are split into packets. Span metadata is validated once per native activation; tails are masked before memory access.",
+    "Image verification admits a closed typed subset with immutable span parameters and entry length definitions. Range analysis reconstructs dominating bounds and equal-length facts; it does not trust producer claims.",
+    "Range proofs remove complete-loop checks and redundant u32 masks. Resume entries validate live narrow integers, refresh span pointers/counts, and recheck required length equalities.",
+    "Floating intermediates defer NaN normalization only through same-kind arithmetic/comparison uses within one basic block. Stores, bitwise operations, extraction, and frame spills preserve normalization.",
+    "Vectors and rooted span owners survive budget suspension and checkpoints. Native addresses remain activation-local. Typed loops inline the existing bounded-turn budget poll."
+  ],
+  "rust": {
+    "passed": 124,
+    "ignored": 1,
+    "command": "CARGO_TARGET_DIR=build/rust/target cargo test -p nupp-vm --release --offline",
+    "cases": [
+      "All ten native register arithmetic kinds, physical offsets, partial packets, zero active lanes, and atomic failure before stores.",
+      "Malformed operands, invalid kinds/lanes, mutable cached parameters/lengths, late length definitions, and forbidden calls.",
+      "Bounds proof mutations, nested-loop resume invalidation, equal-span proofs, and cursor narrowing.",
+      "Live vector accumulation through budget suspension, collection, whole-VM checkpoint, fresh JIT entry, and cancellation.",
+      "Changed span counts, corrupt cursor ranges, and invalid interior resume PCs fail without further stores.",
+      "NaN payloads, signed zero, infinity, and subnormal bits through deferred arithmetic and bitwise consumers."
+    ]
+  },
+  "publicSource": {
+    "fixture": "native/crates/vm/tests/native-simd-smoke.py",
+    "jit": {
+      "imageSha256": "dbee8b85e1d787ad0742cae0bd8934c66672209dab4fc62bbed74993b985e778",
+      "binarySha256": "7a98ff00ff29a1f1bfdd22da87edd2fae27c52057aac47ac5069180616b38bde",
+      "sourceSha256": "e13fe341eecb6d1162f09ed8443bd6c8afef65c5b6c8c2915314915d7707e8b8",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "uncompiled-refusal",
+          "passed": true
+        }
+      ]
+    },
+    "aot": {
+      "imageSha256": "7fbe10cec3676746477da77c3839901789776216ecf3252bdb73850b2e633081",
+      "binarySha256": "9f2cb5797e0ba9d0dcdbd67d8e3a7de6777522fbd0c7de6e7fa0187d15c4662f",
+      "sourceSha256": "e13fe341eecb6d1162f09ed8443bd6c8afef65c5b6c8c2915314915d7707e8b8",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "uncompiled-refusal",
+          "passed": true
+        }
+      ]
+    },
+    "hostAndVmEmissionsIdenticalExceptProjectPath": true,
+    "aotExecutableMemoryDenied": true,
+    "cases": [
+      "Ten unannotated fixed-three-lane kernels, counts 0 through 19, signed and unsigned overflow including exact 64-bit values.",
+      "Unchanged simd11 explicitMap, nested-mask explicitRefine, and vector-carried explicitAlgebraic.",
+      "Authored length-guard errors, GC stress/oracle/quarantine, tasks, workers, and refusal without native compilation."
+    ]
+  },
+  "compiler": {
+    "coldCheck": true,
+    "compiledModules": 550,
+    "vmImageBytes": 8666202,
+    "vmFixpointSha256": "8b193d056076a2d95b4fad9b532d6508b96d89dc164eba9a722235536eb4da3a",
+    "addedModules": [
+      "nupp.compiler.aot.admit",
+      "nupp.compiler.aot.carried",
+      "nupp.compiler.aot.effects",
+      "nupp.compiler.aot.lower",
+      "nupp.compiler.aot.relations",
+      "nupp.compiler.aot.scalar",
+      "nupp.compiler.aot.simdbounds",
+      "nupp.compiler.aot.simdcast",
+      "nupp.compiler.aot.simdindices",
+      "nupp.compiler.aot.simdshape",
+      "nupp.compiler.aot.verify",
+      "nupp.compiler.aot.visit",
+      "nupp.compiler.vm.native"
+    ],
+    "llvmBackendModules": [],
+    "hostBootstrapFixpoint": true,
+    "sharedSuites": 136,
+    "sharedTestsPassed": 2177
+  },
+  "performance": "native/crates/vm/tests/native-simd-perf-results.json",
+  "limits": [
+    "Measured on this arm64 macOS host. Cross-platform AOT and Wasm remain separate gates.",
+    "The typed adapter currently accepts closed general-block scalar-span kernels. Arbitrary helpers, exact reducers, vector parameters/results, struct/SoA memory, and other expressions retain the existing native public-SIMD path.",
+    "The compiler image gains the shared native front end currently named nupp.compiler.aot.*; it does not gain an LLVM backend or AOT build driver. Moving this shared IR to a neutral namespace remains separate cleanup.",
+    "The worker fixture initializes nupp.mem.array inside each worker. Captured module values alone do not replay runtime method installation in a fresh worker.",
+    "The VM call/span boundary, residual loop instructions and required NaN normalization still cost time. This does not establish LLVM parity or the absolute overhead floor."
+  ],
+  "commands": [
+    "python3 native/crates/vm/tests/native-simd-smoke.py COMPILER_IMAGE --output OUTPUT",
+    "CARGO_TARGET_DIR=build/rust/target sh native/crates/vm/tests/simd-aot-smoke.sh COMPILER_IMAGE IMAGE OUTPUT typed",
+    "python3 native/crates/vm/tests/simd-perf-compare.py BASELINE_VM CANDIDATE_VM IMAGE --baseline-image BASELINE_IMAGE --output OUTPUT --forks 9 --repeat 21 --controls CONTROL_DIRECTORY",
+    "NUPP_NATIVE_DUMP=OUTPUT CANDIDATE_VM run IMAGE nupp.tests.vmsimdperf65539 explicit --setup setup --repeat 21"
+  ],
+  "cleanup": "Removed 13 obsolete native/host build cache generations; retained current toolchains, compiler outputs, benchmark evidence, and unmerged work. Build directory is approximately 10 GiB.",
+  "codeGeneration": {
+    "function": "explicitMap",
+    "host": "arm64 macOS",
+    "eliminatedFullLoopSpanChecks": 6,
+    "clifSha256": "817f6428751f4eb9a71e23aac4fee1fd66000ac597f9e643c3221a4ba618fbe6",
+    "assemblySha256": "9cddc88b5e7fe044693ad3da60e868d17cbbbbe84dc9c19d227036c16f4eeae2",
+    "artifacts": "/private/tmp/nupp-simd/native-dump-final",
+    "observed": "Two native f64x2 loads, multiplies, adds, canonical NaN selections and stores per four elements; no full-loop bounds checks, u32 masks, helper calls, or vector object materialization. The budget poll remains at the backedge."
+  }
+}

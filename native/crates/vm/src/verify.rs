@@ -201,6 +201,16 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         SetSlot(o, _, v, _) => r(&[(V, o), (V, v)]),
         TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
         Simd(_, _, _, base, n) => r(&(0..=n).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect::<Vec<_>>()),
+        SpanLen(d, s, _) => r(&[(I,d),(V,s)]),
+        SpanBounds(s, i, n, _, _) => r(&[(V,s),(I,i),(I,n)]),
+        SpanLoad(d, s, i, n, _, _, _) => r(&[(X,d),(V,s),(I,i),(I,n)]),
+        SpanStore(s, i, v, n, _, _, _) => r(&[(V,s),(I,i),(X,v),(I,n)]),
+        VOp(_, _, d, a, b, c) => r(&[(X,d),(X,a),(X,b),(X,c)]),
+        VSplatN(d, s, k) => r(&[(X,d),(if k >= 8 { F } else { I },s)]),
+        VExtractN(d, s, k, _) => r(&[(if k >= 8 { F } else { I },d),(X,s)]),
+        VPrefix(d, n, _, _, _) => r(&[(X,d),(I,n)]),
+        VAny(d, s) => r(&[(I,d),(X,s)]),
+        Raise(_) => r(&[]),
         Scalar(_, d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
@@ -250,6 +260,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
 /// against its code, every constant against its pool and every callee
 /// against `nfuncs`.
 pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
+    crate::native_simd::verify(f)?;
     let n = f.code.len();
     for (pc, op) in f.code.iter().enumerate() {
         let (regs, offs) = operands(op);
@@ -312,7 +323,7 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
         PadResults(..) => none_def(&all), // Only the missing results are overwritten.
         VarargN(..) => (all.clone(), Vec::new()),
         // Every register named is read.
-        SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
+        SpanBounds(..) | SpanStore(..) | Raise(..) | SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
         | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
         // Read and written.
         BufAppend(b, s) | AffineMark(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
@@ -339,12 +350,13 @@ pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
     let succs: Vec<Vec<usize>> = f.code.iter().enumerate().map(|(pc, op)| {
         let (_, offs) = operands(op);
         let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
-        let falls = !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Switch(..));
+        let falls = !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Raise(..) | Op::Switch(..));
         if let Op::Switch(_, t) = op { let (def, tbl) = &f.jump_tables[*t as usize]; for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } }
         if falls && pc + 1 < n { s.push(pc + 1); }
         s.retain(|&t| t < n);
         s
     }).collect();
+    let native_spans = crate::native_simd::spans(f);
     let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
         let (d, u) = if matches!(op, Op::CallT(..)) {
             // Its callee signature determines the typed argument windows;
@@ -357,6 +369,7 @@ pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
         let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
         for (c, r) in d { ds[class_of(c)].insert(r); }
         for (c, r) in u { us[class_of(c)].insert(r); }
+        for &span in native_spans.keys() { us[0].insert(span); }
         (ds, us)
     }).collect();
     let mut live_in = vec![[RegSet::default(); 4]; n];

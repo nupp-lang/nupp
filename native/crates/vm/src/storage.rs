@@ -690,3 +690,20 @@ pub(crate) fn simd_indexed(
         }
     }
 }
+
+// Native kernels cannot mutate or publish a view. Validate the complete span
+// once, including its physical extent, before caching its address for this
+// activation. Reentry after a scheduler turn reconstructs the cache.
+pub(crate) fn native_span(vm: &Interp, span: Value, kind: u8, write: bool) -> (*const u8, usize) {
+    simd_access(vm, span, 1, kind, 0, &[0; crate::simd::CAPACITY], write);
+    let v = view(vm, get(vm, span, "pointer"));
+    let offset = count(vm, get(vm, span, "offset"));
+    let n = count(vm, get(vm, span, "count"));
+    let w = crate::simd::width(kind);
+    let start = offset.checked_mul(w).and_then(|x| x.checked_add(v.offset))
+        .unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
+    let end = n.checked_mul(w).and_then(|x| x.checked_add(start))
+        .filter(|&x| x <= v.end).unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
+    let bytes = vm.bytes_of(v.owner);
+    (unsafe { bytes.as_ptr().add(end - n * w) }, n)
+}

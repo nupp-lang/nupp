@@ -84,6 +84,9 @@ pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
         ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_prepare_locals", j_simd_prepare_locals as *const u8, 6), ("j_simd_finish", j_simd_finish as *const u8, 3), ("j_simd_store", j_simd_store as *const u8, 4),
+        ("j_native_budget", j_native_budget as *const u8, 0),
+        ("j_native_bounds_error", j_native_bounds_error as *const u8, 0),
+        ("j_native_span", j_native_span as *const u8, 4), ("j_native_raise", j_native_raise as *const u8, 1),
         ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_ibox", j_ibox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
@@ -460,3 +463,26 @@ pub extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| 
 fn j_eq_slow_impl(a: u64, b: u64) -> u64 { ctx().values_equal(V(a), V(b)) as u64 }
 fn j_require_impl(name: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let text = String::from_utf8_lossy(it.bytes_of(V(name))).into_owned(); let v = it.require(&text); leave_helper!(_hp); v.0 }
 fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().heap.shapes[shape as usize].methods.insert(V(name), V(f)); 0 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_native_span(span: u64, kind: u64, write: u64, out: *mut usize) -> u64 {
+    ctx().guarded(|it| {
+        let (ptr,n) = crate::storage::native_span(it,V(span),kind as u8,write != 0);
+        unsafe { *out = ptr as usize; *out.add(1) = n; }
+        V::NIL
+    }).0
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_native_raise(value: u64) -> u64 {
+    ctx().guarded(|_| { std::panic::panic_any(crate::builtins::LuaError(value)); }).0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_native_bounds_error() -> u64 {
+    ctx().guarded(|it| { it.err("SIMD span index out of bounds"); }).0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_native_budget() -> u64 {
+    ctx().instruction_budget.as_mut().map_or(0, |n| n as *mut usize as u64)
+}

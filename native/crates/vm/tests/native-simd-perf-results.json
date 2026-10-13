@@ -1,0 +1,712 @@
+{
+  "host": "macOS-26.6-arm64-arm-64bit",
+  "baseline": {
+    "path": "/private/tmp/nupp-simd/perf-final-vm",
+    "sha256": "370f91fdb31483cf555cb0f3dba98347cabb7dfc27c5d5d8f1ec005106fa3568"
+  },
+  "candidate": {
+    "path": "build/rust/target/release/nupp-vm",
+    "sha256": "7a98ff00ff29a1f1bfdd22da87edd2fae27c52057aac47ac5069180616b38bde"
+  },
+  "imageSha256": "e563a0e1ac7e9039eb0a14157cc94537b64a5f90a96881a45bbfc6310f9530fc",
+  "baselineImageSha256": "e2e5c643a6235b57dbc71b576229dea03de3a0664bec83dd2002f322734818eb",
+  "sourceSha256": "4bc5107f7cb55ddd426f6e50496d340b283255057c42b98659e03d5b19c1b227",
+  "forks": 9,
+  "repeats": 21,
+  "practicalMargin": 0.05,
+  "scope": "Unmodified simd11 map/explicitMap; separately emitted images when specified, alternating process order; setup excluded; each sample is a process median. Interval is a paired bootstrap of the geometric mean speedup, not a within-process interval.",
+  "results": [
+    {
+      "elements": 63,
+      "function": "scalar",
+      "baselineMs": 0.041,
+      "candidateMs": 0.040874,
+      "speedup": 1.0099980860072528,
+      "pairedBootstrap95": [
+        0.9957623076982826,
+        1.0248764239581656
+      ],
+      "verdict": "unchanged",
+      "pairs": [
+        {
+          "baseline": {
+            "warmMs": 0.041,
+            "firstMs": 3.613,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 0.040709,
+            "firstMs": 3.146,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.04075,
+            "firstMs": 3.162,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.042,
+            "firstMs": 3.108,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.041,
+            "firstMs": 3.118,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 0.041791,
+            "firstMs": 3.131,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.041167,
+            "firstMs": 3.154,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.042,
+            "firstMs": 3.119,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.042,
+            "firstMs": 3.108,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 0.040042,
+            "firstMs": 3.14,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.040874,
+            "firstMs": 3.245,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.04,
+            "firstMs": 3.171,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.041,
+            "firstMs": 3.185,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 0.041042,
+            "firstMs": 3.169,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.040749,
+            "firstMs": 3.101,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.042,
+            "firstMs": 3.179,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.041,
+            "firstMs": 3.139,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 0.041167,
+            "firstMs": 3.139,
+            "allocated": 528
+          }
+        }
+      ],
+      "firstCallMs": {
+        "baseline": 3.139,
+        "candidate": 3.146
+      },
+      "allocatedFirstCall": {
+        "baseline": 528,
+        "candidate": 528
+      }
+    },
+    {
+      "elements": 63,
+      "function": "explicit",
+      "baselineMs": 0.014,
+      "candidateMs": 0.0065,
+      "speedup": 2.1654851233878722,
+      "pairedBootstrap95": [
+        2.100785723062579,
+        2.233029543309117
+      ],
+      "verdict": "improved",
+      "pairs": [
+        {
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.98,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.0065,
+            "firstMs": 3.491,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.0065,
+            "firstMs": 3.486,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.935,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.981,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.006541,
+            "firstMs": 3.458,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.00629,
+            "firstMs": 3.462,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.015,
+            "firstMs": 4.88,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.911,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.007083,
+            "firstMs": 3.45,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.006375,
+            "firstMs": 3.555,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.967,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.868,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.0065,
+            "firstMs": 3.517,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.006543,
+            "firstMs": 3.468,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 5.135,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 0.014,
+            "firstMs": 4.872,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.006333,
+            "firstMs": 3.541,
+            "allocated": 528
+          }
+        }
+      ],
+      "firstCallMs": {
+        "baseline": 4.935,
+        "candidate": 3.486
+      },
+      "allocatedFirstCall": {
+        "baseline": 530,
+        "candidate": 528
+      }
+    },
+    {
+      "elements": 65539,
+      "function": "scalar",
+      "baselineMs": 37.171,
+      "candidateMs": 37.329251,
+      "speedup": 0.9910982019556314,
+      "pairedBootstrap95": [
+        0.9815335653457158,
+        0.9994800238394038
+      ],
+      "verdict": "unchanged",
+      "pairs": [
+        {
+          "baseline": {
+            "warmMs": 37.243,
+            "firstMs": 39.667,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 38.021958,
+            "firstMs": 42.211,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 38.41225,
+            "firstMs": 40.446,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 37.011,
+            "firstMs": 40.498,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 37.171,
+            "firstMs": 40.699,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 37.598166,
+            "firstMs": 40.639,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 37.329251,
+            "firstMs": 40.048,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 37.483,
+            "firstMs": 39.885,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 37.23,
+            "firstMs": 39.516,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 37.254,
+            "firstMs": 40.063,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 36.96975,
+            "firstMs": 40.528,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 37.108,
+            "firstMs": 41.004,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 36.928,
+            "firstMs": 39.668,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 37.074542,
+            "firstMs": 40.081,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 37.106751,
+            "firstMs": 40.483,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 37.349,
+            "firstMs": 40.996,
+            "allocated": 528
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 37.124,
+            "firstMs": 40.17,
+            "allocated": 528
+          },
+          "candidate": {
+            "warmMs": 37.909292,
+            "firstMs": 40.57,
+            "allocated": 528
+          }
+        }
+      ],
+      "firstCallMs": {
+        "baseline": 40.17,
+        "candidate": 40.483
+      },
+      "allocatedFirstCall": {
+        "baseline": 528,
+        "candidate": 528
+      }
+    },
+    {
+      "elements": 65539,
+      "function": "explicit",
+      "baselineMs": 8.428,
+      "candidateMs": 0.021208,
+      "speedup": 405.1970367013562,
+      "pairedBootstrap95": [
+        398.16322133213373,
+        413.22242481745445
+      ],
+      "verdict": "improved",
+      "pairs": [
+        {
+          "baseline": {
+            "warmMs": 8.464,
+            "firstMs": 13.376,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.019916,
+            "firstMs": 3.532,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.02125,
+            "firstMs": 3.519,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 8.505,
+            "firstMs": 13.282,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 8.321,
+            "firstMs": 13.25,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.02,
+            "firstMs": 3.466,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.019876,
+            "firstMs": 3.615,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 8.428,
+            "firstMs": 13.5,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 8.342,
+            "firstMs": 13.145,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.02125,
+            "firstMs": 3.518,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.02125,
+            "firstMs": 3.743,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 8.414,
+            "firstMs": 13.286,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 8.544,
+            "firstMs": 13.419,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.021416,
+            "firstMs": 3.537,
+            "allocated": 528
+          }
+        },
+        {
+          "candidate": {
+            "warmMs": 0.021208,
+            "firstMs": 3.469,
+            "allocated": 528
+          },
+          "baseline": {
+            "warmMs": 8.413,
+            "firstMs": 13.295,
+            "allocated": 530
+          }
+        },
+        {
+          "baseline": {
+            "warmMs": 8.443,
+            "firstMs": 13.666,
+            "allocated": 530
+          },
+          "candidate": {
+            "warmMs": 0.021167,
+            "firstMs": 3.498,
+            "allocated": 528
+          }
+        }
+      ],
+      "firstCallMs": {
+        "baseline": 13.295,
+        "candidate": 3.519
+      },
+      "allocatedFirstCall": {
+        "baseline": 530,
+        "candidate": 528
+      }
+    }
+  ],
+  "controls": {
+    "metadata": {
+      "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+      "target": {
+        "architecture": "aarch64",
+        "tier": "neon",
+        "triple": "aarch64-apple-darwin"
+      },
+      "sourceSha256": "4bc5107f7cb55ddd426f6e50496d340b283255057c42b98659e03d5b19c1b227",
+      "artifacts": {
+        "llvm": {
+          "path": "/private/tmp/nupp-simd/perf/baseline/llvm.dylib",
+          "command": [
+            "clang",
+            "-std=c11",
+            "-O3",
+            "-ffp-contract=off",
+            "-fno-fast-math",
+            "-fPIC",
+            "-D_POSIX_C_SOURCE=200809L",
+            "-dynamiclib",
+            "/private/tmp/nupp-simd/perf/baseline/llvm.c",
+            "/private/tmp/nupp-simd/perf/baseline/llvm.o",
+            "-o",
+            "/private/tmp/nupp-simd/perf/baseline/llvm.dylib"
+          ],
+          "sha256": "95d9ede93e40904c7e56f4c5a80ec513016d75f3de47292d958c9167e809749a"
+        },
+        "auto_vector": {
+          "path": "/private/tmp/nupp-simd/perf/baseline/auto_vector.dylib",
+          "command": [
+            "clang",
+            "-std=c11",
+            "-O3",
+            "-ffp-contract=off",
+            "-fno-fast-math",
+            "-fPIC",
+            "-D_POSIX_C_SOURCE=200809L",
+            "-dynamiclib",
+            "/private/tmp/nupp-simd/perf/baseline/auto_vector.c",
+            "-o",
+            "/private/tmp/nupp-simd/perf/baseline/auto_vector.dylib"
+          ],
+          "sha256": "969a09230f9d80d53a479492282828e9246f49928920968e03676c4a0484dae7"
+        },
+        "no_vector": {
+          "path": "/private/tmp/nupp-simd/perf/baseline/no_vector.dylib",
+          "command": [
+            "clang",
+            "-std=c11",
+            "-O3",
+            "-ffp-contract=off",
+            "-fno-fast-math",
+            "-fPIC",
+            "-D_POSIX_C_SOURCE=200809L",
+            "-dynamiclib",
+            "/private/tmp/nupp-simd/perf/baseline/no_vector.c",
+            "-fno-vectorize",
+            "-fno-slp-vectorize",
+            "-o",
+            "/private/tmp/nupp-simd/perf/baseline/no_vector.dylib"
+          ],
+          "sha256": "c94d5fb1ea2407fe9b6b7b6e7f7d4c20595dcb8c438dee92747744239158f010"
+        }
+      }
+    },
+    "results": [
+      {
+        "elements": 63,
+        "timings": {
+          "llvm": {
+            "warmMs": 4.662004956779728e-06,
+            "samplesMs": [
+              4.662004956779728e-06,
+              4.674602131653409e-06,
+              4.674607998991496e-06,
+              4.662004956779728e-06,
+              4.66199908944164e-06,
+              4.662004956779728e-06,
+              4.662004956779728e-06,
+              4.662004956779728e-06,
+              4.674602131653409e-06
+            ]
+          },
+          "auto_vector": {
+            "warmMs": 5.027405170849709e-06,
+            "samplesMs": [
+              5.01480212863794e-06,
+              5.027405170849709e-06,
+              5.027405170849709e-06,
+              5.027405170849709e-06,
+              5.027405170849709e-06,
+              5.027405170849709e-06,
+              5.014807995976028e-06,
+              5.014807995976028e-06,
+              4.762805825121528e-06
+            ]
+          },
+          "no_vector": {
+            "warmMs": 1.6102815503502722e-05,
+            "samplesMs": [
+              1.6102815503502722e-05,
+              1.6115412678376403e-05,
+              1.6102821370840808e-05,
+              1.6102815503502722e-05,
+              1.6102815503502722e-05,
+              1.6102815503502722e-05,
+              1.6102815503502722e-05,
+              1.6128015720588174e-05,
+              1.6102815503502722e-05
+            ]
+          }
+        }
+      },
+      {
+        "elements": 65539,
+        "timings": {
+          "llvm": {
+            "warmMs": 0.008220002055168152,
+            "samplesMs": [
+              0.008259997703135014,
+              0.008209999650716782,
+              0.008229999803006649,
+              0.008220002055168152,
+              0.008209999650716782,
+              0.008209999650716782,
+              0.008219997398555279,
+              0.008220002055168152,
+              0.008249999955296516
+            ]
+          },
+          "auto_vector": {
+            "warmMs": 0.008239997550845146,
+            "samplesMs": [
+              0.008280002512037754,
+              0.008220002055168152,
+              0.008220002055168152,
+              0.008220002055168152,
+              0.008220002055168152,
+              0.00824000220745802,
+              0.008239997550845146,
+              0.00824000220745802,
+              0.008239997550845146
+            ]
+          },
+          "no_vector": {
+            "warmMs": 0.015310002490878107,
+            "samplesMs": [
+              0.0153200002387166,
+              0.015319995582103731,
+              0.015330002643167973,
+              0.015310002490878107,
+              0.015300000086426735,
+              0.015349998138844969,
+              0.015310002490878107,
+              0.015310002490878107,
+              0.015309997834265232
+            ]
+          }
+        }
+      }
+    ],
+    "scope": "Replayed preserved LLVM and C artifacts; setup and span wrappers excluded. These are native controls, not paired VM speedup observations."
+  },
+  "baseCommit": "19f6488f0c9b1069f8987e0d8db824c781b71d24",
+  "notes": [
+    "Both binaries execute identical benchmark sources, emitted separately by their compilers. Source setup is excluded; each invocation includes the existing public span wrapper and task entry.",
+    "The baseline timer prints three fractional millisecond digits; the candidate prints six. This limits precision of the 63-element baseline.",
+    "The LLVM and C controls exclude span wrappers and scheduler entry. They retain their existing numerical contracts; the VM preserves canonical NaNs and separate multiplication/addition.",
+    "The large explicit map eliminates all six full-loop span checks and redundant u32 masks, with no helper calls or managed allocations inside that loop."
+  ],
+  "candidateDescription": "Checked native IR lowering, vector registers, span extent caching, reconstructed range proofs, and deferred intermediate NaN normalization"
+}

@@ -6,6 +6,10 @@ set -eu
 seed=$1
 image=$2
 output=$3
+runner=native/crates/vm/tests/simd-smoke.py
+if [ "${4:-}" = typed ]; then
+    runner=native/crates/vm/tests/native-simd-smoke.py
+fi
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
 binary=build/rust/target/release/nupp-vm
@@ -48,4 +52,4 @@ for mode in mapping protection; do
     test "$status" = 86
     rg -q 'no-JIT gate: executable memory requested' "$output/probe-$mode.log"
 done
-DYLD_INSERT_LIBRARIES="$output/deny-exec.dylib" python3 native/crates/vm/tests/simd-smoke.py "$seed" --binary "$output/nupp-vm-aot" --image "$image" --aot --output "$output"
+DYLD_INSERT_LIBRARIES="$output/deny-exec.dylib" python3 "$runner" "$seed" --binary "$output/nupp-vm-aot" --image "$image" --aot --output "$output"

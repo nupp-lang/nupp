@@ -202,6 +202,18 @@ pub enum Op {
     VAdd(u8, u8, u8),
     /// Public SIMD: operation, element kind, value result/argument window, arity.
     Simd(u8, u8, u8, u8, u8),
+    // Typed native IR. Span registers are immutable parameters; raw addresses
+    // are reconstructed at each native entry, never stored in a checkpoint.
+    SpanLen(u8, u8, u8),
+    SpanBounds(u8, u8, u8, u8, bool),
+    SpanLoad(u8, u8, u8, u8, u8, u8, u8),
+    SpanStore(u8, u8, u8, u8, u8, u8, u8),
+    VOp(u8, u8, u8, u8, u8, u8),
+    VSplatN(u8, u8, u8),
+    VExtractN(u8, u8, u8, u8),
+    VAny(u8, u8),
+    VPrefix(u8, u8, u8, u8, u8),
+    Raise(u16),
     VMul(u8, u8, u8),
     /// Masked two-lane load: lanes at `off + l` below `active` are loaded,
     /// the rest are zero; every loaded lane is bounds-checked.
@@ -1315,7 +1327,7 @@ impl Interp {
         // body, including functions added by another image or checkpoint.
         if self.native_required.len() < self.funcs.len() {
             self.native_required.extend(self.funcs[self.native_required.len()..].iter()
-                .map(|f| f.code.iter().any(|op| matches!(op, Op::Simd(..)))));
+                .map(|f| f.code.iter().any(|op| crate::native_simd::required(op))));
         }
         self.native_required[fid as usize]
     }
@@ -1556,7 +1568,7 @@ impl Interp {
                     Op::BufFinish(d, bf) => { let v = self.buf_finish(r!(bf)); r!(d) = v; }
                     Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap_new_bytes(n); r!(d) = v; }
                     Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = self.bytes_of(r!(s))[..n].to_vec(); let v = self.string_of(&text); r!(d) = v; }
-                    Op::Simd(..) => self.err("SIMD function requires native compilation"),
+                    Op::Simd(..) | Op::SpanLen(..) | Op::SpanBounds(..) | Op::SpanLoad(..) | Op::SpanStore(..) | Op::VOp(..) | Op::VSplatN(..) | Op::VExtractN(..) | Op::VAny(..) | Op::VPrefix(..) | Op::Raise(..) => self.err("SIMD function requires native compilation"),
                     Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
                     Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
                     Op::VLoadM(d, s, i, off, active) => {
@@ -1898,6 +1910,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::IAnd(..) => "IAnd",
         Op::JmpIfIZero(..) => "JmpIfIZero",
         Op::Simd(..) => "Simd",
+        Op::SpanLen(..) | Op::SpanBounds(..) | Op::SpanLoad(..) | Op::SpanStore(..) | Op::VOp(..) | Op::VSplatN(..) | Op::VExtractN(..) | Op::VAny(..) | Op::VPrefix(..) | Op::Raise(..) => "NativeSimd",
         Op::VAdd(..) => "VAdd",
         Op::VMul(..) => "VMul",
         Op::VLoadM(..) => "VLoadM",

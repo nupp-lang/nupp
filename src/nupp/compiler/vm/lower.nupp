@@ -72,6 +72,7 @@ function lower.emit(
     local shapes, shapeOrder = {}, {}
     local shapesByNominal = setmetatable({}, {__mode = "k"})
     local currentModule = nil
+    local nativePlans = {}
 
     local function shapeOfNominal(t)
         if type(t) ~= "table" then
@@ -3717,6 +3718,12 @@ function lower.emit(
     end
 
     defineFunction = function(f, funcbody)
+        local native = nativePlans[funcbody]
+        if native and not f.implicitSelf then
+            f.code, f.consts = native.code, native.consts
+            f.nregs, f.nfregs, f.nvregs = native.nregs, native.nfregs, native.nvregs
+            return
+        end
         f.constructorSelf = funcbody.vmConstructorSelf
         local statements = funcbody.body
         if funcbody.expr then
@@ -3895,6 +3902,7 @@ function lower.emit(
             end
         end
         currentModule = name
+        nativePlans = require("nupp.compiler.vm.native").plans(rootNode)
         for _, s in ipairs(stats) do
             if s.kind == "recordDecl" then
                 declareShape(s)
@@ -4033,6 +4041,9 @@ function lower.emit(
                 f.vararg and " vararg" or ""
             )
         )
+        if f.nvregs then
+            emit("  vectors " .. f.nvregs)
+        end
         if f.module then
             emit("  source " .. f.module)
         end

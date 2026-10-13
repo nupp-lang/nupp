@@ -360,6 +360,11 @@ impl<M: Module> Compiler<M> {
             };
             if !frame && !ok { return Err(format!("{:?}", op)); }
         }
+        let typed_native = f.code.iter().any(|o| crate::native_simd::required(o) && !matches!(o,Op::Simd(..)));
+        let native_proofs = crate::native_simd::proofs(f);
+        let deferred_nan = if typed_native { crate::native_simd::deferred_nan(f) } else { vec![false;f.code.len()] };
+        let native_dump = typed_native.then(|| std::env::var("NUPP_NATIVE_DUMP").ok()).flatten();
+        self.ctx.want_disasm = native_dump.is_some();
         let frame_live = frame.then(|| crate::verify::liveness(f));
         let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
         let start = std::time::Instant::now();
@@ -439,7 +444,8 @@ impl<M: Module> Compiler<M> {
             }
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
-            if frame { starts.extend(0..f.code.len()); }
+            let native_resumes = crate::native_simd::resumes(f);
+            if frame { if typed_native { starts.extend(native_resumes.iter().copied()); } else { starts.extend(0..f.code.len()); } }
             for (pc, op) in f.code.iter().enumerate() {
                 match *op {
                     Op::Jmp(off) | Op::JmpIfIZero(_, off) | Op::JmpIf(_, off) | Op::JmpIfNot(_, off) | Op::IJmpIfUle(_, _, off) | Op::IJmpIfUlt(_, _, off) => { starts.insert((pc as i64 + 1 + off as i64) as usize); starts.insert(pc + 1); }
@@ -457,17 +463,61 @@ impl<M: Module> Compiler<M> {
             // returned upward, as its callers and the runtime expect (6.5).
             let err_block = b.create_block();
             b.set_cold_block(err_block);
+            let native_budget = if frame && typed_native {
+                let c = b.ins().call(helper_refs["j_native_budget"],&[]); Some(b.inst_results(c)[0])
+            } else { None };
+            let mut native_ptrs = HashMap::new();
+            for (span,(kind,write)) in crate::native_simd::spans(f) {
+                let value = if frame { b.ins().load(types::I64, flags, params[0], ((crate::interp::HDR + span as usize) * 8) as i32) } else { b.use_var(rvars[span as usize]) };
+                let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 3));
+                let out = b.ins().stack_addr(types::I64, slot, 0);
+                let k = b.ins().iconst(types::I64, kind as i64);
+                let w = b.ins().iconst(types::I64, write as i64);
+                let c = b.ins().call(helper_refs["j_native_span"], &[value,k,w,out]);
+                let result = b.inst_results(c)[0];
+                let error = b.ins().icmp_imm(IntCC::Equal,result,ERROR);
+                let cont = b.create_block(); b.ins().brif(error,err_block,&[],cont,&[]);
+                b.switch_to_block(cont); b.seal_block(cont);
+                let ptr = b.ins().stack_load(types::I64,types::I64,slot,0);
+                let len = b.ins().stack_load(types::I64,types::I64,slot,8);
+                native_ptrs.insert(span,(ptr,len));
+            }
+            if frame && !native_proofs.equalities.is_empty() {
+                let validate = b.create_block(); let ready = b.create_block();
+                let first = b.ins().icmp_imm(IntCC::Equal,params[1],0);
+                b.ins().brif(first,ready,&[],validate,&[]); b.switch_to_block(validate); b.seal_block(validate);
+                for &(a,c) in &native_proofs.equalities {
+                    let ok = b.ins().icmp(IntCC::Equal,native_ptrs[&a].1,native_ptrs[&c].1);
+                    let next = b.create_block(); let fail = b.create_block(); b.set_cold_block(fail);
+                    b.ins().brif(ok,next,&[],fail,&[]); b.switch_to_block(fail); b.seal_block(fail);
+                    b.ins().call(helper_refs["j_native_bounds_error"],&[]); b.ins().jump(err_block,&[]);
+                    b.switch_to_block(next); b.seal_block(next);
+                }
+                b.ins().jump(ready,&[]); b.switch_to_block(ready); b.seal_block(ready);
+            }
             let mut terminated = false;
             if frame {
                 let mut dispatch = cranelift_frontend::Switch::new();
-                let loads: Vec<_> = starts.iter().map(|&pc| (pc, b.create_block())).collect();
+                let loads: Vec<_> = starts.iter().filter(|&&pc| !typed_native || native_resumes.contains(&pc)).map(|&pc| (pc, b.create_block())).collect();
                 for &(pc, block) in &loads { dispatch.set_entry(pc as u128, block); }
                 dispatch.emit(&mut b, params[1], err_block);
                 for (pc, load) in loads {
                     b.switch_to_block(load); b.seal_block(load);
                     let live = &frame_live.as_ref().unwrap().0[pc];
                     for (class, vars, ty, off, stride) in [(0, &rvars, types::I64, crate::interp::HDR, 1), (1, &ivars, types::I64, f.off_i(), 1), (2, &fvars, types::F64, f.off_f(), 1), (3, &vvars, types::F64X2, f.off_v(), 2)] {
-                        for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) { let v = b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32); b.def_var(var, v); } }
+                        for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) {
+                            let v = if class == 1 && typed_native && native_proofs.lengths.contains_key(&(i as u8)) {
+                                native_ptrs[&native_proofs.lengths[&(i as u8)]].1
+                            } else { b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32) };
+                            if class == 1 && native_proofs.elided.iter().chain(&native_proofs.narrow_elided).any(|&x| x) && native_proofs.u32_regs[i] {
+                                let ok = b.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual,v,u32::MAX as i64);
+                                let yes = b.create_block(); let no = b.create_block(); b.set_cold_block(no);
+                                b.ins().brif(ok,yes,&[],no,&[]); b.switch_to_block(no); b.seal_block(no);
+                                b.ins().call(helper_refs["j_native_bounds_error"],&[]); b.ins().jump(err_block,&[]);
+                                b.switch_to_block(yes); b.seal_block(yes);
+                            }
+                            b.def_var(var, v);
+                        } }
                     }
                     b.ins().jump(blocks[&pc], &[]);
                 }
@@ -505,6 +555,19 @@ impl<M: Module> Compiler<M> {
             macro_rules! args_slot_pad { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = if base + 1 + i <= f.nregs as usize { rv!(base + 1 + i) } else { b.ins().iconst(types::I64, NIL) }; b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
             macro_rules! args_slot { ($base:expr, $argc:expr) => {{ let (base, argc) = ($base as usize, $argc as usize); let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8 * (argc as u32).max(1), 3)); for i in 0..argc { let v = rv!(base + 1 + i); b.ins().stack_store(types::I64, v, slot, (i as i32) * 8); } b.ins().stack_addr(types::I64, slot, 0) }} }
             macro_rules! read_extras { ($base:expr, $want:expr) => {{ let (base, want) = ($base as usize, $want as usize); let ea = runtime_addr(&mut b, runtime, 1, extra_addr); for i in 1..want.min(8) { if base + i > f.nregs as usize { break; } let v = b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32); setr!(base + i, v); } }} }
+            macro_rules! span_bounds { ($s:expr,$i:expr,$n:expr) => {{
+                let (_,len) = native_ptrs[&$s]; let index = iv!($i); let n = iv!($n);
+                let empty = b.ins().icmp_imm(IntCC::Equal,n,0);
+                let room = b.ins().isub(len,n);
+                let fits = b.ins().icmp(IntCC::UnsignedLessThanOrEqual,n,len);
+                let below = b.ins().icmp(IntCC::UnsignedLessThanOrEqual,index,room);
+                let bounded = b.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual,n,64);
+                let ok = b.ins().band(fits,below); let ok = b.ins().band(ok,bounded); let ok = b.ins().bor(ok,empty);
+                let yes = b.create_block(); let no = b.create_block(); b.set_cold_block(no);
+                b.ins().brif(ok,yes,&[],no,&[]); b.switch_to_block(no); b.seal_block(no);
+                b.ins().call(helper_refs["j_native_bounds_error"],&[]); b.ins().jump(err_block,&[]);
+                b.switch_to_block(yes); b.seal_block(yes);
+            }} }
             for (pc, op) in f.code.iter().enumerate() {
                 if let Some(&blk) = blocks.get(&pc) {
                     if !terminated { b.ins().jump(blk, &[]); }
@@ -516,8 +579,16 @@ impl<M: Module> Compiler<M> {
                 let target = |off: i32| blocks[&((pc as i64 + 1 + off as i64) as usize)];
                 let backedge = matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0);
                 let poll_cont = if frame && backedge && !crate::frame::boundary(op) {
-                    let call = b.ins().call(helper_refs["j_frame_poll"], &[]);
-                    let stop = b.inst_results(call)[0];
+                    let stop = if let Some(ptr) = native_budget {
+                        let poll = b.create_block(); let join = b.create_block(); b.append_block_param(join,types::I8);
+                        let present = b.ins().icmp_imm(IntCC::NotEqual,ptr,0); let no = b.ins().iconst(types::I8,0);
+                        b.ins().brif(present,poll,&[],join,&[no.into()]); b.switch_to_block(poll); b.seal_block(poll);
+                        let n = b.ins().load(types::I64,flags,ptr,0);
+                        let positive = b.ins().icmp_imm(IntCC::NotEqual,n,0); let dec = b.ins().iadd_imm(n,-1);
+                        let left = b.ins().select(positive,dec,n); b.ins().store(flags,left,ptr,0);
+                        let stop = b.ins().icmp_imm(IntCC::Equal,left,0); b.ins().jump(join,&[stop.into()]);
+                        b.switch_to_block(join); b.seal_block(join); b.block_params(join)[0]
+                    } else { let call = b.ins().call(helper_refs["j_frame_poll"], &[]); b.inst_results(call)[0] };
                     let spill = b.create_block();
                     let cont = b.create_block();
                     b.ins().brif(stop, spill, &[], cont, &[]);
@@ -573,7 +644,7 @@ impl<M: Module> Compiler<M> {
                     Op::IAdd(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().iadd(p, q)); }
                     Op::ISub(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().isub(p, q)); }
                     Op::IAddK(d, x, k) => { let p = iv!(x); seti!(d, b.ins().iadd_imm(p, k)); }
-                    Op::IMaskU32(d, x) => { let p = iv!(x); seti!(d, b.ins().band_imm(p, 0xffff_ffff)); }
+                    Op::IMaskU32(d, x) => { let p = iv!(x); let v = if native_proofs.narrow_elided[pc] { p } else { b.ins().band_imm(p, 0xffff_ffff) }; seti!(d, v); }
                     Op::IToF(d, x) => { let p = iv!(x); setf!(d, b.ins().fcvt_from_sint(types::F64, p)); }
                     Op::FToI(d, x) => { let p = fv!(x); seti!(d, b.ins().fcvt_to_sint_sat(types::I64, p)); }
                     Op::FK(d, k) => { setf!(d, b.ins().f64const(k)); }
@@ -1256,6 +1327,53 @@ impl<M: Module> Compiler<M> {
                             for i in 1..crate::simd::result_count(op) { let value = b.ins().load(types::I64, flags, extra, ((i-1)*8)as i32); setr!(base as usize+i, value); }
                         }
                     }
+                    Op::SpanLen(d,s,_) => { seti!(d,native_ptrs[&s].1); }
+                    Op::SpanBounds(s,i,n,_,_) => { if !native_proofs.elided[pc] { span_bounds!(s,i,n); } }
+                    Op::SpanLoad(d,s,i,n,k,off,lanes) => {
+                        if !native_proofs.elided[pc] { span_bounds!(s,i,n); }
+                        let (ptr,_) = native_ptrs[&s]; let index = iv!(i); let active = iv!(n);
+                        let v = crate::simd_jit::span_load(&mut b,ptr,index,active,k,off,lanes);
+                        let v = b.ins().bitcast(types::F64X2,cast,v); setv!(d,v);
+                    }
+                    Op::SpanStore(s,i,x,n,k,off,lanes) => {
+                        if !native_proofs.elided[pc] { span_bounds!(s,i,n); }
+                        let (ptr,_) = native_ptrs[&s]; let index = iv!(i); let active = iv!(n); let v = vv!(x);
+                        let v = b.ins().bitcast(crate::simd_jit::vector_type(k),cast,v);
+                        crate::simd_jit::span_store(&mut b,ptr,index,active,k,off,lanes,v);
+                    }
+                    Op::VOp(op,k,d,x,y,z) => {
+                        let name = crate::simd::OPERATIONS[op as usize];
+                        let ty = crate::simd_jit::vector_type(k);
+                        let ty = if matches!(name,"and"|"or"|"xor"|"not"|"select"|"maskEq"|"maskNe") { ty.as_int() } else { ty };
+                        let p = vv!(x); let q = vv!(y); let r = vv!(z);
+                        let p = b.ins().bitcast(ty,cast,p); let q = b.ins().bitcast(ty,cast,q); let r = b.ins().bitcast(ty,cast,r);
+                        let v = crate::simd_jit::vector(&mut b,name,k,p,q,r,!deferred_nan[pc])?;
+                        let v = b.ins().bitcast(types::F64X2,cast,v); setv!(d,v);
+                    }
+                    Op::VSplatN(d,x,k) => {
+                        let ty = crate::simd_jit::vector_type(k);
+                        let p = if k >= 8 { let f = fv!(x); if k == 8 { b.ins().fdemote(types::F32,f) } else { f } }
+                            else { let i = iv!(x); if ty.lane_type() != types::I64 { b.ins().ireduce(ty.lane_type(),i) } else { i } };
+                        let v = b.ins().splat(ty,p); let v = b.ins().bitcast(types::F64X2,cast,v); setv!(d,v);
+                    }
+                    Op::VExtractN(d,x,k,l) => {
+                        let v = vv!(x); let ty = crate::simd_jit::vector_type(k); let v = b.ins().bitcast(ty,cast,v);
+                        let v = b.ins().extractlane(v,l);
+                        if k >= 8 { let v = if k == 8 { b.ins().fpromote(types::F64,v) } else { v }; setf!(d,v); }
+                        else { let v = if ty.lane_type() == types::I64 { v } else if crate::simd::signed(k) { b.ins().sextend(types::I64,v) } else { b.ins().uextend(types::I64,v) }; seti!(d,v); }
+                    }
+                    Op::VPrefix(d,n,k,off,lanes) => {
+                        let ty = crate::simd_jit::vector_type(k).as_int(); let active = iv!(n);
+                        let zero = b.ins().iconst(ty.lane_type(),0); let mut vector = b.ins().splat(ty,zero);
+                        for l in 0..lanes {
+                            let bit = b.ins().icmp_imm(IntCC::UnsignedGreaterThan,active,(off+l) as i64);
+                            let one = if ty.lane_type() == types::I8 { bit } else { b.ins().uextend(ty.lane_type(),bit) }; let mask = b.ins().ineg(one);
+                            vector = b.ins().insertlane(vector,mask,l);
+                        }
+                        let vector = b.ins().bitcast(types::F64X2,cast,vector); setv!(d,vector);
+                    }
+                    Op::VAny(d,x) => { let v = vv!(x); let v = b.ins().bitcast(types::I8X16,cast,v); let v = b.ins().vany_true(v); let v = b.ins().uextend(types::I64,v); seti!(d,v); }
+                    Op::Raise(k) => { let v = kval!(k); b.ins().call(helper_refs["j_native_raise"],&[v]); b.ins().jump(err_block,&[]); terminated = true; }
                     Op::StorageLen(d, s) => { let (_, len) = ptrs[&s]; seti!(d, len); }
                     Op::FLoad(d, s, i) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); setf!(d, b.ins().load(types::F64, flags, a, 0)); }
                     Op::FStore(s, i, x) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); let v = fv!(x); b.ins().store(flags, v, a, 0); }
@@ -1334,7 +1452,17 @@ impl<M: Module> Compiler<M> {
         if let Err(errors) = cranelift_codegen::verifier::verify_function(&self.ctx.func, self.module.isa()) {
             panic!("{}: {errors}\n{}", f.name, self.ctx.func.display());
         }
+        if typed_native {
+            let mut flags = settings::builder(); flags.set("opt_level","speed").unwrap();
+            let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(flags)).unwrap();
+            self.ctx.optimize(isa.as_ref(),&mut Default::default()).map_err(|e| format!("native optimization: {e}"))?;
+        }
+        if let Some(dir) = &native_dump {
+            std::fs::create_dir_all(dir).map_err(|e|e.to_string())?;
+            std::fs::write(format!("{dir}/{fid}.clif"),format!("; {}: {} span checks eliminated\n{}",f.name,native_proofs.elided.iter().filter(|&&x|x).count(),self.ctx.func.display())).map_err(|e|e.to_string())?;
+        }
         self.module.define_function(id, &mut self.ctx).unwrap_or_else(|e| panic!("{}: {e}", f.name));
+        if let Some(dir) = &native_dump { if let Some(code) = self.ctx.compiled_code().and_then(|c|c.vcode.as_ref()) { std::fs::write(format!("{dir}/{fid}.asm"),code).map_err(|e|e.to_string())?; } }
         let maps: Vec<(u32, u32, Vec<u32>)> = self.ctx.compiled_code().map(|c| c.buffer.user_stack_maps().iter().map(|(off, span, m)| (*off, *span, m.entries().map(|(_, o)| o).collect())).collect()).unwrap_or_default();
         let code_len = self.ctx.compiled_code().map(|c| c.code_buffer().len()).unwrap_or(0);
         self.module.clear_context(&mut self.ctx);
