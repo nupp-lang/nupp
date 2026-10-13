@@ -445,8 +445,10 @@ interposition test, not an OS sandbox or console certification.
 The interpreter is linked explicitly and handles module chunks and the 16
 functions refused by the current lowering. The image still ships beside
 the executable on initial load. A checkpoint embeds its code recipe and can
-restore without that image file. SIMD, compiled suspension, plugin refusal and
-actual console SDK validation remain gates for the full no-JIT target.
+restore without that image file. Compiled suspension, SIMD and plugin refusal
+have since been covered (`tests/no-jit-smoke.sh` with `FRAME_AOT=1`,
+`tests/simd-aot-smoke.sh`); actual console SDK validation remains the open
+gate for the full no-JIT target.
 
 ## Compiler emitting images on the VM (2026-10-12)
 
@@ -1134,9 +1136,7 @@ To reproduce this coverage slice:
 ```sh
 python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-corpus \
   --unavailable-module nupp.compiler.runtime.math \
-  --unavailable-module nupp.simd \
   --unavailable-module nupp.checksum.internal.builtin \
-  --unavailable-module simdreducertest \
   --unavailable-module nupp.tools.cli \
   --unavailable-module nupp.runtime.provider.nativetls \
   --unavailable-module nupp.codec.json.internal.decoder.fused
@@ -1292,3 +1292,109 @@ restore. The compiler image rebuilds byte-identically at 7,578,636 bytes.
 `tests/storage-coverage.json` records these results. The fresh `utilstoretest`
 image now loads storage and stops at the missing
 `nupp.runtime.provider.nativeuuid`; the suite has not run any cases.
+
+## SIMD on the VM (2026-10-13)
+
+Three commits brought the public `nupp.simd` API to the VM: the managed
+operations (`28559ede2`), their allocation and validation costs
+(`19f6488f0`), and checked native kernels lowered straight to Cranelift
+vector registers (`158897100`). This section records what they landed, the
+review that followed, and what the review changed. `tests/simd-coverage.json`
+and `tests/native-simd-coverage.json` hold the authors' own records;
+`tests/simd-perf-results.json` and `tests/native-simd-perf-results.json`
+the measurements.
+
+**Where SIMD runs.** Only on the typed tier and through linked AOT objects.
+A function containing a `Simd`, span or vector instruction is refused by the
+Rust interpreter and the threaded core with "SIMD function requires native
+compilation or a matching AOT entry", at entry when no compiled frame is
+active and at the instruction otherwise. So a no-JIT product runs SIMD only
+through objects emitted by `aot IMAGE OBJECT --frames`; `tests/simd-aot-smoke.sh`
+checks that path with executable memory denied. Both Rust suites are gated on
+the `jit` feature.
+
+**Two representations.** Public `species`, `splat`, `load`, `+` and the rest
+lower to one `Simd` instruction each; the typed tier prepares a 2 KB packet on
+its native stack through a helper, runs the operation in registers
+(`simd_jit.rs`), and boxes the result as a managed byte object unless the
+value's whole lifetime stays in one straight-line region, in which case the
+packet is the value (`local_values`). Kernels the checker proves closed,
+scalar-span and helper-free take the second path: `nupp.compiler.vm.native`
+reuses the checked native IR of the LLVM backend, emits `SpanLoad`,
+`SpanStore` and `VOp` instructions, and the tier keeps vectors in registers
+across the whole loop, with span pointers and counts validated once per
+activation, bounds proved by range analysis, and tails masked before memory
+is touched. Anything the adapter cannot express is refused and keeps the
+managed path; an internal failure is a compile error, never a silent
+fallback.
+
+**Measured.** `bench/simd11` map and explicitMap, 65,539 elements, warm
+process medians, nine forks of twenty-one repeats in alternating order, with
+a paired bootstrap of the geometric-mean speedup and a 5% practical margin
+(`tests/simd-perf-compare.py`). Controls replay the preserved LLVM and C
+artifacts on the same host.
+
+| path | explicitMap | map (scalar) |
+| --- | ---: | ---: |
+| managed, before the allocation work | 17.44 ms | 49.72 ms |
+| managed, after (`19f6488f0`) | 8.53 ms | 37.24 ms |
+| checked native kernel (`158897100`) | 0.0212 ms | 37.33 ms |
+| LLVM backend | 0.0082 ms | |
+| clang, vectorised | 0.0082 ms | |
+| clang, scalar | 0.0153 ms | |
+
+The native kernel is 2.6x LLVM and 1.4x scalar C on this map, in line with
+the direct-lowering experiment of 2026-10-10 (2.1 to 2.5x). The scalar map
+does not take the kernel path. At 63 elements the first call costs 3 to 5 ms
+of compilation and the warm call is dominated by the call and span boundary.
+Two caveats on the record: no LuaJIT control was taken, so the product
+baseline is absent from these files; and the candidate binary of the second
+run is identified by its SHA-256 only, not a commit, while the binaries and
+control artifacts live under `/private/tmp/nupp-simd` and are not
+reproducible from the repository. The protocol is sound; the provenance is
+not, and the next measurement should record commits for both sides.
+
+**Review and fixes (2026-10-13).** Three independent reads, of the runtime
+semantics, the lowering soundness and the tests and measurements, found no
+memory-safety or GC-rooting defect. The elision analysis, the once-per-
+activation span validation inside the admitted subset, the tail masking, the
+verifier operand classes, the deferred NaN normalisation and the budget poll
+were each traced and hold. What was wrong, and is fixed here:
+
+- A 64-bit lane scalar refused what the reference wraps: `splat(-1)` on a
+  `uint64` species is `2^64 - 1` in Lua (`0ULL + value`) and raised here.
+  `lane_bits` now uses the same wrapping conversion as wide arithmetic.
+- A dot reducer took its lane count from the left operand only, so
+  `dot:add(2.0, vector)` failed with "wrong species" although the type admits
+  a scalar on either side.
+- The field and SoA `load`/`store` overloads have no VM descriptor; they were
+  refused with a misleading type error and now say the form is unsupported.
+- Every `Simd` instruction allocated its own 2 KB packet slot, so a long
+  generated kernel on a worker's 2 MiB stack could overflow it. Non-elided
+  packets die at `j_simd_finish` and now share one slot per function; worker
+  threads get 16 MiB.
+- The native range analysis assumed storage counts fit `i32`, which held only
+  because `storage::LIMIT` says so; the constant is now taken from there.
+- `j_native_span`, `j_native_raise` and `j_native_bounds_error` did not
+  publish a helper frame as the other helpers do; benign today, now uniform.
+- A test named for GC moves was renamed: the collector does not move.
+- The public fixture checks `widen` by converting through the widened
+  species rather than reading `.lanes`, and covers the two fixed cases.
+
+**Known limits, from the coverage records and the review.** Pure-helper
+maps, transpose, generic element functions and struct and SoA field memory
+are not lowered; the full SIMD matrix, all simd11 workloads and other
+platforms have not run; vectors that escape a region are boxed; the typed
+adapter accepts only closed scalar-span kernels with one result. Typed-native
+functions are compiled with a host ISA at `opt_level=speed` rather than the
+module's, which diverges only if object emission ever targets another
+triple. A non-frame compile of a typed-native function would not root the
+span owner across `IBox`; none exists today. Nothing in this section runs in
+CI; the JSON records and the commands in them are the evidence.
+
+```sh
+cargo test --offline -p nupp-vm --test simd --test native_simd
+python3 native/crates/vm/tests/simd-smoke.py COMPILER_IMAGE --output OUT
+python3 native/crates/vm/tests/native-simd-smoke.py COMPILER_IMAGE --output OUT
+CARGO_TARGET_DIR=build/rust/target sh native/crates/vm/tests/simd-aot-smoke.sh COMPILER_IMAGE OUT/simd.image OUT typed
+```

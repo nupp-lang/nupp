@@ -108,6 +108,9 @@ impl Worker {
         let host_thread = thread::current();
         let thread = thread::Builder::new()
             .name("nupp-worker".into())
+            // Compiled kernels keep vector packets on the native stack; the
+            // default 2 MiB is too little headroom for a long generated kernel.
+            .stack_size(16 << 20)
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(init));
                 let (mut vm, task) = match result {

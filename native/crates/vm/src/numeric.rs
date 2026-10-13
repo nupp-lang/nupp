@@ -81,7 +81,9 @@ pub fn bits(vm: &Interp, v: Value, unsigned: bool) -> u64 {
     }
     n as u64
 }
-fn operand_bits(vm: &Interp, v: Value) -> u64 {
+/// A 64-bit operand as `0ULL + v` yields it: an integer's bits, or a
+/// finite double truncated and wrapped into the 64-bit range.
+pub(crate) fn operand_bits(vm: &Interp, v: Value) -> u64 {
     if let Some(i) = integer(v) {
         return i.bits;
     }

@@ -90,7 +90,7 @@
   },
   "rust": {
     "command": "JIT_VERIFY=1 cargo test -p nupp-vm --release --test simd --offline",
-    "tests": 13,
+    "tests": 19,
     "status": "passed",
     "packetLaneCounts": [
       2,
@@ -105,7 +105,8 @@
       "NaN policies, signed zero, binary32 rounding, ordered and odd-width pairwise reductions",
       "Integer division by zero and signed minimum divided by negative one",
       "Sixty-four-bit masks and integer values above 2^53",
-      "Malformed opcode descriptors, missing compilation, appended images, and checkpoint restore"
+      "Malformed opcode descriptors, missing compilation, appended images, and checkpoint restore",
+      "Sixty-four-bit lane scalars wrap as `0ULL + value`; dot reducers accept a scalar on either side (review fixes, 2026-10-13)"
     ],
     "fullVmSuite": "cargo test -p nupp-vm --release --offline passed; the existing self_lowering test remains opt-in"
   },
@@ -429,5 +430,23 @@
     },
     "semantics": "All ten element kinds and odd/maximum lane widths; local aliases across collection, boxed captures and control-flow exits, parked produced values through checkpoint, interior heap-frame entry, host-call result replacement, and mismatched shape rejection.",
     "compilerSourcesChanged": false
+  },
+  "review": {
+    "date": "2026-10-13",
+    "findings": [
+      "uint64/int64 lane scalars refused values the reference wraps; fixed in simd::lane_bits",
+      "dot reducers took the lane count from the left operand only; fixed in simd_reduce::add",
+      "field/SoA load and store forms refused with a misleading type error; now named as unsupported",
+      "one 2 KB packet stack slot per Simd instruction; non-elided packets now share one slot, workers get 16 MiB stacks",
+      "native range analysis coupled to storage::LIMIT explicitly",
+      "j_native_* helpers publish a helper frame like the other helpers",
+      "test renamed: the collector does not move objects",
+      "fixture checks widen by converting through the widened species"
+    ],
+    "notCovered": [
+      "no LuaJIT control in the performance records",
+      "candidate binary of the native run identified by sha256 only; artifacts under /private/tmp/nupp-simd are not reproducible",
+      "none of this runs in CI"
+    ]
   }
 }

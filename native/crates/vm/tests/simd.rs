@@ -610,7 +610,7 @@ fn float_to_integer_conversion_zeros_invalid_lanes_and_keeps_uint64_upper_range(
 }
 
 #[test]
-fn temporary_vectors_survive_gc_moves_and_escapes_in_both_native_entries() {
+fn temporary_vectors_survive_gc_steps_and_escapes_in_both_native_entries() {
     // The product has two aliases. A managed allocation occurs while it is
     // live; a branch or cell capture forces it to keep its boxed form.
     for kind in 0..10 {
@@ -794,5 +794,86 @@ fn completing_host_call_replaces_a_dead_vector_with_its_scalar_result() {
             .flat_map(f64::to_ne_bytes)
             .collect();
         assert_eq!(&vm.bytes_of(result)[16..], expected);
+    }
+}
+
+/// A VM whose `main` applies one SIMD operation to the given values, which
+/// may be vectors or plain scalars, on the typed tier under GC stress.
+fn execute_values(kind: u8, op: &str, args: &[Value], vm: &mut Interp) -> Value {
+    let argc = args.len();
+    let source = format!(
+        "function main 0 {argc} 9 1 {}:v\nSimd {op} {} 0 {argc}\nRet 0\nend\nentry 0\n",
+        "v".repeat(argc),
+        simd::ELEMENTS[kind as usize]
+    );
+    image::load(vm, &source).unwrap();
+    vm.install_globals();
+    vm.enable_scheduler().unwrap();
+    vm.jit = Some(Box::new(Jit::new()));
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let task = vm.schedule(Value::func(0), args, None).unwrap();
+    let results = vm.run_ready(1).unwrap();
+    let result = vm.tasks[task.index].result;
+    assert_eq!(
+        results[0].status,
+        Status::Completed,
+        "{} {op}: {:?}",
+        simd::ELEMENTS[kind as usize],
+        result
+    );
+    result
+}
+
+#[test]
+fn wide_lane_scalars_wrap_like_the_reference() {
+    // `0ULL + -1` is 2^64 - 1 in the Lua reference, so a negative scalar
+    // operand of a uint64 vector wraps rather than raising.
+    let mut vm = Box::new(Interp::new());
+    let lanes: Vec<u8> = [1u64, 2, 3].into_iter().flat_map(u64::to_ne_bytes).collect();
+    let shape = Shape { kind: 6, lanes: 3, mask: false, species: false };
+    let v = simd::value(&mut vm, shape, &lanes);
+    vm.handles.push(v);
+    let result = execute_values(6, "add", &[v, Value::num(-1.0)], &mut vm);
+    let expected: Vec<u8> = [0u64, 1, 2].into_iter().flat_map(u64::to_ne_bytes).collect();
+    assert_eq!(&vm.bytes_of(result)[16..], expected);
+    // An int64 lane takes a value at or above 2^63 as its two's complement.
+    let mut vm = Box::new(Interp::new());
+    let lanes: Vec<u8> = [0u64, 1, 2].into_iter().flat_map(u64::to_ne_bytes).collect();
+    let shape = Shape { kind: 7, lanes: 3, mask: false, species: false };
+    let v = simd::value(&mut vm, shape, &lanes);
+    vm.handles.push(v);
+    let result = execute_values(7, "add", &[v, Value::num(9223372036854775808.0)], &mut vm);
+    let expected: Vec<u8> = [1u64 << 63, (1 << 63) + 1, (1 << 63) + 2]
+        .into_iter()
+        .flat_map(u64::to_ne_bytes)
+        .collect();
+    assert_eq!(&vm.bytes_of(result)[16..], expected);
+}
+
+#[test]
+fn dot_reducers_take_a_scalar_on_either_side() {
+    for kind in [8u8, 9] {
+        let encode = |xs: &[f64]| -> Vec<u8> {
+            xs.iter()
+                .flat_map(|x| {
+                    if kind == 8 {
+                        (*x as f32).to_ne_bytes().to_vec()
+                    } else {
+                        x.to_ne_bytes().to_vec()
+                    }
+                })
+                .collect()
+        };
+        for scalar_first in [true, false] {
+            let mut vm = Box::new(Interp::new());
+            let shape = Shape { kind, lanes: 4, mask: false, species: false };
+            let v = simd::value(&mut vm, shape, &encode(&[1.0, 2.0, 3.0, 4.0]));
+            vm.handles.push(v);
+            let args = if scalar_first { [Value::num(2.0), v] } else { [v, Value::num(2.0)] };
+            let result = execute_values(kind, "orderedDot", &args, &mut vm);
+            assert_eq!(result, Value::num(20.0), "scalar first: {scalar_first}");
+        }
     }
 }

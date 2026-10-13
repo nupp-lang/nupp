@@ -466,20 +466,29 @@ fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().heap.shapes[s
 
 #[unsafe(no_mangle)]
 pub extern "C" fn j_native_span(span: u64, kind: u64, write: u64, out: *mut usize) -> u64 {
-    ctx().guarded(|it| {
+    let _hp = enter_helper!();
+    let r = ctx().guarded(|it| {
         let (ptr,n) = crate::storage::native_span(it,V(span),kind as u8,write != 0);
         unsafe { *out = ptr as usize; *out.add(1) = n; }
         V::NIL
-    }).0
+    }).0;
+    leave_helper!(_hp);
+    r
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_native_raise(value: u64) -> u64 {
-    ctx().guarded(|_| { std::panic::panic_any(crate::builtins::LuaError(value)); }).0
+    let _hp = enter_helper!();
+    let r = ctx().guarded(|_| { std::panic::panic_any(crate::builtins::LuaError(value)); }).0;
+    leave_helper!(_hp);
+    r
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn j_native_bounds_error() -> u64 {
-    ctx().guarded(|it| { it.err("SIMD span index out of bounds"); }).0
+    let _hp = enter_helper!();
+    let r = ctx().guarded(|it| { it.err("SIMD span index out of bounds"); }).0;
+    leave_helper!(_hp);
+    r
 }
 
 #[unsafe(no_mangle)]

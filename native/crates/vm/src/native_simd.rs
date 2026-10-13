@@ -607,7 +607,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
                     if !(1..=64).contains(&room) {
                         continue;
                     }
-                    let Some(offset) = linear(&env[index as usize], atom, i32::MAX as i64 - room)
+                    let Some(offset) = linear(&env[index as usize], atom, crate::storage::LIMIT as i64 - room)
                     else {
                         continue;
                     };
@@ -646,7 +646,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
                     if !(1..=64).contains(&room) {
                         continue;
                     }
-                    let max = i32::MAX as i64 - room;
+                    let max = crate::storage::LIMIT as i64 - room;
                     let Some(offset) = linear(&env[source as usize], atom, max) else {
                         continue;
                     };

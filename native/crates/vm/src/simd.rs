@@ -193,7 +193,9 @@ pub(crate) fn lane_bits(vm: &Interp, kind: u8, v: Value) -> [u8; 8] {
         return numeric::double(vm, v).to_ne_bytes();
     }
     let bits = if kind >= 6 {
-        numeric::bits(vm, v, kind == 6)
+        // The reference wraps a 64-bit lane scalar as `0ULL + value` does,
+        // so a negative uint64 lane is its two's complement, not an error.
+        numeric::operand_bits(vm, v)
     } else if let Some(i) = numeric::integer(v) {
         i.bits
     } else {
@@ -751,6 +753,12 @@ fn prepare_impl(
         "load" | "store" => {
             if !s.species {
                 vm.err("SIMD memory operation requires a species");
+            }
+            // The field and SoA overloads put a field name where this tier
+            // expects the mask or the value; name the gap instead of
+            // reporting a type mismatch.
+            if vm.kind_of(arg(3)) == Some(crate::heap::KIND_STR) {
+                vm.err("field and SoA load/store forms are not supported on the VM");
             }
             let active = arg(if name == "load" { 3 } else { 4 });
             operand(

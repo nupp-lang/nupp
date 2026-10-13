@@ -9,7 +9,10 @@ use crate::{
     value::Value,
 };
 
-const LIMIT: usize = i32::MAX as usize;
+/// The largest element count a storage may hold. The native range analysis
+/// relies on it: `atom + room <= len <= LIMIT` is what lets a u32 wrap be
+/// treated as the identity (`native_simd::linear`).
+pub(crate) const LIMIT: usize = i32::MAX as usize;
 const TYPES: &str = "nupp.vm.storageTypes";
 const META: &str = "nupp.vm.storageView";
 pub const METHODS: &[&str] = &[

@@ -249,7 +249,9 @@ pub fn add(vm: &mut Interp, args: &[Value]) -> Value {
     let name = NAMES[bytes[9] as usize];
     let dot = name.ends_with("Dot");
     let boolean = matches!(name, "any" | "all" | "count");
-    let vector = simd::shape(vm, arg(1));
+    // A dot product takes its lane count from whichever side is a vector;
+    // the reference admits a scalar on either side.
+    let vector = simd::shape(vm, arg(1)).or_else(|| if dot { simd::shape(vm, arg(2)) } else { None });
     let n = vector.map_or(1, |s| s.lanes);
     if let Some(s) = vector {
         if s.species || s.mask != boolean || (!boolean && s.kind != kind) {

@@ -367,6 +367,9 @@ impl<M: Module> Compiler<M> {
         self.ctx.want_disasm = native_dump.is_some();
         let frame_live = frame.then(|| crate::verify::liveness(f));
         let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
+        // Packets of non-elided operations die at `j_simd_finish`, so one slot
+        // serves them all; an elided packet outlives its operation and keeps its own.
+        let mut shared_packet: Option<cranelift_codegen::ir::StackSlot> = None;
         let start = std::time::Instant::now();
         // The typed signature: float parameters as f64, the rest as value words.
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
@@ -1306,7 +1309,8 @@ impl<M: Module> Compiler<M> {
                             setr!(base, b.inst_results(call)[0]);
                             continue;
                         }
-                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, std::mem::size_of::<crate::simd::Packet>() as u32, 4));
+                        let packet_slot = || StackSlotData::new(StackSlotKind::ExplicitSlot, std::mem::size_of::<crate::simd::Packet>() as u32, 4);
+                        let slot = if simd_local_results[pc] { b.create_sized_stack_slot(packet_slot()) } else { match shared_packet { Some(s) => s, None => { let s = b.create_sized_stack_slot(packet_slot()); shared_packet = Some(s); s } } };
                         let packet = b.ins().stack_addr(types::I64, slot, 0);
                         let opcode = b.ins().iconst(types::I64, op as i64 | ((source as i64) << 8));
                         if simd_local_inputs[pc] {
