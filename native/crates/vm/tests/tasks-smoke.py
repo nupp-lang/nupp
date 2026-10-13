@@ -7,10 +7,11 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 binary = "build/rust/target/release/nupp-vm"
 result = subprocess.run(
-    [binary, "run", sys.argv[1], "nupp.compiler.vm.project", "emit",
+    [binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit",
      "native/crates/vm/tests/tasks-project", "main"],
     env=dict(os.environ, NO_JIT="1"), text=True, capture_output=True, timeout=600,
 )
@@ -25,7 +26,7 @@ with tempfile.TemporaryDirectory() as directory:
         flags.pop("NO_JIT", None)
         if not jit:
             flags["NO_JIT"] = "1"
-        for function in ("run", "cancellation", "churn", "ownership", "families", "captures", "workers", "named", "fields", "coroutines", "channels", "generators", "automaticClose"):
+        for function in ("resultPacks", "run", "cancellation", "churn", "ownership", "families", "captures", "workers", "workerSettlement", "named", "fields", "coroutines", "channels", "generators", "automaticClose"):
             completed = subprocess.run(
                 [binary, "run", str(image), "main", function, "--tasks"],
                 env=flags, text=True, capture_output=True, timeout=120,
@@ -37,6 +38,18 @@ with tempfile.TemporaryDirectory() as directory:
                 assert entries and int(entries[1]) > 0, completed.stderr
             print(f"{'JIT' if jit else 'interpreter'}: {function} passed with GC stress", flush=True)
 
+    snapshot = Path(directory) / "tasks.snapshot"
+    saved = subprocess.run([binary, "run", str(image), "main", "checkpointStart", "--tasks", "--checkpoint", str(snapshot)],
+                           env=dict(flags, NO_JIT="1"), text=True, capture_output=True, timeout=120)
+    assert saved.returncode == 0 and saved.stdout.strip() == "42", saved.stderr
+    # Offline time exceeds the scope's timeout. Restore retains the remaining
+    # interval along with coroutine handlers, the child, and its queued timer.
+    time.sleep(1.1)
+    restored = subprocess.run([binary, "restore", str(snapshot), "main", "checkpointFinish", "--tasks"],
+                              env=flags, text=True, capture_output=True, timeout=120)
+    assert restored.returncode == 0 and restored.stdout.strip() == "42", restored.stderr
+    print("public task scope and timer restored after offline time under JIT and GC stress", flush=True)
+
 # Deterministic close is enforced by ownership, including through library aliases.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -46,6 +59,6 @@ with tempfile.TemporaryDirectory() as directory:
         "coroutine": 'local co = coroutine.create(function(): nil end); coroutine.close(co); coroutine.resume(co)',
     }.items():
         (root / "src/main.nupp").write_text("module main\nlocal main = {}\nfunction main.run(): nil\n" + body + "\nend\nexport = main\n")
-        rejected = subprocess.run([binary, "run", sys.argv[1], "nupp.compiler.vm.project", "emit", str(root), "main"], env=dict(os.environ, NO_JIT="1"), capture_output=True, text=True, timeout=120)
+        rejected = subprocess.run([binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit", str(root), "main"], env=dict(os.environ, NO_JIT="1"), capture_output=True, text=True, timeout=120)
         assert rejected.returncode != 0 and "NUPP2601" in rejected.stderr, rejected.stderr
         print(f"{name}: use after close rejected", flush=True)

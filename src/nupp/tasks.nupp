@@ -76,6 +76,7 @@ local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
 local {type Submittable} = require("nupp.workers.spi")
 local workerModule = require("nupp.runtime.workersprovider").provider
+local taskownership = require("nupp.runtime.taskownership")
 -- The canonical state-local cancellation identity, taken from the module that owns
 -- it. A worker lane raises the same value at `checkpoint`, which is why neither side
 -- may invent its own.
@@ -1114,10 +1115,7 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         waiters = {},
     }
     child.release = function(): nil
-        local candidate = body as any
-        if type(candidate) == "table" and type(candidate.__nuppRelease) == "function" then
-            candidate.__nuppRelease()
-        end
+        taskownership.release(body)
     end
     if owner.closed then
         releaseUncalled(child)

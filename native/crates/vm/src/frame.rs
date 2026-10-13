@@ -4,23 +4,17 @@ use crate::interp::{Interp, Op};
 
 impl Interp {
     #[cfg(feature = "compiled-runtime")]
-    pub(crate) fn run_compiled_frame(
-        &mut self,
-        tid: usize,
-        fid: u32,
-        pc: usize,
-    ) -> Result<usize, crate::interp::Step> {
-        use std::sync::atomic::Ordering;
+    fn prepare_frame_entry(&mut self, fid: u32) -> u64 {
         self.frame_entries.resize(self.funcs.len(), 0);
         if self.frame_entries[fid as usize] == 0 {
             #[cfg(not(feature = "jit"))]
             {
-                return Ok(pc);
+                return 0;
             }
             #[cfg(feature = "jit")]
             {
                 let Some(mut jit) = self.jit.take() else {
-                    return Ok(pc);
+                    return 0;
                 };
                 jit.cur_closure_addr = crate::compiled::closure_address() as i64;
                 jit.extra_addr = self.extra.as_ptr() as i64;
@@ -33,8 +27,28 @@ impl Interp {
                 self.frame_entries[fid as usize] = result.map(|p| p as u64).unwrap_or(u64::MAX);
             }
         }
-        let entry = self.frame_entries[fid as usize];
-        if entry == u64::MAX {
+        self.frame_entries[fid as usize]
+    }
+
+    /// Compile before entering a timed workload, using the same entries as
+    /// on-demand compilation. Refused functions retain the interpreter fallback.
+    #[cfg(feature = "jit")]
+    pub fn precompile_frames(&mut self) -> usize {
+        (0..self.funcs.len() as u32)
+            .filter(|&fid| !matches!(self.prepare_frame_entry(fid), 0 | u64::MAX))
+            .count()
+    }
+
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) fn run_compiled_frame(
+        &mut self,
+        tid: usize,
+        fid: u32,
+        pc: usize,
+    ) -> Result<usize, crate::interp::Step> {
+        use std::sync::atomic::Ordering;
+        let entry = self.prepare_frame_entry(fid);
+        if entry == 0 || entry == u64::MAX {
             return Ok(pc);
         }
         crate::compiled::CTX.store(self, Ordering::Relaxed);

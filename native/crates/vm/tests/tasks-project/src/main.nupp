@@ -2,6 +2,97 @@ module main
 
 local tasks = require("nupp.tasks")
 local main = {}
+local savedThread: any = nil
+
+function main.checkpointStart(): number
+    savedThread = @unsafe nupp.release(
+        coroutine.create(function(): number
+            local suspension = require("nupp.suspension")
+            local host = require("nupp.suspension.host")
+            local time = require("nupp.time")
+            local clock = require("nupp.vm.clock")
+            local handler = new host.Handler(
+                canPark = function(_: host.Handler): boolean
+                    return true
+                end,
+                park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
+                    coroutine.yield(20)
+                    while not waiting:ready() do
+                        suspension.poll()
+                        clock.sleep(1)
+                    end
+                end,
+                shutdown = function(_: host.Handler): nil
+                end
+            )
+            const handling = host.install(handler)
+            with scope = tasks.open(timeoutMs = 1000) do
+                local child = scope:spawn(function(): number
+                    time.sleep(50)
+                    return 42
+                end)
+                return child:await()
+            end
+        end)
+    )
+    local ok, value = coroutine.resume(savedThread)
+    assert(ok and value == 20)
+
+    return 42
+end
+
+function main.checkpointFinish(): number
+    local ok, value = coroutine.resume(savedThread)
+    assert(ok, tostring(value))
+    assert(value == 42 and coroutine.status(savedThread) == "dead")
+    savedThread = nil
+
+    return 42
+end
+
+local function resultPack(): (number, nil, number)
+    return 20, nil, 22
+end
+
+local function protectedPack(...: any): any
+    return {
+        pcall(
+            function(...: any): ...any
+                return ...
+            end,
+            ...
+        )
+    }
+end
+
+function main.resultPacks(): number
+    local packed: any = {7, resultPack()}
+    assert(packed[1] == 7 and packed[2] == 20 and packed[3] == nil and packed[4] == 22, "trailing results")
+    assert(table.maxn(packed) == 4)
+    local protected = protectedPack(20, nil, 22)
+    assert(
+        protected[1] == true and protected[2] == 20 and protected[3] == nil and protected[4] == 22,
+        "protected varargs"
+    )
+    local empty: any = {
+        9,
+        (function(): nil
+        end)()
+    }
+    assert(empty[1] == 9 and table.maxn(empty) == 1)
+    local nan: any = 0 / 0
+    local zero: any = 0
+    local negativeZero: any = -zero
+    assert(nan ~= nan and zero == negativeZero)
+    local problem: any = setmetatable({answer = 42}, {
+        __tostring = function(value: any): string
+            return "answer: " .. tostring(value.answer)
+        end
+    })
+    assert(tostring(problem) == "answer: 42")
+
+    return 42
+end
 
 local record Resource is nupp.Closeable
     state: any
@@ -173,6 +264,33 @@ function main.workers(): number
         assert(result.answer == 42 and result.self == result)
         assert(source.answer == 1 and result ~= source)
     end
+
+    return 42
+end
+
+function main.workerSettlement(): number
+    local failed, problem = pcall(function(): nil
+        with scope = tasks.open() do
+            scope:fork(function(): number
+                error("worker settlement failure")
+            end)
+        end
+    end)
+    assert(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
+    local completed, cancelled = pcall(function(): nil
+        with scope = tasks.open(timeoutMs = 10) do
+            local child = scope:fork(function(): number
+                local total = 0
+                while true do
+                    total = total + 1
+                end
+
+                return total
+            end)
+            child:await()
+        end
+    end)
+    assert(not completed and tasks.isCancelled(cancelled))
 
     return 42
 end

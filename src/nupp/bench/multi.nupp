@@ -6,11 +6,14 @@ local m = {}
 function m.pair(src: string): ({string}, {string})
     local tokens: {string} = {}
     local errors: {string} = {}
+
     local function add(e: string)
         errors[#errors + 1] = e
     end
+
     tokens[1] = src
     add("x")
+
     return tokens, errors
 end
 

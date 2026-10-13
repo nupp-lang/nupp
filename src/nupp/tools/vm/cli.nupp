@@ -1,4 +1,4 @@
-module nupp.compiler.vm.cli
+module nupp.tools.vm.cli
 
 -- Check-command entry for a VM image. The command owns its ordinary CLI grammar.
 local cli = {}

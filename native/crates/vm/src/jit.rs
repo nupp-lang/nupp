@@ -1156,10 +1156,16 @@ impl<M: Module> Compiler<M> {
                         cond_of.insert(d, cv);
                     }
                     Op::Eq(d, x, y) | Op::Ne(d, x, y) => {
-                        // Equal words are equal; unequal words that are both objects
-                        // may still be equal by content, so they ask the runtime.
+                        // Numeric equality excludes NaN and equates signed zeros.
+                        // Unequal objects may still be equal by string content.
                         let (p, q) = (rv!(x), rv!(y));
                         let same = b.ins().icmp(IntCC::Equal, p, q);
+                        let not_nan = b.ins().icmp_imm(IntCC::NotEqual, p, QNAN);
+                        let same = b.ins().band(same, not_nan);
+                        let magnitude = b.ins().bor(p, q);
+                        let magnitude = b.ins().band_imm(magnitude, i64::MAX);
+                        let zeros = b.ins().icmp_imm(IntCC::Equal, magnitude, 0);
+                        let same = b.ins().bor(same, zeros);
                         let objs = b.create_block(); let slow = b.create_block(); let join = b.create_block();
                         b.append_block_param(join, types::I8);
                         b.set_cold_block(slow);

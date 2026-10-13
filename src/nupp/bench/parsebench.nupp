@@ -4,6 +4,7 @@ module nupp.bench.parsebench
 --- installed, then `parse` over a source text, answering a checksum over
 --- the concrete syntax tree so a run can be checked against LuaJIT.
 local parser = require("nupp.compiler.syntax.parser")
+
 local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
 
@@ -18,8 +19,12 @@ end
 --- folded into one number, with the node count.
 local function walk(node: any, sum: number, count: number): (number, number)
     local kind = node.kind
-    if kind == nil then return sum, count end
-    for i = 1, #kind do sum = (sum * 31 + string.byte(kind, i)) % 1000000007 end
+    if kind == nil then
+        return sum, count
+    end
+    for i = 1, #kind do
+        sum = (sum * 31 + string.byte(kind, i)) % 1000000007
+    end
     count = count + 1
     if node.text ~= nil and node.line ~= nil then
         sum = (sum * 31 + #node.text + node.line * 7 + node.col) % 1000000007
@@ -28,6 +33,7 @@ local function walk(node: any, sum: number, count: number): (number, number)
     for _, child in ipairs(node) do
         sum, count = walk(child, sum, count)
     end
+
     return sum, count
 end
 
@@ -42,13 +48,17 @@ end
 --- The tree as text, one line per node or token, for diffing two runtimes.
 local function dumpInto(node: any, out: {string}, depth: number)
     local kind = node.kind
-    if kind == nil then return end
+    if kind == nil then
+        return
+    end
     if node.text ~= nil and node.line ~= nil then
         out[#out + 1] = string.rep(" ", depth) .. kind .. " " .. node.text .. " " .. node.line .. ":" .. node.col
         return
     end
     out[#out + 1] = string.rep(" ", depth) .. kind
-    for _, child in ipairs(node) do dumpInto(child, out, depth + 1) end
+    for _, child in ipairs(node) do
+        dumpInto(child, out, depth + 1)
+    end
 end
 
 function bench.dump(source: string): string

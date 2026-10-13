@@ -27,8 +27,12 @@ parser.add_argument("--unavailable-module", action="append", default=[],
                     help="leave a known migration dependency unresolved; affected suites fail at runtime")
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--jobs", type=int, default=2, help="independent VM processes (default: 2)")
+parser.add_argument("--engine", choices=("rust", "threaded", "jit"), default="threaded")
+parser.add_argument("--gc-stress", action="store_true")
+parser.add_argument("--gc-interleave", action="store_true", help="step incremental collection on every allocation")
 args = parser.parse_args()
 assert args.jobs > 0, "jobs must be positive"
+assert not (args.gc_stress and args.gc_interleave), "choose one collector stress mode"
 root = Path.cwd()
 binary = str(args.binary.resolve())
 seed = str(args.seed.resolve())
@@ -38,7 +42,8 @@ def digest(path):
 
 
 run = {"seed": seed, "binary": binary, "seedSha256": digest(seed), "binarySha256": digest(binary),
-       "interpreter": "threaded", "path": "", "timeoutSeconds": 600,
+       "engine": args.engine, "gcStress": args.gc_stress, "gcInterleave": args.gc_interleave,
+       "compilation": "eager frames" if args.engine == "jit" else "none", "path": "", "timeoutSeconds": 600,
        "unavailableModules": args.unavailable_module}
 (args.output / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 classification = json.loads(Path("native/crates/vm/tests/corpus-classification.json").read_text())
@@ -68,7 +73,7 @@ if args.image:
 else:
     emitter = args.emitter.resolve() if args.emitter else args.output / "emitter.image"
     if not args.emitter:
-        result = subprocess.run([binary, "run", seed, "nupp.compiler.vm.project", "emit", str(root),
+        result = subprocess.run([binary, "run", seed, "nupp.tools.vm.project", "emit", str(root),
                                  "nupp.compiler.vm.corpus", ",".join(host_extras), "src,native/crates/vm/tests"],
                                 env=env, capture_output=True, text=True, timeout=1800)
         if result.returncode != 0:
@@ -93,8 +98,20 @@ run.update(image=str(image), imageSha256=digest(image), selectedSuites=len(selec
 def execute(row):
     suite = row["suite"]
     started = time.monotonic()
+    execution_env = dict(env)
+    execution_env.pop("NO_THREADED", None)
+    if args.engine == "rust":
+        execution_env["NO_THREADED"] = "1"
+    elif args.engine == "jit":
+        execution_env.pop("NO_JIT", None)
+        execution_env["JIT_VERIFY"] = "1"
+        execution_env["JIT_EAGER_FRAMES"] = "1"
+    if args.gc_stress:
+        execution_env.update(GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
+    if args.gc_interleave:
+        execution_env.update(GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
     try:
-        result = subprocess.run([binary, "exec", str(image), "corpus-runner", suite], env=env,
+        result = subprocess.run([binary, "exec", str(image), "corpus-runner", suite], env=execution_env,
                                 capture_output=True, timeout=600)
         stdout, stderr, status = result.stdout, result.stderr, result.returncode
         timed_out = False

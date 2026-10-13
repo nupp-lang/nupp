@@ -9,7 +9,10 @@ local bench = {}
 --- Reads one file; its length, or -1 when it could not be read.
 function bench.readOne(path: string): number
     local text = host.readFile(path)
-    if text == nil then return -1 end
+    if text == nil then
+        return -1
+    end
+
     return #text
 end
 
@@ -18,8 +21,11 @@ function bench.readMany(paths: {string}): number
     local total = 0
     for _, p in ipairs(paths) do
         local text = host.readFile(p)
-        if text ~= nil then total = total + #text end
+        if text ~= nil then
+            total = total + #text
+        end
     end
+
     return total
 end
 
@@ -31,6 +37,7 @@ function bench.pingMany(n: number): number
         host.sleep(0)
         i = i + 1
     end
+
     return i
 end
 

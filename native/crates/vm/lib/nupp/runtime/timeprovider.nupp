@@ -1,0 +1,4 @@
+@!internal
+module nupp.runtime.timeprovider
+
+export const provider = require("nupp.time.internal.timers").create(require("nupp.vm.clock"))

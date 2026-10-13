@@ -23,6 +23,8 @@ pub const NAMES: &[&str] = &[
     "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "affine.release", "tasks.fork", "tasks.channel", "tasks.channelSend", "tasks.channelReceive", "tasks.channelClose", "tasks.coCreate", "tasks.coResume", "tasks.coYield", "tasks.coStatus", "tasks.coRunning", "tasks.coClose", "tasks.coWrap", "tasks.coIsYieldable", "tasks.channelShare", "tasks.coDispose",
     "terminal.isTerminal", "terminal.columns", "clock.now",
     "files.remove", "vm.cacheDigest", "vm.cDeclarations",
+    "vm.clockNow", "vm.clockWall", "vm.clockSleep",
+    "table.maxn", "vm.tableAppendResults", "tasks.pollWorkers", "tasks.workerOpen",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -346,12 +348,33 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
     if v == Value::TRUE { return "true".into(); }
     if v == Value::FALSE { return "false".into(); }
     if it.is_stringish(v) { return String::from_utf8_lossy(it.bytes_of(v)).into_owned(); }
+    let handler = it.meta_field(v, "__tostring");
+    if handler != Value::NIL {
+        let values = it.call_value(handler, &[v]);
+        let text = values.first().copied().unwrap_or(Value::NIL);
+        if !it.is_stringish(text) { it.err("__tostring must return a string"); }
+        return String::from_utf8_lossy(it.bytes_of(text)).into_owned();
+    }
     format!("{}: {:#x}", type_name(it, v), v.0)
 }
 
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
+    if NAMES.get(id as usize) == Some(&"table.maxn") {
+        let table = arg(args, 0);
+        let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
+        return outs![Value::num(max)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.tableAppendResults") {
+        let table = arg(args, 0);
+        let start = arg(args, 1).as_num();
+        for (offset, value) in args.iter().skip(2).enumerate() { it.set_index(table, Value::num(start + offset as f64), *value); }
+        return Outs::new();
+    }
+    if matches!(NAMES.get(id as usize), Some(&"vm.clockNow" | &"vm.clockWall" | &"vm.clockSleep")) {
+        return crate::clock::call(it, NAMES[id as usize], args);
+    }
     if Some(id)==id_of("affine.release") { let body=it.affine_take_drop(arg(args,0)); if body!=Value::NIL { return it.call_outs(body,args); } return Outs::new(); }
     // A host service reached from a frame that cannot park: compiled code
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
@@ -463,10 +486,12 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 if init > n + 1 { return outs![Value::NIL]; }
                 match pattern::find(&s, &pat, (init - 1) as usize) {
                     Some((a, b, caps)) => {
+                        let scope = it.open_scope();
                         let mut out = Outs::new();
                         if find { out.push(Value::num((a + 1) as f64)); out.push(Value::num(b as f64)); }
                         if caps.is_empty() && !find { out.push(str_of(it, &s[a..b])); }
-                        for c in caps { out.push(match c { pattern::Cap::Pos(p) => Value::num((p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[x..y]) }); }
+                        for c in caps { let value = match c { pattern::Cap::Pos(p) => Value::num((p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[x..y]) }; it.handles.push(value); out.push(value); }
+                        it.close_scope(scope);
                         out
                     }
                     None => outs![Value::NIL],
@@ -726,7 +751,7 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
             let s = bytes_of(it, obj); let pat = bytes_of(it, it.iter_pattern(iter));
             if pos > s.len() { return outs![Value::NIL]; }
             match pattern::find(&s, &pat, pos) {
-                Some((a, b, caps)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if caps.is_empty() { outs![str_of(it, &s[a..b])] } else { caps.iter().map(|c| match c { pattern::Cap::Pos(p) => Value::num((*p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[*x..*y]) }).collect() } }
+                Some((a, b, caps)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if caps.is_empty() { outs![str_of(it, &s[a..b])] } else { let scope = it.open_scope(); let mut out = Outs::new(); for c in caps { let value = match c { pattern::Cap::Pos(p) => Value::num((p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[x..y]) }; it.handles.push(value); out.push(value); } it.close_scope(scope); out } }
                 None => { it.iter_set_pos(iter, s.len() + 1); outs![Value::NIL] }
             }
         }

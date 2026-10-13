@@ -7,7 +7,7 @@ use nupp_vm::{
 };
 use std::time::Instant;
 fn emit(vm: &mut Interp) -> Value {
-    let module = vm.require("nupp.compiler.vm.project");
+    let module = vm.require("nupp.tools.vm.project");
     let key = vm.intern("emit");
     let f = vm.get_index(module, key);
     let root = vm.intern("native/crates/vm/tests/persist-project");

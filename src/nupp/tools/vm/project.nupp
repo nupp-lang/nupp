@@ -1,4 +1,4 @@
-module nupp.compiler.vm.project
+module nupp.tools.vm.project
 
 local parser = require("nupp.compiler.syntax.parser")
 local checkMod = require("nupp.compiler.check")
@@ -54,7 +54,11 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
         entry,
         names(extras),
         function(name: string): string?
-            if name == "nupp.generator" then
+            if name == "nupp.vm.taskScope" then
+                -- Reuse the public implementation under a private link name.
+                -- Its source identity remains nupp.tasks for checker call rules.
+                return compilerRoot .. "/src/nupp/tasks.nupp"
+            elseif name == "nupp.generator" then
                 return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
             elseif name == "nupp.tasks" then
                 return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
@@ -62,6 +66,7 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
                 return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
             end
             if name == "nupp.vm.tasks"
+            or name == "nupp.vm.clock"
             or name == "nupp.vm.coroutine"
             or name == "nupp.io.files"
             or name == "nupp.io.path"
@@ -105,7 +110,7 @@ end
 function project.rebuild(root: string, hostBootstrap: boolean?): string
     return project.emit(
         root,
-        "nupp.compiler.vm.project",
+        "nupp.tools.vm.project",
         "nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache",
         nil,
         hostBootstrap

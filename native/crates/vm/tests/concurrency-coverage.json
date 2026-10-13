@@ -1,0 +1,203 @@
+{
+  "date": "2026-10-13",
+  "scope": "Public time, task scopes, suspension, and scoped worker adapters. The full portable corpus remains an open gate.",
+  "corpusRuns": [
+    {
+      "engine": "threaded",
+      "compilation": "none",
+      "gcStress": false,
+      "gcInterleave": true,
+      "imageSha256": "773096ca7405472b253c32a51eed5106ad8ea2be603ab7951bef27e8f9e34151",
+      "binarySha256": "78e92dfb71a67ea9d7dfdcb07a7c6fd65857d7b1208e9d9bd700a9c51313634e",
+      "passed": 118,
+      "failed": 0,
+      "suites": [
+        {
+          "suite": "suspensiontest",
+          "passed": 42,
+          "failed": 0,
+          "total": 42
+        },
+        {
+          "suite": "taskfailuretest",
+          "passed": 6,
+          "failed": 0,
+          "total": 6
+        },
+        {
+          "suite": "taskstest",
+          "passed": 57,
+          "failed": 0,
+          "total": 57
+        },
+        {
+          "suite": "timetest",
+          "passed": 13,
+          "failed": 0,
+          "total": 13
+        }
+      ]
+    },
+    {
+      "engine": "rust",
+      "compilation": "none",
+      "gcStress": false,
+      "gcInterleave": true,
+      "imageSha256": "773096ca7405472b253c32a51eed5106ad8ea2be603ab7951bef27e8f9e34151",
+      "binarySha256": "78e92dfb71a67ea9d7dfdcb07a7c6fd65857d7b1208e9d9bd700a9c51313634e",
+      "passed": 118,
+      "failed": 0,
+      "suites": [
+        {
+          "suite": "suspensiontest",
+          "passed": 42,
+          "failed": 0,
+          "total": 42
+        },
+        {
+          "suite": "taskfailuretest",
+          "passed": 6,
+          "failed": 0,
+          "total": 6
+        },
+        {
+          "suite": "taskstest",
+          "passed": 57,
+          "failed": 0,
+          "total": 57
+        },
+        {
+          "suite": "timetest",
+          "passed": 13,
+          "failed": 0,
+          "total": 13
+        }
+      ]
+    },
+    {
+      "engine": "jit",
+      "compilation": "eager frames",
+      "gcStress": false,
+      "gcInterleave": true,
+      "imageSha256": "773096ca7405472b253c32a51eed5106ad8ea2be603ab7951bef27e8f9e34151",
+      "binarySha256": "78e92dfb71a67ea9d7dfdcb07a7c6fd65857d7b1208e9d9bd700a9c51313634e",
+      "passed": 118,
+      "failed": 0,
+      "suites": [
+        {
+          "suite": "suspensiontest",
+          "passed": 42,
+          "failed": 0,
+          "total": 42
+        },
+        {
+          "suite": "taskfailuretest",
+          "passed": 6,
+          "failed": 0,
+          "total": 6
+        },
+        {
+          "suite": "taskstest",
+          "passed": 57,
+          "failed": 0,
+          "total": 57
+        },
+        {
+          "suite": "timetest",
+          "passed": 13,
+          "failed": 0,
+          "total": 13
+        }
+      ]
+    }
+  ],
+  "taskSmoke": {
+    "casesPerEngine": 15,
+    "engines": [
+      "threaded",
+      "on-demand JIT"
+    ],
+    "gcStress": true,
+    "gcOracle": true,
+    "gcQuarantine": true,
+    "checkpoint": "Parked public scope, handler, and child timer restored under JIT after 1.1 seconds offline; remaining deadline preserved.",
+    "affineRejections": [
+      "channel use after close",
+      "coroutine use after close"
+    ],
+    "imageSha256": "76e885a87c76312c4680c4c802ed4e54deae94886611d6ae57f10c01f6cbaccf"
+  },
+  "timingLimits": [
+    "The unchanged corpus includes 5 ms deadlines and a 70 ms concurrency assertion. Eager JIT excludes compilation from these timed bodies.",
+    "A threaded incremental-GC run exceeded the concurrency time bound while broad host validation ran. Its isolated rerun passed all 118 cases.",
+    "Full collection at every allocation changes wall-clock deadline outcomes; that mode is covered separately by the task smoke fixture."
+  ],
+  "reproduce": [
+    "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite timetest --suite taskstest --suite taskfailuretest --suite suspensiontest --engine ENGINE --gc-interleave --jobs 1 --output OUTPUT",
+    "python3 native/crates/vm/tests/tasks-smoke.py SEED",
+    "cargo test --release -p nupp-vm -- --test-threads=1"
+  ],
+  "rustTests": {
+    "passed": 84,
+    "failed": 0,
+    "profile": "release",
+    "features": "default"
+  },
+  "hostCheck": {
+    "ok": true,
+    "errors": 0,
+    "compiledModules": 145,
+    "reusedModules": 404,
+    "totalModules": 549
+  },
+  "cliSmoke": "Derived check command passed files, diagnostics, JSON, schema, help, usage, C declarations, and project checking.",
+  "compilerImageFixpoint": {
+    "stages": 3,
+    "bytes": 7395044,
+    "sha256": "1179dde0c0048a4e37f1a90c711eca1efd8cc5abffd41cb4db899720796a269a",
+    "identical": true,
+    "entry": "nupp.tools.vm.project"
+  },
+  "hostFocused": {
+    "ok": true,
+    "total": 118,
+    "passed": 118,
+    "failed": 0
+  },
+  "hostBroadInitial": {
+    "total": 5216,
+    "passed": 5193,
+    "failed": 18,
+    "skipped": 1,
+    "notExecuted": 4,
+    "notes": [
+      "Two worker reports were lost after the disk filled; unreported suites are included in the failure rerun.",
+      "The rerun also covers the corrected ABI registry source, Rust notices, benchmark formatting, VM entry-point layering, and the Wasm fixture failure."
+    ],
+    "notExecutedReasons": [
+      "Two SIMD mutation tests require the separate equivalence runner.",
+      "The SIMD fleet equivalence and browser smoke capabilities were not requested."
+    ]
+  },
+  "cliImage": {
+    "entry": "nupp.tools.vm.cli",
+    "bytes": 9738772,
+    "sha256": "24cbb76fe156b34c502bae28c2f76cd5aed5dbb16a0b509c5ca00353024f1954",
+    "modules": 199,
+    "legacyBuildBackends": false
+  },
+  "hostRecovery": {
+    "ok": true,
+    "total": 241,
+    "passed": 241,
+    "failed": 0,
+    "skipped": 0,
+    "notExecuted": 0,
+    "selection": "Failed and unreported cases from the initial broad run; two jobs after removing obsolete Rust build caches."
+  },
+  "hostFixpoint": {
+    "ok": true,
+    "fromPinnedStageZero": true,
+    "byteIdentical": true
+  }
+}

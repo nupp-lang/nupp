@@ -4,6 +4,33 @@ use nupp_vm::{
     interp::Interp,
     value::Value,
 };
+
+#[test]
+fn string_capture_results_survive_later_capture_allocations() {
+    for operation in ["string.find", "string.match", "string.gmatch"] {
+        let mut vm = Interp::new();
+        vm.heap.stress = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let subject = vm.intern("first-capture/second-capture");
+        vm.register(subject);
+        let pattern = vm.intern("(.*)/(.*)");
+        vm.register(pattern);
+        let mut values = call(&mut vm, id_of(operation).unwrap(), &[subject, pattern]);
+        if operation == "string.gmatch" {
+            let iterator = values[0];
+            vm.register(iterator);
+            values = iter_next(&mut vm, iterator);
+        }
+        let offset = if operation == "string.find" { 2 } else { 0 };
+        for value in values.iter() {
+            vm.register(*value);
+        }
+        vm.new_table();
+        assert_eq!(vm.bytes_of(values[offset]), b"first-capture");
+        assert_eq!(vm.bytes_of(values[offset + 1]), b"second-capture");
+    }
+}
 #[test]
 fn record_table_iteration_omits_absent_and_deleted_values() {
     let mut vm = Interp::new();

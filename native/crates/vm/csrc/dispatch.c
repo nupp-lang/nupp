@@ -127,6 +127,7 @@ static inline Value boolean(int b) { return b ? T_TRUE : T_FALSE; }
 // Equal words are equal; two interned strings with different words are not;
 // other object pairs may be equal by content (slices, long strings).
 static inline int values_equal(Ctx* ctx, Value x, Value y) {
+    if (is_num(x) && is_num(y)) return as_num(x) == as_num(y);
     if (x == y) return 1;
     if (!is_obj(x) || !is_obj(y)) return 0;
     if ((obj_flags(x) & F_INTERNED) && (obj_flags(y) & F_INTERNED)) return 0;

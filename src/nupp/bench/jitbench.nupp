@@ -17,6 +17,7 @@ local function rec(n: number): number
         r = rec(n - 1) + 1
     end
     nesting = nesting - 1
+
     return r
 end
 

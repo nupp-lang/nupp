@@ -9,6 +9,7 @@ pub mod value;
 pub mod heap;
 pub mod interp;
 pub mod builtins;
+mod clock;
 pub mod fileio;
 pub mod verify;
 pub mod image;

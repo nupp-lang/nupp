@@ -219,6 +219,10 @@ fn close_scope_deadline(vm: &mut Interp, tid: usize, scope: Value) {
     if field(vm, scope, "_closed") == Value::TRUE {
         return;
     }
+    if field(vm, scope, "_detached") == Value::TRUE {
+        put(vm, scope, "_closed", Value::TRUE);
+        return;
+    }
     let owner = field(vm, scope, "_owner");
     if owner != Value::num(tid as f64) {
         vm.err("scope must close in its owning task")
@@ -245,6 +249,8 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
         && !matches!(
             name,
             "tasks.isCancelled" | "tasks.checkpoint" | "tasks.deadline"
+                | "tasks.coRunning" | "tasks.coStatus" | "tasks.coIsYieldable" | "tasks.coCreate"
+                | "tasks.pollWorkers" | "tasks.isDone" | "tasks.status"
         )
     {
         vm.err("task operation in a nonsuspending cleanup callback")
@@ -256,6 +262,10 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
         return crate::channels::call(vm, name, args);
     }
     match name {
+        "tasks.pollWorkers" => {
+            let count = vm.poll_workers().unwrap_or_else(|e| vm.err(&e)).len();
+            Values(vec![Value::num(count as f64)])
+        }
         "tasks.isCancelled" => Values(vec![Value::boolean(is_cancelled(vm, arg(0)))]),
         "tasks.checkpoint" => {
             crate::scheduler::checkpoint(vm);
@@ -271,8 +281,8 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 .map(|d| Value::num(d as f64))
                 .unwrap_or(Value::NIL),
         ]),
-        "tasks.open" | "tasks.familyOpen" => {
-            let limit = if name == "tasks.familyOpen" {
+        "tasks.open" | "tasks.familyOpen" | "tasks.workerOpen" => {
+            let limit = if name != "tasks.open" {
                 Value::NIL
             } else {
                 arg(0)
@@ -317,7 +327,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 vm,
                 scope,
                 "_soft",
-                Value::boolean(name == "tasks.familyOpen"),
+                Value::boolean(name != "tasks.open"),
             );
             put(vm, scope, "_owner", Value::num(tid as f64));
             put(
@@ -328,7 +338,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                     .map(|d| Value::num(d as f64))
                     .unwrap_or(Value::NIL),
             );
-            set_deadline(vm, tid, deadline);
+            let detached = name == "tasks.workerOpen";
+            put(vm, scope, "_detached", Value::boolean(detached));
+            if !detached { set_deadline(vm, tid, deadline); }
             let table = vm.new_table();
             put(vm, scope, "_children", table);
             put(vm, scope, "_limit", limit);

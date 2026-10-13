@@ -409,7 +409,7 @@ built by another release is refused by exact version rather than adapted.
 | --- | --- | --- | --- |
 | Native provider ABI | 2 | exact major | `native/include/nupp_native.h` `NUPP_NATIVE_ABI_VERSION` |
 | Embedding ABI | 2 | exact, config `size` at least the struct | `native/crates/host/src/embed.rs` `EMBED_ABI_VERSION` |
-| Compiler host ABI | 1 | exact | `src/nupp/tools/build/package.nupp` `hostAbiVersion` |
+| Compiler host ABI | 1 | exact | `src/nupp/tools/build/platform.nupp` `hostAbiVersion` |
 | Payload trailer | 1 | exact | `native/crates/host/src/payload.rs` `FORMAT_VERSION` |
 | AOT runtime ABI | 1 | exact | `native/crates/native/c/ks_rt.c` `KS_RT_ABI_VERSION` |
 | Browser application manifest | 1 | exact | `runtime/luajit/app-runtime.mjs` `schema` |

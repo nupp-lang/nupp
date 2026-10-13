@@ -2,6 +2,7 @@
 # Release and ordinary test builds consume that notice without installing it.
 accepted = [
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CDLA-Permissive-2.0",

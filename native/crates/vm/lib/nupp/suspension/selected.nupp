@@ -1,0 +1,7 @@
+@!internal
+module nupp.suspension.selected
+
+export const provider = require("nupp.suspension.internal.provider")
+export const turnAvailable = provider.turnAvailable
+export const consumeTurn = provider.consumeTurn
+export const deferTurn = provider.deferTurn

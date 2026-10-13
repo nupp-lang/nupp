@@ -319,6 +319,7 @@ impl Function {
 }
 
 pub struct Interp {
+    pub(crate) clock: crate::clock::Clock,
     pub(crate) channel_registry: crate::channels::Shared,
     pub(crate) workers: std::collections::HashMap<u64,crate::workers::Worker>,
     pub(crate) instruction_budget: Option<usize>,
@@ -484,7 +485,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
 
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
@@ -915,7 +916,7 @@ impl Interp {
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
-        let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort"]);
+        let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn"]);
         let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
@@ -933,6 +934,12 @@ impl Interp {
         self.loaded.insert("nupp.cli.internal.terminalhost".into(), terminal);
         let clock = table_of(self, &["clock.now"]);
         self.loaded.insert("nupp.tools.build.clockhost".into(), clock);
+        let clock = self.new_table(); self.registered.push(clock);
+        for (name, builtin) in [("now", "vm.clockNow"), ("wallTime", "vm.clockWall"), ("sleep", "vm.clockSleep")] {
+            let key = self.intern(name);
+            self.set_index(clock, key, Value::builtin(crate::builtins::id_of(builtin).unwrap()));
+        }
+        self.loaded.insert("nupp.vm.clock".into(), clock);
         let pid = self.new_table(); self.registered.push(pid);
         let get = self.intern("get"); self.set_index(pid, get, Value::builtin(crate::builtins::id_of("vm.processId").unwrap()));
         self.loaded.insert("nupp.compiler.hostpid".into(), pid);
@@ -945,9 +952,10 @@ impl Interp {
         let cdecl = self.new_table(); self.registered.push(cdecl);
         let k = self.intern("request"); self.set_index(cdecl, k, Value::builtin(crate::builtins::id_of("vm.cDeclarations").unwrap()));
         self.loaded.insert("nupp.compiler.nativecdecl".into(), cdecl);
-        let tasks = table_of(self, &["tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "tasks.channel"]);
+        let tasks = table_of(self, &["tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "tasks.channel", "tasks.pollWorkers", "tasks.workerOpen"]);
         if !self.modules.contains_key("nupp.tasks") { self.loaded.insert("nupp.tasks".into(), tasks); }
         self.loaded.insert("nupp.vm.tasks".into(), tasks);
+        let release = self.intern("release"); self.set_index(tasks, release, Value::builtin(crate::builtins::id_of("affine.release").unwrap()));
         let tag_key=self.intern("_tag");self.registered.push(tag_key);self.loaded.insert("nupp.vm.tagKey".into(),tag_key);
         let coroutines=self.new_table();self.registered.push(coroutines);self.loaded.insert("nupp.vm.coroutines".into(),coroutines);
         let co_tag=self.new_table();self.registered.push(co_tag);self.loaded.insert("nupp.vm.coroutineTag".into(),co_tag);
@@ -1031,6 +1039,7 @@ impl Interp {
     pub fn kind_of(&self, v: Value) -> Option<u8> { v.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }) }
     /// Equality: identical words, or two string-like objects with the same bytes.
     pub fn values_equal(&self, x: Value, y: Value) -> bool {
+        if x.is_num() && y.is_num() { return x.as_num() == y.as_num(); }
         if x == y { return true; }
         if let (Some(p), Some(q)) = (x.as_obj(), y.as_obj()) {
             let (a, b) = unsafe { (&*p.as_ptr(), &*q.as_ptr()) };
@@ -1107,7 +1116,7 @@ impl Interp {
         }
         self.heap.account_resize(before, h.external_bytes());
     }
-    fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
+    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
     /// A read that follows `__index` (a function or a table) when a table
     /// lacks the key, including tables represented by record shapes.
     pub fn index(&mut self, t: Value, key: Value) -> Value {

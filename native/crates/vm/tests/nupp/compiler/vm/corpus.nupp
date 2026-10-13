@@ -24,6 +24,7 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
     local hosts = {
         ["nupp.vm.tasks"] = true,
+        ["nupp.vm.clock"] = true,
         ["nupp.vm.coroutine"] = true,
         ["nupp.io.files"] = true,
         ["nupp.io.path"] = true,
@@ -47,9 +48,13 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
         "corpus-runner",
         extras,
         function(name: string): string?
+            if name == "nupp.vm.taskScope" then
+                return root .. "/src/nupp/tasks.nupp"
+            end
             if hosts[name] or missing[name] then
                 return nil
             end
+
             return envMod.findRuntimeModulePath(env, name)
         end,
         function(_: string, path: string): table

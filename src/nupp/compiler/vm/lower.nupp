@@ -1156,22 +1156,26 @@ function lower.emit(
             if name == "pcall" and not f:binding(name) then
                 local args = node.args.exprs
                 local base = dst
-                while f.nregs < base + #args + 1 do
+                while f.nregs < base + #args + 8 do
                     f:reg()
                 end
                 local last = args[#args]
                 local trailing = #args > 1 and multiCall(last)
+                local varargs = #args > 1 and last.kind == "vararg"
                 for i, a in ipairs(args) do
-                    if not (trailing and i == #args) then
+                    if not ((trailing or varargs) and i == #args) then
                         exprAs(f, a, "v", base + i)
                     end
                 end
                 if trailing then
                     emitCall(f, last, base + #args, 8, true);
                     f:op("PCall", base, (#args - 2) + 64)
+                elseif varargs then
+                    f:op("PCall", base, (#args - 2) + 128)
                 else
                     f:op("PCall", base, #args - 1)
                 end
+                finish(base)
                 return
             end
             if name == "require" and not f:binding(name) and nres <= 1 and not all then
@@ -1810,7 +1814,20 @@ function lower.emit(
                     n = n + 1
                     local i = f:reg();
                     f:op("K", i, f:const("num", n))
-                    if fieldIndex == #node.fields and field.value.kind == "vararg" then
+                    if fieldIndex == #node.fields and multiCall(field.value) then
+                        -- Append exactly the trailing call's result pack, including
+                        -- nil holes, without treating its capacity as its length.
+                        local base = f:reg()
+                        while f.nregs < base + 11 do
+                            f:reg()
+                        end
+                        local callee = f:reg()
+                        f:op("K", callee, f:const("builtin", "vm.tableAppendResults"))
+                        f:op("Move", base + 1, dst)
+                        f:op("Move", base + 2, i)
+                        emitCall(f, field.value, base + 3, 8, true)
+                        f:op("CallDyn", callee, base, 66)
+                    elseif fieldIndex == #node.fields and field.value.kind == "vararg" then
                         -- A trailing vararg expands even after named or positional
                         -- fields. Count it explicitly so nil holes survive.
                         local values = f:reg()
@@ -2425,23 +2442,30 @@ function lower.emit(
             end
             if #exprs == 0 then
                 f:op("RetNil")
-            elseif #exprs == 1 and not multiCall(exprs[1]) then
+            elseif #exprs == 1 and not multiCall(exprs[1]) and exprs[1].kind ~= "vararg" then
                 local r, c = expr(f, exprs[1], nil, nil)
                 local vr = coerce(f, r, c, "v");
                 f:op("Ret", vr)
             else
                 local base = f.nregs
                 local n = #exprs
-                if multiCall(exprs[n]) then
+                if multiCall(exprs[n]) or exprs[n].kind == "vararg" then
                     -- A trailing call's results are all returned: evaluate the others,
                     -- then it.
-                    while f.nregs < base + n + 1 do
+                    while f.nregs < base + n + 8 do
                         f:reg()
                     end
                     for i = 1, n - 1 do
                         exprAs(f, exprs[i], "v", base + i - 1)
                     end
-                    emitCall(f, exprs[n], base + n - 1, 8, true)
+                    if exprs[n].kind == "vararg" then
+                        local callee = f:reg()
+                        f:op("K", callee, f:const("builtin", "select"))
+                        f:op("K", base + n, f:const("num", 1))
+                        f:op("CallDyn", callee, base + n - 1, 129)
+                    else
+                        emitCall(f, exprs[n], base + n - 1, 8, true)
+                    end
                     -- 128 | fixed: the fixed values, then exactly what the call
                     -- returned.
                     f:op("RetN", base, 128 + (n - 1))

@@ -1454,6 +1454,10 @@ pub fn save_vm(
     policies.checkpoint_safe()?;
     safepoint(vm)?;
     vm.snapshot_workers()?;
+    if let Some(&clock) = vm.loaded.get("nupp.vm.clock") {
+        let now = Value::num(vm.clock.now());
+        crate::task_api::put(vm, clock, "_checkpointNow", now);
+    }
     codecs.entry(crate::channels::KIND.into()).or_insert_with(|| Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
     if let Some(s) = &vm.scheduler {
         s.validate(vm)?;
@@ -2098,6 +2102,14 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
         let mut host = crate::host::Host::start(threads);
         host.next = next;
         vm.host = Some(host);
+    }
+
+    if let Some(&clock) = vm.loaded.get("nupp.vm.clock") {
+        let saved = crate::task_api::field(&mut vm, clock, "_checkpointNow");
+        if !saved.is_num() || !saved.as_num().is_finite() || saved.as_num() < 0.0 {
+            return Err("invalid monotonic clock checkpoint".into());
+        }
+        vm.clock.restore(saved.as_num());
     }
     Ok(vm)
 }

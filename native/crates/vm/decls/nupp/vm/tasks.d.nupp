@@ -40,6 +40,9 @@ local record Channel<T> is nupp.Closeable
 end
 
 local record Tasks
+    release: function(body: any): nil
+    workerOpen: function(): affine(Scope)
+    pollWorkers: function(): integer
     channel: function<T>(capacity: integer): affine(Channel<T>)
     open: function(limit: integer?, timeoutMs: number?): affine(Scope)
     run: function<R...>(scoped body: function(borrows scope: Scope): R...): R...

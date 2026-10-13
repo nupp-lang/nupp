@@ -1,0 +1,27 @@
+@!internal
+module nupp.suspension.internal.coroutines
+
+local coroutines = {}
+
+-- VM threads own their suspension state. A map view avoids retaining dead
+-- threads in a global table and carries the state through a checkpoint.
+function coroutines.localMap(name: string): any
+    local field = "_suspension_" .. name
+    return setmetatable({}, {
+        __index = function(_: any, thread: any): any
+            if thread == nil then
+                return nil
+            end
+            return rawget(thread, field)
+        end,
+        __newindex = function(_: any, thread: any, value: any): nil
+            rawset(thread, field, value)
+        end,
+    })
+end
+
+function coroutines.create(body: any): thread
+    return @unsafe nupp.release(coroutine.create(body))
+end
+
+export = coroutines

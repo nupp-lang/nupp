@@ -494,7 +494,7 @@ extends it to the complete compiler core.
 
 ## Project loading, manifests, and compiler-image fixpoint
 
-`nupp.compiler.vm.project` reads projects through the existing compiler module
+`nupp.tools.vm.project` reads projects through the existing compiler module
 resolver, checks each source, and emits the reachable image. The compiler core
 includes its computed project dependencies; a Rust runner calls `emit`, `manifest`,
 or `rebuild`. The four-line `emit/project.lua` only seeds it with the existing host.
@@ -1056,29 +1056,30 @@ python3 native/crates/vm/tests/project-smoke.py /path/to/project-compiler.image
 
 The CLI image test asks the VM compiler to emit the real `check` command,
 verifies its bytecode, and rejects legacy AOT lowering, LLVM code generation,
-C-header parsing, LuaJIT packaging, hot-reload, native processes, and
-documentation backends in its module list.
+LuaJIT packaging, hot-reload, native processes, and documentation backends in
+its module list. The emission list includes the dynamically selected compiler
+host services and the VM's C-declaration adapter.
 Static target descriptions remain available for manifest checking. The project
 fixture exercises erased imports, library tables, concatenation and global
 assignments, and named affine cleanup on both interpreters and the JIT, followed
 by the compiler-image fixpoint.
 
-This gate covers image construction. Executing the check command also requires
-the compiler host services and derived metadata described below.
+This gate covers image construction. The execution test below runs the same
+image through the compiler host services and derived metadata.
 
 ## Check command execution (2026-10-12)
 
-`nupp.compiler.vm.cli` runs the existing derived `check` command on the VM.
+`nupp.tools.vm.cli` runs the existing derived `check` command on the VM.
 The executable entry accepts raw arguments and returns the command's exit status:
 
 ```sh
 NO_JIT=1 NUPP_COMPILER_ROOT="$PWD" \
-  build/rust/target/release/nupp-vm exec check.image nupp.compiler.vm.cli --json
+  build/rust/target/release/nupp-vm exec check.image nupp.tools.vm.cli --json
 python3 native/crates/vm/tests/cli-execution-smoke.py check.image --repository
 ```
 
-Build `check.image` with `nupp.compiler.vm.project.emit`, using
-`nupp.compiler.vm.cli` as its entry and these extra modules:
+Build `check.image` with `nupp.tools.vm.project.emit`, using
+`nupp.tools.vm.cli` as its entry and these extra modules:
 `nupp.compiler.hostservices`, `nupp.compiler.fs`,
 `nupp.compiler.project.projectconfig`, `nupp.compiler.project.store`,
 `nupp.compiler.project.fingerprint`, `nupp.compiler.hash`, and
@@ -1142,9 +1143,57 @@ python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-c
 
 Those modules stay unresolved; affected suites fail. The complete gate requires
 removing these flags, porting surviving tests, and running under collector
-stress. Current failures include wide numeric operations, subprocess-based CLI
+stress. That baseline includes failures in wide numeric operations, subprocess-based CLI
 tests, old storage/time/suspension/worker providers, LuaJIT and documentation
 dependencies, and test fixture services. The runtime's workers and compiled
 suspension are already implemented; their library adapters remain separate
 migration work. The lexer timeout reaches its legacy FFI trivia-arena case and
 still needs diagnosis.
+
+## Public time, suspension, and tasks (2026-10-13)
+
+The VM uses the public task-scope implementation and shares suspension and
+timer logic with the native provider. VM adapters supply monotonic and wall
+clocks, coroutine storage, captured-resource cleanup, and worker completion.
+
+```sh
+python3 native/crates/vm/tests/corpus-smoke.py compiler.image \
+  --suite timetest --suite taskstest --suite taskfailuretest --suite suspensiontest \
+  --engine jit --gc-interleave --jobs 1 --output /tmp/vm-concurrency
+python3 native/crates/vm/tests/tasks-smoke.py compiler.image
+```
+
+The corpus driver accepts `rust`, `threaded`, and `jit` engines. `--image`
+reuses the emitted corpus for another engine. All 118 cases in these four suites
+pass on all three engines; `tests/concurrency-coverage.json` records the image
+hashes and results. Their gate is separate from the full corpus inventory above.
+The JIT corpus run compiles frames before entering the timed tests. Cold JIT
+compilation and full collection on every allocation can consume the suites'
+5 ms deadlines before a child starts. Incremental collection runs at every
+allocation with the root oracle and quarantine enabled. The task smoke test
+separately exercises on-demand JIT with full collection at every allocation.
+
+The VM links `src/nupp/tasks.nupp` under a private module name, preserving its
+public nominal identity for the checker's call and ownership rules. Scoped
+`fork` polls existing VM workers through a suspension source. Completed workers
+leave the live registry, and failures and cancellation settle through the public
+scope's existing rules. The broader `nupp.workers` facade still needs migration.
+
+Suspension state belongs to VM coroutine objects, so it persists with them and
+does not depend on weak-table support. Checkpoints store the monotonic reading
+and restore its remaining intervals; offline time does not consume a deadline.
+Wall time continues to report Unix milliseconds. The task smoke test restores
+a parked scope, child timer, and installed handler after an offline interval
+longer than the scope's timeout, then completes under JIT and collector stress.
+
+Corpus coverage exposed return-pack lowering and numeric equality gaps. Trailing
+calls expand inside table constructors, protected calls forward trailing
+varargs, and `return ...` forwards the result pack. Both interpreters and the
+compiled path compare NaN and signed zero numerically. Table maximum-index
+queries and `__tostring` support preserve the existing test and failure formats.
+The VM's existing eight-value result-window limit still applies.
+
+The task smoke test also checks worker failures and deadlines, channels,
+coroutines, generators, affine cleanup, and cancellation before a captured
+closure starts. Full CLI migration, remaining host services, and the broader
+corpus gate remain open.

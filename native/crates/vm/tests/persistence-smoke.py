@@ -10,7 +10,7 @@ import tempfile
 binary = "build/rust/target/release/nupp-vm"
 env = dict(os.environ, NO_JIT="1")
 compiled = subprocess.run(
-    [binary, "run", sys.argv[1], "nupp.compiler.vm.project", "emit",
+    [binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit",
      "native/crates/vm/tests/persist-project", "main"],
     env=env, capture_output=True, text=True, check=True,
 )

@@ -1,0 +1,6 @@
+local record Clock
+    now: function(): number
+    wallTime: function(): number
+    sleep: function(milliseconds: number): nil
+end
+return Clock

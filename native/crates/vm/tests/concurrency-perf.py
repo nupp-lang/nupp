@@ -13,7 +13,7 @@ binary = "build/rust/target/release/nupp-vm"
 env = dict(os.environ)
 for key in ("GC_STRESS", "GC_ORACLE", "GC_QUARANTINE", "GC_INTERLEAVE", "NO_JIT", "JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
     env.pop(key, None)
-emitted = subprocess.run([binary, "run", sys.argv[1], "nupp.compiler.vm.project", "emit", "native/crates/vm/tests/tasks-project", "perf"], env=dict(env, NO_JIT="1"), capture_output=True, text=True, check=True)
+emitted = subprocess.run([binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit", "native/crates/vm/tests/tasks-project", "perf"], env=dict(env, NO_JIT="1"), capture_output=True, text=True, check=True)
 with tempfile.TemporaryDirectory() as directory:
     path = Path(directory) / "perf.image"
     path.write_text(json.loads(emitted.stdout))

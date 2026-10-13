@@ -1,0 +1,14 @@
+@!internal
+module nupp.suspension.internal.coroutines
+
+local coroutines = {}
+
+function coroutines.localMap(_: string): any
+    return setmetatable({}, {__mode = "k"})
+end
+
+function coroutines.create(body: any): thread
+    return coroutine.create(body)
+end
+
+export = coroutines

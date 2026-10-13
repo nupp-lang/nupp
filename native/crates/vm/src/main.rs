@@ -138,7 +138,7 @@ fn main() {
     if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE] [--tasks]"); std::process::exit(2); }
     let restoring = args[1] == "restore";
     let mut checkpoint: Option<String> = None;
-    let mut scheduled = false;
+    let mut scheduled = executable;
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
     while i < args.len() {
@@ -236,6 +236,9 @@ fn main() {
         Some(j) }
     } else { None };
     if !restoring { it.install_globals(); }
+    if scheduled { it.enable_scheduler().unwrap(); }
+    #[cfg(feature = "jit")]
+    if scheduled && it.jit.is_some() && std::env::var_os("JIT_EAGER_FRAMES").is_some() { it.precompile_frames(); }
     let argv = if executable {
         let argv = it.new_table(); it.registered.push(argv);
         for (index, argument) in call_args_text.iter().enumerate() {
@@ -288,8 +291,10 @@ fn main() {
             let t = &it.tasks[task.index];
             let results = if t.results.is_empty() { vec![t.result] } else { t.results.clone() };
             it.release_task(task).unwrap();
-            eprintln!("compiled frame entries: {}", it.compiled_frame_entries);
-            eprintln!("worker compiled entries: {}; compile {:.3} ms", it.worker_compiled_entries, it.worker_compile_micros as f64 / 1000.0);
+            if !executable {
+                eprintln!("compiled frame entries: {}", it.compiled_frame_entries);
+                eprintln!("worker compiled entries: {}; compile {:.3} ms", it.worker_compiled_entries, it.worker_compile_micros as f64 / 1000.0);
+            }
             return results;
         }
         let t = it.spawn_closure(f, &call_args);

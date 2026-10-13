@@ -2,7 +2,7 @@
 """Execute the ordinary derived check command in a VM image.
 
 Usage: cli-execution-smoke.py IMAGE [BINARY] [--repository]
-The image entry is nupp.compiler.vm.cli. No compiler process is launched.
+The image entry is nupp.tools.vm.cli. No compiler process is launched.
 """
 import json
 import os
@@ -19,7 +19,7 @@ env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(r
 
 
 def command(directory, *args, status=0):
-    result = subprocess.run([binary, "exec", image, "nupp.compiler.vm.cli", *args],
+    result = subprocess.run([binary, "exec", image, "nupp.tools.vm.cli", *args],
                             cwd=directory, env=env, capture_output=True, text=True, timeout=1800)
     assert result.returncode == status, (args, result.returncode, result.stdout[-12000:], result.stderr[-12000:])
     return result

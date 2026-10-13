@@ -1,0 +1,12 @@
+@!internal
+module nupp.runtime.taskownership
+
+local taskownership = {}
+
+function taskownership.release(body: any): nil
+    if type(body) == "table" and type(body.__nuppRelease) == "function" then
+        body.__nuppRelease()
+    end
+end
+
+export = taskownership

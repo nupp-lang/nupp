@@ -2,7 +2,7 @@
 """Project loading, Lua manifests and a complete compiler-image fixpoint.
 
 Run from the repository root with a seed image rooted at
-nupp.compiler.vm.project. No host compiler is invoked after the seed.
+nupp.tools.vm.project. No host compiler is invoked after the seed.
 """
 import json
 import os
@@ -27,7 +27,7 @@ def run(image, function, *args, rust=False, gc=False, succeeds=True):
         flags["NO_THREADED"] = "1"
     if gc:
         flags.update(GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-    result = subprocess.run([binary, "run", str(image), "nupp.compiler.vm.project", function, *args],
+    result = subprocess.run([binary, "run", str(image), "nupp.tools.vm.project", function, *args],
                             env=flags, capture_output=True, text=True, timeout=600)
     assert (result.returncode == 0) == succeeds, result.stderr[-12000:]
     return result
