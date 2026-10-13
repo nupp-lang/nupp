@@ -123,6 +123,7 @@ static inline Value num(double d) { Value v; memcpy(&v, &d, 8); if ((v & QNAN) =
 static inline int truthy(Value v) { return v != T_NIL && v != T_FALSE; }
 static inline Value boolean(int b) { return b ? T_TRUE : T_FALSE; }
 #define F_INTERNED 1
+#define F_METATABLE 4
 // Equal words are equal; two interned strings with different words are not;
 // other object pairs may be equal by content (slices, long strings).
 static inline int values_equal(Ctx* ctx, Value x, Value y) {
@@ -240,10 +241,10 @@ static Value h_getupval(ARGS) { Value clo = frame[2]; if (__builtin_expect(is_ob
 static Value h_getcell(ARGS) { Value c = regs[pc->b]; if (__builtin_expect(is_obj(c) && obj_kind(c) == KIND_CELL, 1)) { regs[pc->a] = ((Value*)obj_ptr(c))[0]; pc++; NEXT; } SLOW; }
 // Slots by offset, guarded by the shape the emitter assumed (imm): any
 // other shape takes the slow path, which reads the slot's name.
-static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { regs[pc->a] = ((Value*)obj_ptr(r))[pc->c]; pc++; NEXT; } SLOW; }
-static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } } SLOW; }
+static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { regs[pc->a] = ((Value*)obj_ptr(r))[pc->c]; pc++; NEXT; } SLOW; }
+static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } } SLOW; }
 // A number stored into a slot needs no barrier: it is not a reference.
-static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
+static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
 static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } if (k == KIND_RECORD) { NOTE_PC; uint64_t n = rt_len(ctx, v); CHECK_ERR; regs[pc->a] = num((double)n); pc++; NEXT; } } SLOW; }
 static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_TABLE || k == KIND_STR || k == KIND_SLICE) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } if (k == KIND_RECORD) { NOTE_PC; uint64_t n = rt_len(ctx, v); CHECK_ERR; fregs[pc->a] = (double)n; pc++; NEXT; } } SLOW; }
 static Value h_strbyte(ARGS) {
@@ -376,7 +377,7 @@ static Value h_getfield(ARGS) {
     Value t = regs[pc->b];
     Value name = FUNC_OF(frame)->consts[pc->imm];
     if (__builtin_expect(is_obj(t), 1)) {
-        if (obj_kind(t) == KIND_RECORD) {
+        if (obj_kind(t) == KIND_RECORD && !(obj_flags(t) & F_METATABLE)) {
             uint32_t shape = obj_aux(t);
             // The shape's slot table: (name bits, slot) pairs, open addressing, as Heap::slot_of.
             const uint64_t* table = ctx->shapes[shape].table; uint64_t mask = ctx->shapes[shape].mask;
@@ -428,7 +429,7 @@ static Value h_setcell(ARGS) {
 static Value h_padresults(ARGS) { uint32_t n = pc->b; for (uint64_t i = ctx->last_nres; i < n; i++) regs[pc->a + i] = T_NIL; pc++; NEXT; }
 static Value h_setslot(ARGS) {
     Value r = regs[pc->a]; Value v = regs[pc->c];
-    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
+    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
     SLOW;
 }
 // A read by a value key: an integral number within a table's array part in

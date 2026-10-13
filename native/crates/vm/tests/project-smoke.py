@@ -52,6 +52,54 @@ with tempfile.TemporaryDirectory() as directory:
                                 env=flags, capture_output=True, text=True, check=True)
         assert result.stdout.strip() == "42", result.stdout
     print("Manifest-driven project: both interpreters and GC agree; output returns 42 on all tiers", flush=True)
+    derived = output / "derived.image"
+    derived.write_text(json.loads(run(seed, "emit", fixture, "demo.derived").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(derived), "demo.derived", "run"],
+                                env=flags, capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "42", result.stdout
+    print("Derived CLI command: defaults, options, errors, and initializer scope passed", flush=True)
+    dynamic = output / "lua.image"
+    dynamic.write_text(json.loads(run(seed, "emit", fixture, "demo.luasemantics").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(dynamic), "demo.luasemantics", "run"],
+                                env=flags, capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "42", result.stdout
+    print("Lua binding kinds, missing globals, and empty return values passed", flush=True)
+    managed = output / "managed.image"
+    managed.write_text(json.loads(run(seed, "emit", fixture, "demo.managedgroup").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(managed), "demo.managedgroup", "run"],
+                                env=flags, capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "42", result.stdout
+    print("Managed group installs its runtime without another managed operation", flush=True)
+    switches = output / "switches.image"
+    switches.write_text(json.loads(run(seed, "emit", fixture, "demo.switches").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(switches), "demo.switches", "run"],
+                                env=flags, capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "42", result.stdout
+    print("Switch arms, guards, captures, and yield cleanup passed on all tiers", flush=True)
     # Syntax errors must fail before emitting an image, not silently select defaults.
     invalid = output / "invalid"
     invalid.mkdir()

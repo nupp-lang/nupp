@@ -466,6 +466,18 @@ function lower.emit(
     }) do
         BUILTINS[n] = true
     end
+    -- Only implemented library functions can become builtin constants. Other
+    -- members remain runtime lookups, including optional host facilities.
+    for name in (
+        "string.byte string.sub string.find string.char string.rep string.format "
+        .. "string.gsub string.gmatch string.len string.upper string.lower string.match string.reverse "
+        .. "table.concat table.insert table.remove table.unpack table.sort "
+        .. "math.floor math.min math.max math.abs math.ceil math.sqrt math.log math.fmod math.modf math.frexp "
+        .. "bit.band bit.bor bit.bxor bit.bnot bit.lshift bit.rshift bit.arshift bit.tobit bit.rol bit.ror bit.bswap bit.tohex "
+        .. "os.getenv os.clock os.time os.remove os.tmpname os.execute os.rename io.write io.open io.read"
+    ):gmatch("%S+") do
+        BUILTINS[name] = true
+    end
     local LIBS = {string = true, table = true, math = true, bit = true, os = true, io = true}
     local BITOPS = {["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor", ["<<"] = "IShl", [">>"] = "IShrU"}
     -- Global tables the runtime provides as modules.
@@ -479,19 +491,6 @@ function lower.emit(
         math = true,
         string = true,
         table = true
-    }
-    local OPTIONAL_GLOBALS = {
-        nupp = true,
-        _VERSION = true,
-        jit = true,
-        arg = true,
-        coroutine = true,
-        ffi = true,
-        newproxy = true,
-        collectgarbage = true,
-        dofile = true,
-        loadfile = true,
-        xpcall = true
     }
 
     local function isNumeric(t)
@@ -589,6 +588,7 @@ function lower.emit(
         unop = true,
         name = true,
         funcExpr = true,
+        shortfn = true,
         castExpr = true
     }
 
@@ -801,6 +801,14 @@ function lower.emit(
         return dst, "v"
     end
 
+    -- Erased casts preserve a trailing call's result pack; parentheses close it.
+    local function multiCall(e)
+        while e.kind == "castExpr" do
+            e = e.expr
+        end
+        return (e.kind == "call" or e.kind == "methodCall") and not e.scalarIntrinsic and not e.ownershipIntrinsic
+    end
+
     -- A call with results landing at `dst..`: eight registers are reserved above
     -- the base so a callee's extra results have somewhere to go.
     callInto = function(f, node, dst, extraSelf)
@@ -864,11 +872,7 @@ function lower.emit(
         for i, a in ipairs(args) do
             if a.kind == "vararg" and i == #args then
                 spread = a
-            elseif (a.kind == "call" or a.kind == "methodCall")
-                and i == #args
-                and not a.ownershipIntrinsic
-                and not a.scalarIntrinsic
-            then
+            elseif multiCall(a) and i == #args then
                 trailing = a
             else
                 nargs = nargs + 1;
@@ -950,6 +954,16 @@ function lower.emit(
     -- which `RetN` reads from `last_nres`; otherwise exactly `nres` values.
     emitCall = function(f, node, dst, nres, all)
         nres = nres or 1
+        if node.kind == "castExpr" then
+            emitCall(f, node.expr, dst, nres, all)
+            local target = tyTag(node.inferredType)
+            if target == "number" or target == "integer" then
+                f:op("TagCheckNum", dst, dst)
+            elseif target == "string" then
+                f:op("TagCheckStr", dst, dst)
+            end
+            return
+        end
         if node.ownershipIntrinsic then
             -- Transfers are erased; resolved terminal operations run cleanups.
             local oi = node.ownershipIntrinsic
@@ -1062,7 +1076,7 @@ function lower.emit(
             f:op("K", fr, f:const("builtin", "scalar." .. node.scalarIntrinsic))
             local base2, nargs = callInto(f, node, base)
             f:op("CallDyn", fr, base2, nargs)
-            if nres > 1 and not all then
+            if nres > 0 and not all then
                 f:op("PadResults", base2, nres)
             end
             if base2 ~= dst then
@@ -1089,7 +1103,7 @@ function lower.emit(
         end
 
         local function finish(base)
-            if nres > 1 and not all then
+            if nres > 0 and not all then
                 f:op("PadResults", base, nres)
             end
             if base ~= dst then
@@ -1113,14 +1127,7 @@ function lower.emit(
         -- A trailing call's results land past the arguments: the callee and
         -- receiver, evaluated above the window, must stay clear of them.
         local lastArg = args0[#args0]
-        local slack = (
-            lastArg
-            and (lastArg.kind == "call" or lastArg.kind == "methodCall")
-            and not lastArg.ownershipIntrinsic
-            and not lastArg.scalarIntrinsic
-        )
-            and 8
-            or 0
+        local slack = lastArg and multiCall(lastArg) and 8 or 0
         if node.kind == "methodCall" then
             -- Otherwise the window is placed above the receiver once it exists.
             local base, o
@@ -1153,10 +1160,7 @@ function lower.emit(
                     f:reg()
                 end
                 local last = args[#args]
-                local trailing = #args > 1
-                    and (last.kind == "call" or last.kind == "methodCall")
-                    and not last.ownershipIntrinsic
-                    and not last.scalarIntrinsic
+                local trailing = #args > 1 and multiCall(last)
                 for i, a in ipairs(args) do
                     if not (trailing and i == #args) then
                         exprAs(f, a, "v", base + i)
@@ -1170,7 +1174,7 @@ function lower.emit(
                 end
                 return
             end
-            if name == "require" and not f:binding(name) then
+            if name == "require" and not f:binding(name) and nres <= 1 and not all then
                 local a = node.args.exprs[1]
                 if a.kind == "string" then
                     f:op("Require", dst, f:const("str", (loadstring("return " .. tokText(a.token)))()))
@@ -1448,7 +1452,7 @@ function lower.emit(
             -- A block whose `yield v` statements each end it with a value.
             dst = dst or f:reg()
             f.yields = f.yields or {}
-            f.yields[#f.yields + 1] = {dst = dst, exits = {}}
+            f.yields[#f.yields + 1] = {dst = dst, exits = {}, depth = f.cleanupDepth or 0}
             block(f, node.body)
             local y = table.remove(f.yields)
             for _, at in ipairs(y.exits) do
@@ -1457,7 +1461,69 @@ function lower.emit(
             return dst, "v"
         end
         if k == "switchExpr" then
-            error("switch expressions are not in this emitter")
+            dst = dst or f:reg()
+            local subject = f:reg()
+            exprAs(f, node.selector, "v", subject)
+            f:op("Nil", dst)
+            f:push()
+            local selectorName = "\0switch" .. subject
+            f.scopes[#f.scopes][selectorName] = {reg = subject, class = "v"}
+            local selector = {kind = "name", token = {text = selectorName}}
+            local mark, fmark = f.nregs, f.nfregs
+            local exits = {}
+            for _, arm in ipairs(node.cases or {}) do
+                local matched = f:reg()
+                if arm.patternKind == "static" then
+                    local matches = {}
+                    for _, value in ipairs(arm.values or {}) do
+                        local candidate = exprAs(f, value, "v")
+                        f:op("Eq", matched, subject, candidate)
+                        matches[#matches + 1] = f:op("JmpIf", matched, 0)
+                    end
+                    for _, at in ipairs(matches) do
+                        f:patch(at, "JmpIf", matched, f:offset(at, f:here()))
+                    end
+                else
+                    emitIs(f, {type = arm.type, expr = selector}, matched)
+                end
+                local nextArm = f:op("JmpIfNot", matched, 0)
+                f:push()
+
+                local function bind(name, value)
+                    local reg, cell = f:declare(name, "v")
+                    f:op(cell and "NewCell" or "Move", reg, value)
+                end
+
+                if arm.binding then
+                    bind(tokText(arm.binding), subject)
+                end
+                for _, field in ipairs(arm.fields or {}) do
+                    local value = f:reg()
+                    f:op("GetField", value, subject, f:const("str", tokText(field.name)))
+                    bind(tokText(field.alias or field.name), value)
+                end
+                local guard, guardOp, guardReg
+                if arm.guard and arm.guard.expr then
+                    guard, guardOp, guardReg = condBranch(f, arm.guard.expr)
+                end
+                exprAs(f, arm.expr or {kind = "doExpr", body = arm.body}, "v", dst)
+                exits[#exits + 1] = f:op("Jmp", 0)
+                f:pop()
+                f:patch(nextArm, "JmpIfNot", matched, f:offset(nextArm, f:here()))
+                if guard then
+                    f:patch(guard, guardOp, guardReg, f:offset(guard, f:here()))
+                end
+                f.nregs, f.nfregs = mark, fmark
+            end
+            if node.elseCase then
+                local arm = node.elseCase
+                exprAs(f, arm.expr or {kind = "doExpr", body = arm.body}, "v", dst)
+            end
+            for _, at in ipairs(exits) do
+                f:patch(at, "Jmp", f:offset(at, f:here()))
+            end
+            f:pop()
+            return dst, "v"
         end
         -- Everything else lands in a value register.
         dst = (want ~= "f" and want ~= "i" and dst) or nil
@@ -1503,15 +1569,13 @@ function lower.emit(
                 f:op("K", dst, f:const("builtin", "loadstring"))
             elseif name == "require" then
                 f:op("K", dst, f:const("builtin", "require"))
-            elseif OPTIONAL_GLOBALS[name] then
-                -- A global a module tests for before using (`if jit then`): read
-                -- from `_G`, nil unless the runtime installs it.
+            else
+                -- Unbound Lua names read the global table. Checked Nupp names
+                -- have already passed resolution before reaching the emitter.
                 f:op("Require", dst, f:const("str", "_G"));
                 local t = f:reg();
                 f:op("GetField", t, dst, f:const("str", name));
                 f:op("Move", dst, t)
-            else
-                error("unresolved name " .. name .. " in " .. f.name)
             end
         elseif k == "binop" then
             local op = tokText(node.op)
@@ -1607,13 +1671,13 @@ function lower.emit(
                     f:op("K", dst, f:const("num", math.huge))
                 elseif full == "math.pi" then
                     f:op("K", dst, f:const("num", math.pi))
-                elseif full == "io.stderr" or full == "io.stdout" or full == "io.stdin" then
-                    f:op("Require", dst, f:const("str", "io"));
+                elseif BUILTINS[full] then
+                    f:op("K", dst, f:const("builtin", full))
+                else
+                    f:op("Require", dst, f:const("str", tokText(node.obj.token)));
                     local t = f:reg();
                     f:op("GetField", t, dst, f:const("str", fname));
                     f:op("Move", dst, t)
-                else
-                    f:op("K", dst, f:const("builtin", full))
                 end
             else
                 local shape = shapeOf(node.obj.inferredType)
@@ -1640,6 +1704,20 @@ function lower.emit(
             emitCall(f, node, dst)
         elseif k == "newExpr" then
             local call = node.call
+            if call.constructorCall then
+                local lowered = {}
+                for key, value in pairs(call) do
+                    lowered[key] = value
+                end
+                lowered.constructorCall = nil
+                lowered.obj = {
+                    kind = "dotIndex",
+                    obj = call.obj,
+                    name = {text = "__nuppCtor" .. tostring(call.constructorIndex or 1)}
+                }
+                emitCall(f, lowered, dst)
+                return dst, "v"
+            end
             local shape = shapeOf(node.inferredType)
             if not shape then
                 local t = node.inferredType
@@ -1662,14 +1740,23 @@ function lower.emit(
                 )
             end
             f:op("NewRecord", dst, shape.id)
-            for _, a in ipairs(call.args.exprs or {}) do
-                assert(a.kind == "namedArg", "new with positional arguments")
-                local slot = assert(shape.slotIndex[tokText(a.name)], "field " .. tokText(a.name))
+            local fields = call.recordFields
+            if not fields then
+                fields = {}
+                for _, argument in ipairs(call.args.exprs or {}) do
+                    assert(argument.kind == "namedArg", "unchecked positional construction in " .. f.name)
+                    fields[#fields + 1] = {name = tokText(argument.name), node = argument.value}
+                end
+            end
+            for _, field in ipairs(fields) do
+                local slot = assert(shape.slotIndex[field.name], "field " .. field.name)
+                local value = field.isDefault and require("nupp.compiler.vm.metadata").literal(field.defaultValue)
+                    or field.node
                 if shape.slots[slot + 1].ty == "num" then
-                    local v = exprAs(f, a.value, "f");
+                    local v = exprAs(f, value, "f");
                     f:op("SetSlotF", dst, slot, v, shape.id)
                 else
-                    local v = exprAs(f, a.value, "v");
+                    local v = exprAs(f, value, "v");
                     f:op("SetSlot", dst, slot, v, shape.id)
                 end
             end
@@ -1759,13 +1846,12 @@ function lower.emit(
                     error("table field " .. field.kind)
                 end
             end
-        elseif k == "funcExpr" then
-            emitClosure(f, node.body, dst, f.name .. ".fn" .. tostring(#functions))
+        elseif k == "funcExpr" or k == "shortfn" then
+            emitClosure(f, k == "shortfn" and node or node.body, dst, f.name .. ".fn" .. tostring(#functions))
         elseif k == "castExpr" and recordConstructorCast(f, node) then
             -- `setmetatable({...}, R) as R` and `{...} as R`: the table is built
             -- as a record of R's shape, so every later slot access finds the
-            -- shape it assumed. Records carry no metatable (setmetatable on one
-            -- is a no-op), and nothing in the compiler reads one back.
+            -- shape it assumed. Preserve an explicit metatable on the object.
             local shape, tbl, meta = recordConstructorCast(f, node)
             f:op("NewRecord", dst, shape.id)
             local mark = f.nregs
@@ -1786,7 +1872,11 @@ function lower.emit(
             end
             if meta then
                 f.nregs = math.max(mark, f.declTop or 0);
-                expr(f, meta, nil, "v")
+                local callee, result, object, metatable = f:reg(), f:reg(), f:reg(), f:reg()
+                f:op("K", callee, f:const("builtin", "setmetatable"))
+                f:op("Move", object, dst)
+                exprAs(f, meta, "v", metatable)
+                f:op("CallDyn", callee, result, 2)
             end
             f.nregs = math.max(mark, f.declTop or 0)
         elseif k == "castExpr" then
@@ -1902,9 +1992,6 @@ function lower.emit(
     -- Multiple results: evaluate `exprs` for `count` targets into consecutive
     -- registers from `base`, the last call supplying the remainder.
     -- A call whose results are open: an intrinsic's is exactly one.
-    local function multiCall(e)
-        return (e.kind == "call" or e.kind == "methodCall") and not e.scalarIntrinsic and not e.ownershipIntrinsic
-    end
 
     local function exprsInto(f, exprs, count, base)
         while f.nregs < base + count do
@@ -2150,7 +2237,10 @@ function lower.emit(
                 local value = node.exprs and node.exprs[i]
                 local ty = node.types and node.types[i] and node.types[i].resolvedType
                 local class = "v"
-                if not f.captured[name] then
+                -- An initializer does not prove the representation of later writes.
+                -- Dynamic Lua bindings can change kind; keep them boxed unless an
+                -- explicit checked annotation constrains every assignment.
+                if not f.captured[name] and (ty or not assignedNames[name]) then
                     if isInteger(ty) or (not ty and value and isInteger(value.inferredType)) then
                         class = "i"
                     elseif isNumeric(ty) or (not ty and value and isNumeric(value.inferredType)) then
@@ -2163,7 +2253,13 @@ function lower.emit(
             if #names == 1 and #exprs <= 1 and not node.syntheticCapture then
                 local d = declared[1]
                 local value = exprs[1]
+                -- The initializer sees the preceding binding, including a global
+                -- in `local error = error`. Publish the new local after it runs.
+                local scope = f.scopes[#f.scopes]
+                local previous = scope[d.name]
                 local r, cell, spill = f:declare(d.name, d.class, true)
+                local binding = scope[d.name]
+                scope[d.name] = previous
                 if spill then
                     local v = f:reg()
                     if value then
@@ -2194,6 +2290,7 @@ function lower.emit(
                 else
                     f:op("FK", r, 0)
                 end
+                scope[d.name] = binding
                 markLibraryLocals(f, names, exprs)
                 return
             end
@@ -2263,6 +2360,9 @@ function lower.emit(
         elseif k == "yieldStmt" then
             local y = assert(f.yields and f.yields[#f.yields], "yield outside a do expression")
             exprAs(f, node.value, "v", y.dst)
+            if (f.cleanupDepth or 0) > y.depth then
+                f:op("Unwind", y.depth)
+            end
             y.exits[#y.exits + 1] = f:op("Jmp", 0)
         elseif k == "compoundAssign" then
             -- `x op= e` is `x = x op e`; the target's own subexpressions are
@@ -2320,6 +2420,9 @@ function lower.emit(
             expr(f, node.expr, nil, "v")
         elseif k == "returnStmt" then
             local exprs = node.exprs or {}
+            if node.constructorReturn then
+                exprs = {{kind = "name", token = {text = assert(f.constructorSelf)}}}
+            end
             if #exprs == 0 then
                 f:op("RetNil")
             elseif #exprs == 1 and not multiCall(exprs[1]) then
@@ -2513,11 +2616,15 @@ function lower.emit(
             while f.nregs < call + math.max(#node.names, 3) + 1 do
                 f:reg()
             end
+            local ended = f:reg()
             local top = f:here()
             f:op("Move", call + 1, stateReg);
             f:op("Move", call + 2, ctl)
             f:op("CallDyn", fnReg, call, 2)
-            local exit = f:op("JmpIfNot", call, 0)
+            f:op("PadResults", call, #node.names)
+            f:op("Nil", ended)
+            f:op("Eq", ended, call, ended)
+            local exit = f:op("JmpIf", ended, 0)
             f:op("Move", ctl, call)
             loopBegin(f)
             f:push()
@@ -2534,7 +2641,7 @@ function lower.emit(
             f:pop()
             local back = f:op("Jmp", 0);
             f:patch(back, "Jmp", f:offset(back, top))
-            f:patch(exit, "JmpIfNot", call, f:offset(exit, f:here()))
+            f:patch(exit, "JmpIf", ended, f:offset(exit, f:here()))
             loopEnd(f)
             f:pop()
         elseif k == "breakStmt" then
@@ -2590,12 +2697,7 @@ function lower.emit(
                     parts[#parts + 1] = tokText(child)
                 end
             end
-            if fname.method and shapeByBareName(baseName) then
-                local member = tokText(fname.method)
-                local c = f:reg();
-                emitClosure(f, node.body, c, baseName .. ":" .. member, true)
-                f:op("SetMethod", shapeByBareName(baseName).id, f:const("str", member), c)
-            elseif #parts == 0 and not fname.method then
+            if #parts == 0 and not fname.method then
                 -- `function name() end`: an assignment to the name.
                 local c = f:reg();
                 emitClosure(f, node.body, c, baseName)
@@ -2616,12 +2718,16 @@ function lower.emit(
                     o = t
                 end
                 f:op("SetField", o, f:const("str", last), c)
+                local owner = fname.method and shapeOfNominal(node.ownerNominal) or nil
+                if owner then
+                    f:op("SetMethod", owner.id, f:const("str", last), c)
+                end
             end
         elseif k == "recordDecl" then
             local shape = declareShape(node)
             -- The record's name is also a value: the table its static members live on
             -- (`R.new`, `R.SCHEMA`), what `function R.f()` and `export record R` see.
-            if node.name then
+            if node.name and not node.qualifiers then
                 local r, cell, spill = f:declare(tokText(node.name), "v", true)
                 if spill then
                     local t = f:reg();
@@ -2643,13 +2749,45 @@ function lower.emit(
             if not shape then
                 return
             end
+            f:push()
+            local identity
+            if node.qualifiers then
+                local owner = {kind = "name", token = node.qualifiers[1]}
+                for index = 2, #node.qualifiers do
+                    owner = {kind = "dotIndex", obj = owner, name = node.qualifiers[index]}
+                end
+                local parent = exprAs(f, owner, "v")
+                identity = f:reg()
+                f:op("NewTableN", identity, 0, 0)
+                f:op("SetField", parent, f:const("str", tokText(node.name)), identity)
+            else
+                identity = exprAs(f, {kind = "name", token = node.name}, "v")
+            end
+            f:op("SetField", identity, f:const("str", "__index"), identity)
             for _, entry in ipairs(node.entries) do
                 if entry.kind == "inlineMethod" then
                     local c = f:reg();
                     emitClosure(f, entry.body, c, shape.name .. ":" .. tokText(entry.name))
-                    f:op("SetMethod", shape.id, f:const("str", tokText(entry.name)), c)
+                    if not entry.inlineStatic then
+                        f:op("SetMethod", shape.id, f:const("str", tokText(entry.name)), c)
+                    end
+                    f:op("SetField", identity, f:const("str", tokText(entry.name)), c)
                 end
             end
+            -- Metadata statements use the ordinary closure and capture path.
+            -- Keep the declaration value live while their temporaries are reused.
+            f.declTop = math.max(f.declTop or 0, identity + 1)
+            for _, generated in ipairs(node.vmMetadata or {}) do
+                stmtReclaim(f, generated)
+            end
+            for _, member in ipairs(node.deriveRecipe and node.deriveRecipe.members or {}) do
+                if member.namespace == "instance" then
+                    local method = f:reg()
+                    f:op("GetField", method, identity, f:const("str", member.name))
+                    f:op("SetMethod", shape.id, f:const("str", member.name), method)
+                end
+            end
+            f:pop()
         elseif k == "emptyStmt"
             or k == "typeAlias"
             or k == "interface"
@@ -2832,12 +2970,45 @@ function lower.emit(
             noteUse(chain, tokText(node.token), here);
             return
         end
-        if node.kind == "funcExpr" then
-            analyzeFunction(node.body, chain, seen);
+        if node.kind == "funcExpr" or node.kind == "shortfn" then
+            analyzeFunction(node.kind == "shortfn" and node or node.body, chain, seen);
             return
         end
         if node.kind == "vararg" then
             noteUse(chain, "...", here);
+            return
+        end
+        if node.kind == "doExpr" then
+            analyzeBlock(node.body, chain, here, seen)
+            return
+        end
+        if node.kind == "switchExpr" then
+            analyzeExpr(node.selector, chain, here, seen)
+            for _, arm in ipairs(node.cases or {}) do
+                for _, value in ipairs(arm.values or {}) do
+                    analyzeExpr(value, chain, here, seen)
+                end
+                chain[#chain + 1] = {}
+                if arm.binding then
+                    chain[#chain][tokText(arm.binding)] = here
+                end
+                for _, field in ipairs(arm.fields or {}) do
+                    chain[#chain][tokText(field.alias or field.name)] = here
+                end
+                analyzeExpr(arm.guard and arm.guard.expr, chain, here, seen)
+                analyzeExpr(arm.expr, chain, here, seen)
+                if arm.body then
+                    analyzeBlock(arm.body, chain, here, seen)
+                end
+                chain[#chain] = nil
+            end
+            local fallback = node.elseCase
+            if fallback then
+                analyzeExpr(fallback.expr, chain, here, seen)
+                if fallback.body then
+                    analyzeBlock(fallback.body, chain, here, seen)
+                end
+            end
             return
         end
         for _, v in ipairs(node) do
@@ -2878,16 +3049,21 @@ function lower.emit(
             analyzeExpr(st.target, chain, here, seen);
             analyzeExpr(st.value, chain, here, seen)
         elseif k == "recordDecl" then
-            if st.name then
+            if st.name and not st.qualifiers then
                 scope[tokText(st.name)] = here
             end
             for _, entry in ipairs(st.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     analyzeFunction(entry.body, chain, seen)
-                else
+                elseif entry.kind ~= "constructorDecl" then
                     analyzeExpr(entry, chain, here, seen)
                 end
             end
+            chain[#chain + 1] = {}
+            for _, generated in ipairs(st.vmMetadata or {}) do
+                analyzeStmt(generated, chain, here, seen)
+            end
+            chain[#chain] = nil
         elseif k == "ifStmt" then
             for _, clause in ipairs(st.clauses or {}) do
                 analyzeExpr(clause.cond, chain, here, seen);
@@ -2959,6 +3135,9 @@ function lower.emit(
     -- `implicitSelf` is the colon form, `function a:m()`: only there is `self`
     -- a parameter rather than whatever enclosing local the name reaches.
     analyzeFunction = function(funcbody, chain, seen, implicitSelf, predeclared)
+        -- Generated metadata can share syntax nodes between functions. A read
+        -- already visited in the parent still captures its binding here.
+        seen = {}
         local here = funcbody
         chain[#chain + 1] = {}
         for _, p in ipairs(funcbody.params or {}) do
@@ -2980,7 +3159,11 @@ function lower.emit(
                 noteCleanup(chain, cleanup, here)
             end
         end
-        analyzeBlock(funcbody.body, chain, here, seen)
+        if funcbody.expr then
+            analyzeExpr(funcbody.expr, chain, here, seen)
+        else
+            analyzeBlock(funcbody.body, chain, here, seen)
+        end
         fnStack[#fnStack] = nil
         chain[#chain] = nil
     end
@@ -3029,6 +3212,11 @@ function lower.emit(
     end
 
     defineFunction = function(f, funcbody)
+        f.constructorSelf = funcbody.vmConstructorSelf
+        local statements = funcbody.body
+        if funcbody.expr then
+            statements = {stats = {{kind = "returnStmt", exprs = {funcbody.expr}}}}
+        end
         local params = funcbody.params or {}
         local cellParams = {}
         if f.implicitSelf then
@@ -3061,7 +3249,7 @@ function lower.emit(
             local cellReg = f:declare(cp[1]);
             f:op("NewCell", cellReg, cp[2])
         end
-        openSpill(f, funcbody.body)
+        openSpill(f, statements)
         -- Every capture the body reads gets its register now, below the locals,
         -- so no scope's end reclaims it: the analysis's free names of this
         -- function that resolve to upvalues (a nested local of the same name
@@ -3100,7 +3288,7 @@ function lower.emit(
         -- becomes a stub and the failure is tallied, so one run over a module
         -- graph lists everything it would need.
         if os.getenv("EMIT_SURVEY") then
-            local ok, err = pcall(block, f, funcbody.body)
+            local ok, err = pcall(block, f, statements)
             if not ok then
                 local key = tostring(err)
                     :gsub("^.-:%d+: ", "")
@@ -3115,7 +3303,7 @@ function lower.emit(
                 f:op("RetNil")
             end
         else
-            block(f, funcbody.body)
+            block(f, statements)
         end
         local last = f.code[#f.code]
         if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then
@@ -3191,6 +3379,7 @@ function lower.emit(
         local tree = check(name, path)
         assert(tree, "check failed for " .. path)
         local rootNode = tree.root or tree
+        require("nupp.compiler.vm.metadata").expand(rootNode)
         local stats = rootNode.blocks[1].stats
         for _, dep in ipairs(requiresOf(rootNode)) do
             local depPath = modulePath(dep)

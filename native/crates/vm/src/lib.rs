@@ -9,6 +9,7 @@ pub mod value;
 pub mod heap;
 pub mod interp;
 pub mod builtins;
+pub mod fileio;
 pub mod verify;
 pub mod image;
 pub mod host;
@@ -34,3 +35,6 @@ pub mod workers;
 mod channels;
 
 mod coroutines;
+
+#[cfg(feature = "c-headers")]
+pub mod cdecl;

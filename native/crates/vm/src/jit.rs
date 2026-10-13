@@ -224,7 +224,7 @@ impl<M: Module> Compiler<M> {
         let probe = self.build_stub("stub.probe", 3, |b, p, runtime| {
             let (o, name, hash) = (p[0], p[1], p[2]);
             let rec = b.create_block(); let notrec = b.create_block(); let tbl = b.create_block(); let out = b.create_block(); b.append_block_param(out, types::I64);
-            let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
+            let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64); let plain = b.ins().icmp_imm(IntCC::Equal, meta, 0); let is_rec = b.ins().band(is_rec, plain);
             b.ins().brif(is_rec, rec, &[], notrec, &[]);
             // records
             b.switch_to_block(rec); b.seal_block(rec);
@@ -598,7 +598,7 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(is_obj, chk, &[], slow, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64); let plain = b.ins().icmp_imm(IntCC::Equal, meta, 0); let is_rec = b.ins().band(is_rec, plain);
                         // NO_SLOT_GUARD=1 drops the shape compare, for measuring what it costs
                         // on a workload whose shapes are known to be exact (the parser).
                         let hit = if no_slot_guard { is_rec } else { let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, shape, sh as i64); b.ins().band(is_rec, same) };
@@ -1008,7 +1008,7 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64); let plain = b.ins().icmp_imm(IntCC::Equal, meta, 0); let is_rec = b.ins().band(is_rec, plain);
                         let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let shape1 = b.ins().uextend(types::I64, shape); let shape1 = b.ins().iadd_imm(shape1, 1);
                         let seen = b.ins().load(types::I64, flags, ca, 0);
                         let same = b.ins().icmp(IntCC::Equal, shape1, seen); let hit = b.ins().band(is_rec, same);

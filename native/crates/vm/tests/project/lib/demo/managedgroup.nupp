@@ -1,0 +1,7 @@
+module demo.managedgroup
+
+export function run(): integer
+    local group = nupp.managedGroup()
+    nupp.drop(group)
+    return 42
+end

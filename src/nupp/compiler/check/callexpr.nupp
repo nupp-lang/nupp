@@ -2194,6 +2194,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local globals = c.env and c.env.globals
         local stableNupp = globals and c.lookupEntry("nupp") == globals.nupp
+        if stableNupp and baseName == "nupp" and memberName == "managedGroup" then
+            node.requiresManagedRuntime = true
+        end
         if stableNupp and baseName == "nupp" and memberName == "recoverAlias" then
             if #argExprs == 1 then
                 local aliasType = managedGeneric("Alias", T.unknown)

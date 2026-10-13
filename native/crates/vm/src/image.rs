@@ -59,7 +59,24 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 };
                 f.consts.push(v);
             }
-            "end" => { funcs.push(cur.take().unwrap()); }
+            "end" => {
+                let mut f = cur.take().unwrap();
+                // Named operations use identity keys in every execution tier.
+                // Long string literals are otherwise deliberately not interned.
+                for op in &f.code {
+                    let key = match *op {
+                        Op::GetField(_, _, k) | Op::SetField(_, k, _) | Op::CallMethod(k, _, _)
+                        | Op::SetMethod(_, k, _) | Op::DeferMethod(_, k) => k as usize,
+                        _ => continue,
+                    };
+                    let value = *f.consts.get(key).ok_or_else(|| format!("line {ln}: field constant outside pool"))?;
+                    if !it.is_stringish(value) { return Err(format!("line {ln}: field name must be a string")); }
+                    let name = it.key_for_store(value);
+                    it.handles.push(name);
+                    f.consts[key] = name;
+                }
+                funcs.push(f);
+            }
             "entry" => { entry = base + parts[1].parse::<u32>().unwrap(); }
             "table" => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: table outside a function"))?;

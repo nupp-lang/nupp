@@ -21,171 +21,7 @@ local bit = require("bit") as {
     band: function(...: number): integer
 }
 
-local cdecl = {}
-
---- A member of a struct. An unnamed one is counted on its struct rather than
---- modelled, so a member that is here has a name.
-interface cdecl.Member
-    name: string
-    type: cdecl.CType?
-
-    --- Its byte offset, as this ABI lays the struct out. A bitfield's is the offset of
-    --- the storage unit that holds it.
-    offset: integer?
-
-    --- Width in bits when this member is a C bitfield.
-    bitWidth: integer?
-
-    --- Where a bitfield starts inside its storage unit, in bits.
-    bitPos: integer?
-end
-
---- A parameter of a function. C lets a declaration leave a parameter unnamed, and a
---- header commonly does.
-interface cdecl.Param
-    name: string?
-    type: cdecl.CType?
-end
-
---- A C type as LuaJIT's own ctype registry describes it, decoded far enough to be read
---- without the FFI. `kind` says which of the fields beside it carry an answer:
---- everything the kind does not use is absent.
----
---- A struct stays a reference, by `id` and `name`, rather than carrying its members.
---- That is what lets a recursive or mutually-referential header terminate: the members
---- live in the declaration `structById` returns.
-interface cdecl.CType
-    --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum",
-    --- "array", "vector", "complex", "function", or "unknown" for what this model does
-    --- not spell. A vector or complex type is its own kind rather than an array,
-    --- because neither is passed or returned the way an array of its elements is.
-    kind: string
-
-    name: string?
-
-    --- How wide a number or an enum is.
-    bits: integer?
-
-    --- Its physical size in bytes when LuaJIT exposes one. Arrays use this to
-    --- preserve their element count without reconstructing C spelling.
-    size: integer?
-
-    unsigned: boolean?
-
-    --- Whether what a pointer points at is const.
-    const: boolean?
-
-    --- What a pointer points at.
-    to: cdecl.CType?
-
-    --- What an array holds, and how many bytes of them it has room for.
-    of: cdecl.CType?
-
-    bytes: integer?
-
-    --- The fixed element count. Absent for an indeterminate array.
-    count: integer?
-
-    --- The ctype id a struct reference keeps, so `structById` can find its members.
-    id: integer?
-
-    --- A struct's alignment in bytes, as this ABI lays it out.
-    align: integer?
-
-    --- A function's parameters, its result, and whether it takes more.
-    params: {cdecl.Param}?
-
-    returns: cdecl.CType?
-    vararg: boolean?
-end
-
---- A function declaration: one LuaJIT parsed under a name. A function reached as a
---- pointee is a `cdecl.CType` instead, since that one need not be named.
-interface cdecl.Function
-    kind: string
-    name: string
-    params: {cdecl.Param}
-    returns: cdecl.CType?
-    vararg: boolean?
-
-    --- Which of the declarations given one at a time introduced it.
-    unit: integer?
-end
-
---- A struct declaration, members and all.
-interface cdecl.Struct
-    kind: string
-    id: integer
-    name: string
-
-    --- Its size in bytes, as this ABI lays it out. Absent for an incomplete type.
-    size: integer?
-
-    --- Its alignment in bytes.
-    align: integer?
-
-    fields: {cdecl.Member}
-
-    --- Members `fields` leaves out because they have no name of their own: an
-    --- anonymous struct or union whose members promote into this one, and an unnamed
-    --- field or bitfield, which is padding. Either changes the layout, so a consumer
-    --- that renders only `fields` renders a different struct.
-    anonymous: integer
-
-    unnamed: integer
-
-    --- Whether `name` came from a typedef rather than the struct's own tag.
-    typedefName: boolean?
-
-    --- Which of the declarations given one at a time introduced it.
-    unit: integer?
-end
-
---- An enumerator, in the order the header declared it.
-interface cdecl.Enumerator
-    name: string
-    value: number
-end
-
---- An enum declaration. It carries its constants whether or not it is named, since
---- `typedef enum { ... } Mode;` names the type and nothing else and the members are the
---- point of declaring it.
-interface cdecl.Enum
-    kind: string
-    id: integer
-    name: string?
-    bits: integer
-    values: {cdecl.Enumerator}
-    unit: integer?
-end
-
---- A declaration LuaJIT would not parse, and why.
-interface cdecl.Rejected
-    text: string
-    reason: string
-    unit: integer?
-end
-
---- A struct layout as LuaJIT computes it for a body of C member declarations.
-interface cdecl.Layout
-    size: integer?
-    align: integer?
-    fields: {cdecl.Member}
-end
-
---- What a
-interface cdecl.Inspection
-    structs: {cdecl.Struct}
-    functions: {cdecl.Function}
-    enums: {cdecl.Enum}
-
-    --- Empty unless the declarations were given one at a time, which is the form that
-    --- takes what parses and reports the rest.
-    rejected: {cdecl.Rejected}
-
-    --- How many declarations were offered.
-    declared: integer
-end
+local cdecl = require("nupp.compiler.cinterop.model")
 
 -- lj_ctype.h kinds, as they appear in the high nibble of `info`.
 local CT_NUM, CT_STRUCT, CT_PTR, CT_ARRAY = 0, 1, 2, 3
@@ -733,7 +569,21 @@ function cdecl.structById(id: integer?): cdecl.Struct?
         return nil
     end
 
-    return decodeStruct(rid, entry)
+    local declaration = decodeStruct(rid, entry)
+    if not declaration.name then
+        for _, alias in ctypes() do
+            if kindOf(alias.info) == CT_TYPEDEF and alias.name then
+                local target = resolve(refOf(alias.info))
+                if target == rid then
+                    declaration.name = alias.name
+                    declaration.typedefName = true
+                    break
+                end
+            end
+        end
+    end
+
+    return declaration
 end
 
 --- Models the declared functions, restricted to `only` when it is given.

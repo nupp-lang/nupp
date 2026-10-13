@@ -1816,6 +1816,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 member = memberTok and memberTok.text
             end
         end
+        stat.ownerNominal = owner
         if fname.method then
             -- The receiver is one of the owner's values, which for a generic owner
             -- is the declaration applied to its own binders; a call binds them from

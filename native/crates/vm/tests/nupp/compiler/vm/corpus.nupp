@@ -1,0 +1,72 @@
+module nupp.compiler.vm.corpus
+
+-- The Lua corpus executes as dynamic source, like the existing Lua test runner.
+-- Only its Nupp dependencies pass through semantic checking at image construction.
+local envMod = require("nupp.compiler.project.env")
+local parser = require("nupp.compiler.syntax.parser")
+local check = require("nupp.compiler.check")
+local fs = require("nupp.compiler.fs")
+local lower = require("nupp.compiler.vm.lower")
+local corpus = {}
+
+function corpus.emit(root: string, suites: string, unavailable: string?): string
+    require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
+    require("nupp.compiler.vm.chunks").install()
+    local env = envMod.new(root, {
+        cache = false,
+        nativeCompilerServices = false,
+        compilerServices = require("nupp.compiler.hostservices"),
+        config = {include = {"src", "tests", "native/crates/vm/tests"}}
+    })
+    table.insert(assert(env.roots), 1, root .. "/native/crates/vm/lib")
+    table.insert(assert(env.roots), 1, root .. "/native/crates/vm/decls")
+    env.managedCoroutines = true
+    env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
+    local hosts = {
+        ["nupp.vm.tasks"] = true,
+        ["nupp.vm.coroutine"] = true,
+        ["nupp.io.files"] = true,
+        ["nupp.io.path"] = true,
+        ["nupp.cli.internal.terminalhost"] = true,
+        ["nupp.tools.build.clockhost"] = true,
+        ["nupp.compiler.hostpid"] = true,
+        ["nupp.compiler.nativehash"] = true,
+        ["nupp.compiler.nativecdecl"] = true,
+        ["nupp.digest.internal.sha256"] = true,
+    }
+    local extras = {}
+    local missing = {}
+    for name in (unavailable or ""):gmatch("[^,]+") do
+        missing[name] = true
+    end
+    for name in suites:gmatch("[^,]+") do
+        extras[#extras + 1] = name
+    end
+
+    return lower.emit(
+        "corpus-runner",
+        extras,
+        function(name: string): string?
+            if hosts[name] or missing[name] then
+                return nil
+            end
+            return envMod.findRuntimeModulePath(env, name)
+        end,
+        function(_: string, path: string): table
+            local parsed = parser.parse(assert(fs.readFile(path)), path)
+            assert(#parsed.errors == 0, "parse failed: " .. path)
+            if not path:match("%.lua$") then
+                local diagnostics = check.check(parsed, path, env as any, {})
+                for _, diagnostic in ipairs(diagnostics) do
+                    if diagnostic.severity == "error" or not diagnostic.severity then
+                        error(path .. ": " .. diagnostic.code .. " " .. diagnostic.msg)
+                    end
+                end
+            end
+
+            return parsed.root
+        end
+    )
+end
+
+export = corpus

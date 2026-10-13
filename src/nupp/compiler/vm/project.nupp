@@ -43,6 +43,9 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
     local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/lib")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
+    -- A separate project still executes the compiler-carried library sources.
+    -- Keep project roots first so an explicitly supplied module wins.
+    table.insert(assert(env.roots), compilerRoot .. "/src")
     env.managedCoroutines = true
     -- The VM coroutine surface participates in ordinary affine cleanup.
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
@@ -65,6 +68,8 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
             or name == "nupp.cli.internal.terminalhost"
             or name == "nupp.tools.build.clockhost"
             or name == "nupp.compiler.hostpid"
+            or name == "nupp.compiler.nativehash"
+            or name == "nupp.compiler.nativecdecl"
             or name == "nupp.digest.internal.sha256"
             then
                 return nil

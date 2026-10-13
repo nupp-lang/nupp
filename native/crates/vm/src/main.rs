@@ -117,7 +117,15 @@ fn main() {
     // Raises travel as panics between catch points; the default hook would
     // print each one. The runner reports the one that reaches it.
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    // An executable entry receives argv as strings and returns the process
+    // status. Runner controls never consume the application's arguments.
+    let executable = args.get(1).map(String::as_str) == Some("exec");
+    if executable {
+        if args.len() < 4 { eprintln!("usage: nupp-vm exec IMAGE MODULE [ARG...]"); std::process::exit(2); }
+        args[1] = "run".into();
+        args.insert(4, "main".into());
+    }
     #[cfg(feature = "aot")]
     if (args.len() == 4 || args.len() == 5 && args[4] == "--frames") && args[1] == "aot" { emit_object(&args[2], &args[3], args.len() == 5); return; }
     if args.len() == 3 && args[1] == "verify" {
@@ -134,6 +142,7 @@ fn main() {
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
     while i < args.len() {
+        if executable { call_args_text.extend_from_slice(&args[i..]); break; }
         match args[i].as_str() {
             "--tasks" => { scheduled = true; i += 1; }
             "--checkpoint" if i + 1 < args.len() => { checkpoint = Some(args[i + 1].clone()); i += 2; }
@@ -206,7 +215,7 @@ fn main() {
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
         let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
         let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
-        if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } None } else {
+        if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if !executable { if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } } None } else {
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
         // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
@@ -223,17 +232,37 @@ fn main() {
         }
         let compile_s = cpu_now() - tj;
         if std::env::var("JIT_LIST").is_ok() { for (n, us) in &j.compile_micros { eprintln!("jit\t{n}\t{us} us"); } }
-        eprintln!("jit: compiled {compiled} functions in {:.2} ms; refused {}{}", compile_s * 1e3, refused.len(), if refused.is_empty() { String::new() } else { format!(": {}", refused.join(", ")) });
+        if !executable { eprintln!("jit: compiled {compiled} functions in {:.2} ms; refused {}{}", compile_s * 1e3, refused.len(), if refused.is_empty() { String::new() } else { format!(": {}", refused.join(", ")) }); }
         Some(j) }
     } else { None };
     if !restoring { it.install_globals(); }
+    let argv = if executable {
+        let argv = it.new_table(); it.registered.push(argv);
+        for (index, argument) in call_args_text.iter().enumerate() {
+            let value = it.heap_new_string(argument);
+            it.set_index(argv, Value::num((index + 1) as f64), value);
+        }
+        let global = it.require("_G"); let key = it.intern("arg"); it.set_index(global, key, argv);
+        Some(argv)
+    } else { None };
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
-    let module = if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else { it.require(&args[3]) };
+    let module = if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.require(&args[3]))) {
+            Ok(module) => module,
+            Err(payload) => {
+                let value = it.error_value(payload);
+                eprintln!("error loading {}: {}", args[3], show(&it, value));
+                for tid in (0..it.tasks.len()).rev() { let trace = it.backtrace(tid); if !trace.is_empty() { eprintln!("{trace}"); } }
+                std::process::exit(1);
+            }
+        }
+    };
     if let Some(name) = &setup { let k = it.intern(name); let sf = it.get_index(module, k); let t = it.spawn_closure(sf, &[]); drive(&mut it, &[t]); it.tasks.truncate(t); }
     let k = it.intern(&args[4]); let f = it.get_index(module, k);
     if f == Value::NIL { eprintln!("{}.{} is nil", args[3], args[4]); std::process::exit(1); }
     let mut call_args: Vec<Value> = Vec::new();
-    for a in &call_args_text {
+    if let Some(argv) = argv { call_args.push(argv); }
+    for a in call_args_text.iter().filter(|_| !executable) {
         let v = if let Some(p) = a.strip_prefix('@') { let s = std::fs::read_to_string(p).unwrap_or_else(|e| { eprintln!("{p}: {e}"); std::process::exit(1) }); it.heap_new_string(&s) }
             else if let Ok(n) = a.parse::<f64>() { Value::num(n) } else { it.heap_new_string(a) };
         it.registered.push(v); call_args.push(v);
@@ -283,6 +312,14 @@ fn main() {
     let t1 = cpu_now();
     let outs = run_once(&mut it);
     let first_s = cpu_now() - t1;
+    if executable {
+        let status = outs.first().copied().unwrap_or(Value::NIL);
+        if !status.is_num() || !status.as_num().is_finite() || status.as_num().fract() != 0.0 || !(0.0..=255.0).contains(&status.as_num()) {
+            eprintln!("{}.main must return an exit status from 0 to 255", args[3]);
+            std::process::exit(1);
+        }
+        std::process::exit(status.as_num() as i32);
+    }
     let shown: Vec<String> = outs.iter().map(|&v| show(&it, v)).collect();
     println!("{}", shown.join("\t"));
     eprintln!("load {:.2} ms\tfirst call {:.3} ms\tobjects live {} allocated {}\tcycles {}", load_s * 1e3, first_s * 1e3, it.heap.object_count(), it.heap.stats.allocated, it.heap.stats.cycles);

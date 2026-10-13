@@ -677,6 +677,8 @@ interface cst.Hints
     --- This call validates and recovers a managed alias from `any`.
     recoverManagedAlias: boolean?
 
+    requiresManagedRuntime: boolean?
+
     --- Whether a use-after-move was already reported here.
     ownershipUseReported: boolean?
 

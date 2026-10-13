@@ -136,8 +136,8 @@ local function nuppType(model, structs, resolver)
             if not named and pointee.id then
                 named = adoptedById[pointee.id]
             end
-            if not named and pointee.name then
-                named = adoptStruct(pointee.name, pointee.kind)
+            if not named and pointee.id then
+                named = adoptStruct(pointee)
             end
             if named then
                 -- the header said whether it writes through this pointer
@@ -168,8 +168,8 @@ local function nuppType(model, structs, resolver)
         if not named and model.id then
             named = adoptedById[model.id]
         end
-        if not named and model.name then
-            named = adoptStruct(model.name, kind)
+        if not named and model.id then
+            named = adoptStruct(model)
         end
         if named then
             return named
@@ -462,7 +462,7 @@ local function compilerArgv(opts, ...)
 end
 
 local function dependencyPaths(text, sourcePath)
-    local paths = hostService("shellsyntax").depfile:match(text) or {}
+    local paths = hostService("shellsyntax").depfile(text) or {}
     if #paths == 0 then
         paths[1] = sourcePath
     end
@@ -592,50 +592,28 @@ end
 -- struct keeps its identity here. Structs met through a type string rather than a
 -- declaration: built once and shared, so two mentions of the same tag are the same
 -- type.
-local adopted = {}
-
-local function adoptingResolver(resolver)
-    return function(tag)
-        if resolver then
-            local known = resolver(tag)
-            if known then
-                return known
-            end
-        end
-
-        return adoptStruct(tag, "struct") or adoptStruct(tag, "union")
-    end
-end
-
-adoptStruct = function(tag, aggregateKind)
-    aggregateKind = aggregateKind or "struct"
-    local key = aggregateKind .. " " .. tag
-    local hit = adopted[key]
-    if hit then
-        return hit
-    end
-    local model = cdecl.typeFromString(key)
-    if not model or model.kind ~= aggregateKind then
-        return nil
-    end
+adoptStruct = function(model)
     local known = model.id and adoptedById[model.id] or nil
     if known then
-        adopted[key] = known
         return known
     end
     local declaration = cdecl.structById(model.id)
-    if not declaration then
+    if not declaration or not declaration.name then
         return nil
     end
-    local nominal = T.nominal(tag, "struct", cDeclarationKey(aggregateKind, "tag", tag))
+    local tag, aggregateKind = declaration.name, declaration.kind
+    local nominal = T.nominal(
+        tag,
+        "struct",
+        cDeclarationKey(aggregateKind, declaration.typedefName and "typedef" or "tag", tag)
+    )
     nominal.cdefName = tag
     nominal.cdefKind = aggregateKind
     nominal.fieldOrder = {}
     -- before decoding, so a self-reference terminates
-    adopted[key] = nominal
     adoptedById[declaration.id] = nominal
     for _, field in ipairs(declaration.fields) do
-        local fieldType = nuppType(field.type, nil, adoptingResolver(nil)) or T.any
+        local fieldType = nuppType(field.type) or T.any
         nominal.byname[field.name] = fieldType
         nominal.writeByname[field.name] = fieldType
         nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
@@ -650,7 +628,7 @@ function cheader.typeFromString(spec: string, resolver: cheader.Resolver?): T.Ty
         return nil, err
     end
 
-    return nuppType(model, nil, adoptingResolver(resolver))
+    return nuppType(model, nil, resolver)
 end
 
 -- The functions named by `only`, modelled as nupp types. This is what ffi.C and
@@ -659,9 +637,8 @@ end
 -- happened to check and the compiler's own bindings besides.
 function cheader.declaredFunctions(resolver: cheader.Resolver?, only: {[string]: boolean}?): {[string]: T.Type}
     local out = {}
-    local r = adoptingResolver(resolver)
     for name, fn in pairs(cdecl.declaredFunctions(only)) do
-        out[name] = modelFunction(fn, nil, r)
+        out[name] = modelFunction(fn, nil, resolver)
     end
 
     return out
@@ -712,7 +689,7 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
         elseif not observed.origins then
             where = where .. ":" .. tostring(line)
         end
-        return nil, ("LuaJIT could not parse %s: %s"):format(where, message)
+        return nil, ("could not parse C declarations in %s: %s"):format(where, message)
     end
 
     -- Structs first, so a function mentioning one can refer to it. One this process
@@ -731,9 +708,6 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
             nominal.cdefKind = declaration.kind
             nominal.fieldOrder = {}
             adoptedById[declaration.id] = nominal
-            if not declaration.typedefName then
-                adopted[declaration.kind .. " " .. declaration.name] = nominal
-            end
             fresh[declaration.id] = true
         end
         structs[declaration.id] = nominal

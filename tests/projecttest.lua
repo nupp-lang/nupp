@@ -4592,22 +4592,20 @@ return {include = {"src"}, tasks = {greet = {argv = {"echo", "hi"}}}}
 end
 
 function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
-    local words = assert(buildSyntax.shellWords:match([[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]))
+    local words = assert(buildSyntax.shellWords([[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]))
     testAssert.equal(
         table.concat(words, "\0"),
         table.concat({"-Iinclude dir", "-DNAME=two words", "plain flag", "", "abcdef"}, "\0")
     )
-    testAssert.equal(#assert(buildSyntax.shellWords:match(" \t\n")), 0)
-    local malformed = buildSyntax.shellWords:match([["unclosed]])
+    testAssert.equal(#assert(buildSyntax.shellWords(" \t\n")), 0)
+    local malformed = buildSyntax.shellWords([["unclosed]])
     testAssert.equal(malformed, nil)
 end
 
 function M.makeDepfilesPreserveEscapedPathsAndContinuations()
-    local paths = assert(
-        buildSyntax.depfile:match("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n")
-    )
+    local paths = assert(buildSyntax.depfile("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"))
     testAssert.equal(table.concat(paths, "\0"), table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
-    testAssert.equal(buildSyntax.depfile:match("not a depfile"), nil)
+    testAssert.equal(buildSyntax.depfile("not a depfile"), nil)
 end
 
 function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()

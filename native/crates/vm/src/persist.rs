@@ -14,6 +14,8 @@ use std::{
 
 pub type Result<T> = std::result::Result<T, String>;
 const MAGIC: &[u8; 8] = b"NUPPSAV1";
+// Preserve the original record encoding for graphs without metatables.
+const RECORD_WITH_METATABLE: u8 = 11;
 const LIMIT: usize = 256 * 1024 * 1024;
 const ITEMS: usize = 4_000_000;
 
@@ -560,7 +562,7 @@ fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
 enum Node<'a> {
     String(bool, &'a [u8]),
     Table(Vec<Ref>, Vec<Ref>, Ref),
-    Record(usize, Vec<Ref>, Vec<Ref>, Vec<Ref>),
+    Record(usize, Vec<Ref>, Vec<Ref>, Vec<Ref>, Ref),
     Storage(&'a [u8]),
     Closure(usize, Vec<Ref>),
     Cell(Ref),
@@ -581,7 +583,8 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
             Node::String(interned, b)
         }
         KIND_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?),
-        KIND_RECORD => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?),
+        KIND_RECORD => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::Bits(Value::NIL.0)),
+        RECORD_WITH_METATABLE => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::read(r)?),
         KIND_STORAGE => {
             let b = r.bytes()?;
             if b.len() % 8 != 0 {
@@ -607,7 +610,7 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
 fn node_refs<'a>(n: &'a Node) -> Vec<&'a Ref> {
     match n {
         Node::Table(a, b, m) => a.iter().chain(b).chain(std::iter::once(m)).collect(),
-        Node::Record(_, a, b, c) => a.iter().chain(b).chain(c).collect(),
+        Node::Record(_, a, b, c, m) => a.iter().chain(b).chain(c).chain(std::iter::once(m)).collect(),
         Node::Closure(_, a) => a.iter().collect(),
         Node::Cell(v) | Node::Slice(v, _, _) => vec![v],
         Node::Iter(_, _, o, p, k) => std::iter::once(o)
@@ -732,7 +735,7 @@ pub(crate) fn save_graph_with(
                 }
             }
             let h = unsafe { p.as_ref() };
-            payload.byte(h.kind);
+            payload.byte(if h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else { h.kind });
             // Use the collector's edge enumeration to discover every ordinary
             // reference. Transient records use their filtered edge list below.
             if kind != KIND_RECORD {
@@ -780,7 +783,8 @@ pub(crate) fn save_graph_with(
                         .as_ref()
                         .map(|m| m.iter().flat_map(|(k, v)| [*k, *v]).collect())
                         .unwrap_or_default();
-                    refs_write(&mut payload, &graph.values(vm, &extra)?)?
+                    refs_write(&mut payload, &graph.values(vm, &extra)?)?;
+                    if h.flags & F_METATABLE != 0 { graph.value(vm, h.record_extra_ref().as_ref().unwrap().meta)?.write(&mut payload)?; }
                 }
                 KIND_STORAGE => {
                     let s = unsafe { &*(h.payload() as *const StoragePayload) };
@@ -1002,7 +1006,7 @@ fn refs_validate(vm: &Interp, g: &Graph) -> Result<()> {
                     }
                 }
             }
-            Node::Record(s, slots, _, extra) => {
+            Node::Record(s, slots, _, extra, _) => {
                 let schema = g.schemas.get(*s).ok_or("record shape out of bounds")?;
                 if slots.len() != schema.fields.len() || extra.len() % 2 != 0 {
                     return Err("invalid record payload".into());
@@ -1042,8 +1046,14 @@ fn refs_validate(vm: &Interp, g: &Graph) -> Result<()> {
             }
             _ => {}
         }
+        if let Node::Record(_, _, _, _, meta) = n {
+            if !matches!(meta, Ref::Bits(n) if *n == Value::NIL.0)
+                && !matches!(meta, Ref::Obj(i) if matches!(g.nodes.get(*i), Some(Node::Table(..) | Node::Record(..)))) {
+                return Err("invalid record metatable".into());
+            }
+        }
         let pairs = match n {
-            Node::Table(_, p, _) | Node::Record(_, _, _, p) => Some(p),
+            Node::Table(_, p, _) | Node::Record(_, _, _, p, _) => Some(p),
             _ => None,
         };
         if let Some(pairs) = pairs {
@@ -1308,18 +1318,21 @@ pub(crate) fn load_graph_with(
                     }
                     h.refresh();
                 }
-                Node::Record(_, slots, array, extra) => {
+                Node::Record(_, slots, array, extra, meta) => {
                     h.slots_mut()
                         .copy_from_slice(&resolve_all(slots, &objects)?);
                     *h.record_array() = resolve_all(array, &objects)?;
                     *h.record_extra() = None;
-                    if !extra.is_empty() {
+                    let meta = resolve(meta, &objects)?;
+                    h.flags &= !F_METATABLE;
+                    if meta != Value::NIL { h.flags |= F_METATABLE; }
+                    if !extra.is_empty() || meta != Value::NIL {
                         let mut table = ValueTable::new();
                         for pair in extra.chunks_exact(2) {
                             table
                                 .insert(resolve(&pair[0], &objects)?, resolve(&pair[1], &objects)?);
                         }
-                        *h.record_extra() = Some(Box::new(table));
+                        *h.record_extra() = Some(Box::new(RecordExtra { fields: table, meta }));
                     }
                 }
                 Node::Closure(_, caps) => {

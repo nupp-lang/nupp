@@ -2,36 +2,146 @@ module nupp.compiler.shellsyntax
 
 -- The three tiny languages emitted or consumed by native builds.
 
-local GlobTokens = nupp.peg.compile([[
-    {| { '**/' / '**' / '*' / '?' / (!'*' !'?' .)+ }* |} !.
-]])
+local function space(character: string): boolean
+    return character ~= "" and (" \t\r\n\v\f"):find(character, 1, true) ~= nil
+end
 
-local ShellWords = nupp.peg.compile(
-    [[
-    start <- {| %s* (word (%s+ word)*)? %s* |} !.
-    word <- {~ piece+ ~}
-    piece <- "'" -> '' (!"'" .)* "'" -> ''
-           / '"' -> '' (%backslash -> '' { . } / !'"' !%backslash .)* '"' -> ''
-           / %backslash -> '' { . }
-           / !%s !%backslash !"'" !'"' .
-]],
-    {definitions = {backslash = "\\"}}
-)
+local function globTokens(source: string): {string}
+    local tokens: {string} = {}
+    local index = 1
+    while index <= #source do
+        local token = source:sub(index, index)
+        if source:sub(index, index + 2) == "**/" then
+            token = "**/"
+        elseif source:sub(index, index + 1) == "**" then
+            token = "**"
+        elseif token ~= "*" and token ~= "?" then
+            local finish = index
+            while finish < #source and not source:sub(finish + 1, finish + 1):find("[*?]") do
+                finish = finish + 1
+            end
+            token = source:sub(index, finish)
+        end
+        tokens[#tokens + 1] = token
+        index = index + #token
+    end
 
-local Depfile = nupp.peg.compile(
-    [[
-    start <- target ':' space* {| (word space*)* |} ('#' (!%nl .)* %nl?)? !.
-    target <- (%backslash . / !':' .)*
-    space <- %s+ / %backslash %cr? %nl
-    word <- {~ (%backslash -> '' { !%nl . } / !%s !%backslash !'#' .)+ ~}
-]],
-    {definitions = {backslash = "\\", cr = "\r"}}
-)
+    return tokens
+end
+
+local function shellWords(source: string): {string}?
+    local words: {string} = {}
+    local index = 1
+    while index <= #source do
+        while space(source:sub(index, index)) do
+            index = index + 1
+        end
+        if index > #source then
+            break
+        end
+        local parts: {string} = {}
+        while index <= #source and not space(source:sub(index, index)) do
+            local character = source:sub(index, index)
+            if character == "'" or character == '"' then
+                local quote = character
+                index = index + 1
+                while index <= #source and source:sub(index, index) ~= quote do
+                    character = source:sub(index, index)
+                    if quote == '"' and character == "\\" then
+                        index = index + 1
+                        if index > #source then
+                            return nil
+                        end
+                        character = source:sub(index, index)
+                    end
+                    parts[#parts + 1] = character
+                    index = index + 1
+                end
+                if index > #source then
+                    return nil
+                end
+            else
+                if character == "\\" then
+                    index = index + 1
+                    if index > #source then
+                        return nil
+                    end
+                    character = source:sub(index, index)
+                end
+                parts[#parts + 1] = character
+            end
+            index = index + 1
+        end
+        words[#words + 1] = table.concat(parts)
+    end
+
+    return words
+end
+
+local function depfile(source: string): {string}?
+    local index = 1
+    while index <= #source and source:sub(index, index) ~= ":" do
+        if source:sub(index, index) == "\\" then
+            index = index + 1
+        end
+        index = index + 1
+    end
+    if index > #source then
+        return nil
+    end
+    index = index + 1
+    local paths: {string} = {}
+    while index <= #source do
+        while index <= #source do
+            if space(source:sub(index, index)) then
+                index = index + 1
+            elseif source:sub(index, index + 1) == "\\\n" then
+                index = index + 2
+            elseif source:sub(index, index + 2) == "\\\r\n" then
+                index = index + 3
+            else
+                break
+            end
+        end
+        if index > #source then
+            break
+        end
+        if source:sub(index, index) == "#" then
+            local newline = source:find("\n", index, true)
+            if newline and newline ~= #source then
+                return nil
+            end
+            return paths
+        end
+        local parts: {string} = {}
+        while index <= #source do
+            local character = source:sub(index, index)
+            if space(character) or character == "#" then
+                break
+            end
+            if character == "\\" then
+                if source:sub(index + 1, index + 1) == "\n" then
+                    break
+                end
+                index = index + 1
+                if index > #source then
+                    return nil
+                end
+                character = source:sub(index, index)
+            end
+            parts[#parts + 1] = character
+            index = index + 1
+        end
+        paths[#paths + 1] = table.concat(parts)
+    end
+
+    return paths
+end
 
 --- Parse a path glob once and return its matcher. `*` and `?` stay within one
 --- segment; `**/` consumes zero or more complete directories.
 local function compileGlob(glob: string): function(string): boolean
-    local tokens = assert(GlobTokens(glob))
+    local tokens = globTokens(glob)
     return function(path: string): boolean
         local match: function(integer, integer): boolean
         match = function(tokenIndex: integer, pathIndex: integer): boolean
@@ -57,4 +167,4 @@ local function compileGlob(glob: string): function(string): boolean
     end
 end
 
-export = {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}
+export = {glob = compileGlob, shellWords = shellWords, depfile = depfile}

@@ -1063,6 +1063,88 @@ fixture exercises erased imports, library tables, concatenation and global
 assignments, and named affine cleanup on both interpreters and the JIT, followed
 by the compiler-image fixpoint.
 
-This gate covers image construction. Full CLI execution, repository checking,
-and the classified corpus remain open. CLI derivations, reflection registry
-initialization, and the remaining runtime host services still need that work.
+This gate covers image construction. Executing the check command also requires
+the compiler host services and derived metadata described below.
+
+## Check command execution (2026-10-12)
+
+`nupp.compiler.vm.cli` runs the existing derived `check` command on the VM.
+The executable entry accepts raw arguments and returns the command's exit status:
+
+```sh
+NO_JIT=1 NUPP_COMPILER_ROOT="$PWD" \
+  build/rust/target/release/nupp-vm exec check.image nupp.compiler.vm.cli --json
+python3 native/crates/vm/tests/cli-execution-smoke.py check.image --repository
+```
+
+Build `check.image` with `nupp.compiler.vm.project.emit`, using
+`nupp.compiler.vm.cli` as its entry and these extra modules:
+`nupp.compiler.hostservices`, `nupp.compiler.fs`,
+`nupp.compiler.project.projectconfig`, `nupp.compiler.project.store`,
+`nupp.compiler.project.fingerprint`, `nupp.compiler.hash`, and
+`nupp.compiler.project.preludecache`. Decode the emitter's JSON string into the
+image file, as in the project test. The current executable image has 191 modules
+and 9,570,956 bytes. Legacy AOT/LLVM code generation remains outside its graph.
+
+Checked derive recipes and reflection descriptors become ordinary VM syntax.
+Record defaults, positional construction, declared constructors, short functions,
+qualified methods, and managed cleanup use semantic checker facts. Switches
+preserve ordered arms, guards, captured bindings, and one selector evaluation;
+yielding from a value block runs its pending cleanup. Optimized
+tables preserve metatables across interpreter/JIT access, GC, and persistence.
+Dynamic Lua bindings can change numeric kind, absent globals are nil, and fixed
+result assignments pad missing values. Generic iterators stop only on nil and
+pad missing results; trailing calls retain their result pack through casts
+without overwriting the outer callee. Named fields use canonical string keys
+at every length. JSON escaping honors replacement-table metatables and roots
+captures across callbacks.
+
+The compiler host provides filesystem operations, writable file handles, cache
+hashing, and C declarations. The optional `c-headers` Cargo feature uses an
+in-process libclang library, selected with `NUPP_LIBCLANG` or platform defaults;
+it launches no compiler process. Builds without the feature retain the runtime
+and report that C-header checking is unavailable. Open writable files and the
+C declaration registry are external resources that require explicit snapshot
+policies. Release packaging for libclang remains open.
+
+The command acceptance test runs with an empty `PATH` and covers files, projects,
+C declarations, invalid input, control bytes in JSON, help, schema, usage errors,
+and exit status. Repository checking has passed interpreted for all 545 modules
+with zero errors. The final cold run took 563.0 seconds on a loaded machine.
+The compiler-image test reaches byte identity at 7,374,387
+bytes and exercises its source fixtures on both interpreters and the JIT under
+collector verification. The root CLI, launcher, and release bootstrap are still
+separate migration work.
+
+`corpus-classification.json` preserves the P0 classifications. `corpus-smoke.py`
+emits unchanged Lua suites and their checked Nupp dependencies on the VM, then
+runs each suite in a fresh VM process and records every result. It rejects image
+construction failures, failed cases, unavailable capabilities, and incomplete
+results. The [coverage inventory](tests/corpus-coverage.json) records all 100
+portable test suites: 45 passed, 54 failed, and one timed out. There were 742
+passing case or hook results, 297 failures, and one unavailable capability;
+the lexer timeout retained 19 passing cases. The baseline also contains three
+portable helper modules, 117 suites requiring ports, 32 retired entries, and
+three harness entries.
+
+To reproduce this coverage slice:
+
+```sh
+python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-corpus \
+  --unavailable-module nupp.compiler.runtime.math \
+  --unavailable-module nupp.simd \
+  --unavailable-module nupp.checksum.internal.builtin \
+  --unavailable-module simdreducertest \
+  --unavailable-module nupp.tools.cli \
+  --unavailable-module nupp.runtime.provider.nativetls \
+  --unavailable-module nupp.codec.json.internal.decoder.fused
+```
+
+Those modules stay unresolved; affected suites fail. The complete gate requires
+removing these flags, porting surviving tests, and running under collector
+stress. Current failures include wide numeric operations, subprocess-based CLI
+tests, old storage/time/suspension/worker providers, LuaJIT and documentation
+dependencies, and test fixture services. The runtime's workers and compiled
+suspension are already implemented; their library adapters remain separate
+migration work. The lexer timeout reaches its legacy FFI trivia-arena case and
+still needs diagnosis.

@@ -1,0 +1,8 @@
+module nupp.compiler.hostservices
+
+-- The VM evaluates compile-time code in its compiler and owns filesystem I/O.
+export = {
+    cheader = require("nupp.compiler.cinterop.cheader"),
+    fs = require("nupp.compiler.fs"),
+    hash = require("nupp.compiler.nativehash"),
+}

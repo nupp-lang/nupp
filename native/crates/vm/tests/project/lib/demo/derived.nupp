@@ -1,0 +1,181 @@
+module demo.derived
+
+local cli = require("nupp.cli")
+local derive = require("nupp.derive")
+local json = require("nupp.codec.json")
+local constructed = require("demo.qualifiedconstructor")
+
+@cli("probe")
+@derive(cli.Command)
+local record Options
+    @cli(short = "v")
+    verbose: boolean = false
+    output: string = "default"
+    @cli(positional = "FILE")
+    files: {string} = {}
+
+    function run(self): integer
+        return self.verbose and #self.files + 40 or 0
+    end
+end
+
+local function shadowing(): boolean
+    local tostring = tostring
+    local outer: integer = 17
+    do
+        local outer: integer = outer + 1
+
+        local function read(): integer
+            return outer
+        end
+
+        assert(read() == 18)
+    end
+
+    local function render(): string
+        return tostring(outer)
+    end
+
+    return render() == "17"
+end
+
+local function loaded(value: any): boolean
+    return value == derive
+end
+
+local function imported(): any, any
+    return require("nupp.derive")
+end
+
+local derived = {}
+record derived.Counter
+    value: integer
+end
+
+function derived.Counter:advance(): integer
+    self.value = self.value + 1
+    return self.value
+end
+
+local record Constructed
+    value: integer
+    extra: integer = 2
+    constructor(self, value: integer)
+        self.value = value + self.extra
+        if value == 40 then
+            return
+        end
+        self.value = self.value + 1
+    end
+end
+
+local record Overlay
+    answer: integer?
+end
+
+local function managedOwnership(): boolean
+    local cleaned = 0
+    local record Resource
+        value: integer
+    end
+
+    local function closeResource(takes resource: Resource): nil
+        cleaned = cleaned + resource.value
+    end
+
+    local function open(value: integer): affine(Resource, closeResource)
+        return new Resource(value = value)
+    end
+
+    local owner = nupp.manage(open(1))
+    local handle = owner:alias()
+    local erased: any = handle
+    local recovered, problem = nupp.recoverAlias(erased)
+    assert(problem == nil)
+    if not recovered then
+        error("alias recovery failed")
+    end
+    local exact, mismatch = recovered:downcast<affine(Resource, closeResource)>()
+    assert(mismatch == nil)
+    if not exact then
+        error("alias policy changed")
+    end
+    local resource, takeProblem = exact:take()
+    assert(takeProblem == nil)
+    if not resource then
+        error("ownership recovery failed")
+    end
+    nupp.drop(resource)
+    local _, stale = handle:with(function(borrows value)
+        return value.value
+    end)
+    assert(stale and stale.code == "NUPP2614")
+    do
+        local other = nupp.manage(open(2))
+    end
+    do
+        local group = nupp.managedGroup()
+        local held = group:adopt(nupp.manage(open(4)))
+        assert(
+            held:with(function(borrows value)
+                return value.value
+            end) == 4
+        )
+    end
+
+    return cleaned == 7
+end
+
+function derived.run(): integer
+    assert((new constructed.Item(41)).value == 42)
+    assert(shadowing())
+    assert(string.char(tonumber("65") as integer) == "A")
+    local success, letter = pcall(string.char, tonumber("66") as integer)
+    assert(success and letter == "B")
+    assert(managedOwnership())
+    local parent = {answer = 42}
+    local meta = {__index = parent, __newindex = parent}
+    local overlay = setmetatable({answer = nil}, meta) as Overlay
+    assert(overlay.answer == 42 and getmetatable(overlay) == meta)
+    overlay.answer = 43
+    assert(rawget(overlay, "answer") == nil and parent.answer == 43)
+    setmetatable(overlay, nil)
+    overlay.answer = 44
+    assert(rawget(overlay, "answer") == 44)
+    assert((new Constructed(40)).value == 42)
+    assert((new Constructed(39)).value == 42)
+    assert((new derived.Counter(42)).value == 42)
+    local decoded, problem = json.decode(json.encode({present = 42, absent = nil}))
+    assert(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
+    local controls = string.char(0, 1, 2, 8, 9, 10, 12, 13, 31) .. '\\"'
+    local escaped = json.encode({[controls] = controls})
+    assert(not escaped:find("[%z\1-\31]"))
+    local roundTrip = assert(json.decode(escaped)) as any
+    assert(roundTrip[controls] == controls)
+    local captured: integer = 40
+    local add = |value: integer| -> captured + value
+    local nested = || -> do
+        return |value: integer| -> add(value)
+    end
+    assert(nested()(2) == 42)
+    local counter = new derived.Counter(value = 41)
+    assert(counter:advance() == 42)
+    assert(loaded(require("nupp.derive")))
+    local first, second = imported()
+    assert(first == derive and second == nil)
+    assert(Options.cliName() == "probe")
+    assert(derive.entry(Options) ~= nil)
+    local plain, problem = Options.fromCLI({})
+    assert(plain and problem == nil and not plain.verbose and plain.output == "default" and #plain.files == 0)
+    local selected, why = Options.fromCLI({"-v", "--output", "chosen", "one", "two"})
+    assert(selected and why == nil and selected.output == "chosen")
+    local invalid, failure = Options.fromCLI({"--unknown"})
+    assert(
+        invalid == nil and failure ~= nil,
+        "unknown option result: " .. tostring(invalid) .. ", " .. tostring(failure)
+    )
+
+    return selected:run()
+end
+
+export = derived

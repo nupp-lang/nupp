@@ -17,4 +17,5 @@ local record Files
     createDirectory: function(path: string): (boolean, string?)
     remove: function(path: string, recursive: boolean?): (boolean, string?)
 end
+type Files.Path = string
 return Files

@@ -53,6 +53,7 @@ export function install(__nupp: any, runtime: any): nil
                 error(busy.message, 0)
             end
             cell._state = "closing";
+            __nuppManagedCells[cell] = nil;
             local value, cleanup = cell._value, cell._cleanup;
             cell._value = nil;
             cell._cleanup = nil
@@ -138,6 +139,7 @@ export function install(__nupp: any, runtime: any): nil
                 return nil, __nuppManagedError("NUPP2620", "managed resource has an active borrow")
             end
             cell._state = "taken";
+            __nuppManagedCells[cell] = nil;
             local value = cell._value;
             cell._value = nil;
             cell._cleanup = nil;

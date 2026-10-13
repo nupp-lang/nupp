@@ -1,0 +1,18 @@
+module nupp.compiler.vm.cli
+
+-- Check-command entry for a VM image. The command owns its ordinary CLI grammar.
+local cli = {}
+
+function cli.main(argv: {string}): integer
+    require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
+    require("nupp.compiler.vm.chunks").install()
+    local command = require("nupp.tools.cli.check").commandType
+    if require("nupp.tools.cli.schema").requests(command, argv) then
+        require("nupp.tools.cli.report").write(command.reportSchema())
+        return 0
+    end
+
+    return require("nupp.cli").application(command, {name = "nupp check"}):main(argv)
+end
+
+export = cli

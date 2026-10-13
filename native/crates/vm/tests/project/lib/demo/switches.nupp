@@ -1,0 +1,74 @@
+module demo.switches
+
+local record Item
+    value: integer
+end
+
+local function classify(value: integer): integer
+    return switch value do
+        case 1, 2 -> 10
+        case 3 -> do
+            local captured: integer = 30
+
+            local function read(): integer
+                return captured
+            end
+
+            yield read()
+        end
+        else -> 40
+    end
+end
+
+local function capture(value: Item | string): function(): integer
+    return switch value do
+        case is Item as item {value as amount} where amount > 0 -> function(): integer
+            return item.value + amount
+        end
+        case is Item -> function(): integer
+            return 0
+        end
+        else -> function(): integer
+            return -1
+        end
+    end
+end
+
+export function run(): integer
+    assert(classify(1) == 10 and classify(2) == 10 and classify(3) == 30 and classify(4) == 40)
+    assert(capture(new Item(21))() == 42)
+    assert(capture(new Item(-1))() == 0 and capture("text")() == -1)
+    local calls: integer = 0
+
+    local function selector(): integer
+        calls = calls + 1
+        return 3
+    end
+
+    local result = switch selector() do
+        case 1 -> 0
+        case 3 -> switch selector() do
+            case 3 -> 42
+            else -> 0
+        end
+        else -> 0
+    end
+    assert(result == 42 and calls == 2)
+    local cleaned: integer = 0
+
+    local function close(takes item: Item): nil
+        cleaned = cleaned + item.value
+    end
+
+    local function open(): affine(Item, close)
+        return new Item(7)
+    end
+
+    local answer = do
+        local resource = open()
+        yield 42
+    end
+    assert(cleaned == 7 and answer == 42)
+
+    return 42
+end

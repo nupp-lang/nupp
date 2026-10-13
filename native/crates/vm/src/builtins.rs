@@ -22,7 +22,7 @@ pub const NAMES: &[&str] = &[
     "vm.loadImage", "vm.processId", "vm.sha256", "vm.saveValue", "vm.loadValue", "vm.loadInto",
     "tasks.open", "tasks.checkpoint", "tasks.deadline", "tasks.spawn", "tasks.spawnNamed", "tasks.await", "tasks.status", "tasks.isDone", "tasks.cancel", "tasks.cancelScope", "tasks.close", "tasks.isCancelled", "tasks.familyOpen", "tasks.familyAwait", "affine.release", "tasks.fork", "tasks.channel", "tasks.channelSend", "tasks.channelReceive", "tasks.channelClose", "tasks.coCreate", "tasks.coResume", "tasks.coYield", "tasks.coStatus", "tasks.coRunning", "tasks.coClose", "tasks.coWrap", "tasks.coIsYieldable", "tasks.channelShare", "tasks.coDispose",
     "terminal.isTerminal", "terminal.columns", "clock.now",
-    "files.remove",
+    "files.remove", "vm.cacheDigest", "vm.cDeclarations",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -200,7 +200,7 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "files.createDirectory" | "files.remove" => {
             let p = path_text(it, arg(args, 0));
             if name == "files.remove" && !matches!(arg(args, 1), Value::NIL | Value::TRUE | Value::FALSE) {
-                return it.err("nupp: io.files recursive must be a boolean");
+                it.err("nupp: io.files recursive must be a boolean");
             }
             let result = if name == "files.createDirectory" {
                 std::fs::create_dir_all(&p)
@@ -387,6 +387,20 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
         return outs![it.heap_new_string(&hex)];
     }
+    if NAMES.get(id as usize) == Some(&"vm.cDeclarations") {
+        #[cfg(feature = "c-headers")]
+        {
+            let request = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+            let response = crate::cdecl::request(&mut it.c_declarations, &request);
+            if it.c_declarations.is_some() {
+                if let Some(&module) = it.loaded.get("nupp.compiler.nativecdecl") { it.resources.insert(module, "nupp.compiler.c-declarations".into()); }
+            }
+            return outs![it.heap_new_string(&response)];
+        }
+        #[cfg(not(feature = "c-headers"))]
+        { it.err("C declaration inspection requires the c-headers runtime feature") }
+    }
+    if NAMES.get(id as usize) == Some(&"vm.cacheDigest") { let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)]; }
     if NAMES.get(id as usize) == Some(&"vm.processId") { return outs![Value::num(std::process::id() as f64)]; }
     if NAMES.get(id as usize) == Some(&"clock.now") {
         let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
@@ -470,16 +484,21 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                     Some((end, caps)) => {
                         count += 1;
                         let whole = &s[pos..end];
-                        let cap_values: Vec<Value> = if caps.is_empty() { vec![str_of(it, whole)] } else { caps.iter().map(|c| match c { pattern::Cap::Pos(p) => Value::num((*p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[*x..*y]) }).collect() };
-                        let replacement: Option<Vec<u8>> = if repl.is_num() || it.is_stringish(repl) {
+                        let scope = it.open_scope();
+                        let mut cap_values = Vec::new();
+                        if caps.is_empty() { let value = str_of(it, whole); it.handles.push(value); cap_values.push(value); }
+                        else { for c in &caps { let value = match c { pattern::Cap::Pos(p) => Value::num((*p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[*x..*y]) }; it.handles.push(value); cap_values.push(value); } }
+                        let replacement = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Vec<u8>> { if repl.is_num() || it.is_stringish(repl) {
                             let r = bytes_of(it, repl); let mut o = Vec::new(); let mut i = 0;
                             while i < r.len() { if r[i] == b'%' && i + 1 < r.len() { let c = r[i + 1]; if c == b'%' { o.push(b'%'); } else if c.is_ascii_digit() { let k = (c - b'0') as usize; if k == 0 { o.extend_from_slice(whole); } else if let Some(v) = cap_values.get(k - 1) { o.extend_from_slice(&bytes_of(it, *v)); } } i += 2; } else { o.push(r[i]); i += 1; } }
                             Some(o)
-                        } else if it.kind_of(repl) == Some(KIND_TABLE) {
-                            let v = it.get_index(repl, cap_values[0]); if v == Value::NIL || v == Value::FALSE { None } else { Some(bytes_of(it, v)) }
+                        } else if matches!(it.kind_of(repl), Some(KIND_TABLE | KIND_RECORD)) {
+                            let v = it.index(repl, cap_values[0]); if v == Value::NIL || v == Value::FALSE { None } else { Some(bytes_of(it, v)) }
                         } else {
                             let res = it.call_value(repl, &cap_values); let v = res.first().copied().unwrap_or(Value::NIL); if v == Value::NIL || v == Value::FALSE { None } else { Some(bytes_of(it, v)) }
-                        };
+                        } }));
+                        it.close_scope(scope);
+                        let replacement = match replacement { Ok(value) => value, Err(error) => std::panic::resume_unwind(error) };
                         match replacement { Some(r) => out.extend_from_slice(&r), None => out.extend_from_slice(whole) }
                         if end > pos { pos = end; } else { if pos < s.len() { out.push(s[pos]); } pos += 1; }
                     }
@@ -566,9 +585,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_32 => outs![Value::boolean(arg(args, 0) == arg(args, 1))],
         N_33 => { let v = it.get_index(arg(args, 0), arg(args, 1)); outs![v] }
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
-        // setmetatable on a table stores it; a record has no metatable slot and
-        // keeps its own dispatch, so the call is a no-op there.
-        N_35 => { let t = arg(args, 0); let m = arg(args, 1); if let Some(p) = t.as_obj() { let h = unsafe { &mut *p.as_ptr() }; if h.kind == KIND_TABLE { if m != Value::NIL { it.heap.barrier(p, m); } h.table().meta = m; } } outs![t] }
+        N_35 => { let t = arg(args, 0); it.set_metatable(t, arg(args, 1)); outs![t] }
         N_36 => outs![it.metatable_of(arg(args, 0))],
         // The bit library: 32-bit two's complement, as LuaJIT's.
         38 => { let mut r: i32 = -1; for a in args { r &= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
@@ -637,11 +654,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         64 => { let x = arg(args, 0).as_num(); if x == 0.0 || !x.is_finite() { outs![Value::num(x), Value::num(0.0)] } else { let e = x.abs().log2().floor() as i32 + 1; let m = x / (2f64).powi(e); outs![Value::num(m), Value::num(e as f64)] } }
         // io.open for reading: the whole file now, as a string behind a file
         // object whose `read`, `lines` and `close` are fields (a method call
-        // falls back to them). Writing goes through the host services.
+        // falls back to them). Writable modes hold a native file resource.
         65 => {
             let path = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned();
             let mode = if args.len() > 1 && arg(args, 1) != Value::NIL { String::from_utf8_lossy(&bytes_of(it, arg(args, 1))).into_owned() } else { "r".to_string() };
-            if !mode.starts_with('r') { let msg = it.heap_new_string(&format!("{path}: writing is not available on this runtime")); return outs![Value::NIL, msg]; }
+            if mode != "r" && mode != "rb" { return crate::fileio::open(it, &path, &mode); }
             match std::fs::read(&path) {
                 Ok(data) => {
                     let f = it.new_table(); let fh = it.register(f);
@@ -657,7 +674,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         // file:read(fmt): "*a"/"a" the rest, "*l"/"l" a line, a number that many bytes.
         73 => {
-            let f = arg(args, 0); let kd = it.intern("_data"); let ka = it.intern("_at");
+            let f = arg(args, 0);
+            if crate::fileio::is_native(it, f) { return crate::fileio::read(it, f, arg(args, 1)); }
+            let kd = it.intern("_data"); let ka = it.intern("_at");
             let data = bytes_of(it, it.get_index(f, kd)); let at = it.get_index(f, ka).as_num() as usize;
             if at >= data.len() { let fmt = arg(args, 1); let all = !fmt.is_num() && { let b = bytes_of(it, fmt); b == b"*a" || b == b"a" }; return if all { outs![str_of(it, b"")] } else { outs![Value::NIL] }; }
             let fmt = arg(args, 1);
@@ -667,15 +686,18 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             it.set_index(f, ka, Value::num(next as f64));
             outs![str_of(it, &chunk)]
         }
-        74 => outs![Value::boolean(true)],
-        75 => it.err("file:lines is not available on this runtime"),
-        76 => it.err("file:write is not available on this runtime"),
+        74 => { let file = arg(args, 0); if crate::fileio::is_native(it, file) { crate::fileio::close(it, file) } else { outs![Value::TRUE] } },
+        75 => { let file = arg(args, 0); let format = arg(args, 1); let format = if format == Value::NIL { it.intern("*l") } else { format }; outs![it.new_iter(4, file, format)] },
+        76 => crate::fileio::write(it, args),
         66 => { use std::io::Write; let mut o = std::io::stderr(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } outs![arg(args, 0)] }
         67 => { use std::io::Write; let mut o = std::io::stdout(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } outs![arg(args, 0)] }
-        // The file system and processes go through the host services; these
-        // answer as a failed call so a caller that checks can carry on.
-        68 | 71 => { let msg = it.heap_new_string("not available on this runtime"); outs![Value::NIL, msg] }
-        69 => it.err("os.tmpname: not available on this runtime"),
+        // Filesystem mutations report operating-system failures as Lua results.
+        68 | 71 => {
+            let path = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+            let result = if id == 68 { if std::fs::symlink_metadata(&path).map(|m| m.is_dir()).unwrap_or(false) { std::fs::remove_dir(path) } else { std::fs::remove_file(path) } } else { let to = String::from_utf8_lossy(it.bytes_of(arg(args, 1))).into_owned(); std::fs::rename(path, to) };
+            match result { Ok(()) => outs![Value::TRUE], Err(error) => { let msg = it.heap_new_string(&error.to_string()); outs![Value::NIL, msg, Value::num(error.raw_os_error().unwrap_or(0) as f64)] } }
+        }
+        69 => crate::fileio::temporary_name(it),
         70 => outs![Value::NIL, it.intern("exit"), Value::num(1.0)],
         72 => outs![Value::NIL],
         52 => {
@@ -698,7 +720,7 @@ fn parse_spec(spec: &str) -> (usize, bool, bool, Option<usize>) {
 pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
     let (kind, obj, pos, keys_len) = it.iter_state(iter);
     match kind {
-        1 => { if pos >= keys_len { return outs![Value::NIL]; } let k = it.iter_key(iter, pos); it.iter_advance(iter); let v = it.get_index(obj, k); outs![k, v] }
+        1 => { for index in pos..keys_len { let k = it.iter_key(iter, index); it.iter_advance(iter); let v = it.get_index(obj, k); if v != Value::NIL { return outs![k, v]; } } outs![Value::NIL] }
         2 => { let i = pos + 1; let v = it.get_index(obj, Value::num(i as f64)); if v == Value::NIL { return outs![Value::NIL]; } it.iter_advance(iter); outs![Value::num(i as f64), v] }
         3 => {
             let s = bytes_of(it, obj); let pat = bytes_of(it, it.iter_pattern(iter));
@@ -708,6 +730,7 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
                 None => { it.iter_set_pos(iter, s.len() + 1); outs![Value::NIL] }
             }
         }
+        4 => { let format = it.iter_pattern(iter); call(it, id_of("file.read").unwrap(), &[obj, format]) }
         _ => outs![Value::NIL],
     }
 }
@@ -720,7 +743,7 @@ pub mod pattern {
     struct State<'a> { s: &'a [u8], p: &'a [u8], caps: Vec<(usize, Option<usize>)>, depth: u32 }
 
     fn class_matches(c: u8, cl: u8) -> bool {
-        let r = match cl.to_ascii_lowercase() { b'a' => c.is_ascii_alphabetic(), b'd' => c.is_ascii_digit(), b's' => c.is_ascii_whitespace() || c == 11, b'w' => c.is_ascii_alphanumeric(), b'x' => c.is_ascii_hexdigit(), b'p' => c.is_ascii_punctuation(), b'l' => c.is_ascii_lowercase(), b'u' => c.is_ascii_uppercase(), b'c' => c.is_ascii_control(), b'g' => c.is_ascii_graphic(), other => return c == other };
+        let r = match cl.to_ascii_lowercase() { b'a' => c.is_ascii_alphabetic(), b'd' => c.is_ascii_digit(), b's' => c.is_ascii_whitespace() || c == 11, b'w' => c.is_ascii_alphanumeric(), b'x' => c.is_ascii_hexdigit(), b'p' => c.is_ascii_punctuation(), b'l' => c.is_ascii_lowercase(), b'u' => c.is_ascii_uppercase(), b'c' => c.is_ascii_control(), b'g' => c.is_ascii_graphic(), b'z' => c == 0, other => return c == other };
         if cl.is_ascii_uppercase() { !r } else { r }
     }
     /// The end of the single-character item starting at `pi`.

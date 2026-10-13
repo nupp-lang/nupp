@@ -207,7 +207,7 @@ local function pkgConfigWords(argv, packages, label)
     if code ~= 0 then
         return nil, "pkg-config failed for " .. label .. ": " .. flags
     end
-    local parsed = syntax.shellWords:match(flags)
+    local parsed = syntax.shellWords(flags)
     if not parsed then
         return nil, "pkg-config returned invalid flags for " .. label
     end

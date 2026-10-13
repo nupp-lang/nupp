@@ -1,0 +1,2018 @@
+{
+  "date": "2026-10-12",
+  "branch": "codegen-experiment",
+  "gatePassed": false,
+  "classificationBaseline": "843af410a",
+  "classificationCounts": {
+    "portable": 103,
+    "port-required": 117,
+    "retired": 32,
+    "harness": 3
+  },
+  "scope": "All 100 test suites in the portable baseline; its other three entries are helper modules. Port-required and retired suites were not executed.",
+  "execution": {
+    "seedSha256": "1aa0fb2b4f9b7596bf3461b03f217a442326b702f55f7e2169b9fea1adba5aaa",
+    "binarySha256": "413f6c1d7d8574c0b535319bde9f9f06db3d88e672a214617bdccfa3a70170e2",
+    "interpreter": "threaded",
+    "path": "",
+    "timeoutSeconds": 600,
+    "unavailableModules": [
+      "nupp.compiler.runtime.math",
+      "nupp.simd",
+      "nupp.checksum.internal.builtin",
+      "simdreducertest",
+      "nupp.tools.cli",
+      "nupp.runtime.provider.nativetls",
+      "nupp.codec.json.internal.decoder.fused"
+    ],
+    "imageSha256": "477227f882d224988cc8226189cd9c3381a99e8805980a337842fc57f8a2238c",
+    "selectedSuites": 100
+  },
+  "summary": {
+    "suites": 100,
+    "passedSuites": 45,
+    "failedSuites": 54,
+    "timedOutSuites": 1,
+    "passingCaseOrHookResults": 742,
+    "failingCaseOrHookResults": 297,
+    "notExecutedCases": 1,
+    "incompleteSuites": 15
+  },
+  "notes": [
+    "Seven explicitly unavailable modules were left unresolved so unrelated suites could execute. No emission stubs were used. Affected suites remain failures.",
+    "A passing suite means its existing assertions passed; inventory and capability-report tests do not prove unavailable deployment targets work.",
+    "The timeout retained 19 passing lexer cases. The next case in name order exercises legacy FFI trivia-arena storage; its hang remains unresolved.",
+    "Failures include subprocess-based CLI tests, unavailable legacy providers, wide numeric dependencies, documentation dependencies, and test fixture services. Failure samples are evidence, not a claim that every failure has one cause.",
+    "This interpreted coverage run is not the collector-stress acceptance gate."
+  ],
+  "suites": [
+    {
+      "suite": "absoluteentrytest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.192,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "runKeepsEntryModuleIdentityForAnAbsolutePath",
+          "capabilities": {},
+          "ok": false,
+          "suite": "absoluteentrytest"
+        }
+      ]
+    },
+    {
+      "suite": "analysisquerytest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0,
+      "total": 19,
+      "completed": true,
+      "durationSeconds": 14.681
+    },
+    {
+      "suite": "associatedcompletetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.192
+    },
+    {
+      "suite": "associatedcomposetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 14.314
+    },
+    {
+      "suite": "associatedconformancetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "total": 10,
+      "completed": true,
+      "durationSeconds": 0.203
+    },
+    {
+      "suite": "associatedcycletest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "total": 10,
+      "completed": true,
+      "durationSeconds": 14.373
+    },
+    {
+      "suite": "associateddecltest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 20,
+      "failed": 0,
+      "total": 20,
+      "completed": true,
+      "durationSeconds": 14.458
+    },
+    {
+      "suite": "associatedgradualtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "total": 8,
+      "completed": true,
+      "durationSeconds": 14.283
+    },
+    {
+      "suite": "associatedlookuptest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0,
+      "total": 17,
+      "completed": true,
+      "durationSeconds": 0.207
+    },
+    {
+      "suite": "associatedmetadatatest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "total": 9,
+      "completed": true,
+      "durationSeconds": 0.202
+    },
+    {
+      "suite": "associatedprojectiontest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 24,
+      "failed": 0,
+      "total": 24,
+      "completed": true,
+      "durationSeconds": 14.615
+    },
+    {
+      "suite": "associatedtoolingtest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 4,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 0.21,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aCopiedDefaultKeepsItsSiteAndReportsItsAnswer",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "associatedtoolingtest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "anOpaqueProjectionReportsItsBound",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "associatedtoolingtest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "associatedNamesAreNotRenameableYet",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "associatedtoolingtest"
+        }
+      ]
+    },
+    {
+      "suite": "base64test",
+      "class": "portable",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.225
+    },
+    {
+      "suite": "bctest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 23,
+      "total": 23,
+      "completed": true,
+      "durationSeconds": 0.215,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "bctest",
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "aFunctionBuiltOnceBehindAGuardIsAdvisory",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "bctest",
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "authoredCodeOnLineOneIsNotFoldedWithThePreamble",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "bctest",
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "benchprojectstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.199,
+      "failureSamples": [
+        {
+          "capabilities": {},
+          "ok": false,
+          "suite": "benchprojectstest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in projects at pc 15 register 17",
+          "name": "everyBenchmarkProjectChecks",
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "suite": "benchrunnertest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 9,
+      "total": 9,
+      "completed": true,
+      "durationSeconds": 0.207,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "benchrunnertest",
+          "facts": {},
+          "error": "expected 0, got nil: create isolated benchmark workspace",
+          "name": "aBaselineSchemaIsCheckedWhereItIsRead",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "benchrunnertest",
+          "facts": {},
+          "error": "expected 0, got nil: create isolated benchmark workspace",
+          "name": "caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "benchrunnertest",
+          "facts": {},
+          "error": "expected 0, got nil: create isolated benchmark workspace",
+          "name": "comparisonRecordsRetainBothSidesAndVerdicts",
+          "capabilities": {},
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "suite": "binderidentitytest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
+      "completed": true,
+      "durationSeconds": 0.201
+    },
+    {
+      "suite": "bootstraptest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 11,
+      "total": 11,
+      "completed": true,
+      "durationSeconds": 0.29,
+      "failureSamples": [
+        {
+          "name": "aBuildWaitsForTheBuildAlreadyRunning",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "bootstraptest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "aColdBuildPublishesSelfHostedRuntimeArtifacts",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "bootstraptest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "aDamagedCachedStageZeroIsFetchedAgain",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "bootstraptest",
+          "facts": {},
+          "error": "assertion failed!"
+        }
+      ]
+    },
+    {
+      "suite": "buildprogresstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 9,
+      "failed": 10,
+      "total": 19,
+      "completed": true,
+      "durationSeconds": 0.213,
+      "failureSamples": [
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "buildprogresstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aBuildIsQuietWhenNobodyIsWatching",
+          "capabilities": {}
+        },
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "buildprogresstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aCheckIsNotNarratedAtInJsonUnlessAsked",
+          "capabilities": {}
+        },
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "buildprogresstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aCheckNarratesOnTheSameTermsABuildDoes",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "bytecodelistingtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.201
+    },
+    {
+      "suite": "checktest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 102,
+      "failed": 0,
+      "total": 102,
+      "completed": true,
+      "durationSeconds": 43.621
+    },
+    {
+      "suite": "cichangeclassifiertest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 27,
+      "total": 27,
+      "completed": true,
+      "durationSeconds": 0.202,
+      "failureSamples": [
+        {
+          "name": "aMixedChangeTakesTheUnionOfItsPaths",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "cichangeclassifiertest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
+        },
+        {
+          "name": "anEmptyChangeSelectsEverything",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "cichangeclassifiertest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
+        },
+        {
+          "name": "anOrdinaryCompilerChangeDoesNotPayForEmscripten",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "cichangeclassifiertest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
+        }
+      ]
+    },
+    {
+      "suite": "compilerpacktest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.2,
+      "failureSamples": [
+        {
+          "name": "findsPackBesideThePhysicalReleaseBinary",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "compilerpacktest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "resolvesAndAuthenticatesTargetIndexedTools",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "compilerpacktest",
+          "facts": {},
+          "error": "assertion failed!"
+        }
+      ]
+    },
+    {
+      "suite": "corpustest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "total": 3,
+      "completed": true,
+      "durationSeconds": 1.705
+    },
+    {
+      "suite": "coveragereporttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 7,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.207,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "coveragereporttest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aReportInAnotherFormatIsRefusedOnRead",
+          "metrics": {},
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "coveragereporttest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "anonymousFunctionSitesAreNamelessRatherThanGuessed",
+          "metrics": {},
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "coveragereporttest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "branchSitesCarryBothOutcomesSeparately",
+          "metrics": {},
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "coveragetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.201,
+      "failureSamples": [
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "coveragetest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "highlightsLongCommentsAcrossSourceLines",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "declarationwitnessestest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.213
+    },
+    {
+      "suite": "derivematerializetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 0.201
+    },
+    {
+      "suite": "deriveprovidertest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 7,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.207,
+      "failureSamples": [
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "deriveprovidertest",
+          "facts": {},
+          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
+          "name": "attachesADeriveThroughAnExportWrapper",
+          "capabilities": {}
+        },
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "deriveprovidertest",
+          "facts": {},
+          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
+          "name": "declaredProvidersPreserveNamesColumnsAndWitnessCapabilities",
+          "capabilities": {}
+        },
+        {
+          "metrics": {},
+          "ok": false,
+          "suite": "deriveprovidertest",
+          "facts": {},
+          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
+          "name": "forwardsAReflectedAnnotationTypeAsARuntimeWitness",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "diagnosticgoldentest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 1.696,
+      "failureSamples": [
+        {
+          "error": "module 'nupp.compiler.aot.compile' not found: not in the image",
+          "metrics": {},
+          "name": "curatedBadCodeMessagesStayUseful",
+          "capabilities": {},
+          "ok": false,
+          "suite": "diagnosticgoldentest",
+          "facts": {}
+        },
+        {
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in stringLiteralsMentioningContext at pc 13 register 6",
+          "metrics": {},
+          "name": "noDiagnosticMessageQuotesTheCheckerContext",
+          "capabilities": {},
+          "ok": false,
+          "suite": "diagnosticgoldentest",
+          "facts": {}
+        }
+      ]
+    },
+    {
+      "suite": "digesttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.192,
+      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.mem.span at pc 2\n\n  module:nupp.digest.internal.context at pc 3\n\n  module:nupp.digest at pc 13\n\n  module:digesttest at pc 5\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "discardtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "total": 12,
+      "completed": true,
+      "durationSeconds": 8.825
+    },
+    {
+      "suite": "effecttransporttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 23,
+      "failed": 3,
+      "total": 26,
+      "completed": true,
+      "durationSeconds": 2.314,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "No such file or directory (os error 2)",
+          "metrics": {},
+          "name": "aBodyEditThatKeepsTheEffectDoesNot",
+          "capabilities": {},
+          "ok": false,
+          "suite": "effecttransporttest"
+        },
+        {
+          "facts": {},
+          "error": "No such file or directory (os error 2)",
+          "metrics": {},
+          "name": "aBodyThatStartsYieldingInvalidatesDependents",
+          "capabilities": {},
+          "ok": false,
+          "suite": "effecttransporttest"
+        },
+        {
+          "facts": {},
+          "error": "No such file or directory (os error 2)",
+          "metrics": {},
+          "name": "aNominalMethodThatStartsYieldingInvalidatesDependents",
+          "capabilities": {},
+          "ok": false,
+          "suite": "effecttransporttest"
+        }
+      ]
+    },
+    {
+      "suite": "elseiftest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "total": 8,
+      "completed": true,
+      "durationSeconds": 15.126
+    },
+    {
+      "suite": "evalstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.209,
+      "failureSamples": [
+        {
+          "name": "theEvaluationHarnessIsImplementedAndTestedInNupp",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "evalstest",
+          "facts": {},
+          "error": "the Nupp evaluation self-test failed: "
+        }
+      ]
+    },
+    {
+      "suite": "eventschecktest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 19,
+      "failed": 2,
+      "total": 21,
+      "completed": true,
+      "durationSeconds": 14.526,
+      "failureSamples": [
+        {
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "eventschecktest",
+          "facts": {},
+          "error": "",
+          "name": "theConsumerFixtureChecksStrictlyAndRuns"
+        },
+        {
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "eventschecktest",
+          "facts": {},
+          "error": "expected \"declares 2 constructors\" in:\n",
+          "name": "theDeriveRefusesWhatReusedStorageCannotHold"
+        }
+      ]
+    },
+    {
+      "suite": "examplestest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 3,
+      "total": 3,
+      "completed": true,
+      "durationSeconds": 0.204,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "examplestest",
+          "facts": {},
+          "error": "nupp doc needs lunamark; declare it as a luarocks dependency of the docs target and it is installed with the build (module 'lunamark' not found: not in the image)",
+          "metrics": {},
+          "name": "aMarkedFenceStillRendersAsNupp",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "examplestest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in listed at pc 13 register 15",
+          "metrics": {},
+          "name": "everyGuideExampleChecks",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "examplestest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in listed at pc 13 register 15",
+          "metrics": {},
+          "name": "everyModuleDocblockExampleChecks",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "exhausttest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "total": 10,
+      "completed": true,
+      "durationSeconds": 1.745
+    },
+    {
+      "suite": "explaintest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 3,
+      "failed": 10,
+      "total": 13,
+      "completed": true,
+      "durationSeconds": 0.209,
+      "failureSamples": [
+        {
+          "suite": "explaintest",
+          "facts": {},
+          "error": "module 'jit.vmdef' not found: not in the image",
+          "name": "everyAnnotationHoverLinkLeadsToASection",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "explaintest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyAotRefusalACheckReportsHasAWorkedExample at pc 113 register 17",
+          "name": "everyAotRefusalACheckReportsHasAWorkedExample",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "explaintest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyCodeTheCompilerCanEmitHasAReference at pc 20 register 15",
+          "name": "everyCodeTheCompilerCanEmitHasAReference",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        }
+      ]
+    },
+    {
+      "suite": "filecomponenttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.199,
+      "failureSamples": [
+        {
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "buildsFilesAndLineReadersInAColdComponent",
+          "capabilities": {},
+          "ok": false,
+          "suite": "filecomponenttest",
+          "facts": {}
+        }
+      ]
+    },
+    {
+      "suite": "fleettest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 2,
+      "failed": 2,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 0.302,
+      "failureSamples": [
+        {
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.githubOffersOnlyAManualHostedFleet at pc 28 register 7",
+          "name": "githubOffersOnlyAManualHostedFleet",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "fleettest",
+          "facts": {}
+        },
+        {
+          "error": "build/fleet-python-tests.log: No such file or directory (os error 2)",
+          "name": "pythonContractTestsPass",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "fleettest",
+          "facts": {}
+        }
+      ]
+    },
+    {
+      "suite": "fmtclitest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 23,
+      "total": 23,
+      "completed": true,
+      "durationSeconds": 0.209,
+      "failureSamples": [
+        {
+          "name": "aFailedAtomicRewriteLeavesTheSourceWhole",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "fmtclitest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "aProjectWithNoIncludeRootsIsItsOwnRoot",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "fmtclitest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "addsMethodCallParensByDefault",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "fmtclitest",
+          "facts": {},
+          "error": "assertion failed!"
+        }
+      ]
+    },
+    {
+      "suite": "fmtcorpustest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.195,
+      "error": "error: \"runtime error: call of a non-function (0x7ff9000000000000) in cases at pc 14 register 8\"\n  cases at pc 14\n  module:fmtcorpustest at pc 82\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "fmtfuzztest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 96.557
+    },
+    {
+      "suite": "fmttest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 44,
+      "failed": 0,
+      "total": 44,
+      "completed": true,
+      "durationSeconds": 82.613
+    },
+    {
+      "suite": "fmttreetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 4,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 1.743,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "fmttreetest",
+          "facts": {},
+          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
+          "name": "everySourceIsFormattedPart1",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "fmttreetest",
+          "facts": {},
+          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
+          "name": "everySourceIsFormattedPart2",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "fmttreetest",
+          "facts": {},
+          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
+          "name": "everySourceIsFormattedPart3",
+          "capabilities": {},
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "suite": "fmtwidthtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 42,
+      "failed": 0,
+      "total": 42,
+      "completed": true,
+      "durationSeconds": 59.242
+    },
+    {
+      "suite": "homesampletest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 1,
+      "failed": 1,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.187,
+      "failureSamples": [
+        {
+          "error": "assertion failed!",
+          "name": "everyHomePageSampleChecks",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "homesampletest",
+          "facts": {}
+        }
+      ]
+    },
+    {
+      "suite": "hotreloadguaranteetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 2.017,
+      "error": "error: \"runtime error: call of a non-function (0x7ff9000000000000) in module:runtimetest at pc 39 register 20\"\n  module:runtimetest at pc 39\n\n  module:hotreloadguaranteetest at pc 6\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "intersectiontest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "total": 12,
+      "completed": true,
+      "durationSeconds": 1.611
+    },
+    {
+      "suite": "jsonfacadedefaulttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 2,
+      "failed": 5,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.382,
+      "failureSamples": [
+        {
+          "name": "anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonfacadedefaulttest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in runScript at pc 43 register 17"
+        },
+        {
+          "name": "fusedEntryModulesRetainTheirBuilderAndStatusIdentity",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonfacadedefaulttest",
+          "facts": {},
+          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image"
+        },
+        {
+          "name": "scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonfacadedefaulttest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in runScript at pc 43 register 17"
+        }
+      ]
+    },
+    {
+      "suite": "jsonfuseddifferentialtest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.197,
+      "error": "error: \"module 'nupp.codec.json.internal.decoder.fused' not found: not in the image\"\n  module:nupp.codec.json.internal.decoder.eager at pc 2\n\n  module:nupp.codec.json.aot at pc 6\n\n  module:jsonfuseddifferentialtest at pc 2\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "jsonpolicytest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 7,
+      "failed": 10,
+      "total": 17,
+      "completed": true,
+      "durationSeconds": 0.199,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
+          "name": "abortingWritersDiscardsOnlyUnpublishedBytes",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonpolicytest"
+        },
+        {
+          "facts": {},
+          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
+          "name": "arrayMarkersRequireEveryConsecutiveIndex",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonpolicytest"
+        },
+        {
+          "facts": {},
+          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
+          "name": "decodeProblemsNameTheTextNotTheDecoder",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "jsonpolicytest"
+        }
+      ]
+    },
+    {
+      "suite": "jsonschematest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 2,
+      "failed": 22,
+      "total": 24,
+      "completed": true,
+      "durationSeconds": 0.206,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "aRunReportsItsTraceAbortsInTheSharedShapes",
+          "capabilities": {},
+          "ok": false,
+          "suite": "jsonschematest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "aUsageErrorWritesNothingToStdout",
+          "capabilities": {},
+          "ok": false,
+          "suite": "jsonschematest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "metrics": {},
+          "name": "aotOutputMatchesItsSchema",
+          "capabilities": {},
+          "ok": false,
+          "suite": "jsonschematest"
+        }
+      ]
+    },
+    {
+      "suite": "lexertest",
+      "class": "portable",
+      "status": "timeout",
+      "passed": 19,
+      "failed": 0,
+      "total": 19,
+      "completed": false,
+      "durationSeconds": 602.275
+    },
+    {
+      "suite": "lspclitest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 21,
+      "total": 21,
+      "completed": true,
+      "durationSeconds": 0.218,
+      "failureSamples": [
+        {
+          "name": "actionsAndJsonDiagnosticsAreMachineReadable",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "lspclitest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "artifactOperationsPublishTheirSchemas",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "lspclitest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in captureJson at pc 21 register 16"
+        },
+        {
+          "name": "artifactPrintsABytecodeListingLaidOutAgainstTheSource",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "lspclitest",
+          "facts": {},
+          "error": "assertion failed!"
+        }
+      ]
+    },
+    {
+      "suite": "materializeobservetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.204
+    },
+    {
+      "suite": "memberstest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "total": 9,
+      "completed": true,
+      "durationSeconds": 0.202
+    },
+    {
+      "suite": "narrowingtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 43,
+      "failed": 0,
+      "total": 43,
+      "completed": true,
+      "durationSeconds": 15.318
+    },
+    {
+      "suite": "narrowtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 21,
+      "failed": 0,
+      "total": 21,
+      "completed": true,
+      "durationSeconds": 15.36
+    },
+    {
+      "suite": "neutralpolicytest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.257
+    },
+    {
+      "suite": "normalizetest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "total": 15,
+      "completed": true,
+      "durationSeconds": 0.254
+    },
+    {
+      "suite": "overloaddoctest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 2.201
+    },
+    {
+      "suite": "ownershipflowtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "completed": true,
+      "durationSeconds": 17.75
+    },
+    {
+      "suite": "packtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 42,
+      "failed": 0,
+      "total": 42,
+      "completed": true,
+      "durationSeconds": 16.733
+    },
+    {
+      "suite": "perfbudgettest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 6,
+      "total": 6,
+      "completed": true,
+      "durationSeconds": 0.213,
+      "failureSamples": [
+        {
+          "name": "aStampedHelloWorldStaysSmall",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "perfbudgettest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "anEditRechecksOnlyWhatItCanReach",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "perfbudgettest",
+          "facts": {},
+          "error": "assertion failed!"
+        },
+        {
+          "name": "generatedLuaStaysWithinItsSizeBudget",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "perfbudgettest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.generatedLuaStaysWithinItsSizeBudget at pc 33 register 17"
+        }
+      ]
+    },
+    {
+      "suite": "preludecachetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 3,
+      "failed": 9,
+      "total": 12,
+      "completed": true,
+      "durationSeconds": 0.447,
+      "error": "module nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\nmodule nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\nmodule nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\n",
+      "failureSamples": [
+        {
+          "error": "assertion failed!",
+          "name": "aCachedPreludeAnswersLikeAFreshlyCheckedOne",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "preludecachetest",
+          "facts": {}
+        },
+        {
+          "error": "assertion failed!",
+          "name": "aStoredPreludeFromAnotherIdentityIsNotRestored",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "preludecachetest",
+          "facts": {}
+        },
+        {
+          "error": "assertion failed!",
+          "name": "aStoredPreludeIsNotRestoredOverAnotherIdentity",
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "preludecachetest",
+          "facts": {}
+        }
+      ]
+    },
+    {
+      "suite": "privateexporttest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "total": 9,
+      "completed": true,
+      "durationSeconds": 16.04
+    },
+    {
+      "suite": "publicclitest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 1,
+      "failed": 5,
+      "total": 6,
+      "completed": true,
+      "durationSeconds": 0.212,
+      "failureSamples": [
+        {
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "publicclitest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.playgroundOutputIsAlwaysValidUtf8 at pc 23 register 7",
+          "name": "playgroundOutputIsAlwaysValidUtf8"
+        },
+        {
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "publicclitest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.primitiveLoadingDoesNotPullInHigherLayers at pc 20 register 15",
+          "name": "primitiveLoadingDoesNotPullInHigherLayers"
+        },
+        {
+          "metrics": {},
+          "capabilities": {},
+          "ok": false,
+          "suite": "publicclitest",
+          "facts": {},
+          "error": "invalid JSON at byte 1: unexpected termination",
+          "name": "rejectsInvalidDerivedSchemasDuringChecking"
+        }
+      ]
+    },
+    {
+      "suite": "quaterniontest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.213,
+      "error": "error: \"module 'nupp.compiler.runtime.math' not found: not in the image\"\n  module:quaterniontest at pc 2\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "referencetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.211,
+      "error": "error: \"module 'jit.vmdef' not found: not in the image\"\n  module:nupp.profile.trace at pc 2\n\n  module:nupp.tools.reference at pc 7\n\n  module:referencetest at pc 3\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "reflectiontest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "total": 15,
+      "completed": true,
+      "durationSeconds": 0.222
+    },
+    {
+      "suite": "reifiablerecordtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 16,
+      "failed": 0,
+      "total": 16,
+      "completed": true,
+      "durationSeconds": 30.927
+    },
+    {
+      "suite": "releasetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 7,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.241,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "releasetest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aKitThatFailsToUnpackLeavesNoStagingDirectory",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "releasetest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aRecordRejectsTheWrongExecutableFormat",
+          "capabilities": {},
+          "metrics": {}
+        },
+        {
+          "ok": false,
+          "suite": "releasetest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "catalogRejectsANonObjectRecord",
+          "capabilities": {},
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "suite": "repositoryscriptstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.227,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyRepositoryScriptChecks at pc 20 register 15",
+          "name": "everyRepositoryScriptChecks",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "repositoryscriptstest"
+        }
+      ]
+    },
+    {
+      "suite": "rustabitest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.224,
+      "failureSamples": [
+        {
+          "name": "publicHeaderLinksAndRunsAgainstTheSelectedCdylib",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "rustabitest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.publicHeaderLinksAndRunsAgainstTheSelectedCdylib at pc 17 register 14"
+        },
+        {
+          "name": "theProviderKeepsWhatThePinnedStageZeroNames",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "rustabitest",
+          "facts": {},
+          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.theProviderKeepsWhatThePinnedStageZeroNames at pc 32 register 17"
+        }
+      ]
+    },
+    {
+      "suite": "sendabletest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 13,
+      "failed": 0,
+      "total": 13,
+      "completed": true,
+      "durationSeconds": 13.009
+    },
+    {
+      "suite": "serdecontracttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 35,
+      "total": 35,
+      "completed": true,
+      "durationSeconds": 0.216,
+      "failureSamples": [
+        {
+          "suite": "serdecontracttest",
+          "facts": {},
+          "error": "",
+          "name": "binaryCodecUsesSchemaDirectedNumbersTuplesAndOwnedUnknownFields",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "serdecontracttest",
+          "facts": {},
+          "error": "invalid JSON at byte 1: unexpected termination",
+          "name": "bindingsAreInvariant",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "serdecontracttest",
+          "facts": {},
+          "error": "",
+          "name": "codecExtensionsReuseOperationsWithBoundedRetention",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        }
+      ]
+    },
+    {
+      "suite": "shellsyntaxtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "total": 3,
+      "completed": true,
+      "durationSeconds": 0.191
+    },
+    {
+      "suite": "simdmatrixreporttest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 8,
+      "failed": 4,
+      "total": 12,
+      "completed": true,
+      "durationSeconds": 14.911,
+      "failureSamples": [
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "acceptsBothCompletedRoutesForTheRequestedInventory",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "simdmatrixreporttest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "acceptsPreferredWithoutInventingTransposeOrScalarOnlyReducers",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "simdmatrixreporttest"
+        },
+        {
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "keepsAvailableSuccessSeparateFromMissingHardware",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "simdmatrixreporttest"
+        }
+      ]
+    },
+    {
+      "suite": "simdpackbudgettest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 1.376
+    },
+    {
+      "suite": "simdreducerdifferentialtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.655
+    },
+    {
+      "suite": "simdreducertest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.206,
+      "error": "error: \"module 'simdreducertest' not found: not in the image\"\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "simdruntimeboundarytest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 0.302
+    },
+    {
+      "suite": "simdwasmalgorithmdifferentialtest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 3,
+      "total": 3,
+      "completed": true,
+      "durationSeconds": 0.331,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "simdwasmalgorithmdifferentialtest",
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "name": "wasmbase64simd",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "simdwasmalgorithmdifferentialtest",
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "name": "wasmsimd_json",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "suite": "simdwasmalgorithmdifferentialtest",
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "name": "wasmutf8simd",
+          "capabilities": {}
+        }
+      ]
+    },
+    {
+      "suite": "simdwasmbrowsersmoketest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.337,
+      "failureSamples": [
+        {
+          "ok": false,
+          "suite": "simdwasmbrowsersmoketest",
+          "disposition": "not-executed",
+          "facts": {},
+          "error": "missing capability fleet.browser-smoke",
+          "metrics": {},
+          "name": "countedRuntimeRoutesReachChromium",
+          "capabilities": [
+            {
+              "available": false,
+              "evidence": {
+                "requested": false
+              },
+              "name": "fleet.browser-smoke"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "simdwasmtimeconformancetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 0.332,
+      "failureSamples": [
+        {
+          "name": "wasmSemanticConformance",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "simdwasmtimeconformancetest",
+          "facts": {},
+          "error": "runtime error: field version of a non-object"
+        },
+        {
+          "name": "wasmSpeciesInventory",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "simdwasmtimeconformancetest",
+          "facts": {},
+          "error": "runtime error: field version of a non-object"
+        }
+      ]
+    },
+    {
+      "suite": "substitutiontest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 31,
+      "failed": 0,
+      "total": 31,
+      "completed": true,
+      "durationSeconds": 15.676
+    },
+    {
+      "suite": "suspensiontest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.214,
+      "error": "error: \"module 'nupp.runtime.provider.suspension' not found: not in the image\"\n  module:nupp.suspension.selected at pc 32\n\n  module:nupp.suspension at pc 3\n\n  module:suspensiontest at pc 4\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "taskfailuretest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.207,
+      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:taskfailuretest at pc 5\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "taskstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.21,
+      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:taskstest at pc 6\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "testrunnertest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.211,
+      "failureSamples": [
+        {
+          "name": "workerCommandQuotesShellMetacharactersInTheCompilerPath",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false,
+          "suite": "testrunnertest",
+          "facts": {},
+          "error": "assertion failed!"
+        }
+      ]
+    },
+    {
+      "suite": "testtimingstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 9,
+      "total": 9,
+      "completed": true,
+      "durationSeconds": 0.21,
+      "failureSamples": [
+        {
+          "suite": "testtimingstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aGlobGroupTracksEverySuiteItMatches",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "testtimingstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aGroupMemberThatMatchesNothingIsRefused",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        },
+        {
+          "suite": "testtimingstest",
+          "facts": {},
+          "error": "assertion failed!",
+          "name": "aGroupSelectsExactlyItsMembers",
+          "capabilities": {},
+          "metrics": {},
+          "ok": false
+        }
+      ]
+    },
+    {
+      "suite": "tier2test",
+      "class": "portable",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "total": 15,
+      "completed": true,
+      "durationSeconds": 15.288
+    },
+    {
+      "suite": "timetest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.204,
+      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:timetest at pc 3\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "tlstest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.211,
+      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.io.internal.bytes at pc 7\n\n  module:nupp.io at pc 5\n\n  module:nupp.io.net at pc 5\n\n  module:tlstest at pc 4\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "typedtest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0,
+      "total": 14,
+      "completed": true,
+      "durationSeconds": 0.217
+    },
+    {
+      "suite": "typeprovidertest",
+      "class": "portable",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 0.195
+    },
+    {
+      "suite": "utilstoretest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.199,
+      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.util.internal.bitset at pc 7\n\n  module:nupp.util at pc 2\n\n  module:utilstoretest at pc 3\n\n  runner.main at pc 24\n\n"
+    },
+    {
+      "suite": "workerstartuptest",
+      "class": "portable",
+      "status": "failed",
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 0.193,
+      "error": "error: \"module 'nupp.workers.native' not found: not in the image\"\n  module:workerstartuptest at pc 1\n\n  runner.main at pc 24\n\n"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+local record NativeHash
+    digest: function(input: string): string
+end
+return NativeHash

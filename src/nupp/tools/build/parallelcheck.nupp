@@ -24,8 +24,6 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
 local moduleTargets = require("nupp.compiler.standardsurface")
 local protocol = require("nupp.tools.build.parallelcheckprotocol")
-local workerchannel = require("nupp.compiler.workerchannel")
-local clock = require("nupp.time")
 
 local join = fs.join
 
@@ -133,6 +131,8 @@ function parallelcheck.run(input: any): (any?, string?)
         return declined(plan.reason)
     end
 
+    local workerchannel = require("nupp.compiler.workerchannel")
+    local clock = require("nupp.time")
     report:at(input.build and "parallel build" or "parallel check")
     local tasks = require("nupp.tasks")
     local suspension = require("nupp.suspension")

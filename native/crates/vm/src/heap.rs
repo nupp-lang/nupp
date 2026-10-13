@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::ptr::NonNull;
 
-use crate::value::{StrHasher, Value, ValueMap, fnv1a};
+use crate::value::{StrHasher, Value, fnv1a};
 
 // Object kinds, as the header byte compiled code reads.
 pub const KIND_FREED: u8 = 0;
@@ -41,6 +41,8 @@ pub const F_INTERNED: u8 = 1;
 /// A freed object kept as a tombstone: never reused, so a dangling reference
 /// reaches a freed header rather than a new object (4.11, quarantine).
 pub const F_TOMBSTONE: u8 = 2;
+/// An optimized table carries a per-object metatable.
+pub const F_METATABLE: u8 = 4;
 
 /// The size class byte of an object allocated on its own.
 pub const CLASS_LARGE: u8 = 0xff;
@@ -85,6 +87,12 @@ pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
 #[repr(C)]
 pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64 }
 pub const VT_EMPTY: u64 = Value::NIL.0;
+/// Optional overflow for a shaped table; the field map stays first for native probes.
+#[repr(C)]
+pub struct RecordExtra { pub fields: ValueTable, pub meta: Value }
+impl Default for RecordExtra { fn default() -> Self { Self { fields: ValueTable::new(), meta: Value::NIL } } }
+impl std::ops::Deref for RecordExtra { type Target = ValueTable; fn deref(&self) -> &ValueTable { &self.fields } }
+impl std::ops::DerefMut for RecordExtra { fn deref_mut(&mut self) -> &mut ValueTable { &mut self.fields } }
 impl ValueTable {
     pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0 } }
     pub fn with_capacity(m: usize) -> ValueTable { let mut t = ValueTable::new(); if m > 0 { let mut c = 8; while c * 3 < m * 4 { c *= 2; } t.alloc(c); } t }
@@ -179,9 +187,9 @@ impl Header {
     /// constructor's shape does not know (an optional field of the declared
     /// type written later). Nominal records never have one (2.5).
     #[inline]
-    pub fn record_extra(&mut self) -> &mut Option<Box<ValueTable>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueTable>>) } }
+    pub fn record_extra(&mut self) -> &mut Option<Box<RecordExtra>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<RecordExtra>>) } }
     #[inline]
-    pub fn record_extra_ref(&self) -> &Option<Box<ValueTable>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *const Option<Box<ValueTable>>) } }
+    pub fn record_extra_ref(&self) -> &Option<Box<RecordExtra>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *const Option<Box<RecordExtra>>) } }
     #[inline]
     pub fn fid(&self) -> u32 { debug_assert!(self.kind == KIND_CLOSURE); self.aux }
     /// Whether this object reads as a string: a string or a slice.
@@ -193,7 +201,7 @@ impl Header {
     pub fn external_bytes(&self) -> usize {
         match self.kind {
             KIND_TABLE => { let t = self.table_ref(); 8 * t.array.capacity() + 16 * t.hash.capacity() },
-            KIND_RECORD => 8 * self.record_array_ref().capacity() + self.record_extra_ref().as_ref().map(|m| std::mem::size_of::<ValueTable>() + 16 * m.capacity()).unwrap_or(0),
+            KIND_RECORD => 8 * self.record_array_ref().capacity() + self.record_extra_ref().as_ref().map(|m| std::mem::size_of::<RecordExtra>() + 16 * m.capacity()).unwrap_or(0),
             KIND_STORAGE => unsafe { 8 * (*(self.payload() as *const StoragePayload)).data.capacity() },
             KIND_BYTES => unsafe { (*(self.payload() as *const BytesPayload)).data.capacity() },
             KIND_ITER => unsafe { 8 * (*(self.payload() as *const IterPayload)).keys.capacity() },
@@ -469,8 +477,8 @@ impl Heap {
 
     pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
         let n = self.shapes[shape as usize].names.len();
-        let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<ValueTable>>>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<ValueTable>>).write(None); }
+        let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<RecordExtra>>>(), roots);
+        unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<RecordExtra>>).write(None); }
         Value::obj(p)
     }
     pub fn new_closure(&mut self, fid: u32, captures: &[Value], roots: &dyn Roots) -> Value {
@@ -603,7 +611,7 @@ impl Heap {
     pub fn each_child(h: &Header, f: &mut dyn FnMut(Value)) {
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (k, v) in t.hash.iter() { f(*k); f(*v); } if t.meta != Value::NIL { f(t.meta); } }
-            KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { for (k, v) in m.iter() { f(*k); f(*v); } } }
+            KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { f(m.meta); for (k, v) in m.iter() { f(*k); f(*v); } } }
             KIND_CLOSURE | KIND_CELL => { for &v in h.slots() { f(v); } }
             KIND_SLICE => f(h.slice().source),
             KIND_ITER => { let i = unsafe { &*(h.payload() as *const IterPayload) }; f(i.obj); f(i.pattern); for &v in &i.keys { f(v); } }

@@ -20,7 +20,9 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
-default = ["jit"]
+default = ["jit", "c-headers"]
+# Optional in-process C declaration inspection for compiler hosts.
+c-headers = ["dep:libloading", "dep:serde_json"]
 # The typed tier: Cranelift lowering of the bytecode (P5). Off, the crate is
 # the interpreter alone, which is what the browser build and a bootstrap
 # without Cranelift need.
@@ -34,6 +36,9 @@ aot-linked = ["compiled-runtime"]
 opstats = []
 
 [dependencies]
+libloading = { version = "0.8.9", optional = true }
+serde_json = { version = "1", optional = true }
+nupp-native-platform = { path = "../platform" }
 cranelift-codegen = { version = "0.135", optional = true }
 cranelift-frontend = { version = "0.135", optional = true }
 cranelift-jit = { version = "0.135", optional = true }

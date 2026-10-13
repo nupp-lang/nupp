@@ -1,0 +1,1535 @@
+{
+  "baseline": "843af410a",
+  "suites": [
+    {
+      "suite": "absoluteentrytest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "allowtest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,getinfo",
+      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "analysisquerytest",
+      "class": "portable",
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "annotatedluatest",
+      "class": "port-required",
+      "facilities": "load,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "annotationtest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,getinfo,coroutine,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "aotblockguardtest",
+      "class": "retired",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotbudgettest",
+      "class": "retired",
+      "facilities": "getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotbuildtest",
+      "class": "retired",
+      "facilities": "load,env,ffi,jit,debug-hooks,getinfo,spawn,lua-generator,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotchecktest",
+      "class": "retired",
+      "facilities": "load,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotclitest",
+      "class": "retired",
+      "facilities": "load,getinfo,spawn,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotdifferentialtest",
+      "class": "retired",
+      "facilities": "load,ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotexpressiontest",
+      "class": "retired",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotincrementaltest",
+      "class": "retired",
+      "facilities": "getinfo,spawn,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotinstructionstest",
+      "class": "retired",
+      "facilities": "aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotmixedwidthtest",
+      "class": "retired",
+      "facilities": "load,ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotnativeonlytest",
+      "class": "retired",
+      "facilities": "load,ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotrelationstest",
+      "class": "retired",
+      "facilities": "aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotsimdconditiontest",
+      "class": "retired",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotsimdindicestest",
+      "class": "retired",
+      "facilities": "aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotsymboltest",
+      "class": "retired",
+      "facilities": "jit,debug-hooks,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aottest",
+      "class": "retired",
+      "facilities": "getinfo,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aottexttest",
+      "class": "retired",
+      "facilities": "aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotvectorfieldtest",
+      "class": "retired",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotverifytest",
+      "class": "retired",
+      "facilities": "load,getinfo,spawn,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "aotvisittest",
+      "class": "retired",
+      "facilities": "getinfo,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "argumentplucktest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "assert",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "asserttest",
+      "class": "port-required",
+      "facilities": "ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "associatedcompletetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedcomposetest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedconformancetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedcycletest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associateddecltest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedgradualtest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedlookuptest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedmetadatatest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedprojectiontest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "associatedsyntaxtest",
+      "class": "port-required",
+      "facilities": "getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "associatedtoolingtest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "automaticdestructiontest",
+      "class": "port-required",
+      "facilities": "load,getinfo,coroutine,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "base64test",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "bctest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "benchprojectstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "benchrunnertest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "benchtest",
+      "class": "port-required",
+      "facilities": "getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "binderidentitytest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "bindingpatterntest",
+      "class": "port-required",
+      "facilities": "load,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "bootstraptest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "browserhosttest",
+      "class": "retired",
+      "facilities": "getinfo,spawn,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "browserprovidertest",
+      "class": "retired",
+      "facilities": "load,coroutine",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "browserworkerstest",
+      "class": "retired",
+      "facilities": "load,coroutine",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "buildprogresstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "buildtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "bulkcolumntest",
+      "class": "port-required",
+      "facilities": "load,ffi,string.buffer,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "bundleddeclstest",
+      "class": "port-required",
+      "facilities": "jit,string.buffer,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "bundletest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,coroutine,spawn",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "bytecodelistingtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "cabitest",
+      "class": "retired",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "cachestamptest",
+      "class": "port-required",
+      "facilities": "load,string.buffer,getinfo,spawn",
+      "reason": "uses string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "carraytest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "cdecltest",
+      "class": "port-required",
+      "facilities": "ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "cdeftest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "cheadertest",
+      "class": "port-required",
+      "facilities": "load,env,ffi,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "checktest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "cichangeclassifiertest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "clidoctest",
+      "class": "port-required",
+      "facilities": "jit,getinfo,spawn",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "clitest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,getinfo,spawn,aot",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "compilerpacktest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "compressionprovidertest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "comptimetest",
+      "class": "port-required",
+      "facilities": "load,jit,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "concatbuffertest",
+      "class": "port-required",
+      "facilities": "load,string.buffer,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "conststrtest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "corpustest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "coveragereporttest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "coveragetest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "declarationwitnessestest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "declaredmoduletest",
+      "class": "port-required",
+      "facilities": "spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "deriveacceptancetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "derivematerializetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "deriveprovidertest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "derivetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "diagnosticgoldentest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "digestprovidertest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "digesttest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "discardtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "doctest",
+      "class": "port-required",
+      "facilities": "load,jit,string.buffer,getinfo,spawn",
+      "reason": "uses jit, string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "doexpressiontest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "effectregiontest",
+      "class": "port-required",
+      "facilities": "getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "effecttransporttest",
+      "class": "portable",
+      "facilities": "getinfo,coroutine,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "elseiftest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "evalstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "eventschecktest",
+      "class": "portable",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "examplestest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "exhausttest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "explaintest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "ffitest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "fieldcodecmaterializetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "filecomponenttest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "filestest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "fixedwidthtest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "fleettest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmtclitest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmtcorpustest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmtfuzztest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmtimportstest",
+      "class": "port-required",
+      "facilities": "load,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "fmttest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmttreetest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fmtwidthtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "fragment",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "generatedloadtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "gentest",
+      "class": "retired",
+      "facilities": "load,env,ffi,jit,getinfo,lua-generator",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "groups",
+      "class": "harness",
+      "facilities": "-",
+      "reason": "test runner, not a test"
+    },
+    {
+      "suite": "homesampletest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "hostbinarytest",
+      "class": "port-required",
+      "facilities": "jit,getinfo,spawn",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "hostchanneltest",
+      "class": "port-required",
+      "facilities": "jit,getinfo,spawn",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "hostembeddingtest",
+      "class": "port-required",
+      "facilities": "ffi,jit,getinfo,spawn",
+      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "hotreloadguaranteetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "hotreloadtest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "httpnativetest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,spawn",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "importctest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "incrementaltest",
+      "class": "port-required",
+      "facilities": "ffi,string.buffer,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "indexedassignmenttest",
+      "class": "port-required",
+      "facilities": "load,ffi,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "inlinemethodtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "interfaceimagetest",
+      "class": "port-required",
+      "facilities": "getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "intersectiontest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "jsonfacadedefaulttest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "jsonfuseddifferentialtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "jsonpolicytest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "jsonschematest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "layouttest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "lexertest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "loggingtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "loopclosuretest",
+      "class": "port-required",
+      "facilities": "jit",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "loweringinvarianttest",
+      "class": "port-required",
+      "facilities": "load,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "lspclitest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "lsptest",
+      "class": "port-required",
+      "facilities": "ffi,jit,getinfo,spawn",
+      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "lua51compattest",
+      "class": "port-required",
+      "facilities": "load,env,jit,string.buffer,debug-hooks,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "materializeirtest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "materializeobservetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "memberstest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "methodtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "narrowingtest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "narrowtest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "nativefoundationstest",
+      "class": "port-required",
+      "facilities": "load,jit,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "netnativetest",
+      "class": "port-required",
+      "facilities": "ffi,jit,getinfo,spawn",
+      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "nettest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "neutralpolicytest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "normalizetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "nosuspendlooptest",
+      "class": "port-required",
+      "facilities": "getinfo,coroutine,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "nosuspendtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,coroutine,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "operatortest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "optimizeprograms",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "optimizetest",
+      "class": "port-required",
+      "facilities": "load,env,debug-hooks,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "orexittest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "overloaddoctest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "ownershipflowtest",
+      "class": "portable",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "ownershipregiontest",
+      "class": "port-required",
+      "facilities": "load,env,jit,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "ownershiptest",
+      "class": "port-required",
+      "facilities": "load,env,ffi,getinfo,coroutine,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "packtest",
+      "class": "portable",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "parallelcheckprotocoltest",
+      "class": "port-required",
+      "facilities": "string.buffer",
+      "reason": "uses string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "parallelchecktest",
+      "class": "port-required",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "parsertest",
+      "class": "port-required",
+      "facilities": "ffi,getinfo",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "passpermutationtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "pathtest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "pegmaterializetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "perfbudgettest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "prefercomptimetest",
+      "class": "port-required",
+      "facilities": "lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "preludecachetest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "privateexporttest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "processnativetest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "processprovidertest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "processtest",
+      "class": "port-required",
+      "facilities": "load,coroutine",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "profiletest",
+      "class": "port-required",
+      "facilities": "load,jit,getinfo,spawn",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "projectlinktest",
+      "class": "port-required",
+      "facilities": "getinfo,coroutine,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "projecttest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,string.buffer,getinfo,spawn",
+      "reason": "uses ffi, jit, string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "providerconformancetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "providerstate",
+      "class": "port-required",
+      "facilities": "load,env",
+      "reason": "uses env: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "publicclitest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "quaterniontest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "raisestest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "referencetest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "reflectiontest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "reifiablerecordtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "releasetest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "repositoryscriptstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "rocktest",
+      "class": "retired",
+      "facilities": "spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "run",
+      "class": "harness",
+      "facilities": "load,ffi,getinfo,spawn",
+      "reason": "test runner, not a test"
+    },
+    {
+      "suite": "runnertest",
+      "class": "harness",
+      "facilities": "getinfo,spawn",
+      "reason": "test runner, not a test"
+    },
+    {
+      "suite": "runtimereflectiontest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "runtimetest",
+      "class": "port-required",
+      "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "rustabitest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "rusttoolchaintest",
+      "class": "retired",
+      "facilities": "load,ffi,jit,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "selfhosttest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "sendabletest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "serdecontracttest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "serdetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "sharedbytestest",
+      "class": "port-required",
+      "facilities": "ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "simdequivalencedrivertest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "simdequivalencetest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "simdfixedlanestest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "simdfleetequivalencetest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "simdlanetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "simdmapinventorytest",
+      "class": "port-required",
+      "facilities": "aot",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "simdmatrixreporttest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdnativealgorithmdifferentialtest",
+      "class": "port-required",
+      "facilities": "jit",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "simdobligationtest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "simdpackbudgettest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdprimitivedifferentialtest",
+      "class": "port-required",
+      "facilities": "jit,aot",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "simdreducerdifferentialtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdreducertest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdruntimeboundarytest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdwasmalgorithmdifferentialtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdwasmbrowsersmoketest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "simdwasmtimeconformancetest",
+      "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "soatest",
+      "class": "retired",
+      "facilities": "load,ffi,jit,getinfo,lua-generator,aot",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "spanloweringtest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "spiinterfacetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,coroutine,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "spinavigationtest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "spipackagetest",
+      "class": "port-required",
+      "facilities": "load,ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "spirepresentationtest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "spitest",
+      "class": "port-required",
+      "facilities": "load",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "stdlibtest",
+      "class": "port-required",
+      "facilities": "load,env,ffi,string.buffer,getinfo,coroutine,spawn,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "stringbuffernamespacetest",
+      "class": "port-required",
+      "facilities": "load,string.buffer,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "structtest",
+      "class": "port-required",
+      "facilities": "load,ffi,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "substitutiontest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "suspensiontest",
+      "class": "portable",
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "switchplantest",
+      "class": "port-required",
+      "facilities": "getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "switchtest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "systemtest",
+      "class": "port-required",
+      "facilities": "load,ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "tableintrinsictest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "targetprofiletest",
+      "class": "retired",
+      "facilities": "ffi,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "targetvectorlayouttest",
+      "class": "retired",
+      "facilities": "-",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "taskfailuretest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "taskstest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "templatetest",
+      "class": "port-required",
+      "facilities": "load,debug-hooks,getinfo,spawn",
+      "reason": "uses debug-hooks: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "testrunnertest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "testtimingstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "tier2test",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "timetest",
+      "class": "portable",
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "tlstest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "toolchaintest",
+      "class": "retired",
+      "facilities": "env,getinfo,spawn",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "toollayeringtest",
+      "class": "port-required",
+      "facilities": "load,getinfo",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "typedtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "typeleveltest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "typeprovidertest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "unusedtest",
+      "class": "port-required",
+      "facilities": "load,ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "uritest",
+      "class": "port-required",
+      "facilities": "load,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
+    },
+    {
+      "suite": "utilbitsettest",
+      "class": "port-required",
+      "facilities": "ffi",
+      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "utilstoretest",
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "valuebuildertest",
+      "class": "retired",
+      "facilities": "-",
+      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+    },
+    {
+      "suite": "withsuspensiontest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "workerstartuptest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
+      "suite": "worktreetest",
+      "class": "port-required",
+      "facilities": "jit,getinfo,spawn",
+      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+    },
+    {
+      "suite": "zoneintrinsictest",
+      "class": "port-required",
+      "facilities": "load,getinfo,lua-generator",
+      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+    },
+    {
+      "suite": "shellsyntaxtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "portable shell, depfile, and glob scanner regression"
+    }
+  ]
+}

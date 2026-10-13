@@ -1,0 +1,12 @@
+module demo.qualifiedconstructor
+
+local members = {}
+
+record members.Item
+    value: integer
+    constructor(self, value: integer)
+        self.value = value + 1
+    end
+end
+
+export = members

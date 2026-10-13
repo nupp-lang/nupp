@@ -1418,6 +1418,9 @@ dependencies = [
  "cranelift-object",
  "crc32fast",
  "libc",
+ "libloading",
+ "nupp-native-platform",
+ "serde_json",
  "sha2",
 ]
 
