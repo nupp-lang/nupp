@@ -405,7 +405,7 @@ fn checkpoint_preserves_parked_vector_bits_and_resumes_in_native_code() {
         persist::{self, Policies, ResourceCodecs},
     };
     let mut vm = Box::new(Interp::new());
-    image::load(&mut vm,"function parked 0 1 8 1 v:v\nconst 0 num 7\nK 2 0\nPark 2\nMove 3 1\nMove 4 1\nSimd mul uint64 2 2\nRet 2\nend\nentry 0\n").unwrap();
+    image::load(&mut vm,"function parked 0 1 8 1 v:v\nconst 0 num 7\nconst 1 num 1\nMove 3 1\nK 4 1\nSimd mul uint64 2 2\nMove 7 2\nK 2 0\nPark 2\nMove 3 7\nMove 4 7\nSimd mul uint64 2 2\nRet 2\nend\nentry 0\n").unwrap();
     vm.install_globals();
     vm.jit = Some(Box::new(Jit::new()));
     let data: Vec<u8> = [u64::MAX, 9007199254740993u64, 7]
@@ -606,5 +606,193 @@ fn float_to_integer_conversion_zeros_invalid_lanes_and_keeps_uint64_upper_range(
                 "{source} to {target}"
             );
         }
+    }
+}
+
+#[test]
+fn temporary_vectors_survive_gc_moves_and_escapes_in_both_native_entries() {
+    // The product has two aliases. A managed allocation occurs while it is
+    // live; a branch or cell capture forces it to keep its boxed form.
+    for kind in 0..10 {
+        for lanes in [3, 64] {
+            for barrier in ["NewTable 9", "NewTable 9\nJmp 0", "NewCell 9 5"] {
+                for tasks in [false, true] {
+                    let mut vm = Box::new(Interp::new());
+                    let element = simd::ELEMENTS[kind as usize];
+                    let source = format!(
+                        "function chain 0 1 12 1 v:v\nMove 3 1\nMove 4 1\nSimd mul {element} 2 2\nMove 5 2\nMove 6 2\n{barrier}\nSimd add {element} 4 2\nRet 4\nend\nentry 0\n"
+                    );
+                    image::load(&mut vm, &source).unwrap();
+                    vm.install_globals();
+                    vm.jit = Some(Box::new(Jit::new()));
+                    vm.heap.stress_steps = true;
+                    vm.heap.oracle = true;
+                    vm.heap.quarantine = true;
+                    let encode = |i: usize| match kind {
+                        8 => ((i as f32).to_bits() as u64).to_ne_bytes(),
+                        9 => (i as f64).to_ne_bytes(),
+                        _ => (i as u64).to_ne_bytes(),
+                    };
+                    let w = simd::width(kind);
+                    let input: Vec<u8> =
+                        (1..=lanes).flat_map(|i| encode(i)[..w].to_vec()).collect();
+                    let input = simd::value(
+                        &mut vm,
+                        Shape {
+                            kind,
+                            lanes,
+                            mask: false,
+                            species: false,
+                        },
+                        &input,
+                    );
+                    vm.handles.push(input);
+                    let before = vm.heap.stats.allocated;
+                    let result = if tasks {
+                        vm.enable_scheduler().unwrap();
+                        let task = vm.schedule(Value::func(0), &[input], None).unwrap();
+                        assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Completed);
+                        vm.tasks[task.index].result
+                    } else {
+                        vm.call_value(Value::func(0), &[input])[0]
+                    };
+                    let expected: Vec<u8> = (1..=lanes)
+                        .flat_map(|i| encode(2 * i * i)[..w].to_vec())
+                        .collect();
+                    assert_eq!(
+                        &vm.bytes_of(result)[16..],
+                        expected,
+                        "{element} {lanes} {barrier} tasks={tasks}"
+                    );
+                    if barrier == "NewTable 9" && !tasks {
+                        assert_eq!(
+                            vm.heap.stats.allocated - before,
+                            2,
+                            "only the table and escaping result allocate"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn local_vector_validation_rejects_mismatched_shapes() {
+    for (left_kind, right_kind, right_lanes) in [(9, 9, 3), (9, 8, 2), (4, 4, 3)] {
+        let mut vm = Box::new(Interp::new());
+        let element = simd::ELEMENTS[left_kind as usize];
+        image::load(&mut vm, &format!("function chain 0 2 8 1 vv:v\nMove 4 1\nMove 5 1\nSimd add {element} 3 2\nMove 6 3\nMove 7 2\nSimd mul {element} 5 2\nRet 5\nend\nentry 0\n")).unwrap();
+        vm.install_globals();
+        vm.jit = Some(Box::new(Jit::new()));
+        let left = simd::value(
+            &mut vm,
+            Shape {
+                kind: left_kind,
+                lanes: 2,
+                mask: false,
+                species: false,
+            },
+            &[0; 16],
+        );
+        vm.handles.push(left);
+        let right = simd::value(
+            &mut vm,
+            Shape {
+                kind: right_kind,
+                lanes: right_lanes,
+                mask: false,
+                species: false,
+            },
+            &[0; 24],
+        );
+        vm.handles.push(right);
+        let result = vm.pcall_values(Value::func(0), &[left, right]);
+        assert_eq!(result[0], Value::FALSE);
+        assert!(String::from_utf8_lossy(vm.bytes_of(result[1])).contains("different species"));
+    }
+}
+
+#[test]
+fn heap_frame_entry_inside_a_temporary_chain_reads_boxed_registers() {
+    use nupp_vm::interp::{HDR, Outcome};
+    for pc in 3..=5 {
+        let mut vm = Box::new(Interp::new());
+        image::load(&mut vm, "function chain 0 1 8 1 v:v\nMove 3 1\nMove 4 1\nSimd mul number 2 2\nMove 5 2\nMove 6 2\nSimd add number 4 2\nRet 4\nend\nentry 0\n").unwrap();
+        vm.install_globals();
+        vm.jit = Some(Box::new(Jit::new()));
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let bits: Vec<_> = [9.0f64, 16.0, 25.0]
+            .into_iter()
+            .flat_map(f64::to_ne_bytes)
+            .collect();
+        let product = simd::value(
+            &mut vm,
+            Shape {
+                kind: 9,
+                lanes: 3,
+                mask: false,
+                species: false,
+            },
+            &bits,
+        );
+        vm.handles.push(product);
+        let task = vm.spawn(0, &[]);
+        let frame = vm.tasks[task].cur();
+        for reg in [2, 5, 6] {
+            vm.tasks[task].stack[frame + HDR + reg] = product.0;
+        }
+        vm.tasks[task].note_pc(pc);
+        let Outcome::Done(result) = vm.run(task) else {
+            panic!("interior frame entry failed");
+        };
+        let expected: Vec<_> = [18.0f64, 32.0, 50.0]
+            .into_iter()
+            .flat_map(f64::to_ne_bytes)
+            .collect();
+        assert_eq!(&vm.bytes_of(result)[16..], expected);
+    }
+}
+
+#[test]
+fn completing_host_call_replaces_a_dead_vector_with_its_scalar_result() {
+    for tasks in [false, true] {
+        let mut vm = Box::new(Interp::new());
+        image::load(&mut vm, "function chain 0 1 12 1 v:v\nconst 0 builtin math.sqrt\nconst 1 num 16\nMove 6 1\nMove 7 1\nSimd mul number 5 2\nK 10 0\nK 6 1\nCallDyn 10 5 1\nMove 3 1\nMove 4 1\nSimd add number 2 2\nMove 6 2\nMove 7 5\nSimd mul number 5 2\nRet 5\nend\nentry 0\n").unwrap();
+        vm.install_globals();
+        vm.jit = Some(Box::new(Jit::new()));
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let bits: Vec<_> = [2.0f64, 3.0]
+            .into_iter()
+            .flat_map(f64::to_ne_bytes)
+            .collect();
+        let input = simd::value(
+            &mut vm,
+            Shape {
+                kind: 9,
+                lanes: 2,
+                mask: false,
+                species: false,
+            },
+            &bits,
+        );
+        vm.handles.push(input);
+        let result = if tasks {
+            vm.enable_scheduler().unwrap();
+            let task = vm.schedule(Value::func(0), &[input], None).unwrap();
+            assert_eq!(vm.run_ready(1).unwrap()[0].status, Status::Completed);
+            vm.tasks[task.index].result
+        } else {
+            vm.call_value(Value::func(0), &[input])[0]
+        };
+        let expected: Vec<_> = [16.0f64, 24.0]
+            .into_iter()
+            .flat_map(f64::to_ne_bytes)
+            .collect();
+        assert_eq!(&vm.bytes_of(result)[16..], expected);
     }
 }

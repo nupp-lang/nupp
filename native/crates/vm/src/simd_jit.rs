@@ -7,6 +7,102 @@ use cranelift_codegen::ir::{
 };
 use cranelift_frontend::FunctionBuilder;
 
+/// Elide only results whose complete lifetime stays in one straight-line
+/// region. Branches, calls and scheduler boundaries retain managed values.
+/// Moves preserve the producing definition; overwrites kill it. Live-out
+/// aliases escape even when their next use is a supported SIMD operation.
+pub(crate) fn local_values(f: &crate::interp::Function) -> (Vec<bool>, Vec<bool>) {
+    use crate::{
+        interp::Op,
+        verify::{self, C},
+    };
+    use std::collections::BTreeSet;
+    let n = f.code.len();
+    let mut result = vec![false; n];
+    let mut inputs = vec![Vec::new(); n];
+    if !f.code.iter().any(|op| matches!(op, Op::Simd(..))) {
+        return (result, vec![false; n]);
+    }
+    let (_, live_out) = verify::liveness(f);
+    let mut cuts = BTreeSet::from([0, n]);
+    for (pc, op) in f.code.iter().enumerate() {
+        let (_, offsets) = verify::operands(op);
+        for offset in &offsets {
+            cuts.insert((pc as i64 + 1 + *offset as i64) as usize);
+        }
+        if !offsets.is_empty() {
+            cuts.insert(pc + 1);
+        }
+        if let Op::Switch(_, table) = op {
+            let (default, offsets) = &f.jump_tables[*table as usize];
+            for offset in std::iter::once(default).chain(offsets) {
+                cuts.insert((pc as i64 + 1 + *offset as i64) as usize);
+            }
+            cuts.insert(pc + 1);
+        }
+        if crate::frame::boundary(op) {
+            cuts.insert(pc);
+            cuts.insert(pc + 1);
+        }
+    }
+    let cuts: Vec<_> = cuts.into_iter().filter(|&pc| pc <= n).collect();
+    for range in cuts.windows(2) {
+        let mut origins = [None; 256];
+        for pc in range[0]..range[1] {
+            let op = &f.code[pc];
+            let (defs, uses) = verify::defs_uses(op);
+            for (class, reg) in uses {
+                if !matches!(class, C::V) {
+                    continue;
+                }
+                if let Some(producer) = origins[reg as usize] {
+                    let accepts = match *op {
+                        Op::Move(..) => true,
+                        Op::Simd(code, _, _, base, _) => {
+                            reg > base && simd::local_operand(code, (reg - base - 1) as usize)
+                        }
+                        _ => false,
+                    };
+                    if !accepts {
+                        result[producer] = false;
+                    }
+                    if matches!(op, Op::Simd(..)) {
+                        inputs[pc].push(producer);
+                    }
+                }
+            }
+            let moved = if let Op::Move(_, src) = *op {
+                origins[src as usize]
+            } else {
+                None
+            };
+            for (class, reg) in defs {
+                if matches!(class, C::V) {
+                    origins[reg as usize] = None;
+                }
+            }
+            match *op {
+                Op::Move(dst, _) => origins[dst as usize] = moved,
+                Op::Simd(code, _, _, base, _) if simd::local_result(code) => {
+                    result[pc] = true;
+                    origins[base as usize] = Some(pc);
+                }
+                _ => {}
+            }
+        }
+        for reg in live_out[range[1] - 1][0].iter() {
+            if let Some(producer) = origins[reg as usize] {
+                result[producer] = false;
+            }
+        }
+    }
+    let inputs = inputs
+        .iter()
+        .map(|ps| ps.iter().any(|&pc| result[pc]))
+        .collect();
+    (result, inputs)
+}
+
 pub fn emit(
     b: &mut FunctionBuilder,
     packet: Value,

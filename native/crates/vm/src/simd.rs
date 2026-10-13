@@ -266,13 +266,98 @@ fn operand(vm: &Interp, s: Shape, v: Value, out: &mut [u8; CAPACITY]) {
     }
 }
 
+// Only these argument positions can read an unboxed result. The bytecode
+// escape analysis uses the same list as the checked preparation path.
+#[cfg(feature = "jit")]
+pub(crate) fn local_operand(op: u8, index: usize) -> bool {
+    match OPERATIONS[op as usize] {
+        "add" | "sub" | "mul" | "div" | "and" | "or" | "xor" | "eq" | "ne" | "lt" | "le" | "gt"
+        | "ge" | "maskEq" | "maskNe" | "idiv" | "mod" | "shl" | "shr" | "sar" | "mulHigh"
+        | "saturatingAdd" | "saturatingSub" | "propagatingMin" | "propagatingMax" | "numberMin"
+        | "numberMax" => index < 2,
+        "neg" | "not" | "popcount" | "sqrt" | "abs" | "floor" | "ceil" => index == 0,
+        "fma" => index < 3,
+        "store" => index == 3,
+        _ => false,
+    }
+}
+#[cfg(feature = "jit")]
+pub(crate) fn local_result(op: u8) -> bool {
+    local_operand(op, 0) || OPERATIONS[op as usize] == "load"
+}
+
+fn packet_shape(p: &Packet) -> Shape {
+    Shape {
+        kind: p.kind as u8,
+        lanes: p.lanes as usize,
+        mask: p.mask != 0,
+        species: false,
+    }
+}
+fn local_operand_bits(
+    vm: &Interp,
+    s: Shape,
+    v: Value,
+    local: Option<&Packet>,
+    out: &mut [u8; CAPACITY],
+) {
+    if let Some(p) = local {
+        if packet_shape(p) != s {
+            vm.err("SIMD operands have different species or value families");
+        }
+        let n = width(s.kind) * s.lanes;
+        out[..n].copy_from_slice(&p.out[..n]);
+    } else {
+        operand(vm, s, v, out);
+    }
+}
+
 pub fn prepare(vm: &mut Interp, op: u8, kind: u8, source: u8, args: &[Value], p: &mut Packet) {
+    prepare_locals(vm, op, kind, source, args, &[], p);
+}
+
+pub(crate) fn prepare_locals(
+    vm: &mut Interp,
+    op: u8,
+    kind: u8,
+    source: u8,
+    args: &[Value],
+    locals: &[Option<&Packet>],
+    p: &mut Packet,
+) {
+    prepare_impl(vm, op, kind, source, args, locals, p, false);
+}
+
+pub(crate) fn store(vm: &mut Interp, kind: u8, args: &[Value], locals: &[Option<&Packet>]) {
+    prepare_impl(
+        vm,
+        operation("store").unwrap(),
+        kind,
+        kind,
+        args,
+        locals,
+        &mut Packet::default(),
+        true,
+    );
+}
+
+fn prepare_impl(
+    vm: &mut Interp,
+    op: u8,
+    kind: u8,
+    source: u8,
+    args: &[Value],
+    locals: &[Option<&Packet>],
+    p: &mut Packet,
+    commit_store: bool,
+) {
     *p = Packet::default();
     if !valid_descriptor(op, kind, source, args.len()) {
         vm.err("invalid SIMD operation descriptor");
     }
     let name = OPERATIONS[op as usize];
     let arg = |i: usize| args.get(i).copied().unwrap_or(Value::NIL);
+    let local = |i: usize| locals.get(i).copied().flatten();
     let s = if name == "species" {
         if witness(vm, arg(0)) != Some(kind) {
             vm.err("SIMD species requires the checked scalar storage witness");
@@ -294,7 +379,8 @@ pub fn prepare(vm: &mut Interp, op: u8, kind: u8, source: u8, args: &[Value], p:
     } else {
         let s = args
             .iter()
-            .find_map(|v| shape(vm, *v))
+            .enumerate()
+            .find_map(|(i, v)| local(i).map(packet_shape).or_else(|| shape(vm, *v)))
             .unwrap_or_else(|| vm.err("SIMD operation requires a species, vector or mask"));
         if s.kind != kind && !matches!(name, "widen" | "narrow") {
             vm.err("SIMD element differs from its checked type");
@@ -681,34 +767,38 @@ pub fn prepare(vm: &mut Interp, op: u8, kind: u8, source: u8, args: &[Value], p:
                 },
                 &mut p.c,
             );
-            crate::storage::simd_memory(
+            let access = crate::storage::simd_access(
                 vm,
                 arg(1),
                 integer(vm, arg(2)),
                 kind,
                 s.lanes,
                 &p.c,
-                &mut p.a,
                 name == "store",
-                false,
             );
             if name == "store" {
-                operand(
+                local_operand_bits(
                     vm,
                     Shape {
                         species: false,
                         ..s
                     },
                     arg(3),
+                    local(3),
                     &mut p.a,
                 );
+                if commit_store {
+                    access.transfer(vm, &mut p.a, true);
+                }
+            } else {
+                access.transfer(vm, &mut p.a, false);
             }
         }
         _ => {
             if s.species {
                 vm.err("SIMD operation requires a vector or mask");
             }
-            operand(vm, s, arg(0), &mut p.a);
+            local_operand_bits(vm, s, arg(0), local(0), &mut p.a);
             if matches!(
                 name,
                 "add"
@@ -740,13 +830,13 @@ pub fn prepare(vm: &mut Interp, op: u8, kind: u8, source: u8, args: &[Value], p:
                     | "numberMin"
                     | "numberMax"
             ) {
-                operand(vm, s, arg(1), &mut p.b);
+                local_operand_bits(vm, s, arg(1), local(1), &mut p.b);
             }
             if name.ends_with("Dot") {
-                operand(vm, s, arg(1), &mut p.b);
+                local_operand_bits(vm, s, arg(1), local(1), &mut p.b);
             }
             if name == "fma" {
-                operand(vm, s, arg(2), &mut p.c);
+                local_operand_bits(vm, s, arg(2), local(2), &mut p.c);
             }
             if matches!(
                 name,

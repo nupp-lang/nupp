@@ -124,6 +124,34 @@ fn layout(vm: &Interp, descriptor: Value, depth: usize) -> (String, usize) {
         _ => vm.err("nupp: unsupported storage descriptor"),
     }
 }
+// Bounds checks need a validated extent, not an allocated display name.
+fn layout_width(vm: &Interp, descriptor: Value, depth: usize) -> usize {
+    if depth > 32 {
+        vm.err("nupp: storage descriptor nesting is too deep");
+    }
+    let kind = get(vm, descriptor, "kind");
+    if !vm.is_stringish(kind) {
+        vm.err("nupp: storage kind must be a string");
+    }
+    let kind = vm.bytes_of(kind);
+    if let Ok(name) = std::str::from_utf8(kind) {
+        if let Some(width) = scalar_width(name) {
+            return width;
+        }
+    }
+    let width = layout_width(vm, get(vm, descriptor, "element"), depth + 1);
+    match kind {
+        b"pointer" => std::mem::size_of::<usize>(),
+        b"array" => count(vm, get(vm, descriptor, "count"))
+            .checked_mul(width)
+            .filter(|n| *n <= LIMIT)
+            .unwrap_or_else(|| {
+                vm.err("nupp: storage array extent exceeds native allocation limit")
+            }),
+        _ => vm.err("nupp: unsupported storage descriptor"),
+    }
+}
+
 fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
     let name = if element == Value::NIL {
         kind.to_string()
@@ -174,8 +202,8 @@ fn view(vm: &Interp, value: Value) -> View {
     }
     let ty = get(vm, value, "descriptor");
     let element = get(vm, ty, "element");
-    layout(vm, ty, 0);
-    layout(vm, element, 0);
+    layout_width(vm, ty, 0);
+    layout_width(vm, element, 0);
     View {
         owner,
         offset,
@@ -262,21 +290,20 @@ fn encode(vm: &Interp, kind: &str, value: Value) -> Vec<u8> {
         _ => bits.to_ne_bytes().to_vec(),
     }
 }
-pub(crate) fn simd_memory(
-    vm: &mut Interp,
+pub(crate) fn simd_access(
+    vm: &Interp,
     span: Value,
     at: i64,
     kind: u8,
     lanes: usize,
     mask: &[u8; crate::simd::CAPACITY],
-    bits: &mut [u8; crate::simd::CAPACITY],
     write: bool,
-    commit: bool,
-) {
+) -> SimdAccess {
     let pointer = get(vm, span, "pointer");
     let v = view(vm, pointer);
-    let (element, w) = layout(vm, v.element, 0);
-    if element != crate::simd::ELEMENTS[kind as usize] {
+    let element = get(vm, v.element, "kind");
+    let w = crate::simd::width(kind);
+    if vm.bytes_of(element) != crate::simd::ELEMENTS[kind as usize].as_bytes() {
         vm.err("SIMD span element differs from its species");
     }
     if write {
@@ -329,14 +356,62 @@ pub(crate) fn simd_memory(
             .unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
         positions[i] = Some(pos);
     }
-    for (i, pos) in positions[..lanes].iter().enumerate() {
-        if let Some(pos) = pos {
-            if write && commit {
-                vm.bytes_mut(v.owner)[*pos..*pos + w].copy_from_slice(&bits[i * w..(i + 1) * w]);
-            } else if !write {
-                bits[i * w..(i + 1) * w].copy_from_slice(&vm.bytes_of(v.owner)[*pos..*pos + w]);
+    SimdAccess {
+        owner: v.owner,
+        positions,
+        lanes,
+        width: w,
+    }
+}
+
+// A checked access is used within one helper, before any allocation or call
+// can mutate the descriptor. All active lanes are checked before the write.
+pub(crate) struct SimdAccess {
+    owner: Value,
+    positions: [Option<usize>; 64],
+    lanes: usize,
+    width: usize,
+}
+impl SimdAccess {
+    pub(crate) fn transfer(
+        &self,
+        vm: &mut Interp,
+        bits: &mut [u8; crate::simd::CAPACITY],
+        write: bool,
+    ) {
+        let w = self.width;
+        if write {
+            let bytes = vm.bytes_mut(self.owner);
+            for (i, pos) in self.positions[..self.lanes].iter().enumerate() {
+                if let Some(pos) = pos {
+                    bytes[*pos..*pos + w].copy_from_slice(&bits[i * w..(i + 1) * w]);
+                }
+            }
+        } else {
+            let bytes = vm.bytes_of(self.owner);
+            for (i, pos) in self.positions[..self.lanes].iter().enumerate() {
+                if let Some(pos) = pos {
+                    bits[i * w..(i + 1) * w].copy_from_slice(&bytes[*pos..*pos + w]);
+                }
             }
         }
+    }
+}
+
+pub(crate) fn simd_memory(
+    vm: &mut Interp,
+    span: Value,
+    at: i64,
+    kind: u8,
+    lanes: usize,
+    mask: &[u8; crate::simd::CAPACITY],
+    bits: &mut [u8; crate::simd::CAPACITY],
+    write: bool,
+    commit: bool,
+) {
+    let access = simd_access(vm, span, at, kind, lanes, mask, write);
+    if !write || commit {
+        access.transfer(vm, bits, write);
     }
 }
 

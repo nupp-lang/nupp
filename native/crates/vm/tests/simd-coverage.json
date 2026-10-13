@@ -310,7 +310,7 @@
   "remaining": [
     "Pure-helper maps, transpose, generic element functions, and struct/SoA field memory operations need further lowering and acceptance.",
     "The full existing SIMD matrix, all simd11 workloads, and cross-platform acceptance have not run.",
-    "SIMD intermediates are managed byte objects; each operation prepares and boxes packets. Storage checks and transport remain inside loops. The measured map is much slower than LLVM and C despite beating scalar VM execution.",
+    "Escaping SIMD values remain managed byte objects; straight-line temporary results stay in native stack packets. Packet transport and storage metadata lookup remain inside loops. The measured map is twice as fast after this followup but remains much slower than LLVM and C.",
     "Wasm SIMD belongs to the separate runtime Wasm gate.",
     "No legacy backend or library deletion is justified by this initial integration."
   ],
@@ -323,6 +323,111 @@
     "JIT_VERIFY=1 cargo test -p nupp-vm --release --test simd --offline",
     "./bin/nupp check --json",
     "./bin/nupp test --lane=shared",
-    "./bin/nupp fixpoint"
-  ]
+    "./bin/nupp fixpoint",
+    "python3 native/crates/vm/tests/simd-perf-compare.py BASELINE_VM CANDIDATE_VM PERF_IMAGE --controls NATIVE_CONTROLS --output OUTPUT"
+  ],
+  "performanceFollowup": {
+    "baselineCommit": "28559ede271d4cdebac5a05ccfc74045c0d24d9b",
+    "report": "native/crates/vm/tests/simd-perf-results.json",
+    "largeMap": {
+      "elements": 65539,
+      "function": "explicit",
+      "baselineMs": 17.438,
+      "candidateMs": 8.531,
+      "speedup": 2.0341268856832513,
+      "pairedBootstrap95": [
+        2.0205587716269373,
+        2.046242999094445
+      ],
+      "verdict": "improved",
+      "firstCallMs": {
+        "baseline": 22.212,
+        "candidate": 13.674
+      },
+      "allocatedFirstCall": {
+        "baseline": 49685,
+        "candidate": 530
+      }
+    },
+    "rust": {
+      "passed": 109,
+      "ignored": 1,
+      "ignoredCase": "emitted_lowerer_rebuilds_itself (requires NUPP_COMPILER_IMAGE and NUPP_LOWERER_IMAGE)",
+      "simdPassed": 17
+    },
+    "jit": {
+      "imageSha256": "20f0f3d6401d806538b8f47e9b456e4df5651d38dd3d242810b35ac4785e3767",
+      "binarySha256": "370f91fdb31483cf555cb0f3dba98347cabb7dfc27c5d5d8f1ec005106fa3568",
+      "sourceSha256": "53641316e57e777e3032961d8b074cfe2bc4028fc169e5460e949c0876af8726",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-save",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-restore",
+          "passed": true
+        },
+        {
+          "case": "no-jit-refusal",
+          "passed": true
+        },
+        {
+          "case": "no-jit-tasks-refusal",
+          "passed": true
+        }
+      ],
+      "engine": "jit"
+    },
+    "aot": {
+      "imageSha256": "20f0f3d6401d806538b8f47e9b456e4df5651d38dd3d242810b35ac4785e3767",
+      "binarySha256": "0d852b67ed02be13d1854cff70e42ab2085f1a9a86b22c485e61c2bbe6a6d70f",
+      "sourceSha256": "53641316e57e777e3032961d8b074cfe2bc4028fc169e5460e949c0876af8726",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-save",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-restore",
+          "passed": true
+        },
+        {
+          "case": "unmatched-plugin",
+          "passed": true
+        },
+        {
+          "case": "unlinked-refusal",
+          "passed": true
+        }
+      ],
+      "engine": "aot"
+    },
+    "semantics": "All ten element kinds and odd/maximum lane widths; local aliases across collection, boxed captures and control-flow exits, parked produced values through checkpoint, interior heap-frame entry, host-call result replacement, and mismatched shape rejection.",
+    "compilerSourcesChanged": false
+  }
 }

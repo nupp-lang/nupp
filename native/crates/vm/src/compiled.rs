@@ -83,7 +83,7 @@ pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
-        ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_finish", j_simd_finish as *const u8, 3),
+        ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_prepare_locals", j_simd_prepare_locals as *const u8, 6), ("j_simd_finish", j_simd_finish as *const u8, 3), ("j_simd_store", j_simd_store as *const u8, 4),
         ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_ibox", j_ibox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
@@ -246,6 +246,37 @@ pub extern "C" fn j_simd_prepare(op: u64, kind: u64, argv: *const V, n: u64, pac
     ctx().guarded(|vm| {
         let args = unsafe { std::slice::from_raw_parts(argv, n as usize) };
         crate::simd::prepare(vm, op as u8, kind as u8, (op >> 8) as u8, args, unsafe { &mut *packet });
+        vm.extra_n = 0; vm.last_nres = 1;
+        V::NIL
+    }).0
+}
+// Pointers refer only to earlier native stack packets in this activation.
+// They never enter a Value, a GC root, or a suspended heap frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_simd_prepare_locals(op: u64, kind: u64, argv: *const V, n: u64, packet: *mut crate::simd::Packet, localv: *const *const crate::simd::Packet) -> u64 {
+    let _hp = enter_helper!();
+    ctx().guarded(|vm| {
+        assert!(n <= 5);
+        let args = unsafe { std::slice::from_raw_parts(argv, n as usize) };
+        let mut locals = [None; 5];
+        for i in 0..n as usize { locals[i] = unsafe { (*localv.add(i)).as_ref() }; }
+        crate::simd::prepare_locals(vm, op as u8, kind as u8, (op >> 8) as u8, args, &locals[..n as usize], unsafe { &mut *packet });
+        vm.extra_n = 0; vm.last_nres = 1;
+        V::NIL
+    }).0
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_simd_store(kind: u64, argv: *const V, n: u64, localv: *const *const crate::simd::Packet) -> u64 {
+    let _hp = enter_helper!();
+    ctx().guarded(|vm| {
+        assert!(n <= 5);
+        let args = unsafe { std::slice::from_raw_parts(argv, n as usize) };
+        let mut locals = [None; 5];
+        if !localv.is_null() {
+            for i in 0..n as usize { locals[i] = unsafe { (*localv.add(i)).as_ref() }; }
+        }
+        crate::simd::store(vm, kind as u8, args, &locals[..n as usize]);
+        vm.extra_n = 0; vm.last_nres = 1;
         V::NIL
     }).0
 }

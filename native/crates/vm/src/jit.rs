@@ -361,6 +361,7 @@ impl<M: Module> Compiler<M> {
             if !frame && !ok { return Err(format!("{:?}", op)); }
         }
         let frame_live = frame.then(|| crate::verify::liveness(f));
+        let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
         let start = std::time::Instant::now();
         // The typed signature: float parameters as f64, the rest as value words.
         let classes: Vec<u8> = if f.sig.len() == f.nparams as usize { f.sig.clone() } else { vec![b'v'; f.nparams as usize] };
@@ -400,6 +401,12 @@ impl<M: Module> Compiler<M> {
             let fvars: Vec<Variable> = (0..f.nfreg).map(|_| { let v = b.declare_var(types::F64); let z = b.ins().f64const(0.0); b.def_var(v, z); v }).collect();
             let vvars: Vec<Variable> = (0..f.nvreg).map(|_| { let v = b.declare_var(types::F64X2); let z = b.ins().f64const(0.0); let s = b.ins().splat(types::F64X2, z); b.def_var(v, s); v }).collect();
             let rvars: Vec<Variable> = (0..f.nregs as usize + 1).map(|_| { let v = b.declare_var(types::I64); b.declare_var_needs_stack_map(v); let z = b.ins().iconst(types::I64, NIL); b.def_var(v, z); v }).collect();
+            // A separate, untraced pointer accompanies local SIMD values. At
+            // any heap-frame entry it starts at zero, so resuming at an interior
+            // PC reads the boxed register loaded by the dispatcher instead.
+            let simd_locals: Vec<Variable> = if simd_local_results.iter().any(|&x| x) {
+                (0..rvars.len()).map(|_| { let v = b.declare_var(types::I64); let zero = b.ins().iconst(types::I64, 0); b.def_var(v, zero); v }).collect()
+            } else { Vec::new() };
             let params: Vec<Value> = b.block_params(entry).to_vec();
             let mut ptrs: HashMap<u8, (Value, Value)> = HashMap::new();
             let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
@@ -481,7 +488,7 @@ impl<M: Module> Compiler<M> {
             // The i8 condition behind a boxed boolean register, so a branch on
             // it tests the comparison directly instead of the boxed word.
             let mut cond_of: HashMap<u8, Value> = HashMap::new();
-            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; cond_of.remove(&($i as u8)); b.def_var(rvars[$i as usize], v) } }
+            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; cond_of.remove(&($i as u8)); b.def_var(rvars[$i as usize], v); if !simd_locals.is_empty() { let zero = b.ins().iconst(types::I64, 0); b.def_var(simd_locals[$i as usize], zero); } } }
             // A helper call whose result is checked for the error sentinel: a
             // raise inside the helper leaves through `err_block`.
             macro_rules! hcall { ($name:expr, $args:expr) => {{ let c = b.ins().call(helper_refs[$name], $args); let r = b.inst_results(c)[0]; let is_err = b.ins().icmp_imm(IntCC::Equal, r, ERROR); let cont = b.create_block(); b.ins().brif(is_err, err_block, &[], cont, &[]); b.switch_to_block(cont); b.seal_block(cont); c }} }
@@ -531,6 +538,9 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(leave); b.seal_block(leave);
                         let done = b.ins().iconst(types::I64, -1); b.ins().return_(&[done]);
                         b.switch_to_block(resume); b.seal_block(resume);
+                        // Every live SIMD value at this boundary is boxed.
+                        // Results can overwrite dead temporary registers, too.
+                        for &local in &simd_locals { let zero = b.ins().iconst(types::I64, 0); b.def_var(local, zero); }
                         // A completing operation keeps the same heap frame. A
                         // call that grows or switches it always returns above.
                         // The collector does not move objects. A completing
@@ -581,7 +591,7 @@ impl<M: Module> Compiler<M> {
                     Op::FNeg(d, x) => { let p = fv!(x); setf!(d, b.ins().fneg(p)); }
                     Op::FCmpEq(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let c = b.ins().fcmp(FloatCC::Equal, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::FCmpNe(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let c = b.ins().fcmp(FloatCC::NotEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
-                    Op::Move(d, s) => { let v = rv!(s); setr!(d, v); }
+                    Op::Move(d, s) => { let local = (!simd_locals.is_empty()).then(|| b.use_var(simd_locals[s as usize])); let v = rv!(s); setr!(d, v); if let Some(local) = local { b.def_var(simd_locals[d as usize], local); } }
                     Op::K(d, k) => { setr!(d, kval!(k)); }
                     Op::BoolFromI(d, x) => { let v = iv!(x); let c = b.ins().icmp_imm(IntCC::NotEqual, v, 0); setr!(d, bool_word!(c)); }
                     Op::JmpIfNot(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, next, &[], target(off), &[]); terminated = true; }
@@ -1213,15 +1223,34 @@ impl<M: Module> Compiler<M> {
                     }
                     Op::Simd(op, kind, source, base, nargs) => {
                         let args = args_slot!(base, nargs);
+                        let element = b.ins().iconst(types::I64, kind as i64);
+                        let count = b.ins().iconst(types::I64, nargs as i64);
+                        let locals = if simd_local_inputs[pc] {
+                            let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, nargs as u32 * 8, 3));
+                            for i in 0..nargs { let ptr = b.use_var(simd_locals[(base + 1 + i) as usize]); b.ins().stack_store(types::I64, ptr, slot, i as i32 * 8); }
+                            b.ins().stack_addr(types::I64, slot, 0)
+                        } else { b.ins().iconst(types::I64, 0) };
+                        if crate::simd::OPERATIONS[op as usize] == "store" {
+                            let call = hcall!("j_simd_store", &[element, args, count, locals]);
+                            setr!(base, b.inst_results(call)[0]);
+                            continue;
+                        }
                         let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, std::mem::size_of::<crate::simd::Packet>() as u32, 4));
                         let packet = b.ins().stack_addr(types::I64, slot, 0);
                         let opcode = b.ins().iconst(types::I64, op as i64 | ((source as i64) << 8));
-                        let element = b.ins().iconst(types::I64, kind as i64);
-                        let count = b.ins().iconst(types::I64, nargs as i64);
-                        hcall!("j_simd_prepare", &[opcode, element, args, count, packet]);
+                        if simd_local_inputs[pc] {
+                            hcall!("j_simd_prepare_locals", &[opcode, element, args, count, packet, locals]);
+                        } else {
+                            hcall!("j_simd_prepare", &[opcode, element, args, count, packet]);
+                        }
                         crate::simd_jit::emit(&mut b, packet, op, kind, source)?;
-                        let call = hcall!("j_simd_finish", &[packet, args, count]);
-                        setr!(base, b.inst_results(call)[0]);
+                        if simd_local_results[pc] {
+                            setr!(base, b.ins().iconst(types::I64, NIL));
+                            b.def_var(simd_locals[base as usize], packet);
+                        } else {
+                            let call = hcall!("j_simd_finish", &[packet, args, count]);
+                            setr!(base, b.inst_results(call)[0]);
+                        }
                         if crate::simd::result_count(op) > 1 {
                             let extra = runtime_addr(&mut b, runtime, 1, extra_addr);
                             for i in 1..crate::simd::result_count(op) { let value = b.ins().load(types::I64, flags, extra, ((i-1)*8)as i32); setr!(base as usize+i, value); }
