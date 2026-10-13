@@ -212,7 +212,7 @@ fn range(vm: &Interp, value: Value, n: usize, write: bool) -> (Value, usize) {
     }
     (v.owner, v.offset)
 }
-fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
+pub(crate) fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
     let width = scalar_width(kind).unwrap();
     if bytes.len() < width {
         vm.err("nupp: storage decode input is too short");
@@ -262,6 +262,84 @@ fn encode(vm: &Interp, kind: &str, value: Value) -> Vec<u8> {
         _ => bits.to_ne_bytes().to_vec(),
     }
 }
+pub(crate) fn simd_memory(
+    vm: &mut Interp,
+    span: Value,
+    at: i64,
+    kind: u8,
+    lanes: usize,
+    mask: &[u8; crate::simd::CAPACITY],
+    bits: &mut [u8; crate::simd::CAPACITY],
+    write: bool,
+    commit: bool,
+) {
+    let pointer = get(vm, span, "pointer");
+    let v = view(vm, pointer);
+    let (element, w) = layout(vm, v.element, 0);
+    if element != crate::simd::ELEMENTS[kind as usize] {
+        vm.err("SIMD span element differs from its species");
+    }
+    if write {
+        let writable = span.as_obj().is_some_and(|p| unsafe {
+            let header = p.as_ref();
+            if header.kind != KIND_RECORD {
+                return false;
+            }
+            let shape = &vm.heap.shapes[header.shape() as usize];
+            let name = vm.heap.interned_key("set");
+            let method = name.and_then(|key| shape.methods.get(&key)).and_then(|v| {
+                v.as_func().or_else(|| {
+                    v.as_obj().and_then(|p| {
+                        let h = p.as_ref();
+                        (h.kind == crate::heap::KIND_CLOSURE).then(|| h.fid())
+                    })
+                })
+            });
+            method
+                .and_then(|id| vm.funcs.get(id as usize))
+                .is_some_and(|f| {
+                    f.module == "nupp.mem.span"
+                        && matches!(
+                            f.name.as_str(),
+                            "WriteSpanImpl:set" | "FixedWriteSpanImpl:set"
+                        )
+                })
+        });
+        if v.readonly || !writable {
+            vm.err("SIMD storage view is read-only");
+        }
+    }
+    let offset = count(vm, get(vm, span, "offset"));
+    let count = count(vm, get(vm, span, "count"));
+    let mut positions = [None; 64];
+    for i in 0..lanes {
+        if mask[i * w..(i + 1) * w].iter().all(|b| *b == 0) {
+            continue;
+        }
+        let index =
+            at.checked_sub(1)
+                .and_then(|x| x.checked_add(i as i64))
+                .filter(|x| *x >= 0 && (*x as usize) < count)
+                .unwrap_or_else(|| vm.err("SIMD span index out of bounds")) as usize;
+        let pos = offset
+            .checked_add(index)
+            .and_then(|x| x.checked_mul(w))
+            .and_then(|x| x.checked_add(v.offset))
+            .filter(|x| x.checked_add(w).is_some_and(|end| end <= v.end))
+            .unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
+        positions[i] = Some(pos);
+    }
+    for (i, pos) in positions[..lanes].iter().enumerate() {
+        if let Some(pos) = pos {
+            if write && commit {
+                vm.bytes_mut(v.owner)[*pos..*pos + w].copy_from_slice(&bits[i * w..(i + 1) * w]);
+            } else if !write {
+                bits[i * w..(i + 1) * w].copy_from_slice(&vm.bytes_of(v.owner)[*pos..*pos + w]);
+            }
+        }
+    }
+}
+
 pub fn install(vm: &mut Interp) {
     scope(vm, |vm| {
         let cache = table(vm);
@@ -507,4 +585,33 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             _ => vm.err("nupp: unknown storage operation"),
         }
     })
+}
+
+pub(crate) fn simd_indexed(
+    vm: &mut Interp,
+    span: Value,
+    kind: u8,
+    indices: &[i64],
+    mask: &[u8; crate::simd::CAPACITY],
+    bits: &mut [u8; crate::simd::CAPACITY],
+    write: bool,
+    commit: bool,
+) {
+    let n = count(vm, get(vm, span, "count"));
+    let w = crate::simd::width(kind);
+    let mut lane = [0; crate::simd::CAPACITY];
+    let mut active = [0; crate::simd::CAPACITY];
+    // Check the view capability even when every lane is out of bounds.
+    simd_memory(vm, span, 0, kind, 1, &active, &mut lane, write, false);
+    active[..w].fill(255);
+    for (i, at) in indices.iter().copied().enumerate() {
+        if at < 1 || at as usize > n || mask[i * w..(i + 1) * w].iter().all(|b| *b == 0) {
+            continue;
+        }
+        lane[..w].copy_from_slice(&bits[i * w..(i + 1) * w]);
+        simd_memory(vm, span, at, kind, 1, &active, &mut lane, write, commit);
+        if !write {
+            bits[i * w..(i + 1) * w].copy_from_slice(&lane[..w]);
+        }
+    }
 }

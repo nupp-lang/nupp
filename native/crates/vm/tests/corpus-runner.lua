@@ -2,6 +2,7 @@
 local runner = {}
 
 function runner.main(argv)
+    require("nupp.vm.math")
     require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
     require("nupp.compiler.vm.chunks").install()
     local suite = require(argv[1])

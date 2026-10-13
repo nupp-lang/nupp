@@ -1,0 +1,328 @@
+{
+  "date": "2026-10-13",
+  "scope": "Initial native VM integration of the public SIMD API. The complete API matrix and performance gate remain open.",
+  "baseCommit": "86fa2d4ee11cdd90be994c5b881e8885ef4325e0",
+  "publicSource": {
+    "fixture": "native/crates/vm/tests/simd-input.nupp",
+    "jit": {
+      "imageSha256": "20f0f3d6401d806538b8f47e9b456e4df5651d38dd3d242810b35ac4785e3767",
+      "binarySha256": "3fd0b953665dff225427db2260697fefbe0eb0c360aaa42ddef4ad332cec3cbb",
+      "sourceSha256": "53641316e57e777e3032961d8b074cfe2bc4028fc169e5460e949c0876af8726",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-save",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-restore",
+          "passed": true
+        },
+        {
+          "case": "no-jit-refusal",
+          "passed": true
+        },
+        {
+          "case": "no-jit-tasks-refusal",
+          "passed": true
+        }
+      ],
+      "engine": "jit"
+    },
+    "aot": {
+      "imageSha256": "20f0f3d6401d806538b8f47e9b456e4df5651d38dd3d242810b35ac4785e3767",
+      "binarySha256": "179c18b03740977ac74e4a6a19cae80f6cf799c3870864156d7fcfe0c1848eb9",
+      "sourceSha256": "53641316e57e777e3032961d8b074cfe2bc4028fc169e5460e949c0876af8726",
+      "results": [
+        {
+          "case": "direct",
+          "passed": true
+        },
+        {
+          "case": "tasks",
+          "passed": true
+        },
+        {
+          "case": "workers",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-save",
+          "passed": true
+        },
+        {
+          "case": "checkpoint-restore",
+          "passed": true
+        },
+        {
+          "case": "unmatched-plugin",
+          "passed": true
+        },
+        {
+          "case": "unlinked-refusal",
+          "passed": true
+        }
+      ],
+      "engine": "aot"
+    },
+    "gc": "incremental every allocation, root oracle, quarantine",
+    "path": "",
+    "checks": [
+      "All ten numeric families, including wrapped signed and unsigned widths and exact 64-bit lanes",
+      "NativeStorage contiguous, masked, interleaved, and indexed memory",
+      "Out-of-bounds stores fail without partial writes; read-only spans refuse writes",
+      "Fixed-width permutations, mask selection, conversions, and native math map aliases",
+      "Stateful ordered, pairwise, compensated and exact integer reducers",
+      "Worker transfer, suspension, graph persistence, and checkpoint restore",
+      "Native compilation before function entry, including a separately loaded image; unmatched AOT plugin refusal before side effects"
+    ]
+  },
+  "rust": {
+    "command": "JIT_VERIFY=1 cargo test -p nupp-vm --release --test simd --offline",
+    "tests": 13,
+    "status": "passed",
+    "packetLaneCounts": [
+      2,
+      3,
+      16,
+      63,
+      64
+    ],
+    "elementPairs": 100,
+    "edgeCases": [
+      "Invalid float-to-integer lanes become zero; uint64 accepts the upper range",
+      "NaN policies, signed zero, binary32 rounding, ordered and odd-width pairwise reductions",
+      "Integer division by zero and signed minimum divided by negative one",
+      "Sixty-four-bit masks and integer values above 2^53",
+      "Malformed opcode descriptors, missing compilation, appended images, and checkpoint restore"
+    ],
+    "fullVmSuite": "cargo test -p nupp-vm --release --offline passed; the existing self_lowering test remains opt-in"
+  },
+  "existingReducerCorpus": {
+    "compiled": [
+      {
+        "suite": "simdreducertest",
+        "class": "portable",
+        "facilities": "-",
+        "reason": "pure Lua against compiler modules within the subset",
+        "status": "passed",
+        "exitStatus": 0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "completed": true,
+        "durationSeconds": 0.434
+      }
+    ],
+    "interpreted": [
+      {
+        "suite": "simdreducertest",
+        "class": "portable",
+        "facilities": "-",
+        "reason": "pure Lua against compiler modules within the subset",
+        "status": "passed",
+        "exitStatus": 0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "completed": true,
+        "durationSeconds": 0.046
+      }
+    ],
+    "changes": "The LuaJIT trace-control call is conditional. The VM corpus runner installs the same numeric namespace; assertions are unchanged."
+  },
+  "aot": {
+    "target": "aarch64-apple-darwin",
+    "functions": 296,
+    "refused": 0,
+    "objectSha256": "a734b822b139c384732e2262f06c01725093da42c3f81c944c62e072b4623cd0",
+    "objectBytes": 1500016,
+    "vectorInstructions": [
+      "add.16b",
+      "add.2d",
+      "add.4s",
+      "add.8h",
+      "fadd.2d",
+      "fadd.4s",
+      "fmul.2d",
+      "fmul.4s"
+    ],
+    "executableMemory": "Both mmap(PROT_EXEC) and mprotect(PROT_EXEC) denial probes exit 86; source acceptance passes under the same interposer.",
+    "codeGenerator": "No Cranelift dependency or symbols in the linked runtime"
+  },
+  "selfHosting": {
+    "compilerImageSha256": "c782e7ba56aeb51853990a23f2dbfb6f4c777297d4b15e98b71bcbd818826f52",
+    "vmRebuild": "byte-identical",
+    "pinnedFixpoint": "passed",
+    "coldRepositoryCheck": {
+      "modules": 549,
+      "errors": 0
+    },
+    "sharedSuite": {
+      "tests": 2177,
+      "passed": 2177,
+      "skipped": 0,
+      "failed": 0
+    }
+  },
+  "performance": {
+    "host": "macOS-26.6-arm64-arm-64bit",
+    "binarySha256": "3fd0b953665dff225427db2260697fefbe0eb0c360aaa42ddef4ad332cec3cbb",
+    "scope": "Unmodified bench/simd11 map and explicitMap. VM includes span creation and managed value transport; inputs are initialized outside timing. VM first call includes on-demand compilation, warm calls reuse it. LLVM compiles the unchanged explicitMap using the existing backend. C controls use the same map formula, length check, no-alias contract and simd11 Clang flags, with vectorization enabled or disabled.",
+    "imageSha256": "e2e5c643a6235b57dbc71b576229dea03de3a0664bec83dd2002f322734818eb",
+    "sourceSha256": "4bc5107f7cb55ddd426f6e50496d340b283255057c42b98659e03d5b19c1b227",
+    "results": [
+      {
+        "elements": 63,
+        "vm": {
+          "scalar": {
+            "warmMs": 0.054,
+            "firstCallMs": 3.16,
+            "processMediansMs": [
+              0.053,
+              0.054,
+              0.054
+            ]
+          },
+          "explicit": {
+            "warmMs": 0.024,
+            "firstCallMs": 4.336,
+            "processMediansMs": [
+              0.023,
+              0.024,
+              0.024
+            ]
+          }
+        },
+        "controls": {
+          "llvm": {
+            "warmMs": 6.627610154768654e-06,
+            "samplesMs": [
+              1.0609215117579318e-05,
+              1.0609209250241232e-05,
+              1.0584009033155782e-05,
+              6.627610154768654e-06,
+              4.901404085422459e-06,
+              4.901404085422459e-06,
+              4.901409952760546e-06
+            ]
+          },
+          "auto_vector": {
+            "warmMs": 1.0243809036171249e-05,
+            "samplesMs": [
+              1.0130410992955768e-05,
+              1.0319409687427599e-05,
+              1.0357212946724818e-05,
+              1.018080555978858e-05,
+              1.0243809036171249e-05,
+              1.0269009253256699e-05,
+              1.014300816782945e-05
+            ]
+          },
+          "no_vector": {
+            "warmMs": 1.617841615475907e-05,
+            "samplesMs": [
+              2.6598626710528473e-05,
+              2.624582953867026e-05,
+              2.652302605927212e-05,
+              1.6102815503502722e-05,
+              1.6165813112547303e-05,
+              1.6128015720588174e-05,
+              1.617841615475907e-05
+            ]
+          }
+        }
+      },
+      {
+        "elements": 65539,
+        "vm": {
+          "scalar": {
+            "warmMs": 49.805,
+            "firstCallMs": 53.534,
+            "processMediansMs": [
+              49.805,
+              48.767,
+              50.992
+            ]
+          },
+          "explicit": {
+            "warmMs": 17.481,
+            "firstCallMs": 21.997,
+            "processMediansMs": [
+              17.534,
+              17.481,
+              17.461
+            ]
+          }
+        },
+        "controls": {
+          "llvm": {
+            "warmMs": 0.008189999498426914,
+            "samplesMs": [
+              0.008570002391934395,
+              0.008189999498426914,
+              0.008189999498426914,
+              0.008190004155039787,
+              0.008180001750588417,
+              0.008189999498426914,
+              0.008180001750588417
+            ]
+          },
+          "auto_vector": {
+            "warmMs": 0.008229999803006649,
+            "samplesMs": [
+              0.008259997703135014,
+              0.008229999803006649,
+              0.008220002055168152,
+              0.00824000220745802,
+              0.008229999803006649,
+              0.008229999803006649,
+              0.008259997703135014
+            ]
+          },
+          "no_vector": {
+            "warmMs": 0.0153200002387166,
+            "samplesMs": [
+              0.01534000039100647,
+              0.015309997834265232,
+              0.0153200002387166,
+              0.015330002643167973,
+              0.015310002490878107,
+              0.015310002490878107,
+              0.0153200002387166
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "remaining": [
+    "Pure-helper maps, transpose, generic element functions, and struct/SoA field memory operations need further lowering and acceptance.",
+    "The full existing SIMD matrix, all simd11 workloads, and cross-platform acceptance have not run.",
+    "SIMD intermediates are managed byte objects; each operation prepares and boxes packets. Storage checks and transport remain inside loops. The measured map is much slower than LLVM and C despite beating scalar VM execution.",
+    "Wasm SIMD belongs to the separate runtime Wasm gate.",
+    "No legacy backend or library deletion is justified by this initial integration."
+  ],
+  "reproduce": [
+    "cargo build -p nupp-vm --release --offline",
+    "python3 native/crates/vm/tests/simd-smoke.py SEED --output OUTPUT",
+    "sh native/crates/vm/tests/simd-aot-smoke.sh SEED IMAGE OUTPUT",
+    "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite simdreducertest --engine jit --jit-compilation on-demand --gc-interleave --output OUTPUT",
+    "python3 native/crates/vm/tests/simd-perf.py SEED --output OUTPUT",
+    "JIT_VERIFY=1 cargo test -p nupp-vm --release --test simd --offline",
+    "./bin/nupp check --json",
+    "./bin/nupp test --lane=shared",
+    "./bin/nupp fixpoint"
+  ]
+}

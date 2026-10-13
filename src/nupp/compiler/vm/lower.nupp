@@ -31,6 +31,38 @@ function lower.emit(
         return type(t) == "table" and t.tag or "?"
     end
 
+    local function simdType(t)
+        while type(t) == "table" and t.inner do
+            t = t.inner
+        end
+        if tyTag(t) == "union" then
+            for _, member in ipairs(t.members or {}) do
+                local found = simdType(member)
+                if found then
+                    return found
+                end
+            end
+        end
+        if tyTag(t) ~= "nominal" then
+            return nil
+        end
+        local origin = t.origin or t
+        if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+            return nil
+        end
+        local family = origin.name
+        if family ~= "Species" and family ~= "Vector" and family ~= "Mask" then
+            return nil
+        end
+        local element = (t.typeArgs or {})[1]
+        while type(element) == "table" and element.inner do
+            element = element.inner
+        end
+        assert(element and element.tag, "SIMD element is unresolved")
+
+        return {family = family, element = element.tag}
+    end
+
     -- Shapes ---------------------------------------------------------------------
     -- A shape is keyed by its record's nominal type, which is one object per
     -- declaration across the module graph; two modules may each declare an
@@ -963,12 +995,183 @@ function lower.emit(
         return true
     end
 
+    local function emitSimd(f, operation, ty, operands, dst, nres)
+        -- Evaluate once in source order before placing the argument window.
+        local args = {}
+        for _, operand in ipairs(operands) do
+            args[#args + 1] = exprAs(f, operand, "v")
+        end
+        local base = f:reg()
+        for _, value in ipairs(args) do
+            local r = f:reg()
+            f:op("Move", r, value)
+        end
+        f:op("Simd", operation, ty.element, base, #args, ty.sourceElement or ty.element)
+        if dst then
+            local resultCounts: {
+                [string]: integer
+            } = {interleave = 2, deinterleave = 2, loadPairs = 2, loadTriples = 3, loadQuads = 4}
+            local results = resultCounts[operation] or 1
+            for i = 0, (nres or 1) - 1 do
+                if i < results then
+                    f:op("Move", dst + i, base + i)
+                else
+                    f:op("Nil", dst + i)
+                end
+            end
+            return dst
+        end
+
+        return base
+    end
+
+    local function simdIterator(f, node, ty, dst)
+        local object = exprAs(f, node.obj, "v")
+        local count = exprAs(f, node.args.exprs[1], "v")
+        local zero = f:reg()
+        f:op("K", zero, f:const("num", 1))
+        local base = f:reg()
+        for _, value in ipairs({object, count, zero}) do
+            local capture = f:reg()
+            f:op("NewCell", capture, value)
+        end
+        local inner = newFn("simd.over", f)
+        inner.nparams, inner.sig, inner.ret = 0, {}, "v"
+        local species, limit, cursor = inner:reg(), inner:reg(), inner:reg()
+        for i, r in ipairs({species, limit, cursor}) do
+            inner:op("GetUpval", r, i - 1)
+        end
+        inner:op("GetCell", species, species)
+        inner:op("GetCell", limit, limit)
+        local first, active = inner:reg(), inner:reg()
+        inner:op("GetCell", first, cursor)
+        local at, stop, width, room, valid = inner:freg(), inner:freg(), inner:freg(), inner:freg(), inner:freg()
+        inner:op("IUnbox", at, first)
+        inner:op("IUnbox", stop, limit)
+        inner:op("ICmpSLe", valid, at, stop)
+        local exit = inner:op("JmpIfIZero", valid, 0)
+        local call, selfReg, countReg = inner:reg(), inner:reg(), inner:reg()
+        inner:op("Move", selfReg, species)
+        inner:op("Simd", "lanes", ty.element, call, 1)
+        inner:op("IUnbox", width, call)
+        inner:op("ISub", room, stop, at)
+        inner:op("IAddK", room, room, 1)
+        inner:op("Move", selfReg, species)
+        inner:op("IBox", countReg, room)
+        inner:op("Simd", "tail", ty.element, call, 2)
+        inner:op("Move", active, call)
+        inner:op("IAdd", at, at, width)
+        inner:op("IBox", call, at)
+        inner:op("SetCell", cursor, call)
+        inner:op("RetN", first, 2)
+        inner:patch(exit, "JmpIfIZero", valid, inner:offset(exit, inner:here()))
+        inner:op("RetNil")
+        f:op("NewClosure", dst, inner.id, base, 3)
+    end
+
+    local function simdCall(f, node, dst, nres)
+        local args = node.args and node.args.exprs or {}
+        local ty = node.kind == "methodCall" and simdType(node.obj.inferredType) or nil
+        local operation
+        local operands = {}
+        if ty then
+            operation = tokText(node.name)
+            if operation == "over" then
+                assert(#args == 1, "SIMD over requires one count")
+                simdIterator(f, node, ty, dst)
+                for i = 1, nres - 1 do
+                    f:op("Nil", dst + i)
+                end
+                return true
+            end
+            if operation == "scatter" then
+                local indices = args[2]
+                local indexType = indices and indices.kind == "methodCall" and simdType(indices.obj.inferredType)
+                assert(
+                    indexType and indexType.family == "Species" and tokText(indices.name) == "iota",
+                    "SIMD scatter needs provably unique indices; use scatterUnchecked for an explicit uniqueness assertion"
+                )
+
+                local function constant(n)
+                    if n and (n.kind == "paren" or n.kind == "castExpr") then
+                        return constant(n.expr)
+                    end
+                    if n and n.kind == "unop" and tokText(n.op) == "-" then
+                        local value = constant(n.operand)
+                        return value and -value
+                    end
+                    if n and n.kind == "number" then
+                        local value = tonumber(tokText(n.token):gsub("_", ""):gsub("[uUlL]+$", ""))
+                        if value and math.abs(value) < 9007199254740992 and value % 1 == 0 then
+                            return value
+                        end
+                    end
+
+                    return nil
+                end
+
+                local first, step = constant(indices.args.exprs[1]), constant(indices.args.exprs[2])
+                local unsigned = indexType.element == "uint32" or indexType.element == "uint64"
+                local low = unsigned and 0 or indexType.element == "int32" and -2147483648 or -9007199254740991
+                local high = indexType.element == "uint32" and 4294967295
+                    or indexType.element == "int32" and 2147483647
+                    or 9007199254740991
+                local last = first and step and first + 63 * step
+                assert(
+                    first and step and step ~= 0 and first >= low and first <= high and last >= low and last <= high,
+                    "SIMD scatter requires constant non-wrapping iota indices; use scatterUnchecked for an explicit uniqueness assertion"
+                )
+            end
+            operands[1] = node.obj
+            if operation == "widen" or operation == "narrow" then
+                ty = assert(simdType(node.inferredType), "SIMD width change has no result species")
+            elseif operation == "convert" or operation == "reinterpret" then
+                ty.sourceElement = assert(
+                    simdType(args[1].inferredType),
+                    "SIMD conversion has no source species"
+                ).element
+            end
+        else
+            local callee = node.obj
+            local definition = callee and callee.token and callee.token.definition
+            local identity = callee and (callee.exactCallExport or definition and definition.exactCallExport)
+            if identity
+                and identity.module == "nupp.simd"
+                and (identity.member == "species" or identity.member == "vectors")
+            then
+                ty = simdType(node.inferredType)
+                operation = "species"
+            elseif node.simdMath then
+                ty = args[1] and simdType(args[1].inferredType)
+                operation = node.simdMath
+            elseif node.simdHorizontal then
+                ty = args[1] and simdType(args[1].inferredType)
+                operation = node.simdHorizontal:match("^horizontal%.(.+)$")
+                if operation:match("^propagating") or operation:match("^number") then
+                    operation = "horizontal." .. operation
+                end
+            end
+        end
+        if not ty or not operation then
+            return false
+        end
+        for _, arg in ipairs(args) do
+            operands[#operands + 1] = arg
+        end
+        emitSimd(f, operation, ty, operands, dst, nres)
+
+        return true
+    end
+
     -- `all` asks for everything the call returns (a trailing `return f()`),
     -- which `RetN` reads from `last_nres`; otherwise exactly `nres` values.
     emitCall = function(f, node, dst, nres, all)
         nres = nres or 1
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
+            return
+        end
+        if simdCall(f, node, dst, nres) then
             return
         end
         if node.ownershipIntrinsic then
@@ -1285,6 +1488,50 @@ function lower.emit(
             f:op("GetField", d, receiver, f:const("str", "count"))
             return d, "v"
         end
+        if node.simdIntrinsic then
+            local operands = k == "binop" and {node.lhs, node.rhs} or {node.operand}
+            local ty = simdType(operands[1].inferredType) or simdType(node.inferredType)
+            local names = {
+                ["+"] = "add",
+                ["-"] = "sub",
+                ["*"] = "mul",
+                ["/"] = "div",
+                ["//"] = "idiv",
+                ["%"] = "mod",
+                ["&"] = "and",
+                ["|"] = "or",
+                ["~"] = "xor",
+                ["<<"] = "shl",
+                [">>"] = "shr",
+                ["~>>"] = "sar",
+                ["=="] = "eq",
+                ["~="] = "ne",
+                ["<"] = "lt",
+                ["<="] = "le",
+                [">"] = "lt",
+                [">="] = "le"
+            }
+            local op = node.simdIntrinsic
+            local operation = names[op]
+            if k == "unop" then
+                operation = (op == "~" or ty.family == "Mask") and "not" or "neg"
+            elseif op == ">" or op == ">=" then
+                -- Preserve operand evaluation order; the native operation owns
+                -- the comparison direction.
+                operation = op == ">" and "gt" or "ge"
+            end
+            if ty.family == "Mask" and (operation == "eq" or operation == "ne") then
+                operation = operation == "eq" and "maskEq" or "maskNe"
+            end
+            assert(operation, "unsupported VM SIMD operator " .. tostring(op))
+            return emitSimd(f, operation, assert(ty), operands, want == "v" and dst or nil), "v"
+        end
+        if k == "dotIndex" and tokText(node.name) == "lanes" then
+            local ty = simdType(node.obj.inferredType)
+            if ty then
+                return emitSimd(f, "lanes", ty, {node.obj}, want == "v" and dst or nil), "v"
+            end
+        end
         local numeric = isNumeric(node.inferredType)
         local integer = isInteger(node.inferredType)
         if k == "binop" and node.fixedArithmetic then
@@ -1295,6 +1542,12 @@ function lower.emit(
             return d, "v"
         end
         local wide = wideKind(node.inferredType)
+        if k == "number" and not node.inferredType then
+            -- Plain Lua has no checker metadata. The lexer already validated
+            -- this numeric token, including its explicit integer suffix.
+            local literal = tokText(node.token):gsub("_", ""):lower()
+            wide = literal:match("ull$") and "u64" or literal:match("ll$") and "i64" or nil
+        end
         if k == "number" and (wide or node.wideIntegerLiteralTag) then
             local tag = node.wideIntegerLiteralTag or (wide == "u64" and "uint64" or "int64")
             local text = node.wideIntegerLiteralText or tokText(node.token):gsub("_", ""):gsub("[uUlL]+$", "")
@@ -2794,6 +3047,55 @@ function lower.emit(
             loopEnd(f)
             f:pop()
         elseif k == "forinStmt" then
+            local iterator = node.exprs and node.exprs[1]
+            local species = iterator and iterator.kind == "methodCall" and simdType(iterator.obj.inferredType)
+            if species and species.family == "Species" and tokText(iterator.name) == "over" then
+                assert(#node.exprs == 1 and #iterator.args.exprs == 1, "SIMD over requires one count")
+                f:push()
+                local object = exprAs(f, iterator.obj, "v")
+                local limit = exprAs(f, iterator.args.exprs[1], "i")
+                local call = f:reg()
+                local selfReg = f:reg()
+                local countReg = f:reg()
+                f:op("Move", selfReg, object)
+                f:op("Simd", "lanes", species.element, call, 1)
+                local width = f:freg()
+                local at = f:freg()
+                f:op("IUnbox", width, call)
+                f:op("IK", at, 1)
+                f:op("ISub", at, at, width)
+                local top = f:here()
+                f:op("IAdd", at, at, width)
+                local valid = f:freg()
+                f:op("ICmpSLe", valid, at, limit)
+                local exit = f:op("JmpIfIZero", valid, 0)
+                local left = f:freg()
+                f:op("ISub", left, limit, at)
+                f:op("IAddK", left, left, 1)
+                f:op("Move", selfReg, object)
+                f:op("IBox", countReg, left)
+                f:op("Simd", "tail", species.element, call, 2)
+                local index = f:reg()
+                f:op("IBox", index, at)
+                loopBegin(f)
+                f:push()
+                for i, nameTok in ipairs(node.names) do
+                    local r, cell = f:declare(tokText(nameTok), "v")
+                    local value = i == 1 and index or call
+                    if i > 2 then
+                        f:op("Nil", value)
+                    end
+                    f:op(cell and "NewCell" or "Move", r, value)
+                end
+                block(f, node.body)
+                f:pop()
+                local back = f:op("Jmp", 0)
+                f:patch(back, "Jmp", f:offset(back, top))
+                f:patch(exit, "JmpIfIZero", valid, f:offset(exit, f:here()))
+                loopEnd(f)
+                f:pop()
+                return
+            end
             -- The generic protocol: f, s, control = explist; each round calls f(s,
             -- control).
             f:push()

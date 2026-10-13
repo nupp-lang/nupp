@@ -1211,6 +1211,22 @@ impl<M: Module> Compiler<M> {
                         setr!(d, bool_word!(cv));
                         cond_of.insert(d, cv);
                     }
+                    Op::Simd(op, kind, source, base, nargs) => {
+                        let args = args_slot!(base, nargs);
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, std::mem::size_of::<crate::simd::Packet>() as u32, 4));
+                        let packet = b.ins().stack_addr(types::I64, slot, 0);
+                        let opcode = b.ins().iconst(types::I64, op as i64 | ((source as i64) << 8));
+                        let element = b.ins().iconst(types::I64, kind as i64);
+                        let count = b.ins().iconst(types::I64, nargs as i64);
+                        hcall!("j_simd_prepare", &[opcode, element, args, count, packet]);
+                        crate::simd_jit::emit(&mut b, packet, op, kind, source)?;
+                        let call = hcall!("j_simd_finish", &[packet, args, count]);
+                        setr!(base, b.inst_results(call)[0]);
+                        if crate::simd::result_count(op) > 1 {
+                            let extra = runtime_addr(&mut b, runtime, 1, extra_addr);
+                            for i in 1..crate::simd::result_count(op) { let value = b.ins().load(types::I64, flags, extra, ((i-1)*8)as i32); setr!(base as usize+i, value); }
+                        }
+                    }
                     Op::StorageLen(d, s) => { let (_, len) = ptrs[&s]; seti!(d, len); }
                     Op::FLoad(d, s, i) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); setf!(d, b.ins().load(types::F64, flags, a, 0)); }
                     Op::FStore(s, i, x) => { let (ptr, _) = ptrs[&s]; let idx = iv!(i); let off = b.ins().imul_imm(idx, 8); let a = b.ins().iadd(ptr, off); let v = fv!(x); b.ins().store(flags, v, a, 0); }

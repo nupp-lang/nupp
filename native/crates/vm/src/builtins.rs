@@ -28,6 +28,8 @@ pub const NAMES: &[&str] = &[
     "wide.i64.cast", "wide.i64.not", "wide.i64.neg", "wide.i64.add", "wide.i64.sub", "wide.i64.mul", "wide.i64.div", "wide.i64.idiv", "wide.i64.mod", "wide.i64.pow", "wide.i64.and", "wide.i64.or", "wide.i64.xor", "wide.i64.shl", "wide.i64.shr", "wide.i64.eq", "wide.i64.ne", "wide.i64.lt", "wide.i64.le", "wide.u64.cast", "wide.u64.not", "wide.u64.neg", "wide.u64.add", "wide.u64.sub", "wide.u64.mul", "wide.u64.div", "wide.u64.idiv", "wide.u64.mod", "wide.u64.pow", "wide.u64.and", "wide.u64.or", "wide.u64.xor", "wide.u64.shl", "wide.u64.shr", "wide.u64.eq", "wide.u64.ne", "wide.u64.lt", "wide.u64.le", "scalar.u64.andBits", "scalar.u64.sub", "scalar.u64.rotateLeft", "scalar.u64.rotateRight", "scalar.u64.popcount", "scalar.u64.leadingZeros", "scalar.u64.trailingZeros", "scalar.u64.prefixXor", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp",
     "wide.i64.sar", "wide.u64.sar", "wide.i64.is", "wide.u64.is",
     "storage.allocateBytes", "storage.borrowString", "storage.copy", "storage.fill", "storage.sizeOf", "storage.string", "storage.decodeUint8", "storage.encodeUint8", "storage.decodeInt8", "storage.encodeInt8", "storage.decodeUint16", "storage.encodeUint16", "storage.decodeInt16", "storage.encodeInt16", "storage.decodeUint32", "storage.encodeUint32", "storage.decodeInt32", "storage.encodeInt32", "storage.decodeUint64", "storage.encodeUint64", "storage.decodeInt64", "storage.encodeInt64", "storage.decodeFloat32", "storage.encodeFloat32", "storage.decodeFloat64", "storage.encodeFloat64", "storage.castBytes", "storage.castElements", "storage.scalar", "storage.descriptor", "storage.allocateArray", "storage.boundedCount", "storage.index", "storage.write", "storage.add", "storage.sub",
+    "simd.reducer.orderedSum", "simd.reducer.pairwiseSum", "simd.reducer.compensatedSum", "simd.reducer.algebraicSum", "simd.reducer.orderedProduct", "simd.reducer.pairwiseProduct", "simd.reducer.algebraicProduct", "simd.reducer.orderedDot", "simd.reducer.pairwiseDot", "simd.reducer.algebraicDot", "simd.reducer.wrappingSum", "simd.reducer.wrappingProduct", "simd.reducer.andBits", "simd.reducer.orBits", "simd.reducer.xorBits", "simd.reducer.any", "simd.reducer.all", "simd.reducer.count", "simd.reducer.integerMin", "simd.reducer.integerMax", "simd.reducer.integerArgMin", "simd.reducer.integerArgMax", "simd.reducer.propagatingMin", "simd.reducer.propagatingMax", "simd.reducer.propagatingArgMin", "simd.reducer.propagatingArgMax", "simd.reducer.numberMin", "simd.reducer.numberMax", "simd.reducer.numberArgMin", "simd.reducer.numberArgMax",
+    "simd.reducerAdd", "simd.reducerValue", "simd.indirect",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -278,7 +280,8 @@ pub fn scalar_op(kind: u8, a: f64, b: f64) -> f64 {
 /// The i32/u32/f32 intrinsics, with the folder's semantics (`nupp.compiler.scalarintrinsics`).
 fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let (family, op) = name.split_once('.').unwrap();
-    let a = arg(args, 0).as_num(); let bb = arg(args, 1).as_num();
+    let a = crate::numeric::double(it, arg(args, 0));
+    let bb = args.get(1).map_or(0.0, |value| crate::numeric::double(it, *value));
     let i32_of = |x: f64| -> i32 { (x as i64) as i32 };
     let u32_of = |x: f64| -> u32 { (x as i64) as u32 };
     let num = |x: f64| Value::num(x);
@@ -292,7 +295,7 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 else if a == 0.0 && b == 0.0 { let negative = if op == "min" { a.is_sign_negative() || b.is_sign_negative() } else { a.is_sign_negative() && b.is_sign_negative() }; if negative { -0.0 } else { 0.0 } }
                 else if op == "min" { a.min(b) as f64 } else { a.max(b) as f64 }
             },
-            "fma" => (a as f32).mul_add(bb as f32, arg(args, 2).as_num() as f32) as f64, "exp" => {
+            "fma" => (a as f32).mul_add(bb as f32, crate::numeric::double(it, arg(args, 2)) as f32) as f64, "exp" => {
                 let x = a as f32;
                 if x.is_nan() { f64::NAN } else {
                     let y = x.clamp(-104.0, 88.0) * 0.0078125f32;
@@ -462,6 +465,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         return outs![Value::func(entry)];
     }
     if let Some(name) = NAMES.get(id as usize) {
+        if let Some(op) = name.strip_prefix("simd.") { return outs![crate::simd::call(it, op, args)]; }
         if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
         if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
         if let Some(op) = name.strip_prefix("scalar.u64.") {

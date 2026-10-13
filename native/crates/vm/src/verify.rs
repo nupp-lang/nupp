@@ -200,6 +200,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         GetSlot(d, o, _, _) => r(&[(V, d), (V, o)]),
         SetSlot(o, _, v, _) => r(&[(V, o), (V, v)]),
         TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
+        Simd(_, _, _, base, n) => r(&(0..=n).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect::<Vec<_>>()),
         Scalar(_, d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
@@ -261,6 +262,11 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
             if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
         }
         match *op {
+            Op::Simd(op, kind, source, base, argc) => {
+                if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base.checked_add(argc).is_none() {
+                    return Err(format!("pc {pc}: invalid SIMD descriptor or argument window"));
+                }
+            }
             Op::K(_, k) | Op::DeferMethod(_, k) if k as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {k} outside the pool of {}", f.consts.len())),
             Op::Switch(_, t) => {
                 let (def, tbl) = f.jump_tables.get(t as usize).ok_or_else(|| format!("pc {pc}: jump table {t} does not exist"))?;
@@ -292,6 +298,10 @@ impl RegSet {
 /// each is used, which is what liveness needs. A register both read and
 /// written (a buffer append, a typed call's window) appears in both.
 pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
+    if let Op::Simd(code, _, _, base, argc) = *op {
+        return ((0..crate::simd::result_count(code)).map(|i| (C::V, base+i as u8)).collect(),
+            (1..=argc).map(|i| (C::V,base+i)).collect());
+    }
     use Op::*;
     use C::*;
     let (all, _) = operands(op);

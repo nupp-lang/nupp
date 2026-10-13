@@ -136,5 +136,8 @@ function M.aBooleanMaskSkipsTheContributionAsOrdinaryLua()
     test.equal(first:value(), 2, "ties keep the first candidate's position")
 end
 
-require("jit").off(M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel, true)
+local hasJit, jit = pcall(require, "jit")
+if hasJit then
+    jit.off(M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel, true)
+end
 return M

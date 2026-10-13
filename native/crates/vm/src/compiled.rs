@@ -83,6 +83,7 @@ pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
+        ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_finish", j_simd_finish as *const u8, 3),
         ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_ibox", j_ibox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
@@ -238,6 +239,25 @@ impl Drop for HelperFrame {
 }
 macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; HelperFrame(HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed)) }} }
 macro_rules! leave_helper { ($prev:expr) => { drop($prev) } }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_simd_prepare(op: u64, kind: u64, argv: *const V, n: u64, packet: *mut crate::simd::Packet) -> u64 {
+    let _hp = enter_helper!();
+    ctx().guarded(|vm| {
+        let args = unsafe { std::slice::from_raw_parts(argv, n as usize) };
+        crate::simd::prepare(vm, op as u8, kind as u8, (op >> 8) as u8, args, unsafe { &mut *packet });
+        V::NIL
+    }).0
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_simd_finish(packet: *const crate::simd::Packet, argv: *const V, n: u64) -> u64 {
+    let _hp = enter_helper!();
+    ctx().guarded(|vm| {
+        let args = unsafe { std::slice::from_raw_parts(argv, n as usize) };
+        vm.extra_n = 0; vm.last_nres = 1;
+        crate::simd::finish(vm, unsafe { &*packet }, args)
+    }).0
+}
 
 fn j_storage_ptr_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_ptr as u64 }, None => 0 } }
 fn j_storage_len_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_len }, None => 0 } }

@@ -105,6 +105,15 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 "AffineEnter" => Op::AffineEnter,
                 "DisarmAt" => Op::DisarmAt(a(1) as u16), "Disarm" => Op::Disarm(a(1) as u8), "Unwind" => Op::Unwind(a(1) as u16),
                     "Park" => Op::Park(a(1) as u8), "Checkpoint" => Op::Checkpoint,
+                    "Simd" => {
+                        if parts.len() != 5 && parts.len() != 6 { return Err(format!("line {ln}: SIMD operand count")); }
+                        let op = crate::simd::operation(parts[1]).ok_or_else(|| format!("line {ln}: unknown SIMD operation"))?;
+                        let kind = crate::simd::ELEMENTS.iter().position(|k| *k == parts[2]).ok_or_else(|| format!("line {ln}: unknown SIMD element"))? as u8;
+                        let base = parts[3].parse::<u8>().map_err(|_| format!("line {ln}: SIMD register"))?;
+                        let nargs = parts[4].parse::<u8>().map_err(|_| format!("line {ln}: SIMD arity"))?;
+                        let source = if parts.len() == 6 { crate::simd::ELEMENTS.iter().position(|k| *k == parts[5]).ok_or_else(|| format!("line {ln}: unknown SIMD source element"))? as u8 } else { kind };
+                        Op::Simd(op, kind, source, base, nargs)
+                    },
                     "K" => Op::K(a(1) as u8, a(2) as u16), "Move" => Op::Move(a(1) as u8, a(2) as u8), "Nil" => Op::Nil(a(1) as u8),
                     "Add" => Op::Add(a(1) as u8, a(2) as u8, a(3) as u8), "Sub" => Op::Sub(a(1) as u8, a(2) as u8, a(3) as u8), "Mul" => Op::Mul(a(1) as u8, a(2) as u8, a(3) as u8),
                     "Lt" => Op::Lt(a(1) as u8, a(2) as u8, a(3) as u8), "Le" => Op::Le(a(1) as u8, a(2) as u8, a(3) as u8), "Eq" => Op::Eq(a(1) as u8, a(2) as u8, a(3) as u8), "Ne" => Op::Ne(a(1) as u8, a(2) as u8, a(3) as u8),
@@ -132,7 +141,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
     }
     let total = it.funcs.len() + funcs.len();
     for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
-    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter)); it.funcs.push(f); }
+    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter | Op::Simd(..))); it.funcs.push(f); }
     for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
     Ok(entry)
 }

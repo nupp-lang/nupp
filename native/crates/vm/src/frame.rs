@@ -24,6 +24,11 @@ impl Interp {
                 jit.probe_addr = self.shape_probe.as_ptr() as i64;
                 let result = jit.compile_frame(&self.funcs[fid as usize], fid);
                 self.jit = Some(jit);
+                if let Err(reason) = &result {
+                    if self.function_needs_native(fid) {
+                        self.err(&format!("SIMD function {} cannot compile: {reason}", self.funcs[fid as usize].name));
+                    }
+                }
                 self.frame_entries[fid as usize] = result.map(|p| p as u64).unwrap_or(u64::MAX);
             }
         }
@@ -49,6 +54,9 @@ impl Interp {
         use std::sync::atomic::Ordering;
         let entry = self.prepare_frame_entry(fid);
         if entry == 0 || entry == u64::MAX {
+            if self.function_needs_native(fid) {
+                self.err("SIMD function requires native compilation or a matching AOT entry");
+            }
             return Ok(pc);
         }
         crate::compiled::CTX.store(self, Ordering::Relaxed);

@@ -1,0 +1,237 @@
+module nupp.tests.vmsimd
+
+const array = require("nupp.mem.array")
+const simd = require("nupp.simd")
+const persist = require("nupp.vm.persist")
+const tasks = require("nupp.tasks")
+
+local function memory(): nil
+    local species = simd.species(array.uint32)
+    const owned = array.scalar(array.uint32, 19)
+    const writer = owned:write()
+    for at, active in species:over(#writer) do
+        species:store(writer, at, species:iota(at, 1), active)
+    end
+    for at, active in species:over(#writer) do
+        local values = species:load(writer, at, active)
+        species:store(writer, at, values * 3 + 1, active)
+    end
+    assert(
+        not pcall(function(): nil
+            species:store(writer, 19, species:splat(99))
+        end)
+    )
+    assert(writer[19] == 58)
+    nupp.drop(writer)
+    const reader = owned:read()
+    for index = 1, #reader do
+        assert(reader[index] == index * 3 + 1)
+    end
+    local empty = species:load(reader, 20, species:tail(0))
+    assert((empty == 0):all())
+    assert(
+        not pcall(function(): nil
+            species:store(reader as any, 1, species:splat(99))
+        end)
+    )
+    assert(reader[1] == 4)
+    assert(
+        not pcall(function(): nil
+            species:load(reader, 19)
+        end)
+    )
+end
+
+local function numerics(): nil
+    local wide = simd.species(array.uint64, 3)
+    local values = wide:iota(9007199254740993ULL, 2ULL)
+    assert(values:extract(3) == 9007199254740997ULL)
+    assert(simd.horizontal.wrappingSum(values) == 27021597764222985ULL)
+    local copy = persist.load(persist.save(values)) as simd.Vector<uint64, simd.Fixed<3>>
+    assert((copy == values):all())
+    local floats = simd.species(array.float, 3)
+    local converted = floats:convert(values)
+    assert(converted:extract(1) == nupp.math.f32.narrow(9007199254740993ULL as number))
+    local doubles = floats:widen(array.number)
+    assert(doubles.lanes == 3)
+    local bits = simd.species(array.uint32, 3):reinterpret(floats:splat(1.0))
+    assert((bits == 0x3f800000):all())
+    local zero = floats:splat(-0.0)
+    assert(1 / simd.horizontal.propagatingMin(zero) == -math.huge)
+    local invalid = simd.species(array.number, 3):splat(math.huge)
+    assert((simd.species(array.int64, 3):convert(invalid) == 0LL):all())
+    local upper = simd.species(array.number, 3):splat(9223372036854775808.0)
+    assert((wide:convert(upper) == 9223372036854775808ULL):all())
+end
+
+local function widths(): nil
+    assert((simd.species(array.uint8, 3):iota(250, 3) + 10):extract(3) == 10)
+    assert((simd.species(array.int8, 3):iota(120, 3) + 3):extract(3) == -127)
+    assert((simd.species(array.uint16, 3):iota(65530, 3) + 10):extract(3) == 10)
+    assert((simd.species(array.int16, 3):iota(32760, 3) + 3):extract(3) == -32767)
+    assert((simd.species(array.uint32, 3):iota(4294967290, 3) + 10):extract(3) == 10)
+    assert((simd.species(array.int32, 3):iota(2147483640, 3) + 3):extract(3) == -2147483647)
+    assert((simd.species(array.int64, 3):iota(9223372036854775804LL, 1LL) + 3LL):extract(3) == -9223372036854775807LL)
+    assert((simd.species(array.float, 3):iota(16777216.0, 1.0) + 1.0):extract(3) == 16777220.0)
+end
+
+local function reducers(): nil
+    local species = simd.species(array.number, 3)
+    local ordered = simd.reducer.orderedSum(0.0)
+    local pairwise = simd.reducer.pairwiseSum(0.0)
+    local compensated = simd.reducer.compensatedSum(0.0)
+    ordered:add(1e16)
+    ordered:add(1.0)
+    ordered:add(-1e16)
+    compensated:add(1e16)
+    compensated:add(1.0)
+    compensated:add(-1e16)
+    assert(ordered:value() == 0.0)
+    assert(compensated:value() == 1.0)
+    pairwise:add(species:iota(1.0, 1.0), species:tail(2))
+    pairwise:add(4.0)
+    assert(pairwise:value() == 7.0)
+    local restored = persist.load(persist.save(pairwise)) as simd.PairwiseSum<number>
+    restored:add(8.0)
+    assert(restored:value() == 15.0)
+    assert(pairwise:value() == 7.0)
+    local wide = simd.species(array.uint64, 3)
+    local exact = simd.reducer.wrappingSum(array.uint64, 0ULL)
+    exact:add(wide:iota(9007199254740993ULL, 2ULL), wide:tail(2))
+    assert(exact:value() == 18014398509481988ULL)
+    local argmin = simd.reducer.numberArgMin()
+    argmin:add(species:iota(3.0, -1.0), species:tail(2))
+    argmin:add(1.0)
+    assert(argmin:value() == 4)
+end
+
+local function structure(): nil
+    local species = simd.species(array.uint64, 3)
+    local a = species:iota(9007199254740993ULL, 1ULL)
+    local b = species:iota(20ULL, 2ULL)
+    local first, second = a:interleave(b)
+    local left, right = first:deinterleave(second)
+    assert((left == a):all() and (right == b):all())
+    assert((a:reverse():reverse() == a):all())
+    assert((a:rotateLeft(1):rotateRight(1) == a):all())
+    assert(a:insert(2, 42ULL):extract(2) == 42ULL)
+    assert(a:align(b, 1):extract(1) == 24ULL)
+    local selected = species:tail(2)
+    assert(a:compress(selected):extract(3) == 0ULL)
+    assert((a:compress(selected):expand(selected) == selected:select(a, 0ULL)):all())
+    assert(a:swizzle(species:iota(3ULL, 18446744073709551615ULL)):extract(1) == a:extract(3))
+    const storage = array.scalar(array.uint64, 17)
+    const writer = storage:write()
+    species:storeTriples(writer, 1, a, b, species:splat(99ULL))
+    species:storeTriples(writer, 10, a, b, species:splat(100ULL))
+    local x, y, z = species:loadTriples(writer, 1)
+    assert((x == a):all() and (y == b):all() and (z == 99ULL):all())
+    local p, q, r = species:loadTriples(writer, 10)
+    assert((p == a):all() and (q == b):all() and r:extract(3) == 0ULL)
+    nupp.drop(writer)
+    const reader = storage:read()
+    local indices = simd.species(array.int32, 3):iota(1, 8)
+    local gathered = species:gather(reader, indices)
+    assert(gathered:extract(1) == a:extract(1) and gathered:extract(2) == 99ULL and gathered:extract(3) == b:extract(3))
+    local doubles = simd.species(array.number, 3)
+    local samples = doubles:iota(1.0, 3.0)
+    local roots = math.sqrt(samples)
+    local root = math.sqrt
+    local mapped = doubles:map(root, samples)
+    assert((mapped == roots):all())
+    assert(roots:extract(1) == 1.0 and roots:extract(2) == 2.0)
+    local iterator = species:over(8)
+    local visits, count = 0, 0
+    for at, active in iterator do
+        visits = visits + at
+        count = count + active:count()
+    end
+    assert(visits == 12 and count == 8)
+end
+
+export function workers(): number
+    local species = simd.species(array.uint64, 3)
+    local vector = species:iota(9007199254740993ULL, 1ULL)
+    with scope = tasks.open() do
+        local job = scope:fork(vector, function(
+            value: simd.Vector<uint64, simd.Fixed<3>>
+        ): simd.Vector<uint64, simd.Fixed<3>>
+            local changed = value + 7ULL
+            tasks.checkpoint()
+            return changed * 3ULL
+        end)
+        local answer = job:await()
+        assert((answer == (vector + 7ULL) * 3ULL):all())
+        assert(vector:extract(1) == 9007199254740993ULL)
+    end
+
+    return 42
+end
+
+local parked: any = nil
+export function checkpointStart(): number
+    parked = @unsafe nupp.release(
+        coroutine.create(function(): number
+            local species = simd.species(array.number, 3)
+            local values = species:iota(1.0, 1.0)
+            local result = simd.reducer.pairwiseSum(0.0)
+            result:add(values)
+            coroutine.yield(20)
+            result:add(values * 2)
+            assert(result:value() == 18.0)
+
+            return 42
+        end)
+    )
+    local ok, value = coroutine.resume(parked)
+    assert(ok and value == 20)
+
+    return 42
+end
+
+export function checkpointFinish(): number
+    local ok, value = coroutine.resume(parked)
+    assert(ok and value == 42)
+    assert(coroutine.status(parked) == "dead")
+    parked = nil
+
+    return 42
+end
+
+export function run(): number
+    memory()
+    numerics()
+    widths()
+    reducers()
+    structure()
+    local species = simd.species(array.uint32, 4)
+    local values = species:iota(1, 2)
+    local changed = values * 3 + 1
+    local selected = changed > 4
+    assert(species.lanes == 4)
+    assert(selected:count() == 3)
+
+    return changed:extract(3) + 26
+end
+
+export function missingPlugin(): number
+    local load = (_G as any).__nupp_load_image
+    local plugin = load(
+        [[function plugin 0 1 8 1 v:v
+const 0 str "entered"
+const 1 num 1
+K 2 1
+SetField 1 0 2
+Simd add number 3 2
+Ret 3
+end
+entry 0
+]]
+    )
+    local state: any = {}
+    local ok, problem = pcall(plugin, state)
+    assert(not ok and tostring(problem):find("native compilation", 1, true) ~= nil)
+    assert(state.entered == nil)
+
+    return 42
+end

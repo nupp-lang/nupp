@@ -200,6 +200,8 @@ pub enum Op {
     IAnd(u8, u8, u8),
     JmpIfIZero(u8, i32),
     VAdd(u8, u8, u8),
+    /// Public SIMD: operation, element kind, value result/argument window, arity.
+    Simd(u8, u8, u8, u8, u8),
     VMul(u8, u8, u8),
     /// Masked two-lane load: lanes at `off + l` below `active` are loaded,
     /// the rest are zero; every loaded lane is bounds-checked.
@@ -402,6 +404,7 @@ pub struct Interp {
     pub frame_entries: Vec<u64>,
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
+    native_required: Vec<bool>,
     // Transient handoff from native frame helpers; never part of a snapshot.
     pub(crate) native_task: usize,
     pub(crate) native_exit: Option<Step>,
@@ -489,7 +492,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_required: Vec::new(), native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -817,6 +820,7 @@ impl Interp {
     /// the record or table holding a function (`{define = Registry.define}`
     /// and the Lua class idiom). Strings are handled by the callers.
     pub fn resolve_method(&mut self, recv: Value, name: Value) -> Value {
+        if let Some(method) = crate::simd_reduce::method(self, recv, name) { return method; }
         if self.kind_of(recv)==Some(KIND_CLOSURE) && self.bytes_of(name)==b"__nuppRelease" { return Value::builtin(crate::builtins::id_of("affine.release").unwrap()); }
         let h = hdr!(self, recv, "method call on a non-object");
         if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
@@ -954,6 +958,7 @@ impl Interp {
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
         // modules: a `require` finds them before the image's.
         let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove"]);
+        crate::simd::install(self);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
@@ -1305,6 +1310,15 @@ impl Interp {
     }
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
+    pub(crate) fn function_needs_native(&mut self, fid: u32) -> bool {
+        // Images only append immutable function bodies. Cache this once per
+        // body, including functions added by another image or checkpoint.
+        if self.native_required.len() < self.funcs.len() {
+            self.native_required.extend(self.funcs[self.native_required.len()..].iter()
+                .map(|f| f.code.iter().any(|op| matches!(op, Op::Simd(..)))));
+        }
+        self.native_required[fid as usize]
+    }
     fn compiled_frames_active(&self) -> bool {
         if !self.frame_mode { return false; }
         #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
@@ -1317,6 +1331,9 @@ impl Interp {
         let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
         loop {
             let (mut win, mut pc) = self.window(tid);
+            if !self.compiled_frames_active() && self.function_needs_native(win.fid) {
+                self.err("SIMD function requires native compilation or a matching AOT entry");
+            }
             #[cfg(feature = "compiled-runtime")]
             if self.compiled_frames_active() {
                 match self.run_compiled_frame(tid, win.fid, pc) {
@@ -1539,6 +1556,7 @@ impl Interp {
                     Op::BufFinish(d, bf) => { let v = self.buf_finish(r!(bf)); r!(d) = v; }
                     Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap_new_bytes(n); r!(d) = v; }
                     Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = self.bytes_of(r!(s))[..n].to_vec(); let v = self.string_of(&text); r!(d) = v; }
+                    Op::Simd(..) => self.err("SIMD function requires native compilation"),
                     Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
                     Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
                     Op::VLoadM(d, s, i, off, active) => {
@@ -1879,6 +1897,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::FCmpLt(..) => "FCmpLt",
         Op::IAnd(..) => "IAnd",
         Op::JmpIfIZero(..) => "JmpIfIZero",
+        Op::Simd(..) => "Simd",
         Op::VAdd(..) => "VAdd",
         Op::VMul(..) => "VMul",
         Op::VLoadM(..) => "VLoadM",
