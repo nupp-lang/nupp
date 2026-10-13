@@ -30,7 +30,8 @@ pub const KIND_CELL: u8 = 6;
 pub const KIND_BYTES: u8 = 7;
 pub const KIND_ITER: u8 = 8;
 pub const KIND_SLICE: u8 = 9;
-pub const KIND_NAMES: [&str; 10] = ["freed", "string", "table", "record", "storage", "closure", "cell", "bytes", "iterator", "slice"];
+pub const KIND_INTEGER: u8 = 12;
+pub const KIND_NAMES: [&str; 13] = ["freed", "string", "table", "record", "storage", "closure", "cell", "bytes", "iterator", "slice", "reserved", "reserved", "integer"];
 
 pub const COLOR_WHITE: u8 = 0;
 pub const COLOR_GRAY: u8 = 1;
@@ -304,8 +305,9 @@ pub struct Heap {
     pub quarantine: bool,
     pub shapes: Vec<Shape>,
     interned: HashMap<Box<[u8]>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
+    integers: HashMap<(bool, u64), NonNull<Header>>,
     pub stats: Stats,
-    pub alloc_kinds: [u64; 10],
+    pub alloc_kinds: [u64; 13],
     /// 1 while marking: the threaded core reads it to decide whether a store
     /// needs the barrier's slow path.
     pub marking: u8,
@@ -317,7 +319,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), stats: Stats::default(), alloc_kinds: [0; 10], marking: 0 }
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), alloc_kinds: [0; 13], marking: 0 }
     }
 
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
@@ -446,6 +448,28 @@ impl Heap {
                 _ => Some(Value::obj(p)),
             }
         }
+    }
+
+    pub fn integer_key(&self, bits: u64) -> Option<Value> { self.integers.get(&(false, bits)).map(|p| Value::obj(*p)) }
+    pub fn integer_lookup(&mut self, value: crate::numeric::Integer) -> Option<Value> {
+        let key = (value.unsigned, value.bits);
+        let p = *self.integers.get(&key)?;
+        unsafe {
+            let h = &mut *p.as_ptr();
+            match (self.phase, h.color) {
+                (Phase::Marking, COLOR_WHITE) => { h.color = COLOR_GRAY; self.gray.push(p); self.stats.barrier_grays += 1; }
+                (Phase::Sweeping, COLOR_WHITE) if (h.epoch as u64) < self.stats.cycles => { self.integers.remove(&key); return None; }
+                _ => {}
+            }
+        }
+        Some(Value::obj(p))
+    }
+    pub fn box_integer(&mut self, value: crate::numeric::Integer, roots: &dyn Roots) -> Value {
+        if let Some(v) = value.immediate().or_else(|| self.integer_lookup(value)) { return v; }
+        let p = self.alloc(KIND_INTEGER, 0, roots);
+        unsafe { let h = &mut *p.as_ptr(); h.aux = value.unsigned as u32; h.aux_len = value.bits; }
+        self.integers.insert((value.unsigned, value.bits), p);
+        Value::obj(p)
     }
 
     pub fn new_slice(&mut self, source: Value, off: u32, len: u32, roots: &dyn Roots) -> Value {
@@ -691,6 +715,10 @@ impl Heap {
             self.stats.freed += 1;
             self.live_count -= 1;
             if h.flags & F_INTERNED != 0 { self.interned.remove(h.bytes()); }
+            if h.kind == KIND_INTEGER {
+                let key = (h.aux != 0, h.aux_len);
+                if self.integers.get(&key) == Some(&p) { self.integers.remove(&key); }
+            }
             match h.kind {
                 KIND_TABLE => { self.channels.remove(&Value::obj(p)); let t = h.table(); std::ptr::drop_in_place(t); }
                 KIND_STORAGE => { let s = h.storage(); std::ptr::drop_in_place(s); }

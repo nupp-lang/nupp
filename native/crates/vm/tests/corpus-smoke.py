@@ -28,6 +28,7 @@ parser.add_argument("--unavailable-module", action="append", default=[],
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--jobs", type=int, default=2, help="independent VM processes (default: 2)")
 parser.add_argument("--engine", choices=("rust", "threaded", "jit"), default="threaded")
+parser.add_argument("--jit-compilation", choices=("eager", "on-demand"), default="eager")
 parser.add_argument("--gc-stress", action="store_true")
 parser.add_argument("--gc-interleave", action="store_true", help="step incremental collection on every allocation")
 args = parser.parse_args()
@@ -43,7 +44,7 @@ def digest(path):
 
 run = {"seed": seed, "binary": binary, "seedSha256": digest(seed), "binarySha256": digest(binary),
        "engine": args.engine, "gcStress": args.gc_stress, "gcInterleave": args.gc_interleave,
-       "compilation": "eager frames" if args.engine == "jit" else "none", "path": "", "timeoutSeconds": 600,
+       "compilation": args.jit_compilation + " frames" if args.engine == "jit" else "none", "path": "", "timeoutSeconds": 600,
        "unavailableModules": args.unavailable_module}
 (args.output / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 classification = json.loads(Path("native/crates/vm/tests/corpus-classification.json").read_text())
@@ -54,7 +55,7 @@ if args.suite:
     assert set(args.suite) == {row["suite"] for row in selected}, "suite not in the classification"
 assert selected, "no suites selected"
 env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(root), PATH="")
-for key in ("EMIT_SURVEY", "EMIT_STUBS", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
+for key in ("EMIT_SURVEY", "EMIT_STUBS", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "JIT_EAGER_FRAMES"):
     env.pop(key, None)
 host_extras = [
     "nupp.compiler.hostservices", "nupp.compiler.fs", "nupp.compiler.project.projectconfig",
@@ -105,7 +106,8 @@ def execute(row):
     elif args.engine == "jit":
         execution_env.pop("NO_JIT", None)
         execution_env["JIT_VERIFY"] = "1"
-        execution_env["JIT_EAGER_FRAMES"] = "1"
+        if args.jit_compilation == "eager":
+            execution_env["JIT_EAGER_FRAMES"] = "1"
     if args.gc_stress:
         execution_env.update(GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
     if args.gc_interleave:

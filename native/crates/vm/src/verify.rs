@@ -162,6 +162,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     match *op {
         K(d, _) | Nil(d) | NewTable(d) | NewBuffer(d) | Ret(d) | Park(d) | VarargTable(d) => r(&[(V, d)]),
         PadResults(d, n) | VarargN(d, n) => { let mut l = Vec::new(); for i in 0..n { if let Some(rg) = d.checked_add(i) { l.push((V, rg)); } } (l, Vec::new()) }
+        TagCheckInt(d, s, _) => r(&[(V, d), (V, s)]),
         Move(d, s) | Not(d, s) | Neg(d, s) | Len(d, s) | TagCheckNum(d, s) | TagCheckStr(d, s) | NewCell(d, s) | GetCell(d, s) | SetCell(d, s) | BufAppend(d, s) | BufFinish(d, s) => r(&[(V, d), (V, s)]),
         Add(d, a, b) | Sub(d, a, b) | Mul(d, a, b) | Lt(d, a, b) | Le(d, a, b) | Eq(d, a, b) | Ne(d, a, b) | Concat(d, a, b) | GetIdx(d, a, b) | SetIdx(d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         CallDyn(fr, base, nargs) => { let n = fixed_args(nargs) as usize; let mut l = vec![(V, fr), (V, base)]; for i in 1..=n { if let Some(rg) = base.checked_add(i as u8) { l.push((V, rg)); } } (l, Vec::new()) }
@@ -202,6 +203,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         Scalar(_, d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
+        IBox(d, i) => r(&[(V, d), (I, i)]),
         FBox(d, f) => r(&[(V, d), (F, f)]),
         GetSlotF(f, o, _, _) => r(&[(F, f), (V, o)]),
         SetSlotF(o, _, f, _) => r(&[(V, o), (F, f)]),

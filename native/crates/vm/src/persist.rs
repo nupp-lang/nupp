@@ -388,12 +388,16 @@ fn code_digest(vm: &Interp) -> Result<[u8; 32]> {
                     return Err("dead function constant".into());
                 }
                 let o = unsafe { p.as_ref() };
-                if o.kind != KIND_STR {
-                    return Err("non-string object in function constants".into());
+                if o.kind == KIND_INTEGER {
+                    h.update([2, o.aux as u8]);
+                    h.update(o.aux_len.to_le_bytes());
+                } else if o.kind == KIND_STR {
+                    h.update([1]);
+                    h.update((o.bytes().len() as u64).to_le_bytes());
+                    h.update(o.bytes());
+                } else {
+                    return Err("mutable object in function constants".into());
                 }
-                h.update([1]);
-                h.update((o.bytes().len() as u64).to_le_bytes());
-                h.update(o.bytes());
             } else {
                 h.update([0]);
                 h.update(v.0.to_le_bytes());
@@ -560,6 +564,7 @@ fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
 // Payloads keep spans borrowed from the checked input during restore.
 #[derive(Debug)]
 enum Node<'a> {
+    Integer(crate::numeric::Integer),
     String(bool, &'a [u8]),
     Table(Vec<Ref>, Vec<Ref>, Ref),
     Record(usize, Vec<Ref>, Vec<Ref>, Vec<Ref>, Ref),
@@ -573,6 +578,12 @@ enum Node<'a> {
 }
 fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
     Ok(match r.byte()? {
+        KIND_INTEGER => {
+            let unsigned = match r.byte()? { 0 => false, 1 => true, _ => return Err("invalid integer kind".into()) };
+            let integer = crate::numeric::Integer { bits: r.u64()?, unsigned };
+            if integer.immediate().is_some() { return Err("noncanonical boxed integer".into()); }
+            Node::Integer(integer)
+        }
         KIND_STR => {
             let interned = match r.byte()? {
                 0 => false,
@@ -803,6 +814,7 @@ pub(crate) fn save_graph_with(
                         payload.u64(f.to_bits());
                     }
                 }
+                KIND_INTEGER => { payload.byte(h.aux as u8); payload.u64(h.aux_len); }
                 KIND_BYTES => payload.bytes(h.bytes())?,
                 KIND_CLOSURE => {
                     graph.functions = true;
@@ -1262,6 +1274,7 @@ pub(crate) fn load_graph_with(
                         vm.new_table_sized(array.len(), pairs.len() / 2)
                     }
                     Node::Resource(..) => vm.new_table(),
+                    Node::Integer(value) => vm.box_integer(*value),
                     Node::Record(s, ..) => vm.new_record(shape_ids[*s]),
                     Node::Bytes(b) => {
                         let v = vm.heap_new_bytes(b.len());
@@ -1716,7 +1729,7 @@ fn read_scheduler(r: &mut Reader) -> Result<Option<crate::scheduler::Scheduler>>
             }
         }
         let last_nres = r.u32()?;
-        if last_nres > 8 {
+        if last_nres > crate::interp::MAX_RESULTS {
             return Err("invalid scheduler result count".into());
         }
         let waiting = if version == 2 {
@@ -1906,10 +1919,11 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     }
     let loaded_table = r.u32()?;
     let extra = read_ids(&mut r)?;
-    if extra.len() > 8 {
+    if extra.len() >= crate::interp::MAX_RESULTS {
         return Err("invalid result buffer".into());
     }
     let last_nres = r.u32()?;
+    if last_nres > crate::interp::MAX_RESULTS { return Err("invalid result count".into()); }
     let parks = r.u64()?;
     let host = match r.byte()? {
         0 => None,

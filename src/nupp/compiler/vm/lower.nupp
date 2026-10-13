@@ -517,6 +517,15 @@ function lower.emit(
         return false
     end
 
+    local function wideKind(t)
+        if tyTag(t) == "literal" then
+            return wideKind(t.base)
+        end
+        local tag = tyTag(t)
+
+        return tag == "int64" and "i64" or tag == "uint64" and "u64" or nil
+    end
+
     local function isIntegerish(n)
         if n.kind == "paren" then
             return isIntegerish(n.expr)
@@ -541,9 +550,7 @@ function lower.emit(
         if want == "v" then
             dst = dst or f:reg()
             if class == "i" then
-                local t = f:freg();
-                f:op("IToF", t, reg);
-                f:op("FBox", dst, t)
+                f:op("IBox", dst, reg)
             else
                 f:op("FBox", dst, reg)
             end
@@ -771,6 +778,12 @@ function lower.emit(
             local n = f:reg();
             f:op("Nil", n);
             f:op("Eq", dst, v, n)
+        elseif wideKind(node.typeTestTarget) then
+            local callee, base, value = f:reg(), f:reg(), f:reg()
+            f:op("K", callee, f:const("builtin", "wide." .. wideKind(node.typeTestTarget) .. ".is"))
+            exprAs(f, node.expr, "v", value)
+            f:op("CallDyn", callee, base, 1)
+            f:op("Move", dst, base)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
             typeTest(IS_TYPE[t.base.text])
         elseif t.primitiveTest then
@@ -957,7 +970,9 @@ function lower.emit(
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
             local target = tyTag(node.inferredType)
-            if target == "number" or target == "integer" then
+            if wideKind(node.inferredType) then
+                f:op("TagCheckInt", dst, dst, wideKind(node.inferredType) == "u64" and 1 or 0)
+            elseif target == "number" or target == "integer" then
                 f:op("TagCheckNum", dst, dst)
             elseif target == "string" then
                 f:op("TagCheckStr", dst, dst)
@@ -1073,7 +1088,24 @@ function lower.emit(
                 fr = f:reg();
                 base = math.max(dst, f.nregs)
             end
-            f:op("K", fr, f:const("builtin", "scalar." .. node.scalarIntrinsic))
+            local shared = {
+                ["f32.exp"] = true,
+                ["f32.fromF16Bits"] = true,
+                ["f32.toF16Bits"] = true,
+                ["f32.fromBF16Bits"] = true,
+                ["f32.toBF16Bits"] = true
+            }
+            if shared[node.scalarIntrinsic] then
+                queueModule("nupp.vm.math")
+                f:op("Require", fr, f:const("str", "nupp.vm.math"))
+                for member in node.scalarIntrinsic:gmatch("[^.]+") do
+                    local value = f:reg()
+                    f:op("GetField", value, fr, f:const("str", member))
+                    f:op("Move", fr, value)
+                end
+            else
+                f:op("K", fr, f:const("builtin", "scalar." .. node.scalarIntrinsic))
+            end
             local base2, nargs = callInto(f, node, base)
             f:op("CallDyn", fr, base2, nargs)
             if nres > 0 and not all then
@@ -1211,6 +1243,23 @@ function lower.emit(
         finish(base)
     end
 
+    local function wideOperation(f, name, args, dst)
+        dst = dst or f:reg()
+        local callee = f:reg()
+        local base = f:reg()
+        for _ = 1, #args do
+            f:reg()
+        end
+        f:op("K", callee, f:const("builtin", name))
+        for i, arg in ipairs(args) do
+            exprAs(f, arg, "v", base + i)
+        end
+        f:op("CallDyn", callee, base, #args)
+        f:op("Move", dst, base)
+
+        return dst, "v"
+    end
+
     expr = function(f, node, dst, want)
         local k = node.kind
         if k == "paren" then
@@ -1218,6 +1267,69 @@ function lower.emit(
         end
         local numeric = isNumeric(node.inferredType)
         local integer = isInteger(node.inferredType)
+        if k == "binop" and node.fixedArithmetic then
+            local a = exprAs(f, node.lhs, "v")
+            local b = exprAs(f, node.rhs, "v")
+            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            f:op("Scalar", assert(SCALAR_KIND[node.fixedArithmetic]), d, a, b)
+            return d, "v"
+        end
+        local wide = wideKind(node.inferredType)
+        if k == "number" and (wide or node.wideIntegerLiteralTag) then
+            local tag = node.wideIntegerLiteralTag or (wide == "u64" and "uint64" or "int64")
+            local text = node.wideIntegerLiteralText or tokText(node.token):gsub("_", ""):gsub("[uUlL]+$", "")
+            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            f:op("K", d, f:const(tag, text))
+            return d, "v"
+        end
+        if k == "binop" then
+            local family = wide or wideKind(node.lhs.inferredType) or wideKind(node.rhs.inferredType)
+            local op = tokText(node.op)
+            local operations = {
+                ["+"] = "add",
+                ["-"] = "sub",
+                ["*"] = "mul",
+                ["/"] = "div",
+                ["//"] = "idiv",
+                ["%"] = "mod",
+                ["^"] = "pow",
+                ["&"] = "and",
+                ["|"] = "or",
+                ["~"] = "xor",
+                ["<<"] = "shl",
+                [">>"] = "shr",
+                ["~>>"] = "sar",
+                ["=="] = "eq",
+                ["~="] = "ne",
+                ["<"] = "lt",
+                ["<="] = "le",
+                [">"] = "lt",
+                [">="] = "le"
+            }
+            if family and operations[op] then
+                local args = (op == ">" or op == ">=") and {node.rhs, node.lhs} or {node.lhs, node.rhs}
+                return wideOperation(
+                    f,
+                    "wide." .. family .. "." .. operations[op],
+                    args,
+                    (want ~= "f" and want ~= "i") and dst or nil
+                )
+            end
+        end
+        if k == "unop" and wide and (tokText(node.op) == "-" or tokText(node.op) == "~") then
+            return wideOperation(
+                f,
+                "wide." .. wide .. (tokText(node.op) == "-" and ".neg" or ".not"),
+                {node.operand},
+                (want ~= "f" and want ~= "i") and dst or nil
+            )
+        end
+        if k == "castExpr" and wide then
+            local value = exprAs(f, node.expr, "v")
+            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            f:op("TagCheckInt", d, value, wide == "u64" and 1 or 0)
+            return d, "v"
+        end
         if k == "number" then
             local n = assert(tonumber(tokText(node.token)), "invalid numeric literal")
             if want ~= "i" and want ~= "f" then
@@ -1550,6 +1662,16 @@ function lower.emit(
             f:op("K", dst, f:const("false", ""))
         elseif k == "nil" or k == "nilExpr" then
             f:op("Nil", dst)
+        elseif node.namespacePath
+            and (node.namespacePath == "nupp.math" or node.namespacePath:sub(1, 10) == "nupp.math.")
+        then
+            queueModule("nupp.vm.math")
+            f:op("Require", dst, f:const("str", "nupp.vm.math"))
+            for member in node.namespacePath:sub(11):gmatch("[^.]+") do
+                local value = f:reg()
+                f:op("GetField", value, dst, f:const("str", member))
+                f:op("Move", dst, value)
+            end
         elseif (k == "name" or k == "dotIndex") and (node.qualifiedModule or node.compilerModule) then
             -- The checker resolves namespace projections, including shadowing.
             -- A matching file alone is not evidence of a runtime module.
@@ -1919,6 +2041,7 @@ function lower.emit(
     end
 
     local plainExpr = expr
+
     expr = function(f, node, dst, want)
         local r, class = plainExpr(f, node, dst, want)
         if node.automaticOwnerMove and node.kind ~= "paren" and node.kind ~= "castExpr" then

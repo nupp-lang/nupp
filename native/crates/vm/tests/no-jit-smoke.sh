@@ -8,11 +8,14 @@ trap 'rm -rf "$tmp"' EXIT
 image=${1:-native/crates/vm/jit.image}
 module=${2:-nupp.bench.jitbench}
 function=${3:-run}
-binary=build/rust/target/debug/nupp-vm
+profile=${NUPP_VM_BUILD_PROFILE:-dev}
+directory=$profile
+if [ "$profile" = dev ]; then directory=debug; fi
+binary=build/rust/target/$directory/nupp-vm
 
-cargo build -q -p nupp-vm --features aot --offline
+cargo build -q --profile "$profile" -p nupp-vm --features aot --offline
 "$binary" aot "$image" "$tmp/jit.o" ${FRAME_AOT:+--frames}
-NUPP_AOT_OBJECT="$tmp/jit.o" cargo build -q -p nupp-vm --no-default-features --features aot-linked --offline
+NUPP_AOT_OBJECT="$tmp/jit.o" cargo build -q --profile "$profile" -p nupp-vm --no-default-features --features aot-linked --offline
 cargo tree -p nupp-vm --no-default-features --features aot-linked --offline >"$tmp/deps"
 if grep -q cranelift "$tmp/deps"; then
     echo 'no-JIT build still depends on Cranelift' >&2

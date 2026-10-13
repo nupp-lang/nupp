@@ -42,7 +42,7 @@ enum C {
     GetUpval, GetCell, GetSlot, GetSlotF, SetSlotF, Len, LenF, StrByte,
     Call, CallK, CallDyn, Ret, RetNil, RetN,
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
-    PadResults,
+    PadResults, IBox,
 }
 
 /// The core's encoding of one opcode; anything it does not handle is `Slow`,
@@ -96,6 +96,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::FMod(d, a, b) => i(C::FMod, d, a, b),
         Op::FNeg(d, a) => i(C::FNeg, d, a, 0),
         Op::FUnbox(d, r) => i(C::FUnbox, d, r, 0),
+        Op::IBox(d, a) => i(C::IBox, d, a, 0),
         Op::FBox(d, a) => i(C::FBox, d, a, 0),
         Op::FCmpEq(d, a, b) => i(C::FCmpEq, d, a, b),
         Op::FCmpNe(d, a, b) => i(C::FCmpNe, d, a, b),
@@ -257,9 +258,10 @@ pub extern "C" fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, bas
     let mut outs = crate::builtins::Outs::new();
     let r = it.guarded(|it| { outs = it.enter_compiled(entry, Value(closure), &buf[..n], nparams as usize); Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
+    it.note_results(outs.as_slice());
     let t = &mut it.tasks[tid];
-    for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
-    it.last_nres = outs.len();
+    if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
+    for (i, v) in outs.iter().take(8).enumerate() { t.stack[base as usize + i] = v.0; }
     sync(ctx, it);
 }
 /// A builtin called from the core: arguments in the window from `base + 1`,
@@ -273,10 +275,10 @@ pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32)
     let mut outs = crate::builtins::Outs::new();
     let r = it.guarded(|it| { outs = crate::builtins::call(it, id, args.as_slice()); Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
+    it.note_results(outs.as_slice());
     let t = &mut it.tasks[tid];
     if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
-    for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
-    it.last_nres = outs.len();
+    for (i, v) in outs.iter().take(8).enumerate() { t.stack[base as usize + i] = v.0; }
     sync(ctx, it);
 }
 /// One step of an iterator object called as a function.
@@ -287,10 +289,10 @@ pub extern "C" fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
     let mut outs = crate::builtins::Outs::new();
     let r = it.guarded(|it| { outs = crate::builtins::iter_next(it, Value(iter)); Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
+    it.note_results(outs.as_slice());
     let t = &mut it.tasks[tid];
     if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
-    for (i, v) in outs.iter().enumerate() { t.stack[base as usize + i] = v.0; }
-    it.last_nres = outs.len();
+    for (i, v) in outs.iter().take(8).enumerate() { t.stack[base as usize + i] = v.0; }
     sync(ctx, it);
 }
 #[unsafe(no_mangle)]

@@ -105,6 +105,7 @@ fn drive(it: &mut Interp, ts: &[usize]) {
 }
 
 fn show(it: &Interp, v: Value) -> String {
+    if let Some(i) = nupp_vm::numeric::integer(v) { return i.magnitude().to_string(); }
     if v.is_num() { return builtins::num_text(v.as_num()); }
     if v == Value::NIL { return "nil".into(); }
     if v == Value::TRUE { return "true".into(); }
@@ -205,7 +206,7 @@ fn main() {
     let _jit = if std::env::var("NO_JIT").is_err() && !has_aot {
         nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         let mut j = nupp_vm::jit::Jit::new();
-        j.extra_addr = &it.extra as *const [Value; 8] as i64;
+        j.extra_addr = it.extra.as_ptr() as i64;
         j.last_nres_addr = &it.last_nres as *const usize as i64;
         j.entries_addr = it.entries.as_ptr() as i64;
         j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();

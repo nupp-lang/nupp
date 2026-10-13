@@ -49,6 +49,16 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let f = cur.as_mut().unwrap();
                 let v = match parts[2] {
                     "num" => Value::num(parts[3].parse().unwrap()),
+                    "int64" | "uint64" => {
+                        let unsigned = parts[2] == "uint64";
+                        let text = parts[3];
+                        let negative = text.starts_with('-');
+                        let text = text.strip_prefix('-').unwrap_or(text);
+                        let bits = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) { u64::from_str_radix(hex, 16) } else { text.parse::<u64>() }.map_err(|_| format!("line {ln}: invalid wide integer"))?;
+                        if negative && unsigned || negative && bits > (1u64 << 63) { return Err(format!("line {ln}: wide integer out of range")); }
+                        let v = it.box_integer(crate::numeric::Integer { bits: if negative { bits.wrapping_neg() } else { bits }, unsigned });
+                        it.handles.push(v); v
+                    }
                     "str" => { let s = unquote(&line[line.find('"').unwrap()..]); let v = it.string_of(&s); it.handles.push(v); v }
                     "nil" => Value::NIL,
                     "builtin" => Value::builtin(crate::builtins::id_of(parts[3]).ok_or_else(|| format!("line {ln}: unknown builtin {}", parts[3]))?),
@@ -106,6 +116,8 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                     "GetField" => Op::GetField(a(1) as u8, a(2) as u8, a(3) as u16), "SetField" => Op::SetField(a(1) as u8, a(2) as u16, a(3) as u8),
                     "NewRecord" => Op::NewRecord(a(1) as u8, shape_ids[a(2) as usize]), "GetSlot" => Op::GetSlot(a(1) as u8, a(2) as u8, a(3) as u16, shape_ids[a(4) as usize]), "SetSlot" => Op::SetSlot(a(1) as u8, a(2) as u16, a(3) as u8, shape_ids[a(4) as usize]),
                     "TagCheckRec" => Op::TagCheckRec(a(1) as u8, a(2) as u8, shape_ids[a(3) as usize]), "TagCheckNum" => Op::TagCheckNum(a(1) as u8, a(2) as u8), "VarargN" => Op::VarargN(a(1) as u8, a(2) as u8), "PadResults" => Op::PadResults(a(1) as u8, a(2) as u8), "Scalar" => Op::Scalar(a(1) as u8, a(2) as u8, a(3) as u8, a(4) as u8), "IAnd" => Op::IAnd(a(1) as u8, a(2) as u8, a(3) as u8), "IOr" => Op::IOr(a(1) as u8, a(2) as u8, a(3) as u8), "IShl" => Op::IShl(a(1) as u8, a(2) as u8, a(3) as u8), "IShrU" => Op::IShrU(a(1) as u8, a(2) as u8, a(3) as u8), "IsRec" => Op::IsRec(a(1) as u8, a(2) as u8, shape_ids[a(3) as usize]), "VarargTable" => Op::VarargTable(a(1) as u8), "TagCheckStr" => Op::TagCheckStr(a(1) as u8, a(2) as u8),
+                    "TagCheckInt" => { let kind = a(3); if kind != 0 && kind != 1 { return Err(format!("line {ln}: invalid integer kind")); } Op::TagCheckInt(a(1) as u8, a(2) as u8, kind != 0) },
+                    "IBox" => Op::IBox(a(1) as u8, a(2) as u8),
                     "FK" => Op::FK(a(1) as u8, parts[2].parse().unwrap()), "FMov" => Op::FMov(a(1) as u8, a(2) as u8), "FUnbox" => Op::FUnbox(a(1) as u8, a(2) as u8), "FBox" => Op::FBox(a(1) as u8, a(2) as u8),
                     "FAdd" => Op::FAdd(a(1) as u8, a(2) as u8, a(3) as u8), "FSub" => Op::FSub(a(1) as u8, a(2) as u8, a(3) as u8), "FMul" => Op::FMul(a(1) as u8, a(2) as u8, a(3) as u8), "FDiv" => Op::FDiv(a(1) as u8, a(2) as u8, a(3) as u8), "FNeg" => Op::FNeg(a(1) as u8, a(2) as u8),
                     "FCmpLt" => Op::FCmpLt(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpLe" => Op::FCmpLe(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpEq" => Op::FCmpEq(a(1) as u8, a(2) as u8, a(3) as u8), "FCmpNe" => Op::FCmpNe(a(1) as u8, a(2) as u8, a(3) as u8),

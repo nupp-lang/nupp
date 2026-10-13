@@ -1,0 +1,224 @@
+{
+  "date": "2026-10-13",
+  "scope": "Exact wide values and shared math acceptance. Full product and corpus migration remain open.",
+  "numericFixture": {
+    "imageSha256": "3851bc3655b2eae37a95ba80ae31e925c2730be3ffbaff580c03870f8acaa1d3",
+    "binarySha256": "b402ed518430bc080ad4d41aa65d8d47796381210688c2f556ffedab08bea179",
+    "gc": "incremental every allocation, oracle, quarantine",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "quaternionRuns": [
+    {
+      "engine": "rust",
+      "compilation": "none",
+      "gcInterleave": true,
+      "imageSha256": "d2d7940a21a82d7d074dc7760ea535e3af49bc099ce7d7475dc7686df4414ae0",
+      "binarySha256": "b402ed518430bc080ad4d41aa65d8d47796381210688c2f556ffedab08bea179",
+      "passed": 23,
+      "failed": 0,
+      "total": 23
+    },
+    {
+      "engine": "threaded",
+      "compilation": "none",
+      "gcInterleave": true,
+      "imageSha256": "d2d7940a21a82d7d074dc7760ea535e3af49bc099ce7d7475dc7686df4414ae0",
+      "binarySha256": "b402ed518430bc080ad4d41aa65d8d47796381210688c2f556ffedab08bea179",
+      "passed": 23,
+      "failed": 0,
+      "total": 23
+    },
+    {
+      "engine": "jit",
+      "compilation": "on-demand frames",
+      "gcInterleave": true,
+      "imageSha256": "d2d7940a21a82d7d074dc7760ea535e3af49bc099ce7d7475dc7686df4414ae0",
+      "binarySha256": "b402ed518430bc080ad4d41aa65d8d47796381210688c2f556ffedab08bea179",
+      "passed": 23,
+      "failed": 0,
+      "total": 23
+    }
+  ],
+  "nativeAOT": {
+    "compiledFunctions": 120,
+    "interpretedFunctions": [
+      "quat.nlerp",
+      "quat.slerp"
+    ],
+    "reason": "Leaf compilation refuses more than eight parameters.",
+    "executableMemoryDenied": true,
+    "craneliftAbsent": true,
+    "checkpointRestorePassed": true,
+    "imageSha256": "3851bc3655b2eae37a95ba80ae31e925c2730be3ffbaff580c03870f8acaa1d3"
+  },
+  "vmCompilerFixpoint": {
+    "bytes": 7573844,
+    "sha256": "603d41ca0e23d1e806450a7e5e7376bc271848ea43085c826d879e86776dca72",
+    "stagesTwoAndThreeIdentical": true,
+    "finalRuntimeStageFourIdentical": true
+  },
+  "rustTests": {
+    "fullSuite": "passed",
+    "numericTestsPassed": 9,
+    "numericTestsFailed": 0,
+    "profile": "release"
+  },
+  "concurrencyRegression": {
+    "imageSha256": "773096ca7405472b253c32a51eed5106ad8ea2be603ab7951bef27e8f9e34151",
+    "binarySha256": "b402ed518430bc080ad4d41aa65d8d47796381210688c2f556ffedab08bea179",
+    "engine": "jit",
+    "compilation": "eager frames",
+    "gcInterleave": true,
+    "passed": 118,
+    "failed": 0
+  },
+  "hostCheck": {
+    "ok": true,
+    "errors": 0
+  },
+  "remaining": [
+    "utilstoretest cannot load nupp.runtime.provider.nativestorage.",
+    "Eager frame compilation of the larger corpus image timed out at 600 seconds before any quaternion case; stack sampling shows Cranelift register allocation. On-demand JIT passes.",
+    "Open-ended trailing call spreads still reserve eight results; fixed tuples support 127 explicit results.",
+    "Typed slot widths, complete integer-register lowering, primitive-wrapper removal, and full corpus acceptance remain open."
+  ],
+  "reproduce": [
+    "python3 native/crates/vm/tests/numeric-smoke.py SEED --output OUTPUT",
+    "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite quaterniontest --engine ENGINE --jit-compilation on-demand --gc-interleave --output OUTPUT",
+    "NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh IMAGE demo.numeric run",
+    "cargo build -p nupp-vm --release",
+    "cargo test -p nupp-vm --release -- --test-threads=1"
+  ],
+  "hostFullSuite": {
+    "command": "./bin/nupp test",
+    "exitCode": 1,
+    "total": 5284,
+    "passed": 5173,
+    "skipped": 24,
+    "notExecuted": 4,
+    "failed": 83,
+    "wallSeconds": 2890.5564,
+    "workersPerLane": 18,
+    "failureGroups": {
+      "comptimeTimeout": [
+        "browserworkerstest / providersUseTheCanonicalScopeContract",
+        "deriveprovidertest / runsThePublicComptimeForwardingRecipeEndToEnd",
+        "hotreloadtest / aPatchDoesNotDisturbTheLoadedModuleTable",
+        "optimizetest / propagatesScalarComptimeConstants",
+        "projecttest / checkSurvivesADamagedCache",
+        "projecttest / layoutTargetsSeparatePersistentComptimeResults",
+        "projecttest / ownershipContractsInvalidateIncrementalInterfaces",
+        "projecttest / persistsVersionedMaterializationProductsAndObservations",
+        "projecttest / standaloneAotLinksFromACatalogKit",
+        "projecttest / warmBuildInvalidatesOnlyReadersOfAChangedProjectType",
+        "publicclitest / runsThePublicOptionStream",
+        "soatest / comptimeReflectionPublishesSoAFieldHandles",
+        "spipackagetest / namedManifestTargetsCarryTheSelectedHostAndVm"
+      ],
+      "toolchainOutputContaminatesExpectedOutput": [
+        "buildtest / manifestBuildWritesColdAndWarmOptimizerAccounts",
+        "comptimetest / aTypeFunctionArgumentCarriesBytesNoEncodingWouldRead",
+        "deriveprovidertest / attachesADeriveThroughAnExportWrapper",
+        "deriveprovidertest / publishesAnExportedRecordAsItsWitness",
+        "runnertest / workerHostDogfoodsNuppWorkersForOrdinarySuites"
+      ],
+      "unclassified": [
+        "clitest / theVersionFlagAndTheCommandPrintOneAgreedLine",
+        "eventschecktest / aComputedTailBindsNamedArguments",
+        "preludecachetest / theNextCommandReadsWhatThisOneWrote"
+      ],
+      "unexecutedComptimeTimeout": [
+        "ioscalarstest / <unrun>",
+        "lua51compattest / <unrun>"
+      ],
+      "socketPermissionDenied": [
+        "netnativetest / aBorrowedWriterFlushesTheSameQueue",
+        "netnativetest / aClosedConnectionRefusesRatherThanCrashing",
+        "netnativetest / aConnectDeadlineStartsWhenTheConnectionDoes",
+        "netnativetest / aConnectGivesUpOnItsDeadline",
+        "netnativetest / aConnectionKnowsWhoIsAtTheOtherEnd",
+        "netnativetest / aDatagramCrossesWithItsPeer",
+        "netnativetest / aDatagramLargerThanTheStorageIsReportedTruncated",
+        "netnativetest / aHalfCloseIsTheEndInOneDirectionOnly",
+        "netnativetest / aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork",
+        "netnativetest / aLargeValueCrossesInPieces",
+        "netnativetest / aLineOfExactlyTheLimitIsAccepted",
+        "netnativetest / aLinkLocalPeerCanBeAnswered",
+        "netnativetest / aMulticastGroupCanBeJoinedAndLeft",
+        "netnativetest / aPartiallyConsumedStreamStillDeliversEverything",
+        "netnativetest / aReaderViewReadsARealConnection",
+        "netnativetest / aUnixConnectionHasNoPeerAddress",
+        "netnativetest / aUnixListenerHasNoPort",
+        "netnativetest / aUnixSocketCarriesBytesLikeATcpOne",
+        "netnativetest / aUnixSocketHalfClosesTheSameWay",
+        "netnativetest / anEmptyDatagramArrivesAsAMessage",
+        "netnativetest / anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt",
+        "netnativetest / anOverlongLineIsRefusedRatherThanBuffered",
+        "netnativetest / bytesCrossALoopbackConnection",
+        "netnativetest / closingTheWriterViewEndsOneDirection",
+        "netnativetest / connectingFallsBackToAWorkingAddress",
+        "netnativetest / connectingNowhereReportsWhy",
+        "netnativetest / datagramOptionsAreSet",
+        "netnativetest / datagramsKeepTheirBoundaries",
+        "netnativetest / flushWaitsForAcceptedBytesToLeave",
+        "netnativetest / linesComeOffAConnectionThroughTheSharedReader",
+        "netnativetest / manyConnectionsAreAcceptedInTurn",
+        "netnativetest / moreThanTheReceiveBoundStillArrivesWhole",
+        "netnativetest / optionsOnAClosedConnectionReportRatherThanCrash",
+        "netnativetest / sendingNowhereReportsWhyRatherThanRaising",
+        "netnativetest / socketOptionsAreSetOnRealConnections",
+        "rustabitest / publicHeaderLinksAndRunsAgainstTheSelectedCdylib",
+        "tlstest / aBadCertificateIsReportedRatherThanRaising",
+        "tlstest / aClientResumesAStoredSession",
+        "tlstest / aPeerCloseDuringHandshakeBecomesAFailure",
+        "tlstest / aProtocolNameIsChecked",
+        "tlstest / aRejectedTicketFallsBackToAFullHandshake",
+        "tlstest / aReleasedSessionAnswersItsQuestionsRatherThanCrashing",
+        "tlstest / aVerifiedHandshakeCarriesBytesBothWays",
+        "tlstest / alpnNegotiatesOneProtocol",
+        "tlstest / alpnSharingNothingRefusesTheHandshake",
+        "tlstest / anOmittedAuthorityUsesThePlatformTrustStore",
+        "tlstest / anUntrustedCertificateIsRefused",
+        "tlstest / closeNotifyReadsAsTheEnd",
+        "tlstest / closeReturnsWhenThePeerHasStoppedReading",
+        "tlstest / closingDuringAHandshakeIsImmediateAndTerminal",
+        "tlstest / noProtocolsMeansNoNegotiation",
+        "tlstest / readingBeforeTheHandshakeIsRefused",
+        "tlstest / resumptionCacheSeparatesProtocolsAndTrustMaterial",
+        "tlstest / verificationCanBeTurnedOffDeliberately",
+        "tlstest / verifyingWithNoNameIsAMistakeAtTheCallSite"
+      ],
+      "manuallyStoppedAfter22Minutes": [
+        "simdnativealgorithmdifferentialtest / nativebase64simd",
+        "simdnativealgorithmdifferentialtest / nativefused_json",
+        "simdnativealgorithmdifferentialtest / nativeutf8simd",
+        "simdprimitivedifferentialtest / nativeSemanticConformance",
+        "simdwasmtimeconformancetest / wasmSemanticConformance"
+      ]
+    },
+    "interpretation": "These are observations from the host runner, not VM corpus results. The three unclassified failures have not been established as regressions or as preexisting. Five legacy compilation jobs were manually stopped after more than 22 minutes without completing; those are counted as failures, not passes."
+  },
+  "hostCompilerFixpoint": {
+    "command": "./bin/nupp fixpoint",
+    "exitCode": 0,
+    "byteIdentical": true,
+    "stageZeroSha256": "3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567"
+  }
+}

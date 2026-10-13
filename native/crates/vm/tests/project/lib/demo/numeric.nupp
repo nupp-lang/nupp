@@ -1,0 +1,80 @@
+module demo.numeric
+
+local numeric = {}
+local persist = require("nupp.vm.persist")
+
+local function indirectCount(operation: function(uint64): number, value: uint64): number
+    return operation(value)
+end
+
+local function indirectExp(operation: function(float): float, value: float): float
+    return operation(value)
+end
+
+local function asUnsigned(value: any): uint64
+    return value as uint64
+end
+
+function numeric.run(): number
+    local signed32: int32 = 2147483647
+    local unsigned32: uint32 = 4294967295
+    assert(signed32 + 1 == -2147483648)
+    assert(unsigned32 + 1 == 0 and unsigned32 * unsigned32 == 1)
+    local wide: uint64 = 18446744073709551615ULL
+    local first: int64 = 9007199254740993LL
+    local second: int64 = 9007199254740995LL
+    assert(first + 2LL == second)
+    assert(wide + 1ULL == 0ULL)
+    assert(wide - 1ULL == 18446744073709551614ULL)
+    assert(first * 3LL == 27021597764222979LL)
+    assert(-7LL / 3LL == -2LL and -7LL // 3LL == -3LL)
+    assert(-7LL % 3LL == -1LL and 3LL ^ 4LL == 81LL)
+    assert((wide >> 63ULL) == 1ULL)
+    assert((-8LL >> 1LL) == 9223372036854775804LL)
+    assert((-8LL ~>> 1LL) == -4LL)
+    assert((wide ~>> 1ULL) == wide)
+    assert((0x8000000000000000ULL << 1ULL) == 0ULL)
+    assert(tostring(wide) == "18446744073709551615")
+    assert(string.format("%x", wide as any) == "ffffffffffffffff")
+    local values: {[any]: any} = {}
+    values[first] = wide
+    values[second] = first
+    assert(values[first] == wide and values[second] == first)
+    local restored = persist.load(persist.save(values))
+    assert(restored[first] == wide and restored[second] == first)
+    local dynamic: any = first
+    assert(dynamic is int64 and not (dynamic is uint64))
+    assert((dynamic as int64) == first)
+    assert(asUnsigned(wide) == wide)
+    assert(not pcall(asUnsigned, first))
+    assert(dynamic + 2LL == second and type(dynamic) == "number")
+    assert(nupp.math.u64.popcount(wide) == 64)
+    assert(indirectCount(nupp.math.u64.popcount, wide) == 64)
+    local u64 = nupp.math.u64
+    assert(indirectCount(u64.leadingZeros, 1ULL) == 63)
+    assert(u64.prefixXor(1ULL) == wide)
+    assert(u64.rotateLeft(wide - 1ULL, 1) == wide - 2ULL)
+    local high: uint64 = 0x8000000000000005ULL
+    assert(u64.rotateRight(high, 1) == 0xc000000000000002ULL)
+    for value = -10, 10 do
+        local direct = nupp.math.f32.exp(nupp.math.f32.narrow(value / 3))
+        local indirect = indirectExp(nupp.math.f32.exp, nupp.math.f32.narrow(value / 3))
+        assert(nupp.math.f32.toBits(direct) == nupp.math.f32.toBits(indirect))
+    end
+    assert(nupp.math.f32.fromF16Bits(nupp.math.f32.toF16Bits(1.5)) == 1.5)
+    assert(nupp.math.f32.fromBF16Bits(nupp.math.f32.toBF16Bits(1.5)) == 1.5)
+    local nupp = {
+        math = {
+            u64 = {
+                popcount = function(_: uint64): number
+                    return 17
+                end
+            }
+        }
+    }
+    assert(nupp.math.u64.popcount(wide) == 17)
+
+    return 42
+end
+
+export = numeric

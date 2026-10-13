@@ -12,6 +12,7 @@ the image loader and verifier, and the host services on the parking surface.
 | module | what it owns |
 | --- | --- |
 | `value` | the NaN-boxed word: tags for nil, false, true, function handle (image id and index), object |
+| `numeric` | exact signed and unsigned 64-bit values, boxing, arithmetic, comparison and kind checks |
 | `heap` | the fixed 32-byte header, inline payloads, size-classed chunks, large objects, the incremental tri-colour collector with stress, interleaved, quarantine and oracle modes, shapes, the weak intern table |
 | `interp` | tasks, frames inline on one stack of words, the opcode set and dispatch loop, calls and returns, varargs in the frame, host calls that park |
 | `builtins` | the library the compiler's modules use (strings with Lua patterns, tables, math, iteration, errors) |
@@ -1191,9 +1192,60 @@ calls expand inside table constructors, protected calls forward trailing
 varargs, and `return ...` forwards the result pack. Both interpreters and the
 compiled path compare NaN and signed zero numerically. Table maximum-index
 queries and `__tostring` support preserve the existing test and failure formats.
-The VM's existing eight-value result-window limit still applies.
+Open-ended trailing call spreads still use an eight-value window.
 
 The task smoke test also checks worker failures and deadlines, channels,
 coroutines, generators, affine cleanup, and cancellation before a captured
 closure starts. Full CLI migration, remaining host services, and the broader
 corpus gate remain open.
+
+## Exact integers and shared math (2026-10-13)
+
+The VM preserves signed and unsigned 64-bit integers across dynamic values,
+table keys, collection, workers, binary graphs, and checkpoints. Public
+`nupp.math` operations and function aliases use the shared math implementation.
+
+```sh
+python3 native/crates/vm/tests/numeric-smoke.py compiler.image --output /tmp/vm-numeric
+NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh \
+  /tmp/vm-numeric/numeric.image demo.numeric run
+cargo build -p nupp-vm --release
+python3 native/crates/vm/tests/corpus-smoke.py compiler.image \
+  --suite quaterniontest --engine jit --jit-compilation on-demand \
+  --gc-interleave --output /tmp/vm-quaternion
+```
+
+An integer a double represents exactly remains immediate. Other values use a
+weakly interned box carrying the complete bits and signedness. `IBox` preserves
+signed integer registers; wide constants and operations preserve unsigned
+values. Casts check the boxed kind, and numeric comparisons and table keys use
+the exact magnitude. Explicit conversion to `number` through `tonumber` can
+round. The collector drops unused boxes, and persistence preserves live ones.
+
+The lowerer consumes the checker's resolved numeric types, fixed-width
+arithmetic annotations, type-test targets, and namespace identities. Ordinary
+`int32` and `uint32` arithmetic wraps. Direct and indirect calls agree for
+64-bit bit operations, deterministic `f32.exp`, and half-precision conversions;
+local bindings named `nupp` retain their own meaning. The shared math module
+supplies the remaining library operations, including quaternion functions.
+
+All 23 unchanged quaternion cases pass on both interpreters and on-demand JIT
+with incremental collection, the root oracle, and quarantine. Its nine-value
+basis result exposed truncation: fixed tuples now retain up to 127 explicit
+results, including protected calls. Tests cover larger builtin result packs,
+parked tuples, and checkpoint restore. Open-ended trailing call spreads still
+reserve eight result slots, and leaf compilation still refuses functions with
+more than eight parameters.
+
+The numeric fixture passes both interpreters, leaf JIT, compiled frames, and
+host-native AOT with executable memory denied. AOT checkpoint restore also
+passes. The VM compiler reaches byte identity at 7,573,844 bytes.
+`tests/numeric-coverage.json` records the acceptance evidence and limitations.
+
+Eager frame compilation of the larger corpus image exceeded 600 seconds before
+any test ran. A stack sample located the work in Cranelift register allocation;
+the default on-demand JIT completes the quaternion suite. This startup limit
+remains open. `utilstoretest` still requires
+`nupp.runtime.provider.nativestorage`. Typed slot widths, complete integer
+register lowering, primitive-wrapper removal, and the full corpus gate also
+remain open. The historical coverage inventory above predates this math port.

@@ -6,6 +6,7 @@
 //! and the liveness pass), `image` (the loader) and `host` (the parking
 //! surface).
 pub mod value;
+pub mod numeric;
 pub mod heap;
 pub mod interp;
 pub mod builtins;

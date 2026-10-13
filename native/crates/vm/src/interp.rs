@@ -140,6 +140,7 @@ pub enum Op {
     PCall(u8, u8),
     TagCheckRec(u8, u8, u32),
     TagCheckNum(u8, u8),
+    TagCheckInt(u8, u8, bool),
     TagCheckStr(u8, u8),
     /// Whether a value is a record of the shape: `x is R`, a boolean.
     IsRec(u8, u8, u32),
@@ -161,6 +162,7 @@ pub enum Op {
     /// Capture i of the running closure.
     GetUpval(u8, u8),
     FBox(u8, u8),
+    IBox(u8, u8),
     GetSlotF(u8, u8, u16, u32),
     SetSlotF(u8, u16, u8, u32),
     FDiv(u8, u8, u8),
@@ -318,6 +320,8 @@ impl Function {
     #[inline] pub(crate) fn off_v(&self) -> usize { self.off_f() + self.nfreg as usize }
 }
 
+pub const MAX_RESULTS: usize = 128;
+
 pub struct Interp {
     pub(crate) clock: crate::clock::Clock,
     pub(crate) channel_registry: crate::channels::Shared,
@@ -417,13 +421,13 @@ pub struct Interp {
     pub calltab: Vec<u64>,
     /// Per shape, the slot table's address and mask, for compiled field reads.
     pub shape_probe: Vec<(u64, u64)>,
-    pub extra: [Value; 8],
+    pub extra: [Value; MAX_RESULTS],
     pub extra_n: usize,
     /// The value of a raise that is propagating as `Value::ERROR` returns.
     pub pending_error: Option<Value>,
 }
 
-struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; 8], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String> }
+struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String> }
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
@@ -452,7 +456,7 @@ impl Roots for TaskRoots<'_> {
         for &v in self.handles { f(v); }
         for &v in self.resources.keys() { f(v); }
         for &v in self.registered { f(v); }
-        for &v in &self.extra[..self.extra_n.min(8)] { f(v); }
+        for &v in &self.extra[..self.extra_n.min(MAX_RESULTS)] { f(v); }
         if let Some(e) = self.pending { f(e); }
         #[cfg(feature = "compiled-runtime")]
         {
@@ -485,8 +489,9 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; 8], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
+    pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
     pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
@@ -537,11 +542,12 @@ impl Interp {
     /// Resumes a task parked on a host request with the completion's values
     /// in the registers the call named.
     pub fn resume_with(&mut self, tid: usize, outs: &[Value]) {
+        self.note_results(outs);
         let t = &mut self.tasks[tid];
         let at = t.cur + HDR + t.deliver_at;
         if outs.is_empty() { t.stack[at] = Value::NIL.0; }
         for (i, v) in outs.iter().take(8).enumerate() { t.stack[at + i] = v.0; }
-        self.last_nres = outs.len().min(8);
+        self.last_nres = outs.len().min(MAX_RESULTS);
         t.state = State::Runnable;
         let frame = t.cur;
         if t.protected.last().is_some_and(|h| h.frame == frame && h.caller == frame) {
@@ -652,6 +658,7 @@ impl Interp {
     #[inline]
     fn pop_frame(&mut self, tid: usize, v: Value) -> bool {
         self.unwind_frame(tid);
+        self.extra_n = 0;
         let t = &mut self.tasks[tid];
         let s = t.cur;
         let h1 = t.stack[s + 1];
@@ -676,19 +683,29 @@ impl Interp {
         let vals: Vec<Value> = (0..n).map(|i| Value(t.stack[from + i])).collect();
         if caller == NONE { t.state = State::Done; t.result = vals.first().copied().unwrap_or(Value::NIL); t.results = vals; return true; }
         let ret = (h1 >> 32) as usize;
+        let extra = vals.len().saturating_sub(1).min(MAX_RESULTS - 1);
+        if extra > 0 { self.extra[..extra].copy_from_slice(&vals[1..1 + extra]); }
+        self.extra_n = if vals.len() > 8 { extra } else { 0 };
         for (i, v) in vals.iter().take(8).enumerate() { t.stack[ret + i] = v.0; }
         if n == 0 { t.stack[ret] = Value::NIL.0; }
         t.cur = caller as usize;
-        self.last_nres = n.min(8);
+        self.last_nres = n.min(MAX_RESULTS);
         self.finish_protected(tid, s);
         false
     }
     fn finish_protected(&mut self, tid: usize, frame: usize) {
         if self.tasks[tid].protected.last().is_some_and(|h| h.frame == frame) {
             let handler = self.tasks[tid].protected.pop().unwrap();
+            let first = Value(self.tasks[tid].stack[handler.result + 1]);
+            self.protected_results(first);
             self.tasks[tid].stack[handler.result] = Value::TRUE.0;
-            self.last_nres = (self.last_nres + 1).min(8);
         }
+    }
+    fn protected_results(&mut self, first: Value) {
+        let n = self.last_nres.min(MAX_RESULTS - 1);
+        if n > 0 { self.extra.copy_within(0..n - 1, 1); self.extra[0] = first; }
+        self.extra_n = if n >= 8 { n } else { 0 };
+        self.last_nres = n + 1;
     }
     /// Writes call results into the window from `at`, nil when there are none.
     #[inline]
@@ -696,8 +713,16 @@ impl Interp {
     /// results already sit after the fixed arguments, so the count is plain
     /// arithmetic (at most the eight the frame's slack holds).
     pub fn spread_count(&self, nargs: u8) -> u8 { if nargs & 64 != 0 && nargs < 128 { (nargs & 63) + self.last_nres.min(8) as u8 } else { nargs } }
+    pub(crate) fn note_results(&mut self, outs: &[Value]) {
+        self.last_nres = outs.len().min(MAX_RESULTS);
+        let extra = outs.len().saturating_sub(1).min(MAX_RESULTS - 1);
+        if extra > 0 { self.extra[..extra].copy_from_slice(&outs[1..1 + extra]); }
+        // The ordinary window roots its first eight results. Only the tail
+        // needs temporary roots until PadResults copies it into that window.
+        self.extra_n = if outs.len() > 8 { extra } else { 0 };
+    }
     fn deliver(&mut self, regs: *mut Value, at: usize, outs: &[Value]) {
-        self.last_nres = outs.len().min(8);
+        self.note_results(outs);
         unsafe { if outs.is_empty() { *regs.add(at) = Value::NIL; } for (i, v) in outs.iter().take(8).enumerate() { *regs.add(at + i) = *v; } }
     }
 
@@ -737,7 +762,7 @@ impl Interp {
         // A raise inside came back as the sentinel: it continues as a panic
         // here, where Rust frames can carry it to the catch point.
         if Value(r) == Value::ERROR { let v = self.pending_error.take().unwrap_or(Value::NIL); std::panic::panic_any(crate::builtins::LuaError(v.0)); }
-        let n = unsafe { std::ptr::read_volatile(&self.extra_n) }.min(7);
+        let n = unsafe { std::ptr::read_volatile(&self.extra_n) }.min(MAX_RESULTS - 1);
         let mut outs = crate::builtins::Outs::new();
         outs.push(Value(r));
         for i in 0..n { outs.push(unsafe { std::ptr::read_volatile(&self.extra[i]) }); }
@@ -917,7 +942,7 @@ impl Interp {
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn"]);
-        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp"]);
+        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
         let io = table_of(self, &["io.write", "io.open", "io.read"]);
@@ -1039,7 +1064,7 @@ impl Interp {
     pub fn kind_of(&self, v: Value) -> Option<u8> { v.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }) }
     /// Equality: identical words, or two string-like objects with the same bytes.
     pub fn values_equal(&self, x: Value, y: Value) -> bool {
-        if x.is_num() && y.is_num() { return x.as_num() == y.as_num(); }
+        if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { return crate::numeric::compare(x, y) == Some(std::cmp::Ordering::Equal); }
         if x == y { return true; }
         if let (Some(p), Some(q)) = (x.as_obj(), y.as_obj()) {
             let (a, b) = unsafe { (&*p.as_ptr(), &*q.as_ptr()) };
@@ -1053,6 +1078,10 @@ impl Interp {
     /// as the interned string with those bytes, or none, in which case the
     /// key is absent.
     fn key_of(&mut self, key: Value) -> Option<Value> {
+        if key.is_num() && key.as_num() == 0.0 { return Some(Value::num(0.0)); }
+        if let Some(i) = crate::numeric::integer(key) {
+            if i.unsigned && i.bits <= i64::MAX as u64 { return self.heap.integer_lookup(crate::numeric::Integer { bits: i.bits, unsigned: false }); }
+        }
         if let Some(h) = key.as_obj().map(|p| unsafe { &*p.as_ptr() }) {
             if h.kind == KIND_SLICE || (h.kind == KIND_STR && h.flags & heap::F_INTERNED == 0) { return self.heap.intern_lookup_bytes(h.bytes()); }
         }
@@ -1060,10 +1089,19 @@ impl Interp {
     }
     /// The key as stored: interned when it is a slice or an uninterned string.
     pub fn key_for_store(&mut self, key: Value) -> Value {
+        if let Some(i) = crate::numeric::integer(key) {
+            if i.unsigned && i.bits <= i64::MAX as u64 { return self.box_integer(crate::numeric::Integer { bits: i.bits, unsigned: false }); }
+        }
         match self.key_of(key) { Some(k) => k, None => { let s = self.bytes_of(key).to_vec(); self.intern_bytes(&s) } }
     }
 
     pub fn get_index(&self, tv: Value, key: Value) -> Value {
+        let key = if key.is_num() && key.as_num() == 0.0 { Value::num(0.0) }
+        else if let Some(i) = crate::numeric::integer(key) {
+            if i.unsigned && i.bits <= i64::MAX as u64 {
+                match self.heap.integer_key(i.bits) { Some(k) => k, None => return Value::NIL }
+            } else { key }
+        } else { key };
         let h = hdr!(self, tv, "index of a non-table");
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { let i = match h.kind { KIND_TABLE => if key.is_num() { 0 } else { 1 }, KIND_RECORD => if key.is_num() { 2 } else { 3 }, _ => 4 }; TABLE_COUNTS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if h.kind == KIND_TABLE && !key.is_num() { let n = h.table_ref().hash.len(); let b = if n == 0 { 5 } else if n <= 4 { 6 } else if n <= 16 { 7 } else if n <= 64 { 8 } else { 9 }; TABLE_COUNTS[b].fetch_add(1, std::sync::atomic::Ordering::Relaxed); } }
         match h.kind {
@@ -1076,7 +1114,8 @@ impl Interp {
     pub fn get_index_any(&mut self, t: Value, k: Value) -> Value { match self.key_of(k) { Some(k) => self.get_index(t, k), None => Value::NIL } }
     pub fn set_index(&mut self, tv: Value, iv: Value, v: Value) {
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { TABLE_COUNTS[if iv.is_num() { 10 } else { 11 }].fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
-        let iv = self.key_for_store(iv);
+        let scope = self.open_scope(); self.handles.extend_from_slice(&[tv, iv, v]);
+        let iv = self.key_for_store(iv); self.close_scope(scope);
         let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
         self.heap.barrier(p, iv);
         self.heap.barrier(p, v);
@@ -1200,13 +1239,10 @@ impl Interp {
     }
     pub fn concat(&mut self, x: Value, y: Value) -> Value {
         let mut joined: Vec<u8> = Vec::new();
-        for v in [x, y] { if v.is_num() { joined.extend_from_slice(crate::builtins::num_text(v.as_num()).as_bytes()); } else if self.is_stringish(v) { joined.extend_from_slice(self.bytes_of(v)); } else { self.err("concatenate a non-string") } }
+        for v in [x, y] { if let Some(i) = crate::numeric::integer(v) { joined.extend_from_slice(i.magnitude().to_string().as_bytes()); } else if v.is_num() { joined.extend_from_slice(crate::builtins::num_text(v.as_num()).as_bytes()); } else if self.is_stringish(v) { joined.extend_from_slice(self.bytes_of(v)); } else { self.err("concatenate a non-string") } }
         self.string_of(&joined)
     }
 
-    fn arith(&self, a: Value, b: Value, op: fn(f64, f64) -> f64) -> Value {
-        if a.is_num() && b.is_num() { Value::num(op(a.as_num(), b.as_num())) } else { self.err("arithmetic on a non-number") }
-    }
     fn slot_type_ok(&self, ty: SlotTy, v: Value) -> bool {
         match ty {
             SlotTy::Any => true,
@@ -1353,22 +1389,22 @@ impl Interp {
                     Op::K(d, k) => r!(d) = unsafe { *consts.add(k as usize) },
                     Op::Move(d, s) => r!(d) = r!(s),
                     Op::Nil(d) => r!(d) = Value::NIL,
-                    Op::Add(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::num(x.as_num() + y.as_num()) } else { self.arith(x, y, |p, q| p + q) } }
-                    Op::Sub(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::num(x.as_num() - y.as_num()) } else { self.arith(x, y, |p, q| p - q) } }
-                    Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = self.arith(x, y, |p, q| p * q) }
-                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() < y.as_num()) } else { Value::boolean(self.bytes_of(x) < self.bytes_of(y)) } }
-                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if x.is_num() && y.is_num() { Value::boolean(x.as_num() <= y.as_num()) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) } }
-                    Op::Pow(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("power of a non-number") } r!(d) = Value::num(x.as_num().powf(y.as_num())) }
-                    Op::IDiv(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("floor division of a non-number") } r!(d) = Value::num((x.as_num() / y.as_num()).floor()) }
+                    Op::Add(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "add", None); }
+                    Op::Sub(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "sub", None); }
+                    Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mul", None); }
+                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "lt", None) } else { Value::boolean(self.bytes_of(x) < self.bytes_of(y)) }; }
+                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "le", None) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) }; }
+                    Op::Pow(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "pow", None); }
+                    Op::IDiv(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "idiv", None); }
                     Op::IXor(d, a, b) => ir!(d) = ir!(a) ^ ir!(b),
                     Op::INot(d, a) => ir!(d) = !ir!(a),
-                    Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("modulo of a non-number") } let (p, q) = (x.as_num(), y.as_num()); r!(d) = Value::num(p - (p / q).floor() * q) }
-                    Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); if !(x.is_num() && y.is_num()) { self.err("divide a non-number") } r!(d) = Value::num(x.as_num() / y.as_num()) }
+                    Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mod", None); }
+                    Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "div", None); }
                     Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
                     Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.values_equal(x, y)) }
                     Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.values_equal(x, y)) }
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
-                    Op::Neg(d, a) => { let x = r!(a); if !x.is_num() { self.err("negate a non-number") } r!(d) = Value::num(-x.as_num()) }
+                    Op::Neg(d, a) => { let x = r!(a); r!(d) = if let Some(i) = crate::numeric::integer(x) { self.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { Value::num(-crate::numeric::double(self, x)) }; }
                     Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
                     Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
@@ -1406,7 +1442,7 @@ impl Interp {
                                     }
                                     return Step::Return(o);
                                 }
-                                Ok(Flow::Next) => { r!(b) = Value::TRUE; self.last_nres = (self.last_nres + 1).min(8); }
+                                Ok(Flow::Next) => { self.protected_results(r!(b + 1)); r!(b) = Value::TRUE; }
                                 Err(e) => { let value = self.error_value(e); self.deliver(regs, b as usize, &[Value::FALSE, value]); }
                             }
                         } else { self.op_pcall(&win, b, nargs); }
@@ -1426,25 +1462,27 @@ impl Interp {
                     Op::Len(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; r!(d) = Value::num(n as f64) }
                     Op::LenF(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; fr!(d) = n as f64; }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
+                    Op::TagCheckInt(d, a, unsigned) => { r!(d) = crate::numeric::check_kind(self, r!(a), unsigned); }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !self.is_stringish(v) { self.err("value is not a string") } r!(d) = v; }
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
                     Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
                     Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !x.is_num() || !y.is_num() { self.err("scalar intrinsic on a non-number") } r!(d) = Value::num(crate::builtins::scalar_op(k, x.as_num(), y.as_num())); }
-                    Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in got..n as usize { r!(base as usize + i) = Value::NIL; } }
+                    Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in 8..got { r!(base as usize + i) = self.extra[i - 1]; } for i in got..n as usize { r!(base as usize + i) = Value::NIL; } self.extra_n = 0; }
                     Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
                     Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }
                     Op::GetCell(d, c) => { let cv = r!(c); let h = hdr!(self, cv, &format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c)); if h.kind != KIND_CELL { self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } r!(d) = h.slots()[0]; }
                     Op::SetCell(c, a) => { let v = r!(a); let cv = r!(c); self.set_cell(cv, v); }
                     Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let h = hdr!(self, clo, "upvalue outside a closure"); if h.kind != KIND_CLOSURE { self.err("not a closure") } r!(d) = h.slots()[i as usize]; }
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
+                    Op::IBox(d, a) => r!(d) = self.box_integer(crate::numeric::Integer { bits: ir!(a) as u64, unsigned: false }),
                     Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
                     Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.index(tv, Value::num(k)); }
                     Op::SetIdxF(t, i, sv) => { let (tv, k, v) = (r!(t), fr!(i), r!(sv)); self.set_index(tv, Value::num(k), v); }
-                    Op::GetIdxI(d, t, i) => { let key = Value::num(ir!(i) as f64); let tv = r!(t); r!(d) = self.index(tv, key); }
-                    Op::SetIdxI(t, i, s) => { let key = Value::num(ir!(i) as f64); let (tv, v) = (r!(t), r!(s)); if self.metatable_of(tv) != Value::NIL { self.newindex(tv, key, v); } else { self.set_index(tv, key, v); } }
+                    Op::GetIdxI(d, t, i) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let tv = r!(t); r!(d) = self.index(tv, key); }
+                    Op::SetIdxI(t, i, s) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let (tv, v) = (r!(t), r!(s)); if self.metatable_of(tv) != Value::NIL { self.newindex(tv, key, v); } else { self.set_index(tv, key, v); } }
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
@@ -1476,7 +1514,7 @@ impl Interp {
                     Op::FCmpLt(d, a, b) => ir!(d) = (fr!(a) < fr!(b)) as i64,
                     Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
                     Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::IUnbox(d, v) => ir!(d) = r!(v).as_num() as i64,
+                    Op::IUnbox(d, v) => ir!(d) = crate::numeric::bits(self, r!(v), false) as i64,
                     Op::ICmpSLt(d, a, b) => ir!(d) = (ir!(a) < ir!(b)) as i64,
                     Op::ICmpSLe(d, a, b) => ir!(d) = (ir!(a) <= ir!(b)) as i64,
                     Op::IShl(d, a, b) => ir!(d) = ir!(a).wrapping_shl(ir!(b) as u32),
@@ -1517,7 +1555,7 @@ impl Interp {
                     Op::FMov(d, a) => fr!(d) = fr!(a),
                     Op::VMov(d, a) => vr!(d) = vr!(a),
                     Op::GuardLenLe(a, b) => if (ir!(a) as u64) > (ir!(b) as u64) { self.err("native spans have incompatible lengths") },
-                    Op::FUnbox(d, rg) => { let v = r!(rg); if !v.is_num() { self.err("not a number") } fr!(d) = v.as_num(); }
+                    Op::FUnbox(d, rg) => { let v = r!(rg); fr!(d) = crate::numeric::double(self, v); }
                     Op::FAdd(d, a, b) => fr!(d) = fr!(a) + fr!(b),
                     Op::FFma(d, a, b, c) => fr!(d) = fr!(a).mul_add(fr!(b), fr!(c)),
                     Op::StorageLen(d, s) => { let n = self.storage(r!(s)).len() as i64; ir!(d) = n; }
@@ -1797,6 +1835,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::PCall(..) => "PCall",
         Op::TagCheckRec(..) => "TagCheckRec",
         Op::TagCheckNum(..) => "TagCheckNum",
+        Op::TagCheckInt(..) => "TagCheckInt",
         Op::TagCheckStr(..) => "TagCheckStr",
         Op::IsRec(..) => "IsRec",
         Op::PadResults(..) => "PadResults",
@@ -1809,6 +1848,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::SetCell(..) => "SetCell",
         Op::GetUpval(..) => "GetUpval",
         Op::FBox(..) => "FBox",
+        Op::IBox(..) => "IBox",
         Op::GetSlotF(..) => "GetSlotF",
         Op::SetSlotF(..) => "SetSlotF",
         Op::FDiv(..) => "FDiv",

@@ -1,0 +1,8 @@
+module nupp.vm.math
+
+local namespace = {}
+require("nupp.compiler.runtime.math").install(namespace)
+local globals: any = _G
+globals.nupp.math = namespace
+
+export = namespace

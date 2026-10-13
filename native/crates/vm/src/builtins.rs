@@ -25,6 +25,8 @@ pub const NAMES: &[&str] = &[
     "files.remove", "vm.cacheDigest", "vm.cDeclarations",
     "vm.clockNow", "vm.clockWall", "vm.clockSleep",
     "table.maxn", "vm.tableAppendResults", "tasks.pollWorkers", "tasks.workerOpen",
+    "wide.i64.cast", "wide.i64.not", "wide.i64.neg", "wide.i64.add", "wide.i64.sub", "wide.i64.mul", "wide.i64.div", "wide.i64.idiv", "wide.i64.mod", "wide.i64.pow", "wide.i64.and", "wide.i64.or", "wide.i64.xor", "wide.i64.shl", "wide.i64.shr", "wide.i64.eq", "wide.i64.ne", "wide.i64.lt", "wide.i64.le", "wide.u64.cast", "wide.u64.not", "wide.u64.neg", "wide.u64.add", "wide.u64.sub", "wide.u64.mul", "wide.u64.div", "wide.u64.idiv", "wide.u64.mod", "wide.u64.pow", "wide.u64.and", "wide.u64.or", "wide.u64.xor", "wide.u64.shl", "wide.u64.shr", "wide.u64.eq", "wide.u64.ne", "wide.u64.lt", "wide.u64.le", "scalar.u64.andBits", "scalar.u64.sub", "scalar.u64.rotateLeft", "scalar.u64.rotateRight", "scalar.u64.popcount", "scalar.u64.leadingZeros", "scalar.u64.trailingZeros", "scalar.u64.prefixXor", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp",
+    "wide.i64.sar", "wide.u64.sar", "wide.i64.is", "wide.u64.is",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -138,22 +140,25 @@ pub fn id_of(name: &str) -> Option<u32> { NAMES.iter().position(|n| *n == name).
 /// An error raised by `error`: the value travels as the panic payload.
 pub struct LuaError(pub u64);
 
-/// Up to eight results, on the stack: a builtin call allocates nothing for
-/// its answer. More than eight are dropped, which this prototype accepts.
-#[derive(Clone, Copy)]
-pub struct Outs { n: u8, v: [Value; 8] }
+/// Common result packs stay inline; larger tuples retain every value.
+#[derive(Clone)]
+pub struct Outs { n: usize, v: [Value; 8], wide: Vec<Value> }
 impl Outs {
-    pub fn new() -> Outs { Outs { n: 0, v: [Value::NIL; 8] } }
-    pub fn push(&mut self, x: Value) { if (self.n as usize) < 8 { self.v[self.n as usize] = x; self.n += 1; } }
-    pub fn len(&self) -> usize { self.n as usize }
+    pub fn new() -> Outs { Outs { n: 0, v: [Value::NIL; 8], wide: Vec::new() } }
+    pub fn push(&mut self, x: Value) {
+        if self.n < 8 { self.v[self.n] = x; }
+        else { if self.n == 8 { self.wide.extend_from_slice(&self.v); } self.wide.push(x); }
+        self.n += 1;
+    }
+    pub fn len(&self) -> usize { self.n }
     pub fn is_empty(&self) -> bool { self.n == 0 }
-    pub fn first(&self) -> Option<&Value> { if self.n > 0 { Some(&self.v[0]) } else { None } }
-    pub fn iter(&self) -> std::slice::Iter<'_, Value> { self.v[..self.n as usize].iter() }
-    pub fn as_slice(&self) -> &[Value] { &self.v[..self.n as usize] }
+    pub fn first(&self) -> Option<&Value> { self.as_slice().first() }
+    pub fn iter(&self) -> std::slice::Iter<'_, Value> { self.as_slice().iter() }
+    pub fn as_slice(&self) -> &[Value] { if self.n > 8 { &self.wide } else { &self.v[..self.n] } }
     pub fn to_vec(&self) -> Vec<Value> { self.as_slice().to_vec() }
 }
 impl std::iter::FromIterator<Value> for Outs { fn from_iter<I: IntoIterator<Item = Value>>(it: I) -> Outs { let mut o = Outs::new(); for x in it { o.push(x); } o } }
-impl std::ops::Index<usize> for Outs { type Output = Value; fn index(&self, i: usize) -> &Value { &self.v[i] } }
+impl std::ops::Index<usize> for Outs { type Output = Value; fn index(&self, i: usize) -> &Value { &self.as_slice()[i] } }
 macro_rules! outs { ($($x:expr),* $(,)?) => {{ let mut o = Outs::new(); $( o.push($x); )* o }} }
 
 
@@ -280,8 +285,21 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         let r = match op {
             "narrow" | "round" => (a as f32) as f64,
             "add" => ((a as f32) + (bb as f32)) as f64, "sub" => ((a as f32) - (bb as f32)) as f64, "mul" => ((a as f32) * (bb as f32)) as f64, "div" => ((a as f32) / (bb as f32)) as f64,
-            "sqrt" => (a as f32).sqrt() as f64, "min" => (a as f32).min(bb as f32) as f64, "max" => (a as f32).max(bb as f32) as f64,
-            "fma" => (a as f32).mul_add(bb as f32, arg(args, 2).as_num() as f32) as f64, "exp" => (a as f32).exp() as f64,
+            "sqrt" => (a as f32).sqrt() as f64, "min" | "max" => {
+                let (a, b) = (a as f32, bb as f32);
+                if a.is_nan() || b.is_nan() { f64::NAN }
+                else if a == 0.0 && b == 0.0 { let negative = if op == "min" { a.is_sign_negative() || b.is_sign_negative() } else { a.is_sign_negative() && b.is_sign_negative() }; if negative { -0.0 } else { 0.0 } }
+                else if op == "min" { a.min(b) as f64 } else { a.max(b) as f64 }
+            },
+            "fma" => (a as f32).mul_add(bb as f32, arg(args, 2).as_num() as f32) as f64, "exp" => {
+                let x = a as f32;
+                if x.is_nan() { f64::NAN } else {
+                    let y = x.clamp(-104.0, 88.0) * 0.0078125f32;
+                    let mut out = 0.0000000020876757f32;
+                    for c in [0.000000025052108f32, 0.00000027557319, 0.0000027557319, 0.000024801587, 0.0001984127, 0.0013888889, 0.0083333333, 0.041666667, 0.16666667, 0.5, 1.0, 1.0] { out = out.mul_add(y, c); }
+                    for _ in 0..7 { out *= out; } out as f64
+                }
+            },
             "fromBits" => f32::from_bits(u32_of(a)) as f64, "toBits" => (a as f32).to_bits() as f64,
             _ => it.err(&format!("scalar intrinsic f32.{op} is not in this runtime")),
         };
@@ -305,11 +323,13 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
 
 
 fn bytes_of(it: &Interp, v: Value) -> Vec<u8> {
+    if let Some(i) = crate::numeric::integer(v) { return i.magnitude().to_string().into_bytes(); }
     if v.is_num() { return num_text(v.as_num()).into_bytes(); }
     it.bytes_of(v).to_vec()
 }
 /// The bytes of a string value without a copy; a number is formatted.
 fn bytes_ref<'a>(it: &'a Interp, v: Value, scratch: &'a mut Vec<u8>) -> &'a [u8] {
+    if let Some(i) = crate::numeric::integer(v) { *scratch = i.magnitude().to_string().into_bytes(); return scratch; }
     if v.is_num() { *scratch = num_text(v.as_num()).into_bytes(); return scratch; }
     it.bytes_of(v)
 }
@@ -334,7 +354,7 @@ fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value
 fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if v.is_num() { v.as_num() as i64 } else { default } }
 fn type_name(it: &Interp, v: Value) -> &'static str {
     if crate::coroutines::is_coroutine(it,v) {return "thread";}
-    if v.is_num() { return "number"; }
+    if crate::numeric::is_numeric(v) { return "number"; }
     if v == Value::NIL { return "nil"; }
     if v == Value::TRUE || v == Value::FALSE { return "boolean"; }
     if v.as_func().is_some() || v.as_builtin().is_some() { return "function"; }
@@ -343,6 +363,7 @@ fn type_name(it: &Interp, v: Value) -> &'static str {
 
 /// Lua's `tostring`.
 pub fn tostring(it: &mut Interp, v: Value) -> String {
+    if let Some(i) = crate::numeric::integer(v) { return i.magnitude().to_string(); }
     if v.is_num() { return num_text(v.as_num()); }
     if v == Value::NIL { return "nil".into(); }
     if v == Value::TRUE { return "true".into(); }
@@ -440,6 +461,21 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         return outs![Value::func(entry)];
     }
     if let Some(name) = NAMES.get(id as usize) {
+        if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
+        if let Some(op) = name.strip_prefix("scalar.u64.") {
+            let op = match op { "andBits" => "and", "rotateLeft" => "rol", "rotateRight" => "ror", other => other };
+            return outs![crate::numeric::wide_call(it, &format!("u64.{op}"), args)];
+        }
+        if matches!(*name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp") {
+            let a = crate::numeric::double(it, arg(args, 0));
+            let v = match *name {
+                "math.sin" => a.sin(), "math.cos" => a.cos(), "math.tan" => a.tan(),
+                "math.asin" => a.asin(), "math.acos" => a.acos(), "math.atan" => a.atan(),
+                "math.atan2" => a.atan2(crate::numeric::double(it, arg(args, 1))), "math.exp" => a.exp(),
+                _ => crate::numeric::scale_power_of_two(a, crate::numeric::double(it, arg(args, 1)) as i32),
+            };
+            return outs![Value::num(v)];
+        }
         if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
         if name.starts_with("terminal.") { return terminal(name, args); }
         if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
@@ -546,11 +582,12 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 let (width, zero, left, prec) = parse_spec(&spec);
                 let body: Vec<u8> = match conv {
                     b's' => { let t = tostring(it, v).into_bytes(); match prec { Some(p) => t[..t.len().min(p)].to_vec(), None => t } }
-                    b'd' | b'i' => format!("{}", v.as_num() as i64).into_bytes(),
-                    b'x' => format!("{:x}", v.as_num() as i64).into_bytes(),
-                    b'X' => format!("{:X}", v.as_num() as i64).into_bytes(),
-                    b'f' => format!("{:.*}", prec.unwrap_or(6), v.as_num()).into_bytes(),
-                    b'g' => general_number(v.as_num(), prec.unwrap_or(6)).into_bytes(),
+                    b'd' | b'i' => crate::numeric::integer(v).map(|i| i.magnitude().to_string()).unwrap_or_else(|| format!("{}", v.as_num() as i64)).into_bytes(),
+                    b'u' => format!("{}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as u64)).into_bytes(),
+                    b'x' => format!("{:x}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
+                    b'X' => format!("{:X}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
+                    b'f' => format!("{:.*}", prec.unwrap_or(6), crate::numeric::double(it, v)).into_bytes(),
+                    b'g' => general_number(crate::numeric::double(it, v), prec.unwrap_or(6)).into_bytes(),
                     b'q' => { let t = bytes_of(it, v); let mut q = vec![b'"']; for &c in &t { match c { b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\n"), b'\r' => q.extend_from_slice(b"\\r"), 0 => q.extend_from_slice(b"\\0"), c if c < 32 || c == 127 => q.extend_from_slice(format!("\\{}", c).as_bytes()), c => q.push(c) } } q.push(b'"'); q }
                     b'c' => vec![v.as_num() as u8],
                     other => panic!("runtime error: string.format conversion %{}", other as char),
@@ -565,7 +602,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let t = arg(args, 0); let sep = if args.len() > 1 && arg(args, 1) != Value::NIL { bytes_of(it, arg(args, 1)) } else { Vec::new() };
             let n = it.array_len(t) as i64; let i = int(args, 2, 1); let j = int(args, 3, n);
             let mut out = Vec::new();
-            for k in i..=j { if k > i { out.extend_from_slice(&sep); } let v = it.get_index(t, Value::num(k as f64)); if !(v.is_num() || type_name(it, v) == "string") { panic!("runtime error: invalid value (at index {k}) in table for 'concat'"); } out.extend_from_slice(&bytes_of(it, v)); }
+            for k in i..=j { if k > i { out.extend_from_slice(&sep); } let v = it.get_index(t, Value::num(k as f64)); if !(crate::numeric::is_numeric(v) || type_name(it, v) == "string") { panic!("runtime error: invalid value (at index {k}) in table for 'concat'"); } out.extend_from_slice(&bytes_of(it, v)); }
             outs![str_of(it, &out)]
         }
         N_13 => {
@@ -582,10 +619,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             outs![v]
         }
         N_15 | N_37 => { let t = arg(args, 0); let n = it.array_len(t) as i64; let i = int(args, 1, 1); let j = int(args, 2, n); (i..=j).map(|k| it.get_index(t, Value::num(k as f64))).collect() }
-        N_16 => outs![Value::num(arg(args, 0).as_num().floor())],
-        N_19 => outs![Value::num(arg(args, 0).as_num().abs())],
-        N_17 => { let mut m = arg(args, 0).as_num(); for a in &args[1..] { m = m.min(a.as_num()); } outs![Value::num(m)] }
-        N_18 => { let mut m = arg(args, 0).as_num(); for a in &args[1..] { m = m.max(a.as_num()); } outs![Value::num(m)] }
+        N_16 => { let v = arg(args, 0); outs![if crate::numeric::integer(v).is_some() { v } else { Value::num(crate::numeric::double(it, v).floor()) }] }
+        N_19 => { let v = arg(args, 0); outs![if let Some(i) = crate::numeric::integer(v) { if i.magnitude() < 0 { it.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { v } } else { Value::num(crate::numeric::double(it, v).abs()) }] }
+        N_17 => { let mut m = arg(args, 0); for &a in &args[1..] { if crate::numeric::compare(a, m) == Some(std::cmp::Ordering::Less) { m = a; } } outs![m] }
+        N_18 => { let mut m = arg(args, 0); for &a in &args[1..] { if crate::numeric::compare(a, m) == Some(std::cmp::Ordering::Greater) { m = a; } } outs![m] }
         N_20 => outs![Value::num(f64::INFINITY)],
         N_21 => {
             let callee = arg(args, 0); let rest = &args[1.min(args.len())..];
@@ -599,10 +636,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         N_22 => { let t = arg(args, 0); let keys = it.table_keys(t); let itv = it.new_iter_keys(1, t, keys); outs![itv, t, Value::NIL] }
         N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::num(0.0)] }
-        N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| *x == k).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
+        N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
         N_26 => { let v = arg(args, 0); let s = tostring(it, v); outs![it.intern(&s)] }
-        N_27 => { let v = arg(args, 0); if v.is_num() { return outs![v]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) { i64::from_str_radix(h, 16).ok().map(|x| x as f64) } else { s.parse::<f64>().ok() } } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
+        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) { i64::from_str_radix(h, 16).ok().map(|x| x as f64) } else { s.parse::<f64>().ok() } } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
         N_30 => { let n = arg(args, 0); if !n.is_num() { return outs![Value::num((args.len() - 1) as f64)]; } let i = n.as_num() as i64; if i < 0 { args[(args.len() as i64 + i) as usize..].iter().copied().collect() } else { args[(i as usize).min(args.len())..].iter().copied().collect() } }
@@ -655,7 +692,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let t = arg(args, 0); let cmp = arg(args, 1); let n = it.array_len(t);
             let mut v: Vec<Value> = (1..=n).map(|k| it.get_index(t, Value::num(k as f64))).collect();
             if cmp == Value::NIL {
-                v.sort_by(|a, b| { if a.is_num() && b.is_num() { a.as_num().partial_cmp(&b.as_num()).unwrap_or(std::cmp::Ordering::Equal) } else { it.bytes_of(*a).cmp(it.bytes_of(*b)) } });
+                v.sort_by(|a, b| { if crate::numeric::is_numeric(*a) && crate::numeric::is_numeric(*b) { crate::numeric::compare(*a, *b).unwrap_or(std::cmp::Ordering::Equal) } else { it.bytes_of(*a).cmp(it.bytes_of(*b)) } });
             } else {
                 // Values under comparison live in `v`, which the collector cannot see:
                 // every one is rooted for the duration.

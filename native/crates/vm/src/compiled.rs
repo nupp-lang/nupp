@@ -84,6 +84,8 @@ pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
         ("j_frame_poll", j_frame_poll as *const u8, 0),
+        ("j_ibox", j_ibox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
+        ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
         ("j_frame_step", j_frame_step as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
@@ -186,7 +188,8 @@ pub extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); i
 #[unsafe(no_mangle)]
 pub extern "C" fn j_iter_next(iter: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_iter_next_impl(iter))).0 }
 #[unsafe(no_mangle)]
-pub extern "C" fn j_last_nres() -> u64 { ctx().last_nres as u64 }
+// PadResults consumes the spill immediately after this nonallocating call.
+pub extern "C" fn j_last_nres() -> u64 { let it = ctx(); it.extra_n = 0; it.last_nres as u64 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_slot_get(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_slot_get_impl(o, shape, slot))).0 }
 #[unsafe(no_mangle)]
@@ -249,20 +252,46 @@ fn j_concat_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); let v = ctx
 /// Arithmetic and comparison past the number fast path: strings compare by
 /// content (codes 3 and 4 answer a boolean word); anything else is an error.
 fn j_arith_slow_impl(a: u64, b: u64, op: u64) -> u64 {
+    let _hp = enter_helper!();
     let it = ctx(); let (x, y) = (V(a), V(b));
-    match op {
-        0..=2 => { if x.is_num() && y.is_num() { return V::num(match op { 0 => x.as_num() + y.as_num(), 1 => x.as_num() - y.as_num(), _ => x.as_num() * y.as_num() }).0; } it.err("arithmetic on a non-number") }
-        3 => V::boolean(if x.is_num() && y.is_num() { x.as_num() < y.as_num() } else { it.bytes_of(x) < it.bytes_of(y) }).0,
-        _ => V::boolean(if x.is_num() && y.is_num() { x.as_num() <= y.as_num() } else { it.bytes_of(x) <= it.bytes_of(y) }).0,
+    if matches!(op, 3 | 4) && !(crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y)) {
+        return V::boolean(if op == 3 { it.bytes_of(x) < it.bytes_of(y) } else { it.bytes_of(x) <= it.bytes_of(y) }).0;
     }
+    crate::numeric::binary(it, x, y, ["add", "sub", "mul", "lt", "le", "div", "mod", "idiv"][op as usize], None).0
 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_ibox(bits: u64) -> u64 { ctx().guarded(|_| { let _hp = enter_helper!(); ctx().box_integer(crate::numeric::Integer { bits, unsigned: false }) }).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_numeric(v: u64, op: u64) -> u64 { ctx().guarded(|_| {
+    let _hp = enter_helper!(); let it = ctx(); let v = V(v);
+    match op {
+        0 => V::num(crate::numeric::double(it, v)),
+        1 => { crate::numeric::bits(it, v, false); v },
+        4 | 5 => crate::numeric::check_kind(it, v, op == 5),
+        2 => { if !v.is_num() { it.err("value is not a number"); } v },
+        _ => if let Some(i) = crate::numeric::integer(v) { it.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { V::num(-crate::numeric::double(it, v)) },
+    }
+}).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_get_index_i(t: u64, bits: u64) -> u64 { ctx().guarded(|_| {
+    let _hp = enter_helper!(); let it = ctx();
+    let key = it.box_integer(crate::numeric::Integer { bits, unsigned: false });
+    it.index_any(V(t), key)
+}).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_set_index_i(t: u64, bits: u64, v: u64) -> u64 { ctx().guarded(|_| {
+    let _hp = enter_helper!(); let it = ctx();
+    let key = it.box_integer(crate::numeric::Integer { bits, unsigned: false });
+    let root = it.register(key); it.newindex(V(t), key, V(v)); it.release(root); V::NIL
+}).0 }
+
 fn j_iter_next_impl(iter: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
     let outs = crate::builtins::iter_next(it, V(iter));
     let first = outs.first().copied().unwrap_or(V::NIL);
-    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
-    it.last_nres = outs.len();
+    it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);
     leave_helper!(_hp);
     first.0
 }
@@ -275,8 +304,8 @@ fn j_call_builtin_impl(id: u64, argv: *const u64, nargs: u64) -> u64 {
     let outs = if id as u32 >= crate::host::HOST_BASE { it.call_outs(V::builtin(id as u32), args) } else { crate::builtins::call(it, id as u32, args) };
     it.close_scope(scope);
     let first = outs.first().copied().unwrap_or(V::NIL);
-    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
-    it.last_nres = outs.len();
+    it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);
     leave_helper!(_hp);
     first.0
 }
@@ -290,8 +319,8 @@ fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
     let outs = it.call_outs(V(callee), args);
     it.close_scope(scope);
     let first = outs.first().copied().unwrap_or(V::NIL);
-    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
-    it.last_nres = outs.len();
+    it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);
     leave_helper!(_hp);
     first.0
 }
@@ -304,8 +333,8 @@ fn j_call_method_impl(name: u64, argv: *const u64, nargs: u64) -> u64 {
     let outs = it.call_method(V(name), args);
     it.close_scope(scope);
     let first = outs.first().copied().unwrap_or(V::NIL);
-    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
-    it.last_nres = outs.len();
+    it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);
     leave_helper!(_hp);
     first.0
 }
@@ -317,8 +346,8 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     let scope = it.open_scope(); for &a in &args { it.handles.push(a); }
     let outs = it.pcall_values(args[0], &args[1..]);
     it.close_scope(scope);
-    it.extra_n = outs.len().saturating_sub(1).min(8); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
-    it.last_nres = outs.len();
+    it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
+    it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);
     leave_helper!(_hp);
     outs[0].0
 }
@@ -362,7 +391,7 @@ fn j_ret_extra_impl(argv: *const u64, n: u64) -> u64 {
         it.last_nres = total.max(1);
         return 0;
     }
-    it.extra_n = (n as usize).min(8); for i in 0..it.extra_n { it.extra[i] = V(unsafe { *argv.add(i) }); }
+    it.extra_n = (n as usize).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = V(unsafe { *argv.add(i) }); }
     it.last_nres = it.extra_n + 1;
     0
 }
@@ -374,7 +403,7 @@ fn j_buf_append_sub_impl(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx
 fn j_substring_impl(s: u64, i: u64, j: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = it.sub_bytes(V(s), i as i64, j as i64).to_vec(); let v = it.string_of(&t); leave_helper!(_hp); v.0 }
 fn j_buf_finish_impl(buf: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().buf_finish(V(buf)); leave_helper!(_hp); v.0 }
 fn j_str_byte_impl(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(V(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { V::num(bytes[i as usize - 1] as f64).0 } else { V::NIL.0 } }
-fn j_pow_impl(a: u64, b: u64) -> u64 { let it = ctx(); let (x, y) = (V(a), V(b)); if !(x.is_num() && y.is_num()) { it.err("power of a non-number") } V::num(x.as_num().powf(y.as_num())).0 }
+fn j_pow_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); crate::numeric::binary(ctx(), V(a), V(b), "pow", None).0 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }
 fn j_eq_slow_impl(a: u64, b: u64) -> u64 { ctx().values_equal(V(a), V(b)) as u64 }

@@ -67,7 +67,7 @@ enum {
     OP_GETUPVAL, OP_GETCELL, OP_GETSLOT, OP_GETSLOTF, OP_SETSLOTF, OP_LEN, OP_LENF, OP_STRBYTE,
     OP_CALL, OP_CALLK, OP_CALLDYN, OP_RET, OP_RETNIL, OP_RETN,
     OP_GETFIELD, OP_GETIDXI, OP_SETIDXI, OP_SETCELL, OP_SETSLOT, OP_TAGCHECKNUM, OP_NEWRECORD, OP_GETIDX,
-    OP_PADRESULTS,
+    OP_PADRESULTS, OP_IBOX,
     OP_COUNT
 };
 
@@ -213,7 +213,7 @@ IBIN(h_icmple, (uint64_t)p <= (uint64_t)q)
 static Value h_imov(ARGS) { iregs[pc->a] = iregs[pc->b]; pc++; NEXT; }
 static Value h_iaddk(ARGS) { iregs[pc->a] = (int64_t)((uint64_t)iregs[pc->b] + (uint64_t)pc->k); pc++; NEXT; }
 static Value h_imasku32(ARGS) { iregs[pc->a] = iregs[pc->b] & 0xffffffffll; pc++; NEXT; }
-static Value h_iunbox(ARGS) { iregs[pc->a] = (int64_t)as_num(regs[pc->b]); pc++; NEXT; }
+static Value h_iunbox(ARGS) { if (!is_num(regs[pc->b])) { SLOW; } double d = as_num(regs[pc->b]); if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0) || trunc(d) != d) { SLOW; } iregs[pc->a] = (int64_t)d; pc++; NEXT; }
 static Value h_itof(ARGS) { fregs[pc->a] = (double)iregs[pc->b]; pc++; NEXT; }
 // Rust's `as i64`: NaN is 0 and out-of-range values saturate.
 static inline int64_t f2i(double d) { if (d != d) return 0; if (d >= 9223372036854775807.0) return INT64_MAX; if (d <= -9223372036854775808.0) return INT64_MIN; return (int64_t)d; }
@@ -231,6 +231,7 @@ FBIN(h_fdiv, p / q)
 FBIN(h_fmod, p - floor(p / q) * q)
 static Value h_fneg(ARGS) { fregs[pc->a] = -fregs[pc->b]; pc++; NEXT; }
 static Value h_funbox(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } SLOW; }
+static Value h_ibox(ARGS) { int64_t v = iregs[pc->b]; if (v >= -9007199254740992ll && v <= 9007199254740992ll) { regs[pc->a] = num((double)v); pc++; NEXT; } SLOW; }
 static Value h_fbox(ARGS) { regs[pc->a] = num(fregs[pc->b]); pc++; NEXT; }
 #define FCMP(name, expr) static Value name(ARGS) { double p = fregs[pc->b], q = fregs[pc->c]; iregs[pc->a] = (expr); pc++; NEXT; }
 FCMP(h_fcmpeq, p == q)
@@ -358,6 +359,7 @@ static Value pop(ARGS) {
 static Value h_ret(ARGS) { ctx->result = regs[pc->a]; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
 static Value h_retnil(ARGS) { ctx->result = T_NIL; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
 static Value h_retn(ARGS) {
+    if (pc->b > 8) { SLOW; }
     uint32_t n = pc->b;
     if (n >= 128) SLOW;
     uint64_t h1 = frame[1];
@@ -402,6 +404,7 @@ static Value h_getfield(ARGS) {
 // Table reads and writes by integer index: the array part in place, the
 // rest (growth, hash part, records) through helpers.
 static Value h_getidxi(ARGS) {
+    if (iregs[pc->c] > 9007199254740992ll || iregs[pc->c] < -9007199254740992ll) { SLOW; }
     Value t = regs[pc->b]; int64_t i = iregs[pc->c];
     if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE, 1)) {
         uint64_t n = obj_len(t);
@@ -411,6 +414,7 @@ static Value h_getidxi(ARGS) {
     SLOW;
 }
 static Value h_setidxi(ARGS) {
+    if (iregs[pc->b] > 9007199254740992ll || iregs[pc->b] < -9007199254740992ll) { SLOW; }
     Value t = regs[pc->a]; int64_t i = iregs[pc->b]; Value v = regs[pc->c];
     if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE, 1)) {
         uint64_t n = obj_len(t);
@@ -427,7 +431,7 @@ static Value h_setcell(ARGS) {
     SLOW;
 }
 // Results a call did not return are nil (ctx->last_nres is kept by every return path).
-static Value h_padresults(ARGS) { uint32_t n = pc->b; for (uint64_t i = ctx->last_nres; i < n; i++) regs[pc->a + i] = T_NIL; pc++; NEXT; }
+static Value h_padresults(ARGS) { uint32_t n = pc->b; if (n > 8) { SLOW; } for (uint64_t i = ctx->last_nres; i < n; i++) regs[pc->a + i] = T_NIL; pc++; NEXT; }
 static Value h_setslot(ARGS) {
     Value r = regs[pc->a]; Value v = regs[pc->c];
     if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
@@ -464,7 +468,7 @@ static const Handler dispatch[OP_COUNT] = {
     [OP_GETUPVAL] = h_getupval, [OP_GETCELL] = h_getcell, [OP_GETSLOT] = h_getslot, [OP_GETSLOTF] = h_getslotf, [OP_SETSLOTF] = h_setslotf, [OP_LEN] = h_len, [OP_LENF] = h_lenf, [OP_STRBYTE] = h_strbyte,
     [OP_CALL] = h_call, [OP_CALLK] = h_calldyn, [OP_CALLDYN] = h_calldyn, [OP_RET] = h_ret, [OP_RETNIL] = h_retnil, [OP_RETN] = h_retn,
     [OP_GETFIELD] = h_getfield, [OP_GETIDXI] = h_getidxi, [OP_SETIDXI] = h_setidxi, [OP_SETCELL] = h_setcell, [OP_SETSLOT] = h_setslot, [OP_TAGCHECKNUM] = h_tagchecknum, [OP_NEWRECORD] = h_newrecord, [OP_GETIDX] = h_getidx,
-    [OP_PADRESULTS] = h_padresults,
+    [OP_PADRESULTS] = h_padresults, [OP_IBOX] = h_ibox,
 };
 
 // Runs the context's task from its top frame until it finishes or parks;

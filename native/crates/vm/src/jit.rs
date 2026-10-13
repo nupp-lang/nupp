@@ -567,7 +567,15 @@ impl<M: Module> Compiler<M> {
                     Op::IToF(d, x) => { let p = iv!(x); setf!(d, b.ins().fcvt_from_sint(types::F64, p)); }
                     Op::FToI(d, x) => { let p = fv!(x); seti!(d, b.ins().fcvt_to_sint_sat(types::I64, p)); }
                     Op::FK(d, k) => { setf!(d, b.ins().f64const(k)); }
-                    Op::FUnbox(d, r) => { let v = rv!(r); let m = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, m, QNAN); checked!(ok); setf!(d, b.ins().bitcast(types::F64, cast, v)); }
+                    Op::FUnbox(d, r) => {
+                        let v = rv!(r); let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64); b.set_cold_block(slow);
+                        b.ins().brif(num, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast); let out = v; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow); let code = b.ins().iconst(types::I64, 0); let call = hcall!("j_numeric", &[v, code]); let out = b.inst_results(call)[0]; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(join); b.seal_block(join); let result = b.block_params(join)[0]; setf!(d, b.ins().bitcast(types::F64, cast, result));
+                    }
+                    Op::IBox(d, x) => { let v = iv!(x); let c = hcall!("j_ibox", &[v]); setr!(d, b.inst_results(c)[0]); }
                     Op::FBox(d, x) => { let v = fv!(x); setr!(d, box_f64!(v)); }
                     Op::FDiv(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fdiv(p, q)); }
                     Op::FNeg(d, x) => { let p = fv!(x); setf!(d, b.ins().fneg(p)); }
@@ -679,9 +687,7 @@ impl<M: Module> Compiler<M> {
                         let v = b.ins().load(types::I64, flags, addr, 0);
                         b.ins().jump(join, &[v.into()]);
                         b.switch_to_block(slow_b); b.seal_block(slow_b);
-                        let kf = b.ins().fcvt_from_sint(types::F64, ki);
-                        let kb = box_f64!(kf);
-                        let c = hcall!("j_get_index", &[tv, kb]);
+                        let c = hcall!("j_get_index_i", &[tv, ki]);
                         let sv = b.inst_results(c)[0];
                         b.ins().jump(join, &[sv.into()]);
                         b.switch_to_block(join); b.seal_block(join);
@@ -712,9 +718,7 @@ impl<M: Module> Compiler<M> {
                         b.ins().store(flags, v, addr, 0);
                         b.ins().jump(join, &[]);
                         b.switch_to_block(slow_b); b.seal_block(slow_b);
-                        let kf = b.ins().fcvt_from_sint(types::F64, ki);
-                        let k = box_f64!(kf);
-                        hcall!("j_set_index", &[obj, k, v]);
+                        hcall!("j_set_index_i", &[obj, ki, v]);
                         b.ins().jump(join, &[]);
                         b.switch_to_block(join); b.seal_block(join);
                         cond_of.clear();
@@ -754,7 +758,7 @@ impl<M: Module> Compiler<M> {
                     Op::IXor(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().bxor(p, q)); }
                     Op::INot(d, x) => { let p = iv!(x); seti!(d, b.ins().bnot(p)); }
                     Op::Pow(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let c = hcall!("j_pow", &[p, q]); setr!(d, b.inst_results(c)[0]); }
-                    Op::IDiv(d, x, y) => { let (p, q) = (rv!(x), rv!(y)); let both = is_num2!(p, q); checked!(both); let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q)); let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); setr!(d, box_f64!(fl)); }
+
                     Op::ICmpSLe(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::SignedLessThanOrEqual, p, q); seti!(d, b.ins().uextend(types::I64, c)); }
                     Op::Nil(d) => { setr!(d, b.ins().iconst(types::I64, NIL)); }
                     Op::BytesLen(d, s) => { let (_, len) = bytes_of!(s); seti!(d, len); }
@@ -771,7 +775,17 @@ impl<M: Module> Compiler<M> {
                     Op::BufFinish(d, bf) => { let p = rv!(bf); let c = hcall!("j_buf_finish", &[p]); setr!(d, b.inst_results(c)[0]); }
                     Op::NewBytes(d, n) => { let nv = iv!(n); let c = hcall!("j_new_bytes", &[nv]); setr!(d, b.inst_results(c)[0]); }
                     Op::BytesToStr(d, s, n) => { let (sv, nv) = (rv!(s), iv!(n)); let c = hcall!("j_bytes_to_str", &[sv, nv]); setr!(d, b.inst_results(c)[0]); }
-                    Op::IUnbox(d, r) => { let v = rv!(r); let fv = b.ins().bitcast(types::F64, cast, v); seti!(d, b.ins().fcvt_to_sint_sat(types::I64, fv)); }
+                    Op::IUnbox(d, r) => {
+                        let v = rv!(r); let code = b.ins().iconst(types::I64, 1); hcall!("j_numeric", &[v, code]);
+                        let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
+                        let immediate = b.create_block(); let boxed = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64);
+                        b.ins().brif(num, immediate, &[], boxed, &[]);
+                        b.switch_to_block(immediate); b.seal_block(immediate);
+                        let fv = b.ins().bitcast(types::F64, cast, v); let i = b.ins().fcvt_to_sint_sat(types::I64, fv); b.ins().jump(join, &[i.into()]);
+                        b.switch_to_block(boxed); b.seal_block(boxed);
+                        let obj = b.ins().band_imm(v, PAYLOAD); let i = b.ins().load(types::I64, flags, obj, OFF_AUX_LEN); b.ins().jump(join, &[i.into()]);
+                        b.switch_to_block(join); b.seal_block(join); seti!(d, b.block_params(join)[0]);
+                    }
                     Op::GetUpval(d, i) => { let c = b.use_var(closure_var); let o = b.ins().band_imm(c, PAYLOAD); let caps = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, caps, (i as i32) * 8); setr!(d, v); }
                     Op::GetCell(d, c) => { let o = obj_of!(c); let vp = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, vp, 0); setr!(d, v); }
                     Op::SetCell(c, a) => {
@@ -1032,12 +1046,13 @@ impl<M: Module> Compiler<M> {
                     }
                     Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = kval!(k); hcall!("j_set_field", &[tv, name, vv]); }
                     Op::Not(d, a) => { let fl = falsy!(rv!(a)); setr!(d, bool_word!(fl)); }
-                    Op::Neg(d, a) => { let v = rv!(a); let m = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, m, QNAN); checked!(ok); let fv = b.ins().bitcast(types::F64, cast, v); let n = b.ins().fneg(fv); setr!(d, box_f64!(n)); }
-                    Op::Div(d, x, y) | Op::Mod(d, x, y) => {
-                        let (p, q) = (rv!(x), rv!(y)); let both = is_num2!(p, q); checked!(both);
-                        let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
-                        let r = if matches!(*op, Op::Div(..)) { b.ins().fdiv(fp, fq) } else { let qv = b.ins().fdiv(fp, fq); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, fq); b.ins().fsub(fp, m) };
-                        setr!(d, box_f64!(r));
+                    Op::Neg(d, a) => {
+                        let v = rv!(a); let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64); b.set_cold_block(slow);
+                        b.ins().brif(num, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast); let out = { let f = b.ins().bitcast(types::F64, cast, v); let f = b.ins().fneg(f); box_f64!(f) }; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow); let code = b.ins().iconst(types::I64, 3); let call = hcall!("j_numeric", &[v, code]); let out = b.inst_results(call)[0]; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(join); b.seal_block(join); let result = b.block_params(join)[0]; setr!(d, result);
                     }
                     Op::Scalar(k, d, a, bb) => {
                         let (p, q) = (rv!(a), rv!(bb));
@@ -1069,12 +1084,20 @@ impl<M: Module> Compiler<M> {
                     Op::PadResults(base, n) => {
                         // Registers past what the call returned become nil.
                         let c = hcall!("j_last_nres", &[]); let got = b.inst_results(c)[0];
-                        for i in 1..n as usize { if base as usize + i >= f.nregs as usize { break; } let iv = b.ins().iconst(types::I64, i as i64); let have = b.ins().icmp(IntCC::UnsignedLessThan, iv, got); let cur = rv!(base as usize + i); let nil = b.ins().iconst(types::I64, NIL); let v = b.ins().select(have, cur, nil); setr!(base as usize + i, v); }
+                        for i in 1..n as usize { if base as usize + i >= f.nregs as usize { break; } let iv = b.ins().iconst(types::I64, i as i64); let have = b.ins().icmp(IntCC::UnsignedLessThan, iv, got); let cur = if i >= crate::interp::MAX_RESULTS { b.ins().iconst(types::I64, NIL) } else if i >= 8 { let ea = runtime_addr(&mut b, runtime, 1, extra_addr); b.ins().load(types::I64, flags, ea, ((i - 1) * 8) as i32) } else { rv!(base as usize + i) }; let nil = b.ins().iconst(types::I64, NIL); let v = b.ins().select(have, cur, nil); setr!(base as usize + i, v); }
                     }
                     Op::TagCheckStr(d, a) => { let v = rv!(a); hcall!("j_tagcheck_str", &[v]); setr!(d, v); }
                     Op::IsRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); let c = hcall!("j_is_rec", &[v, s]); setr!(d, b.inst_results(c)[0]); }
                     Op::TagCheckRec(d, a, shape) => { let v = rv!(a); let s = b.ins().iconst(types::I64, shape as i64); hcall!("j_tagcheck_rec", &[v, s]); setr!(d, v); }
-                    Op::TagCheckNum(d, x) => { let v = rv!(x); let masked = b.ins().band_imm(v, QNAN); let ok = b.ins().icmp_imm(IntCC::NotEqual, masked, QNAN); checked!(ok); setr!(d, v); }
+                    Op::TagCheckInt(d, x, unsigned) => { let v = rv!(x); let code = b.ins().iconst(types::I64, if unsigned { 5 } else { 4 }); let c = hcall!("j_numeric", &[v, code]); setr!(d, b.inst_results(c)[0]); }
+                    Op::TagCheckNum(d, x) => {
+                        let v = rv!(x); let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
+                        let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64); b.set_cold_block(slow);
+                        b.ins().brif(num, fast, &[], slow, &[]);
+                        b.switch_to_block(fast); b.seal_block(fast); let out = v; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow); let code = b.ins().iconst(types::I64, 2); let call = hcall!("j_numeric", &[v, code]); let out = b.inst_results(call)[0]; b.ins().jump(join, &[out.into()]);
+                        b.switch_to_block(join); b.seal_block(join); let result = b.block_params(join)[0]; setr!(d, result);
+                    }
                     Op::RetN(start, n) => {
                         // 128 | fixed: the fixed values then exactly what the last
                         // call returned, which the helper knows from `last_nres`.
@@ -1112,7 +1135,7 @@ impl<M: Module> Compiler<M> {
                         b.ins().br_table(idx32, jt);
                         terminated = true;
                     }
-                    Op::Add(d, x, y) | Op::Sub(d, x, y) | Op::Mul(d, x, y) => {
+                    Op::Add(d, x, y) | Op::Sub(d, x, y) | Op::Mul(d, x, y) | Op::Div(d, x, y) | Op::Mod(d, x, y) | Op::IDiv(d, x, y) => {
                         let (p, q) = (rv!(x), rv!(y));
                         let fast = b.create_block(); let slow = b.create_block(); let join = b.create_block();
                         b.append_block_param(join, types::I64);
@@ -1121,11 +1144,14 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(both, fast, &[], slow, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
                         let (fp, fq) = (b.ins().bitcast(types::F64, cast, p), b.ins().bitcast(types::F64, cast, q));
-                        let r = match *op { Op::Add(..) => b.ins().fadd(fp, fq), Op::Sub(..) => b.ins().fsub(fp, fq), _ => b.ins().fmul(fp, fq) };
+                        let r = match *op {
+                            Op::Add(..) => b.ins().fadd(fp, fq), Op::Sub(..) => b.ins().fsub(fp, fq), Op::Mul(..) => b.ins().fmul(fp, fq), Op::Div(..) => b.ins().fdiv(fp, fq),
+                            _ => { let q = b.ins().fdiv(fp, fq); let q = b.ins().floor(q); if matches!(*op, Op::IDiv(..)) { q } else { let m = b.ins().fmul(q, fq); b.ins().fsub(fp, m) } }
+                        };
                         let boxed = box_f64!(r);
                         b.ins().jump(join, &[boxed.into()]);
                         b.switch_to_block(slow); b.seal_block(slow);
-                        let code = b.ins().iconst(types::I64, match *op { Op::Add(..) => 0, Op::Sub(..) => 1, _ => 2 });
+                        let code = b.ins().iconst(types::I64, match *op { Op::Add(..) => 0, Op::Sub(..) => 1, Op::Mul(..) => 2, Op::Div(..) => 5, Op::Mod(..) => 6, _ => 7 });
                         let c = hcall!("j_arith_slow", &[p, q, code]);
                         let sv = b.inst_results(c)[0];
                         b.ins().jump(join, &[sv.into()]);
