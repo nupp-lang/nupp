@@ -969,14 +969,6 @@ function lower.emit(
         nres = nres or 1
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
-            local target = tyTag(node.inferredType)
-            if wideKind(node.inferredType) then
-                f:op("TagCheckInt", dst, dst, wideKind(node.inferredType) == "u64" and 1 or 0)
-            elseif target == "number" or target == "integer" then
-                f:op("TagCheckNum", dst, dst)
-            elseif target == "string" then
-                f:op("TagCheckStr", dst, dst)
-            end
             return
         end
         if node.ownershipIntrinsic then
@@ -1260,10 +1252,38 @@ function lower.emit(
         return dst, "v"
     end
 
+    local function spanAccess(f, node, value, dst)
+        dst = dst or f:reg()
+        local base, receiver, index = f:reg(), f:reg(), f:reg()
+        local stored = value and f:reg() or nil
+        exprAs(f, node.obj, "v", receiver)
+        exprAs(f, node.expr, "v", index)
+        if stored then
+            f:op("Move", stored, value)
+        end
+        f:op("CallMethod", f:const("str", value and "set" or "get"), base, value and 3 or 2)
+        if not value then
+            f:op("Move", dst, base)
+        end
+
+        return dst, "v"
+    end
+
     expr = function(f, node, dst, want)
         local k = node.kind
         if k == "paren" then
             return expr(f, node.expr, dst, want)
+        end
+        -- The checker identifies indexed views. Their public operators use
+        -- checked library methods even when the view has no Lua metatable.
+        if k == "bracketIndex" and node.indexedAccess and node.indexedAccess.adapter == "span" then
+            return spanAccess(f, node, nil, (want ~= "f" and want ~= "i") and dst or nil)
+        end
+        if k == "unop" and node.indexedLength and node.operand then
+            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            local receiver = exprAs(f, node.operand, "v")
+            f:op("GetField", d, receiver, f:const("str", "count"))
+            return d, "v"
         end
         local numeric = isNumeric(node.inferredType)
         local integer = isInteger(node.inferredType)
@@ -1323,12 +1343,6 @@ function lower.emit(
                 {node.operand},
                 (want ~= "f" and want ~= "i") and dst or nil
             )
-        end
-        if k == "castExpr" and wide then
-            local value = exprAs(f, node.expr, "v")
-            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
-            f:op("TagCheckInt", d, value, wide == "u64" and 1 or 0)
-            return d, "v"
         end
         if k == "number" then
             local n = assert(tonumber(tokText(node.token)), "invalid numeric literal")
@@ -2019,19 +2033,11 @@ function lower.emit(
             end
             f.nregs = math.max(mark, f.declTop or 0)
         elseif k == "castExpr" then
-            local target = node.inferredType
             local v = exprAs(f, node.expr, "v", dst)
-            -- A cast to a record is erased, as the Lua backend erases it: the
-            -- `setmetatable({...}, R) as R` idiom hands on a struct-shaped
-            -- record, and every slot access guards the shape it assumed.
-            if tyTag(target) == "number" or tyTag(target) == "integer" then
-                f:op("TagCheckNum", dst, v)
-            elseif tyTag(target) == "string" then
-                f:op("TagCheckStr", dst, v)
-            else
-                if v ~= dst then
-                    f:op("Move", dst, v)
-                end
+            -- `as` only asserts a type to the checker. Preserve the value;
+            -- typed loads and stores validate their own physical boundaries.
+            if v ~= dst then
+                f:op("Move", dst, v)
             end
         else
             error("expression kind " .. tostring(k) .. " in " .. f.name)
@@ -2294,6 +2300,10 @@ function lower.emit(
                 f:op("SetField", o, f:const("str", fname), valueReg)
             end
         elseif target.kind == "bracketIndex" then
+            if target.indexedAccess and target.indexedAccess.adapter == "span" then
+                spanAccess(f, target, valueReg)
+                return
+            end
             local o = exprAs(f, target.obj, "v")
             if isIntegerish(target.expr) then
                 local i = exprAs(f, target.expr, "i");
@@ -2328,6 +2338,36 @@ function lower.emit(
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
+    local function cleanupRegistry(f)
+        local globals, registry = f:reg(), f:reg()
+        f:op("Require", globals, f:const("str", "_G"))
+        local key = f:const("str", "__nuppCleanupRegistry")
+        f:op("GetField", registry, globals, key)
+        local exists = f:op("JmpIf", registry, 0)
+        f:op("NewTableN", registry, 0, 0)
+        f:op("SetField", globals, key, registry)
+        f:patch(exists, "JmpIf", registry, f:offset(exists, f:here()))
+
+        return registry
+    end
+
+    local function registerCleanups(f, registrations, value)
+        for _, registration in ipairs(registrations or {}) do
+            local registry = cleanupRegistry(f)
+            f:op("SetField", registry, f:const("str", registration.cleanup.key), value)
+        end
+    end
+
+    local function cleanupReference(name)
+        local result
+        for member in name:gmatch("[^.]+") do
+            result = result and {kind = "dotIndex", obj = result, name = {text = member}}
+                or {kind = "name", token = {text = member}}
+        end
+
+        return result
+    end
+
     local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"
     deferCleanup = function(f, value, cleanup, guard)
         if guard and cleanup.kind ~= "field" then
@@ -2350,11 +2390,15 @@ function lower.emit(
             f:op("K", callback, f:const("builtin", "file.close"))
             f:op("Defer", value, callback)
         elseif cleanup.kind == "function" then
-            local callback = exprAs(
-                f,
-                {kind = "name", token = {text = cleanup.name}, inferredType = {tag = "any"}},
-                "v"
-            )
+            local origin = cleanup.key:match("^(.-)#")
+            local callback
+            if origin == currentModule or origin == resolve(currentModule) then
+                callback = exprAs(f, cleanupReference(cleanup.name), "v")
+            else
+                local registry = cleanupRegistry(f)
+                callback = f:reg()
+                f:op("GetField", callback, registry, f:const("str", cleanup.key))
+            end
             f:op("Defer", value, callback)
         elseif cleanup.kind == "field" then
             local field = f:reg()
@@ -2830,6 +2874,9 @@ function lower.emit(
             if not assignedNames[name] then
                 f.scopes[#f.scopes][name].fid = inner.id
             end
+            if node.name.cleanupRegistrations then
+                registerCleanups(f, node.name.cleanupRegistrations, exprAs(f, cleanupReference(name), "v"))
+            end
         elseif k == "funcStmt" then
             local fname = node.name
             local baseName = tokText(fname.base)
@@ -2849,6 +2896,9 @@ function lower.emit(
                 local c = f:reg();
                 emitClosure(f, node.body, c, baseName)
                 assignTo(f, {kind = "name", token = fname.base}, c)
+                for _, token in ipairs(fname) do
+                    registerCleanups(f, token.cleanupRegistrations, c)
+                end
             else
                 -- `function a.b.c()` or `function a.b:m()`: walk the path, store at its
                 -- end.
@@ -2865,9 +2915,14 @@ function lower.emit(
                     o = t
                 end
                 f:op("SetField", o, f:const("str", last), c)
-                local owner = fname.method and shapeOfNominal(node.ownerNominal) or nil
+                local nominal = node.ownerNominal
+                local member = nominal and nominal.byname and nominal.byname[last]
+                local owner = (fname.method or tyTag(member) == "func") and shapeOfNominal(nominal) or nil
                 if owner then
                     f:op("SetMethod", owner.id, f:const("str", last), c)
+                end
+                for _, token in ipairs(fname) do
+                    registerCleanups(f, token.cleanupRegistrations, c)
                 end
             end
         elseif k == "recordDecl" then
@@ -2919,6 +2974,7 @@ function lower.emit(
                         f:op("SetMethod", shape.id, f:const("str", tokText(entry.name)), c)
                     end
                     f:op("SetField", identity, f:const("str", tokText(entry.name)), c)
+                    registerCleanups(f, entry.name.cleanupRegistrations, c)
                 end
             end
             -- Metadata statements use the ordinary closure and capture path.
@@ -3086,7 +3142,7 @@ function lower.emit(
     -- the same cells as source-level reads when cleanup runs in a closure.
     local function noteCleanup(chain, cleanup, here)
         if cleanup.kind == "function" then
-            noteUse(chain, cleanup.name, here)
+            noteUse(chain, cleanup.name:match("^[^.]+"), here)
         elseif cleanup.kind == "field" then
             noteCleanup(chain, cleanup.cleanup, here)
         end

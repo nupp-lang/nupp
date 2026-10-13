@@ -437,6 +437,8 @@ impl Heap {
         v
     }
     /// The interned string with these bytes, if one is alive, allocating nothing.
+    // For immediate table lookup only: this does not root or resurrect a key.
+    pub(crate) fn interned_key(&self, s: &str) -> Option<Value> { self.interned.get(s.as_bytes()).map(|p| Value::obj(*p)) }
     pub fn intern_lookup(&mut self, s: &str) -> Option<Value> { self.intern_lookup_bytes(s.as_bytes()) }
     pub fn intern_lookup_bytes(&mut self, s: &[u8]) -> Option<Value> {
         let p = *self.interned.get(s)?;

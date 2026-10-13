@@ -66,6 +66,7 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
                 return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
             end
             if name == "nupp.vm.tasks"
+            or name == "nupp.runtime.provider.nativestorage"
             or name == "nupp.vm.clock"
             or name == "nupp.vm.coroutine"
             or name == "nupp.io.files"

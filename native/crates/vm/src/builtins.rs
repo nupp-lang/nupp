@@ -27,6 +27,7 @@ pub const NAMES: &[&str] = &[
     "table.maxn", "vm.tableAppendResults", "tasks.pollWorkers", "tasks.workerOpen",
     "wide.i64.cast", "wide.i64.not", "wide.i64.neg", "wide.i64.add", "wide.i64.sub", "wide.i64.mul", "wide.i64.div", "wide.i64.idiv", "wide.i64.mod", "wide.i64.pow", "wide.i64.and", "wide.i64.or", "wide.i64.xor", "wide.i64.shl", "wide.i64.shr", "wide.i64.eq", "wide.i64.ne", "wide.i64.lt", "wide.i64.le", "wide.u64.cast", "wide.u64.not", "wide.u64.neg", "wide.u64.add", "wide.u64.sub", "wide.u64.mul", "wide.u64.div", "wide.u64.idiv", "wide.u64.mod", "wide.u64.pow", "wide.u64.and", "wide.u64.or", "wide.u64.xor", "wide.u64.shl", "wide.u64.shr", "wide.u64.eq", "wide.u64.ne", "wide.u64.lt", "wide.u64.le", "scalar.u64.andBits", "scalar.u64.sub", "scalar.u64.rotateLeft", "scalar.u64.rotateRight", "scalar.u64.popcount", "scalar.u64.leadingZeros", "scalar.u64.trailingZeros", "scalar.u64.prefixXor", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp",
     "wide.i64.sar", "wide.u64.sar", "wide.i64.is", "wide.u64.is",
+    "storage.allocateBytes", "storage.borrowString", "storage.copy", "storage.fill", "storage.sizeOf", "storage.string", "storage.decodeUint8", "storage.encodeUint8", "storage.decodeInt8", "storage.encodeInt8", "storage.decodeUint16", "storage.encodeUint16", "storage.decodeInt16", "storage.encodeInt16", "storage.decodeUint32", "storage.encodeUint32", "storage.decodeInt32", "storage.encodeInt32", "storage.decodeUint64", "storage.encodeUint64", "storage.decodeInt64", "storage.encodeInt64", "storage.decodeFloat32", "storage.encodeFloat32", "storage.decodeFloat64", "storage.encodeFloat64", "storage.castBytes", "storage.castElements", "storage.scalar", "storage.descriptor", "storage.allocateArray", "storage.boundedCount", "storage.index", "storage.write", "storage.add", "storage.sub",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -461,6 +462,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         return outs![Value::func(entry)];
     }
     if let Some(name) = NAMES.get(id as usize) {
+        if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
         if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
         if let Some(op) = name.strip_prefix("scalar.u64.") {
             let op = match op { "andBits" => "and", "rotateLeft" => "rol", "rotateRight" => "ror", other => other };

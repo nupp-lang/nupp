@@ -15,6 +15,10 @@ local function asUnsigned(value: any): uint64
     return value as uint64
 end
 
+local function absent(): any
+    return nil
+end
+
 function numeric.run(): number
     local signed32: int32 = 2147483647
     local unsigned32: uint32 = 4294967295
@@ -46,7 +50,12 @@ function numeric.run(): number
     assert(dynamic is int64 and not (dynamic is uint64))
     assert((dynamic as int64) == first)
     assert(asUnsigned(wide) == wide)
-    assert(not pcall(asUnsigned, first))
+    assert(asUnsigned(first) == first)
+    assert((asUnsigned(first) as any) is int64)
+    local assertions: table = {n = nil as number, s = absent() as string, wide = absent() as uint64}
+    assert(next(assertions) == nil)
+    local unchanged: any = (123 as any) as string
+    assert(unchanged == 123)
     assert(dynamic + 2LL == second and type(dynamic) == "number")
     assert(nupp.math.u64.popcount(wide) == 64)
     assert(indirectCount(nupp.math.u64.popcount, wide) == 64)

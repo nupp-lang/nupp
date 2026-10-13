@@ -119,6 +119,14 @@ pub fn compare(x: Value, y: Value) -> Option<Ordering> {
     }
 }
 pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>) -> Value {
+    if kind.is_none() && matches!(op, "add" | "sub") && !(is_numeric(x) && is_numeric(y)) {
+        let name = if op == "add" { "__add" } else { "__sub" };
+        let mut handler = vm.meta_field(x, name);
+        if handler == Value::NIL { handler = vm.meta_field(y, name); }
+        if handler != Value::NIL {
+            return vm.call_value(handler, &[x, y]).first().copied().unwrap_or(Value::NIL);
+        }
+    }
     if matches!(op, "lt" | "le" | "eq" | "ne") {
         let order = compare(x, y);
         return Value::boolean(match op {

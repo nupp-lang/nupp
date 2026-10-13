@@ -1,0 +1,157 @@
+{
+  "date": "2026-10-13",
+  "scope": "Managed native-layout scalar storage adapter. Raw C pointers, physical struct layouts, Tecs integration, and full corpus acceptance remain open.",
+  "storageFixture": {
+    "seedSha256": "d48ab1c750a1028abf7dcb1a697862f9ff365fb82ddfba89dfecbeab7ddd3935",
+    "imageSha256": "8dea2921f3ead3bcbccb7236d747a75e4a468fa453c2e00797de77c9fc6712ca",
+    "binarySha256": "4c7f5deebc9929644738e578b0d66903bb615941da6d55ca58d780cc32468857",
+    "contractSha256": "929244d90d45046af9664edb131eaeb982b82e8f320e4c756b229a6af3a90487",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ],
+    "gc": "incremental every allocation, root oracle, quarantine",
+    "path": "",
+    "checks": [
+      "unchanged cstorage provider contract",
+      "native byte order and all ten scalar widths",
+      "exact signed and unsigned 64-bit elements",
+      "overlapping byte copies",
+      "read-only cast and string views",
+      "allocation and view bounds",
+      "shared aliases through graph persistence",
+      "public byte and uint64 arrays, checked spans, slices, and affine cleanup"
+    ]
+  },
+  "numericRegression": {
+    "seed": "/private/tmp/nupp-storage-verified-stage1.image",
+    "image": "/private/tmp/nupp-storage-numeric-final/numeric.image",
+    "imageSha256": "a34d179b7efc05719a6b0d24867b2a1166baf19bc467da05970ed0e38b5262fa",
+    "binarySha256": "4c7f5deebc9929644738e578b0d66903bb615941da6d55ca58d780cc32468857",
+    "gc": "incremental every allocation, oracle, quarantine",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "nativeAOT": {
+    "compiledFunctions": 87,
+    "refusedFunctions": 0,
+    "compiledFrames": true,
+    "executableMemoryDenied": true,
+    "craneliftAbsent": true,
+    "checkpointRestorePassed": true,
+    "gc": "full collection every allocation and root oracle",
+    "imageSha256": "7b7736fb0b635c157f1288c5101dd499a1606ad6015085f27b02ff395923c500",
+    "fixtureDifference": "Only module source paths differ from storageFixture; function bodies and bytecode are identical."
+  },
+  "vmCompilerFixpoint": {
+    "bytes": 7578636,
+    "sha256": "d48ab1c750a1028abf7dcb1a697862f9ff365fb82ddfba89dfecbeab7ddd3935",
+    "consecutiveRebuildsByteIdentical": true
+  },
+  "rustTests": {
+    "fullReleaseSuite": "passed",
+    "storageTestsPassed": 5,
+    "checks": [
+      "native byte vectors",
+      "overlap, bounds, readonly views, and error root cleanup",
+      "owner retention after dropping the original view",
+      "shared graphs and full VM checkpoint restore",
+      "nested array widths and row aliases",
+      "independent worker byte ownership"
+    ]
+  },
+  "hostFocused": {
+    "command": "./bin/nupp test carraytest spanloweringtest loweringinvarianttest",
+    "passed": 49,
+    "failed": 0
+  },
+  "corpus": {
+    "engine": "threaded",
+    "gcInterleave": true,
+    "imageSha256": "37cff54c6ffb19f8b8a11ebe05015c0543773a765c27c2aa7f04c554c7b1959e",
+    "unavailableModules": [],
+    "results": [
+      {
+        "suite": "utilstoretest",
+        "class": "portable",
+        "facilities": "getinfo",
+        "reason": "pure Lua against compiler modules within the subset",
+        "status": "failed",
+        "exitStatus": 1,
+        "passed": 0,
+        "failed": 0,
+        "total": 0,
+        "completed": false,
+        "durationSeconds": 0.131,
+        "error": "task: Failed(\"module 'nupp.runtime.provider.nativeuuid' not found: not in the image\")\n",
+        "failureSamples": []
+      }
+    ]
+  },
+  "remaining": [
+    "utilstoretest reaches the missing nupp.runtime.provider.nativeuuid; no corpus cases run.",
+    "External C pointer adoption, pointer-valued storage elements, struct and bitfield layouts are unsupported; optional layout, reference and structs services remain absent.",
+    "Actual Tecs storage persistence and snapshot benchmark remain separate work.",
+    "Typed VM slot widths, remaining host adapters, full CLI and corpus coverage, and legacy-toolchain deletion remain open."
+  ],
+  "reproduce": [
+    "python3 native/crates/vm/tests/storage-smoke.py SEED --output OUTPUT",
+    "FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh IMAGE nupp.tests.vmstorage run",
+    "cargo build -p nupp-vm --release",
+    "cargo test -p nupp-vm --release -- --test-threads=1",
+    "python3 native/crates/vm/tests/numeric-smoke.py SEED --output OUTPUT",
+    "python3 native/crates/vm/tests/tasks-smoke.py SEED",
+    "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite utilstoretest --engine threaded --gc-interleave --output OUTPUT"
+  ],
+  "hostCheck": {
+    "ok": true,
+    "errors": 0,
+    "command": "./bin/nupp check --json"
+  },
+  "taskRegression": {
+    "interpreterFunctionsPassed": 15,
+    "jitFunctionsPassed": 15,
+    "fullGcStress": true,
+    "parkedScopeCheckpointRestorePassed": true,
+    "useAfterCloseRejected": [
+      "channel",
+      "coroutine"
+    ],
+    "imageSha256": "054d63e8d728cae15974cf6dbf0bd354daeb4c62a480ff4e9c6503d048599131"
+  },
+  "hostCompilerFixpoint": {
+    "command": "./bin/nupp fixpoint",
+    "exitCode": 0,
+    "byteIdentical": true
+  }
+}

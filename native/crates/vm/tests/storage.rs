@@ -1,0 +1,269 @@
+use nupp_vm::{
+    builtins, image,
+    interp::Interp,
+    numeric,
+    persist::{self, Policies, ResourceCodecs},
+    value::Value,
+};
+
+fn vm() -> Interp {
+    let mut vm = Interp::new();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    vm.install_globals();
+    vm
+}
+fn call(vm: &mut Interp, method: &str, args: &[Value]) -> Value {
+    let id = builtins::id_of(&format!("storage.{method}")).unwrap();
+    vm.call_value(Value::builtin(id), args)[0]
+}
+fn keep(vm: &mut Interp, method: &str, args: &[Value]) -> Value {
+    let result = call(vm, method, args);
+    vm.register(result);
+    result
+}
+fn kind(vm: &mut Interp, name: &str) -> Value {
+    let name = vm.intern(name);
+    call(vm, "scalar", &[name])
+}
+fn string(vm: &mut Interp, bytes: &[u8]) -> Value {
+    let v = vm.string_of(bytes);
+    vm.register(v);
+    v
+}
+fn fails(vm: &mut Interp, method: &str, args: &[Value]) {
+    let handles = vm.handles.len();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(vm, method, args))).is_err()
+    );
+    assert_eq!(
+        vm.handles.len(),
+        handles,
+        "an error retained temporary roots"
+    );
+}
+
+#[test]
+fn scalar_layouts_and_native_byte_vectors() {
+    let mut vm = vm();
+    for (name, suffix, width, value, bytes) in [
+        ("uint8", "Uint8", 1, 255.0, vec![255]),
+        ("int8", "Int8", 1, -128.0, vec![128]),
+        ("uint16", "Uint16", 2, 65535.0, vec![255; 2]),
+        (
+            "int16",
+            "Int16",
+            2,
+            -32768.0,
+            i16::MIN.to_ne_bytes().to_vec(),
+        ),
+        ("uint32", "Uint32", 4, 4294967295.0, vec![255; 4]),
+        (
+            "int32",
+            "Int32",
+            4,
+            -2147483648.0,
+            i32::MIN.to_ne_bytes().to_vec(),
+        ),
+        ("float", "Float32", 4, 1.5, 1.5f32.to_ne_bytes().to_vec()),
+        (
+            "number",
+            "Float64",
+            8,
+            -0.0,
+            (-0.0f64).to_ne_bytes().to_vec(),
+        ),
+    ] {
+        let descriptor = kind(&mut vm, name);
+        assert_eq!(descriptor, kind(&mut vm, name));
+        assert_eq!(
+            call(&mut vm, "sizeOf", &[descriptor]),
+            Value::num(width as f64)
+        );
+        let encoded = keep(&mut vm, &format!("encode{suffix}"), &[Value::num(value)]);
+        assert_eq!(vm.bytes_of(encoded), bytes);
+        assert_eq!(
+            call(&mut vm, &format!("decode{suffix}"), &[encoded]),
+            Value::num(value)
+        );
+        let array = keep(&mut vm, "allocateArray", &[descriptor, Value::num(2.0)]);
+        call(
+            &mut vm,
+            "write",
+            &[array, Value::num(1.0), Value::num(value)],
+        );
+        let raw = call(&mut vm, "string", &[array, Value::num((2 * width) as f64)]);
+        assert_eq!(&vm.bytes_of(raw)[width..], bytes);
+    }
+    for (suffix, unsigned, bits) in [
+        ("Uint64", true, u64::MAX),
+        ("Int64", false, i64::MAX as u64),
+        ("Int64", false, (i64::MIN + 1) as u64),
+    ] {
+        let bytes = string(&mut vm, &bits.to_ne_bytes());
+        let decoded = keep(&mut vm, &format!("decode{suffix}"), &[bytes]);
+        assert_eq!(numeric::bits(&vm, decoded, unsigned), bits);
+        let encoded = call(&mut vm, &format!("encode{suffix}"), &[decoded]);
+        assert_eq!(vm.bytes_of(encoded), bits.to_ne_bytes());
+    }
+}
+
+#[test]
+fn overlap_bounds_and_readonly_views() {
+    let mut vm = vm();
+    let data = keep(&mut vm, "allocateBytes", &[Value::num(8.0)]);
+    let input = string(&mut vm, b"abcdefgh");
+    call(&mut vm, "copy", &[data, input, Value::num(8.0)]);
+    let tail = keep(&mut vm, "add", &[data, Value::num(2.0)]);
+    call(&mut vm, "copy", &[tail, data, Value::num(6.0)]);
+    let bytes = call(&mut vm, "string", &[data, Value::num(8.0)]);
+    assert_eq!(vm.bytes_of(bytes), b"ababcdef");
+    call(&mut vm, "copy", &[data, tail, Value::num(6.0)]);
+    let bytes = call(&mut vm, "string", &[data, Value::num(8.0)]);
+    assert_eq!(vm.bytes_of(bytes), b"abcdefef");
+    let readonly = keep(&mut vm, "castBytes", &[data]);
+    fails(
+        &mut vm,
+        "write",
+        &[readonly, Value::num(0.0), Value::num(9.0)],
+    );
+    fails(
+        &mut vm,
+        "fill",
+        &[readonly, Value::num(1.0), Value::num(0.0)],
+    );
+    fails(&mut vm, "copy", &[data, input, Value::num(9.0)]);
+    fails(&mut vm, "boundedCount", &[tail, Value::num(7.0)]);
+    fails(&mut vm, "add", &[data, Value::num(-1.0)]);
+    fails(&mut vm, "index", &[data, Value::num(8.0)]);
+    for bad in [-1.0, 0.5, f64::NAN, f64::INFINITY, 2147483648.0] {
+        fails(&mut vm, "allocateBytes", &[Value::num(bad)]);
+    }
+    let end = keep(&mut vm, "add", &[data, Value::num(8.0)]);
+    assert_eq!(
+        call(&mut vm, "boundedCount", &[end, Value::num(0.0)]),
+        Value::num(0.0)
+    );
+    fails(&mut vm, "index", &[end, Value::num(0.0)]);
+    let byte = string(&mut vm, b"x");
+    fails(&mut vm, "decodeFloat64", &[byte]);
+    vm.full_cycle();
+    vm.check_oracle();
+}
+
+#[test]
+fn only_a_view_keeps_its_owner_alive_and_graphs_keep_aliases() {
+    let mut vm = vm();
+    let data = call(&mut vm, "allocateBytes", &[Value::num(8.0)]);
+    let root = vm.register(data);
+    call(&mut vm, "fill", &[data, Value::num(8.0), Value::num(42.0)]);
+    let tail = keep(&mut vm, "add", &[data, Value::num(3.0)]);
+    vm.release(root);
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(
+        call(&mut vm, "index", &[tail, Value::num(0.0)]),
+        Value::num(42.0)
+    );
+    let data = keep(&mut vm, "sub", &[tail, Value::num(3.0)]);
+    let pair = vm.new_table();
+    vm.register(pair);
+    vm.push_array(pair, data);
+    vm.push_array(pair, tail);
+    let saved = persist::save_graph(&mut vm, &[pair], &Policies::default()).unwrap();
+    let mut other = self::vm();
+    let loaded = persist::load_graph(&mut other, &saved, &Policies::default(), None).unwrap()[0];
+    other.register(loaded);
+    other.full_cycle();
+    let a = other.array_get(loaded, 0);
+    let b = other.array_get(loaded, 1);
+    call(&mut other, "write", &[b, Value::num(1.0), Value::num(7.0)]);
+    assert_eq!(
+        call(&mut other, "index", &[a, Value::num(4.0)]),
+        Value::num(7.0)
+    );
+    assert_eq!(
+        call(&mut vm, "index", &[data, Value::num(4.0)]),
+        Value::num(42.0)
+    );
+    other.loaded.insert("storage.fixture".into(), loaded);
+    let checkpoint =
+        persist::save_vm(&mut other, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    let mut resumed = persist::load_vm(
+        &checkpoint,
+        &Policies::default(),
+        &mut ResourceCodecs::new(),
+    )
+    .unwrap();
+    let loaded = resumed.loaded["storage.fixture"];
+    let a = resumed.array_get(loaded, 0);
+    let b = resumed.array_get(loaded, 1);
+    call(
+        &mut resumed,
+        "write",
+        &[b, Value::num(1.0), Value::num(9.0)],
+    );
+    assert_eq!(
+        call(&mut resumed, "index", &[a, Value::num(4.0)]),
+        Value::num(9.0)
+    );
+}
+
+#[test]
+fn nested_array_descriptors_preserve_width_and_row_aliases() {
+    let mut vm = vm();
+    let word = kind(&mut vm, "uint32");
+    let sample = keep(&mut vm, "allocateArray", &[word, Value::num(3.0)]);
+    let row = call(&mut vm, "descriptor", &[sample]);
+    let rows = keep(&mut vm, "allocateArray", &[row, Value::num(2.0)]);
+    assert_eq!(call(&mut vm, "sizeOf", &[rows]), Value::num(24.0));
+    let last = keep(&mut vm, "index", &[rows, Value::num(1.0)]);
+    call(
+        &mut vm,
+        "write",
+        &[last, Value::num(2.0), Value::num(0x12345678 as f64)],
+    );
+    let raw = call(&mut vm, "string", &[rows, Value::num(24.0)]);
+    assert_eq!(&vm.bytes_of(raw)[20..24], &0x12345678u32.to_ne_bytes());
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(call(&mut vm, "descriptor", &[last]), row);
+}
+
+#[test]
+fn worker_storage_transfer_owns_independent_bytes() {
+    use nupp_vm::{scheduler::Status, workers::Worker};
+    let mut vm = vm();
+    let entry = image::load(
+        &mut vm,
+        "function identity 0 1 10 1 v:v\nRet 1\nend\nentry 0\n",
+    )
+    .unwrap();
+    vm.enable_scheduler().unwrap();
+    let data = keep(&mut vm, "allocateBytes", &[Value::num(8.0)]);
+    call(&mut vm, "fill", &[data, Value::num(8.0), Value::num(23.0)]);
+    let mut worker = Worker::spawn(&mut vm, Value::func(entry), &[data]).unwrap();
+    for _ in 0..2000 {
+        worker.step(0).unwrap();
+        if let Some(result) = worker.poll().unwrap() {
+            assert_eq!(result.status, Status::Completed);
+            let roots =
+                persist::load_graph(&mut vm, &result.values.unwrap(), &Policies::default(), None)
+                    .unwrap();
+            vm.register(roots[0]);
+            call(
+                &mut vm,
+                "write",
+                &[roots[0], Value::num(0.0), Value::num(17.0)],
+            );
+            assert_eq!(
+                call(&mut vm, "index", &[data, Value::num(0.0)]),
+                Value::num(23.0)
+            );
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("storage worker did not finish");
+}

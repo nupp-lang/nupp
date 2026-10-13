@@ -7,6 +7,7 @@
 //! surface).
 pub mod value;
 pub mod numeric;
+mod storage;
 pub mod heap;
 pub mod interp;
 pub mod builtins;

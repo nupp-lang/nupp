@@ -1218,9 +1218,11 @@ python3 native/crates/vm/tests/corpus-smoke.py compiler.image \
 An integer a double represents exactly remains immediate. Other values use a
 weakly interned box carrying the complete bits and signedness. `IBox` preserves
 signed integer registers; wide constants and operations preserve unsigned
-values. Casts check the boxed kind, and numeric comparisons and table keys use
-the exact magnitude. Explicit conversion to `number` through `tonumber` can
-round. The collector drops unused boxes, and persistence preserves live ones.
+values. Runtime kind tests inspect the boxed kind, and numeric comparisons and
+table keys use the exact magnitude. `as` assertions erase; they preserve the
+operand, including nil type witnesses. Explicit conversion to `number` through
+`tonumber` can round. The collector drops unused boxes, and persistence preserves
+live ones.
 
 The lowerer consumes the checker's resolved numeric types, fixed-width
 arithmetic annotations, type-test targets, and namespace identities. Ordinary
@@ -1245,7 +1247,48 @@ passes. The VM compiler reaches byte identity at 7,573,844 bytes.
 Eager frame compilation of the larger corpus image exceeded 600 seconds before
 any test ran. A stack sample located the work in Cranelift register allocation;
 the default on-demand JIT completes the quaternion suite. This startup limit
-remains open. `utilstoretest` still requires
-`nupp.runtime.provider.nativestorage`. Typed slot widths, complete integer
-register lowering, primitive-wrapper removal, and the full corpus gate also
-remain open. The historical coverage inventory above predates this math port.
+remains open. Typed slot widths, complete integer register lowering,
+primitive-wrapper removal, and the full corpus gate also remain open. The
+historical coverage inventory above predates this math port; the storage
+adapter below advances `utilstoretest` to its next provider dependency.
+
+## Managed native storage (2026-10-13)
+
+The VM serves `nupp.runtime.provider.nativestorage` with managed byte owners and
+bounded views. Public scalar arrays and spans retain native byte order and
+scalar widths without storing process addresses.
+
+```sh
+python3 native/crates/vm/tests/storage-smoke.py compiler.image --output /tmp/vm-storage
+FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh \
+  /tmp/vm-storage/storage.image nupp.tests.vmstorage run
+cargo build -p nupp-vm --release
+cargo test -p nupp-vm --release --test storage
+```
+
+The adapter supplies zeroed allocation, scalar codecs, byte copies and fills,
+array descriptors, nested arrays, and pointer arithmetic within an owner.
+Copies permit overlapping ranges. String and cast views are read-only. Reads,
+writes, and requested extents are checked; signed and unsigned 64-bit elements
+retain their complete bits. Views keep their owners alive through collection.
+Worker transfer copies owned bytes, and binary graphs and checkpoints preserve
+shared views of an allocation.
+
+The compiler consumes the checker's span adapters for indexed reads, writes,
+and lengths. Out-of-line instance functions enter the record's method table.
+Imported affine cleanup functions use their declaration identities; local
+cleanup functions keep their lexical bindings. `as` assertions erase, including
+the library's nil scalar witnesses.
+
+Raw external C pointers, pointer-valued storage elements, physical struct and
+bitfield layouts, and the actual Tecs storage migration remain open. The adapter
+does not provide the optional `layout`, `reference`, or `structs` services.
+
+The unchanged storage provider contract and the checked array/span fixture pass
+both interpreters, leaf JIT, and compiled frames with incremental collection,
+the root oracle, and quarantine. Native AOT compiles all 87 fixture functions
+and passes with executable memory denied, full collector stress, and checkpoint
+restore. The compiler image rebuilds byte-identically at 7,578,636 bytes.
+`tests/storage-coverage.json` records these results. The fresh `utilstoretest`
+image now loads storage and stops at the missing
+`nupp.runtime.provider.nativeuuid`; the suite has not run any cases.

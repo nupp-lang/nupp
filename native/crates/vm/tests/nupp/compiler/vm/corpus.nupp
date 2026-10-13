@@ -23,6 +23,7 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     env.managedCoroutines = true
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
     local hosts = {
+        ["nupp.runtime.provider.nativestorage"] = true,
         ["nupp.vm.tasks"] = true,
         ["nupp.vm.clock"] = true,
         ["nupp.vm.coroutine"] = true,

@@ -1,0 +1,107 @@
+module nupp.tests.vmstorage
+
+local provider: any = require("nupp.runtime.provider.nativestorage")
+local contract = require("nupp.tests.providers.cstorage")
+local persist = require("nupp.vm.persist")
+local storage = {}
+local held: any = nil
+
+function storage.run(): number
+    local ok, problem = contract.test(provider)
+    assert(ok, problem)
+    if held ~= nil then
+        assert(held.view[0] == 18446744073709551615ULL)
+        held.view[0] = 9007199254740993ULL
+        assert(held.owner[1] == 9007199254740993ULL)
+    end
+
+    local kind = provider.scalar("uint64")
+    assert(rawequal(kind, provider.scalar("uint64")))
+    local words = provider.allocateArray(kind, 3)
+    words[0] = 9007199254740993ULL
+    words[1] = 18446744073709551615ULL
+    words[2] = 0x8000000000000005ULL
+    local shifted: any = words + 1
+    assert(shifted[0] == words[1] and shifted - words == 1)
+    assert(provider.sizeOf(words) == 24)
+    assert(provider.sizeOf(provider.descriptor(words)) == 24)
+    assert(provider.boundedCount(shifted, 2) == 2)
+    local bytes = provider.castBytes(words)
+    assert(provider.string(bytes, 8) == provider.encodeUint64(words[0]))
+    assert(
+        not pcall(function()
+            bytes[0] = 1
+        end)
+    )
+    assert(not pcall(provider.boundedCount, shifted, 3))
+    assert(
+        not pcall(function()
+            return words[3]
+        end)
+    )
+    assert(
+        not pcall(function()
+            words[-1] = 2
+        end)
+    )
+    assert(not pcall(provider.allocateArray, kind, 2147483647))
+    assert(not pcall(provider.allocateBytes, math.huge))
+    assert(not pcall(provider.allocateBytes, 0.5))
+    assert(not pcall(provider.decodeUint64, "short"))
+    local signed = provider.allocateArray(provider.scalar("int64"), 1)
+    signed[0] = -9223372036854775807LL
+    assert(signed[0] == -9223372036854775807LL)
+    local narrow = provider.allocateArray(provider.scalar("int8"), 2)
+    narrow[0] = 255
+    assert(narrow[0] == -1)
+    local floats = provider.allocateArray(provider.scalar("float"), 2)
+    floats[0] = 1.5
+    assert(floats[0] == 1.5)
+    floats[1] = -0.0
+    assert(1 / floats[1] == -math.huge)
+
+    local shared = {owner = words, view = shifted}
+    local restored = persist.load(persist.save(shared))
+    assert(restored.view[0] == words[1])
+    restored.view[0] = 13ULL
+    assert(restored.owner[1] == 13ULL and words[1] == 18446744073709551615ULL)
+    held = shared
+
+    local array = require("nupp.mem.array")
+    do
+        const owned = array.bytes(4)
+        const writable = owned:write()
+        writable[1] = 255
+        writable[4] = 42
+        nupp.drop(writable)
+        const readable = owned:read()
+        assert(#readable == 4 and readable[1] == 255 and readable[4] == 42)
+        const tail = readable:slice(2, 4)
+        assert(#tail == 3 and tail[3] == 42)
+        assert(
+            not pcall(function()
+                return readable[0]
+            end)
+        )
+        assert(
+            not pcall(function()
+                return tail[4]
+            end)
+        )
+    end
+    do
+        const owned = array.scalar(array.uint64, 2)
+        const writable = owned:write()
+        writable[1] = 9007199254740993ULL
+        writable[2] = 18446744073709551615ULL
+        nupp.drop(writable)
+        const readable = owned:read()
+        assert(#readable == 2)
+        assert(readable[1] == 9007199254740993ULL)
+        assert(readable[2] == 18446744073709551615ULL)
+    end
+
+    return 42
+end
+
+export = storage

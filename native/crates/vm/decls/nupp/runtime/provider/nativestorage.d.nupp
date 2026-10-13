@@ -1,0 +1,2 @@
+local {type CstorageProvider} = require("nupp.mem.representation.spi")
+return CstorageProvider

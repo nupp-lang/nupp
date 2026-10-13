@@ -931,6 +931,7 @@ impl Interp {
     /// `package`, `_G`), served by `require` as runtime-provided modules.
     pub fn install_globals(&mut self) {
         self.code_events.push(crate::persist::CodeEvent::Globals);
+        crate::storage::install(self);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
         self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
