@@ -450,8 +450,8 @@ impl<M: Module> Compiler<M> {
             }
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
-            let native_resumes = crate::native_simd::resumes(f);
-            if frame { if typed_native { starts.extend(native_resumes.iter().copied()); } else { starts.extend(0..f.code.len()); } }
+            let frame_resumes = if typed_native { crate::native_simd::resumes(f) } else { crate::frame::resumes(f) };
+            if frame { starts.extend(frame_resumes.iter().copied()); }
             for (pc, op) in f.code.iter().enumerate() {
                 match *op {
                     Op::Jmp(off) | Op::JmpIfIZero(_, off) | Op::JmpIf(_, off) | Op::JmpIfNot(_, off) | Op::IJmpIfUle(_, _, off) | Op::IJmpIfUlt(_, _, off) => { starts.insert((pc as i64 + 1 + off as i64) as usize); starts.insert(pc + 1); }
@@ -524,9 +524,16 @@ impl<M: Module> Compiler<M> {
             let mut terminated = false;
             if frame {
                 let mut dispatch = cranelift_frontend::Switch::new();
-                let loads: Vec<_> = starts.iter().filter(|&&pc| !typed_native || native_resumes.contains(&pc)).map(|&pc| (pc, b.create_block())).collect();
+                let loads: Vec<_> = frame_resumes.iter().map(|&pc| (pc, b.create_block())).collect();
                 for &(pc, block) in &loads { dispatch.set_entry(pc as u128, block); }
-                dispatch.emit(&mut b, params[1], err_block);
+                // Generic checkpoints may stop between compiled entries. Typed
+                // kernels keep rejecting entries that bypass their guard proofs.
+                let fallback = if typed_native { err_block } else { b.create_block() };
+                dispatch.emit(&mut b, params[1], fallback);
+                if !typed_native {
+                    b.switch_to_block(fallback); b.seal_block(fallback); b.set_cold_block(fallback);
+                    b.ins().return_(&[params[1]]);
+                }
                 for (pc, load) in loads {
                     b.switch_to_block(load); b.seal_block(load);
                     let live = &frame_live.as_ref().unwrap().0[pc];
@@ -924,7 +931,7 @@ impl<M: Module> Compiler<M> {
                         let fv = b.ins().iconst(types::I64, fid_ as i64); let nv = b.ins().iconst(types::I64, n as i64);
                         let c = hcall!("j_new_closure", &[fv, addr, nv]); setr!(d, b.inst_results(c)[0]);
                     }
-                    Op::CallDyn(fr, base, nargs) if nargs < 128 && entries_addr != 0 && calltab_addr != 0 && stub_refs.is_some() && std::env::var("NO_DIRECT").is_err() => {
+                    Op::CallDyn(fr, base, nargs) if nargs < 64 && entries_addr != 0 && calltab_addr != 0 && stub_refs.is_some() && std::env::var("NO_DIRECT").is_err() => {
                         // The shared dispatch stub answers a compiled entry for a closure
                         // or bare function (plain signature), which is called straight
                         // with eight nil-padded register arguments; an iterator steps
@@ -1229,7 +1236,7 @@ impl<M: Module> Compiler<M> {
                             let nv = b.ins().iconst(types::I64, 128 + fixed as i64);
                             hcall!("j_ret_extra", &[addr, nv]);
                             let r = rv!(start); b.ins().return_(&[r]); terminated = true;
-                        } else if n == 0 { let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
+                        } else if n == 0 { let zero = b.ins().iconst(types::I64, 0); let none = b.ins().iconst(types::I64, 256); hcall!("j_ret_extra", &[zero, none]); let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
                         else {
                             let extra = n as usize - 1;
                             let addr = args_slot!(start, extra);
@@ -1475,7 +1482,7 @@ impl<M: Module> Compiler<M> {
                     Op::FRet(x) if ret_f => { let v = fv!(x); note_one_result!(); b.ins().return_(&[v]); terminated = true; }
                     Op::RetNil if ret_f => { let z = b.ins().f64const(0.0); note_one_result!(); b.ins().return_(&[z]); terminated = true; }
                     Op::FRet(x) => { let v = fv!(x); let r = box_f64!(v); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
-                    Op::RetNil => { let r = b.ins().iconst(types::I64, NIL); note_one_result!(); b.ins().return_(&[r]); terminated = true; }
+                    Op::RetNil => { let zero = b.ins().iconst(types::I64, 0); let none = b.ins().iconst(types::I64, 256); hcall!("j_ret_extra", &[zero, none]); let r = b.ins().iconst(types::I64, NIL); b.ins().return_(&[r]); terminated = true; }
                     Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }

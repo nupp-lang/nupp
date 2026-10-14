@@ -32,6 +32,7 @@ local REPORT_SCHEMA = {
         ok = report.OK,
         diagnostics = report.DIAGNOSTICS,
         file = {type = "string"},
+        backend = {type = "string", enum = {"luajit", "vm"}},
         optLevel = {type = "integer"},
         functions = {
             type = "array",
@@ -153,6 +154,36 @@ local function run(options: any): integer
         end
 
         return 1
+    end
+
+    if rawget(_G, "__nupp_load_image") then
+        local source, problem = require("nupp.compiler.fs").readFile(path)
+        if not source then
+            return fail(report.TOOL_FAILED, tostring(problem))
+        end
+        if (require("nupp.tools.cli.compile").settings(options).optLevel or 0) ~= 0 then
+            return fail(report.TOOL_FAILED, "VM bytecode inspection does not use Lua optimization levels")
+        end
+        local ok, functions = pcall(require("nupp.tools.vm.project").inspect, ".", path)
+        if not ok then
+            return fail(report.TOOL_FAILED, tostring(functions))
+        end
+        if asJson then
+            io.write(
+                report.encode({
+                    ok = true,
+                    file = path,
+                    backend = "vm",
+                    optLevel = 0,
+                    diagnostics = {},
+                    functions = functions,
+                    unrecordable = 0
+                }) .. "\n"
+            )
+        else
+            io.write((listing.render(functions, source, {width = width(options), palette = palette(source)})))
+        end
+        return 0
     end
 
     local ok = pcall(require, "jit.util")

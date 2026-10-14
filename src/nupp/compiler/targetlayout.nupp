@@ -150,6 +150,10 @@ end
 --- The explicit target key for the VM running the compiler, when modeled.
 --- Cross-target callers pass their own key and never reach this function.
 function targetLayout.hostKey(): string?
+    local nativeKey = rawget(_G, "__nuppHostTargetLayout")
+    if nativeKey ~= nil then
+        return MODELS[nativeKey] and nativeKey or nil
+    end
     local architectures: {[string]: string} = {x64 = "x86_64", x86 = "i686", arm64 = "aarch64"}
     local systems: {[string]: string} = {OSX = "apple-darwin", Linux = "unknown-linux-gnu", Windows = "pc-windows-msvc"}
     local host: any = rawget(_G, "jit")

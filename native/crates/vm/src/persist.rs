@@ -694,8 +694,18 @@ pub(crate) fn save_graph_with(
     vm: &mut Interp,
     roots: &[Value],
     policies: &Policies,
+    codecs: Option<&mut ResourceCodecs>,
+    whole_vm: bool,
+) -> Result<Vec<u8>> {
+    save_graph_mode(vm, roots, policies, codecs, whole_vm, false)
+}
+fn save_graph_mode(
+    vm: &mut Interp,
+    roots: &[Value],
+    policies: &Policies,
     mut codecs: Option<&mut ResourceCodecs>,
     whole_vm: bool,
+    plain: bool,
 ) -> Result<Vec<u8>> {
     let scope = vm.open_scope();
     vm.handles.extend_from_slice(roots);
@@ -746,10 +756,10 @@ pub(crate) fn save_graph_with(
                 }
             }
             let h = unsafe { p.as_ref() };
-            payload.byte(if h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else { h.kind });
+            payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else { h.kind });
             // Use the collector's edge enumeration to discover every ordinary
             // reference. Transient records use their filtered edge list below.
-            if kind != KIND_RECORD {
+            if kind != KIND_RECORD && !(plain && kind == KIND_TABLE) {
                 let mut children = Vec::new();
                 Heap::each_child(h, &mut |c| children.push(c));
                 for c in children {
@@ -766,7 +776,7 @@ pub(crate) fn save_graph_with(
                     refs_write(&mut payload, &graph.values(vm, &t.array)?)?;
                     let pairs: Vec<Value> = t.hash.iter().flat_map(|(k, v)| [*k, *v]).collect();
                     refs_write(&mut payload, &graph.values(vm, &pairs)?)?;
-                    graph.value(vm, t.meta)?.write(&mut payload)?
+                    graph.value(vm, if plain { Value::NIL } else { t.meta })?.write(&mut payload)?
                 }
                 KIND_RECORD => {
                     payload.u32(h.shape() as usize)?;
@@ -795,7 +805,7 @@ pub(crate) fn save_graph_with(
                         .map(|m| m.iter().flat_map(|(k, v)| [*k, *v]).collect())
                         .unwrap_or_default();
                     refs_write(&mut payload, &graph.values(vm, &extra)?)?;
-                    if h.flags & F_METATABLE != 0 { graph.value(vm, h.record_extra_ref().as_ref().unwrap().meta)?.write(&mut payload)?; }
+                    if !plain && h.flags & F_METATABLE != 0 { graph.value(vm, h.record_extra_ref().as_ref().unwrap().meta)?.write(&mut payload)?; }
                 }
                 KIND_STORAGE => {
                     let s = unsafe { &*(h.payload() as *const StoragePayload) };
@@ -1125,6 +1135,43 @@ pub fn load_graph(
 ) -> Result<Vec<Value>> {
     load_graph_with(vm, data, policies, expected, None, false, None)
 }
+// Compiler caches and worker messages may come from project-writable files.
+// Validate the complete graph before allocating or resolving executable values.
+fn plain_graph(data: &[u8]) -> Result<()> {
+    let graph = parse_graph(data)?;
+    if graph.functions || graph.roots.len() != 1 {
+        return Err("plain data must contain one non-executable root".into());
+    }
+    let reference = |value: &Ref| match value {
+        Ref::Bits(_) | Ref::Obj(_) => Ok(()),
+        _ => Err("plain data cannot contain callable values".to_string()),
+    };
+    reference(&graph.roots[0])?;
+    for node in &graph.nodes {
+        match node {
+            Node::Integer(_) | Node::String(..) | Node::Slice(..) => (),
+            Node::Table(_, _, meta) | Node::Record(_, _, _, _, meta)
+                if matches!(meta, Ref::Bits(bits) if *bits == Value::NIL.0) => (),
+            _ => return Err("plain data cannot contain resources, closures, or metatables".into()),
+        }
+        for value in node_refs(node) { reference(value)?; }
+    }
+    Ok(())
+}
+
+/// Encode stored compiler data, omitting table behavior as Lua plain-data encoding does.
+pub fn save_plain(vm: &mut Interp, value: Value) -> Result<Vec<u8>> {
+    let bytes = save_graph_mode(vm, &[value], &Policies::default(), None, false, true)?;
+    plain_graph(&bytes)?;
+    Ok(bytes)
+}
+
+/// Decode compiler data after rejecting every executable and external edge.
+pub fn load_plain(vm: &mut Interp, data: &[u8]) -> Result<Value> {
+    plain_graph(data)?;
+    Ok(load_graph(vm, data, &Policies::default(), None)?[0])
+}
+
 /// Replace a record in place, preserving references to its identity. A rejected
 /// framing/schema leaves it unchanged. Hook failures can leave it modified.
 pub fn load_into(

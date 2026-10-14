@@ -1,5 +1,49 @@
 local M = {}
 function M.run()
+    local function identity(value)
+        return value
+    end
+
+    assert(identity{answer = 42}.answer == 42)
+    assert(identity"text" == "text")
+    local object = {}
+    function object:identity(value)
+        assert(self == object)
+        return value
+    end
+
+    assert(object:identity({answer = 42}).answer == 42)
+    assert(object:identity("text") == "text")
+    local ok, handled = xpcall(
+        function()
+            error("original")
+        end,
+        function(problem)
+            assert(problem == "original")
+            return "handled"
+        end
+    )
+    assert(not ok and handled == "handled")
+    local success, first, last = xpcall(
+        function()
+            return 42, "last"
+        end,
+        function()
+            error("unexpected handler")
+        end
+    )
+    assert(success and first == 42 and last == "last")
+    local failed, reason = xpcall(
+        function()
+            error("body")
+        end,
+        function()
+            error("handler")
+        end
+    )
+    assert(not failed and reason == "error in error handling")
+    local fileType = assert(io.type)
+    assert(fileType(io.stdout) == "file" and fileType({}) == nil)
     local numeric = 3
     numeric = string.match("done", "^[0-9]+")
     assert(numeric == nil and not numeric)
@@ -20,7 +64,7 @@ function M.run()
     local dynamicMath = _G["math"]
     local originalCos = dynamicMath.cos
     dynamicMath.cos = nil
-    assert(io.popen == nil and math.cos == nil)
+    assert(_G["io"]["missingProbe"] == nil and math.cos == nil)
     dynamicMath.cos = function(value)
         return value + 1
     end

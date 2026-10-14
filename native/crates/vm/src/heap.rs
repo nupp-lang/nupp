@@ -296,6 +296,7 @@ pub struct Heap {
     debt: usize,
     threshold: usize,
     pub live_bytes: usize,
+    pub automatic_collection: bool,
     /// A whole cycle at every allocation.
     pub stress: bool,
     /// One small step at every allocation, the oracle at every cycle end.
@@ -319,7 +320,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), alloc_kinds: [0; 13], marking: 0 }
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), alloc_kinds: [0; 13], marking: 0 }
     }
 
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
@@ -573,6 +574,7 @@ impl Heap {
     /// Where collection may run (4.4). Pays allocation debt with marking or
     /// sweeping work; under stress, runs a whole cycle every time.
     pub fn safepoint(&mut self, roots: &dyn Roots) {
+        if !self.automatic_collection { return; }
         if self.stress {
             self.full_cycle(roots);
             if self.oracle { self.check_oracle(roots); }

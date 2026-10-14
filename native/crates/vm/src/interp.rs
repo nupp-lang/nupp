@@ -341,6 +341,8 @@ pub struct Interp {
     pub(crate) channel_registry: crate::channels::Shared,
     pub(crate) workers: std::collections::HashMap<u64,crate::workers::Worker>,
     pub(crate) instruction_budget: Option<usize>,
+    pub(crate) execution_limit: Option<usize>,
+    loading_modules: std::collections::HashSet<String>,
     pub scheduler: Option<crate::scheduler::Scheduler>,
     pub(crate) active_cancellation: Option<crate::scheduler::Cancellation>,
     pub(crate) persistence_hook_depth: usize,
@@ -352,6 +354,8 @@ pub struct Interp {
     pub resources: std::collections::HashMap<Value, String>,
     #[cfg(feature = "c-headers")]
     pub c_declarations: Option<Box<crate::cdecl::Registry>>,
+    pub(crate) processes: crate::process::State,
+    pub(crate) temporary_paths: std::collections::HashMap<Value, crate::temporary::Owner>,
     pub native_files: std::collections::HashMap<Value, std::fs::File>,
     pub heap: Heap,
     /// The host services, once started.
@@ -508,7 +512,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -621,7 +625,7 @@ impl Interp {
         if self.jit_threshold != 0 { self.note_call(f); }
         let callee = unsafe { self.funcs.get_unchecked(f as usize) };
         if self.trace { eprintln!("call {} nargs {}", callee.name, nargs); }
-        if nargs >= 128 || callee.vararg { return self.push_frame_cold(tid, f, args_at, nargs, pc); }
+        if nargs >= 64 || callee.vararg { return self.push_frame_cold(tid, f, args_at, nargs, pc); }
         let words = callee.frame_words();
         let t = &mut self.tasks[tid];
         let s = t.cur;
@@ -640,7 +644,7 @@ impl Interp {
             *st.add(ns + 1) = s as u64 | ((args_at as u64) << 32);
             *st.add(ns + 2) = Value::NIL.0;
             *st.add(ns + 3) = header3(0, false, words, 0);
-            for i in 0..nargs as usize { *st.add(ns + HDR + 1 + i) = *st.add(args_at + 1 + i); }
+            for i in 0..(nargs as usize).min(nparams) { *st.add(ns + HDR + 1 + i) = *st.add(args_at + 1 + i); }
             for i in nargs as usize..nparams { *st.add(ns + HDR + 1 + i) = Value::NIL.0; }
         }
         t.cur = ns;
@@ -649,12 +653,9 @@ impl Interp {
     /// by 128), a vararg callee packing its surplus, or both.
     #[inline(never)]
     fn push_frame_cold(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
-        let (spread, fixed) = (nargs >= 128, (nargs & 127) as usize);
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        let mut args: Vec<u64> = (0..fixed).map(|i| t.stack[args_at + 1 + i]).collect();
-        // A spread appends the caller's own vararg words, which lie below its header.
-        if spread { let nv = nvar_of(t.stack[s + 3]); for i in 0..nv { args.push(t.stack[s - nv + i]); } }
+        let args = self.call_args(tid, args_at + 1, nargs);
+        let args = args.as_slice();
+        let s = self.tasks[tid].cur;
         let (nparams, vararg) = { let c = &self.funcs[f as usize]; (c.nparams as usize, c.vararg) };
         let nvar = if vararg { args.len().saturating_sub(nparams) } else { 0 };
         let words = self.funcs[f as usize].frame_words();
@@ -664,12 +665,12 @@ impl Interp {
         // The callee's surplus arguments go just below its header, in the frame.
         let ns = s + frame_words_of(t.stack[s + 3]) + nvar;
         if t.stack.len() < ns + words { let m = (ns + words).max(t.stack.len() * 2); t.stack.resize(m, 0); }
-        for i in 0..nvar { t.stack[ns - nvar + i] = args[nparams + i]; }
+        for i in 0..nvar { t.stack[ns - nvar + i] = args[nparams + i].0; }
         t.stack[ns] = f as u64;
         t.stack[ns + 1] = s as u64 | ((args_at as u64) << 32);
         t.stack[ns + 2] = Value::NIL.0;
         t.stack[ns + 3] = header3(0, false, words, nvar);
-        for i in 0..nparams { t.stack[ns + HDR + 1 + i] = if i < args.len() { args[i] } else { Value::NIL.0 }; }
+        for i in 0..nparams { t.stack[ns + HDR + 1 + i] = if i < args.len() { args[i].0 } else { Value::NIL.0 }; }
         t.cur = ns;
     }
     /// Pops the frame, delivering `v` to the caller's result register; true when
@@ -682,7 +683,7 @@ impl Interp {
         let s = t.cur;
         let h1 = t.stack[s + 1];
         let caller = (h1 & 0xffff_ffff) as u32;
-        if caller == NONE { t.state = State::Done; t.result = v; return true; }
+        if caller == NONE { t.state = State::Done; t.result = v; self.last_nres = 1; return true; }
         let h3 = t.stack[s + 3];
         if (h3 >> 32) & 1 != 0 { t.stack[(h3 & 0xffff_ffff) as usize] = v.as_num().to_bits(); }
         else { t.stack[(h1 >> 32) as usize] = v.0; }
@@ -693,14 +694,20 @@ impl Interp {
     }
     /// Pops the frame delivering `n` values from the callee's window at `from`
     /// (absolute) into the caller's result slots; true when the task finished.
-    fn pop_frame_n(&mut self, tid: usize, from: usize, n: usize) -> bool {
+    fn pop_frame_n(&mut self, tid: usize, from: usize, n: u8) -> bool {
+        let vals = if n >= 128 {
+            self.result_pack((n & 127) as usize, |i| Value(self.tasks[tid].stack[from + i]))
+        } else { (0..n as usize).map(|i| Value(self.tasks[tid].stack[from + i])).collect() };
+        let scope = self.open_scope();
+        self.handles.extend_from_slice(&vals);
         self.unwind_frame(tid);
+        self.close_scope(scope);
+        let n = vals.len();
         let t = &mut self.tasks[tid];
         let s = t.cur;
         let h1 = t.stack[s + 1];
         let caller = (h1 & 0xffff_ffff) as u32;
-        let vals: Vec<Value> = (0..n).map(|i| Value(t.stack[from + i])).collect();
-        if caller == NONE { t.state = State::Done; t.result = vals.first().copied().unwrap_or(Value::NIL); t.results = vals; return true; }
+        if caller == NONE { self.last_nres = n; t.state = State::Done; t.result = vals.first().copied().unwrap_or(Value::NIL); t.results = vals; return true; }
         let ret = (h1 >> 32) as usize;
         let extra = vals.len().saturating_sub(1).min(MAX_RESULTS - 1);
         if extra > 0 { self.extra[..extra].copy_from_slice(&vals[1..1 + extra]); }
@@ -726,12 +733,14 @@ impl Interp {
         self.extra_n = if n >= 8 { n } else { 0 };
         self.last_nres = n + 1;
     }
-    /// Writes call results into the window from `at`, nil when there are none.
-    #[inline]
-    /// An argument count flagged 64 appends what the last call returned: its
-    /// results already sit after the fixed arguments, so the count is plain
-    /// arithmetic (at most the eight the frame's slack holds).
-    pub fn spread_count(&self, nargs: u8) -> u8 { if nargs & 64 != 0 && nargs < 128 { (nargs & 63) + self.last_nres.min(8) as u8 } else { nargs } }
+    /// Fixed values followed by the entire last result pack. Only its first
+    /// eight values live in the register window; the rest remain in `extra`.
+    pub(crate) fn result_pack(&self, fixed: usize, read: impl Fn(usize) -> Value) -> Vec<Value> {
+        let mut values = Vec::with_capacity(fixed + self.last_nres);
+        for i in 0..fixed + self.last_nres.min(8) { values.push(read(i)); }
+        for i in 8..self.last_nres { values.push(self.extra[i - 1]); }
+        values
+    }
     pub(crate) fn note_results(&mut self, outs: &[Value]) {
         self.last_nres = outs.len().min(MAX_RESULTS);
         let extra = outs.len().saturating_sub(1).min(MAX_RESULTS - 1);
@@ -749,7 +758,7 @@ impl Interp {
 
     /// The typed tier's entry for a function, if it has one.
     #[inline]
-    pub fn entry_of(&self, fid: u32) -> u64 { if self.frame_mode { return 0; } self.entries.get(fid as usize).copied().unwrap_or(0) }
+    pub fn entry_of(&self, fid: u32) -> u64 { if self.frame_mode || self.execution_limit.is_some() { return 0; } self.entries.get(fid as usize).copied().unwrap_or(0) }
     /// Enters a compiled function with its closure and value arguments through
     /// a per-arity trampoline; the first result returns, extras through `extra`.
     #[cfg(feature = "compiled-runtime")]
@@ -783,7 +792,7 @@ impl Interp {
         if Value(r) == Value::ERROR { let v = self.pending_error.take().unwrap_or(Value::NIL); std::panic::panic_any(crate::builtins::LuaError(v.0)); }
         let n = unsafe { std::ptr::read_volatile(&self.extra_n) }.min(MAX_RESULTS - 1);
         let mut outs = crate::builtins::Outs::new();
-        outs.push(Value(r));
+        if unsafe { std::ptr::read_volatile(&self.last_nres) } != 0 { outs.push(Value(r)); }
         for i in 0..n { outs.push(unsafe { std::ptr::read_volatile(&self.extra[i]) }); }
         unsafe { std::ptr::write_volatile(&mut self.extra_n, 0); }
         self.last_nres = outs.len();
@@ -805,11 +814,12 @@ impl Interp {
         if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
         let scratch = self.spawn(fid, args);
         { let t = &mut self.tasks[scratch]; let s0 = t.cur(); t.stack[s0 + 2] = closure.0; }
-        let outcome = self.run(scratch);
-        let outs = match outcome { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            match self.run(scratch) { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() && self.last_nres != 0 { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") }
+        }));
         if let Some(t) = self.tasks.pop() { if self.stack_pool.len() < 64 { self.stack_pool.push(t.stack); } }
         self.tasks.truncate(scratch);
-        outs
+        match result { Ok(outs) => outs, Err(error) => std::panic::resume_unwind(error) }
     }
     /// `call_value` without a heap allocation on the builtin path.
     pub fn call_outs(&mut self, callee: Value, args: &[Value]) -> crate::builtins::Outs {
@@ -820,10 +830,15 @@ impl Interp {
         if let Some(p) = callee.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_ITER { return crate::builtins::iter_next(self, callee); } if h.kind == KIND_CLOSURE { let e = self.entry_of(h.fid()); if e != 0 && !self.funcs[h.fid() as usize].vararg { let np = self.funcs[h.fid() as usize].nparams as usize; return self.enter_compiled(e, callee, args, np); } } }
         self.call_value(callee, args).into_iter().collect()
     }
-    /// Copy fixed arguments and, when flagged, the current frame's varargs.
-    /// Trailing-call result counts have already been resolved by the caller.
+    /// Copy fixed arguments and the flagged trailing call or frame varargs.
     pub(crate) fn call_args(&self, tid: usize, start: usize, nargs: u8) -> CallArgs {
         let t = &self.tasks[tid];
+        if (64..128).contains(&nargs) {
+            let values = self.result_pack((nargs & 63) as usize, |i| Value(t.stack[start + i]));
+            let mut args = CallArgs::new(values.len());
+            args.as_mut_slice().copy_from_slice(&values);
+            return args;
+        }
         let fixed = (nargs & 127) as usize;
         let nv = if nargs >= 128 { nvar_of(t.stack[t.cur + 3]) } else { 0 };
         let mut args = CallArgs::new(fixed + nv);
@@ -880,16 +895,43 @@ impl Interp {
     }
     /// The export value of a module, running its chunk the first time.
     pub fn require(&mut self, name: &str) -> Value {
-        if let Some(v) = self.loaded.get(name) { return *v; }
-        // Raised as Lua's `require` raises it, message and all: a module that
-        // probes for an optional one reads the prefix.
-        let fid = match self.modules.get(name) { Some(f) => *f, None => { let msg = self.heap_new_string(&format!("module '{name}' not found: not in the image")); std::panic::panic_any(crate::builtins::LuaError(msg.0)) } };
-        let outs = self.call_value(Value::func(fid), &[]);
-        let v = outs.first().copied().unwrap_or(Value::NIL);
-        self.registered.push(v);
-        self.loaded.insert(name.to_string(), v);
-        if self.loaded_table != Value::NIL { let h = self.register(v); let k = self.heap_new_string(name); self.set_index(self.loaded_table, k, v); self.release(h); }
-        v
+        if self.loaded_table == Value::NIL { if let Some(v) = self.loaded.get(name) { return *v; } }
+        let scope = self.open_scope();
+        let key = self.intern(name); self.handles.push(key);
+        if self.loaded_table != Value::NIL {
+            let cached = self.get_index(self.loaded_table, key);
+            if cached.truthy() { self.close_scope(scope); return cached; }
+        }
+        let mut loader = Value::NIL;
+        let mut errors = String::new();
+        if let Some(package) = self.loaded.get("package").copied() {
+            let loaders_key = self.intern("loaders");
+            let loaders = self.get_index(package, loaders_key); self.handles.push(loaders);
+            if loaders != Value::NIL { for i in 1.. {
+                let searcher = self.get_index(loaders, Value::num(i as f64));
+                if searcher == Value::NIL { break; }
+                let values = self.call_value(searcher, &[key]);
+                let candidate = values.first().copied().unwrap_or(Value::NIL);
+                if candidate.as_func().is_some() || candidate.as_builtin().is_some() || self.kind_of(candidate) == Some(KIND_CLOSURE) { loader = candidate; break; }
+                if self.is_stringish(candidate) { errors.push_str(&String::from_utf8_lossy(self.bytes_of(candidate))); }
+            } }
+        } else if let Some(fid) = self.modules.get(name) { loader = Value::func(*fid); }
+        if loader == Value::NIL {
+            let msg = self.heap_new_string(&format!("module '{name}' not found:{errors}"));
+            self.close_scope(scope); std::panic::panic_any(crate::builtins::LuaError(msg.0));
+        }
+        self.handles.push(loader);
+        if !self.loading_modules.insert(name.to_string()) { self.err(&format!("loop loading module '{name}'")); }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(loader, &[key])));
+        self.loading_modules.remove(name);
+        let outs = match result { Ok(outs) => outs, Err(error) => { self.close_scope(scope); std::panic::resume_unwind(error) } };
+        let mut value = outs.first().copied().unwrap_or(Value::NIL);
+        if value == Value::NIL { value = self.get_index(self.loaded_table, key); if value == Value::NIL { value = Value::TRUE; } }
+        self.handles.push(value);
+        if self.modules.contains_key(name) { self.registered.push(value); self.loaded.insert(name.to_string(), value); }
+        if self.loaded_table != Value::NIL { self.set_index(self.loaded_table, key, value); }
+        self.close_scope(scope);
+        value
     }
 
     // ---- host services on the parking surface (6.3) ----------------------
@@ -965,15 +1007,25 @@ impl Interp {
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn"]);
         let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
-        let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
-        let io = table_of(self, &["io.write", "io.open", "io.read"]);
+        let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
+        let io = table_of(self, &["io.type", "io.lines", "io.write", "io.open", "io.read", "io.popen", "io.flush"]);
         // The standard streams: objects whose `write` is a method.
         let stdin = self.new_table(); self.registered.push(stdin); let k = self.intern("stdin"); self.set_index(io, k, stdin);
         for (field, name) in [("stderr", "io.stderr.write"), ("stdout", "io.stdout.write")] { let stream = self.new_table(); self.registered.push(stream); let write = self.intern("write"); self.set_index(stream, write, Value::builtin(crate::builtins::id_of(name).unwrap())); let k = self.intern(field); self.set_index(io, k, stream); }
+        let read = self.intern("read"); self.set_index(stdin, read, Value::builtin(crate::builtins::id_of("io.stdin.read").unwrap()));
+        for field in ["stdout", "stderr"] {
+            let key = self.intern(field); let stream = self.get_index(io, key);
+            for method in ["flush", "setvbuf"] {
+                let key = self.intern(method); let builtin = crate::builtins::id_of(&format!("io.{field}.{method}")).unwrap();
+                self.set_index(stream, key, Value::builtin(builtin));
+            }
+        }
         let debug = table_of(self, &["debug.getinfo"]);
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
         // modules: a `require` finds them before the image's.
-        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove"]);
+        let process = table_of(self, &["process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady"]);
+        self.loaded.insert("nupp.vm.process".into(), process);
+        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory"]);
         crate::simd::install(self);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
@@ -1024,18 +1076,46 @@ impl Interp {
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
-        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); let k = self.intern("path"); self.set_index(package, k, v); self.release(vh); }
+        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); for name in ["path", "cpath"] { let k = self.intern(name); self.set_index(package, k, v); } self.release(vh); }
+        { let loaders = self.new_table(); self.registered.push(loaders);
+          for (i, name) in ["package.preloadLoader", "package.imageLoader"].iter().enumerate() { self.set_index(loaders, Value::num(i as f64 + 1.0), Value::builtin(crate::builtins::id_of(name).unwrap())); }
+          let k = self.intern("loaders"); self.set_index(package, k, loaders);
+          let k = self.intern("searchers"); self.set_index(package, k, loaders); }
         let g = self.new_table(); self.registered.push(g);
         // Runtime libraries populate the intrinsic namespace independently of
         // modules selected through qualified names.
         let nupp = self.new_table(); self.registered.push(nupp); let k = self.intern("nupp"); self.set_index(g, k, nupp);
         let co=self.loaded["coroutine"];let k=self.intern("coroutine");self.set_index(g,k,co);
         for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
-        for name in ["pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall", "require", "loadstring", "unpack", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
+        for name in ["xpcall", "collectgarbage", "pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall", "require", "loadstring", "unpack", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
+        let crypto = self.new_table(); self.registered.push(crypto);
+        let key = self.intern("randomBytes"); self.set_index(crypto, key, Value::builtin(crate::builtins::id_of("crypto.randomBytes").unwrap()));
+        self.loaded.insert("nupp.runtime.provider.nativecrypto".into(), crypto);
+        let system = self.new_table(); self.registered.push(system);
+        for (name, value) in [("platform", std::env::consts::OS), ("architecture", std::env::consts::ARCH), ("endianness", if cfg!(target_endian = "little") { "little" } else { "big" })] {
+            let value = self.intern(value); let root = self.register(value);
+            let key = self.intern(name); self.set_index(system, key, value); self.release(root);
+        }
+        let key = self.intern("pointerBits"); self.set_index(system, key, Value::num(usize::BITS as f64));
+        let key = self.intern("availableParallelism"); self.set_index(system, key, Value::builtin(crate::builtins::id_of("system.availableParallelism").unwrap()));
+        self.loaded.insert("nupp.runtime.provider.nativesystem".into(), system);
+        let architecture = match std::env::consts::ARCH { "x86_64" => "x86_64", "x86" => "i686", "aarch64" => "aarch64", other => other };
+        let system = match std::env::consts::OS { "macos" => "apple-darwin", "linux" => "unknown-linux-gnu", "windows" => "pc-windows-msvc", other => other };
+        let key = self.intern("__nuppHostTargetLayout"); let key_root = self.register(key);
+        let target = self.intern(&format!("{architecture}-{system}")); self.set_index(g, key, target); self.release(key_root);
+        let key = self.intern("_VERSION"); let key_root = self.register(key); let version = self.intern("Nupp VM"); self.set_index(g, key, version); self.release(key_root);
+        let k = self.intern("__nupp_with_instruction_budget");
+        self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.withInstructionBudget").unwrap()));
+        let codec = self.new_table(); self.registered.push(codec);
+        for (name, builtin) in [("encode", "vm.encodePlain"), ("decode", "vm.decodePlain")] {
+            let key = self.intern(name); self.set_index(codec, key, Value::builtin(crate::builtins::id_of(builtin).unwrap()));
+        }
+        let key = self.intern("__nupp_plain_codec"); self.set_index(g, key, codec);
         let k = self.intern("__nupp_load_image");
         self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.loadImage").unwrap()));
         let k = self.intern("_G"); self.set_index(g, k, g);
         for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
+        for (name, value) in self.loaded.clone() { let k = self.intern(&name); self.set_index(self.loaded_table, k, value); }
     }
     /// The host table a module gets from `require`: one builtin per service.
     pub fn host_table(&mut self) -> Value {
@@ -1337,7 +1417,7 @@ impl Interp {
         self.frame_mode |= self.frame_required;
         loop {
             if let Some(outcome) = self.resume_unwind(tid) { self.frame_mode=old; return outcome; }
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && !self.frame_mode { self.run_threaded(tid) } else { self.run_rust(tid) }}));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && !self.frame_mode && self.execution_limit.is_none() { self.run_threaded(tid) } else { self.run_rust(tid) }}));
             match result {
                 Ok(o) => { self.frame_mode = old; return o; }
                 Err(e) => {
@@ -1371,7 +1451,7 @@ impl Interp {
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
     fn compiled_frames_active(&self) -> bool {
-        if !self.frame_mode { return false; }
+        if !self.frame_mode || self.execution_limit.is_some() { return false; }
         #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
         #[cfg(feature = "compiled-runtime")] if !self.frame_entries.is_empty() { return true; }
         false
@@ -1396,6 +1476,10 @@ impl Interp {
                 win = self.window(tid).0;
             }
             loop {
+                if let Some(left) = self.execution_limit.as_mut() {
+                    if *left == 0 { self.err("source chunk instruction limit exceeded"); }
+                    *left -= 1;
+                }
                 if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
                     if *left == 0 { self.tasks[tid].note_pc(pc); return Outcome::Parked(0); }
                     *left -= 1;
@@ -1483,19 +1567,18 @@ impl Interp {
                         pc = (pc as i64 + off as i64) as usize;
                         if off < 0 { self.back_edge(); }
                     }
-                    Op::RetN(start, n) => { let n = if n >= 128 { ((n & 127) as usize + self.last_nres).min(8) } else { n as usize }; if self.pop_frame_n(tid, base + start as usize, n) { let v = self.tasks[tid].result; return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
+                    Op::RetN(start, n) => { if self.pop_frame_n(tid, base + start as usize, n) { let v = self.tasks[tid].result; return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
                     Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
-                    Op::RetNil => { if self.pop_frame(tid, Value::NIL) { return Step::Return(Outcome::Done(Value::NIL)); } return Step::Reenter; }
+                    Op::RetNil => { if self.pop_frame_n(tid, base, 0) { return Step::Return(Outcome::Done(Value::NIL)); } return Step::Reenter; }
                     Op::FRet(f) => { let v = Value::num(fr!(f)); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
                     Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::RequireV(d, rg) => { let text = self.bytes_of(r!(rg)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
-                    Op::Call(f, b, nargs) => { let nargs = self.spread_count(nargs); self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
+                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { let nargs = self.spread_count(nargs); self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallMethod(k, b, nargs) => match { let nargs = self.spread_count(nargs); self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallMethod(k, b, nargs) => match { self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::PCall(b, nargs) => {
-                        let nargs = self.spread_count(nargs);
                         if self.frame_mode {
                             let caller = self.tasks[tid].cur;
                             let scope = self.open_scope();
@@ -1514,7 +1597,7 @@ impl Interp {
                                 Ok(Flow::Next) => { self.protected_results(r!(b + 1)); r!(b) = Value::TRUE; }
                                 Err(e) => { let value = self.error_value(e); self.deliver(regs, b as usize, &[Value::FALSE, value]); }
                             }
-                        } else { self.op_pcall(&win, b, nargs); }
+                        } else { self.op_pcall(tid, &win, b, nargs); }
                     }
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
@@ -1725,7 +1808,7 @@ impl Interp {
         let callee = r!(fr);
         if let Some(f) = callee.as_func() {
             let e = self.entry_of(f);
-            if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, Value::NIL, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+            if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, Value::NIL, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
             self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
         }
         let coroutine = crate::coroutines::wrapped(self, callee);
@@ -1763,17 +1846,17 @@ impl Interp {
         let h = hdr!(self, callee, &format!("call of a non-function ({:#x}) in {} at pc {} register {}", callee.0, self.funcs[fid as usize].name, pc, fr));
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         if h.kind == KIND_TABLE {
-            let n = (nargs & 127) as usize; let mut full = Vec::with_capacity(n + 1); full.push(callee); for i in 0..n { full.push(r!(b + 1 + i as u8)); }
-            let outs = self.call_value(callee, &full[1..]); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
+            let args = self.call_args(tid, base + b as usize + 1, nargs);
+            let outs = self.call_value(callee, args.as_slice()); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
         }
         if h.kind != KIND_CLOSURE { self.err(&format!("call of a non-function object ({}) in {} at pc {} register {}", Heap::describe(h), self.funcs[fid as usize].name, pc, fr)) }
         let f = h.fid();
         let e = self.entry_of(f);
-        if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+        if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         // A dynamic call carries every argument as a value; a typed callee's
         // float parameters are unboxed on entry.
         let (nv, n, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.sig.len(), c.vararg) };
-        if nargs >= 128 || vararg { self.push_frame_cold(tid, f, base + b as usize, nargs, pc); let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = callee.0; return Flow::Reenter; }
+        if nargs >= 64 || vararg { self.push_frame_cold(tid, f, base + b as usize, nargs, pc); let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = callee.0; return Flow::Reenter; }
         // Only the arguments the call supplied are read; the rest are nil.
         let supplied = (nargs & 127) as usize;
         let all: Vec<Value> = (0..n).map(|i| if i < supplied { r!(b + 1 + i as u8) } else { Value::NIL }).collect();
@@ -1817,21 +1900,21 @@ impl Interp {
         let ch = hdr!(self, method, "method is not a function");
         if ch.kind != KIND_CLOSURE { self.err("method is not a function") }
         let e = self.entry_of(ch.fid());
-        if e != 0 && !self.funcs[ch.fid() as usize].vararg { let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8); for i in 0..n { buf[i] = r!(b + 1 + i as u8); } let np = self.funcs[ch.fid() as usize].nparams as usize; let outs = self.enter_compiled(e, method, &buf[..n], np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
+        if e != 0 && !self.funcs[ch.fid() as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[ch.fid() as usize].nparams as usize; let outs = self.enter_compiled(e, method, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         self.push_frame(tid, ch.fid(), base + b as usize, nargs, pc);
         let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
         Flow::Reenter
     }
     #[inline(never)]
-    fn op_pcall(&mut self, w: &Win, b: u8, nargs: u8) {
+    fn op_pcall(&mut self, tid: usize, w: &Win, b: u8, nargs: u8) {
         let regs = w.regs;
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         // The callee runs on a scratch task so an error unwinds only it.
         let callee = r!(b + 1);
-        let args: Vec<Value> = (0..nargs as usize).map(|i| r!(b + 2 + i as u8)).collect();
+        let args = self.call_args(tid, w.base + b as usize + 2, nargs);
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, &args)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, args.as_slice())));
         std::panic::set_hook(hook);
         match outcome {
             Ok(mut outs) => { outs.insert(0, Value::TRUE); self.deliver(regs, b as usize, &outs); }

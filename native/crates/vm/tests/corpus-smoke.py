@@ -14,6 +14,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import signal
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -30,6 +31,7 @@ parser.add_argument("--jobs", type=int, default=2, help="independent VM processe
 parser.add_argument("--engine", choices=("rust", "threaded", "jit"), default="threaded")
 parser.add_argument("--jit-compilation", choices=("eager", "on-demand"), default="eager")
 parser.add_argument("--gc-stress", action="store_true")
+parser.add_argument("--cli-image", type=Path, help="route every compiler subprocess through this VM root CLI image")
 parser.add_argument("--gc-interleave", action="store_true", help="step incremental collection on every allocation")
 args = parser.parse_args()
 assert args.jobs > 0, "jobs must be positive"
@@ -57,10 +59,15 @@ assert selected, "no suites selected"
 env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(root), PATH="")
 for key in ("EMIT_SURVEY", "EMIT_STUBS", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "JIT_EAGER_FRAMES"):
     env.pop(key, None)
+if args.cli_image:
+    env.update(PATH=os.environ.get("PATH", ""), NUPP_VM_CLI_IMAGE=str(args.cli_image.resolve()), NUPP_VM_BINARY=binary)
+    run.update(path=env["PATH"], cliImage=str(args.cli_image.resolve()), cliImageSha256=digest(args.cli_image))
+    (args.output / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 host_extras = [
     "nupp.compiler.hostservices", "nupp.compiler.fs", "nupp.compiler.project.projectconfig",
     "nupp.compiler.project.store", "nupp.compiler.project.fingerprint",
     "nupp.compiler.hash", "nupp.compiler.project.preludecache",
+    "nupp.runtime.provider.nativeprocess",
 ]
 extras = [row["suite"] for row in selected if row["suite"] not in args.unavailable_module] + host_extras
 def emission_failure(problem):
@@ -112,14 +119,18 @@ def execute(row):
         execution_env.update(GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
     if args.gc_interleave:
         execution_env.update(GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+    process = subprocess.Popen([binary, "exec", str(image), "corpus-runner", suite], env=execution_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=os.name != "nt")
     try:
-        result = subprocess.run([binary, "exec", str(image), "corpus-runner", suite], env=execution_env,
-                                capture_output=True, timeout=600)
-        stdout, stderr, status = result.stdout, result.stderr, result.returncode
-        timed_out = False
-    except subprocess.TimeoutExpired as error:
-        stdout, stderr, status = error.stdout or b"", error.stderr or b"", None
-        timed_out = True
+        stdout, stderr = process.communicate(timeout=600)
+        status, timed_out = process.returncode, False
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+        stdout, stderr = process.communicate()
+        status, timed_out = None, True
     (args.output / f"{suite}.jsonl").write_bytes(stdout)
     (args.output / f"{suite}.log").write_bytes(stderr)
     records = []

@@ -1,4 +1,5 @@
 -- The filesystem surface supplied by the VM compiler host.
+local paths = require("nupp.io.path")
 local type Info = {
     kind: string,
     size: number,
@@ -8,6 +9,17 @@ local type Entry = {
     name: string,
     kind: string
 }
+local type TemporaryOptions = {
+    directory: (string | paths.Path)?,
+    prefix: string?,
+    suffix: string?
+}
+local interface TemporaryPath is nupp.Closeable
+    toString: function(self: TemporaryPath): string
+    isReleased: function(self: TemporaryPath): boolean
+    persist: function(self: TemporaryPath, destination: string): (boolean, string?)
+    close: @nosuspend function(takes self: TemporaryPath): nil
+end
 local record Files
     info: function(path: string): (Info?, string?)
     isDirectory: function(path: string): boolean
@@ -16,6 +28,12 @@ local record Files
     list: function(path: string): ({Entry}?, string?)
     createDirectory: function(path: string): (boolean, string?)
     remove: function(path: string, recursive: boolean?): (boolean, string?)
+    read: function(path: string): (string?, string?)
+    glob: function(pattern: string): ({paths.Path}?, string?)
+    createTemporaryFile: function(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
+    createTemporaryDirectory: function(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
 end
 type Files.Path = string
+type Files.TemporaryOptions = TemporaryOptions
+type Files.TemporaryPath = TemporaryPath
 return Files

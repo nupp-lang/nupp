@@ -42,7 +42,7 @@ See [profiling.md](docs/learn/performance/profiling.md) for what a zone path doe
 local zone = {}
 
 -- The array part is what the profiler reads, so writing it directly is what it sees.
-local stack = require("jit.zone") as {string}
+local stack: {string} = rawget(_G, "jit") and require("jit.zone") as {string} or {}
 
 -- Annotated: an unannotated integer binding widens to number, and these index the
 -- stack.

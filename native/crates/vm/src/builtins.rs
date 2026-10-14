@@ -31,6 +31,11 @@ pub const NAMES: &[&str] = &[
     "simd.reducer.orderedSum", "simd.reducer.pairwiseSum", "simd.reducer.compensatedSum", "simd.reducer.algebraicSum", "simd.reducer.orderedProduct", "simd.reducer.pairwiseProduct", "simd.reducer.algebraicProduct", "simd.reducer.orderedDot", "simd.reducer.pairwiseDot", "simd.reducer.algebraicDot", "simd.reducer.wrappingSum", "simd.reducer.wrappingProduct", "simd.reducer.andBits", "simd.reducer.orBits", "simd.reducer.xorBits", "simd.reducer.any", "simd.reducer.all", "simd.reducer.count", "simd.reducer.integerMin", "simd.reducer.integerMax", "simd.reducer.integerArgMin", "simd.reducer.integerArgMax", "simd.reducer.propagatingMin", "simd.reducer.propagatingMax", "simd.reducer.propagatingArgMin", "simd.reducer.propagatingArgMax", "simd.reducer.numberMin", "simd.reducer.numberMax", "simd.reducer.numberArgMin", "simd.reducer.numberArgMax",
     "simd.reducerAdd", "simd.reducerValue", "simd.indirect",
     "uuid.uuid4", "uuid.uuid7", "crc.update",
+    "io.stdin.read", "io.stdout.flush", "io.stderr.flush", "io.flush", "io.stdout.setvbuf", "io.stderr.setvbuf",
+    "io.popen", "process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady", "process.pipeRead", "process.pipeWrite", "process.pipeClose",
+    "crypto.randomBytes", "system.availableParallelism", "collectgarbage", "os.date", "xpcall", "io.type", "io.lines", "vm.encodePlain", "vm.decodePlain",
+    "package.preloadLoader", "package.imageLoader", "vm.withInstructionBudget",
+    "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory", "temporary.toString", "temporary.close", "temporary.isReleased", "temporary.persist",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -185,6 +190,25 @@ fn path_object(it: &mut Interp, text: &str) -> Value {
 /// `nupp.io.path`, answered by the host directly.
 fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     match name {
+        "files.createTemporaryFile" | "files.createTemporaryDirectory" => crate::temporary::create(it, name.ends_with("Directory"), arg(args, 0)),
+        "files.read" => {
+            let path = path_text(it, arg(args, 0));
+            match std::fs::read(path) { Ok(bytes) => outs![it.new_string_bytes(&bytes)], Err(e) => outs![Value::NIL, it.heap_new_string(&e.to_string())] }
+        }
+        "files.glob" => {
+            let pattern = path_text(it, arg(args, 0));
+            match nupp_native_files::glob(&pattern) {
+                Ok(paths) => {
+                    let result = it.new_table(); let root = it.register(result);
+                    for (index, bytes) in paths.into_iter().enumerate() {
+                        let path = path_object(it, &String::from_utf8_lossy(&bytes));
+                        it.set_index(result, Value::num((index + 1) as f64), path);
+                    }
+                    it.release(root); outs![result]
+                }
+                Err(error) => outs![Value::NIL, it.heap_new_string(&error.to_string())],
+            }
+        }
         "files.info" => {
             let p = path_text(it, arg(args, 0));
             match std::fs::symlink_metadata(&p).and_then(|m| if m.file_type().is_symlink() { std::fs::metadata(&p) } else { Ok(m) }) {
@@ -387,6 +411,10 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
+    if matches!(NAMES.get(id as usize), Some(&"io.stdin.read" | &"io.stdout.flush" | &"io.stderr.flush" | &"io.flush" | &"io.stdout.setvbuf" | &"io.stderr.setvbuf")) { return crate::stdio::call(it, NAMES[id as usize], args); }
+    if NAMES.get(id as usize) == Some(&"io.popen") { return crate::process::popen(it, args); }
+    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("process.")) { return crate::process::call(it, name, args); }
+    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("temporary.")) { return crate::temporary::call(it, name, args); }
     if NAMES.get(id as usize) == Some(&"table.maxn") {
         let table = arg(args, 0);
         let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
@@ -406,6 +434,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
     if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }
     if STATS.load(std::sync::atomic::Ordering::Relaxed) { let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
+    if NAMES.get(id as usize) == Some(&"vm.encodePlain") {
+        let bytes = crate::persist::save_plain(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
+        return outs![it.new_string_bytes(&bytes)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.decodePlain") {
+        let bytes = bytes_of(it, arg(args, 0));
+        let value = crate::persist::load_plain(it, &bytes).unwrap_or_else(|e| it.err(&e));
+        return outs![value];
+    }
     if NAMES.get(id as usize) == Some(&"vm.saveValue") {
         let policies = crate::persist::policies_from_value(it, arg(args, 1)).unwrap_or_else(|e| it.err(&e));
         let bytes = crate::persist::save_graph(it, &[arg(args, 0)], &policies).unwrap_or_else(|e| it.err(&e));
@@ -472,6 +509,103 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default().as_secs_f64() * 1000.0;
         return outs![Value::num(millis)];
+    }
+    if NAMES.get(id as usize) == Some(&"xpcall") {
+        let scope = it.open_scope(); it.handles.extend_from_slice(args);
+        let values = it.pcall_values(arg(args, 0), &args[2.min(args.len())..]);
+        it.handles.extend_from_slice(&values);
+        let result = if values[0].truthy() { values.into_iter().collect() } else {
+            let handled = it.pcall_values(arg(args, 1), &[values[1]]);
+            if handled[0].truthy() { outs![Value::FALSE, handled.get(1).copied().unwrap_or(Value::NIL)] }
+            else { outs![Value::FALSE, it.intern("error in error handling")] }
+        };
+        it.close_scope(scope);
+        return result;
+    }
+    if NAMES.get(id as usize) == Some(&"io.lines") {
+        let scope = it.open_scope(); it.handles.extend_from_slice(args);
+        let path = arg(args, 0);
+        let file = if path == Value::NIL { Value::NIL } else {
+            let opened = call(it, id_of("io.open").unwrap(), &[path]);
+            if opened[0] == Value::NIL { let error = String::from_utf8_lossy(it.bytes_of(opened[1])).into_owned(); it.err(&error); }
+            opened[0]
+        };
+        it.handles.push(file);
+        let format = if arg(args, 1) == Value::NIL { it.intern("*l") } else { arg(args, 1) };
+        let iter = it.new_iter(if file == Value::NIL { 6 } else { 5 }, file, format);
+        it.close_scope(scope);
+        return outs![iter];
+    }
+    if NAMES.get(id as usize) == Some(&"io.type") {
+        let value = arg(args, 0);
+        if !matches!(it.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) { return outs![Value::NIL]; }
+        let scope = it.open_scope(); it.handles.push(value);
+        let mut known = false;
+        let io = it.loaded["io"];
+        for name in ["stdin", "stdout", "stderr"] { let key = it.intern(name); known |= it.get_index(io, key) == value; }
+        let key = it.intern("_data"); known |= it.is_stringish(it.get_index(value, key));
+        let native = crate::fileio::is_native(it, value); known |= native;
+        let key = it.intern("_processPipe"); let pipe = it.get_index(value, key) == Value::TRUE; known |= pipe;
+        let key = it.intern("_closed");
+        let closed = it.get_index(value, key) == Value::TRUE || native && !it.native_files.contains_key(&value) || pipe && !it.resources.contains_key(&value);
+        let result = if known { it.intern(if closed { "closed file" } else { "file" }) } else { Value::NIL };
+        it.close_scope(scope);
+        return outs![result];
+    }
+    if NAMES.get(id as usize) == Some(&"os.date") { return crate::datetime::date(it, args); }
+    if NAMES.get(id as usize) == Some(&"collectgarbage") {
+        let mode = arg(args, 0);
+        let mode = if mode == Value::NIL { "collect" } else {
+            if !it.is_stringish(mode) { it.err("collector option must be a string"); }
+            std::str::from_utf8(it.bytes_of(mode)).unwrap_or("")
+        };
+        return match mode {
+            "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
+            "count" => outs![Value::num(it.heap.live_bytes as f64 / 1024.0)],
+            "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
+            "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
+            "isrunning" => outs![Value::boolean(it.heap.automatic_collection)],
+            _ => it.err("unsupported collector option"),
+        };
+    }
+    if NAMES.get(id as usize) == Some(&"system.availableParallelism") {
+        return outs![Value::num(std::thread::available_parallelism().map_or(1, usize::from) as f64)];
+    }
+    if NAMES.get(id as usize) == Some(&"crypto.randomBytes") {
+        let value = arg(args, 0);
+        if !value.is_num() || !value.as_num().is_finite() || value.as_num().fract() != 0.0 || !(0.0..=1048576.0).contains(&value.as_num()) { it.err("random byte count must be an integer between 0 and 1048576"); }
+        let mut bytes = vec![0; value.as_num() as usize];
+        if !bytes.is_empty() { nupp_native_platform::random_bytes(&mut bytes).unwrap_or_else(|e| it.err(&e)); }
+        return outs![it.new_string_bytes(&bytes)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.withInstructionBudget") {
+        let limit = arg(args, 1);
+        if !limit.is_num() || !limit.as_num().is_finite() || limit.as_num() < 1.0 || limit.as_num().fract() != 0.0 { it.err("instruction limit must be a positive integer"); }
+        let previous = it.execution_limit;
+        it.execution_limit = Some(previous.unwrap_or(usize::MAX).min(limit.as_num() as usize));
+        let before = it.execution_limit.unwrap();
+        let scope = it.open_scope(); it.handles.extend_from_slice(args);
+        let ntasks = it.tasks.len();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.call_value(arg(args, 0), &args[2..])));
+        let remaining = it.execution_limit.unwrap();
+        it.execution_limit = previous.map(|n| n.saturating_sub(before - remaining));
+        it.tasks.truncate(ntasks);
+        it.close_scope(scope);
+        return match result { Ok(values) => values.into_iter().collect(), Err(error) => std::panic::resume_unwind(error) };
+    }
+    if NAMES.get(id as usize) == Some(&"package.preloadLoader") {
+        let package = it.loaded["package"]; let k = it.intern("preload"); let preload = it.get_index(package, k);
+        return outs![it.get_index(preload, arg(args, 0))];
+    }
+    if NAMES.get(id as usize) == Some(&"package.imageLoader") {
+        let name = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+        if let Some(fid) = it.modules.get(&name) { return outs![Value::func(*fid)]; }
+        if let Some(value) = it.loaded.get(&name).copied() {
+            let cell = it.new_cell(value); let root = it.register(cell);
+            let closure = it.new_closure(it.literal_fid, &[cell]); it.release(root);
+            return outs![closure];
+        }
+        return outs![Value::NIL];
     }
     if NAMES.get(id as usize) == Some(&"vm.loadImage") {
         if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
@@ -685,7 +819,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         46 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); match std::env::var(&name) { Ok(v) => outs![it.heap_new_string(&v)], Err(_) => outs![Value::NIL] } }
         47 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t)] }
         48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t.floor())] }
-        49 => { use std::io::Write; let mut o = std::io::stdout(); for a in args { o.write_all(&bytes_of(it, *a)).unwrap(); } Outs::new() }
+        49 => { use std::io::Write; let mut o = std::io::stdout(); for a in args { o.write_all(&bytes_of(it, *a)).unwrap(); } o.flush().unwrap(); Outs::new() }
         // `loadstring("return <literal>")`: every use in the compiler decodes a
         // number or string literal this way. The answer is a closure over the
         // value; other chunks go to the installed Nupp source loader.
@@ -761,6 +895,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         // file:read(fmt): "*a"/"a" the rest, "*l"/"l" a line, a number that many bytes.
         73 => {
             let f = arg(args, 0);
+            let key = it.intern("_closed"); if it.get_index(f, key) == Value::TRUE { it.err("attempt to read a closed file"); }
+            let key = it.intern("_processPipe"); if it.get_index(f, key) == Value::TRUE { return crate::process::call(it, "process.pipeRead", args); }
             if crate::fileio::is_native(it, f) { return crate::fileio::read(it, f, arg(args, 1)); }
             let kd = it.intern("_data"); let ka = it.intern("_at");
             let data = bytes_of(it, it.get_index(f, kd)); let at = it.get_index(f, ka).as_num() as usize;
@@ -768,15 +904,14 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let fmt = arg(args, 1);
             let (chunk, next) = if fmt.is_num() { let n = fmt.as_num() as usize; let e = (at + n).min(data.len()); (data[at..e].to_vec(), e) }
                 else { let b = bytes_of(it, fmt); if b == b"*a" || b == b"a" { (data[at..].to_vec(), data.len()) } else { let e = data[at..].iter().position(|&c| c == b'\n').map(|p| at + p).unwrap_or(data.len()); (data[at..e].to_vec(), (e + 1).min(data.len()).max(e)) } };
-            let next = if fmt.is_num() || { let b = bytes_of(it, fmt); b == b"*a" || b == b"a" } { next } else { if next < data.len() && data[next] == b'\n' { next + 1 } else { next } };
             it.set_index(f, ka, Value::num(next as f64));
             outs![str_of(it, &chunk)]
         }
-        74 => { let file = arg(args, 0); if crate::fileio::is_native(it, file) { crate::fileio::close(it, file) } else { outs![Value::TRUE] } },
+        74 => { let file = arg(args, 0); if crate::fileio::is_native(it, file) { crate::fileio::close(it, file) } else { let key = it.intern("_closed"); it.set_index(file, key, Value::TRUE); outs![Value::TRUE] } },
         75 => { let file = arg(args, 0); let format = arg(args, 1); let format = if format == Value::NIL { it.intern("*l") } else { format }; outs![it.new_iter(4, file, format)] },
         76 => crate::fileio::write(it, args),
-        66 => { use std::io::Write; let mut o = std::io::stderr(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } outs![arg(args, 0)] }
-        67 => { use std::io::Write; let mut o = std::io::stdout(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } outs![arg(args, 0)] }
+        66 => { use std::io::Write; let mut o = std::io::stderr(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } o.flush().unwrap(); outs![arg(args, 0)] }
+        67 => { use std::io::Write; let mut o = std::io::stdout(); for a in &args[1.min(args.len())..] { o.write_all(&bytes_of(it, *a)).unwrap(); } o.flush().unwrap(); outs![arg(args, 0)] }
         // Filesystem mutations report operating-system failures as Lua results.
         68 | 71 => {
             let path = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
@@ -784,8 +919,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             match result { Ok(()) => outs![Value::TRUE], Err(error) => { let msg = it.heap_new_string(&error.to_string()); outs![Value::NIL, msg, Value::num(error.raw_os_error().unwrap_or(0) as f64)] } }
         }
         69 => crate::fileio::temporary_name(it),
-        70 => outs![Value::NIL, it.intern("exit"), Value::num(1.0)],
-        72 => outs![Value::NIL],
+        70 => crate::process::execute(it, args),
+        72 => crate::stdio::read(it, arg(args, 0)),
         52 => {
             // The caller is the running task's top frame: a builtin pushes none.
             let source = { let fid = if it.jit_fid != u32::MAX { Some(it.jit_fid as usize) } else { it.tasks.last().map(|t| (t.stack[t.cur()] & 0xffff_ffff) as usize) }; let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| format!("@{p}")).unwrap_or_else(|| "=nupp-vm".to_string()) };
@@ -816,7 +951,17 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
                 None => { it.iter_set_pos(iter, s.len() + 1); outs![Value::NIL] }
             }
         }
-        4 => { let format = it.iter_pattern(iter); call(it, id_of("file.read").unwrap(), &[obj, format]) }
+        4 | 5 => {
+            if kind == 5 && pos != 0 { return outs![Value::NIL]; }
+            let format = it.iter_pattern(iter);
+            let result = call(it, id_of("file.read").unwrap(), &[obj, format]);
+            if kind == 5 && result.first() == Some(&Value::NIL) {
+                call(it, id_of("file.close").unwrap(), &[obj]);
+                it.iter_advance(iter);
+            }
+            result
+        }
+        6 => { let format = it.iter_pattern(iter); crate::stdio::read(it, format) }
         _ => outs![Value::NIL],
     }
 }

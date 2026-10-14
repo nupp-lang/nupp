@@ -1,0 +1,5 @@
+module demo.genericforeign
+
+export record Box<T>
+    value: T
+end

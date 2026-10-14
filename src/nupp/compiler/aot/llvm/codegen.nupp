@@ -10,7 +10,7 @@ assembly; the crate behind it knows nothing about Nupp. A host built without
 the pinned LLVM answers `available()` with the reason.
 ]]
 
-local native = require("nupp.runtime.native")
+local native: any = nil
 
 local codegen = {}
 
@@ -23,7 +23,7 @@ local function declare(): nil
     if declared then
         return
     end
-    declared = true
+    native = require("nupp.runtime.native")
     local ffi: any = native.ffi
     ffi.cdef[[
 uint32_t nuppCodegenAvailable(void);
@@ -56,6 +56,7 @@ int32_t nuppCodegenKitUnpack(
     uint64_t size,
     const char *root, size_t rootLength);
 ]]
+    declared = true
 end
 
 --- Whether this process has the code generator, and if not, why not.

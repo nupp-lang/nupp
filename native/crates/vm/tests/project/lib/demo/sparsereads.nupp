@@ -1,0 +1,31 @@
+module demo.sparsereads
+
+local api = {}
+function api.run(): integer
+    local numbers: {[integer]: integer} = {}
+    local absent = numbers[1]
+    assert(absent == nil)
+    if absent then
+        error("an absent numeric entry is false")
+    end
+    numbers[2] = 0
+    local present = numbers[2]
+    assert(present == 0)
+    if not present then
+        error("numeric zero is true")
+    end
+    local byte = string.byte
+    local missingByte = byte("", 1)
+    assert(missingByte == nil)
+    local expected: integer = 42
+    assert(byte("", 1) ~= expected)
+    assert(byte("*", 1) == expected)
+    local zero: integer = 0
+    if zero then
+        return 42
+    end
+
+    return 0
+end
+
+export = api

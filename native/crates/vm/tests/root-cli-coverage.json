@@ -1,0 +1,1140 @@
+{
+  "imageSha256": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+  "binarySha256": "1280066ac0255cce3c68f8ced7020f5f7f00addbed65ece098f0ac3bf1cee634",
+  "commands": [
+    "init",
+    "ast",
+    "aot",
+    "bc",
+    "check",
+    "fmt",
+    "build",
+    "clean",
+    "bench",
+    "lints",
+    "ownership-audit",
+    "explain",
+    "reference",
+    "completions",
+    "test",
+    "task",
+    "doc",
+    "fixpoint",
+    "run",
+    "import-c",
+    "migrate",
+    "export-c",
+    "rock",
+    "lsp",
+    "version",
+    "help"
+  ],
+  "cases": [
+    {
+      "name": "root-help",
+      "argv": [
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.201
+    },
+    {
+      "name": "unknown-command",
+      "argv": [
+        "definitely-not-a-command"
+      ],
+      "exitStatus": 2,
+      "status": "passed",
+      "seconds": 0.241
+    },
+    {
+      "name": "init-help",
+      "argv": [
+        "init",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.209
+    },
+    {
+      "name": "init-schema",
+      "argv": [
+        "init",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.196
+    },
+    {
+      "name": "ast-help",
+      "argv": [
+        "ast",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.197
+    },
+    {
+      "name": "ast-schema",
+      "argv": [
+        "ast",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "aot-help",
+      "argv": [
+        "aot",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.201
+    },
+    {
+      "name": "aot-schema",
+      "argv": [
+        "aot",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.203
+    },
+    {
+      "name": "bc-help",
+      "argv": [
+        "bc",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "bc-schema",
+      "argv": [
+        "bc",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "check-help",
+      "argv": [
+        "check",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "check-schema",
+      "argv": [
+        "check",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "fmt-help",
+      "argv": [
+        "fmt",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.202
+    },
+    {
+      "name": "fmt-schema",
+      "argv": [
+        "fmt",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.202
+    },
+    {
+      "name": "build-help",
+      "argv": [
+        "build",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.195
+    },
+    {
+      "name": "build-schema",
+      "argv": [
+        "build",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "clean-help",
+      "argv": [
+        "clean",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "clean-schema",
+      "argv": [
+        "clean",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "bench-help",
+      "argv": [
+        "bench",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.191
+    },
+    {
+      "name": "bench-schema",
+      "argv": [
+        "bench",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "lints-help",
+      "argv": [
+        "lints",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.196
+    },
+    {
+      "name": "lints-schema",
+      "argv": [
+        "lints",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.202
+    },
+    {
+      "name": "ownership-audit-help",
+      "argv": [
+        "ownership-audit",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "ownership-audit-schema",
+      "argv": [
+        "ownership-audit",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.206
+    },
+    {
+      "name": "explain-help",
+      "argv": [
+        "explain",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "explain-schema",
+      "argv": [
+        "explain",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.221
+    },
+    {
+      "name": "reference-help",
+      "argv": [
+        "reference",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "reference-schema",
+      "argv": [
+        "reference",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.196
+    },
+    {
+      "name": "completions-help",
+      "argv": [
+        "completions",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.197
+    },
+    {
+      "name": "test-help",
+      "argv": [
+        "test",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.193
+    },
+    {
+      "name": "test-schema",
+      "argv": [
+        "test",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.202
+    },
+    {
+      "name": "task-help",
+      "argv": [
+        "task",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "task-schema",
+      "argv": [
+        "task",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "doc-help",
+      "argv": [
+        "doc",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "doc-schema",
+      "argv": [
+        "doc",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.202
+    },
+    {
+      "name": "fixpoint-help",
+      "argv": [
+        "fixpoint",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.195
+    },
+    {
+      "name": "fixpoint-schema",
+      "argv": [
+        "fixpoint",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.199
+    },
+    {
+      "name": "run-help",
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.195
+    },
+    {
+      "name": "run-schema",
+      "argv": [
+        "run",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "import-c-help",
+      "argv": [
+        "import-c",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.201
+    },
+    {
+      "name": "import-c-schema",
+      "argv": [
+        "import-c",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "migrate-help",
+      "argv": [
+        "migrate",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.203
+    },
+    {
+      "name": "migrate-schema",
+      "argv": [
+        "migrate",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.208
+    },
+    {
+      "name": "export-c-help",
+      "argv": [
+        "export-c",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.205
+    },
+    {
+      "name": "export-c-schema",
+      "argv": [
+        "export-c",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.195
+    },
+    {
+      "name": "rock-help",
+      "argv": [
+        "rock",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "lsp-help",
+      "argv": [
+        "lsp",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "version-help",
+      "argv": [
+        "version",
+        "--help"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.2
+    },
+    {
+      "name": "version-schema",
+      "argv": [
+        "version",
+        "--schema"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.204
+    },
+    {
+      "name": "help-command",
+      "argv": [
+        "help",
+        "check"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.198
+    },
+    {
+      "name": "version-json",
+      "argv": [
+        "version",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.199
+    },
+    {
+      "name": "version-alias",
+      "argv": [
+        "--version",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.201
+    },
+    {
+      "name": "ast-file",
+      "argv": [
+        "ast",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.207
+    },
+    {
+      "name": "check-file",
+      "argv": [
+        "check",
+        "--json",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.537
+    },
+    {
+      "name": "check-project",
+      "argv": [
+        "check",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.418
+    },
+    {
+      "name": "check-project-cached",
+      "argv": [
+        "check",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.485
+    },
+    {
+      "name": "check-invalid",
+      "argv": [
+        "check",
+        "--json",
+        "invalid.nupp"
+      ],
+      "exitStatus": 1,
+      "status": "passed",
+      "seconds": 1.437
+    },
+    {
+      "name": "check-missing",
+      "argv": [
+        "check",
+        "--json",
+        "missing.nupp"
+      ],
+      "exitStatus": 1,
+      "status": "passed",
+      "seconds": 0.197
+    },
+    {
+      "name": "build-file",
+      "argv": [
+        "build",
+        "--json",
+        "--output",
+        "generated",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.555
+    },
+    {
+      "name": "fmt-file",
+      "argv": [
+        "fmt",
+        "--write",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.4
+    },
+    {
+      "name": "lints-json",
+      "argv": [
+        "lints",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.206
+    },
+    {
+      "name": "ownership-file",
+      "argv": [
+        "ownership-audit",
+        "--json",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.425
+    },
+    {
+      "name": "explain-code",
+      "argv": [
+        "explain",
+        "--json",
+        "NUPP2004"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.201
+    },
+    {
+      "name": "reference-code",
+      "argv": [
+        "reference",
+        "--json",
+        "--for",
+        "NUPP2004"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.208
+    },
+    {
+      "name": "completion-script",
+      "argv": [
+        "completions",
+        "bash"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.207
+    },
+    {
+      "name": "completion-request",
+      "argv": [
+        "__complete",
+        "bash",
+        "2",
+        "check",
+        "--js"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.208
+    },
+    {
+      "name": "templates-list",
+      "argv": [
+        "init",
+        "--list",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.218
+    },
+    {
+      "name": "template-app",
+      "argv": [
+        "init",
+        "app",
+        "new-app",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.23
+    },
+    {
+      "name": "task-list",
+      "argv": [
+        "task",
+        "--list",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.207
+    },
+    {
+      "name": "import-header",
+      "argv": [
+        "import-c",
+        "--inspect",
+        "--json",
+        "header.h"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.276
+    },
+    {
+      "name": "migrate-lua",
+      "argv": [
+        "migrate",
+        "--json",
+        "plain.lua"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.422
+    },
+    {
+      "name": "lsp-symbols",
+      "argv": [
+        "lsp",
+        "symbols",
+        "--json",
+        "--file",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.546
+    },
+    {
+      "name": "run-file",
+      "argv": [
+        "run",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.58
+    },
+    {
+      "name": "fixture-store",
+      "argv": [
+        "run",
+        "fixtures.lua"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.553
+    },
+    {
+      "name": "source-sandbox",
+      "argv": [
+        "run",
+        "sandbox.lua"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.439
+    },
+    {
+      "name": "task-run",
+      "argv": [
+        "task",
+        "answer"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.773
+    },
+    {
+      "name": "test-run",
+      "argv": [
+        "test"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 3.971
+    },
+    {
+      "name": "aot-file",
+      "argv": [
+        "aot",
+        "--json",
+        "src/kernel.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.423
+    },
+    {
+      "name": "bc-file",
+      "argv": [
+        "bc",
+        "--json",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 10.847
+    },
+    {
+      "name": "bc-text",
+      "argv": [
+        "bc",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 11.15
+    },
+    {
+      "name": "bc-check",
+      "argv": [
+        "bc",
+        "--check",
+        "--json",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 11.269
+    },
+    {
+      "name": "bc-invalid",
+      "argv": [
+        "bc",
+        "--json",
+        "invalid.nupp"
+      ],
+      "exitStatus": 1,
+      "status": "passed",
+      "seconds": 10.931
+    },
+    {
+      "name": "doc-file",
+      "argv": [
+        "doc",
+        "--kind",
+        "markdown",
+        "--json",
+        "-o",
+        "api.md",
+        "src/main.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.212
+    },
+    {
+      "name": "export-header",
+      "argv": [
+        "export-c",
+        "--json",
+        "-o",
+        "game.h",
+        "src/game.nupp",
+        "game.Position"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.465
+    },
+    {
+      "name": "bench-list",
+      "argv": [
+        "bench",
+        "--list",
+        "--json",
+        "--file",
+        "tests/fixtures/bench_fixed_records.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 2.822
+    },
+    {
+      "name": "bench-protocol",
+      "argv": [
+        "bench",
+        "--json",
+        "--forks",
+        "1",
+        "--file",
+        "tests/fixtures/bench_protocol.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 8.993
+    },
+    {
+      "name": "bench-run",
+      "argv": [
+        "bench",
+        "--json",
+        "--forks",
+        "1",
+        "--case",
+        "fixed",
+        "--file",
+        "tests/fixtures/bench_fixed_records.nupp"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 2.924
+    },
+    {
+      "name": "fixpoint-unconfigured",
+      "argv": [
+        "fixpoint",
+        "--json"
+      ],
+      "exitStatus": 1,
+      "status": "passed",
+      "seconds": 0.233
+    },
+    {
+      "name": "rock-missing",
+      "argv": [
+        "rock",
+        "pack"
+      ],
+      "exitStatus": 1,
+      "status": "passed",
+      "seconds": 0.215
+    },
+    {
+      "name": "clean-dry",
+      "argv": [
+        "clean",
+        "--dry-run",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.216
+    },
+    {
+      "name": "template-library",
+      "argv": [
+        "init",
+        "lib",
+        "sample-lib",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.277
+    },
+    {
+      "name": "rock-pack",
+      "argv": [
+        "rock",
+        "pack"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 2.414
+    },
+    {
+      "name": "rock-test",
+      "argv": [
+        "rock",
+        "test"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 2.836
+    },
+    {
+      "name": "comptime-worker",
+      "argv": [
+        "__comptime-worker",
+        "comptime.json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.214
+    },
+    {
+      "name": "comptime-service",
+      "argv": [
+        "__comptime-worker-service"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.209
+    },
+    {
+      "name": "generator-worker",
+      "argv": [
+        "__generator-worker",
+        "generator.json",
+        "generator-result.json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.232
+    },
+    {
+      "name": "lsp-serve",
+      "argv": [
+        "lsp",
+        "serve"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 1.495
+    },
+    {
+      "name": "lsp-reader",
+      "argv": [
+        "__lsp-reader"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.215
+    },
+    {
+      "name": "parallel-check",
+      "argv": [
+        "check",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 3.062
+    },
+    {
+      "name": "clean-run",
+      "argv": [
+        "clean",
+        "--json"
+      ],
+      "exitStatus": 0,
+      "status": "passed",
+      "seconds": 0.218
+    }
+  ],
+  "passed": 100,
+  "date": "2026-10-13",
+  "baseCommit": "c9e475273",
+  "scope": "All 26 root command registrations, representative command execution, worker protocols, and nested compiler processes. Default bootstrap replacement and every target/option combination are separate gates.",
+  "gatePassed": true,
+  "execution": {
+    "engine": "threaded interpreter",
+    "launcher": "bin/nupp with NUPP_VM_CLI_IMAGE and NUPP_VM_BINARY",
+    "luarocks": "provisioned host executable",
+    "sourceLoading": "interpreted"
+  },
+  "limitations": [
+    "Release/bootstrap packaging, cross-platform binary targets, LuaJIT profiling, and HTML documentation dependencies remain open.",
+    "The complete classified corpus acceptance gate remains open; its failures are recorded separately."
+  ],
+  "caseCount": 100,
+  "repositoryCheck": {
+    "cold": {
+      "compiledModules": 552,
+      "reusedModules": 0,
+      "totalMs": 506803.4831542969
+    },
+    "warm": {
+      "compiledModules": 0,
+      "reusedModules": 552,
+      "totalMs": 2464.294921875
+    },
+    "errors": 0,
+    "coldImageSha256": "dfc2dccfc22838789301e232faad7813f47533a435f9455094188f5e53dad9cb",
+    "note": "The cold image precedes conditional cleanup activation; the final image reused all 552 unchanged module results."
+  },
+  "vmCompilerFixpoint": {
+    "bytes": 8869983,
+    "stage2Sha256": "f959afeeb75d029d92ff99660c63bbe7a2de57cb17007f0487a65ec3e15abed6",
+    "stage2EqualsStage3": true
+  },
+  "runtimeTests": {
+    "passed": 146,
+    "failed": 0,
+    "noJitBuild": true,
+    "nativeAotExecMemoryDenied": true
+  },
+  "bootstrapFixpoint": {
+    "diagnostics": [],
+    "kind": "compiler",
+    "ok": true,
+    "target": "compiler"
+  },
+  "hostCompilerTests": {
+    "uniquePassed": 2181,
+    "uniqueFailed": 1,
+    "suites": 138,
+    "failure": "spiinterfacetest/runtimeImplementationInterfacesArePublic: NUPP1002, module application does not match the fixture filename typed-interface",
+    "classification": "Reproduces with this task's host project-environment changes removed; this is a controlled comparison, not a full base-revision test run.",
+    "retries": "All suites lost to missing native worker preload or UUID support passed using the built native test runner and the full development provider."
+  }
+}

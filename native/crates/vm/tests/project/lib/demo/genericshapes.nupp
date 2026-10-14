@@ -1,0 +1,15 @@
+module demo.genericshapes
+
+local foreign = require("demo.genericforeign")
+local record Box<T>
+    adapter: T
+end
+local api = {}
+
+function api.run(): integer
+    local first = new foreign.Box<integer>(value = 40)
+    local second = new Box<integer>(adapter = 2)
+    return first.value + second.adapter
+end
+
+export = api

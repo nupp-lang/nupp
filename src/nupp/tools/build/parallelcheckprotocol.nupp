@@ -5,13 +5,16 @@ module nupp.tools.build.parallelcheckprotocol
 --[[
 The versioned payload shared by the cold-check coordinator and its workers.
 
-Both ends are the same compiler on the same LuaJIT, so a payload is LuaJIT's own
-plain-data encoding. A host without it has no parallel checker: the coordinator
-plans a serial check rather than carrying a second encoding nothing would run.
-Framing belongs to the worker channel.
+Both ends use the same compiler and its host's plain-data encoding. A host
+without that codec selects serial checking. Framing belongs to the worker
+channel.
 ]]
 
-local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
+local nativeBuffer: any = rawget(_G, "__nupp_plain_codec")
+local hasBuffer = nativeBuffer ~= nil
+if not hasBuffer then
+    hasBuffer, nativeBuffer = pcall(require, "string.buffer")
+end
 
 local protocol = {}
 

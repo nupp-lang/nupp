@@ -52,6 +52,33 @@ with tempfile.TemporaryDirectory() as directory:
                                 env=flags, capture_output=True, text=True, check=True)
         assert result.stdout.strip() == "42", result.stdout
     print("Manifest-driven project: both interpreters and GC agree; output returns 42 on all tiers", flush=True)
+    generic = output / "generic.image"
+    generic.write_text(json.loads(run(seed, "emit", fixture, "demo.genericshapes").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(generic), "demo.genericshapes", "run"],
+                                env=flags, capture_output=True, text=True)
+        assert result.returncode == 0 and result.stdout.strip() == "42", result.stderr
+    print("Generic record shapes follow declaration identity across modules with the same name", flush=True)
+    for module in ("demo.widepacks", "demo.sparsereads"):
+        regression = output / (module + ".image")
+        regression.write_text(json.loads(run(seed, "emit", fixture, module).stdout))
+        for mode in ("threaded", "rust", "jit", "frames"):
+            flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+            if mode == "rust":
+                flags["NO_THREADED"] = "1"
+            if mode in ("jit", "frames"):
+                flags.pop("NO_JIT", None)
+            command = [binary, "run", str(regression), module, "run"]
+            if mode == "frames":
+                command.append("--tasks")
+            result = subprocess.run(command, env=flags, capture_output=True, text=True, timeout=60)
+            assert result.returncode == 0 and result.stdout.strip() == "42", result.stderr
+    print("Wide result packs, absent numeric entries, and integer truthiness passed on all tiers", flush=True)
     derived = output / "derived.image"
     derived.write_text(json.loads(run(seed, "emit", fixture, "demo.derived").stdout))
     for mode in ("threaded", "rust", "jit"):
@@ -100,6 +127,45 @@ with tempfile.TemporaryDirectory() as directory:
                                 env=flags, capture_output=True, text=True, check=True)
         assert result.stdout.strip() == "42", result.stdout
     print("Switch arms, guards, captures, and yield cleanup passed on all tiers", flush=True)
+    constructors = output / "constructors"
+    constructors.mkdir()
+    (constructors / "nupp.lua").write_text('return {include = {"."}}\n')
+    fields = [f"field{n} = {{left = nextValue({2*n-1}), right = nextValue({2*n})}}"
+              for n in range(1, 161)]
+    (constructors / "large.nupp").write_text(
+        "module large\nlocal calls: integer = 0\n"
+        "local function nextValue(n: integer): number\n"
+        "calls = calls + 1\nassert(calls == n)\nreturn n + 0.5\nend\n"
+        "local schema = {" + ",\n".join(fields) + "}\n"
+        "local api = {}\nfunction api.run(): number\n"
+        "assert(calls == 320)\nassert(schema.field1.left == 1.5)\n"
+        "return schema.field160.right\nend\nexport = api\n")
+    constructor_image = output / "constructors.image"
+    constructor_image.write_text(json.loads(run(seed, "emit", str(constructors), "large").stdout))
+    for mode in ("threaded", "rust", "jit"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode == "jit":
+            flags.pop("NO_JIT", None)
+        result = subprocess.run([binary, "run", str(constructor_image), "large", "run"],
+                                env=flags, capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "320.5", result.stdout
+    print("Large record constructors preserve field order and reuse boxed/float temporaries", flush=True)
+    if os.name != "nt":
+        process_image = output / "process.image"
+        process_image.write_text(json.loads(run(seed, "emit", fixture, "demo.process",
+                                               "nupp.runtime.provider.nativeprocess").stdout))
+        for mode in ("threaded", "rust", "jit"):
+            flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+            if mode == "rust":
+                flags["NO_THREADED"] = "1"
+            if mode == "jit":
+                flags.pop("NO_JIT", None)
+            result = subprocess.run([binary, "run", str(process_image), "demo.process", "run", "--tasks"],
+                                    env=flags, capture_output=True, text=True, check=True, timeout=30)
+            assert result.stdout.strip() == "42", result.stdout
+        print("Public process API drains binary input/stdout/stderr and releases temporary owners", flush=True)
     # Syntax errors must fail before emitting an image, not silently select defaults.
     invalid = output / "invalid"
     invalid.mkdir()
@@ -117,4 +183,18 @@ with tempfile.TemporaryDirectory() as directory:
     assert (output / "stage2.image").read_bytes() == (output / "stage3.image").read_bytes(), "compiler image fixpoint mismatch"
     # The rebuilt compiler must still compile another project.
     assert image == json.loads(run(output / "stage3.image", "emit", fixture, "demo.main").stdout)
+    correlated = output / "correlated.image"
+    correlated.write_text(json.loads(run(output / "stage3.image", "emit", fixture, "demo.correlatedowners").stdout))
+    for mode in ("threaded", "rust", "jit", "frames"):
+        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
+        if mode == "rust":
+            flags["NO_THREADED"] = "1"
+        if mode in ("jit", "frames"):
+            flags.pop("NO_JIT", None)
+        command = [binary, "run", str(correlated), "demo.correlatedowners", "run"]
+        if mode == "frames":
+            command.append("--tasks")
+        result = subprocess.run(command, env=flags, capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0 and result.stdout.strip() == "42", result.stderr
+    print("Correlated result packs clean up only successfully acquired owners on all tiers", flush=True)
     print("Compiler-image fixpoint passed", flush=True)

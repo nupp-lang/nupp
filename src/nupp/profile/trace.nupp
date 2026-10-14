@@ -22,8 +22,6 @@ static side of this, and
 [](nupp.profile) for the collector that reports the runtime side.
 ]]
 
-local vmdef = require("jit.vmdef")
-
 local trace = {}
 
 --- A stable reason the JIT declined to record, however it was observed.
@@ -190,7 +188,7 @@ function trace.profile(): trace.Profile
     local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
     local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION
         or "external:" .. tostring(version)
-    local bytecodeSchema = smallDigest(vmdef.bcnames)
+    local bytecodeSchema = smallDigest(require("jit.vmdef").bcnames)
     local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
 
     return {
@@ -238,7 +236,7 @@ end
 --- @return the trimmed name
 function trace.opcodeName(opcode: integer): string
     local start = opcode * 6 + 1
-    return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
+    return (require("jit.vmdef").bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
 
 --- Interprets a raw abort the VM reported.
@@ -256,7 +254,7 @@ function trace.runtime(errorCode: integer?, errorArg: number | string | nil): tr
     if not errorCode then
         return byId["jit/runtime-unknown"], "abort"
     end
-    local format = vmdef.traceerr[errorCode]
+    local format = require("jit.vmdef").traceerr[errorCode]
     if not format then
         return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
     end

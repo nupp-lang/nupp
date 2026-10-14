@@ -6,6 +6,7 @@ function runner.main(argv)
     require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
     require("nupp.compiler.vm.chunks").install()
     local suite = require(argv[1])
+    local fixtures = require("corpus-fixtures").new()
     local hooks = {beforeAll = true, afterAll = true, beforeEach = true, afterEach = true}
     local names = {}
     for name, value in pairs(suite) do
@@ -57,9 +58,7 @@ function runner.main(argv)
     else
         for _, name in ipairs(names) do
             local context = {facts = {}, metrics = {}, capabilities = {}, fixtures = {}}
-            context.fixture = function()
-                error("VM corpus fixture store is not implemented", 0)
-            end
+            context.fixture = fixtures.resolve
             rawset(_G, "__NUPP_TEST_CASE_CONTEXT", context)
             local ok, why = invoke(suite.beforeEach)
             if ok then
@@ -78,6 +77,7 @@ function runner.main(argv)
     if not cleaned then
         report("afterAll", false, cleanupProblem)
     end
+    fixtures.close()
     io.write(json.encode({suite = argv[1], passed = passed, failed = failed, total = passed + failed}), "\n")
 
     return failed == 0 and 0 or 1

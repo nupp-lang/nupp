@@ -1,6 +1,25 @@
 //! Compiled heap-frame entries. Immediate runtime operations stay in native
 //! code; frame transfers and parks return to the driver with no native stack.
-use crate::interp::{Interp, Op};
+use crate::interp::{Function, Interp, Op};
+
+/// PCs where a compiled activation can return to the driver. Other valid PCs
+/// (for example an interpreter checkpoint) execute until they reach an entry.
+pub(crate) fn resumes(f: &Function) -> std::collections::BTreeSet<usize> {
+    let mut points = std::collections::BTreeSet::from([0]);
+    for (pc, op) in f.code.iter().enumerate() {
+        if boundary(op) {
+            points.insert(pc);
+            if pc + 1 < f.code.len() {
+                points.insert(pc + 1);
+            }
+        }
+        if matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0)
+        {
+            points.insert(pc);
+        }
+    }
+    points
+}
 
 impl Interp {
     #[cfg(feature = "compiled-runtime")]
@@ -126,4 +145,55 @@ pub(crate) fn boundary(op: &Op) -> bool {
             | Op::Require(..)
             | Op::RequireV(..)
     )
+}
+
+#[cfg(all(test, feature = "jit"))]
+mod tests {
+    use super::*;
+    use crate::{
+        persist::{self, Policies, ResourceCodecs},
+        scheduler::Status,
+        value::Value,
+    };
+    #[test]
+    fn interpreter_checkpoint_resumes_between_compiled_entries() {
+        let mut vm = Box::new(Interp::new());
+        crate::image::load(
+            &mut vm,
+            r#"
+function main 0 0 8 2 :v
+const 0 str "answer"
+const 1 num 42
+NewTable 1
+K 2 0
+K 3 1
+SetIdx 1 2 3
+GetIdx 4 1 2
+Ret 4
+end
+entry 0
+"#,
+        )
+        .unwrap();
+        vm.install_globals();
+        vm.enable_scheduler().unwrap();
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        vm.jit = None;
+        let task = vm.schedule(Value::func(0), &[], None).unwrap();
+        vm.instruction_budget = Some(2);
+        assert!(vm.run_ready(1).unwrap().is_empty());
+        let frame = vm.tasks[task.index].cur();
+        assert_eq!(vm.tasks[task.index].stack[frame] >> 32, 2);
+        let bytes =
+            persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+        let mut restored =
+            persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+        restored.jit = Some(Box::new(crate::jit::Jit::new()));
+        restored.instruction_budget = None;
+        assert_eq!(restored.run_ready(1).unwrap()[0].status, Status::Completed);
+        assert_eq!(restored.tasks[task.index].result, Value::num(42.0));
+        assert!(restored.compiled_frame_entries > 0);
+    }
 }

@@ -1,0 +1,69 @@
+module nupp.compiler.vm.resources
+
+local fs = require("nupp.compiler.fs")
+local syntax = require("nupp.compiler.shellsyntax")
+local resources = {}
+
+local function expand(root: string, pattern: string): {string}
+    if not pattern:find("[*?]") then
+        local path = fs.join(root, pattern)
+        return fs.exists(path) and {path} or {}
+    end
+    local prefix = (pattern:match("^(.-)[*?]") or "."):match("^(.*)/") or "."
+    local matches = syntax.glob(fs.join(root, pattern))
+    local paths = {}
+    for _, path in ipairs(fs.listFiles(fs.join(root, prefix))) do
+        if matches(path) then
+            paths[#paths + 1] = path
+        end
+    end
+
+    return paths
+end
+
+--- Carry the compiler target's declared resources in its VM image.
+function resources.source(root: string, config: table): string
+    local target = assert(
+        config.build and config.build.targets and config.build.targets.compiler,
+        "VM CLI emission requires the compiler build target"
+    )
+    local values, keys = {}, {}
+    for _, resource in ipairs(target.resources or {}) do
+        local pattern = type(resource) == "table" and resource.source or resource
+        for _, path in ipairs(expand(root, pattern)) do
+            local output
+            if type(resource) == "table" then
+                output = resource.output
+            else
+                local relative = fs.normalize(path):sub(#fs.normalize(root) + 2)
+                output = relative
+                for _, include in ipairs(config.include or {}) do
+                    include = fs.normalize(include)
+                    if relative:sub(1, #include + 1) == include .. "/" then
+                        local candidate = relative:sub(#include + 2)
+                        if #candidate < #output then
+                            output = candidate
+                        end
+                    end
+                end
+            end
+            output = fs.normalize(output)
+            if output:sub(1, 14) == "nupp/compiler/" then
+                local key = output:sub(5)
+                assert(not values[key], "duplicate compiler resource " .. key)
+                values[key] = assert(fs.readFile(path), "cannot read resource " .. path)
+                keys[#keys + 1] = key
+            end
+        end
+    end
+    table.sort(keys)
+    local source = {"return {"}
+    for _, key in ipairs(keys) do
+        source[#source + 1] = ("[%q] = %q,"):format(key, values[key])
+    end
+    source[#source + 1] = "}"
+
+    return table.concat(source, "\n")
+end
+
+export = resources

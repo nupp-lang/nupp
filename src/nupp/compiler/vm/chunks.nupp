@@ -3,10 +3,11 @@ module nupp.compiler.vm.chunks
 local parser = require("nupp.compiler.syntax.parser")
 local lower = require("nupp.compiler.vm.lower")
 local chunks = {}
+local sourceLoader: any = nil
 
 --- Lower a Lua chunk without assigning Nupp types to its dynamic tables.
 --- @raises string when parsing or lowering fails.
-function chunks.image(source: string, filename: string?): string
+function chunks.image(source: string, filename: string?, environment: boolean?): string
     local path = filename or "=(loadstring)"
     local tree = parser.parse(source, path)
     assert(#tree.errors == 0, "chunk did not parse: " .. path)
@@ -18,7 +19,8 @@ function chunks.image(source: string, filename: string?): string
         end,
         function(_: string, _: string): table
             return tree.root
-        end
+        end,
+        environment
     )
 end
 
@@ -29,6 +31,8 @@ function chunks.install(): boolean
         return false
     end
 
+    local environments: any = setmetatable({}, {__mode = "k"})
+
     local function compileChunk(source: string, filename: string?): (any, string?)
         local path = filename or "=(loadstring)"
         local tree = parser.parse(source, path)
@@ -38,14 +42,36 @@ function chunks.install(): boolean
         -- The Lua backend loads generated text to validate its syntax. Native
         -- lowering is needed only if the returned function is actually called.
         local compiled = nil
+        local context = {value = _G}
 
-        return function(...)
+        local function prepare()
             if not compiled then
-                compiled = loadImage(chunks.image(source, path))
+                compiled = loadImage(chunks.image(source, path, true))
             end
-            return compiled(...)
-        end, nil
+        end
+
+        local function chunk(...)
+            prepare()
+            return compiled(context, ...)
+        end
+
+        environments[chunk] = {context = context, prepare = prepare}
+
+        return chunk, nil
     end
+
+    rawset(_G, "setfenv", function(chunk: any, environment: table): any
+        local entry = assert(environments[chunk], "setfenv requires a source-loaded chunk")
+        assert(type(environment) == "table", "environment must be a table")
+        entry.context.value = environment
+        entry.prepare()
+
+        return chunk
+    end)
+    rawset(_G, "getfenv", function(chunk: any): table
+        local entry = environments[chunk]
+        return entry and entry.context.value or _G
+    end)
 
     rawset(_G, "__nupp_compile_chunk", compileChunk)
     rawset(_G, "loadfile", function(path: string): (any, string?)
@@ -58,6 +84,36 @@ function chunks.install(): boolean
 
         return compileChunk(source, path)
     end)
+
+    rawset(_G, "dofile", function(path: string): any
+        local chunk, problem = assert(rawget(_G, "loadfile"))(path)
+        assert(chunk, problem)
+        return chunk()
+    end)
+
+    if not sourceLoader then
+        sourceLoader = function(name: string): any
+            local relative = name:gsub("%.", "/")
+            local misses = {}
+            for pattern in package.path:gmatch("[^;]+") do
+                local path = pattern:gsub("%?", function(): string
+                    return relative
+                end)
+                local file = io.open(path, "rb")
+                if file then
+                    local source = file:read("*a")
+                    file:close()
+                    local chunk, problem = compileChunk(source, "@" .. path)
+                    assert(chunk, problem)
+                    return chunk
+                end
+                misses[#misses + 1] = "\n\tno file '" .. path .. "'"
+            end
+
+            return table.concat(misses)
+        end
+        table.insert(package.loaders, sourceLoader)
+    end
 
     return true
 end

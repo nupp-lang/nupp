@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-14",
+  "branch": "codegen-experiment",
+  "suite": "utilstoretest",
+  "change": "Dispatch generic compiled frames only at transfer and suspension boundaries; interpret from other checkpoint PCs until the next entry.",
+  "execution": {
+    "seedSha256": "f959afeeb75d029d92ff99660c63bbe7a2de57cb17007f0487a65ec3e15abed6",
+    "binarySha256": "1280066ac0255cce3c68f8ced7020f5f7f00addbed65ece098f0ac3bf1cee634",
+    "engine": "jit",
+    "gcStress": false,
+    "gcInterleave": true,
+    "compilation": "on-demand frames",
+    "timeoutSeconds": 600,
+    "unavailableModules": [],
+    "cliImageSha256": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+    "imageSha256": "33d13296828488f8314f3e93408a7f5429e06eb864b7a0da1d788e44961a38aa",
+    "selectedSuites": 1,
+    "path": "inherited; compiler subprocesses routed through VM CLI"
+  },
+  "baseline": {
+    "commit": "c9e475273",
+    "binarySha256": "63e54cb4647eedc925b308039dc6abbbf344e88e204f626a916134316d3d9a2f",
+    "status": "timeout",
+    "seconds": 600.769916
+  },
+  "candidate": {
+    "suite": "utilstoretest",
+    "class": "portable",
+    "facilities": "getinfo",
+    "reason": "pure Lua against compiler modules within the subset",
+    "status": "passed",
+    "exitStatus": 0,
+    "passed": 15,
+    "failed": 0,
+    "total": 15,
+    "completed": true,
+    "durationSeconds": 92.691
+  },
+  "limitations": [
+    "Three successful candidate runs (131.955, 121.144, and 92.691 seconds); the baseline was censored at 600 seconds. This measures the timeout regression, not steady-state throughput.",
+    "The latest run uses the final CLI/runtime binary and a newer corpus image. It includes the typed SIMD resume guard, plain-data codec, and borrowed fixed call arguments. Timings were collected on a loaded machine.",
+    "Full CLI and classified corpus coverage are recorded separately."
+  ]
+}

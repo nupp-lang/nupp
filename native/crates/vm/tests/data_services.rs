@@ -113,16 +113,80 @@ fn crc_rejects_invalid_ids_states_and_ranges_without_retaining_roots() {
         (1.0, Value::NIL, 0.5),
     ] {
         let handles = vm.handles.len();
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                call(
-                    &mut vm,
-                    "crc.update",
-                    &[Value::num(id), state, bytes, Value::num(count)],
-                )
-            }))
-            .is_err()
-        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            call(
+                &mut vm,
+                "crc.update",
+                &[Value::num(id), state, bytes, Value::num(count)],
+            )
+        }))
+        .is_err());
         assert_eq!(vm.handles.len(), handles);
     }
+}
+
+#[test]
+fn crypto_bytes_validate_sizes_and_survive_collection() {
+    let mut vm = vm();
+    let provider = vm.require("nupp.runtime.provider.nativecrypto");
+    let key = vm.intern("randomBytes");
+    let random = vm.get_index(provider, key);
+    for count in [0, 1, 32, 4096] {
+        let bytes = vm.call_value(random, &[Value::num(count as f64)])[0];
+        assert_eq!(vm.bytes_of(bytes).len(), count);
+    }
+    for count in [-1.0, 1.5, f64::NAN, 1048577.0] {
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            vm.call_value(random, &[Value::num(count)]);
+        }));
+        assert!(failed.is_err());
+    }
+    let value = vm.call_value(random, &[Value::num(8.0)])[0];
+    assert_eq!(vm.bytes_of(value).len(), 8);
+}
+
+#[test]
+fn collector_controls_preserve_allocation_accounting() {
+    let mut vm = vm();
+    let command = |vm: &mut Interp, mode: &str| {
+        let mode = vm.intern(mode);
+        call(vm, "collectgarbage", &[mode])[0]
+    };
+    command(&mut vm, "stop");
+    assert_eq!(command(&mut vm, "isrunning"), Value::FALSE);
+    let before = command(&mut vm, "count").as_num();
+    for _ in 0..100 {
+        vm.heap_new_bytes(4096);
+    }
+    assert!(command(&mut vm, "count").as_num() >= before + 400.0);
+    command(&mut vm, "collect");
+    assert!(command(&mut vm, "count").as_num() < before + 100.0);
+    assert_eq!(command(&mut vm, "isrunning"), Value::FALSE);
+    command(&mut vm, "restart");
+    assert_eq!(command(&mut vm, "isrunning"), Value::TRUE);
+}
+
+#[test]
+fn calendar_dates_preserve_utc_fields_and_empty_formats() {
+    let mut vm = vm();
+    let format = vm.intern("!%Y-%m-%dT%H:%M:%SZ");
+    let date = call(&mut vm, "os.date", &[format, Value::num(0.0)])[0];
+    assert_eq!(vm.bytes_of(date), b"1970-01-01T00:00:00Z");
+    let format = vm.intern("!*t");
+    let date = call(&mut vm, "os.date", &[format, Value::num(0.0)])[0];
+    let root = vm.register(date);
+    for (name, number) in [
+        ("year", 1970),
+        ("month", 1),
+        ("day", 1),
+        ("wday", 5),
+        ("yday", 1),
+    ] {
+        let key = vm.intern(name);
+        assert_eq!(vm.get_index(date, key), Value::num(number as f64));
+    }
+    vm.release(root);
+    let format = vm.intern("!");
+    let date = call(&mut vm, "os.date", &[format, Value::num(0.0)])[0];
+    assert_eq!(vm.bytes_of(date), b"");
 }

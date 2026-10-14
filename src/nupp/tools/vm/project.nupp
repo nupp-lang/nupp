@@ -23,7 +23,14 @@ end
 --- Read, check and lower a project using the compiler's module resolver.
 --- Explicit include roots allow bootstrapping before manifest execution.
 --- @raises string when a source cannot be read, checked or lowered.
-function project.emit(root: string, entry: string, extras: string?, includes: string?, hostBootstrap: boolean?): string
+function project.emit(
+    root: string,
+    entry: string,
+    extras: string?,
+    includes: string?,
+    hostBootstrap: boolean?,
+    inspection: table?
+): string
     if not hostBootstrap then
         triviaarena.install(tableProvider)
     end
@@ -36,7 +43,12 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
         config = chunk()
         assert(type(config) == "table", "manifest must return a table")
     end
-    local env = envMod.new(root, {cache = false, nativeCompilerServices = false, config = config})
+    local env = envMod.new(root, {
+        cache = false,
+        nativeCompilerServices = false,
+        compilerServices = not hostBootstrap and require("nupp.compiler.hostservices") or nil,
+        config = config,
+    })
 
     -- These declarations describe the modules this VM host supplies, rather
     -- than the LuaJIT-backed library implementations in the source checkout.
@@ -50,10 +62,21 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
     -- The VM coroutine surface participates in ordinary affine cleanup.
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
 
+    if inspection then
+        entry = envMod.moduleNameForPath(env, inspection.path) or entry
+    end
+    local carried = entry == "nupp.tools.vm.root" and require("nupp.compiler.vm.resources").source(root, config) or nil
+
     return lower.emit(
         entry,
         names(extras),
         function(name: string): string?
+            if inspection and name == entry then
+                return inspection.path
+            end
+            if carried and name == "nupp.vm.cliResources" then
+                return "=(VM CLI resources)"
+            end
             if name == "nupp.vm.taskScope" then
                 -- Reuse the public implementation under a private link name.
                 -- Its source identity remains nupp.tasks for checker call rules.
@@ -69,6 +92,7 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
             or name == "nupp.simd"
             or name == "nupp.runtime.provider.nativestorage"
             or name == "nupp.runtime.provider.nativeuuid"
+            or name == "nupp.runtime.provider.nativecrypto"
             or name == "nupp.vm.clock"
             or name == "nupp.vm.crc"
             or name == "nupp.vm.coroutine"
@@ -87,6 +111,11 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
             return envMod.findRuntimeModulePath(env, name)
         end,
         function(name: string, path: string): table
+            if carried and name == "nupp.vm.cliResources" then
+                local parsed = parser.parse(carried, path)
+                assert(#parsed.errors == 0, "compiler resources did not parse")
+                return parsed.root
+            end
             local source = assert(fs.readFile(path), "cannot read " .. path)
             local parsed = parser.parse(source, path)
             assert(#parsed.errors == 0, "parse failed: " .. path)
@@ -105,8 +134,18 @@ function project.emit(root: string, entry: string, extras: string?, includes: st
             end
 
             return parsed.root
-        end
+        end,
+        nil,
+        inspection and inspection.functions or nil
     )
+end
+
+--- Inspect the VM instructions emitted for one checked source file.
+--- @raises string when the source or its dependencies cannot be compiled.
+function project.inspect(root: string, path: string): {any}
+    local functions: {any} = {}
+    project.emit(root, "vm.inspection", nil, nil, nil, {path = path, functions = functions})
+    return functions
 end
 
 --- Rebuild the compiler image, including its computed module dependencies.

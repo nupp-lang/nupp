@@ -1,0 +1,12 @@
+local types = require("nupp.io.process.types")
+local record Host
+    spawn: function(options: types.Options): (any?, any?, any?, any?, integer, string?)
+    poll: function(child: any): (integer?, boolean)
+    kill: function(child: any, force: boolean): nil
+    read: function(stream: any, count: integer): string?
+    write: function(stream: any, bytes: string): (integer, boolean)
+    closeStream: function(stream: any): (boolean, string?)
+    reap: function(child: any): (boolean, string?)
+    waitReady: function(interest: types.Interest, milliseconds: number): integer
+end
+return Host

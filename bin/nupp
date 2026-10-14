@@ -11,6 +11,18 @@
 # pinned in the tree. Nothing here is committed, and nothing here is fetched
 # until a command finds no compiler to run -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# An explicitly selected VM image owns this whole invocation, including worker
+# commands launched by the compiler. Missing artifacts are a configuration error.
+if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
+    VM_RUNTIME=${NUPP_VM_BINARY:-"$ROOT/build/rust/target/release/nupp-vm"}
+    if [ ! -x "$VM_RUNTIME" ] || [ ! -f "$NUPP_VM_CLI_IMAGE" ]; then
+        echo "nupp: VM CLI runtime or image is missing" >&2
+        exit 1
+    fi
+    NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
+    export NUPP_COMPILER_ROOT
+    exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" nupp.tools.vm.root "$@"
+fi
 LUA_ROOT="$ROOT"
 case "$(uname -s 2>/dev/null)" in
     MINGW*|MSYS*|CYGWIN*) LUA_ROOT="$(cygpath -m "$ROOT")" ;;

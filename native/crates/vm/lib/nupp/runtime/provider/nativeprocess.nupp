@@ -1,0 +1,46 @@
+module nupp.runtime.provider.nativeprocess
+
+local host = require("nupp.vm.process")
+local shared = require("nupp.io.process.types")
+local provider = {}
+
+function provider.spawn(_: any, options: shared.Options): (any?, any?, any?, any?, integer, string?)
+    return host.spawn(options)
+end
+
+function provider.poll(_: any, child: any): shared.Exit?
+    local code, killed = host.poll(child)
+    if code ~= nil then
+        return shared.exited(code, killed, false)
+    end
+end
+
+function provider.kill(_: any, child: any, force: boolean): nil
+    host.kill(child, force)
+end
+
+function provider.read(_: any, stream: any, count: integer): string?
+    return host.read(stream, count)
+end
+
+function provider.write(_: any, stream: any, bytes: string): (integer, boolean)
+    return host.write(stream, bytes)
+end
+
+function provider.closeStream(_: any, stream: any): (boolean, string?)
+    return host.closeStream(stream)
+end
+
+function provider.reap(_: any, child: any): (boolean, string?)
+    return host.reap(child)
+end
+
+function provider.now(_: any): number
+    return require("nupp.vm.clock").now()
+end
+
+function provider.waitReady(_: any, interest: shared.Interest, milliseconds: number): integer
+    return host.waitReady(interest, milliseconds)
+end
+
+export = provider

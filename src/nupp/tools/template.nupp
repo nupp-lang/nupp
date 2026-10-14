@@ -391,6 +391,20 @@ local function loadSandboxed(text: string, where: string): any?, string?
         return nil, where .. " does not parse: " .. tostring(loadErr)
     end
     setfenv(chunk, sandbox())
+    local bounded = rawget(_G, "__nupp_with_instruction_budget")
+    if bounded then
+        local ok, result = pcall(bounded, chunk, INSTRUCTION_BUDGET)
+        if not ok then
+            if tostring(result):find("source chunk instruction limit exceeded", 1, true) then
+                return nil, where .. " runs too long to be a data literal"
+            end
+            return nil, where .. ": " .. tostring(result)
+        end
+        if type(result) ~= "table" then
+            return nil, where .. " must return a table"
+        end
+        return result
+    end
     -- The budget is a count hook, and LuaJIT does not run hooks from compiled
     -- code: `while true do end` becomes a trace that never checks, so a template
     -- with a loop in it hung the command rather than being refused by it. Turning

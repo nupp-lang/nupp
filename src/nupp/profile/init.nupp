@@ -42,8 +42,8 @@ the program.
 ]]
 
 local zone = require("nupp.profile.zone")
-local jitProfile = require("jit.profile")
-local jitUtil = require("jit.util")
+local jitProfile = rawget(_G, "jit") and require("jit.profile") or nil
+local jitUtil = rawget(_G, "jit") and require("jit.util") or nil
 local traceRegistry = require("nupp.profile.trace")
 
 local profile = {}
@@ -580,6 +580,7 @@ end
 --- @return the handle whose `stop` produces the report
 --- @raises string when a sample session is already running or an option is out of range
 function profile.sample(options: profile.SampleOptions?): profile.SampleSession
+    assert(jitProfile, "sampling requires a runtime profiler")
     if sampling then
         error("nupp: a sample session is already running; stop it first", 2)
     end
@@ -942,6 +943,7 @@ end
 --- @return the handle whose `stop` produces the report
 --- @raises string when a trace session is already running
 function profile.trace(options: profile.TraceOptions?): profile.TraceSession
+    assert(jitUtil, "trace profiling requires LuaJIT")
     if tracing then
         error("nupp: a trace session is already running; stop it first", 2)
     end

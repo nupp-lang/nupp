@@ -1420,7 +1420,9 @@ dependencies = [
  "libc",
  "libloading",
  "nupp-native-checksum",
+ "nupp-native-files",
  "nupp-native-platform",
+ "nupp-native-process",
  "serde_json",
  "sha2",
 ]

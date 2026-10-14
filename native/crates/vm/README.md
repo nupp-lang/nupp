@@ -1117,8 +1117,8 @@ and exit status. Repository checking has passed interpreted for all 545 modules
 with zero errors. The final cold run took 563.0 seconds on a loaded machine.
 The compiler-image test reaches byte identity at 7,374,387
 bytes and exercises its source fixtures on both interpreters and the JIT under
-collector verification. The root CLI, launcher, and release bootstrap are still
-separate migration work.
+collector verification. The root CLI and launcher follow below; release
+bootstrap packaging remains separate migration work.
 
 `corpus-classification.json` preserves the P0 classifications. `corpus-smoke.py`
 emits unchanged Lua suites and their checked Nupp dependencies on the VM, then
@@ -1331,10 +1331,50 @@ modes with an empty `PATH`. Native AOT compiles all 651 fixture functions and
 passes the focused service fixture with executable memory denied, full collector
 stress, and checkpoint restore.
 
-The on-demand JIT passes the 33 digest and bitset cases, but store-suite
-compilation exceeds 600 seconds before cases run. Full CLI integration and the
-complete classified corpus remain open. `tests/data-services-coverage.json`
-records the results and separates this limit from interpreter coverage.
+The on-demand JIT passes the 33 digest and bitset cases. Store-suite compilation
+now finishes too: all 15 cases pass in 92.691 seconds, including incremental
+collector verification. Its earlier build timed out after 600 seconds before
+running a case. Generic compiled frames dispatch at transfer, suspension, and
+backedge boundaries; an interpreter checkpoint between those entries resumes
+interpreted until the next entry. Typed SIMD entries retain their guard checks.
+`tests/store-jit-coverage.json` records the baseline and three successful runs. The complete classified
+corpus acceptance gate remains open.
+
+## Root CLI
+
+Select the complete CLI image through the launcher; child compiler processes
+inherit the same runtime and image. The default launcher still uses the existing
+bootstrap.
+
+```sh
+NO_JIT=1 NUPP_VM_CLI_IMAGE=/absolute/path/root.image \
+NUPP_VM_BINARY="$PWD/build/rust/target/release/nupp-vm" ./bin/nupp check --json
+
+python3 native/crates/vm/tests/root-cli-smoke.py /absolute/path/root.image \
+  --output /tmp/nupp-root-cli --luarocks /absolute/path/luarocks
+```
+
+Emit the image with `nupp.tools.vm.project.emit`, entry `nupp.tools.vm.root`,
+and these dynamic modules: `nupp.compiler.hostservices`, `nupp.compiler.fs`,
+`nupp.compiler.project.projectconfig`, `nupp.compiler.project.store`,
+`nupp.compiler.project.fingerprint`, `nupp.compiler.hash`,
+`nupp.compiler.project.preludecache`, and `nupp.runtime.provider.nativeprocess`.
+The image carries the configured compiler resources, templates, and bundled
+library declarations. Source loading and source environments run interpreted.
+
+The acceptance driver derives its command inventory from the CLI registry;
+all 100 cases across 26 commands pass in [the recorded run](tests/root-cli-coverage.json).
+It exercises checking and cache reuse, builds, execution, tasks, tests,
+benchmarks, bytecode inspection, Markdown documentation, C import/export,
+templates, package installation, LSP sessions, generator workers, comptime
+workers, and parallel check workers. File output and subprocesses use native
+host services. Compiler cache and worker payloads use a plain-data graph codec
+that preserves shared identity and rejects executable values on decode.
+
+This coverage does not establish VM release packaging, cross-platform binary
+targets, LuaJIT profiling, HTML documentation dependencies, or acceptance of
+the full classified corpus. Those gates remain open before deleting the old
+toolchain. Supply provisioned host tools on `PATH` for commands that need them.
 
 ## SIMD on the VM (2026-10-13)
 

@@ -40,6 +40,8 @@ libloading = { version = "0.8.9", optional = true }
 serde_json = { version = "1", optional = true }
 nupp-native-platform = { path = "../platform", features = ["uuid"] }
 nupp-native-checksum = { path = "../checksum" }
+nupp-native-files = { path = "../files" }
+nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }
 cranelift-frontend = { version = "0.135", optional = true }
 cranelift-jit = { version = "0.135", optional = true }

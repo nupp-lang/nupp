@@ -1,0 +1,35 @@
+module demo.correlatedowners
+
+local closed: integer = 0
+local record Resource
+    value: integer
+end
+
+local function close(takes resource: Resource): nil
+    closed = closed + resource.value
+end
+
+local function acquire(fail: boolean): affine(Resource, close)
+    if fail then
+        error("acquisition failed")
+    end
+    return new Resource(value = 42)
+end
+
+local function attempt(fail: boolean): nil
+    local ok, resource = pcall(acquire, fail)
+    if not ok then
+        assert(resource == "acquisition failed")
+        return
+    end
+    assert(resource.value == 42)
+end
+
+export function run(): integer
+    attempt(true)
+    assert(closed == 0)
+    attempt(false)
+    assert(closed == 42)
+
+    return closed
+end

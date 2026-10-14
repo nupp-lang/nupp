@@ -1,0 +1,33 @@
+module demo.process
+
+local process = require("nupp.io.process")
+local files = require("nupp.io.files")
+local api = {}
+
+function api.run(): integer
+    local directory = assert(files.createTemporaryDirectory())
+    local output = directory:toString() .. "/result"
+    local child, spawnError = process.spawn({
+        args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"},
+        timeoutMs = 5000,
+    })
+    if not child then
+        error(spawnError and spawnError.message or "spawn failed")
+    end
+    local result, communicateError = child:communicate({input = "binary\0input\n"})
+    assert(result, communicateError and communicateError.message)
+    assert(result.output == "binary\0input\n")
+    assert(result.errorOutput == "problem")
+    assert(result.exit.exitCode == 7 and not result:succeeded())
+    child:close()
+    local file = assert(io.open(output, "wb"))
+    file:write("written")
+    file:close()
+    assert(files.read(output) == "written")
+    directory:close()
+    assert(not files.exists(output))
+
+    return 42
+end
+
+export = api

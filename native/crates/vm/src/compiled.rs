@@ -363,11 +363,22 @@ fn j_call_builtin_impl(id: u64, argv: *const u64, nargs: u64) -> u64 {
     leave_helper!(_hp);
     first.0
 }
+// Compiled call sites reserve eight register results, with the remaining
+// values in the interpreter's result pack.
+fn compiled_args<'a>(it: &Interp, argv: *const u64, nargs: u64) -> std::borrow::Cow<'a, [V]> {
+    if (64..128).contains(&nargs) {
+        std::borrow::Cow::Owned(it.result_pack((nargs & 63) as usize, |i| V(unsafe { *argv.add(i) })))
+    } else {
+        // The generated call keeps this argument area alive until the helper
+        // returns. Fixed packs can keep borrowing it without allocating.
+        std::borrow::Cow::Borrowed(unsafe { std::slice::from_raw_parts(argv.cast::<V>(), (nargs & 127) as usize) })
+    }
+}
 fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let n = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + it.last_nres.min(8) } else { (nargs & 127) as usize };
-    let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, n) };
+    let values = compiled_args(it, argv, nargs);
+    let args = values.as_ref();
     let scope = it.open_scope(); for &a in args { it.handles.push(a); } it.handles.push(V(callee));
     if nargs >= 128 { it.err("a spread call from compiled code"); }
     let outs = it.call_outs(V(callee), args);
@@ -381,8 +392,8 @@ fn j_call_dyn_impl(callee: u64, argv: *const u64, nargs: u64) -> u64 {
 fn j_call_method_impl(name: u64, argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let nargs = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + it.last_nres.min(8) } else { nargs as usize };
-    let args: &[V] = unsafe { std::slice::from_raw_parts(argv as *const V, nargs) };
+    let values = compiled_args(it, argv, nargs);
+    let args = values.as_ref();
     let scope = it.open_scope(); for &a in args { it.handles.push(a); }
     let outs = it.call_method(V(name), args);
     it.close_scope(scope);
@@ -395,9 +406,8 @@ fn j_call_method_impl(name: u64, argv: *const u64, nargs: u64) -> u64 {
 fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx();
-    let nargs = if nargs & 64 != 0 { (nargs & 63) as usize + it.last_nres.min(8) } else { nargs as usize };
-    let args: Vec<V> = (0..nargs).map(|i| V(unsafe { *argv.add(i) })).collect();
-    let scope = it.open_scope(); for &a in &args { it.handles.push(a); }
+    let args = compiled_args(it, argv, nargs);
+    let scope = it.open_scope(); for &a in args.iter() { it.handles.push(a); }
     let outs = it.pcall_values(args[0], &args[1..]);
     it.close_scope(scope);
     it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
@@ -433,16 +443,16 @@ fn j_tagcheck_str_impl(v: u64) -> u64 { let it = ctx(); if !it.is_stringish(V(v)
 /// last call delivered (which still sits in `extra` from that call).
 fn j_ret_extra_impl(argv: *const u64, n: u64) -> u64 {
     let it = ctx();
+    if n == 256 { it.extra_n = 0; it.last_nres = 0; return 0; }
     if n >= 128 {
         // argv[i] is register start+i: the fixed values first, then the call's
         // results, which the call lowering read back into the registers that
         // follow. The first of them all is the function's own return value.
         let fixed = (n & 127) as usize;
-        let total = (fixed + it.last_nres).min(8);
-        let mut outs: Vec<V> = Vec::new();
-        for i in 1..total { outs.push(V(unsafe { *argv.add(i) })); }
-        it.extra_n = outs.len(); for (i, v) in outs.iter().enumerate() { it.extra[i] = *v; }
-        it.last_nres = total.max(1);
+        let values = it.result_pack(fixed, |i| V(unsafe { *argv.add(i) }));
+        it.extra_n = values.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1);
+        if it.extra_n > 0 { it.extra[..it.extra_n].copy_from_slice(&values[1..1 + it.extra_n]); }
+        it.last_nres = values.len().min(crate::interp::MAX_RESULTS);
         return 0;
     }
     it.extra_n = (n as usize).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = V(unsafe { *argv.add(i) }); }

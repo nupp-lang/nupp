@@ -242,6 +242,7 @@ local RESOURCES = {
     "src/nupp/compiler/aot/llvm/lua/*.ll",
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
+    {source = "src/nupp/bench/internal/statistics.nupp", output = "nupp/compiler/nupp/bench/internal/statistics.nupp"},
     {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
     {source = "src/nupp/profile/trace.nupp", output = "nupp/compiler/nupp/profile/trace.nupp"},
     {source = "src/nupp/profile/init.nupp", output = "nupp/compiler/nupp/profile/init.nupp"},

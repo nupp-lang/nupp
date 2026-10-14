@@ -357,7 +357,7 @@ static Value pop(ARGS) {
     REENTER;
 }
 static Value h_ret(ARGS) { ctx->result = regs[pc->a]; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
-static Value h_retnil(ARGS) { ctx->result = T_NIL; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
+static Value h_retnil(ARGS) { SLOW; }
 static Value h_retn(ARGS) {
     if (pc->b > 8) { SLOW; }
     uint32_t n = pc->b;

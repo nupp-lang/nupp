@@ -7,4 +7,5 @@ local record Paths
     currentDirectory: function(): (Path?, string?)
     newPath: function(path: string): Path
 end
+type Paths.Path = Path
 return Paths

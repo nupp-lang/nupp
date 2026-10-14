@@ -164,3 +164,93 @@ fn c_declaration_service_keeps_external_state_explicit() {
     assert!(nupp_vm::persist::save_graph(&mut vm, &[module], &Default::default()).is_err());
     vm.release(root);
 }
+
+#[test]
+fn stdin_preserves_framed_bytes_and_empty_lines() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let path = std::env::temp_dir().join(format!("nupp-vm-stdin-{}.image", std::process::id()));
+    let source = r#"function main 0 1 20 2 v:v
+const 0 builtin io.stdin.read
+const 1 builtin assert
+const 2 builtin io.stdout.write
+const 3 num 4
+const 4 str "A\000BC"
+const 5 str ""
+const 6 builtin io.read
+const 7 str "*a"
+const 8 str "tail"
+const 9 num 0
+K 2 0
+K 5 3
+CallDyn 2 3 2
+K 8 1
+K 10 4
+Eq 10 3 10
+CallDyn 8 9 1
+K 2 6
+CallDyn 2 3 0
+K 10 5
+Eq 10 3 10
+CallDyn 8 9 1
+K 4 7
+CallDyn 2 3 1
+K 10 8
+Eq 10 3 10
+CallDyn 8 9 1
+K 2 2
+Move 5 3
+CallDyn 2 3 2
+K 2 9
+Ret 2
+end
+function module:cli 1 0 6 2 :v
+const 0 func 0
+const 1 str "main"
+NewTableN 1 0 1
+NewClosure 2 0 3 0
+SetField 1 1 2
+Ret 1
+end
+module cli 1
+entry 1
+"#;
+    std::fs::write(&path, source).unwrap();
+    for interpreted in [true, false] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nupp-vm"));
+        command.args(["exec", path.to_str().unwrap(), "cli"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        if interpreted { command.env("NO_JIT", "1"); } else { command.env_remove("NO_JIT"); }
+        let mut child = command.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(b"A\0BC\ntail").unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, b"tail");
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn file_iterators_preserve_empty_lines_and_close_owned_files() {
+    use nupp_vm::builtins::{call, id_of, iter_next};
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let path = std::env::temp_dir().join(format!("nupp-vm-lines-{}-{nonce}", std::process::id()));
+    std::fs::write(&path, b"first\n\nlast").unwrap();
+    let mut vm = Interp::new(); vm.install_globals();
+    vm.heap.stress_steps = true; vm.heap.oracle = true;
+    let ordinary = vm.new_table();
+    assert_eq!(call(&mut vm, id_of("io.type").unwrap(), &[ordinary]).as_slice(), &[Value::NIL]);
+    let path_value = vm.heap_new_string(path.to_str().unwrap()); let path_root = vm.register(path_value);
+    let iterator = call(&mut vm, id_of("io.lines").unwrap(), &[path_value])[0]; let iter_root = vm.register(iterator);
+    let (_, file, _, _) = vm.iter_state(iterator);
+    for expected in [b"first".as_slice(), b"", b"last"] {
+        let line = iter_next(&mut vm, iterator)[0];
+        assert_eq!(vm.bytes_of(line), expected);
+    }
+    assert_eq!(iter_next(&mut vm, iterator).as_slice(), &[Value::NIL]);
+    assert_eq!(iter_next(&mut vm, iterator).as_slice(), &[Value::NIL]);
+    let state = call(&mut vm, id_of("io.type").unwrap(), &[file])[0];
+    assert_eq!(vm.bytes_of(state), b"closed file");
+    vm.release(iter_root); vm.release(path_root);
+    std::fs::remove_file(path).unwrap();
+}

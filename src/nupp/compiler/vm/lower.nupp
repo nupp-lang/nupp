@@ -12,7 +12,9 @@ function lower.emit(
     entryName: string,
     extras: {string},
     resolve: function(name: string): string?,
-    check: function(name: string, path: string): table
+    check: function(name: string, path: string): table,
+    environment: boolean?,
+    listing: table?
 ): string
     local out = {}
     local assignedNames = {}
@@ -84,6 +86,9 @@ function lower.emit(
         end
         if t.declarationKey and shapesByNominal[t.declarationKey] then
             return shapesByNominal[t.declarationKey]
+        end
+        if t.origin and t.origin ~= t then
+            return shapeOfNominal(t.origin)
         end
 
         return nil
@@ -220,6 +225,9 @@ function lower.emit(
             ty = ty.inner
         end
         if tyTag(ty) == "nominal" then
+            if ty.declKind == "interface" then
+                return nil
+            end
             return shapeOfNominal(ty) or shapeByBareName((ty.name or ""):match("([%w_]+)$") or "")
         end
     end
@@ -268,15 +276,6 @@ function lower.emit(
         return #self.consts - 1
     end
 
-    function Fn:op(...)
-        self.code[#self.code + 1] = {...};
-        return #self.code
-    end
-
-    function Fn:patch(at, ...)
-        self.code[at] = {...}
-    end
-
     local function nodeLine(node)
         if type(node) ~= "table" then
             return nil
@@ -295,6 +294,22 @@ function lower.emit(
         end
 
         return nil
+    end
+
+    function Fn:op(...)
+        local op: table = {...}
+        if listing then
+            op.line = nodeLine(self.curStmt)
+        end
+        self.code[#self.code + 1] = op
+
+        return #self.code
+    end
+
+    function Fn:patch(at, ...)
+        local line = self.code[at].line
+        self.code[at] = {...}
+        self.code[at].line = line
     end
 
     function Fn:reg()
@@ -454,6 +469,20 @@ function lower.emit(
         self.upvalIndex[name] = #self.upvals - 1
 
         return #self.upvals - 1
+    end
+
+    function Fn:globals(dst)
+        if not environment then
+            self:op("Require", dst, self:const("str", "_G"))
+            return
+        end
+        local cell = self:lookup("\0environment")
+        if not cell then
+            cell = self:upvalReg(assert(self:upvalue("\0environment")))
+        end
+        local context = self:reg()
+        self:op("GetCell", context, cell)
+        self:op("GetField", dst, context, self:const("str", "value"))
     end
 
     -- A scope remembers the declared high-water marks at entry, so leaving it
@@ -654,7 +683,7 @@ function lower.emit(
     -- comparison branches on its integer register, anything else on its value.
     local function condBranch(f, node)
         local r, c = expr(f, node, nil, "cond")
-        if c == "i" then
+        if c == "b" then
             return f:op("JmpIfIZero", r, 0), "JmpIfIZero", r
         end
         local v = coerce(f, r, c, "v")
@@ -964,7 +993,8 @@ function lower.emit(
         for i, nameTok in ipairs(names) do
             local e = exprs[i]
             local name = tokText(nameTok)
-            if e
+            if not environment
+                and e
                 and e.kind == "dotIndex"
                 and e.obj.kind == "name"
                 and tokText(e.obj.token) == "string"
@@ -1321,6 +1351,7 @@ function lower.emit(
             end
         elseif callee.kind == "dotIndex"
             and callee.obj.kind == "name"
+            and not environment
             and tokText(callee.obj.token) == "string"
             and tokText(callee.name) == "byte"
             and not f:binding("string")
@@ -1381,7 +1412,7 @@ function lower.emit(
         end
         if callee.kind == "name" then
             local name = tokText(callee.token)
-            if name == "pcall" and not f:binding(name) then
+            if not environment and name == "pcall" and not f:binding(name) then
                 local args = node.args.exprs
                 local base = dst
                 while f.nregs < base + #args + 8 do
@@ -1406,7 +1437,7 @@ function lower.emit(
                 finish(base)
                 return
             end
-            if name == "require" and not f:binding(name) and nres <= 1 and not all then
+            if not environment and name == "require" and not f:binding(name) and nres <= 1 and not all then
                 local a = node.args.exprs[1]
                 if a.kind == "string" then
                     f:op("Require", dst, f:const("str", (loadstring("return " .. tokText(a.token)))()))
@@ -1639,7 +1670,7 @@ function lower.emit(
                     f:op(cmp[op], i, a, bb)
                 end
                 if want == "cond" then
-                    return i, "i"
+                    return i, "b"
                 end
                 local d = f:reg();
                 f:op("BoolFromI", d, i);
@@ -1815,6 +1846,7 @@ function lower.emit(
                 and isNumeric(node.lhs.inferredType)
                 and isNumeric(node.rhs.inferredType)
                 and not (valueDomain(f, node.lhs) and valueDomain(f, node.rhs))
+                and not ((op == "==" or op == "~=") and (valueDomain(f, node.lhs) or valueDomain(f, node.rhs)))
             then
                 local a = exprAs(f, node.lhs, "f");
                 local b = exprAs(f, node.rhs, "f")
@@ -1825,7 +1857,7 @@ function lower.emit(
                     f:op(cmp[op], i, a, b)
                 end
                 if want == "cond" then
-                    return i, "i"
+                    return i, "b"
                 end
                 local d = f:reg();
                 f:op("BoolFromI", d, i);
@@ -1953,7 +1985,12 @@ function lower.emit(
             end
         elseif k == "name" then
             local name = tokText(node.token)
-            if BUILTINS[name] then
+            if environment then
+                f:globals(dst)
+                local value = f:reg()
+                f:op("GetField", value, dst, f:const("str", name))
+                f:op("Move", dst, value)
+            elseif BUILTINS[name] then
                 f:op("K", dst, f:const("builtin", name))
             elseif name == "pcall" then
                 f:op("K", dst, f:const("builtin", "pcall"))
@@ -2058,7 +2095,11 @@ function lower.emit(
             f:patch(skip, "Jmp", f:offset(skip, f:here()))
         elseif k == "dotIndex" then
             local fname = node.overloadMember or tokText(node.name)
-            if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:binding(tokText(node.obj.token)) then
+            if not environment
+                and node.obj.kind == "name"
+                and LIBS[tokText(node.obj.token)]
+                and not f:binding(tokText(node.obj.token))
+            then
                 local full = tokText(node.obj.token) .. "." .. fname
                 -- Library members that are values rather than functions.
                 if full == "math.huge" then
@@ -2142,8 +2183,18 @@ function lower.emit(
                     fields[#fields + 1] = {name = tokText(argument.name), node = argument.value}
                 end
             end
+            local fieldMark, fieldFloatMark = f.nregs, f.nfregs
             for _, field in ipairs(fields) do
-                local slot = assert(shape.slotIndex[field.name], "field " .. field.name)
+                f.nregs = math.max(fieldMark, f.declTop or 0)
+                f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
+                local slot = assert(
+                    shape.slotIndex[field.name],
+                    "constructor field " .. field.name .. " missing from " .. tostring(
+                        shape.module
+                    ) .. "." .. shape.name .. " in " .. f.module .. "." .. f.name .. " at line " .. tostring(
+                        nodeLine(node)
+                    )
+                )
                 local value = field.isDefault and require("nupp.compiler.vm.metadata").literal(field.defaultValue)
                     or field.node
                 if shape.slots[slot + 1].ty == "num" then
@@ -2173,7 +2224,10 @@ function lower.emit(
                 end
                 if every then
                     f:op("NewRecord", dst, struct.id)
+                    local fieldMark, fieldFloatMark = f.nregs, f.nfregs
                     for _, field in ipairs(node.fields) do
+                        f.nregs = math.max(fieldMark, f.declTop or 0)
+                        f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
                         local slot = struct.slotIndex[tokText(field.name)]
                         if struct.slots[slot + 1].ty == "num" then
                             local fv = exprAs(f, field.value, "f");
@@ -2194,9 +2248,10 @@ function lower.emit(
             local n = 0
             -- Each field's temporaries die with it: a constructor with hundreds
             -- of entries must not hold a register per entry.
-            local fieldMark = f.nregs
+            local fieldMark, fieldFloatMark = f.nregs, f.nfregs
             for fieldIndex, field in ipairs(node.fields) do
                 f.nregs = math.max(fieldMark, f.declTop or 0)
+                f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
                 if field.kind == "fieldNamed" then
                     local v = exprAs(f, field.value, "v")
                     f:op("SetField", dst, f:const("str", tokText(field.name)), v)
@@ -2533,7 +2588,7 @@ function lower.emit(
                     f:op("SetCell", cellReg, valueReg)
                 else
                     local globals = f:reg();
-                    f:op("Require", globals, f:const("str", "_G"));
+                    f:globals(globals);
                     f:op("SetField", globals, f:const("str", name), valueReg)
                 end
             end
@@ -2656,13 +2711,50 @@ function lower.emit(
             f:op("Defer", value, callback)
         elseif cleanup.kind == "field" then
             local field = f:reg()
+            local skip
+            if guard then
+                f:op("Nil", field)
+                skip = f:op("JmpIfNot", guard, 0)
+            end
             f:op("GetField", field, value, f:const("str", cleanup.field))
+            if skip then
+                f:patch(skip, "JmpIfNot", guard, f:offset(skip, f:here()))
+            end
             deferCleanup(f, field, cleanup.cleanup, guard)
             return
         else
             error("unsupported affine cleanup " .. tostring(cleanup.kind))
         end
         f.cleanupDepth = (f.cleanupDepth or 0) + 1
+    end
+
+    local function mayBeAbsent(node)
+        if not node then
+            return false
+        end
+        if node.kind == "paren" or node.kind == "asExpr" then
+            return mayBeAbsent(node.expr)
+        end
+        if node.kind == "bracketIndex" then
+            return true
+        end
+        if node.kind == "call" or node.kind == "methodCall" then
+            local signature = node.signatureType or node.calleeType or (node.obj and node.obj.inferredType)
+            local pack = signature and signature.retPack
+            if pack then
+                if pack.alternatives then
+                    for _, alternative in ipairs(pack.alternatives) do
+                        if #(alternative.head or {}) == 0 then
+                            return true
+                        end
+                    end
+                else
+                    return #(pack.head or {}) == 0
+                end
+            end
+        end
+
+        return false
     end
 
     stmt = function(f, node)
@@ -2678,7 +2770,10 @@ function lower.emit(
                 -- An initializer does not prove the representation of later writes.
                 -- Dynamic Lua bindings can change kind; keep them boxed unless an
                 -- explicit checked annotation constrains every assignment.
-                if not f.captured[name] and (ty or not assignedNames[name]) then
+                -- Indexed reads and open result packs may be absent even when
+                -- their element type is numeric. Preserve nil until narrowed.
+                local absent = mayBeAbsent(value)
+                if not absent and not f.captured[name] and (ty or not assignedNames[name]) then
                     if isInteger(ty) or (not ty and value and isInteger(value.inferredType)) then
                         class = "i"
                     elseif isNumeric(ty) or (not ty and value and isNumeric(value.inferredType)) then
@@ -3325,9 +3420,50 @@ function lower.emit(
                         {kind = "name", token = {text = owner.name}, inferredType = {tag = "any"}},
                         "v"
                     )
+                    local guard
+                    if owner.activation then
+                        guard = f:reg()
+                        f:op("K", guard, f:const("false", ""))
+                        local exits = {}
+                        for _, tests in ipairs(owner.activation) do
+                            local failures = {}
+                            for _, test in ipairs(tests) do
+                                local sibling = exprAs(
+                                    f,
+                                    {
+                                        kind = "name",
+                                        token = {text = owner.correlation.names[test.index]},
+                                        inferredType = {tag = "any"},
+                                    },
+                                    "v"
+                                )
+                                local constant, matches = f:reg(), f:reg()
+                                local kind = type(test.constant)
+                                if test.constant == nil then
+                                    f:op("Nil", constant)
+                                else
+                                    local tag = kind == "string" and "str"
+                                        or kind == "number" and "num"
+                                        or test.constant and "true"
+                                        or "false"
+                                    f:op("K", constant, f:const(tag, kind == "boolean" and "" or test.constant))
+                                end
+                                f:op("Eq", matches, sibling, constant)
+                                failures[#failures + 1] = {at = f:op("JmpIfNot", matches, 0), value = matches}
+                            end
+                            f:op("K", guard, f:const("true", ""))
+                            exits[#exits + 1] = f:op("Jmp", 0)
+                            for _, failure in ipairs(failures) do
+                                f:patch(failure.at, "JmpIfNot", failure.value, f:offset(failure.at, f:here()))
+                            end
+                        end
+                        for _, at in ipairs(exits) do
+                            f:patch(at, "Jmp", f:offset(at, f:here()))
+                        end
+                    end
                     for i = #(owner.cleanups or {}), 1, -1 do
                         local depth = f.cleanupDepth or 0
-                        deferCleanup(f, value, owner.cleanups[i])
+                        deferCleanup(f, value, owner.cleanups[i], guard)
                         slots[#slots + 1] = {depth = depth, field = owner.cleanups[i].field}
                     end
                 end
@@ -3768,6 +3904,9 @@ function lower.emit(
         -- function that resolve to upvalues (a nested local of the same name
         -- declared later in the body does not hide them).
         if f.parent then
+            if environment then
+                f:upvalReg(assert(f:upvalue("\0environment")))
+            end
             local names = {}
             for name in pairs(freeOf[funcbody] or {}) do
                 names[#names + 1] = name
@@ -3893,12 +4032,23 @@ function lower.emit(
         assert(tree, "check failed for " .. path)
         local rootNode = tree.root or tree
         require("nupp.compiler.vm.metadata").expand(rootNode)
+        -- Lua's string and table call forms are single arguments too. Keep the
+        -- parser's nodes so source positions and checked identities survive.
+        walkSyntax(rootNode, {}, function(node)
+            if node.kind == "args" and not node.exprs then
+                if node.table then
+                    node.exprs = {node.table}
+                elseif node.str then
+                    node.exprs = {{kind = "string", token = node.str}}
+                end
+            end
+        end)
         local stats = rootNode.blocks[1].stats
         for _, dep in ipairs(requiresOf(rootNode)) do
             local depPath = modulePath(dep)
             if depPath then
                 compileModule(dep, depPath)
-            else
+            elseif os.getenv("EMIT_TRACE") then
                 io.stderr:write("module ", dep, " not found (left to the runtime)\n")
             end
         end
@@ -3941,6 +4091,13 @@ function lower.emit(
             end
         end)
         markCaptures(chunk, rootBody)
+        if environment then
+            chunk.sig, chunk.nparams, chunk.vararg = {"v"}, 1, true
+            local context = chunk:reg()
+            chunk.captured["\0environment"] = true
+            local cell = chunk:declare("\0environment", "v")
+            chunk:op("NewCell", cell, context)
+        end
         openSpill(chunk, rootNode.blocks[1])
         if declaredModule then
             chunk.exportsReg = chunk:declare("\0exports", "v")
@@ -4028,6 +4185,11 @@ function lower.emit(
         emit(table.concat(parts, " "))
     end
     for _, f in ipairs(functions) do
+        local inspected = nil
+        if listing and f.module == entryName then
+            inspected = {name = f.name, what = f.parent and "function" or "chunk", instructions = {}}
+            listing[#listing + 1] = inspected
+        end
         emit(
             (
                 "function %s %d %d %d %d %s:%s%s"
@@ -4059,12 +4221,18 @@ function lower.emit(
                 emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value)))
             end
         end
-        for _, op in ipairs(f.code) do
+        for pc, op in ipairs(f.code) do
             local parts = {}
             for i, value in ipairs(op) do
                 parts[i] = type(value) == "number" and ("%.17g"):format(value) or value
             end
-            emit("  " .. table.concat(parts, " "))
+            local text = table.concat(parts, " ")
+            emit("  " .. text)
+            if inspected then
+                inspected.instructions[
+                    #inspected.instructions + 1
+                ] = {pc = pc - 1, op = op[1], text = ("%04d %s"):format(pc - 1, text), line = op.line,}
+            end
         end
         emit("end")
     end

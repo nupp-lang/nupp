@@ -1,0 +1,41 @@
+function module:vm.chunk 0 1 19 2 v:v vararg
+  source vm.chunk
+  const 0 str "value"
+  const 1 str "answer"
+  const 2 num 1
+  NewCell 2 1
+  GetCell 5 2
+  GetField 4 5 0
+  GetField 6 4 1
+  Move 4 6
+  K 7 2
+  Add 3 4 7
+  GetCell 9 2
+  GetField 8 9 0
+  SetField 8 1 3
+  GetCell 5 2
+  GetField 3 5 0
+  GetField 6 3 1
+  Move 3 6
+  Move 8 2
+  NewClosure 4 1 7 1
+  RetN 3 2
+end
+function module:vm.chunk.fn1 1 0 17 2 :v
+  source vm.chunk
+  const 0 str "value"
+  const 1 str "answer"
+  const 2 str "io"
+  GetUpval 1 0
+  GetCell 4 1
+  GetField 2 4 0
+  GetField 5 2 1
+  Move 2 5
+  GetCell 6 1
+  GetField 3 6 0
+  GetField 7 3 2
+  Move 3 7
+  RetN 2 2
+end
+module vm.chunk 0 =isolated
+entry 0

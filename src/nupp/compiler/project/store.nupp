@@ -9,8 +9,8 @@ keyed by a digest of everything the entry was computed from, so a key that
 matches is an answer that is still correct rather than one that is probably
 still correct.
 
-Nothing here is executable. `string.buffer` serializes plain data and the
-decoder produces plain data. A file that cannot be decoded or whose format or
+Nothing here is executable. The host codec serializes plain data and its
+decoder refuses callable values and metatables. A file that cannot be decoded or whose format or
 stamp differs is a cache miss. That is what lets the store sit in the project's
 own build directory instead of a user-private one -- a store of code could not.
 
@@ -27,7 +27,11 @@ deleted the file by hand. The body is sealed with a digest of itself, and a
 body that does not match its seal is a miss like any other.
 ]]
 
-local loaded, nativeBuffer = pcall(require, "string.buffer")
+local nativeBuffer: any = rawget(_G, "__nupp_plain_codec")
+local loaded = nativeBuffer ~= nil
+if not loaded then
+    loaded, nativeBuffer = pcall(require, "string.buffer")
+end
 
 local function unavailable(): never
     error("binary cache serialization is unavailable on this host")
