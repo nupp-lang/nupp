@@ -159,7 +159,8 @@ local function run(options: any): integer
     if rawget(_G, "__nupp_load_image") then
         local source, problem = require("nupp.compiler.fs").readFile(path)
         if not source then
-            return fail(report.TOOL_FAILED, tostring(problem))
+            report.fileFailure(path, problem, "check that the path exists and is readable", collected)
+            return fail()
         end
         if (require("nupp.tools.cli.compile").settings(options).optLevel or 0) ~= 0 then
             return fail(report.TOOL_FAILED, "VM bytecode inspection does not use Lua optimization levels")

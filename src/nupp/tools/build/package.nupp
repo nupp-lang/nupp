@@ -758,7 +758,11 @@ end
 --- bytes, so Apple's native signer can put a new signature after the trailer.
 local function stampBinary(stubText, payload, selectedPlatform, flags)
     local macTarget = selectedPlatform == "aarch64-apple-darwin"
-        or (selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254")
+        or (
+            selectedPlatform == nil
+            and require("nupp.tools.build.platform").hostSystem() == "darwin"
+            and stubText:sub(1, 4) == "\207\250\237\254"
+        )
     if macTarget then
         local unsigned, unsignedErr = unsignedMachOStub(stubText)
         if not unsigned then
@@ -904,7 +908,7 @@ local function stampFile(
         return nil, tostring(writeErr)
     end
     local posixTarget = selectedPlatform == nil or require("nupp.tools.build.platform").isPosix(selectedPlatform)
-    if posixTarget and jit.os ~= "Windows" then
+    if posixTarget and require("nupp.tools.build.platform").hostSystem() ~= "windows" then
         local code, chmodErr = process.capture({"chmod", "+x", output})
         if code ~= 0 then
             return nil, "cannot make " .. output .. " executable: " .. tostring(chmodErr)
@@ -915,7 +919,10 @@ local function stampFile(
     -- has no timestamp and a fixed identifier, so it preserves the packaging
     -- fixpoint. Explicit cross-target output remains unsigned and byte-identical on
     -- every compiler host; release automation signs it on macOS.
-    if selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254" then
+    if selectedPlatform == nil
+        and require("nupp.tools.build.platform").hostSystem() == "darwin"
+        and stubText:sub(1, 4) == "\207\250\237\254"
+    then
         local code, signErr = process.capture({
             "codesign",
             "--force",

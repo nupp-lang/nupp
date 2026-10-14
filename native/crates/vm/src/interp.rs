@@ -1038,7 +1038,7 @@ impl Interp {
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn", "table.clone", "table.clear"]);
         let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
-        let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
+        let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename", "os.exit"]);
         let io = table_of(self, &["io.type", "io.lines", "io.write", "io.open", "io.read", "io.popen", "io.flush"]);
         // The standard streams: objects whose `write` is a method.
         let stdin = self.new_table(); self.registered.push(stdin); let k = self.intern("stdin"); self.set_index(io, k, stdin);
@@ -1051,12 +1051,12 @@ impl Interp {
                 self.set_index(stream, key, Value::builtin(builtin));
             }
         }
-        let debug = table_of(self, &["debug.getinfo"]);
+        let debug = table_of(self, &["debug.getinfo", "debug.traceback"]);
         // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
         // modules: a `require` finds them before the image's.
         let process = table_of(self, &["process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady"]);
         self.loaded.insert("nupp.vm.process".into(), process);
-        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.write", "files.createTemporaryFile", "files.createTemporaryDirectory"]);
+        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.write", "files.createTemporaryFile", "files.createTemporaryDirectory", "files.lines"]);
         crate::simd::install(self);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
@@ -1531,6 +1531,10 @@ impl Interp {
 
     pub(crate) fn enter_caller(&self, caller: Caller) -> CallerScope {
         CallerScope { previous: self.caller.replace(Some(caller)), slot: self.caller.clone() }
+    }
+    /// The task a builtin was called from, when an interpreted task called it.
+    pub(crate) fn caller_task(&self) -> Option<usize> {
+        match self.caller.get() { Some(Caller::Task(tid)) => Some(tid), _ => None }
     }
     pub(crate) fn caller_function(&self) -> Option<usize> {
         self.caller.get().map(|caller| match caller {

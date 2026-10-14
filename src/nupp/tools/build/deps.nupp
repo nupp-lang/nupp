@@ -84,9 +84,15 @@ local function expandGlob(root: string, glob: string): {string}
     return matches
 end
 
+-- LuaJIT's spelling of the host system, lower-cased: "osx", "windows" or "linux".
+local function hostOsName(): string
+    local system = require("nupp.tools.build.platform").hostSystem()
+    return system == "darwin" and "osx" or system
+end
+
 local function sharedLibraryName(name)
     name = name:gsub("%-", "_")
-    local osName = (jit and jit.os or ""):lower()
+    local osName = hostOsName()
     if osName == "windows" then
         return name .. ".dll"
 
@@ -557,7 +563,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             end
             local objectStem = sharedOutput or staticOutput as string
             local objects: {string} = {}
-            local osName = (jit and jit.os or ""):lower()
+            local osName = hostOsName()
 
             local function removeIntermediates()
                 for _, object in ipairs(objects) do

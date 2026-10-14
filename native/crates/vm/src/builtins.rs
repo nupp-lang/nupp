@@ -45,6 +45,11 @@ pub const NAMES: &[&str] = &[
     "vm.saveData", "vm.loadData",
     "table.clone",
     "table.clear",
+    "simd.absent",
+    "os.exit",
+    "debug.traceback",
+    "files.lines",
+    "files.readerRead", "files.readerClose",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -93,7 +98,8 @@ fn lua_string(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::new(); let mut i = 0;
     while i < inner.len() {
         let c = inner[i];
-        if c == q { return None; }
+        // An unescaped newline ends the line, not the string: Lua refuses it.
+        if c == q || c == b'\n' || c == b'\r' { return None; }
         if c != b'\\' { out.push(c); i += 1; continue; }
         i += 1; let e = *inner.get(i)?;
         match e {
@@ -200,6 +206,36 @@ fn path_object(it: &mut Interp, text: &str) -> Value {
 fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     match name {
         "files.createTemporaryFile" | "files.createTemporaryDirectory" => crate::temporary::create(it, name.ends_with("Directory"), arg(args, 0)),
+        // The stdlib's line reader over a file this opens: `newLines` takes
+        // the handle and closes it with itself.
+        "files.lines" => {
+            let scope = it.open_scope(); it.handles.extend_from_slice(args);
+            let path = path_text(it, arg(args, 0));
+            let path = it.heap_new_string(&path); it.handles.push(path);
+            let mode = it.intern("r");
+            let opened = call(it, id_of("io.open").unwrap(), &[path, mode]);
+            if opened[0] == Value::NIL { let why = opened[1]; it.close_scope(scope); return outs![Value::NIL, why]; }
+            it.handles.push(opened[0]);
+            // An io.Reader answers "" at the end, where a Lua handle answers nil.
+            let reader = it.new_table(); it.handles.push(reader);
+            let key = it.intern("_file"); it.set_index(reader, key, opened[0]);
+            for (name, b) in [("read", "files.readerRead"), ("close", "files.readerClose")] { let k = it.intern(name); it.set_index(reader, k, Value::builtin(id_of(b).unwrap())); }
+            let io = it.require("nupp.io"); it.handles.push(io);
+            let key = it.intern("newLines");
+            let new_lines = it.get_index(io, key);
+            let lines = it.call_value(new_lines, &[reader, arg(args, 1)]).first().copied().unwrap_or(Value::NIL);
+            it.close_scope(scope);
+            outs![lines, Value::NIL]
+        }
+        "files.readerRead" | "files.readerClose" => {
+            let key = it.intern("_file");
+            let file = it.get_index(arg(args, 0), key);
+            if name == "files.readerClose" { call(it, id_of("file.close").unwrap(), &[file]); return Outs::new(); }
+            let read = call(it, id_of("file.read").unwrap(), &[file, arg(args, 1)]);
+            if read[0] != Value::NIL { return outs![read[0]]; }
+            let why = if read.len() > 1 { read[1] } else { Value::NIL };
+            if why == Value::NIL { outs![it.intern("")] } else { outs![Value::NIL, why] }
+        }
         "files.read" => {
             let path = path_text(it, arg(args, 0));
             match std::fs::read(path) { Ok(bytes) => outs![it.new_string_bytes(&bytes)], Err(e) => outs![Value::NIL, it.heap_new_string(&e.to_string())] }
@@ -439,6 +475,8 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Special {
     Plain,
+    OsExit,
+    DebugTraceback,
     Foreign,
     TasksVm,
     IoStdinRead,
@@ -487,6 +525,8 @@ fn classify(name: &str) -> Special {
     if name.starts_with("tasks.vm") { return Special::TasksVm; }
     if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
     if name == "io.popen" { return Special::IoPopen; }
+    if name == "os.exit" { return Special::OsExit; }
+    if name == "debug.traceback" { return Special::DebugTraceback; }
     if name.starts_with("process.") { return Special::Process; }
     if name.starts_with("temporary.") { return Special::Temporary; }
     if name == "table.maxn" { return Special::TableMaxn; }
@@ -546,6 +586,33 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::IoPopen => {
             return crate::process::popen(it, args);
+        }
+        Special::DebugTraceback => {
+            // `debug.traceback([thread,] [message [, level]])`. A message that is
+            // neither a string nor nil is answered unchanged, as Lua does. The
+            // frames are the calling task's; a handler of `xpcall` runs after
+            // the unwind, so it sees the protected call's caller.
+            let first = arg(args, 0);
+            let plain = |it: &Interp, v: Value| v == Value::NIL || v.is_num() || it.is_stringish(v);
+            let message = if args.len() >= 2 && !plain(it, first) && plain(it, arg(args, 1)) { arg(args, 1) } else { first };
+            if message != Value::NIL && !it.is_stringish(message) && !message.is_num() { return outs![message]; }
+            let mut text = if message == Value::NIL { String::new() } else if message.is_num() { num_text(message.as_num()) } else { String::from_utf8_lossy(it.bytes_of(message)).into_owned() };
+            if !text.is_empty() { text.push('\n'); }
+            text.push_str("stack traceback:");
+            if let Some(tid) = it.caller_task() {
+                for line in it.backtrace(tid).lines() { text.push_str("\n\t"); text.push_str(line.trim_start()); }
+            }
+            return outs![it.heap_new_string(&text)];
+        }
+        Special::OsExit => {
+            // Lua's spelling: true or nothing succeeds, false fails, a number is
+            // the status. Every write has already been flushed.
+            let code = arg(args, 0);
+            let status = if code == Value::NIL || code == Value::TRUE { 0 }
+                else if code == Value::FALSE { 1 }
+                else if code.is_num() { code.as_num() as i32 }
+                else { it.err("bad argument #1 to 'exit' (number expected)") };
+            std::process::exit(status);
         }
         Special::Process => {
             let name = NAMES[id as usize];

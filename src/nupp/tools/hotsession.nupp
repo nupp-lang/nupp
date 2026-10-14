@@ -707,8 +707,7 @@ function Session:semanticSnapshot(path, checked, module)
                                     configuredPath,
                                     mapped,
                                     resolved,
-                                    jit.os,
-                                    jit.arch,
+                                    tostring(require("nupp.compiler.targetlayout").hostKey()),
                                     bytes and ("present\0" .. bytes) or "missing",
                                 },
                                 "\0"

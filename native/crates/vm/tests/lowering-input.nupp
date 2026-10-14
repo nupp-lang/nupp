@@ -44,6 +44,35 @@ function api.run(): number
     assert(formatRest("1", "2", "3", "4", "5", "6", "7", "8", "9") == "123456789")
     assert(("%s%s%s%s%s%s%s%s%s"):format("1", "2", "3", "4", "5", "6", "7", "8", "9") == "123456789")
 
+    -- Safe navigation: a nil guarded value skips the rest of its link.
+    local record Probe
+        name: string
+        items: {number}
+        step: (function(number): number)?
+        function scale(self, n: number): number
+            return n * 2
+        end
+    end
+
+    local function both(): (number, number)
+        return 3, 4
+    end
+
+    local present: Probe? = new Probe(name = "p", items = {7}, step = function(n: number): number
+        return n + 1
+    end)
+    local absent: Probe? = nil
+    assert(present?.name == "p" and absent?.name == nil)
+    local items = present?.items
+    assert(items ~= nil and items[1] == 7)
+    assert(present?.step?.(1) == 2 and absent?.step?.(1) == nil)
+    assert(present?.:scale(5) == 10 and absent?.:scale(5) == nil)
+    local open: {[string]: any}? = {}
+    assert(open?.missing?.(1) == nil and open?.["k"] == nil)
+    local pair: (function(): (number, number))? = both
+    local counted = {pair?.()}
+    assert(#counted == 2)
+
     return t.x + #tostring(why) + receiver:value()
 end
 

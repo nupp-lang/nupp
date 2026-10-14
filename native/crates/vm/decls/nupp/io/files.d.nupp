@@ -30,6 +30,7 @@ local record Files
     createDirectory: function(path: string): (boolean, string?)
     remove: function(path: string, recursive: boolean?): (boolean, string?)
     read: function(path: string): (string?, string?)
+    lines: function(path: string | paths.Path, limit: integer?): (affine(bytes.Lines)?, string?)
     write: function(path: string | paths.Path, borrows data: string | bytes.ByteView): (boolean, string?)
     glob: function(pattern: string): ({paths.Path}?, string?)
     createTemporaryFile: function(options: TemporaryOptions?): (affine(TemporaryPath?), string?)

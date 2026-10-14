@@ -47,4 +47,20 @@ function platform.hostKey(): string?
     return platform.has(key) and key or nil
 end
 
+--- The operating system the compiler runs on: "darwin", "windows" or "linux".
+--- Read from the host target key, which the VM and LuaJIT both answer.
+function platform.hostSystem(): string
+    local key = require("nupp.compiler.targetlayout").hostKey()
+    if key == nil then
+        return package.config:sub(1, 1) == "\\" and "windows" or "linux"
+    end
+    if key:find("darwin", 1, true) then
+        return "darwin"
+    elseif key:find("windows", 1, true) then
+        return "windows"
+    end
+
+    return "linux"
+end
+
 export = platform

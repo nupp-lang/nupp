@@ -583,14 +583,16 @@ function lower.emit(
         BUILTINS[n] = true
     end
     -- Only implemented library functions can become builtin constants. Other
-    -- members remain runtime lookups, including optional host facilities.
+    -- members remain runtime lookups, including optional host facilities. The
+    -- `os` and `io` members are host effects, never hot, and replacing one is
+    -- how a program substitutes its environment, so those are looked up when
+    -- called, as Lua does.
     for name in (
         "string.byte string.sub string.find string.char string.rep string.format "
         .. "string.gsub string.gmatch string.len string.upper string.lower string.match string.reverse "
         .. "table.concat table.insert table.remove table.unpack table.sort "
         .. "math.floor math.min math.max math.abs math.ceil math.sqrt math.log math.fmod math.modf math.frexp "
-        .. "bit.band bit.bor bit.bxor bit.bnot bit.lshift bit.rshift bit.arshift bit.tobit bit.rol bit.ror bit.bswap bit.tohex "
-        .. "os.getenv os.clock os.time os.remove os.tmpname os.execute os.rename io.write io.open io.read"
+        .. "bit.band bit.bor bit.bxor bit.bnot bit.lshift bit.rshift bit.arshift bit.tobit bit.rol bit.ror bit.bswap bit.tohex"
     ):gmatch("%S+") do
         BUILTINS[name] = true
     end
@@ -736,7 +738,7 @@ function lower.emit(
         return dst
     end
 
-    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, deferCleanup
+    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, emitSafeCall, deferCleanup
     local queueModule
     -- Expression kinds that write their destination only after every read of
     -- their operands, so the destination may be a register the operands name.
@@ -1023,7 +1025,9 @@ function lower.emit(
         while e.kind == "castExpr" do
             e = e.expr
         end
-        return (e.kind == "call" or e.kind == "methodCall") and not e.scalarIntrinsic and not e.ownershipIntrinsic
+        return (e.kind == "call" or e.kind == "methodCall" or e.kind == "safeCall")
+            and not e.scalarIntrinsic
+            and not e.ownershipIntrinsic
     end
 
     -- A call with results landing at `dst..`: eight registers are reserved above
@@ -1348,10 +1352,82 @@ function lower.emit(
 
     -- `all` asks for everything the call returns (a trailing `return f()`),
     -- which `RetN` reads from `last_nres`; otherwise exactly `nres` values.
+    -- `f?.(...)`, `o?.:m(...)` and `o:m?.(...)`: each guarded value is tested
+    -- against nil, and a nil skips the call, which then answers one nil.
+    emitSafeCall = function(f, node, dst, nres, all)
+        local absent = f:reg()
+        f:op("Nil", absent)
+        local skips = {}
+
+        local function guard(value)
+            local present = f:reg()
+            f:op("Ne", present, value, absent)
+            skips[#skips + 1] = {at = f:op("JmpIfNot", present, 0), present = present}
+        end
+
+        if node.kind == "safeCall" then
+            local callee = exprAs(f, node.obj, "v")
+            guard(callee)
+            emitCall(
+                f,
+                {
+                    kind = "call",
+                    obj = {kind = "vmRegister", reg = callee},
+                    args = node.args,
+                    trailingCallableCall = node.trailingCallableCall,
+                },
+                dst,
+                nres,
+                all
+            )
+        else
+            local receiver = exprAs(f, node.obj, "v")
+            if node.safeObj then
+                guard(receiver)
+            end
+            if node.safeMethod then
+                local method = f:reg()
+                local name = node.trailingCallableMember or node.overloadMember or tokText(node.name)
+                f:op("GetField", method, receiver, f:const("str", name))
+                guard(method)
+            end
+            -- The receiver is already evaluated: the ordinary method call
+            -- reads it from its register.
+            local obj, safeObj, safeMethod = node.obj, node.safeObj, node.safeMethod
+            node.obj, node.safeObj, node.safeMethod = {kind = "vmRegister", reg = receiver}, nil, nil
+            emitCall(f, node, dst, nres, all)
+            node.obj, node.safeObj, node.safeMethod = obj, safeObj, safeMethod
+        end
+        local done = f:op("Jmp", 0)
+        for _, skip in ipairs(skips) do
+            f:patch(skip.at, "JmpIfNot", skip.present, f:offset(skip.at, f:here()))
+        end
+        if all then
+            -- The results are counted at run time: `select(1, nil)` is one nil.
+            while f.nregs < dst + 3 do
+                f:reg()
+            end
+            local callee = f:reg()
+            f:op("K", callee, f:const("builtin", "select"))
+            f:op("K", dst + 1, f:const("num", 1))
+            f:op("Nil", dst + 2)
+            f:op("CallDyn", callee, dst, 2)
+        else
+            for i = 0, nres - 1 do
+                f:op("Nil", dst + i)
+            end
+        end
+        f:patch(done, "Jmp", f:offset(done, f:here()))
+    end
+
     emitCall = function(f, node, dst, nres, all)
         nres = nres or 1
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
+            return
+        end
+        if node.kind == "safeCall" or (node.kind == "methodCall" and (node.safeObj or node.safeMethod)) then
+            emitSafeCall(f, node, dst, nres, all)
             return
         end
         if node.carrayElem then
@@ -1678,6 +1754,9 @@ function lower.emit(
         local k = node.kind
         if k == "paren" then
             return expr(f, node.expr, dst, want)
+        elseif k == "vmRegister" then
+            -- A value the lowering already holds, such as a guarded receiver.
+            return node.reg, "v"
         end
         -- The checker identifies indexed views. Their public operators use
         -- checked library methods even when the view has no Lua metatable.
@@ -2354,8 +2433,23 @@ function lower.emit(
                 local i = exprAs(f, node.expr, "v");
                 f:op("GetIdx", dst, o, i)
             end
-        elseif k == "call" or k == "methodCall" then
+        elseif k == "call" or k == "methodCall" or k == "safeCall" then
             emitCall(f, node, dst)
+        elseif k == "safeIndex" or k == "safeBracket" then
+            -- `o?.name` and `o?.[key]`: nil when `o` is.
+            local o = exprAs(f, node.obj, "v")
+            f:op("Nil", dst)
+            local present = f:reg()
+            f:op("Ne", present, o, dst)
+            local skip = f:op("JmpIfNot", present, 0)
+            if k == "safeIndex" then
+                f:op("GetField", dst, o, f:const("str", node.overloadMember or tokText(node.name)))
+            else
+                local key = exprAs(f, node.expr, "v")
+                f:op("GetIdx", dst, o, key)
+            end
+            f:patch(skip, "JmpIfNot", present, f:offset(skip, f:here()))
+
         elseif k == "newExpr" then
             local call = node.call
             if call.constructorCall then
@@ -4303,6 +4397,26 @@ function lower.emit(
         return names
     end
 
+    -- A module that loads another by a computed name says which with
+    -- `@requires-dynamically NAME`, and that module belongs to the image as a
+    -- literal require's does. A wildcard or `nothing` names no one module.
+    local function declaredDynamically(path)
+        local file = io.open(path, "rb")
+        if not file then
+            return {}
+        end
+        local text = file:read("*a")
+        file:close()
+        local names = {}
+        for name in text:gmatch("@requires%-dynamically%s+([%w%.%*%-_]+)") do
+            if name ~= "nothing" and not name:find("*", 1, true) then
+                names[#names + 1] = name
+            end
+        end
+
+        return names
+    end
+
     -- Modules named in EMIT_STUBS (comma-separated) are emitted as empty
     -- exports: for a workload that loads a module whose dependencies cannot
     -- run here, when the workload itself never calls into it.
@@ -4343,7 +4457,11 @@ function lower.emit(
             end
         end)
         local stats = rootNode.blocks[1].stats
-        for _, dep in ipairs(requiresOf(rootNode)) do
+        local deps = requiresOf(rootNode)
+        for _, dep in ipairs(declaredDynamically(path)) do
+            deps[#deps + 1] = dep
+        end
+        for _, dep in ipairs(deps) do
             local depPath = modulePath(dep)
             if depPath then
                 compileModule(dep, depPath)

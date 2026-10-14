@@ -464,6 +464,11 @@ impl Registry {
         if let Some(hit) = self.types.get(spec) {
             return Ok(hit.clone());
         }
+        // A type string may not introduce a tag, which C's typeof would do
+        // silently: the legacy FFI refuses one the declarations never named.
+        if let Some(tag) = tags(spec).into_iter().find(|tag| !tags(&self.declarations).contains(tag)) {
+            return Err(format!("undeclared or implicit tag '{}'", tag.1));
+        }
         // [?] is the legacy FFI's variable array notation; an incomplete C array
         // has the same declaration model (element known, extent absent).
         let spec_c = spec.replace("[?]", "[]");
@@ -610,6 +615,25 @@ impl Registry {
             _ => Err("unknown C declaration operation".into()),
         }
     }
+}
+
+/// Every `struct`, `union` or `enum` tag the text names, keyword and name.
+/// An anonymous aggregate (`struct {`) names none.
+fn tags(text: &str) -> Vec<(&str, &str)> {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(word) {
+        let after = &rest[start..];
+        let (keyword, tail) = after.split_at(after.find(|c: char| !word(c)).unwrap_or(after.len()));
+        rest = tail;
+        if matches!(keyword, "struct" | "union" | "enum") {
+            let trimmed = tail.trim_start();
+            let name = &trimmed[..trimmed.find(|c: char| !word(c)).unwrap_or(trimmed.len())];
+            if !name.is_empty() { out.push((keyword, name)); }
+        }
+    }
+    out
 }
 
 pub fn request(registry: &mut Option<Box<Registry>>, request: &str) -> String {

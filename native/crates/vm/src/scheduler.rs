@@ -565,6 +565,14 @@ impl Interp {
                         } else {
                             format!("error value {:#x}", value.0)
                         };
+                        // The frame chain is still in place after the unwind.
+                        if std::env::var_os("TRACE_FAILURES").is_some() {
+                            eprintln!("task failed: {message}");
+                            for t in (tid..self.tasks.len()).rev() {
+                                let trace = self.backtrace(t);
+                                if !trace.is_empty() { eprint!("{trace}"); }
+                            }
+                        }
                         Some(Status::Failed(message))
                     }
                 }

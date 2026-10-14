@@ -104,3 +104,18 @@ fn anonymous_layout_probes_have_distinct_member_identity() {
     assert_eq!(declaration["fields"][0]["name"], "second");
     assert_eq!(declaration["size"], 8);
 }
+#[test]
+fn type_strings_cannot_introduce_tags() {
+    let mut registry = Registry::new().unwrap();
+    let error = registry
+        .execute(&json!({"operation":"type","text":"struct Missing"}))
+        .unwrap_err();
+    assert!(error.contains("undeclared or implicit tag 'Missing'"), "{error}");
+    assert!(
+        registry
+            .execute(&json!({"operation":"type","text":"struct Missing *"}))
+            .is_err()
+    );
+    request(&mut registry, "declare", "struct Present { int x; };");
+    assert_eq!(request(&mut registry, "type", "struct Present")["name"], "Present");
+}

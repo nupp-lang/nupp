@@ -262,7 +262,7 @@ function stage.build(
         -- The sidecar has one public name on POSIX. Windows' loader appends
         -- `.dll` to an extensionless path, so keep that suffix there while
         -- leaving the provider name stable everywhere else.
-        local staged = jit.os == "Windows" and filename or provider.library
+        local staged = windows and filename or provider.library
         local output = join(root, join(outDir, join("lib", staged)))
         local copied, err = fs.copyFile(built, output)
         if not copied then

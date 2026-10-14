@@ -201,7 +201,7 @@ fn main() {
         for (fid, ptr) in &aot_entries { if *fid >= it.entries.len() { eprintln!("aot: linked function ID outside restored image"); std::process::exit(1); } it.entries[*fid] = *ptr; }
         it.frame_entries.resize(it.funcs.len(), 0);
         for &(fid, ptr) in &aot_frames { assert!(fid < it.frame_entries.len()); it.frame_entries[fid] = ptr; }
-        eprintln!("aot: attached {} linked entries{}", aot_entries.len() + aot_frames.len(), if restoring { " after restore" } else { "" });
+        if std::env::var_os("AOT_VERBOSE").is_some() { eprintln!("aot: attached {} linked entries{}", aot_entries.len() + aot_frames.len(), if restoring { " after restore" } else { "" }); }
         it.calltab = it.funcs.iter().map(|f| {
             let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
             f.nparams as u64 | ((plain as u64) << 8)

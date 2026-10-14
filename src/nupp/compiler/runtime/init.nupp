@@ -43,15 +43,8 @@ function runtime.install(
     -- this loader stands aside and the chain behind it serves the running compiler.
     local compiling = false
 
-    local function loadLjppModule(name)
-        if compiling then
-            return
-        end
-        local path = envMod.findRuntimeModulePath(env, name)
-        if not path then
-            return ("\n\tno nupp source for module '%s'"):format(name)
-        end
-
+    local function loadPath(name: string, path: string, moduleEnv: envMod.Env?): any
+        local env = moduleEnv or env
         local chunk, loadErr
         if path:match("%.nupp$") then
             compiling = true
@@ -107,6 +100,43 @@ function runtime.install(
         end
     end
 
+    local function loadLjppModule(name)
+        if compiling then
+            return
+        end
+        local path = envMod.findRuntimeModulePath(env, name)
+        if not path then
+            return ("\n\tno nupp source for module '%s'"):format(name)
+        end
+
+        return loadPath(name, path)
+    end
+
+    -- The standard library of the compiler's own checkout. LuaJIT finds its
+    -- compiled copies on `package.path`, ahead of this; the VM has no such path,
+    -- so a `nupp.` module the compiler image does not carry compiles from source,
+    -- checked as the checkout's own module rather than as the project's.
+    local standardEnv: envMod.Env? = nil
+
+    local function loadStandardModule(name)
+        local root = envMod.compilerRoot()
+        if compiling or name:sub(1, 5) ~= "nupp." or not root then
+            return
+        end
+        local rel = name:gsub("%.", "/")
+        for _, pattern in ipairs({"/src/%s.nupp", "/src/%s/init.nupp"}) do
+            local path = root .. pattern:format(rel)
+            local file = io.open(path, "rb")
+            if file then
+                file:close()
+                standardEnv = standardEnv or envMod.new(root)
+                return loadPath(name, path, standardEnv)
+            end
+        end
+
+        return ("\n\tno standard library source for module '%s'"):format(name)
+    end
+
     -- Profiling excludes resolution and loading as well as compilation. The
     -- returned chunk runs after this wrapper has restored the measured window.
     local installedLoader = loadLjppModule
@@ -124,6 +154,7 @@ function runtime.install(
     end
     -- package.preload remains authoritative, matching Lua's normal semantics.
     table.insert(loaders, 2, installedLoader)
+    loaders[#loaders + 1] = loadStandardModule
 
     local installed = true
 
@@ -132,10 +163,12 @@ function runtime.install(
             return
         end
         installed = false
-        for j, loader in ipairs(loaders) do
-            if loader == installedLoader then
-                table.remove(loaders, j)
-                return
+        for _, removed in ipairs({installedLoader, loadStandardModule}) do
+            for j, loader in ipairs(loaders) do
+                if loader == removed then
+                    table.remove(loaders, j)
+                    break
+                end
             end
         end
     end

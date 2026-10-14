@@ -1056,15 +1056,13 @@ pub fn install(vm: &mut Interp) {
     let key = vm.intern("horizontal");
     vm.set_index(module, key, horizontal);
     // Checked vector operations are image instructions. An indirect call must
-    // not accidentally invoke the old language implementation.
-    for name in ["species", "vectors"] {
-        let key = vm.intern(name);
-        vm.set_index(
-            module,
-            key,
-            Value::builtin(crate::builtins::id_of("simd.indirect").unwrap()),
-        );
-    }
+    // not accidentally invoke the old language implementation. Code that
+    // reaches `vectors` dynamically has no vector path, which is the nil the
+    // library documents for a body running as ordinary Lua.
+    let key = vm.intern("species");
+    vm.set_index(module, key, Value::builtin(crate::builtins::id_of("simd.indirect").unwrap()));
+    let key = vm.intern("vectors");
+    vm.set_index(module, key, Value::builtin(crate::builtins::id_of("simd.absent").unwrap()));
     vm.loaded.insert("nupp.simd".into(), module);
 }
 pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
@@ -1076,6 +1074,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         "reducerValue" => {
             crate::simd_reduce::result(vm, args.first().copied().unwrap_or(Value::NIL))
         }
+        "absent" => Value::NIL,
         _ => vm.err("SIMD operation requires a statically resolved call"),
     }
 }
