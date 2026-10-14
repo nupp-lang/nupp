@@ -1124,33 +1124,27 @@ bootstrap packaging remains separate migration work.
 emits unchanged Lua suites and their checked Nupp dependencies on the VM, then
 runs each suite in a fresh VM process and records every result. It rejects image
 construction failures, failed cases, unavailable capabilities, and incomplete
-results. The [coverage inventory](tests/corpus-coverage.json) records all 100
-portable test suites: 45 passed, 54 failed, and one timed out. There were 742
-passing case or hook results, 297 failures, and one unavailable capability;
-the lexer timeout retained 19 passing cases. The baseline also contains three
-portable helper modules, 117 suites requiring ports, 32 retired entries, and
-three harness entries.
+results. The initial 2026-10-12 run covered all 100 portable test suites:
+45 passed, 54 failed, and one timed out. It reported 742 passing case or hook
+results, 297 failures, and one unavailable capability. The baseline also
+contains three portable helper modules, 117 suites requiring ports, 32 retired
+entries, and three harness entries. The current
+[coverage inventory](tests/corpus-coverage.json) supersedes those execution results.
 
-To reproduce this historical coverage slice:
+Run the corpus with the compiler and root CLI images:
 
 ```sh
-python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-corpus \
-  --unavailable-module nupp.compiler.runtime.math \
-  --unavailable-module nupp.checksum.internal.builtin \
-  --unavailable-module nupp.tools.cli \
-  --unavailable-module nupp.runtime.provider.nativetls \
-  --unavailable-module nupp.codec.json.internal.decoder.fused
+python3 native/crates/vm/tests/corpus-smoke.py compiler.image \
+  --cli-image root.image --gc-interleave --output /tmp/vm-corpus \
+  --unavailable-module nupp.runtime.provider.nativetls
 ```
 
-Those flags leave modules unresolved, so affected suites fail. The math and
-checksum ports below supersede their flags in this baseline. The complete gate requires
-removing these flags, porting surviving tests, and running under collector
-stress. That baseline includes failures in wide numeric operations, subprocess-based CLI
-tests, old storage/time/suspension/worker providers, LuaJIT and documentation
-dependencies, and test fixture services. The runtime's workers and compiled
-suspension are already implemented; their library adapters remain separate
-migration work. The lexer timeout reaches its legacy FFI trivia-arena case and
-still needs diagnosis.
+The remaining flag leaves TLS unresolved, so affected suites fail. The math,
+checksum, CLI, and fixture ports below remove dependencies from the initial
+run. The complete gate requires resolving TLS, porting surviving tests, and
+passing the corpus under collector verification. Runtime workers and compiled
+suspension already exist; remaining failures include library routing, source
+lowering, test assumptions, documentation dependencies, and compilation timeouts.
 
 ## Public time, suspension, and tasks (2026-10-13)
 
@@ -1375,6 +1369,14 @@ This coverage does not establish VM release packaging, cross-platform binary
 targets, LuaJIT profiling, HTML documentation dependencies, or acceptance of
 the full classified corpus. Those gates remain open before deleting the old
 toolchain. Supply provisioned host tools on `PATH` for commands that need them.
+
+The 2026-10-14 classified corpus run reports 68 passing suites, 23 failures,
+and nine timeouts out of 100 suites, with 1,143 passing case or hook results
+and 67 failures. The [inventory](tests/corpus-coverage.json) records every suite,
+the artifact hashes, and the image-version limitation. It uses incremental
+collector steps, the root oracle, and quarantine. The native TLS provider is
+the sole explicitly unresolved module. The Rust ABI suite passes after retrying
+with local socket access; the sandbox had denied listener creation.
 
 ## SIMD on the VM (2026-10-13)
 

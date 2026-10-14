@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-12",
+  "date": "2026-10-14",
   "branch": "codegen-experiment",
   "gatePassed": false,
   "classificationBaseline": "843af410a",
@@ -11,246 +11,316 @@
   },
   "scope": "All 100 test suites in the portable baseline; its other three entries are helper modules. Port-required and retired suites were not executed.",
   "execution": {
-    "seedSha256": "1aa0fb2b4f9b7596bf3461b03f217a442326b702f55f7e2169b9fea1adba5aaa",
-    "binarySha256": "413f6c1d7d8574c0b535319bde9f9f06db3d88e672a214617bdccfa3a70170e2",
-    "interpreter": "threaded",
-    "path": "",
+    "seedSha256": "f959afeeb75d029d92ff99660c63bbe7a2de57cb17007f0487a65ec3e15abed6",
+    "binarySha256": "1280066ac0255cce3c68f8ced7020f5f7f00addbed65ece098f0ac3bf1cee634",
+    "engine": "threaded",
+    "gcStress": false,
+    "gcInterleave": true,
+    "compilation": "none",
     "timeoutSeconds": 600,
     "unavailableModules": [
-      "nupp.compiler.runtime.math",
-      "nupp.simd",
-      "nupp.checksum.internal.builtin",
-      "simdreducertest",
-      "nupp.tools.cli",
-      "nupp.runtime.provider.nativetls",
-      "nupp.codec.json.internal.decoder.fused"
+      "nupp.runtime.provider.nativetls"
     ],
-    "imageSha256": "477227f882d224988cc8226189cd9c3381a99e8805980a337842fc57f8a2238c",
-    "selectedSuites": 100
+    "cliImageSha256": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+    "imageSha256": "33d13296828488f8314f3e93408a7f5429e06eb864b7a0da1d788e44961a38aa",
+    "selectedSuites": 100,
+    "batches": [
+      {
+        "selection": "suite name before m",
+        "suites": 56
+      },
+      {
+        "selection": "suite name at or after m",
+        "suites": 44
+      }
+    ],
+    "path": "inherited; compiler subprocesses routed through the VM root CLI"
   },
   "summary": {
     "suites": 100,
-    "passedSuites": 45,
-    "failedSuites": 54,
-    "timedOutSuites": 1,
-    "passingCaseOrHookResults": 742,
-    "failingCaseOrHookResults": 297,
-    "notExecutedCases": 1,
-    "incompleteSuites": 15
+    "passedSuites": 68,
+    "failedSuites": 23,
+    "timedOutSuites": 9,
+    "passingCaseOrHookResults": 1143,
+    "failingCaseOrHookResults": 67,
+    "incompleteSuites": 12,
+    "dispositions": {
+      "not-executed": 1
+    }
   },
+  "environmentRetries": [
+    {
+      "suite": "rustabitest",
+      "originalStatus": "failed",
+      "originalPassed": 1,
+      "originalFailed": 1,
+      "reason": "Sandbox denied local listener creation with Operation not permitted; rerun outside the sandbox with the same VM artifacts.",
+      "finalStatus": "passed"
+    }
+  ],
   "notes": [
-    "Seven explicitly unavailable modules were left unresolved so unrelated suites could execute. No emission stubs were used. Affected suites remain failures.",
-    "A passing suite means its existing assertions passed; inventory and capability-report tests do not prove unavailable deployment targets work.",
-    "The timeout retained 19 passing lexer cases. The next case in name order exercises legacy FFI trivia-arena storage; its hang remains unresolved.",
-    "Failures include subprocess-based CLI tests, unavailable legacy providers, wide numeric dependencies, documentation dependencies, and test fixture services. Failure samples are evidence, not a claim that every failure has one cause.",
-    "This interpreted coverage run is not the collector-stress acceptance gate."
+    "Only the native TLS provider remains explicitly unresolved. Affected suites remain failures; no emission stubs were used.",
+    "The inventory combines disjoint suite selections from two batches using the same runtime, corpus image, and CLI image.",
+    "Every suite runs with incremental collector steps on allocation, the root oracle, and quarantine. This is not a full-collection-on-every-allocation run.",
+    "The runtime and child root CLI image are the final versions tested by root-cli-coverage.json. The corpus image predates the final conditional ownership activation fix; its dedicated fixture was subsequently validated on both interpreters, JIT, and compiled frames.",
+    "The 600-second limit applies to a whole suite. Timed-out suites retain any reported cases; the harness kills their subprocess group. A timeout is not evidence of a deadlock.",
+    "Failures include legacy bootstrap and bytecode assumptions, source-lowering gaps, provider and documentation dependencies, and compilation timeouts. Failure samples do not establish one cause for every failure.",
+    "A passing inventory or capability-report test does not establish support for an unavailable deployment target. Full CLI command coverage is recorded separately."
   ],
   "suites": [
     {
       "suite": "absoluteentrytest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 1,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 1,
+      "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.192,
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "metrics": {},
-          "name": "runKeepsEntryModuleIdentityForAnAbsolutePath",
-          "capabilities": {},
-          "ok": false,
-          "suite": "absoluteentrytest"
-        }
-      ]
+      "durationSeconds": 4.333
     },
     {
       "suite": "analysisquerytest",
       "class": "portable",
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 19,
       "failed": 0,
       "total": 19,
       "completed": true,
-      "durationSeconds": 14.681
+      "durationSeconds": 29.352
     },
     {
       "suite": "associatedcompletetest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 2,
       "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.192
+      "durationSeconds": 0.32
     },
     {
       "suite": "associatedcomposetest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 7,
       "failed": 0,
       "total": 7,
       "completed": true,
-      "durationSeconds": 14.314
+      "durationSeconds": 30.17
     },
     {
       "suite": "associatedconformancetest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 10,
       "failed": 0,
       "total": 10,
       "completed": true,
-      "durationSeconds": 0.203
+      "durationSeconds": 0.328
     },
     {
       "suite": "associatedcycletest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 10,
       "failed": 0,
       "total": 10,
       "completed": true,
-      "durationSeconds": 14.373
+      "durationSeconds": 29.97
     },
     {
       "suite": "associateddecltest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 20,
       "failed": 0,
       "total": 20,
       "completed": true,
-      "durationSeconds": 14.458
+      "durationSeconds": 30.55
     },
     {
       "suite": "associatedgradualtest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 8,
       "failed": 0,
       "total": 8,
       "completed": true,
-      "durationSeconds": 14.283
+      "durationSeconds": 30.536
     },
     {
       "suite": "associatedlookuptest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 17,
       "failed": 0,
       "total": 17,
       "completed": true,
-      "durationSeconds": 0.207
+      "durationSeconds": 0.314
     },
     {
       "suite": "associatedmetadatatest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 9,
       "failed": 0,
       "total": 9,
       "completed": true,
-      "durationSeconds": 0.202
+      "durationSeconds": 0.326
     },
     {
       "suite": "associatedprojectiontest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 24,
       "failed": 0,
       "total": 24,
       "completed": true,
-      "durationSeconds": 14.615
+      "durationSeconds": 30.94
     },
     {
       "suite": "associatedtoolingtest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 4,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 4,
+      "failed": 0,
       "total": 4,
       "completed": true,
-      "durationSeconds": 0.21,
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aCopiedDefaultKeepsItsSiteAndReportsItsAnswer",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "associatedtoolingtest"
-        },
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "anOpaqueProjectionReportsItsBound",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "associatedtoolingtest"
-        },
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "associatedNamesAreNotRenameableYet",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "associatedtoolingtest"
-        }
-      ]
+      "durationSeconds": 15.667
     },
     {
       "suite": "base64test",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 7,
       "failed": 0,
       "total": 7,
       "completed": true,
-      "durationSeconds": 0.225
+      "durationSeconds": 0.343
     },
     {
       "suite": "bctest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 23,
+      "exitStatus": 1,
+      "passed": 7,
+      "failed": 16,
       "total": 23,
       "completed": true,
-      "durationSeconds": 0.215,
+      "durationSeconds": 553.503,
+      "error": "",
       "failureSamples": [
         {
           "ok": false,
-          "suite": "bctest",
           "facts": {},
-          "error": "assertion failed!",
+          "error": "a guarded, reused function is not a loop that cannot compile:\nnupp: statement kind cdefFunc in module:guarded\n",
           "metrics": {},
+          "suite": "bctest",
           "name": "aFunctionBuiltOnceBehindAGuardIsAdvisory",
           "capabilities": {}
         },
         {
           "ok": false,
-          "suite": "bctest",
           "facts": {},
-          "error": "assertion failed!",
+          "error": "the first line's own instructions remain visible:\n  1 | local answer = tonumber('42') | 0000 K 4 0\n    |                               | 0001 K 2 1\n    |                               | 0002 CallDyn 4 1 1\n    |                               | 0003 PadResults 1 1\n  2 | return answer                 | 0004 Ret 1\n",
           "metrics": {},
+          "suite": "bctest",
           "name": "authoredCodeOnLineOneIsNotFoldedWithThePreamble",
           "capabilities": {}
         },
         {
           "ok": false,
-          "suite": "bctest",
           "facts": {},
-          "error": "assertion failed!",
+          "error": "expected 0, got 1: {\"diagnostics\":[{\"code\":\"NUPP0004\",\"docs\":\"docs/reference/diagnostics.md#failures-outside-source\",\"file\":\"constructor.nupp\",\"fixes\":[],\"message\":\"VM bytecode inspection does not use Lua optimization levels\",\"notes\":[],\"related\":[],\"severity\":\"error\"}],\"file\":\"constructor.nupp\",\"functions\":[],\"ok\":false,\"unrecordable\":0}\n",
           "metrics": {},
+          "suite": "bctest",
           "name": "bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "facts": {},
+          "error": "expected 1, got 0: a loop that cannot compile must fail --check:\n  1 | local function each(items: {number}, fn: function(n: number): numb~ | 0000 NewClosure 1 1 2 0\n  2 |     local total = 0                                                 | 0000 K 3 0\n  3 |     for i = 1, #items do                                            | 0001 FK 1 1\n    |                                                                     | 0002 FMov 0 1\n    |                                                                     | 0003 LenF 2 1\n    |                                                                     | 0004 FK 3 1\n    |                                                                     | 0005 FCmpLe 4 0 2\n    |                                                                     | 0006 JmpIfIZero 4 8\n  4 |         total = total + fn(items[i])                                | 0007 FToI 5 0\n    |                                                                     | 0008 GetIdxI 7 1 5\n    |                                                                     | 0009 Move 5 7\n    |                                                                     | 0010 CallDyn 2 4 1\n    |                                                                     | 0011 PadResults 4 1\n    |                                                                     | 0012 Add 3 3 4\n    |                                                                     | 0013 FAdd 0 0 3\n    |                                                                     | 0014 Jmp -10\n  5 |     end\n  6 |     return total                                                    | 0015 Ret 3\n  7 | end\n  8 |\n  9 | local out = 0                                                       | 0001 K 2 0\n 10 | for round = 1, 4 do                                                 | 0002 FK 1 1\n    |                                                                     | 0003 FMov 0 1\n    |                                                                     | 0004 FK 2 4\n    |                                                                     | 0005 FK 3 1\n    |                                                                     | 0006 FCmpLe 4 0 2\n    |                                                                     | 0007 JmpIfIZero 4 17\n    |                                                                     | 0008 FBox 3 0\n    |                                                                     | 0009 NewCell 4 3\n 11 |     out = out + each({1, 2}, function(n: number): number            | 0010 NewTableN 9 2 0\n    |                                                                     | 0011 K 10 1\n    |                                                                     | 0012 K 11 1\n    |                                                                     | 0013 SetIdx 9 10 11\n    |                                                                     | 0014 K 10 2\n    |                                                                     | 0015 K 11 2\n    |                                                                     | 0016 SetIdx 9 10 11\n    |                                                                     | 0017 Move 6 9\n    |                                                                     | 0018 Move 13 4\n    |                                                                     | 0019 NewClosure 7 2 12 1\n    |                                                                     | 0020 CallK 1 1 5 2 1\n    |                                                                     | 0021 PadResults 5 1\n    |                                                                     | 0022 Add 2 2 5\n    |                                                                     | 0023 FAdd 0 0 3\n    |                                                                     | 0024 Jmp -19\n 12 |         return n * round                                            | 0001 GetCell 3 2\n    |                                                                     | 0002 Mul 4 1 3\n    |                                                                     | 0003 Ret 4\n 13 |     end)\n 14 | end\n 15 | return out                                                          | 0025 Ret 2\n",
+          "metrics": {},
+          "suite": "bctest",
+          "name": "checkReportsALoopThatCannotCompileAndFailsForIt",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "facts": {},
+          "error": "cleanup captures must not leave either enclosing loop unrecordable:\nnupp: statement kind cdefFunc in module:captured\n",
+          "metrics": {},
+          "suite": "bctest",
+          "name": "cleanupRegionsWritingFunctionAndLoopLocalsStillCompile",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "facts": {},
+          "error": "the instruction is muted as one run:\n\u001b[90m  1 | \u001b[0m\u001b[35mlocal\u001b[0m greeting = \u001b[32m\"hi\"\u001b[0m\u001b[90m | \u001b[0m\u001b[90m0000 K 1 0\u001b[0m\n\u001b[90m  2 | \u001b[0m\u001b[94mprint\u001b[0m(greeting)      \u001b[90m | \u001b[0m\u001b[90m0001 K 5 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0002 Move 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0003 CallDyn 5 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0004 PadResults 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0005 RetNil\u001b[0m\n",
+          "metrics": {},
+          "suite": "bctest",
+          "name": "colorHighlightsSourceAndMutesTheBytecode",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "facts": {},
+          "error": "expected 1, got 0: \u001b[90m  1 | \u001b[0m\u001b[35mlocal\u001b[0m \u001b[35mfunction\u001b[0m \u001b[94meach\u001b[0m(items: {\u001b[36mnumber\u001b[0m}, fn: \u001b[35mfunction\u001b[0m(n: \u001b[36mnumber\u001b[0m): \u001b[36mnumb\u001b[0m~\u001b[90m | \u001b[0m\u001b[90m0000 NewClosure 1 1 2 0\u001b[0m\n\u001b[90m  2 | \u001b[0m    \u001b[35mlocal\u001b[0m total = \u001b[33m0\u001b[0m                                                \u001b[90m | \u001b[0m\u001b[90m0000 K 3 0\u001b[0m\n\u001b[90m  3 | \u001b[0m    \u001b[35mfor\u001b[0m i = \u001b[33m1\u001b[0m, #items \u001b[35mdo\u001b[0m                                           \u001b[90m | \u001b[0m\u001b[90m0001 FK 1 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0002 FMov 0 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 LenF 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0004 FK 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0005 FCmpLe 4 0 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0006 JmpIfIZero 4 8\u001b[0m\n\u001b[90m  4 | \u001b[0m        total = total + \u001b[94mfn\u001b[0m(items[i])                               \u001b[90m | \u001b[0m\u001b[90m0007 FToI 5 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0008 GetIdxI 7 1 5\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0009 Move 5 7\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0010 CallDyn 2 4 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0011 PadResults 4 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0012 Add 3 3 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0013 FAdd 0 0 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0014 Jmp -10\u001b[0m\n\u001b[90m  5 | \u001b[0m    \u001b[35mend\u001b[0m\n\u001b[90m  6 | \u001b[0m    \u001b[35mreturn\u001b[0m total                                                   \u001b[90m | \u001b[0m\u001b[90m0015 Ret 3\u001b[0m\n\u001b[90m  7 | \u001b[0m\u001b[35mend\u001b[0m\n\u001b[90m  8 |\u001b[0m\n\u001b[90m  9 | \u001b[0m\u001b[35mlocal\u001b[0m \u001b[35mout\u001b[0m = \u001b[33m0\u001b[0m                                                      \u001b[90m | \u001b[0m\u001b[90m0001 K 2 0\u001b[0m\n\u001b[90m 10 | \u001b[0m\u001b[35mfor\u001b[0m round = \u001b[33m1\u001b[0m, \u001b[33m4\u001b[0m \u001b[35mdo\u001b[0m                                                \u001b[90m | \u001b[0m\u001b[90m0002 FK 1 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 FMov 0 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0004 FK 2 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0005 FK 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0006 FCmpLe 4 0 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0007 JmpIfIZero 4 17\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0008 FBox 3 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0009 NewCell 4 3\u001b[0m\n\u001b[90m 11 | \u001b[0m    \u001b[35mout\u001b[0m = \u001b[35mout\u001b[0m + \u001b[94meach\u001b[0m({\u001b[33m1\u001b[0m, \u001b[33m2\u001b[0m}, \u001b[35mfunction\u001b[0m(n: \u001b[36mnumber\u001b[0m): \u001b[36mnumber\u001b[0m           \u001b[90m | \u001b[0m\u001b[90m0010 NewTableN 9 2 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0011 K 10 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0012 K 11 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0013 SetIdx 9 10 11\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0014 K 10 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0015 K 11 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0016 SetIdx 9 10 11\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0017 Move 6 9\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0018 Move 13 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0019 NewClosure 7 2 12 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0020 CallK 1 1 5 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0021 PadResults 5 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0022 Add 2 2 5\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0023 FAdd 0 0 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0024 Jmp -19\u001b[0m\n\u001b[90m 12 | \u001b[0m        \u001b[35mreturn\u001b[0m n * round                                           \u001b[90m | \u001b[0m\u001b[90m0001 GetCell 3 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0002 Mul 4 1 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 Ret 4\u001b[0m\n\u001b[90m 13 | \u001b[0m    \u001b[35mend\u001b[0m)\n\u001b[90m 14 | \u001b[0m\u001b[35mend\u001b[0m\n\u001b[90m 15 | \u001b[0m\u001b[35mreturn\u001b[0m \u001b[35mout\u001b[0m                                                         \u001b[90m | \u001b[0m\u001b[90m0025 Ret 2\u001b[0m\n",
+          "metrics": {},
+          "suite": "bctest",
+          "name": "colorMarksAVerdictWithItsSeverity",
+          "capabilities": {}
+        },
+        {
+          "ok": false,
+          "facts": {},
+          "error": "the declared module's preamble is folded:\n  1 | module declared\n  2 | export function answer(): integer | 0002 NewClosure 3 1 4 0\n    |                                   | 0003 Move 2 3\n    |                                   | 0004 SetField 1 0 2\n    |                                   | 0005 Ret 1\n  3 |     return 42                     | 0000 K 1 0\n    |                                   | 0001 Ret 1\n  4 | end\n",
+          "metrics": {},
+          "suite": "bctest",
+          "name": "declaredModulesFoldTheirPreambleInsideTheLoader",
           "capabilities": {}
         }
       ]
@@ -258,305 +328,230 @@
     {
       "suite": "benchprojectstest",
       "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 0,
-      "failed": 1,
-      "total": 1,
-      "completed": true,
-      "durationSeconds": 0.199,
-      "failureSamples": [
-        {
-          "capabilities": {},
-          "ok": false,
-          "suite": "benchprojectstest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in projects at pc 15 register 17",
-          "name": "everyBenchmarkProjectChecks",
-          "metrics": {}
-        }
-      ]
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 600.018,
+      "error": "",
+      "failureSamples": []
     },
     {
       "suite": "benchrunnertest",
       "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 0,
-      "failed": 9,
-      "total": 9,
-      "completed": true,
-      "durationSeconds": 0.207,
-      "failureSamples": [
-        {
-          "ok": false,
-          "suite": "benchrunnertest",
-          "facts": {},
-          "error": "expected 0, got nil: create isolated benchmark workspace",
-          "name": "aBaselineSchemaIsCheckedWhereItIsRead",
-          "capabilities": {},
-          "metrics": {}
-        },
-        {
-          "ok": false,
-          "suite": "benchrunnertest",
-          "facts": {},
-          "error": "expected 0, got nil: create isolated benchmark workspace",
-          "name": "caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed",
-          "capabilities": {},
-          "metrics": {}
-        },
-        {
-          "ok": false,
-          "suite": "benchrunnertest",
-          "facts": {},
-          "error": "expected 0, got nil: create isolated benchmark workspace",
-          "name": "comparisonRecordsRetainBothSidesAndVerdicts",
-          "capabilities": {},
-          "metrics": {}
-        }
-      ]
+      "failed": 0,
+      "total": 0,
+      "completed": false,
+      "durationSeconds": 600.016,
+      "error": "",
+      "failureSamples": []
     },
     {
       "suite": "binderidentitytest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 6,
       "failed": 0,
       "total": 6,
       "completed": true,
-      "durationSeconds": 0.201
+      "durationSeconds": 0.497
     },
     {
       "suite": "bootstraptest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 11,
+      "exitStatus": 1,
+      "passed": 6,
+      "failed": 5,
       "total": 11,
       "completed": true,
-      "durationSeconds": 0.29,
+      "durationSeconds": 11.917,
+      "error": "",
       "failureSamples": [
         {
+          "suite": "bootstraptest",
           "name": "aBuildWaitsForTheBuildAlreadyRunning",
-          "metrics": {},
           "capabilities": {},
           "ok": false,
-          "suite": "bootstraptest",
           "facts": {},
-          "error": "assertion failed!"
+          "error": "and did not run once the lock was free: while held: [nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)]\nafter: [nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)]\n",
+          "metrics": {}
         },
         {
+          "suite": "bootstraptest",
           "name": "aColdBuildPublishesSelfHostedRuntimeArtifacts",
-          "metrics": {},
           "capabilities": {},
           "ok": false,
-          "suite": "bootstraptest",
           "facts": {},
-          "error": "assertion failed!"
+          "error": "nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)\n",
+          "metrics": {}
         },
         {
-          "name": "aDamagedCachedStageZeroIsFetchedAgain",
-          "metrics": {},
+          "suite": "bootstraptest",
+          "name": "aFallbackDropsTheBytecodeTheBuiltCompilerLoaded",
           "capabilities": {},
           "ok": false,
-          "suite": "bootstraptest",
           "facts": {},
-          "error": "assertion failed!"
+          "error": "nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)\n",
+          "metrics": {}
+        },
+        {
+          "suite": "bootstraptest",
+          "name": "aStamplessTreeStillRunsTheCompilerItHas",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "a build in progress has removed the stamp, and the compiler it is rewriting is still a better answer than one from whenever stage zero was published",
+          "metrics": {}
+        },
+        {
+          "suite": "bootstraptest",
+          "name": "theStageZeroIsNamedToWhatItRuns",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "the planted stage zero did not run: Nupp compiler and project tool.\n\nExamples:\n\n    nupp check\n    nupp build\n    nupp run src/main.nupp\n\nUsage:\n  nupp <command> [options]\n  nupp help [command ...]\n  nupp --version\n\nCommands:\n  init             Create a project from a template.\n  ast              Dump a Nupp file's parsed syntax tree as JSON.\n  aot              Show what the @aot functions in a file compile to.\n  bc               Show the bytecode a Nupp file compiles to.\n  check            Type-check source without emitting Lua.\n  fmt              Format Nupp source.\n  build            Build source files or a configured project target.\n  clean            Remove build outputs configured in nupp.lua.\n  bench            Run isolated benchmark programs.\n  lints            List the lints and the level each runs at.\n  ownership-audit  List foreign pointer contracts and unsafe assertion sites.\n  explain          Describe a diagnostic code, with an example either way.\n  reference        List or print a focused Nupp reference chapter.\n  completions      Print a shell completion script.\n  test             Build and run project tests.\n  task             List, inspect, or run project tasks from nupp.lua.\n  doc              Generate API documentation from source comments.\n  fixpoint         Verify a byte-identical self-hosting rebuild.\n  run              Compile and run a Nupp or Lua program.\n  import-c         Generate typed Nupp bindings from a C header.\n  migrate          Migrates annotated Lua or retired serialization APIs.\n  export-c         Export canonical C declarations for Nupp structs.\n  rock             Package and check typed LuaRocks libraries.\n  lsp              Language-server and semantic source operations.\n  version          Print the compiler version.\n  help             Show general or command-specific help.\n\nRun 'nupp help <command>' for command-specific help.\n",
+          "metrics": {}
         }
       ]
     },
     {
       "suite": "buildprogresstest",
       "class": "portable",
-      "status": "failed",
-      "passed": 9,
-      "failed": 10,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 19,
+      "failed": 0,
       "total": 19,
       "completed": true,
-      "durationSeconds": 0.213,
-      "failureSamples": [
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "buildprogresstest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aBuildIsQuietWhenNobodyIsWatching",
-          "capabilities": {}
-        },
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "buildprogresstest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aCheckIsNotNarratedAtInJsonUnlessAsked",
-          "capabilities": {}
-        },
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "buildprogresstest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aCheckNarratesOnTheSameTermsABuildDoes",
-          "capabilities": {}
-        }
-      ]
+      "durationSeconds": 50.182
     },
     {
       "suite": "bytecodelistingtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.201
+      "durationSeconds": 0.294
     },
     {
       "suite": "checktest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 102,
       "failed": 0,
       "total": 102,
       "completed": true,
-      "durationSeconds": 43.621
+      "durationSeconds": 110.768
     },
     {
       "suite": "cichangeclassifiertest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 27,
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 27,
+      "failed": 0,
       "total": 27,
       "completed": true,
-      "durationSeconds": 0.202,
-      "failureSamples": [
-        {
-          "name": "aMixedChangeTakesTheUnionOfItsPaths",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "cichangeclassifiertest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
-        },
-        {
-          "name": "anEmptyChangeSelectsEverything",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "cichangeclassifiertest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
-        },
-        {
-          "name": "anOrdinaryCompilerChangeDoesNotPayForEmscripten",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "cichangeclassifiertest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in classifier at pc 5 register 3"
-        }
-      ]
+      "durationSeconds": 18.97
     },
     {
       "suite": "compilerpacktest",
       "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 2,
+      "exitStatus": 1,
+      "passed": 1,
+      "failed": 1,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.2,
+      "durationSeconds": 0.318,
+      "error": "",
       "failureSamples": [
-        {
-          "name": "findsPackBesideThePhysicalReleaseBinary",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "compilerpacktest",
-          "facts": {},
-          "error": "assertion failed!"
-        },
         {
           "name": "resolvesAndAuthenticatesTargetIndexedTools",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
-          "suite": "compilerpacktest",
           "facts": {},
-          "error": "assertion failed!"
+          "error": "nil",
+          "metrics": {},
+          "suite": "compilerpacktest"
         }
       ]
     },
     {
       "suite": "corpustest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 3,
       "failed": 0,
       "total": 3,
       "completed": true,
-      "durationSeconds": 1.705
+      "durationSeconds": 2.662
     },
     {
       "suite": "coveragereporttest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 7,
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 7,
+      "failed": 0,
       "total": 7,
       "completed": true,
-      "durationSeconds": 0.207,
-      "failureSamples": [
-        {
-          "ok": false,
-          "suite": "coveragereporttest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aReportInAnotherFormatIsRefusedOnRead",
-          "metrics": {},
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "suite": "coveragereporttest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "anonymousFunctionSitesAreNamelessRatherThanGuessed",
-          "metrics": {},
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "suite": "coveragereporttest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "branchSitesCarryBothOutcomesSeparately",
-          "metrics": {},
-          "capabilities": {}
-        }
-      ]
+      "durationSeconds": 0.348
     },
     {
       "suite": "coveragetest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.201,
+      "durationSeconds": 0.284,
+      "error": "",
       "failureSamples": [
         {
-          "metrics": {},
           "ok": false,
-          "suite": "coveragetest",
           "facts": {},
           "error": "assertion failed!",
+          "metrics": {},
+          "suite": "coveragetest",
           "name": "highlightsLongCommentsAcrossSourceLines",
           "capabilities": {}
         }
@@ -565,598 +560,493 @@
     {
       "suite": "declarationwitnessestest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 2,
       "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.213
+      "durationSeconds": 0.324
     },
     {
       "suite": "derivematerializetest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 4,
       "failed": 0,
       "total": 4,
       "completed": true,
-      "durationSeconds": 0.201
+      "durationSeconds": 0.297
     },
     {
       "suite": "deriveprovidertest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 7,
-      "total": 7,
-      "completed": true,
-      "durationSeconds": 0.207,
-      "failureSamples": [
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "deriveprovidertest",
-          "facts": {},
-          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
-          "name": "attachesADeriveThroughAnExportWrapper",
-          "capabilities": {}
-        },
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "deriveprovidertest",
-          "facts": {},
-          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
-          "name": "declaredProvidersPreserveNamesColumnsAndWitnessCapabilities",
-          "capabilities": {}
-        },
-        {
-          "metrics": {},
-          "ok": false,
-          "suite": "deriveprovidertest",
-          "facts": {},
-          "error": "`nupp check ` over 6 fixtures wrote no JSON (status 1):\n",
-          "name": "forwardsAReflectedAnnotationTypeAsARuntimeWitness",
-          "capabilities": {}
-        }
-      ]
-    },
-    {
-      "suite": "diagnosticgoldentest",
-      "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 2,
-      "total": 2,
-      "completed": true,
-      "durationSeconds": 1.696,
-      "failureSamples": [
-        {
-          "error": "module 'nupp.compiler.aot.compile' not found: not in the image",
-          "metrics": {},
-          "name": "curatedBadCodeMessagesStayUseful",
-          "capabilities": {},
-          "ok": false,
-          "suite": "diagnosticgoldentest",
-          "facts": {}
-        },
-        {
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in stringLiteralsMentioningContext at pc 13 register 6",
-          "metrics": {},
-          "name": "noDiagnosticMessageQuotesTheCheckerContext",
-          "capabilities": {},
-          "ok": false,
-          "suite": "diagnosticgoldentest",
-          "facts": {}
-        }
-      ]
-    },
-    {
-      "suite": "digesttest",
-      "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 0,
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.192,
-      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.mem.span at pc 2\n\n  module:nupp.digest.internal.context at pc 3\n\n  module:nupp.digest at pc 13\n\n  module:digesttest at pc 5\n\n  runner.main at pc 24\n\n"
+      "durationSeconds": 600.015,
+      "error": "",
+      "failureSamples": []
+    },
+    {
+      "suite": "diagnosticgoldentest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 3.043
+    },
+    {
+      "suite": "digesttest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 7,
+      "failed": 0,
+      "total": 7,
+      "completed": true,
+      "durationSeconds": 0.379
     },
     {
       "suite": "discardtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 12,
       "failed": 0,
       "total": 12,
       "completed": true,
-      "durationSeconds": 8.825
+      "durationSeconds": 25.604
     },
     {
       "suite": "effecttransporttest",
       "class": "portable",
-      "status": "failed",
-      "passed": 23,
-      "failed": 3,
+      "facilities": "getinfo,coroutine,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 26,
+      "failed": 0,
       "total": 26,
       "completed": true,
-      "durationSeconds": 2.314,
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "No such file or directory (os error 2)",
-          "metrics": {},
-          "name": "aBodyEditThatKeepsTheEffectDoesNot",
-          "capabilities": {},
-          "ok": false,
-          "suite": "effecttransporttest"
-        },
-        {
-          "facts": {},
-          "error": "No such file or directory (os error 2)",
-          "metrics": {},
-          "name": "aBodyThatStartsYieldingInvalidatesDependents",
-          "capabilities": {},
-          "ok": false,
-          "suite": "effecttransporttest"
-        },
-        {
-          "facts": {},
-          "error": "No such file or directory (os error 2)",
-          "metrics": {},
-          "name": "aNominalMethodThatStartsYieldingInvalidatesDependents",
-          "capabilities": {},
-          "ok": false,
-          "suite": "effecttransporttest"
-        }
-      ]
+      "durationSeconds": 7.607
     },
     {
       "suite": "elseiftest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 8,
       "failed": 0,
       "total": 8,
       "completed": true,
-      "durationSeconds": 15.126
+      "durationSeconds": 37.293
     },
     {
       "suite": "evalstest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.209,
+      "durationSeconds": 60.077,
+      "error": "",
       "failureSamples": [
         {
+          "facts": {},
+          "error": "the Nupp evaluation self-test failed: nupp: expression kind safeIndex in module:vm.chunk.fn2.fn8\n",
+          "metrics": {},
+          "suite": "evalstest",
           "name": "theEvaluationHarnessIsImplementedAndTestedInNupp",
           "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "evalstest",
-          "facts": {},
-          "error": "the Nupp evaluation self-test failed: "
+          "ok": false
         }
       ]
     },
     {
       "suite": "eventschecktest",
       "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 19,
-      "failed": 2,
-      "total": 21,
-      "completed": true,
-      "durationSeconds": 14.526,
-      "failureSamples": [
-        {
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "eventschecktest",
-          "facts": {},
-          "error": "",
-          "name": "theConsumerFixtureChecksStrictlyAndRuns"
-        },
-        {
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "eventschecktest",
-          "facts": {},
-          "error": "expected \"declares 2 constructors\" in:\n",
-          "name": "theDeriveRefusesWhatReusedStorageCannotHold"
-        }
-      ]
+      "failed": 0,
+      "total": 19,
+      "completed": false,
+      "durationSeconds": 600.218,
+      "error": "",
+      "failureSamples": []
     },
     {
       "suite": "examplestest",
       "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 0,
-      "failed": 3,
-      "total": 3,
-      "completed": true,
-      "durationSeconds": 0.204,
+      "failed": 1,
+      "total": 1,
+      "completed": false,
+      "durationSeconds": 600.274,
+      "error": "",
       "failureSamples": [
         {
+          "capabilities": {},
           "ok": false,
-          "suite": "examplestest",
           "facts": {},
-          "error": "nupp doc needs lunamark; declare it as a luarocks dependency of the docs target and it is installed with the build (module 'lunamark' not found: not in the image)",
+          "error": "nupp doc needs lunamark; declare it as a luarocks dependency of the docs target and it is installed with the build (module 'lunamark' not found:)",
           "metrics": {},
-          "name": "aMarkedFenceStillRendersAsNupp",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
           "suite": "examplestest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in listed at pc 13 register 15",
-          "metrics": {},
-          "name": "everyGuideExampleChecks",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "suite": "examplestest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in listed at pc 13 register 15",
-          "metrics": {},
-          "name": "everyModuleDocblockExampleChecks",
-          "capabilities": {}
+          "name": "aMarkedFenceStillRendersAsNupp"
         }
       ]
     },
     {
       "suite": "exhausttest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 10,
       "failed": 0,
       "total": 10,
       "completed": true,
-      "durationSeconds": 1.745
+      "durationSeconds": 2.362
     },
     {
       "suite": "explaintest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 3,
-      "failed": 10,
+      "exitStatus": 1,
+      "passed": 12,
+      "failed": 1,
       "total": 13,
       "completed": true,
-      "durationSeconds": 0.209,
+      "durationSeconds": 54.472,
+      "error": "",
       "failureSamples": [
         {
-          "suite": "explaintest",
-          "facts": {},
-          "error": "module 'jit.vmdef' not found: not in the image",
-          "name": "everyAnnotationHoverLinkLeadsToASection",
+          "name": "everyWorkedExampleMatchesItsDiagnosticEntry",
           "capabilities": {},
-          "metrics": {},
-          "ok": false
-        },
-        {
-          "suite": "explaintest",
+          "ok": false,
           "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyAotRefusalACheckReportsHasAWorkedExample at pc 113 register 17",
-          "name": "everyAotRefusalACheckReportsHasAWorkedExample",
-          "capabilities": {},
+          "error": "NUPP2304: its `wrong` example no longer reports it",
           "metrics": {},
-          "ok": false
-        },
-        {
-          "suite": "explaintest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyCodeTheCompilerCanEmitHasAReference at pc 20 register 15",
-          "name": "everyCodeTheCompilerCanEmitHasAReference",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false
+          "suite": "explaintest"
         }
       ]
     },
     {
       "suite": "filecomponenttest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.199,
+      "durationSeconds": 52.966,
+      "error": "",
       "failureSamples": [
         {
-          "error": "assertion failed!",
+          "facts": {},
+          "error": "expected 0, got 1: task: Failed(\"runtime error: field os of a non-object\")\n",
           "metrics": {},
+          "suite": "filecomponenttest",
           "name": "buildsFilesAndLineReadersInAColdComponent",
           "capabilities": {},
-          "ok": false,
-          "suite": "filecomponenttest",
-          "facts": {}
+          "ok": false
         }
       ]
     },
     {
       "suite": "fleettest",
       "class": "portable",
-      "status": "failed",
-      "passed": 2,
-      "failed": 2,
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 4,
+      "failed": 0,
       "total": 4,
       "completed": true,
-      "durationSeconds": 0.302,
-      "failureSamples": [
-        {
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.githubOffersOnlyAManualHostedFleet at pc 28 register 7",
-          "name": "githubOffersOnlyAManualHostedFleet",
-          "metrics": {},
-          "capabilities": {},
-          "ok": false,
-          "suite": "fleettest",
-          "facts": {}
-        },
-        {
-          "error": "build/fleet-python-tests.log: No such file or directory (os error 2)",
-          "name": "pythonContractTestsPass",
-          "metrics": {},
-          "capabilities": {},
-          "ok": false,
-          "suite": "fleettest",
-          "facts": {}
-        }
-      ]
+      "durationSeconds": 3.089
     },
     {
       "suite": "fmtclitest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 23,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 23,
+      "failed": 0,
       "total": 23,
       "completed": true,
-      "durationSeconds": 0.209,
-      "failureSamples": [
-        {
-          "name": "aFailedAtomicRewriteLeavesTheSourceWhole",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "fmtclitest",
-          "facts": {},
-          "error": "assertion failed!"
-        },
-        {
-          "name": "aProjectWithNoIncludeRootsIsItsOwnRoot",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "fmtclitest",
-          "facts": {},
-          "error": "assertion failed!"
-        },
-        {
-          "name": "addsMethodCallParensByDefault",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "fmtclitest",
-          "facts": {},
-          "error": "assertion failed!"
-        }
-      ]
+      "durationSeconds": 70.023
     },
     {
       "suite": "fmtcorpustest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 49,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.195,
-      "error": "error: \"runtime error: call of a non-function (0x7ff9000000000000) in cases at pc 14 register 8\"\n  cases at pc 14\n  module:fmtcorpustest at pc 82\n\n  runner.main at pc 24\n\n"
+      "total": 49,
+      "completed": true,
+      "durationSeconds": 65.327
     },
     {
       "suite": "fmtfuzztest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 96.557
+      "durationSeconds": 113.323
     },
     {
       "suite": "fmttest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 44,
       "failed": 0,
       "total": 44,
       "completed": true,
-      "durationSeconds": 82.613
+      "durationSeconds": 92.46
     },
     {
       "suite": "fmttreetest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 4,
-      "total": 4,
-      "completed": true,
-      "durationSeconds": 1.743,
-      "failureSamples": [
-        {
-          "ok": false,
-          "suite": "fmttreetest",
-          "facts": {},
-          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
-          "name": "everySourceIsFormattedPart1",
-          "capabilities": {},
-          "metrics": {}
-        },
-        {
-          "ok": false,
-          "suite": "fmttreetest",
-          "facts": {},
-          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
-          "name": "everySourceIsFormattedPart2",
-          "capabilities": {},
-          "metrics": {}
-        },
-        {
-          "ok": false,
-          "suite": "fmttreetest",
-          "facts": {},
-          "error": "this tree is not formatted; run `nupp fmt --write`:\n",
-          "name": "everySourceIsFormattedPart3",
-          "capabilities": {},
-          "metrics": {}
-        }
-      ]
-    },
-    {
-      "suite": "fmtwidthtest",
-      "class": "portable",
-      "status": "passed",
-      "passed": 42,
-      "failed": 0,
-      "total": 42,
-      "completed": true,
-      "durationSeconds": 59.242
-    },
-    {
-      "suite": "homesampletest",
-      "class": "portable",
-      "status": "failed",
-      "passed": 1,
-      "failed": 1,
-      "total": 2,
-      "completed": true,
-      "durationSeconds": 0.187,
-      "failureSamples": [
-        {
-          "error": "assertion failed!",
-          "name": "everyHomePageSampleChecks",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "homesampletest",
-          "facts": {}
-        }
-      ]
-    },
-    {
-      "suite": "hotreloadguaranteetest",
-      "class": "portable",
-      "status": "failed",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
       "passed": 0,
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 2.017,
-      "error": "error: \"runtime error: call of a non-function (0x7ff9000000000000) in module:runtimetest at pc 39 register 20\"\n  module:runtimetest at pc 39\n\n  module:hotreloadguaranteetest at pc 6\n\n  runner.main at pc 24\n\n"
+      "durationSeconds": 600.015,
+      "error": "",
+      "failureSamples": []
+    },
+    {
+      "suite": "fmtwidthtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 42,
+      "failed": 0,
+      "total": 42,
+      "completed": true,
+      "durationSeconds": 42.771
+    },
+    {
+      "suite": "homesampletest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "completed": true,
+      "durationSeconds": 8.306
+    },
+    {
+      "suite": "hotreloadguaranteetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 1,
+      "failed": 0,
+      "total": 1,
+      "completed": true,
+      "durationSeconds": 2.75
     },
     {
       "suite": "intersectiontest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 12,
       "failed": 0,
       "total": 12,
       "completed": true,
-      "durationSeconds": 1.611
+      "durationSeconds": 1.72
     },
     {
       "suite": "jsonfacadedefaulttest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 2,
-      "failed": 5,
+      "exitStatus": 1,
+      "passed": 6,
+      "failed": 1,
       "total": 7,
       "completed": true,
-      "durationSeconds": 0.382,
+      "durationSeconds": 17.157,
+      "error": "",
       "failureSamples": [
         {
-          "name": "anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder",
-          "capabilities": {},
           "metrics": {},
-          "ok": false,
           "suite": "jsonfacadedefaulttest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in runScript at pc 43 register 17"
-        },
-        {
-          "name": "fusedEntryModulesRetainTheirBuilderAndStatusIdentity",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "jsonfacadedefaulttest",
-          "facts": {},
-          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image"
-        },
-        {
           "name": "scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
-          "suite": "jsonfacadedefaulttest",
           "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in runScript at pc 43 register 17"
+          "error": "nupp: runtime error: SIMD operation requires a statically resolved call\n"
         }
       ]
     },
     {
       "suite": "jsonfuseddifferentialtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.197,
-      "error": "error: \"module 'nupp.codec.json.internal.decoder.fused' not found: not in the image\"\n  module:nupp.codec.json.internal.decoder.eager at pc 2\n\n  module:nupp.codec.json.aot at pc 6\n\n  module:jsonfuseddifferentialtest at pc 2\n\n  runner.main at pc 24\n\n"
+      "durationSeconds": 0.278,
+      "error": "task: Failed(\"module 'nupp.runtime.provider.nativebuffer' not found:\")\n",
+      "failureSamples": []
     },
     {
       "suite": "jsonpolicytest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 7,
       "failed": 10,
       "total": 17,
       "completed": true,
-      "durationSeconds": 0.199,
+      "durationSeconds": 0.283,
+      "error": "",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
           "name": "abortingWritersDiscardsOnlyUnpublishedBytes",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
           "suite": "jsonpolicytest"
         },
         {
-          "facts": {},
-          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
           "name": "arrayMarkersRequireEveryConsecutiveIndex",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
           "suite": "jsonpolicytest"
         },
         {
-          "facts": {},
-          "error": "module 'nupp.codec.json.internal.decoder.fused' not found: not in the image",
           "name": "decodeProblemsNameTheTextNotTheDecoder",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
+          "suite": "jsonpolicytest"
+        },
+        {
+          "name": "duplicateMemberNamesAreRefusedByEveryProvider",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
+          "suite": "jsonpolicytest"
+        },
+        {
+          "name": "exactNumberFragmentsPreserveTokensAcrossProviders",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
+          "suite": "jsonpolicytest"
+        },
+        {
+          "name": "failedWritesLeaveTheWriterAtItsPriorPosition",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
+          "suite": "jsonpolicytest"
+        },
+        {
+          "name": "nonFiniteNumbersAreRefusedByEveryProvider",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
+          "suite": "jsonpolicytest"
+        },
+        {
+          "name": "portableEncodingRejectsInvalidUtf8Everywhere",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
+          "metrics": {},
           "suite": "jsonpolicytest"
         }
       ]
@@ -1164,636 +1054,618 @@
     {
       "suite": "jsonschematest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 2,
-      "failed": 22,
+      "exitStatus": 1,
+      "passed": 22,
+      "failed": 2,
       "total": 24,
       "completed": true,
-      "durationSeconds": 0.206,
+      "durationSeconds": 90.34,
+      "error": "",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "assertion failed!",
           "metrics": {},
+          "suite": "jsonschematest",
           "name": "aRunReportsItsTraceAbortsInTheSharedShapes",
           "capabilities": {},
           "ok": false,
-          "suite": "jsonschematest"
+          "facts": {},
+          "error": ""
         },
         {
-          "facts": {},
-          "error": "assertion failed!",
           "metrics": {},
-          "name": "aUsageErrorWritesNothingToStdout",
+          "suite": "jsonschematest",
+          "name": "everyCommandReportsAMissingFileAsACodedFailure",
           "capabilities": {},
           "ok": false,
-          "suite": "jsonschematest"
-        },
-        {
           "facts": {},
-          "error": "assertion failed!",
-          "metrics": {},
-          "name": "aotOutputMatchesItsSchema",
-          "capabilities": {},
-          "ok": false,
-          "suite": "jsonschematest"
+          "error": "bc nosuch.nupp --json (in a project) should report NUPP0001:\n{\"diagnostics\":[{\"code\":\"NUPP0004\",\"docs\":\"docs/reference/diagnostics.md#failures-outside-source\",\"file\":\"nosuch.nupp\",\"fixes\":[],\"message\":\"nosuch.nupp: No such file or directory (os error 2)\",\"notes\":[],\"related\":[],\"severity\":\"error\"}],\"file\":\"nosuch.nupp\",\"functions\":[],\"ok\":false,\"unrecordable\":0}\n"
         }
       ]
     },
     {
       "suite": "lexertest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "timeout",
+      "exitStatus": null,
       "passed": 19,
       "failed": 0,
       "total": 19,
       "completed": false,
-      "durationSeconds": 602.275
+      "durationSeconds": 601.228,
+      "error": "",
+      "failureSamples": []
     },
     {
       "suite": "lspclitest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 21,
+      "exitStatus": 1,
+      "passed": 19,
+      "failed": 2,
       "total": 21,
       "completed": true,
-      "durationSeconds": 0.218,
+      "durationSeconds": 88.914,
+      "error": "nupp: option --only does not take refactor; expected quickfix\nTry 'nupp help lsp actions' for usage.\nnupp: NUPP1004:2: expression expected; found end of file\nnupp: unknown option -O\nTry 'nupp help lsp artifact' for usage.\nnupp: unknown option --opt-level\nTry 'nupp help lsp artifact' for usage.\n",
       "failureSamples": [
         {
-          "name": "actionsAndJsonDiagnosticsAreMachineReadable",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "lspclitest",
           "facts": {},
-          "error": "assertion failed!"
-        },
-        {
-          "name": "artifactOperationsPublishTheirSchemas",
-          "capabilities": {},
+          "error": "the file compiles",
           "metrics": {},
-          "ok": false,
           "suite": "lspclitest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in captureJson at pc 21 register 16"
-        },
-        {
           "name": "artifactPrintsABytecodeListingLaidOutAgainstTheSource",
           "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "lspclitest",
+          "ok": false
+        },
+        {
           "facts": {},
-          "error": "assertion failed!"
+          "error": "with the reason it does not load: NUPP3005 in\n_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local v1 = 1\nlocal v2 = 2\nlocal v3 = 3\nlocal v4 = 4\nlocal v5 = 5\nlocal v6 = 6\nlocal v7 = 7\nlocal v8 = 8\nlocal v9 = 9\nlocal v10 = 10\nlocal v11 = 11\nlocal v12 = 12\nlocal v13 = 13\nlocal v14 = 14\nlocal v15 = 15\nlocal v16 = 16\nlocal v17 = 17\nlocal v18 = 18\nlocal v19 = 19\nlocal v20 = 20\nlocal v21 = 21\nlocal v22 = 22\nlocal v23 = 23\nlocal v24 = 24\nlocal v25 = 25\nlocal v26 = 26\nlocal v27 = 27\nlocal v28 = 28\nlocal v29 = 29\nlocal v30 = 30\nlocal v31 = 31\nlocal v32 = 32\nlocal v33 = 33\nlocal v34 = 34\nlocal v35 = 35\nlocal v36 = 36\nlocal v37 = 37\nlocal v38 = 38\nlocal v39 = 39\nlocal v40 = 40\nlocal v41 = 41\nlocal v42 = 42\nlocal v43 = 43\nlocal v44 = 44\nlocal v45 = 45\nlocal v46 = 46\nlocal v47 = 47\nlocal v48 = 48\nlocal v49 = 49\nlocal v50 = 50\nlocal v51 = 51\nlocal v52 = 52\nlocal v53 = 53\nlocal v54 = 54\nlocal v55 = 55\nlocal v56 = 56\nlocal v57 = 57\nlocal v58 = 58\nlocal v59 = 59\nlocal v60 = 60\nlocal v61 = 61\nlocal function f ( ) \nreturn v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20 + v21 + v22 + v23 + v24 + v25 + v26 + v27 + v28 + v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 + v38 + v39 + v40 + v41 + v42 + v43 + v44 + v45 + v46 + v47 + v48 + v49 + v50 + v51 + v52 + v53 + v54 + v55 + v56 + v57 + v58 + v59 + v60 + v61\nend\nreturn f ( )\n__exit__:0\n",
+          "metrics": {},
+          "suite": "lspclitest",
+          "name": "artifactPrintsGeneratedLuaThatDoesNotLoad",
+          "capabilities": {},
+          "ok": false
         }
       ]
     },
     {
       "suite": "materializeobservetest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 2,
       "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.204
+      "durationSeconds": 0.417
     },
     {
       "suite": "memberstest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 9,
       "failed": 0,
       "total": 9,
       "completed": true,
-      "durationSeconds": 0.202
+      "durationSeconds": 0.419
     },
     {
       "suite": "narrowingtest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 43,
       "failed": 0,
       "total": 43,
       "completed": true,
-      "durationSeconds": 15.318
+      "durationSeconds": 36.642
     },
     {
       "suite": "narrowtest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 21,
       "failed": 0,
       "total": 21,
       "completed": true,
-      "durationSeconds": 15.36
+      "durationSeconds": 35.405
     },
     {
       "suite": "neutralpolicytest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.257
+      "durationSeconds": 0.319
     },
     {
       "suite": "normalizetest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 15,
       "failed": 0,
       "total": 15,
       "completed": true,
-      "durationSeconds": 0.254
+      "durationSeconds": 0.349
     },
     {
       "suite": "overloaddoctest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 2.201
+      "durationSeconds": 2.323
     },
     {
       "suite": "ownershipflowtest",
       "class": "portable",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 5,
       "failed": 0,
       "total": 5,
       "completed": true,
-      "durationSeconds": 17.75
+      "durationSeconds": 40.039
     },
     {
       "suite": "packtest",
       "class": "portable",
+      "facilities": "getinfo,coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 42,
       "failed": 0,
       "total": 42,
       "completed": true,
-      "durationSeconds": 16.733
+      "durationSeconds": 36.923
     },
     {
       "suite": "perfbudgettest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 6,
+      "exitStatus": 1,
+      "passed": 4,
+      "failed": 2,
       "total": 6,
       "completed": true,
-      "durationSeconds": 0.213,
+      "durationSeconds": 22.836,
+      "error": "",
       "failureSamples": [
         {
+          "error": "the hello-world binary was not built: ",
+          "metrics": {},
+          "suite": "perfbudgettest",
           "name": "aStampedHelloWorldStaysSmall",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
-          "suite": "perfbudgettest",
-          "facts": {},
-          "error": "assertion failed!"
+          "facts": {}
         },
         {
-          "name": "anEditRechecksOnlyWhatItCanReach",
-          "capabilities": {},
+          "error": "checking allocates 2426 KB a module, over the budget of 2048 KB",
           "metrics": {},
-          "ok": false,
           "suite": "perfbudgettest",
-          "facts": {},
-          "error": "assertion failed!"
-        },
-        {
-          "name": "generatedLuaStaysWithinItsSizeBudget",
+          "name": "theCheckerAllocatesPerModuleNotPerProject",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
-          "suite": "perfbudgettest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.generatedLuaStaysWithinItsSizeBudget at pc 33 register 17"
+          "facts": {}
         }
       ]
     },
     {
       "suite": "preludecachetest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 3,
-      "failed": 9,
+      "exitStatus": 1,
+      "passed": 10,
+      "failed": 2,
       "total": 12,
       "completed": true,
-      "durationSeconds": 0.447,
-      "error": "module nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\nmodule nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\nmodule nupp.compiler.project.preludeimage not found (left to the runtime)\nmodule nupp.compiler.project.env not found (left to the runtime)\nmodule nupp.compiler.types not found (left to the runtime)\n",
+      "durationSeconds": 26.467,
+      "error": "wrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685094383000-5 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685533278000-7 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685605597000-9 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685941048000-13 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955686185242000-15 with 9 tables\n",
       "failureSamples": [
         {
-          "error": "assertion failed!",
-          "name": "aCachedPreludeAnswersLikeAFreshlyCheckedOne",
+          "facts": {},
+          "error": "expected \"shared ids: 0\", got nil: the writer's own arena is consistent:\nluajit: ...x00000gn/T/nupp-55911-1791955673720012000-1/identity.lua:2: module 'nupp.compiler.types' not found:\n\tno field package.preload['nupp.compiler.types']\n\tno file './nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\n\tno file './nupp.so'\n\tno file '/usr/local/lib/lua/5.1/nupp.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\nstack traceback:\n\t[C]: in function 'require'\n\t...x00000gn/T/nupp-55911-1791955673720012000-1/identity.lua:2: in main chunk\n\t[C]: at 0x0100a20c0c\n",
           "metrics": {},
-          "capabilities": {},
-          "ok": false,
           "suite": "preludecachetest",
-          "facts": {}
-        },
-        {
-          "error": "assertion failed!",
           "name": "aStoredPreludeFromAnotherIdentityIsNotRestored",
-          "metrics": {},
           "capabilities": {},
-          "ok": false,
-          "suite": "preludecachetest",
-          "facts": {}
+          "ok": false
         },
         {
-          "error": "assertion failed!",
-          "name": "aStoredPreludeIsNotRestoredOverAnotherIdentity",
+          "facts": {},
+          "error": "module 'ffi' not found:",
           "metrics": {},
-          "capabilities": {},
-          "ok": false,
           "suite": "preludecachetest",
-          "facts": {}
+          "name": "aStoredPreludeIsNotRestoredOverAnotherIdentity",
+          "capabilities": {},
+          "ok": false
         }
       ]
     },
     {
       "suite": "privateexporttest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 9,
       "failed": 0,
       "total": 9,
       "completed": true,
-      "durationSeconds": 16.04
+      "durationSeconds": 27.445
     },
     {
       "suite": "publicclitest",
       "class": "portable",
-      "status": "failed",
-      "passed": 1,
-      "failed": 5,
-      "total": 6,
-      "completed": true,
-      "durationSeconds": 0.212,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
+      "passed": 2,
+      "failed": 1,
+      "total": 3,
+      "completed": false,
+      "durationSeconds": 600.049,
+      "error": "",
       "failureSamples": [
         {
-          "metrics": {},
+          "suite": "publicclitest",
+          "name": "playgroundOutputIsAlwaysValidUtf8",
           "capabilities": {},
           "ok": false,
-          "suite": "publicclitest",
           "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.playgroundOutputIsAlwaysValidUtf8 at pc 23 register 7",
-          "name": "playgroundOutputIsAlwaysValidUtf8"
-        },
-        {
-          "metrics": {},
-          "capabilities": {},
-          "ok": false,
-          "suite": "publicclitest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.primitiveLoadingDoesNotPullInHigherLayers at pc 20 register 15",
-          "name": "primitiveLoadingDoesNotPullInHigherLayers"
-        },
-        {
-          "metrics": {},
-          "capabilities": {},
-          "ok": false,
-          "suite": "publicclitest",
-          "facts": {},
-          "error": "invalid JSON at byte 1: unexpected termination",
-          "name": "rejectsInvalidDerivedSchemasDuringChecking"
+          "error": "error in error handling",
+          "metrics": {}
         }
       ]
     },
     {
       "suite": "quaterniontest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 23,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.213,
-      "error": "error: \"module 'nupp.compiler.runtime.math' not found: not in the image\"\n  module:quaterniontest at pc 2\n\n  runner.main at pc 24\n\n"
+      "total": 23,
+      "completed": true,
+      "durationSeconds": 0.333
     },
     {
       "suite": "referencetest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.211,
-      "error": "error: \"module 'jit.vmdef' not found: not in the image\"\n  module:nupp.profile.trace at pc 2\n\n  module:nupp.tools.reference at pc 7\n\n  module:referencetest at pc 3\n\n  runner.main at pc 24\n\n"
+      "exitStatus": 1,
+      "passed": 13,
+      "failed": 1,
+      "total": 14,
+      "completed": true,
+      "durationSeconds": 48.474,
+      "error": "",
+      "failureSamples": [
+        {
+          "ok": false,
+          "facts": {},
+          "error": "the \"Checked span views\" example reports NUPP2004: \nlocal span = require(\"nupp.mem.span\")\nlocal indexed = require(\"nupp.mem.indexed\")\nlocal m = {}\n\nlocal struct Value\n    n: integer\nend\n\nfunction m.total(): number\n    const storage = carray(Value, 4)\n    const values = span.fromCarray(storage, 4)\n    const rows = indexed.range(1, #values, values)\n    local total = 0\n    for index = rows.first, rows.last do\n        total = total + values[index].n\n    end\n    return total\nend\n\nreturn m\n",
+          "metrics": {},
+          "suite": "referencetest",
+          "name": "everyExampleChecksClean",
+          "capabilities": {}
+        }
+      ]
     },
     {
       "suite": "reflectiontest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 15,
       "failed": 0,
       "total": 15,
       "completed": true,
-      "durationSeconds": 0.222
+      "durationSeconds": 0.379
     },
     {
       "suite": "reifiablerecordtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 16,
       "failed": 0,
       "total": 16,
       "completed": true,
-      "durationSeconds": 30.927
+      "durationSeconds": 62.059
     },
     {
       "suite": "releasetest",
       "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 7,
+      "exitStatus": 1,
+      "passed": 4,
+      "failed": 3,
       "total": 7,
       "completed": true,
-      "durationSeconds": 0.241,
+      "durationSeconds": 0.433,
+      "error": "",
       "failureSamples": [
         {
-          "ok": false,
+          "error": "the link kit kit.tar.gz for linux-x86_64 is not cached and its record names no URL; put it in NUPP_STUB_DIR",
+          "metrics": {},
           "suite": "releasetest",
-          "facts": {},
-          "error": "assertion failed!",
           "name": "aKitThatFailsToUnpackLeavesNoStagingDirectory",
           "capabilities": {},
-          "metrics": {}
+          "ok": false,
+          "facts": {}
         },
         {
-          "ok": false,
+          "error": "embedded stub catalog is absent",
+          "metrics": {},
           "suite": "releasetest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "aRecordRejectsTheWrongExecutableFormat",
+          "name": "kitRecordsJoinTheCatalogANuppIsBuiltWith",
           "capabilities": {},
-          "metrics": {}
+          "ok": false,
+          "facts": {}
         },
         {
-          "ok": false,
+          "error": "the compiler carries /build/stub-catalog.json",
+          "metrics": {},
           "suite": "releasetest",
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "catalogRejectsANonObjectRecord",
+          "name": "theEmbeddedCatalogIsTheCommittedJsonArtifact",
           "capabilities": {},
-          "metrics": {}
+          "ok": false,
+          "facts": {}
         }
       ]
     },
     {
       "suite": "repositoryscriptstest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 1,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 1,
+      "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.227,
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.everyRepositoryScriptChecks at pc 20 register 15",
-          "name": "everyRepositoryScriptChecks",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "repositoryscriptstest"
-        }
-      ]
+      "durationSeconds": 4.916
     },
     {
       "suite": "rustabitest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 2,
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 2,
+      "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.224,
-      "failureSamples": [
-        {
-          "name": "publicHeaderLinksAndRunsAgainstTheSelectedCdylib",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "rustabitest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.publicHeaderLinksAndRunsAgainstTheSelectedCdylib at pc 17 register 14"
-        },
-        {
-          "name": "theProviderKeepsWhatThePinnedStageZeroNames",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "rustabitest",
-          "facts": {},
-          "error": "runtime error: call of a non-function (0x7ff9000000000000) in M.theProviderKeepsWhatThePinnedStageZeroNames at pc 32 register 17"
-        }
-      ]
+      "durationSeconds": 262.514
     },
     {
       "suite": "sendabletest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 13,
       "failed": 0,
       "total": 13,
       "completed": true,
-      "durationSeconds": 13.009
+      "durationSeconds": 26.534
     },
     {
       "suite": "serdecontracttest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 35,
-      "total": 35,
-      "completed": true,
-      "durationSeconds": 0.216,
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "timeout",
+      "exitStatus": null,
+      "passed": 1,
+      "failed": 1,
+      "total": 2,
+      "completed": false,
+      "durationSeconds": 600.018,
+      "error": "",
       "failureSamples": [
         {
+          "error": "nupp: module 'nupp.serde' not found:\n\tno nupp source for module 'nupp.serde'\n",
+          "metrics": {},
           "suite": "serdecontracttest",
-          "facts": {},
-          "error": "",
           "name": "binaryCodecUsesSchemaDirectedNumbersTuplesAndOwnedUnknownFields",
           "capabilities": {},
-          "metrics": {},
-          "ok": false
-        },
-        {
-          "suite": "serdecontracttest",
-          "facts": {},
-          "error": "invalid JSON at byte 1: unexpected termination",
-          "name": "bindingsAreInvariant",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false
-        },
-        {
-          "suite": "serdecontracttest",
-          "facts": {},
-          "error": "",
-          "name": "codecExtensionsReuseOperationsWithBoundedRetention",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false
+          "ok": false,
+          "facts": {}
         }
       ]
     },
     {
       "suite": "shellsyntaxtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "portable shell, depfile, and glob scanner regression",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 3,
       "failed": 0,
       "total": 3,
       "completed": true,
-      "durationSeconds": 0.191
+      "durationSeconds": 0.295
     },
     {
       "suite": "simdmatrixreporttest",
       "class": "portable",
-      "status": "failed",
-      "passed": 8,
-      "failed": 4,
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 12,
+      "failed": 0,
       "total": 12,
       "completed": true,
-      "durationSeconds": 14.911,
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "acceptsBothCompletedRoutesForTheRequestedInventory",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "simdmatrixreporttest"
-        },
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "acceptsPreferredWithoutInventingTransposeOrScalarOnlyReducers",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "simdmatrixreporttest"
-        },
-        {
-          "facts": {},
-          "error": "assertion failed!",
-          "name": "keepsAvailableSuccessSeparateFromMissingHardware",
-          "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "simdmatrixreporttest"
-        }
-      ]
+      "durationSeconds": 29.912
     },
     {
       "suite": "simdpackbudgettest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 2,
       "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 1.376
+      "durationSeconds": 3.116
     },
     {
       "suite": "simdreducerdifferentialtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.655
+      "durationSeconds": 1.159
     },
     {
       "suite": "simdreducertest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.206,
-      "error": "error: \"module 'simdreducertest' not found: not in the image\"\n  runner.main at pc 24\n\n"
-    },
-    {
-      "suite": "simdruntimeboundarytest",
-      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 4,
       "failed": 0,
       "total": 4,
       "completed": true,
-      "durationSeconds": 0.302
+      "durationSeconds": 0.317
+    },
+    {
+      "suite": "simdruntimeboundarytest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "completed": true,
+      "durationSeconds": 0.535
     },
     {
       "suite": "simdwasmalgorithmdifferentialtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 3,
       "total": 3,
       "completed": true,
-      "durationSeconds": 0.331,
+      "durationSeconds": 0.92,
+      "error": "",
       "failureSamples": [
         {
-          "ok": false,
-          "suite": "simdwasmalgorithmdifferentialtest",
-          "facts": {},
-          "error": "runtime error: field version of a non-object",
-          "metrics": {},
           "name": "wasmbase64simd",
-          "capabilities": {}
-        },
-        {
+          "capabilities": {},
           "ok": false,
-          "suite": "simdwasmalgorithmdifferentialtest",
           "facts": {},
           "error": "runtime error: field version of a non-object",
           "metrics": {},
+          "suite": "simdwasmalgorithmdifferentialtest"
+        },
+        {
           "name": "wasmsimd_json",
-          "capabilities": {}
-        },
-        {
+          "capabilities": {},
           "ok": false,
-          "suite": "simdwasmalgorithmdifferentialtest",
           "facts": {},
           "error": "runtime error: field version of a non-object",
           "metrics": {},
+          "suite": "simdwasmalgorithmdifferentialtest"
+        },
+        {
           "name": "wasmutf8simd",
-          "capabilities": {}
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "suite": "simdwasmalgorithmdifferentialtest"
         }
       ]
     },
     {
       "suite": "simdwasmbrowsersmoketest",
       "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.337,
+      "durationSeconds": 0.598,
+      "error": "",
       "failureSamples": [
         {
-          "ok": false,
-          "suite": "simdwasmbrowsersmoketest",
-          "disposition": "not-executed",
-          "facts": {},
-          "error": "missing capability fleet.browser-smoke",
           "metrics": {},
+          "suite": "simdwasmbrowsersmoketest",
           "name": "countedRuntimeRoutesReachChromium",
           "capabilities": [
             {
@@ -1803,216 +1675,307 @@
               },
               "name": "fleet.browser-smoke"
             }
-          ]
+          ],
+          "disposition": "not-executed",
+          "ok": false,
+          "facts": {},
+          "error": "missing capability fleet.browser-smoke"
         }
       ]
     },
     {
       "suite": "simdwasmtimeconformancetest",
       "class": "portable",
+      "facilities": "spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 2,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.332,
+      "durationSeconds": 0.738,
+      "error": "",
       "failureSamples": [
         {
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "suite": "simdwasmtimeconformancetest",
           "name": "wasmSemanticConformance",
           "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "simdwasmtimeconformancetest",
-          "facts": {},
-          "error": "runtime error: field version of a non-object"
+          "ok": false
         },
         {
+          "facts": {},
+          "error": "runtime error: field version of a non-object",
+          "metrics": {},
+          "suite": "simdwasmtimeconformancetest",
           "name": "wasmSpeciesInventory",
           "capabilities": {},
-          "metrics": {},
-          "ok": false,
-          "suite": "simdwasmtimeconformancetest",
-          "facts": {},
-          "error": "runtime error: field version of a non-object"
+          "ok": false
         }
       ]
     },
     {
       "suite": "substitutiontest",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 31,
       "failed": 0,
       "total": 31,
       "completed": true,
-      "durationSeconds": 15.676
+      "durationSeconds": 32.227
     },
     {
       "suite": "suspensiontest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 42,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.214,
-      "error": "error: \"module 'nupp.runtime.provider.suspension' not found: not in the image\"\n  module:nupp.suspension.selected at pc 32\n\n  module:nupp.suspension at pc 3\n\n  module:suspensiontest at pc 4\n\n  runner.main at pc 24\n\n"
+      "total": 42,
+      "completed": true,
+      "durationSeconds": 0.323
     },
     {
       "suite": "taskfailuretest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 6,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.207,
-      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:taskfailuretest at pc 5\n\n  runner.main at pc 24\n\n"
+      "total": 6,
+      "completed": true,
+      "durationSeconds": 0.332
     },
     {
       "suite": "taskstest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 57,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.21,
-      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:taskstest at pc 6\n\n  runner.main at pc 24\n\n"
+      "total": 57,
+      "completed": true,
+      "durationSeconds": 0.863
     },
     {
       "suite": "testrunnertest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.211,
+      "durationSeconds": 0.31,
+      "error": "",
       "failureSamples": [
         {
+          "suite": "testrunnertest",
           "name": "workerCommandQuotesShellMetacharactersInTheCompilerPath",
           "capabilities": {},
-          "metrics": {},
           "ok": false,
-          "suite": "testrunnertest",
           "facts": {},
-          "error": "assertion failed!"
+          "error": "'/private/tmp/nupp-codegen-experiment/bin/nupp' test --internal-runner",
+          "metrics": {}
         }
       ]
     },
     {
       "suite": "testtimingstest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
-      "passed": 0,
-      "failed": 9,
+      "exitStatus": 1,
+      "passed": 1,
+      "failed": 8,
       "total": 9,
       "completed": true,
-      "durationSeconds": 0.21,
+      "durationSeconds": 21.448,
+      "error": "",
       "failureSamples": [
         {
           "suite": "testtimingstest",
-          "facts": {},
-          "error": "assertion failed!",
           "name": "aGlobGroupTracksEverySuiteItMatches",
           "capabilities": {},
-          "metrics": {},
-          "ok": false
+          "ok": false,
+          "facts": {},
+          "error": "values differ:\n  want: \"alphatest\\nbetatest\\ngammatest\\n\"\n  got:  \"alphatest\\nbetatest\\ngammatest\\ntask: Failed(\\\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\\\")\\n\"",
+          "metrics": {}
         },
         {
           "suite": "testtimingstest",
-          "facts": {},
-          "error": "assertion failed!",
           "name": "aGroupMemberThatMatchesNothingIsRefused",
           "capabilities": {},
-          "metrics": {},
-          "ok": false
+          "ok": false,
+          "facts": {},
+          "error": "expected 2, got 1: a group naming a missing suite should be refused: nupp: test group stale names deltatest, which matches no suite\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
         },
         {
           "suite": "testtimingstest",
-          "facts": {},
-          "error": "assertion failed!",
           "name": "aGroupSelectsExactlyItsMembers",
           "capabilities": {},
-          "metrics": {},
-          "ok": false
+          "ok": false,
+          "facts": {},
+          "error": "expected 0, got 1: listing a group should succeed: alphatest\nbetatest\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
+        },
+        {
+          "suite": "testtimingstest",
+          "name": "aNarrowRunKeepsTheTimingsItDidNotMeasure",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "expected 0, got 1: the whole project should run: ...\n\n3 tests, 3 passed, 0 skipped, 0 failed (4.6ms)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
+        },
+        {
+          "suite": "testtimingstest",
+          "name": "aRecordThatIsNotADurationIsIgnored",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "expected 0, got 1: a damaged record should not stop the run: 3 suites across 2 Nupp workers\n\n\n3 tests, 3 passed, 0 skipped, 0 failed (2076.2ms)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
+        },
+        {
+          "suite": "testtimingstest",
+          "name": "anUnknownExclusionIsRefused",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "expected 2, got 1: excluding a suite that does not exist should be refused: nupp: no test suite named deltatest to exclude\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
+        },
+        {
+          "suite": "testtimingstest",
+          "name": "anUnknownGroupIsRefused",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "expected 2, got 1: an unknown group should be refused: nupp: no test group named nope (have greek, pair)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
+          "metrics": {}
+        },
+        {
+          "suite": "testtimingstest",
+          "name": "excludingAGroupLeavesTheRest",
+          "capabilities": {},
+          "ok": false,
+          "facts": {},
+          "error": "values differ:\n  want: \"gammatest\\n\"\n  got:  \"gammatest\\ntask: Failed(\\\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\\\")\\n\"",
+          "metrics": {}
         }
       ]
     },
     {
       "suite": "tier2test",
       "class": "portable",
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 15,
       "failed": 0,
       "total": 15,
       "completed": true,
-      "durationSeconds": 15.288
+      "durationSeconds": 28.314
     },
     {
       "suite": "timetest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "coroutine",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 13,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.204,
-      "error": "error: \"module 'nupp.runtime.provider.nativetime' not found: not in the image\"\n  module:nupp.time at pc 16\n\n  module:timetest at pc 3\n\n  runner.main at pc 24\n\n"
+      "total": 13,
+      "completed": true,
+      "durationSeconds": 0.491
     },
     {
       "suite": "tlstest",
       "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.211,
-      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.io.internal.bytes at pc 7\n\n  module:nupp.io at pc 5\n\n  module:nupp.io.net at pc 5\n\n  module:tlstest at pc 4\n\n  runner.main at pc 24\n\n"
+      "durationSeconds": 0.307,
+      "error": "task: Failed(\"module 'nupp.runtime.provider.nativenet' not found:\")\n",
+      "failureSamples": []
     },
     {
       "suite": "typedtest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 14,
       "failed": 0,
       "total": 14,
       "completed": true,
-      "durationSeconds": 0.217
+      "durationSeconds": 0.358
     },
     {
       "suite": "typeprovidertest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "passed",
+      "exitStatus": 0,
       "passed": 1,
       "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.195
+      "durationSeconds": 0.33
     },
     {
       "suite": "utilstoretest",
       "class": "portable",
-      "status": "failed",
-      "passed": 0,
+      "facilities": "getinfo",
+      "reason": "pure Lua against compiler modules within the subset",
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 15,
       "failed": 0,
-      "total": 0,
-      "completed": false,
-      "durationSeconds": 0.199,
-      "error": "error: \"module 'nupp.runtime.provider.nativestorage' not found: not in the image\"\n  module:nupp.mem.representation at pc 27\n\n  module:nupp.runtime.storage at pc 2\n\n  module:nupp.util.internal.bitset at pc 7\n\n  module:nupp.util at pc 2\n\n  module:utilstoretest at pc 3\n\n  runner.main at pc 24\n\n"
+      "total": 15,
+      "completed": true,
+      "durationSeconds": 34.893
     },
     {
       "suite": "workerstartuptest",
       "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
+      "exitStatus": 1,
       "passed": 0,
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.193,
-      "error": "error: \"module 'nupp.workers.native' not found: not in the image\"\n  module:workerstartuptest at pc 1\n\n  runner.main at pc 24\n\n"
+      "durationSeconds": 0.31,
+      "error": "task: Failed(\"module 'nupp.workers.native' not found:\")\n",
+      "failureSamples": []
     }
   ]
 }
