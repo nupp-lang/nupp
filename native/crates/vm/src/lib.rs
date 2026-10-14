@@ -14,6 +14,8 @@ mod simd_reduce;
 #[cfg(feature = "jit")]
 mod simd_jit;
 mod simd_exec;
+#[cfg(feature = "allocation-metrics")]
+mod allocation_metrics;
 pub mod heap;
 pub mod interp;
 pub mod builtins;

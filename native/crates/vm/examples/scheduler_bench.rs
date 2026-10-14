@@ -1,4 +1,7 @@
 //! Round-robin scheduling across 1,000 three-frame tasks and a million parks.
+#[path = "../src/executable_allocator.rs"]
+mod executable_allocator;
+
 use nupp_vm::{image, interp::Interp, scheduler::TaskId, value::Value};
 use std::time::Instant;
 const PROGRAM: &str = r#"
@@ -74,6 +77,8 @@ fn trial(scheduled: bool, threaded: bool) -> f64 {
     elapsed
 }
 fn main() {
+    #[cfg(feature = "allocation-metrics")]
+    let _allocation_report = executable_allocator::ReportOnDrop;
     for threaded in [false, true] {
         for scheduled in [false, true] {
             let mut times = Vec::new();

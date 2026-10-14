@@ -1,5 +1,8 @@
 //! Direct runtime persistence costs. This fixture mirrors the entity count and
 //! three column groups of Tecs' snapshot bench; it is not the Tecs integration gate.
+#[path = "../src/executable_allocator.rs"]
+mod executable_allocator;
+
 use nupp_vm::{
     heap::SlotTy,
     interp::Interp,
@@ -12,6 +15,8 @@ fn median(mut values: Vec<f64>) -> f64 {
     values[values.len() / 2]
 }
 fn main() {
+    #[cfg(feature = "allocation-metrics")]
+    let _allocation_report = executable_allocator::ReportOnDrop;
     for mode in ["objects", "columns", "buffer"] {
         if std::env::args().nth(1).is_some_and(|asked| asked != mode) {
             continue;

@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Compile the public task/affine fixture with the VM compiler, then run both tiers."""
+import argparse
 import json
 import os
 import re
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import time
 
-binary = "build/rust/target/release/nupp-vm"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("seed", type=Path)
+parser.add_argument("retained_image", type=Path, nargs="?")
+parser.add_argument("--binary", type=Path, default=Path("build/rust/target/release/nupp-vm"))
+args = parser.parse_args()
+binary = str(args.binary.resolve())
 result = subprocess.run(
-    [binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit",
+    [binary, "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit",
      "native/crates/vm/tests/tasks-project", "main"],
     env=dict(os.environ, NO_JIT="1"), text=True, capture_output=True, timeout=600,
 )
@@ -19,8 +24,8 @@ assert result.returncode == 0, result.stderr
 with tempfile.TemporaryDirectory() as directory:
     image = Path(directory) / "tasks.image"
     image.write_text(json.loads(result.stdout))
-    if len(sys.argv) > 2:
-        Path(sys.argv[2]).write_bytes(image.read_bytes())
+    if args.retained_image:
+        args.retained_image.write_bytes(image.read_bytes())
     for jit in (False, True):
         flags = dict(os.environ, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
         flags.pop("NO_JIT", None)
@@ -59,6 +64,6 @@ with tempfile.TemporaryDirectory() as directory:
         "coroutine": 'local co = coroutine.create(function(): nil end); coroutine.close(co); coroutine.resume(co)',
     }.items():
         (root / "src/main.nupp").write_text("module main\nlocal main = {}\nfunction main.run(): nil\n" + body + "\nend\nexport = main\n")
-        rejected = subprocess.run([binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit", str(root), "main"], env=dict(os.environ, NO_JIT="1"), capture_output=True, text=True, timeout=120)
+        rejected = subprocess.run([binary, "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit", str(root), "main"], env=dict(os.environ, NO_JIT="1"), capture_output=True, text=True, timeout=120)
         assert rejected.returncode != 0 and "NUPP2601" in rejected.stderr, rejected.stderr
         print(f"{name}: use after close rejected", flush=True)

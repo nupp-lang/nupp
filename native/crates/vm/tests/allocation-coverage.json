@@ -1,0 +1,4453 @@
+{
+  "schema": 1,
+  "date": "2026-10-14",
+  "branch": "codegen-experiment",
+  "baseCommit": "41ee8ffde5c111decedf44d1ceafd973dce15abb",
+  "decision": "Keep system allocator as default. Candidate features remain opt-in experiment controls. No allocator adoption, object layout change, pool, or nursery is established by this pass.",
+  "timingStatus": "provisional-background-load",
+  "environmentLimitations": [
+    "Process inspection after the paired runs found unrelated CPU-bound jobs: 15-day-old nupp-er utilbitsettest PID 27987 and 19-day-old LuaJIT check PID 69942; fseventsd was also active. Permission to stop the unrelated jobs was requested, not assumed.",
+    "Seven alternating process pairs with seven repeats and a 5% practical margin. Statistical verdicts below describe those observations; quiet-host confirmation is outstanding.",
+    "Candidate checker pairs and repository comparisons were not run after neither candidate cleared the parser-source gate. These are explicit outstanding adoption gates, not passes.",
+    "macOS aarch64 only; target guards are not cross-target execution evidence."
+  ],
+  "artifactsDirectory": "/private/tmp/nupp-allocation-experiments",
+  "timingArtifacts": {
+    "mimalloc": {
+      "/private/tmp/nupp-allocation-experiments/nupp-vm-mimalloc": "bd797d0be10be9f8c5fc751fa8125e12d77d03a5d4da61ec5dd1550d0a60af86",
+      "/private/tmp/nupp-allocation-experiments/nupp-vm-system": "b76e43d4ca6da289989c273fefd8130a90637373f14db7878e027b14562fb5c3",
+      "/private/tmp/nupp-allocation-experiments/parser.image": "2cee881404c1e6bb1cf8d98ce814115454f24f6f8013b93a03859e3603746a1a",
+      "/private/tmp/nupp-allocation-experiments/tasks-perf.image": "02e00ba7f9539e4108761eecf8cc36810ad01adb8a7f9d239491629b5792aff1",
+      "/private/tmp/nupp-cli-complete/root-owner.image": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+      "/private/tmp/nupp-codegen-experiment/bin/nupp": "bf54a2cbe044b70246b245edd93488d46550c1dc4e0b8e45028e8187ae67051f",
+      "/private/tmp/nupp-codegen-experiment/native/crates/vm/tests/project/lib/demo/math.nupp": "bcfd0c0a346f5112bb13c14b93792fe1618f889487b7b458e7a83303d0bfbef1",
+      "/private/tmp/nupp-codegen-experiment/src/nupp/compiler/syntax/parser.nupp": "6388115eb8d824aa24d56173f829ee5f44c826e110f32f2aada30fe652e8e407"
+    },
+    "jemalloc": {
+      "/private/tmp/nupp-allocation-experiments/nupp-vm-jemalloc": "06f0c6a60ba62c0375adfdfa5d0b7d5b1672f66ddffef950f1ce2be077fcf041",
+      "/private/tmp/nupp-allocation-experiments/nupp-vm-system": "b76e43d4ca6da289989c273fefd8130a90637373f14db7878e027b14562fb5c3",
+      "/private/tmp/nupp-allocation-experiments/parser.image": "2cee881404c1e6bb1cf8d98ce814115454f24f6f8013b93a03859e3603746a1a",
+      "/private/tmp/nupp-allocation-experiments/tasks-perf.image": "02e00ba7f9539e4108761eecf8cc36810ad01adb8a7f9d239491629b5792aff1",
+      "/private/tmp/nupp-cli-complete/root-owner.image": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+      "/private/tmp/nupp-codegen-experiment/bin/nupp": "bf54a2cbe044b70246b245edd93488d46550c1dc4e0b8e45028e8187ae67051f",
+      "/private/tmp/nupp-codegen-experiment/native/crates/vm/tests/project/lib/demo/math.nupp": "bcfd0c0a346f5112bb13c14b93792fe1618f889487b7b458e7a83303d0bfbef1",
+      "/private/tmp/nupp-codegen-experiment/src/nupp/compiler/syntax/parser.nupp": "6388115eb8d824aa24d56173f829ee5f44c826e110f32f2aada30fe652e8e407"
+    }
+  },
+  "candidateResults": {
+    "mimalloc": [
+      {
+        "name": "parser-small",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 0.065167,
+            "candidateMedian": 0.060084,
+            "baselineOverCandidate": 1.0575601698490635,
+            "pairedBootstrap95": [
+              1.00509488481834,
+              1.0991065585070916
+            ],
+            "verdict": "inconclusive"
+          },
+          "firstMs": {
+            "baselineMedian": 0.411,
+            "candidateMedian": 0.427,
+            "baselineOverCandidate": 0.9394067664460007,
+            "pairedBootstrap95": [
+              0.9096803540192128,
+              0.9625472789232244
+            ],
+            "verdict": "inconclusive"
+          },
+          "wallMs": {
+            "baselineMedian": 281.7822909999999,
+            "candidateMedian": 273.89837500000016,
+            "baselineOverCandidate": 0.9508380731586441,
+            "pairedBootstrap95": [
+              0.8142749916766672,
+              1.029296367146484
+            ],
+            "verdict": "inconclusive"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 80101376,
+            "candidateMedian": 94486528,
+            "baselineOverCandidate": 0.849533449037333,
+            "pairedBootstrap95": [
+              0.847574943114826,
+              0.8516913112589747
+            ],
+            "verdict": "regressed"
+          }
+        }
+      },
+      {
+        "name": "parser-source",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 49.308458,
+            "candidateMedian": 47.655332,
+            "baselineOverCandidate": 1.0299966691797675,
+            "pairedBootstrap95": [
+              1.0190611459990861,
+              1.0398796501899765
+            ],
+            "verdict": "unchanged"
+          },
+          "firstMs": {
+            "baselineMedian": 50.47,
+            "candidateMedian": 49.912,
+            "baselineOverCandidate": 1.0173839744250117,
+            "pairedBootstrap95": [
+              1.009118803430153,
+              1.0257944716330871
+            ],
+            "verdict": "unchanged"
+          },
+          "wallMs": {
+            "baselineMedian": 668.1800830000002,
+            "candidateMedian": 651.0428340000001,
+            "baselineOverCandidate": 1.0272427509385285,
+            "pairedBootstrap95": [
+              1.0237501179252353,
+              1.0310941655117862
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 207470592,
+            "candidateMedian": 229425152,
+            "baselineOverCandidate": 0.9047063125069673,
+            "pairedBootstrap95": [
+              0.9024480921177026,
+              0.907884370189635
+            ],
+            "verdict": "regressed"
+          }
+        }
+      },
+      {
+        "name": "cli-version",
+        "primaryMetric": "wallMs",
+        "comparisons": {
+          "warmMs": {
+            "verdict": "unavailable"
+          },
+          "firstMs": {
+            "verdict": "unavailable"
+          },
+          "wallMs": {
+            "baselineMedian": 169.13929199999876,
+            "candidateMedian": 129.85399999999993,
+            "baselineOverCandidate": 1.3116697724453994,
+            "pairedBootstrap95": [
+              1.2993250377976513,
+              1.3268968300623971
+            ],
+            "verdict": "improved"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 104251392,
+            "candidateMedian": 103038976,
+            "baselineOverCandidate": 1.0122648734540372,
+            "pairedBootstrap95": [
+              1.0115156425523644,
+              1.013037615277592
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      },
+      {
+        "name": "cli-help",
+        "primaryMetric": "wallMs",
+        "comparisons": {
+          "warmMs": {
+            "verdict": "unavailable"
+          },
+          "firstMs": {
+            "verdict": "unavailable"
+          },
+          "wallMs": {
+            "baselineMedian": 169.71237500000314,
+            "candidateMedian": 129.078916000001,
+            "baselineOverCandidate": 1.3115911169701144,
+            "pairedBootstrap95": [
+              1.290409668679654,
+              1.3331519131824832
+            ],
+            "verdict": "improved"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 104267776,
+            "candidateMedian": 103022592,
+            "baselineOverCandidate": 1.013358049376791,
+            "pairedBootstrap95": [
+              1.0121090859979942,
+              1.0148117735990063
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      },
+      {
+        "name": "tasks-worker",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 312.518042,
+            "candidateMedian": 311.506124,
+            "baselineOverCandidate": 1.0035823390969736,
+            "pairedBootstrap95": [
+              1.0011695485741732,
+              1.0060172191609746
+            ],
+            "verdict": "unchanged"
+          },
+          "firstMs": {
+            "baselineMedian": 356.689,
+            "candidateMedian": 354.666,
+            "baselineOverCandidate": 1.0054842329843394,
+            "pairedBootstrap95": [
+              0.9990123386078218,
+              1.0122425518892353
+            ],
+            "verdict": "unchanged"
+          },
+          "wallMs": {
+            "baselineMedian": 2561.6196669999986,
+            "candidateMedian": 2552.5473750000033,
+            "baselineOverCandidate": 1.0039015628971335,
+            "pairedBootstrap95": [
+              1.0018014811064448,
+              1.0058607163042712
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 26525696,
+            "candidateMedian": 26820608,
+            "baselineOverCandidate": 0.9945850955666725,
+            "pairedBootstrap95": [
+              0.9852534927357359,
+              1.0106495468185113
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      },
+      {
+        "name": "tasks-checkpoints",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 6.045332,
+            "candidateMedian": 5.620459,
+            "baselineOverCandidate": 1.0761218600430342,
+            "pairedBootstrap95": [
+              1.0609598599279983,
+              1.0888550775503316
+            ],
+            "verdict": "improved"
+          },
+          "firstMs": {
+            "baselineMedian": 8.467,
+            "candidateMedian": 7.931,
+            "baselineOverCandidate": 1.0596283938653859,
+            "pairedBootstrap95": [
+              1.042209488554892,
+              1.076666992773185
+            ],
+            "verdict": "inconclusive"
+          },
+          "wallMs": {
+            "baselineMedian": 67.38787500000143,
+            "candidateMedian": 63.10058400000429,
+            "baselineOverCandidate": 1.0668471289357768,
+            "pairedBootstrap95": [
+              1.0576242357135526,
+              1.0771573652253204
+            ],
+            "verdict": "improved"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 15007744,
+            "candidateMedian": 14008320,
+            "baselineOverCandidate": 1.0704589952235242,
+            "pairedBootstrap95": [
+              1.0682447854980024,
+              1.0728319927111207
+            ],
+            "verdict": "improved"
+          }
+        }
+      }
+    ],
+    "jemalloc": [
+      {
+        "name": "parser-small",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 0.064541,
+            "candidateMedian": 0.060626,
+            "baselineOverCandidate": 1.0691470213209462,
+            "pairedBootstrap95": [
+              1.0553176443967354,
+              1.0899976246230436
+            ],
+            "verdict": "improved"
+          },
+          "firstMs": {
+            "baselineMedian": 0.405,
+            "candidateMedian": 0.406,
+            "baselineOverCandidate": 1.0007874193692454,
+            "pairedBootstrap95": [
+              0.9783751096414403,
+              1.0226315121786211
+            ],
+            "verdict": "unchanged"
+          },
+          "wallMs": {
+            "baselineMedian": 281.1674579999999,
+            "candidateMedian": 275.8525420000001,
+            "baselineOverCandidate": 0.9534346466334,
+            "pairedBootstrap95": [
+              0.8273074308820281,
+              1.028075427110013
+            ],
+            "verdict": "inconclusive"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 79953920,
+            "candidateMedian": 80740352,
+            "baselineOverCandidate": 0.9936711522344928,
+            "pairedBootstrap95": [
+              0.990747817972721,
+              0.9970428448535689
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      },
+      {
+        "name": "parser-source",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 49.310957,
+            "candidateMedian": 48.623333,
+            "baselineOverCandidate": 1.0105518108467408,
+            "pairedBootstrap95": [
+              1.002784100589622,
+              1.0182098683411167
+            ],
+            "verdict": "unchanged"
+          },
+          "firstMs": {
+            "baselineMedian": 50.323,
+            "candidateMedian": 49.675,
+            "baselineOverCandidate": 1.015517421343885,
+            "pairedBootstrap95": [
+              1.0051342363029914,
+              1.0265198493527927
+            ],
+            "verdict": "unchanged"
+          },
+          "wallMs": {
+            "baselineMedian": 666.488042000001,
+            "candidateMedian": 655.455625000001,
+            "baselineOverCandidate": 1.0162827228871512,
+            "pairedBootstrap95": [
+              1.0102502856585398,
+              1.02253873275353
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 206946304,
+            "candidateMedian": 207503360,
+            "baselineOverCandidate": 0.9984256066189149,
+            "pairedBootstrap95": [
+              0.995834031584136,
+              1.0006805167806567
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      },
+      {
+        "name": "cli-version",
+        "primaryMetric": "wallMs",
+        "comparisons": {
+          "warmMs": {
+            "verdict": "unavailable"
+          },
+          "firstMs": {
+            "verdict": "unavailable"
+          },
+          "wallMs": {
+            "baselineMedian": 172.23125000000118,
+            "candidateMedian": 138.2957090000012,
+            "baselineOverCandidate": 1.2349041918373975,
+            "pairedBootstrap95": [
+              1.2073765896917286,
+              1.2642713787877664
+            ],
+            "verdict": "improved"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 104235008,
+            "candidateMedian": 87048192,
+            "baselineOverCandidate": 1.198063143160469,
+            "pairedBootstrap95": [
+              1.1972627177775474,
+              1.1991112686952183
+            ],
+            "verdict": "improved"
+          }
+        }
+      },
+      {
+        "name": "cli-help",
+        "primaryMetric": "wallMs",
+        "comparisons": {
+          "warmMs": {
+            "verdict": "unavailable"
+          },
+          "firstMs": {
+            "verdict": "unavailable"
+          },
+          "wallMs": {
+            "baselineMedian": 167.37033300000093,
+            "candidateMedian": 138.33899999999844,
+            "baselineOverCandidate": 1.209560479519427,
+            "pairedBootstrap95": [
+              1.1931612606236,
+              1.2257228444111323
+            ],
+            "verdict": "improved"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 104267776,
+            "candidateMedian": 87048192,
+            "baselineOverCandidate": 1.1979296276598248,
+            "pairedBootstrap95": [
+              1.1975913768876905,
+              1.1982573041727695
+            ],
+            "verdict": "improved"
+          }
+        }
+      },
+      {
+        "name": "tasks-worker",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 312.748917,
+            "candidateMedian": 312.467291,
+            "baselineOverCandidate": 0.9989619190150302,
+            "pairedBootstrap95": [
+              0.995957724486316,
+              1.0017643877584865
+            ],
+            "verdict": "unchanged"
+          },
+          "firstMs": {
+            "baselineMedian": 356.911,
+            "candidateMedian": 355.827,
+            "baselineOverCandidate": 1.004666216236871,
+            "pairedBootstrap95": [
+              0.9966061315450749,
+              1.0123891851498596
+            ],
+            "verdict": "unchanged"
+          },
+          "wallMs": {
+            "baselineMedian": 2558.5615419999995,
+            "candidateMedian": 2560.079084000002,
+            "baselineOverCandidate": 1.0009370919653702,
+            "pairedBootstrap95": [
+              0.9987832963728072,
+              1.0030620100266596
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 26525696,
+            "candidateMedian": 23642112,
+            "baselineOverCandidate": 1.120322831112383,
+            "pairedBootstrap95": [
+              1.1167466187351505,
+              1.1235633131470106
+            ],
+            "verdict": "improved"
+          }
+        }
+      },
+      {
+        "name": "tasks-checkpoints",
+        "primaryMetric": "warmMs",
+        "comparisons": {
+          "warmMs": {
+            "baselineMedian": 5.997125,
+            "candidateMedian": 5.718876,
+            "baselineOverCandidate": 1.0524932814224546,
+            "pairedBootstrap95": [
+              1.0365376408857006,
+              1.0678010689886424
+            ],
+            "verdict": "inconclusive"
+          },
+          "firstMs": {
+            "baselineMedian": 8.394,
+            "candidateMedian": 8.017,
+            "baselineOverCandidate": 1.0496875502149783,
+            "pairedBootstrap95": [
+              1.0338349549955144,
+              1.0630370581816648
+            ],
+            "verdict": "inconclusive"
+          },
+          "wallMs": {
+            "baselineMedian": 67.51095799999973,
+            "candidateMedian": 63.743082999998535,
+            "baselineOverCandidate": 1.0495428205811104,
+            "pairedBootstrap95": [
+              1.0354427751422162,
+              1.0628083119532659
+            ],
+            "verdict": "inconclusive"
+          },
+          "peakRssBytes": {
+            "baselineMedian": 15040512,
+            "candidateMedian": 13795328,
+            "baselineOverCandidate": 1.089070808457948,
+            "pairedBootstrap95": [
+              1.086850666967841,
+              1.091094929073846
+            ],
+            "verdict": "improved"
+          }
+        }
+      }
+    ]
+  },
+  "correctness": {
+    "rustWithMetrics": {
+      "passed": 153,
+      "log": "runtime-metrics-tests.log"
+    },
+    "noJitMetrics": {
+      "passed": 5,
+      "log": "metrics-nojit-tests.log"
+    },
+    "allocatorExecutableTests": {
+      "passedPerCandidate": 2,
+      "candidates": [
+        "system",
+        "mimalloc",
+        "jemalloc"
+      ],
+      "coverage": "mode parsing, 256KiB alignment, zeroing and resize content preservation"
+    },
+    "independentRustHost": {
+      "passedConfigurations": 3,
+      "cyclesPerConfiguration": 8,
+      "coverage": "host-owned allocator, graph restore, queued channel checkpoint, worker snapshot/cancellation/drop, exact warmed requested-byte recovery"
+    },
+    "candidateTaskStress": {
+      "candidates": [
+        "mimalloc",
+        "jemalloc"
+      ],
+      "casesPerCandidate": 30,
+      "additional": [
+        "restored task scope and timer",
+        "channel use-after-close rejection",
+        "coroutine use-after-close rejection"
+      ]
+    },
+    "candidatePersistenceStress": {
+      "candidates": [
+        "mimalloc",
+        "jemalloc"
+      ],
+      "modes": [
+        "Rust interpreter",
+        "threaded interpreter",
+        "JIT"
+      ],
+      "oracle": "42; save/restore hooks, transients, in-place identity and failure recovery"
+    },
+    "diagnosticCoverage": {
+      "workerHeapReports": 9,
+      "uniqueWorkerHeapReports": 9,
+      "cliFlushBeforeProcessExit": true
+    },
+    "harnessProtocolTests": {
+      "passed": 11,
+      "includes": "cache restoration after command failure, directory and dangling-symlink preservation, absent cache, denied rename, overlap rejection, RSS units, semantic mismatch, paired protocol"
+    }
+  },
+  "profile": {
+    "startup": {
+      "phase": "startup",
+      "totalMainThreadSamples": 7623,
+      "reportedSelfSamples": 7303,
+      "mallocLibrarySelfSamples": 9,
+      "gcSymbolSelfSamples": 0,
+      "scope": "Collapsed leaf samples with counts below five omitted; self counts are lower bounds, not inclusive subtree shares. Generated JIT code remains unnamed. Background CPU load was present.",
+      "top": [
+        {
+          "symbol": "_platform_memset",
+          "image": "libsystem_platform.dylib",
+          "samples": 5228
+        },
+        {
+          "symbol": "_RNvMNtNtCsloIFY8Lw8a0_9regalloc23ion7processINtNtB4_15data_structures3EnvINtNtNtCs2OUQsZevUmy_17cranelift_codegen8machinst5vcode5VCodeNtNtNtNtNtNtB1g_3isa7aarch645lower4isle14generated_code5MInstEE29try_to_allocate_bundle_to_regB1g_",
+          "image": "nupp-vm-system",
+          "samples": 484
+        },
+        {
+          "symbol": "_RINvMsd_NtNtNtCs6KVRSXc8uZF_5alloc11collections5btree8navigateINtNtB8_4node7NodeRefNtNtB11_6marker5ImmutNtNtNtCsloIFY8Lw8a0_9regalloc23ion15data_structures12LiveRangeKeyNtB1G_14LiveRangeIndexNtB1l_14LeafOrInternalE30find_leaf_edges_spanning_rangeB1E_INtNtNtCslWxY2MhVcag_4core3ops5range9RangeFromB1E_EECs2OUQsZevUmy_17cranelift_codegen",
+          "image": "nupp-vm-system",
+          "samples": 372
+        },
+        {
+          "symbol": "_RNvMs3_NtCskzp6pOerD3h_9hashbrown3mapINtB5_7HashMapNtNtNtCsloIFY8Lw8a0_9regalloc23ion15data_structures15LiveBundleIndexuINtNtCslWxY2MhVcag_4core4hash18BuildHasherDefaultNtCs2YQRF7fBvGL_10rustc_hash8FxHasherEE6insertCs2OUQsZevUmy_17cranelift_codegen",
+          "image": "nupp-vm-system",
+          "samples": 117
+        },
+        {
+          "symbol": "_RNvMNtCsloIFY8Lw8a0_9regalloc23ionINtNtB2_15data_structures3EnvINtNtNtCs2OUQsZevUmy_17cranelift_codegen8machinst5vcode5VCodeNtNtNtNtNtNtB16_3isa7aarch645lower4isle14generated_code5MInstEE3runB16_",
+          "image": "nupp-vm-system",
+          "samples": 101
+        },
+        {
+          "symbol": "_RNvMNtCsloIFY8Lw8a0_9regalloc23ionINtNtB2_15data_structures3EnvINtNtNtCs2OUQsZevUmy_17cranelift_codegen8machinst5vcode5VCodeNtNtNtNtNtNtB16_3isa7aarch645lower4isle14generated_code5MInstEE4initB16_",
+          "image": "nupp-vm-system",
+          "samples": 85
+        },
+        {
+          "symbol": "_RNvMs9_NtNtCs6KVRSXc8uZF_5alloc11collections11binary_heapINtB5_10BinaryHeapNtNtNtCsloIFY8Lw8a0_9regalloc23ion15data_structures14PrioQueueEntryE3popCs2OUQsZevUmy_17cranelift_codegen",
+          "image": "nupp-vm-system",
+          "samples": 74
+        },
+        {
+          "symbol": "_RNvNtCs20GHlMkaldk_7nupp_vm6verify8liveness",
+          "image": "nupp-vm-system",
+          "samples": 71
+        },
+        {
+          "symbol": "<deduplicated_symbol>",
+          "image": "nupp-vm-system",
+          "samples": 70
+        },
+        {
+          "symbol": "_RNvXsa_NtNtCs2OUQsZevUmy_17cranelift_codegen2ir3dfgNtB5_9ValueDataINtNtCslWxY2MhVcag_4core7convert4FromNtB5_15ValueDataPackedE4from",
+          "image": "nupp-vm-system",
+          "samples": 63
+        },
+        {
+          "symbol": "_platform_memmove",
+          "image": "libsystem_platform.dylib",
+          "samples": 55
+        },
+        {
+          "symbol": "_RNvXs0_NtNtCsloIFY8Lw8a0_9regalloc23ion13reg_traversalNtB5_16RegTraversalIterNtNtNtNtCslWxY2MhVcag_4core4iter6traits8iterator8Iterator4next",
+          "image": "nupp-vm-system",
+          "samples": 48
+        },
+        {
+          "symbol": "_RNvMs8_NtCs2OUQsZevUmy_17cranelift_codegen8verifierNtB5_8Verifier3run",
+          "image": "nupp-vm-system",
+          "samples": 38
+        },
+        {
+          "symbol": "_RINvMs1_NtNtCs2OUQsZevUmy_17cranelift_codegen8machinst5lowerINtB6_5LowerNtNtNtNtNtNtBa_3isa7aarch645lower4isle14generated_code5MInstE5lowerNtB1g_14AArch64BackendEBa_",
+          "image": "nupp-vm-system",
+          "samples": 37
+        },
+        {
+          "symbol": "_RNvXs2_NtNtCs7mRY9FNn263_3std4hash6randomNtB5_13DefaultHasherNtNtCslWxY2MhVcag_4core4hash6Hasher5write",
+          "image": "nupp-vm-system",
+          "samples": 31
+        }
+      ],
+      "rawProfileSha256": "6c7cd384fb6ecf08ae3fffd3163655a7189bd957a8d81cc5ac5f6b7e0f3a36c8"
+    },
+    "warm": {
+      "phase": "warm",
+      "totalMainThreadSamples": 7696,
+      "reportedSelfSamples": 6183,
+      "mallocLibrarySelfSamples": 1113,
+      "gcSymbolSelfSamples": 262,
+      "scope": "Collapsed leaf samples with counts below five omitted; self counts are lower bounds, not inclusive subtree shares. Generated JIT code remains unnamed. Background CPU load was present.",
+      "top": [
+        {
+          "symbol": "_RNvMs3_NtCs20GHlMkaldk_7nupp_vm6interpNtB5_6Interp9get_index",
+          "image": "nupp-vm-system",
+          "samples": 940
+        },
+        {
+          "symbol": "_RNvNtCs20GHlMkaldk_7nupp_vm8builtins4call",
+          "image": "nupp-vm-system",
+          "samples": 643
+        },
+        {
+          "symbol": "_RNCNvNtCs20GHlMkaldk_7nupp_vm8compiled12j_frame_step0B5_",
+          "image": "nupp-vm-system",
+          "samples": 482
+        },
+        {
+          "symbol": "_xzm_free",
+          "image": "libsystem_malloc.dylib",
+          "samples": 414
+        },
+        {
+          "symbol": "_xzm_xzone_malloc_tiny",
+          "image": "libsystem_malloc.dylib",
+          "samples": 327
+        },
+        {
+          "symbol": "_RNvMs3_NtCs20GHlMkaldk_7nupp_vm6interpNtB5_6Interp11op_call_dyn",
+          "image": "nupp-vm-system",
+          "samples": 267
+        },
+        {
+          "symbol": "_RNvMs3_NtCs20GHlMkaldk_7nupp_vm6interpNtB5_6Interp8run_rust",
+          "image": "nupp-vm-system",
+          "samples": 181
+        },
+        {
+          "symbol": "_platform_memmove",
+          "image": "libsystem_platform.dylib",
+          "samples": 146
+        },
+        {
+          "symbol": "_RNvMs3_NtCs20GHlMkaldk_7nupp_vm6interpNtB5_6Interp10push_frame",
+          "image": "nupp-vm-system",
+          "samples": 131
+        },
+        {
+          "symbol": "???",
+          "image": "<unknown binary>",
+          "samples": 118
+        },
+        {
+          "symbol": "_tlv_get_addr",
+          "image": "libdyld.dylib",
+          "samples": 113
+        },
+        {
+          "symbol": "<deduplicated_symbol>",
+          "image": "libsystem_malloc.dylib",
+          "samples": 110
+        },
+        {
+          "symbol": "_RNCNvMs7_NtCs20GHlMkaldk_7nupp_vm4heapNtB7_4Heap4scan0B9_",
+          "image": "nupp-vm-system",
+          "samples": 95
+        },
+        {
+          "symbol": "_xzm_xzone_malloc",
+          "image": "libsystem_malloc.dylib",
+          "samples": 95
+        },
+        {
+          "symbol": "_RNvXs_NtNtCs6KVRSXc8uZF_5alloc3vec21spec_from_iter_nestedINtB6_3VecNtNtCs20GHlMkaldk_7nupp_vm5value5ValueEINtB4_18SpecFromIterNestedB13_INtNtNtNtCslWxY2MhVcag_4core4iter8adapters3map3MapINtNtNtB2j_3ops5range5RangejENCNvMs3_NtB17_6interpNtB3z_6Interp11op_call_dyns_0EE9from_iterB17_",
+          "image": "nupp-vm-system",
+          "samples": 88
+        }
+      ],
+      "rawProfileSha256": "ef4098cd1daaf46ed717c0e4db034d45447c5a85350c0e17f62cf3aa4507d836"
+    },
+    "scope": "Fresh checker image emitted from current sources; default CLI chooses heap-frame compilation because the image contains affine operations. Not directly comparable to the historical typed-tier image. Sampled profile timings are not unprofiled duration observations."
+  },
+  "heapDiagnostics": {
+    "checker-source": [
+      {
+        "event": "heap_drop",
+        "gc": {
+          "barrier_grays": 0,
+          "child_slots": 38082258,
+          "cycles": 12,
+          "root_object_candidates": 695048,
+          "root_passes": 24,
+          "root_slots": 13696036,
+          "scanned_objects": 785548,
+          "shape_root_slots": 759576,
+          "steps": 12,
+          "sweep_chunk_slots": 5662555,
+          "sweep_large_slots": 90,
+          "sweep_live_objects": 5344623
+        },
+        "heap_id": 1,
+        "managed": {
+          "allocated_objects": 5152391,
+          "allocation_slot_size_by_kind": {
+            "cell": {
+              "buckets": {
+                "32-63": 277942
+              },
+              "count": 277942,
+              "max": 48,
+              "sum": 13341216
+            },
+            "closure": {
+              "buckets": {
+                "128-255": 9173,
+                "256-511": 796,
+                "32-63": 76394,
+                "512-1023": 8,
+                "64-127": 68915
+              },
+              "count": 155286,
+              "max": 512,
+              "sum": 10332576
+            },
+            "iterator": {
+              "buckets": {
+                "64-127": 3046618
+              },
+              "count": 3046618,
+              "max": 80,
+              "sum": 243729440
+            },
+            "record": {
+              "buckets": {
+                "128-255": 192049,
+                "2048-4095": 112712,
+                "256-511": 1018,
+                "512-1023": 552,
+                "64-127": 79220
+              },
+              "count": 385551,
+              "max": 2048,
+              "sum": 264173760
+            },
+            "string": {
+              "buckets": {
+                "1024-2047": 1273,
+                "128-255": 13335,
+                "2048-4095": 200,
+                "256-511": 2972,
+                "32-63": 17170,
+                "32768-65535": 1,
+                "4096-8191": 96,
+                "512-1023": 815,
+                "64-127": 92015,
+                "65536-131071": 32,
+                "8192-16383": 24
+              },
+              "count": 127933,
+              "max": 123609,
+              "sum": 17828704
+            },
+            "table": {
+              "buckets": {
+                "64-127": 1159061
+              },
+              "count": 1159061,
+              "max": 96,
+              "sum": 111269856
+            }
+          },
+          "chunk_bytes_requested": 177995776,
+          "external_positive_capacity_delta_bytes": 75716688,
+          "freed_objects": 4559075,
+          "inline_requested_bytes": 643367955,
+          "inline_size_by_kind": {
+            "cell": {
+              "buckets": {
+                "32-63": 277942
+              },
+              "count": 277942,
+              "max": 40,
+              "sum": 11117680
+            },
+            "closure": {
+              "buckets": {
+                "128-255": 8369,
+                "256-511": 299,
+                "32-63": 98338,
+                "512-1023": 8,
+                "64-127": 48272
+              },
+              "count": 155286,
+              "max": 512,
+              "sum": 9717944
+            },
+            "iterator": {
+              "buckets": {
+                "64-127": 3046618
+              },
+              "count": 3046618,
+              "max": 80,
+              "sum": 243729440
+            },
+            "record": {
+              "buckets": {
+                "1024-2047": 112712,
+                "128-255": 187512,
+                "256-511": 1008,
+                "512-1023": 552,
+                "64-127": 83767
+              },
+              "count": 385551,
+              "max": 2032,
+              "sum": 251252824
+            },
+            "string": {
+              "buckets": {
+                "1024-2047": 1225,
+                "128-255": 6996,
+                "2048-4095": 264,
+                "256-511": 2649,
+                "32-63": 51548,
+                "32768-65535": 1,
+                "4096-8191": 48,
+                "512-1023": 441,
+                "64-127": 64729,
+                "65536-131071": 32
+              },
+              "count": 127933,
+              "max": 123609,
+              "sum": 16280211
+            },
+            "table": {
+              "buckets": {
+                "64-127": 1159061
+              },
+              "count": 1159061,
+              "max": 96,
+              "sum": 111269856
+            }
+          },
+          "large_requested_bytes": 3079728,
+          "live_accounted_bytes": 128391478,
+          "live_objects": 593316,
+          "slot_bytes_assigned_total": 660675552
+        },
+        "observation_registry_available": true,
+        "payloads": {
+          "at_allocation": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 277942
+                },
+                "count": 277942,
+                "max": 1,
+                "sum": 277942
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 277942
+                },
+                "count": 277942,
+                "max": 8,
+                "sum": 2223536
+              },
+              "length": {
+                "buckets": {
+                  "1": 277942
+                },
+                "count": 277942,
+                "max": 1,
+                "sum": 277942
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 9567,
+                  "1": 25894,
+                  "16-31": 3899,
+                  "2-3": 62877,
+                  "32-63": 306,
+                  "4-7": 41635,
+                  "8-15": 11108
+                },
+                "count": 155286,
+                "max": 60,
+                "sum": 593599
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 9567,
+                  "128-255": 3899,
+                  "16-31": 62877,
+                  "256-511": 306,
+                  "32-63": 41635,
+                  "64-127": 11108,
+                  "8-15": 25894
+                },
+                "count": 155286,
+                "max": 480,
+                "sum": 4748792
+              },
+              "length": {
+                "buckets": {
+                  "0": 9567,
+                  "1": 25894,
+                  "16-31": 3899,
+                  "2-3": 62877,
+                  "32-63": 306,
+                  "4-7": 41635,
+                  "8-15": 11108
+                },
+                "count": 155286,
+                "max": 60,
+                "sum": 593599
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 2949617,
+                  "128-255": 1,
+                  "16-31": 3884,
+                  "256-511": 8,
+                  "32-63": 11091,
+                  "4-7": 65876,
+                  "64-127": 4024,
+                  "8-15": 12117
+                },
+                "count": 3046618,
+                "max": 256,
+                "sum": 1037208
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 2949617,
+                  "1024-2047": 1,
+                  "128-255": 3884,
+                  "2048-4095": 8,
+                  "256-511": 11091,
+                  "32-63": 65876,
+                  "512-1023": 4024,
+                  "64-127": 12117
+                },
+                "count": 3046618,
+                "max": 2048,
+                "sum": 8297664
+              },
+              "length": {
+                "buckets": {
+                  "0": 2949617,
+                  "1": 31699,
+                  "128-255": 8,
+                  "16-31": 11395,
+                  "2-3": 28609,
+                  "32-63": 4024,
+                  "4-7": 15404,
+                  "64-127": 1,
+                  "8-15": 5861
+                },
+                "count": 3046618,
+                "max": 218,
+                "sum": 673274
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 385551
+                },
+                "count": 385551,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 12637,
+                  "128-255": 112712,
+                  "16-31": 3944,
+                  "2-3": 41476,
+                  "32-63": 1002,
+                  "4-7": 29654,
+                  "64-127": 552,
+                  "8-15": 183574
+                },
+                "count": 385551,
+                "max": 246,
+                "sum": 28322195
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 112712,
+                  "128-255": 3944,
+                  "16-31": 41476,
+                  "256-511": 1002,
+                  "32-63": 29654,
+                  "512-1023": 552,
+                  "64-127": 183574,
+                  "8-15": 12637
+                },
+                "count": 385551,
+                "max": 1968,
+                "sum": 226577560
+              },
+              "length": {
+                "buckets": {
+                  "1": 12637,
+                  "128-255": 112712,
+                  "16-31": 3944,
+                  "2-3": 41476,
+                  "32-63": 1002,
+                  "4-7": 29654,
+                  "64-127": 552,
+                  "8-15": 183574
+                },
+                "count": 385551,
+                "max": 246,
+                "sum": 28322195
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "0": 97,
+                  "1": 834,
+                  "1024-2047": 802,
+                  "128-255": 3110,
+                  "16-31": 26218,
+                  "2-3": 1711,
+                  "2048-4095": 264,
+                  "256-511": 1603,
+                  "32-63": 38070,
+                  "32768-65535": 1,
+                  "4-7": 11310,
+                  "4096-8191": 48,
+                  "512-1023": 816,
+                  "64-127": 20577,
+                  "65536-131071": 32,
+                  "8-15": 22440
+                },
+                "count": 127933,
+                "max": 123569,
+                "sum": 11162891
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 97,
+                  "1": 834,
+                  "1024-2047": 802,
+                  "128-255": 3110,
+                  "16-31": 26218,
+                  "2-3": 1711,
+                  "2048-4095": 264,
+                  "256-511": 1603,
+                  "32-63": 38070,
+                  "32768-65535": 1,
+                  "4-7": 11310,
+                  "4096-8191": 48,
+                  "512-1023": 816,
+                  "64-127": 20577,
+                  "65536-131071": 32,
+                  "8-15": 22440
+                },
+                "count": 127933,
+                "max": 123569,
+                "sum": 11162891
+              },
+              "length": {
+                "buckets": {
+                  "0": 97,
+                  "1": 834,
+                  "1024-2047": 802,
+                  "128-255": 3110,
+                  "16-31": 26218,
+                  "2-3": 1711,
+                  "2048-4095": 264,
+                  "256-511": 1603,
+                  "32-63": 38070,
+                  "32768-65535": 1,
+                  "4-7": 11310,
+                  "4096-8191": 48,
+                  "512-1023": 816,
+                  "64-127": 20577,
+                  "65536-131071": 32,
+                  "8-15": 22440
+                },
+                "count": 127933,
+                "max": 123569,
+                "sum": 11162891
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 1129410,
+                  "1": 15377,
+                  "16-31": 45,
+                  "2-3": 13971,
+                  "4-7": 245,
+                  "8-15": 13
+                },
+                "count": 1159061,
+                "max": 29,
+                "sum": 51017
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 1129410,
+                  "128-255": 45,
+                  "16-31": 13971,
+                  "32-63": 245,
+                  "64-127": 13,
+                  "8-15": 15377
+                },
+                "count": 1159061,
+                "max": 232,
+                "sum": 408136
+              },
+              "length": {
+                "buckets": {
+                  "0": 1159061
+                },
+                "count": 1159061,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 1146853,
+                  "128-255": 1,
+                  "16-31": 50,
+                  "256-511": 1,
+                  "32-63": 408,
+                  "512-1023": 8,
+                  "64-127": 10,
+                  "8-15": 11730
+                },
+                "count": 1159061,
+                "max": 512,
+                "sum": 112816
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 1146853,
+                  "1024-2047": 10,
+                  "128-255": 11730,
+                  "2048-4095": 1,
+                  "256-511": 50,
+                  "4096-8191": 1,
+                  "512-1023": 408,
+                  "8192-16383": 8
+                },
+                "count": 1159061,
+                "max": 8192,
+                "sum": 1805056
+              },
+              "length": {
+                "buckets": {
+                  "0": 1159061
+                },
+                "count": 1159061,
+                "max": 0,
+                "sum": 0
+              }
+            }
+          },
+          "at_gc_reclamation": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 249988
+                },
+                "count": 249988,
+                "max": 1,
+                "sum": 249988
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 249988
+                },
+                "count": 249988,
+                "max": 8,
+                "sum": 1999904
+              },
+              "length": {
+                "buckets": {
+                  "1": 249988
+                },
+                "count": 249988,
+                "max": 1,
+                "sum": 249988
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 8379,
+                  "1": 22862,
+                  "16-31": 3447,
+                  "2-3": 57089,
+                  "32-63": 266,
+                  "4-7": 37635,
+                  "8-15": 9810
+                },
+                "count": 139488,
+                "max": 60,
+                "sum": 532133
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 8379,
+                  "128-255": 3447,
+                  "16-31": 57089,
+                  "256-511": 266,
+                  "32-63": 37635,
+                  "64-127": 9810,
+                  "8-15": 22862
+                },
+                "count": 139488,
+                "max": 480,
+                "sum": 4257064
+              },
+              "length": {
+                "buckets": {
+                  "0": 8379,
+                  "1": 22862,
+                  "16-31": 3447,
+                  "2-3": 57089,
+                  "32-63": 266,
+                  "4-7": 37635,
+                  "8-15": 9810
+                },
+                "count": 139488,
+                "max": 60,
+                "sum": 532133
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 2680384,
+                  "128-255": 1,
+                  "16-31": 3400,
+                  "256-511": 7,
+                  "32-63": 9712,
+                  "4-7": 59444,
+                  "64-127": 4017,
+                  "8-15": 10870
+                },
+                "count": 2767835,
+                "max": 256,
+                "sum": 948928
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 2680384,
+                  "1024-2047": 1,
+                  "128-255": 3400,
+                  "2048-4095": 7,
+                  "256-511": 9712,
+                  "32-63": 59444,
+                  "512-1023": 4017,
+                  "64-127": 10870
+                },
+                "count": 2767835,
+                "max": 2048,
+                "sum": 7591424
+              },
+              "length": {
+                "buckets": {
+                  "0": 2680384,
+                  "1": 28498,
+                  "128-255": 7,
+                  "16-31": 9978,
+                  "2-3": 25871,
+                  "32-63": 4017,
+                  "4-7": 13925,
+                  "64-127": 1,
+                  "8-15": 5154
+                },
+                "count": 2767835,
+                "max": 218,
+                "sum": 612919
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 199449,
+                  "128-255": 14,
+                  "16-31": 1344,
+                  "32-63": 133,
+                  "4-7": 78050,
+                  "64-127": 28,
+                  "8-15": 4564
+                },
+                "count": 283582,
+                "max": 128,
+                "sum": 378056
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 199449,
+                  "1024-2047": 14,
+                  "128-255": 1344,
+                  "256-511": 133,
+                  "32-63": 78050,
+                  "512-1023": 28,
+                  "64-127": 4564
+                },
+                "count": 283582,
+                "max": 1024,
+                "sum": 3024448
+              },
+              "length": {
+                "buckets": {
+                  "0": 199449,
+                  "1": 37737,
+                  "16-31": 140,
+                  "2-3": 33005,
+                  "32-63": 28,
+                  "4-7": 11578,
+                  "64-127": 14,
+                  "8-15": 1631
+                },
+                "count": 283582,
+                "max": 117,
+                "sum": 201033
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 179569,
+                  "1": 104013
+                },
+                "count": 283582,
+                "max": 1,
+                "sum": 104013
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 179569,
+                  "32-63": 104013
+                },
+                "count": 283582,
+                "max": 40,
+                "sum": 4160520
+              },
+              "length": {
+                "buckets": {
+                  "0": 179569,
+                  "1": 104013
+                },
+                "count": 283582,
+                "max": 1,
+                "sum": 104013
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 212009,
+                  "16-31": 2576,
+                  "32-63": 182,
+                  "64-127": 14,
+                  "8-15": 68801
+                },
+                "count": 283582,
+                "max": 64,
+                "sum": 598344
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 212009,
+                  "1024-2047": 14,
+                  "128-255": 68801,
+                  "256-511": 2576,
+                  "512-1023": 182
+                },
+                "count": 283582,
+                "max": 1024,
+                "sum": 9573504
+              },
+              "length": {
+                "buckets": {
+                  "0": 212009,
+                  "1": 34559,
+                  "16-31": 91,
+                  "2-3": 32926,
+                  "32-63": 14,
+                  "4-7": 1386,
+                  "8-15": 2597
+                },
+                "count": 283582,
+                "max": 47,
+                "sum": 149127
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 10580,
+                  "128-255": 82187,
+                  "16-31": 3474,
+                  "2-3": 33587,
+                  "32-63": 7,
+                  "4-7": 23515,
+                  "8-15": 130232
+                },
+                "count": 283582,
+                "max": 246,
+                "sum": 20570142
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 82187,
+                  "128-255": 3474,
+                  "16-31": 33587,
+                  "256-511": 7,
+                  "32-63": 23515,
+                  "64-127": 130232,
+                  "8-15": 10580
+                },
+                "count": 283582,
+                "max": 1968,
+                "sum": 164561136
+              },
+              "length": {
+                "buckets": {
+                  "1": 10580,
+                  "128-255": 82187,
+                  "16-31": 3474,
+                  "2-3": 33587,
+                  "32-63": 7,
+                  "4-7": 23515,
+                  "8-15": 130232
+                },
+                "count": 283582,
+                "max": 246,
+                "sum": 20570142
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "0": 84,
+                  "1": 660,
+                  "1024-2047": 712,
+                  "128-255": 2731,
+                  "16-31": 19901,
+                  "2-3": 1116,
+                  "2048-4095": 252,
+                  "256-511": 1402,
+                  "32-63": 31038,
+                  "4-7": 6309,
+                  "4096-8191": 48,
+                  "512-1023": 731,
+                  "64-127": 17803,
+                  "65536-131071": 15,
+                  "8-15": 17045
+                },
+                "count": 99847,
+                "max": 123569,
+                "sum": 8349741
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 84,
+                  "1": 660,
+                  "1024-2047": 712,
+                  "128-255": 2731,
+                  "16-31": 19901,
+                  "2-3": 1116,
+                  "2048-4095": 252,
+                  "256-511": 1402,
+                  "32-63": 31038,
+                  "4-7": 6309,
+                  "4096-8191": 48,
+                  "512-1023": 731,
+                  "64-127": 17803,
+                  "65536-131071": 15,
+                  "8-15": 17045
+                },
+                "count": 99847,
+                "max": 123569,
+                "sum": 8349741
+              },
+              "length": {
+                "buckets": {
+                  "0": 84,
+                  "1": 660,
+                  "1024-2047": 712,
+                  "128-255": 2731,
+                  "16-31": 19901,
+                  "2-3": 1116,
+                  "2048-4095": 252,
+                  "256-511": 1402,
+                  "32-63": 31038,
+                  "4-7": 6309,
+                  "4096-8191": 48,
+                  "512-1023": 731,
+                  "64-127": 17803,
+                  "65536-131071": 15,
+                  "8-15": 17045
+                },
+                "count": 99847,
+                "max": 123569,
+                "sum": 8349741
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 773271,
+                  "1": 9975,
+                  "1024-2047": 40,
+                  "128-255": 37,
+                  "16-31": 1585,
+                  "2-3": 10266,
+                  "2048-4095": 63,
+                  "256-511": 217,
+                  "32-63": 384,
+                  "32768-65535": 7,
+                  "4-7": 216902,
+                  "512-1023": 211,
+                  "64-127": 209,
+                  "8-15": 5147,
+                  "8192-16383": 21
+                },
+                "count": 1018335,
+                "max": 32768,
+                "sum": 1735435
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 773271,
+                  "1024-2047": 37,
+                  "128-255": 1585,
+                  "16-31": 10266,
+                  "16384-32767": 63,
+                  "2048-4095": 217,
+                  "256-511": 384,
+                  "262144-524287": 7,
+                  "32-63": 216902,
+                  "4096-8191": 211,
+                  "512-1023": 209,
+                  "64-127": 5147,
+                  "65536-131071": 21,
+                  "8-15": 9975,
+                  "8192-16383": 40
+                },
+                "count": 1018335,
+                "max": 262144,
+                "sum": 13883480
+              },
+              "length": {
+                "buckets": {
+                  "0": 773987,
+                  "1": 133184,
+                  "1024-2047": 63,
+                  "128-255": 217,
+                  "16-31": 453,
+                  "16384-32767": 7,
+                  "2-3": 90026,
+                  "256-511": 211,
+                  "32-63": 226,
+                  "4-7": 17512,
+                  "4096-8191": 21,
+                  "512-1023": 40,
+                  "64-127": 37,
+                  "8-15": 2351
+                },
+                "count": 1018335,
+                "max": 18170,
+                "sum": 917641
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 927406,
+                  "128-255": 844,
+                  "16-31": 6457,
+                  "256-511": 21,
+                  "32-63": 1757,
+                  "512-1023": 35,
+                  "64-127": 4880,
+                  "8-15": 76935
+                },
+                "count": 1018335,
+                "max": 512,
+                "sum": 1218664
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 927406,
+                  "1024-2047": 4880,
+                  "128-255": 76935,
+                  "2048-4095": 844,
+                  "256-511": 6457,
+                  "4096-8191": 21,
+                  "512-1023": 1757,
+                  "8192-16383": 35
+                },
+                "count": 1018335,
+                "max": 8192,
+                "sum": 19498624
+              },
+              "length": {
+                "buckets": {
+                  "0": 927738,
+                  "1": 40204,
+                  "128-255": 35,
+                  "16-31": 4847,
+                  "2-3": 26800,
+                  "256-511": 7,
+                  "32-63": 1821,
+                  "4-7": 11425,
+                  "64-127": 42,
+                  "8-15": 5416
+                },
+                "count": 1018335,
+                "max": 366,
+                "sum": 447504
+              }
+            }
+          },
+          "live_at_emit": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 27954
+                },
+                "count": 27954,
+                "max": 1,
+                "sum": 27954
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 27954
+                },
+                "count": 27954,
+                "max": 8,
+                "sum": 223632
+              },
+              "length": {
+                "buckets": {
+                  "1": 27954
+                },
+                "count": 27954,
+                "max": 1,
+                "sum": 27954
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 1188,
+                  "1": 3032,
+                  "16-31": 452,
+                  "2-3": 5788,
+                  "32-63": 40,
+                  "4-7": 4000,
+                  "8-15": 1298
+                },
+                "count": 15798,
+                "max": 60,
+                "sum": 61466
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 1188,
+                  "128-255": 452,
+                  "16-31": 5788,
+                  "256-511": 40,
+                  "32-63": 4000,
+                  "64-127": 1298,
+                  "8-15": 3032
+                },
+                "count": 15798,
+                "max": 480,
+                "sum": 491728
+              },
+              "length": {
+                "buckets": {
+                  "0": 1188,
+                  "1": 3032,
+                  "16-31": 452,
+                  "2-3": 5788,
+                  "32-63": 40,
+                  "4-7": 4000,
+                  "8-15": 1298
+                },
+                "count": 15798,
+                "max": 60,
+                "sum": 61466
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 269233,
+                  "16-31": 484,
+                  "256-511": 1,
+                  "32-63": 1379,
+                  "4-7": 6432,
+                  "64-127": 7,
+                  "8-15": 1247
+                },
+                "count": 278783,
+                "max": 256,
+                "sum": 88280
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 269233,
+                  "128-255": 484,
+                  "2048-4095": 1,
+                  "256-511": 1379,
+                  "32-63": 6432,
+                  "512-1023": 7,
+                  "64-127": 1247
+                },
+                "count": 278783,
+                "max": 2048,
+                "sum": 706240
+              },
+              "length": {
+                "buckets": {
+                  "0": 269233,
+                  "1": 3201,
+                  "128-255": 1,
+                  "16-31": 1417,
+                  "2-3": 2738,
+                  "32-63": 7,
+                  "4-7": 1479,
+                  "8-15": 707
+                },
+                "count": 278783,
+                "max": 218,
+                "sum": 60355
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 71166,
+                  "128-255": 2,
+                  "16-31": 1104,
+                  "32-63": 243,
+                  "4-7": 27614,
+                  "64-127": 28,
+                  "8-15": 1812
+                },
+                "count": 101969,
+                "max": 128,
+                "sum": 152440
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 71166,
+                  "1024-2047": 2,
+                  "128-255": 1104,
+                  "256-511": 243,
+                  "32-63": 27614,
+                  "512-1023": 28,
+                  "64-127": 1812
+                },
+                "count": 101969,
+                "max": 1024,
+                "sum": 1219520
+              },
+              "length": {
+                "buckets": {
+                  "0": 71166,
+                  "1": 13103,
+                  "16-31": 276,
+                  "2-3": 13187,
+                  "32-63": 36,
+                  "4-7": 2950,
+                  "64-127": 2,
+                  "8-15": 1249
+                },
+                "count": 101969,
+                "max": 117,
+                "sum": 83687
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 43581,
+                  "1": 58388
+                },
+                "count": 101969,
+                "max": 1,
+                "sum": 58388
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 43581,
+                  "32-63": 58388
+                },
+                "count": 101969,
+                "max": 40,
+                "sum": 2335520
+              },
+              "length": {
+                "buckets": {
+                  "0": 43581,
+                  "1": 58388
+                },
+                "count": 101969,
+                "max": 1,
+                "sum": 58388
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 66558,
+                  "16-31": 616,
+                  "32-63": 26,
+                  "64-127": 2,
+                  "8-15": 34767
+                },
+                "count": 101969,
+                "max": 64,
+                "sum": 288952
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 66558,
+                  "1024-2047": 2,
+                  "128-255": 34767,
+                  "256-511": 616,
+                  "512-1023": 26
+                },
+                "count": 101969,
+                "max": 1024,
+                "sum": 4623232
+              },
+              "length": {
+                "buckets": {
+                  "0": 66558,
+                  "1": 15729,
+                  "16-31": 13,
+                  "2-3": 18650,
+                  "32-63": 2,
+                  "4-7": 398,
+                  "8-15": 619
+                },
+                "count": 101969,
+                "max": 47,
+                "sum": 69697
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 2057,
+                  "128-255": 30525,
+                  "16-31": 470,
+                  "2-3": 7889,
+                  "32-63": 995,
+                  "4-7": 6139,
+                  "64-127": 552,
+                  "8-15": 53342
+                },
+                "count": 101969,
+                "max": 246,
+                "sum": 7752053
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 30525,
+                  "128-255": 470,
+                  "16-31": 7889,
+                  "256-511": 995,
+                  "32-63": 6139,
+                  "512-1023": 552,
+                  "64-127": 53342,
+                  "8-15": 2057
+                },
+                "count": 101969,
+                "max": 1968,
+                "sum": 62016424
+              },
+              "length": {
+                "buckets": {
+                  "1": 2057,
+                  "128-255": 30525,
+                  "16-31": 470,
+                  "2-3": 7889,
+                  "32-63": 995,
+                  "4-7": 6139,
+                  "64-127": 552,
+                  "8-15": 53342
+                },
+                "count": 101969,
+                "max": 246,
+                "sum": 7752053
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "0": 13,
+                  "1": 174,
+                  "1024-2047": 90,
+                  "128-255": 379,
+                  "16-31": 6317,
+                  "2-3": 595,
+                  "2048-4095": 12,
+                  "256-511": 201,
+                  "32-63": 7032,
+                  "32768-65535": 1,
+                  "4-7": 5001,
+                  "512-1023": 85,
+                  "64-127": 2774,
+                  "65536-131071": 17,
+                  "8-15": 5395
+                },
+                "count": 28086,
+                "max": 123569,
+                "sum": 2813150
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 13,
+                  "1": 174,
+                  "1024-2047": 90,
+                  "128-255": 379,
+                  "16-31": 6317,
+                  "2-3": 595,
+                  "2048-4095": 12,
+                  "256-511": 201,
+                  "32-63": 7032,
+                  "32768-65535": 1,
+                  "4-7": 5001,
+                  "512-1023": 85,
+                  "64-127": 2774,
+                  "65536-131071": 17,
+                  "8-15": 5395
+                },
+                "count": 28086,
+                "max": 123569,
+                "sum": 2813150
+              },
+              "length": {
+                "buckets": {
+                  "0": 13,
+                  "1": 174,
+                  "1024-2047": 90,
+                  "128-255": 379,
+                  "16-31": 6317,
+                  "2-3": 595,
+                  "2048-4095": 12,
+                  "256-511": 201,
+                  "32-63": 7032,
+                  "32768-65535": 1,
+                  "4-7": 5001,
+                  "512-1023": 85,
+                  "64-127": 2774,
+                  "65536-131071": 17,
+                  "8-15": 5395
+                },
+                "count": 28086,
+                "max": 123569,
+                "sum": 2813150
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 101802,
+                  "1": 1386,
+                  "128-255": 4,
+                  "16-31": 397,
+                  "2-3": 1177,
+                  "2048-4095": 9,
+                  "256-511": 15,
+                  "32-63": 137,
+                  "32768-65535": 17,
+                  "4-7": 34824,
+                  "512-1023": 21,
+                  "64-127": 31,
+                  "8-15": 903,
+                  "8192-16383": 3
+                },
+                "count": 140726,
+                "max": 32768,
+                "sum": 778866
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 101802,
+                  "1024-2047": 4,
+                  "128-255": 397,
+                  "16-31": 1177,
+                  "16384-32767": 9,
+                  "2048-4095": 15,
+                  "256-511": 137,
+                  "262144-524287": 17,
+                  "32-63": 34824,
+                  "4096-8191": 21,
+                  "512-1023": 31,
+                  "64-127": 903,
+                  "65536-131071": 3,
+                  "8-15": 1386
+                },
+                "count": 140726,
+                "max": 262144,
+                "sum": 6230928
+              },
+              "length": {
+                "buckets": {
+                  "0": 101894,
+                  "1": 21703,
+                  "1024-2047": 9,
+                  "128-255": 15,
+                  "16-31": 182,
+                  "16384-32767": 17,
+                  "2-3": 13252,
+                  "256-511": 21,
+                  "32-63": 33,
+                  "4-7": 3066,
+                  "4096-8191": 3,
+                  "64-127": 4,
+                  "8-15": 527
+                },
+                "count": 140726,
+                "max": 32570,
+                "sum": 556795
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 127913,
+                  "128-255": 112,
+                  "16-31": 998,
+                  "2048-4095": 1,
+                  "256-511": 9,
+                  "32-63": 518,
+                  "4096-8191": 1,
+                  "512-1023": 6,
+                  "64-127": 564,
+                  "8-15": 10604
+                },
+                "count": 140726,
+                "max": 4096,
+                "sum": 179328
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 127913,
+                  "1024-2047": 564,
+                  "128-255": 10604,
+                  "2048-4095": 112,
+                  "256-511": 998,
+                  "32768-65535": 1,
+                  "4096-8191": 9,
+                  "512-1023": 518,
+                  "65536-131071": 1,
+                  "8192-16383": 6
+                },
+                "count": 140726,
+                "max": 65536,
+                "sum": 2869248
+              },
+              "length": {
+                "buckets": {
+                  "0": 127957,
+                  "1": 5322,
+                  "128-255": 10,
+                  "16-31": 809,
+                  "2-3": 3772,
+                  "2048-4095": 1,
+                  "256-511": 2,
+                  "32-63": 162,
+                  "4-7": 1750,
+                  "512-1023": 1,
+                  "64-127": 8,
+                  "8-15": 932
+                },
+                "count": 140726,
+                "max": 2197,
+                "sum": 67757
+              }
+            }
+          },
+          "observed_capacity_changed": {
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 16,
+                  "16-31": 2896,
+                  "32-63": 448,
+                  "4-7": 114936,
+                  "64-127": 72,
+                  "8-15": 9272
+                },
+                "count": 127640,
+                "max": 128,
+                "sum": 601248
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 16,
+                  "128-255": 2896,
+                  "256-511": 448,
+                  "32-63": 114936,
+                  "512-1023": 72,
+                  "64-127": 9272
+                },
+                "count": 127640,
+                "max": 1024,
+                "sum": 4809984
+              },
+              "length": {
+                "buckets": {
+                  "1": 114936,
+                  "16-31": 448,
+                  "32-63": 72,
+                  "4-7": 9272,
+                  "64-127": 16,
+                  "8-15": 2896
+                },
+                "count": 127640,
+                "max": 65,
+                "sum": 198392
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "1": 162401
+                },
+                "count": 162401,
+                "max": 1,
+                "sum": 162401
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "32-63": 162401
+                },
+                "count": 162401,
+                "max": 40,
+                "sum": 6496040
+              },
+              "length": {
+                "buckets": {
+                  "1": 162401
+                },
+                "count": 162401,
+                "max": 1,
+                "sum": 162401
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "16-31": 3416,
+                  "32-63": 224,
+                  "64-127": 16,
+                  "8-15": 106984
+                },
+                "count": 110640,
+                "max": 64,
+                "sum": 918720
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 16,
+                  "128-255": 106984,
+                  "256-511": 3416,
+                  "512-1023": 224
+                },
+                "count": 110640,
+                "max": 1024,
+                "sum": 14699520
+              },
+              "length": {
+                "buckets": {
+                  "1": 106984,
+                  "16-31": 16,
+                  "4-7": 3416,
+                  "8-15": 224
+                },
+                "count": 110640,
+                "max": 25,
+                "sum": 134208
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "1024-2047": 160,
+                  "128-255": 665,
+                  "16-31": 3363,
+                  "16384-32767": 24,
+                  "2048-4095": 120,
+                  "256-511": 624,
+                  "32-63": 1426,
+                  "32768-65535": 24,
+                  "4-7": 260881,
+                  "4096-8191": 48,
+                  "512-1023": 392,
+                  "64-127": 905,
+                  "8-15": 9400,
+                  "8192-16383": 48
+                },
+                "count": 278080,
+                "max": 32768,
+                "sum": 3901188
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 665,
+                  "128-255": 3363,
+                  "131072-262143": 24,
+                  "16384-32767": 120,
+                  "2048-4095": 624,
+                  "256-511": 1426,
+                  "262144-524287": 24,
+                  "32-63": 260881,
+                  "32768-65535": 48,
+                  "4096-8191": 392,
+                  "512-1023": 905,
+                  "64-127": 9400,
+                  "65536-131071": 48,
+                  "8192-16383": 160
+                },
+                "count": 278080,
+                "max": 262144,
+                "sum": 31209504
+              },
+              "length": {
+                "buckets": {
+                  "1": 254177,
+                  "1024-2047": 120,
+                  "128-255": 624,
+                  "16-31": 1426,
+                  "16384-32767": 24,
+                  "2-3": 6440,
+                  "2048-4095": 48,
+                  "256-511": 392,
+                  "32-63": 905,
+                  "4-7": 9664,
+                  "4096-8191": 48,
+                  "512-1023": 160,
+                  "64-127": 665,
+                  "8-15": 3363,
+                  "8192-16383": 24
+                },
+                "count": 278080,
+                "max": 16385,
+                "sum": 1716240
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "1024-2047": 2,
+                  "128-255": 1019,
+                  "16-31": 15725,
+                  "2048-4095": 2,
+                  "256-511": 64,
+                  "32-63": 8320,
+                  "4096-8191": 1,
+                  "512-1023": 35,
+                  "64-127": 6453,
+                  "8-15": 91534
+                },
+                "count": 123155,
+                "max": 4096,
+                "sum": 1838080
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 6453,
+                  "128-255": 91534,
+                  "16384-32767": 2,
+                  "2048-4095": 1019,
+                  "256-511": 15725,
+                  "32768-65535": 2,
+                  "4096-8191": 64,
+                  "512-1023": 8320,
+                  "65536-131071": 1,
+                  "8192-16383": 35
+                },
+                "count": 123155,
+                "max": 65536,
+                "sum": 29409280
+              },
+              "length": {
+                "buckets": {
+                  "1": 91534,
+                  "1024-2047": 1,
+                  "128-255": 35,
+                  "16-31": 6453,
+                  "256-511": 2,
+                  "32-63": 1019,
+                  "4-7": 15725,
+                  "512-1023": 2,
+                  "64-127": 64,
+                  "8-15": 8320
+                },
+                "count": 123155,
+                "max": 1537,
+                "sum": 537833
+              }
+            }
+          },
+          "observed_changed": {
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 656,
+                  "16-31": 8840,
+                  "32-63": 3632,
+                  "4-7": 246680,
+                  "64-127": 1416,
+                  "8-15": 23496
+                },
+                "count": 284720,
+                "max": 128,
+                "sum": 1606944
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 656,
+                  "128-255": 8840,
+                  "256-511": 3632,
+                  "32-63": 246680,
+                  "512-1023": 1416,
+                  "64-127": 23496
+                },
+                "count": 284720,
+                "max": 1024,
+                "sum": 12855552
+              },
+              "length": {
+                "buckets": {
+                  "1": 114936,
+                  "16-31": 4048,
+                  "2-3": 113840,
+                  "32-63": 1480,
+                  "4-7": 38024,
+                  "64-127": 672,
+                  "8-15": 11720
+                },
+                "count": 284720,
+                "max": 117,
+                "sum": 908728
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "1": 162401
+                },
+                "count": 162401,
+                "max": 1,
+                "sum": 162401
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "32-63": 162401
+                },
+                "count": 162401,
+                "max": 40,
+                "sum": 6496040
+              },
+              "length": {
+                "buckets": {
+                  "1": 162401
+                },
+                "count": 162401,
+                "max": 1,
+                "sum": 162401
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "16-31": 11904,
+                  "32-63": 1208,
+                  "64-127": 280,
+                  "8-15": 205432
+                },
+                "count": 218824,
+                "max": 64,
+                "sum": 1890496
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 280,
+                  "128-255": 205432,
+                  "256-511": 11904,
+                  "512-1023": 1208
+                },
+                "count": 218824,
+                "max": 1024,
+                "sum": 30247936
+              },
+              "length": {
+                "buckets": {
+                  "1": 106984,
+                  "16-31": 760,
+                  "2-3": 85056,
+                  "32-63": 168,
+                  "4-7": 16808,
+                  "8-15": 9048
+                },
+                "count": 218824,
+                "max": 47,
+                "sum": 500880
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "1": 15377,
+                  "1024-2047": 64864,
+                  "128-255": 40926,
+                  "16-31": 22982,
+                  "16384-32767": 196608,
+                  "2-3": 33313,
+                  "2048-4095": 67704,
+                  "256-511": 62272,
+                  "32-63": 17460,
+                  "32768-65535": 177024,
+                  "4-7": 447415,
+                  "4096-8191": 98304,
+                  "512-1023": 74536,
+                  "64-127": 25240,
+                  "8-15": 35619,
+                  "8192-16383": 124288
+                },
+                "count": 1503932,
+                "max": 32768,
+                "sum": 10711909525
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 40926,
+                  "128-255": 22982,
+                  "131072-262143": 196608,
+                  "16-31": 33313,
+                  "16384-32767": 67704,
+                  "2048-4095": 62272,
+                  "256-511": 17460,
+                  "262144-524287": 177024,
+                  "32-63": 447415,
+                  "32768-65535": 98304,
+                  "4096-8191": 74536,
+                  "512-1023": 25240,
+                  "64-127": 35619,
+                  "65536-131071": 124288,
+                  "8-15": 15377,
+                  "8192-16383": 64864
+                },
+                "count": 1503932,
+                "max": 262144,
+                "sum": 85695276200
+              },
+              "length": {
+                "buckets": {
+                  "0": 4880,
+                  "1": 290812,
+                  "1024-2047": 67776,
+                  "128-255": 62504,
+                  "16-31": 18243,
+                  "16384-32767": 177048,
+                  "2-3": 180099,
+                  "2048-4095": 98304,
+                  "256-511": 74768,
+                  "32-63": 25499,
+                  "4-7": 55324,
+                  "4096-8191": 124312,
+                  "512-1023": 64904,
+                  "64-127": 40967,
+                  "8-15": 21884,
+                  "8192-16383": 196608
+                },
+                "count": 1503932,
+                "max": 32570,
+                "sum": 7667975632
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "1024-2047": 768,
+                  "128-255": 9133,
+                  "16-31": 69363,
+                  "2048-4095": 950,
+                  "256-511": 4688,
+                  "32-63": 91908,
+                  "4096-8191": 661,
+                  "512-1023": 4560,
+                  "64-127": 62786,
+                  "8-15": 277428
+                },
+                "count": 522245,
+                "max": 4096,
+                "sum": 20431952
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 62786,
+                  "128-255": 277428,
+                  "16384-32767": 768,
+                  "2048-4095": 9133,
+                  "256-511": 69363,
+                  "32768-65535": 950,
+                  "4096-8191": 4688,
+                  "512-1023": 91908,
+                  "65536-131071": 661,
+                  "8192-16383": 4560
+                },
+                "count": 522245,
+                "max": 65536,
+                "sum": 326911232
+              },
+              "length": {
+                "buckets": {
+                  "1": 103465,
+                  "1024-2047": 1024,
+                  "128-255": 5181,
+                  "16-31": 97817,
+                  "2-3": 97629,
+                  "2048-4095": 150,
+                  "256-511": 1409,
+                  "32-63": 33636,
+                  "4-7": 95405,
+                  "512-1023": 951,
+                  "64-127": 5086,
+                  "8-15": 80492
+                },
+                "count": 522245,
+                "max": 2197,
+                "sum": 9825143
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "scope": "managed_heap_observations_not_global_allocator_traffic"
+      }
+    ],
+    "parser-source": [
+      {
+        "event": "heap_drop",
+        "gc": {
+          "barrier_grays": 0,
+          "child_slots": 18829315,
+          "cycles": 10,
+          "root_object_candidates": 34814,
+          "root_passes": 20,
+          "root_slots": 8419732,
+          "scanned_objects": 308847,
+          "shape_root_slots": 554020,
+          "steps": 10,
+          "sweep_chunk_slots": 1390643,
+          "sweep_large_slots": 10,
+          "sweep_live_objects": 758863
+        },
+        "heap_id": 1,
+        "managed": {
+          "allocated_objects": 590633,
+          "allocation_slot_size_by_kind": {
+            "cell": {
+              "buckets": {
+                "32-63": 27296
+              },
+              "count": 27296,
+              "max": 48,
+              "sum": 1310208
+            },
+            "closure": {
+              "buckets": {
+                "128-255": 226,
+                "256-511": 8,
+                "32-63": 5220,
+                "64-127": 12468
+              },
+              "count": 17922,
+              "max": 320,
+              "sum": 1222096
+            },
+            "iterator": {
+              "buckets": {
+                "64-127": 168664
+              },
+              "count": 168664,
+              "max": 80,
+              "sum": 13493120
+            },
+            "record": {
+              "buckets": {
+                "128-255": 178809,
+                "2048-4095": 143224,
+                "64-127": 19
+              },
+              "count": 322052,
+              "max": 2048,
+              "sum": 316212304
+            },
+            "string": {
+              "buckets": {
+                "128-255": 69,
+                "131072-262143": 1,
+                "32-63": 962,
+                "64-127": 1666
+              },
+              "count": 2698,
+              "max": 155864,
+              "sum": 331112
+            },
+            "table": {
+              "buckets": {
+                "64-127": 52001
+              },
+              "count": 52001,
+              "max": 96,
+              "sum": 4992096
+            }
+          },
+          "chunk_bytes_requested": 115605504,
+          "external_positive_capacity_delta_bytes": 13028624,
+          "freed_objects": 450016,
+          "inline_requested_bytes": 320862621,
+          "inline_size_by_kind": {
+            "cell": {
+              "buckets": {
+                "32-63": 27296
+              },
+              "count": 27296,
+              "max": 40,
+              "sum": 1091840
+            },
+            "closure": {
+              "buckets": {
+                "128-255": 114,
+                "256-511": 8,
+                "32-63": 8694,
+                "64-127": 9106
+              },
+              "count": 17922,
+              "max": 296,
+              "sum": 1165976
+            },
+            "iterator": {
+              "buckets": {
+                "64-127": 168664
+              },
+              "count": 168664,
+              "max": 80,
+              "sum": 13493120
+            },
+            "record": {
+              "buckets": {
+                "1024-2047": 143224,
+                "128-255": 178809,
+                "64-127": 19
+              },
+              "count": 322052,
+              "max": 2032,
+              "sum": 299808448
+            },
+            "string": {
+              "buckets": {
+                "128-255": 9,
+                "131072-262143": 1,
+                "32-63": 2120,
+                "64-127": 568
+              },
+              "count": 2698,
+              "max": 155864,
+              "sum": 311141
+            },
+            "table": {
+              "buckets": {
+                "64-127": 52001
+              },
+              "count": 52001,
+              "max": 96,
+              "sum": 4992096
+            }
+          },
+          "large_requested_bytes": 155864,
+          "live_accounted_bytes": 83132821,
+          "live_objects": 140617,
+          "slot_bytes_assigned_total": 337560936
+        },
+        "observation_registry_available": true,
+        "payloads": {
+          "at_allocation": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 27296
+                },
+                "count": 27296,
+                "max": 1,
+                "sum": 27296
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 27296
+                },
+                "count": 27296,
+                "max": 8,
+                "sum": 218368
+              },
+              "length": {
+                "buckets": {
+                  "1": 27296
+                },
+                "count": 27296,
+                "max": 1,
+                "sum": 27296
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 36,
+                  "1": 188,
+                  "16-31": 49,
+                  "2-3": 8470,
+                  "32-63": 8,
+                  "4-7": 8882,
+                  "8-15": 289
+                },
+                "count": 17922,
+                "max": 33,
+                "sum": 74059
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 36,
+                  "128-255": 49,
+                  "16-31": 8470,
+                  "256-511": 8,
+                  "32-63": 8882,
+                  "64-127": 289,
+                  "8-15": 188
+                },
+                "count": 17922,
+                "max": 264,
+                "sum": 592472
+              },
+              "length": {
+                "buckets": {
+                  "0": 36,
+                  "1": 188,
+                  "16-31": 49,
+                  "2-3": 8470,
+                  "32-63": 8,
+                  "4-7": 8882,
+                  "8-15": 289
+                },
+                "count": 17922,
+                "max": 33,
+                "sum": 74059
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 168660,
+                  "32-63": 2,
+                  "4-7": 1,
+                  "8-15": 1
+                },
+                "count": 168664,
+                "max": 32,
+                "sum": 76
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 168660,
+                  "256-511": 2,
+                  "32-63": 1,
+                  "64-127": 1
+                },
+                "count": 168664,
+                "max": 256,
+                "sum": 608
+              },
+              "length": {
+                "buckets": {
+                  "0": 168660,
+                  "1": 1,
+                  "16-31": 2,
+                  "4-7": 1
+                },
+                "count": 168664,
+                "max": 26,
+                "sum": 56
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 322052
+                },
+                "count": 322052,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 143224,
+                  "4-7": 19,
+                  "8-15": 178809
+                },
+                "count": 322052,
+                "max": 246,
+                "sum": 34899640
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 143224,
+                  "32-63": 19,
+                  "64-127": 178809
+                },
+                "count": 322052,
+                "max": 1968,
+                "sum": 279197120
+              },
+              "length": {
+                "buckets": {
+                  "128-255": 143224,
+                  "4-7": 19,
+                  "8-15": 178809
+                },
+                "count": 322052,
+                "max": 246,
+                "sum": 34899640
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "0": 1,
+                  "1": 83,
+                  "131072-262143": 1,
+                  "16-31": 496,
+                  "2-3": 159,
+                  "32-63": 326,
+                  "4-7": 559,
+                  "64-127": 99,
+                  "8-15": 974
+                },
+                "count": 2698,
+                "max": 155824,
+                "sum": 203221
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 1,
+                  "1": 83,
+                  "131072-262143": 1,
+                  "16-31": 496,
+                  "2-3": 159,
+                  "32-63": 326,
+                  "4-7": 559,
+                  "64-127": 99,
+                  "8-15": 974
+                },
+                "count": 2698,
+                "max": 155824,
+                "sum": 203221
+              },
+              "length": {
+                "buckets": {
+                  "0": 1,
+                  "1": 83,
+                  "131072-262143": 1,
+                  "16-31": 496,
+                  "2-3": 159,
+                  "32-63": 326,
+                  "4-7": 559,
+                  "64-127": 99,
+                  "8-15": 974
+                },
+                "count": 2698,
+                "max": 155824,
+                "sum": 203221
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 51977,
+                  "2-3": 23,
+                  "4-7": 1
+                },
+                "count": 52001,
+                "max": 4,
+                "sum": 50
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 51977,
+                  "16-31": 23,
+                  "32-63": 1
+                },
+                "count": 52001,
+                "max": 32,
+                "sum": 400
+              },
+              "length": {
+                "buckets": {
+                  "0": 52001
+                },
+                "count": 52001,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 51952,
+                  "16-31": 1,
+                  "32-63": 18,
+                  "8-15": 30
+                },
+                "count": 52001,
+                "max": 32,
+                "sum": 832
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 51952,
+                  "128-255": 30,
+                  "256-511": 1,
+                  "512-1023": 18
+                },
+                "count": 52001,
+                "max": 512,
+                "sum": 13312
+              },
+              "length": {
+                "buckets": {
+                  "0": 52001
+                },
+                "count": 52001,
+                "max": 0,
+                "sum": 0
+              }
+            }
+          },
+          "at_gc_reclamation": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 23328
+                },
+                "count": 23328,
+                "max": 1,
+                "sum": 23328
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 23328
+                },
+                "count": 23328,
+                "max": 8,
+                "sum": 186624
+              },
+              "length": {
+                "buckets": {
+                  "1": 23328
+                },
+                "count": 23328,
+                "max": 1,
+                "sum": 23328
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 18,
+                  "1": 139,
+                  "16-31": 37,
+                  "2-3": 7380,
+                  "32-63": 6,
+                  "4-7": 7639,
+                  "8-15": 230
+                },
+                "count": 15449,
+                "max": 33,
+                "sum": 63464
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 18,
+                  "128-255": 37,
+                  "16-31": 7380,
+                  "256-511": 6,
+                  "32-63": 7639,
+                  "64-127": 230,
+                  "8-15": 139
+                },
+                "count": 15449,
+                "max": 264,
+                "sum": 507712
+              },
+              "length": {
+                "buckets": {
+                  "0": 18,
+                  "1": 139,
+                  "16-31": 37,
+                  "2-3": 7380,
+                  "32-63": 6,
+                  "4-7": 7639,
+                  "8-15": 230
+                },
+                "count": 15449,
+                "max": 33,
+                "sum": 63464
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 129647,
+                  "32-63": 2,
+                  "4-7": 1,
+                  "8-15": 1
+                },
+                "count": 129651,
+                "max": 32,
+                "sum": 76
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 129647,
+                  "256-511": 2,
+                  "32-63": 1,
+                  "64-127": 1
+                },
+                "count": 129651,
+                "max": 256,
+                "sum": 608
+              },
+              "length": {
+                "buckets": {
+                  "0": 129647,
+                  "1": 1,
+                  "16-31": 2,
+                  "4-7": 1
+                },
+                "count": 129651,
+                "max": 26,
+                "sum": 56
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 134118,
+                  "128-255": 6,
+                  "16-31": 582,
+                  "32-63": 54,
+                  "4-7": 99492,
+                  "64-127": 12,
+                  "8-15": 7272
+                },
+                "count": 241536,
+                "max": 128,
+                "sum": 468720
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 134118,
+                  "1024-2047": 6,
+                  "128-255": 582,
+                  "256-511": 54,
+                  "32-63": 99492,
+                  "512-1023": 12,
+                  "64-127": 7272
+                },
+                "count": 241536,
+                "max": 1024,
+                "sum": 3749760
+              },
+              "length": {
+                "buckets": {
+                  "0": 134118,
+                  "1": 44700,
+                  "16-31": 60,
+                  "2-3": 47532,
+                  "32-63": 12,
+                  "4-7": 14382,
+                  "64-127": 6,
+                  "8-15": 726
+                },
+                "count": 241536,
+                "max": 98,
+                "sum": 241530
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 239376,
+                  "1": 2160
+                },
+                "count": 241536,
+                "max": 1,
+                "sum": 2160
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 239376,
+                  "32-63": 2160
+                },
+                "count": 241536,
+                "max": 40,
+                "sum": 86400
+              },
+              "length": {
+                "buckets": {
+                  "0": 239376,
+                  "1": 2160
+                },
+                "count": 241536,
+                "max": 1,
+                "sum": 2160
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 239376,
+                  "8-15": 2160
+                },
+                "count": 241536,
+                "max": 8,
+                "sum": 17280
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 239376,
+                  "128-255": 2160
+                },
+                "count": 241536,
+                "max": 128,
+                "sum": 276480
+              },
+              "length": {
+                "buckets": {
+                  "0": 239376,
+                  "1": 2160
+                },
+                "count": 241536,
+                "max": 1,
+                "sum": 2160
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 107418,
+                  "4-7": 12,
+                  "8-15": 134106
+                },
+                "count": 241536,
+                "max": 246,
+                "sum": 26174712
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 107418,
+                  "32-63": 12,
+                  "64-127": 134106
+                },
+                "count": 241536,
+                "max": 1968,
+                "sum": 209397696
+              },
+              "length": {
+                "buckets": {
+                  "128-255": 107418,
+                  "4-7": 12,
+                  "8-15": 134106
+                },
+                "count": 241536,
+                "max": 246,
+                "sum": 26174712
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "1": 17,
+                  "16-31": 67,
+                  "2-3": 14,
+                  "32-63": 181,
+                  "4-7": 38,
+                  "64-127": 69,
+                  "8-15": 105
+                },
+                "count": 491,
+                "max": 111,
+                "sum": 16912
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1": 17,
+                  "16-31": 67,
+                  "2-3": 14,
+                  "32-63": 181,
+                  "4-7": 38,
+                  "64-127": 69,
+                  "8-15": 105
+                },
+                "count": 491,
+                "max": 111,
+                "sum": 16912
+              },
+              "length": {
+                "buckets": {
+                  "1": 17,
+                  "16-31": 67,
+                  "2-3": 14,
+                  "32-63": 181,
+                  "4-7": 38,
+                  "64-127": 69,
+                  "8-15": 105
+                },
+                "count": 491,
+                "max": 111,
+                "sum": 16912
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 13071,
+                  "128-255": 6,
+                  "16-31": 276,
+                  "32-63": 30,
+                  "32768-65535": 6,
+                  "4-7": 25452,
+                  "65536-131071": 6,
+                  "8-15": 714
+                },
+                "count": 39561,
+                "max": 65536,
+                "sum": 703488
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 13071,
+                  "1024-2047": 6,
+                  "128-255": 276,
+                  "256-511": 30,
+                  "262144-524287": 6,
+                  "32-63": 25452,
+                  "524288-1048575": 6,
+                  "64-127": 714
+                },
+                "count": 39561,
+                "max": 524288,
+                "sum": 5627904
+              },
+              "length": {
+                "buckets": {
+                  "0": 13071,
+                  "1": 18354,
+                  "16-31": 36,
+                  "16384-32767": 6,
+                  "2-3": 6720,
+                  "32768-65535": 6,
+                  "4-7": 1050,
+                  "64-127": 6,
+                  "8-15": 312
+                },
+                "count": 39561,
+                "max": 61500,
+                "sum": 545454
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 39515,
+                  "16-31": 1,
+                  "32-63": 19,
+                  "64-127": 7,
+                  "8-15": 19
+                },
+                "count": 39561,
+                "max": 64,
+                "sum": 1224
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 39515,
+                  "1024-2047": 7,
+                  "128-255": 19,
+                  "256-511": 1,
+                  "512-1023": 19
+                },
+                "count": 39561,
+                "max": 1024,
+                "sum": 19584
+              },
+              "length": {
+                "buckets": {
+                  "0": 39515,
+                  "1": 7,
+                  "16-31": 20,
+                  "4-7": 13,
+                  "8-15": 6
+                },
+                "count": 39561,
+                "max": 29,
+                "sum": 584
+              }
+            }
+          },
+          "live_at_emit": {
+            "cell_slots": {
+              "capacity": {
+                "buckets": {
+                  "1": 3968
+                },
+                "count": 3968,
+                "max": 1,
+                "sum": 3968
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "8-15": 3968
+                },
+                "count": 3968,
+                "max": 8,
+                "sum": 31744
+              },
+              "length": {
+                "buckets": {
+                  "1": 3968
+                },
+                "count": 3968,
+                "max": 1,
+                "sum": 3968
+              }
+            },
+            "closure_captures": {
+              "capacity": {
+                "buckets": {
+                  "0": 18,
+                  "1": 49,
+                  "16-31": 12,
+                  "2-3": 1090,
+                  "32-63": 2,
+                  "4-7": 1243,
+                  "8-15": 59
+                },
+                "count": 2473,
+                "max": 33,
+                "sum": 10595
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 18,
+                  "128-255": 12,
+                  "16-31": 1090,
+                  "256-511": 2,
+                  "32-63": 1243,
+                  "64-127": 59,
+                  "8-15": 49
+                },
+                "count": 2473,
+                "max": 264,
+                "sum": 84760
+              },
+              "length": {
+                "buckets": {
+                  "0": 18,
+                  "1": 49,
+                  "16-31": 12,
+                  "2-3": 1090,
+                  "32-63": 2,
+                  "4-7": 1243,
+                  "8-15": 59
+                },
+                "count": 2473,
+                "max": 33,
+                "sum": 10595
+              }
+            },
+            "iterator_keys": {
+              "capacity": {
+                "buckets": {
+                  "0": 39013
+                },
+                "count": 39013,
+                "max": 0,
+                "sum": 0
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 39013
+                },
+                "count": 39013,
+                "max": 0,
+                "sum": 0
+              },
+              "length": {
+                "buckets": {
+                  "0": 39013
+                },
+                "count": 39013,
+                "max": 0,
+                "sum": 0
+              }
+            },
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "0": 44710,
+                  "128-255": 2,
+                  "16-31": 194,
+                  "32-63": 18,
+                  "4-7": 33164,
+                  "64-127": 4,
+                  "8-15": 2424
+                },
+                "count": 80516,
+                "max": 128,
+                "sum": 156240
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 44710,
+                  "1024-2047": 2,
+                  "128-255": 194,
+                  "256-511": 18,
+                  "32-63": 33164,
+                  "512-1023": 4,
+                  "64-127": 2424
+                },
+                "count": 80516,
+                "max": 1024,
+                "sum": 1249920
+              },
+              "length": {
+                "buckets": {
+                  "0": 44710,
+                  "1": 14900,
+                  "16-31": 20,
+                  "2-3": 15844,
+                  "32-63": 4,
+                  "4-7": 4794,
+                  "64-127": 2,
+                  "8-15": 242
+                },
+                "count": 80516,
+                "max": 98,
+                "sum": 80510
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "0": 79796,
+                  "1": 720
+                },
+                "count": 80516,
+                "max": 1,
+                "sum": 720
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 79796,
+                  "32-63": 720
+                },
+                "count": 80516,
+                "max": 40,
+                "sum": 28800
+              },
+              "length": {
+                "buckets": {
+                  "0": 79796,
+                  "1": 720
+                },
+                "count": 80516,
+                "max": 1,
+                "sum": 720
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 79796,
+                  "8-15": 720
+                },
+                "count": 80516,
+                "max": 8,
+                "sum": 5760
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 79796,
+                  "128-255": 720
+                },
+                "count": 80516,
+                "max": 128,
+                "sum": 92160
+              },
+              "length": {
+                "buckets": {
+                  "0": 79796,
+                  "1": 720
+                },
+                "count": 80516,
+                "max": 1,
+                "sum": 720
+              }
+            },
+            "record_slots": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 35806,
+                  "4-7": 7,
+                  "8-15": 44703
+                },
+                "count": 80516,
+                "max": 246,
+                "sum": 8724928
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 35806,
+                  "32-63": 7,
+                  "64-127": 44703
+                },
+                "count": 80516,
+                "max": 1968,
+                "sum": 69799424
+              },
+              "length": {
+                "buckets": {
+                  "128-255": 35806,
+                  "4-7": 7,
+                  "8-15": 44703
+                },
+                "count": 80516,
+                "max": 246,
+                "sum": 8724928
+              }
+            },
+            "string_bytes": {
+              "capacity": {
+                "buckets": {
+                  "0": 1,
+                  "1": 66,
+                  "131072-262143": 1,
+                  "16-31": 429,
+                  "2-3": 145,
+                  "32-63": 145,
+                  "4-7": 521,
+                  "64-127": 30,
+                  "8-15": 869
+                },
+                "count": 2207,
+                "max": 155824,
+                "sum": 186309
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 1,
+                  "1": 66,
+                  "131072-262143": 1,
+                  "16-31": 429,
+                  "2-3": 145,
+                  "32-63": 145,
+                  "4-7": 521,
+                  "64-127": 30,
+                  "8-15": 869
+                },
+                "count": 2207,
+                "max": 155824,
+                "sum": 186309
+              },
+              "length": {
+                "buckets": {
+                  "0": 1,
+                  "1": 66,
+                  "131072-262143": 1,
+                  "16-31": 429,
+                  "2-3": 145,
+                  "32-63": 145,
+                  "4-7": 521,
+                  "64-127": 30,
+                  "8-15": 869
+                },
+                "count": 2207,
+                "max": 155824,
+                "sum": 186309
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "0": 3585,
+                  "128-255": 2,
+                  "16-31": 92,
+                  "2-3": 23,
+                  "32-63": 10,
+                  "32768-65535": 2,
+                  "4-7": 8486,
+                  "65536-131071": 2,
+                  "8-15": 238
+                },
+                "count": 12440,
+                "max": 65536,
+                "sum": 234550
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 3585,
+                  "1024-2047": 2,
+                  "128-255": 92,
+                  "16-31": 23,
+                  "256-511": 10,
+                  "262144-524287": 2,
+                  "32-63": 8486,
+                  "524288-1048575": 2,
+                  "64-127": 238
+                },
+                "count": 12440,
+                "max": 524288,
+                "sum": 1876400
+              },
+              "length": {
+                "buckets": {
+                  "0": 3585,
+                  "1": 6118,
+                  "16-31": 12,
+                  "16384-32767": 2,
+                  "2-3": 2264,
+                  "32768-65535": 2,
+                  "4-7": 351,
+                  "64-127": 2,
+                  "8-15": 104
+                },
+                "count": 12440,
+                "max": 61500,
+                "sum": 181870
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "0": 12252,
+                  "16-31": 11,
+                  "256-511": 1,
+                  "32-63": 13,
+                  "64-127": 7,
+                  "8-15": 156
+                },
+                "count": 12440,
+                "max": 256,
+                "sum": 2544
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "0": 12252,
+                  "1024-2047": 7,
+                  "128-255": 156,
+                  "256-511": 11,
+                  "4096-8191": 1,
+                  "512-1023": 13
+                },
+                "count": 12440,
+                "max": 4096,
+                "sum": 40704
+              },
+              "length": {
+                "buckets": {
+                  "0": 12252,
+                  "1": 132,
+                  "128-255": 1,
+                  "16-31": 13,
+                  "2-3": 11,
+                  "32-63": 3,
+                  "4-7": 15,
+                  "8-15": 13
+                },
+                "count": 12440,
+                "max": 137,
+                "sum": 929
+              }
+            }
+          },
+          "observed_capacity_changed": {
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 8,
+                  "16-31": 872,
+                  "32-63": 96,
+                  "4-7": 143224,
+                  "64-127": 24,
+                  "8-15": 10568
+                },
+                "count": 154792,
+                "max": 128,
+                "sum": 677024
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 8,
+                  "128-255": 872,
+                  "256-511": 96,
+                  "32-63": 143224,
+                  "512-1023": 24,
+                  "64-127": 10568
+                },
+                "count": 154792,
+                "max": 1024,
+                "sum": 5416192
+              },
+              "length": {
+                "buckets": {
+                  "1": 143224,
+                  "16-31": 96,
+                  "32-63": 24,
+                  "4-7": 10568,
+                  "64-127": 8,
+                  "8-15": 872
+                },
+                "count": 154792,
+                "max": 65,
+                "sum": 206856
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "32-63": 2880
+                },
+                "count": 2880,
+                "max": 40,
+                "sum": 115200
+              },
+              "length": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "8-15": 2880
+                },
+                "count": 2880,
+                "max": 8,
+                "sum": 23040
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "128-255": 2880
+                },
+                "count": 2880,
+                "max": 128,
+                "sum": 368640
+              },
+              "length": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "1024-2047": 16,
+                  "128-255": 24,
+                  "16-31": 432,
+                  "16384-32767": 16,
+                  "2048-4095": 16,
+                  "256-511": 16,
+                  "32-63": 64,
+                  "32768-65535": 16,
+                  "4-7": 35321,
+                  "4096-8191": 16,
+                  "512-1023": 16,
+                  "64-127": 24,
+                  "65536-131071": 8,
+                  "8-15": 1384,
+                  "8192-16383": 16
+                },
+                "count": 37385,
+                "max": 65536,
+                "sum": 1734692
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 24,
+                  "128-255": 432,
+                  "131072-262143": 16,
+                  "16384-32767": 16,
+                  "2048-4095": 16,
+                  "256-511": 64,
+                  "262144-524287": 16,
+                  "32-63": 35321,
+                  "32768-65535": 16,
+                  "4096-8191": 16,
+                  "512-1023": 24,
+                  "524288-1048575": 8,
+                  "64-127": 1384,
+                  "65536-131071": 16,
+                  "8192-16383": 16
+                },
+                "count": 37385,
+                "max": 524288,
+                "sum": 13877536
+              },
+              "length": {
+                "buckets": {
+                  "1": 35321,
+                  "1024-2047": 16,
+                  "128-255": 16,
+                  "16-31": 64,
+                  "16384-32767": 16,
+                  "2048-4095": 16,
+                  "256-511": 16,
+                  "32-63": 24,
+                  "32768-65535": 8,
+                  "4-7": 1384,
+                  "4096-8191": 16,
+                  "512-1023": 16,
+                  "64-127": 24,
+                  "8-15": 432,
+                  "8192-16383": 16
+                },
+                "count": 37385,
+                "max": 32769,
+                "sum": 834089
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "16-31": 39,
+                  "256-511": 1,
+                  "32-63": 28,
+                  "64-127": 14,
+                  "8-15": 183
+                },
+                "count": 265,
+                "max": 256,
+                "sum": 4136
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 14,
+                  "128-255": 183,
+                  "256-511": 39,
+                  "4096-8191": 1,
+                  "512-1023": 28
+                },
+                "count": 265,
+                "max": 4096,
+                "sum": 66176
+              },
+              "length": {
+                "buckets": {
+                  "1": 180,
+                  "128-255": 1,
+                  "16-31": 14,
+                  "2-3": 3,
+                  "4-7": 38,
+                  "8-15": 29
+                },
+                "count": 265,
+                "max": 137,
+                "sum": 1316
+              }
+            }
+          },
+          "observed_changed": {
+            "record_children": {
+              "capacity": {
+                "buckets": {
+                  "128-255": 272,
+                  "16-31": 2568,
+                  "32-63": 816,
+                  "4-7": 302016,
+                  "64-127": 416,
+                  "8-15": 15952
+                },
+                "count": 322040,
+                "max": 128,
+                "sum": 1464320
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 272,
+                  "128-255": 2568,
+                  "256-511": 816,
+                  "32-63": 302016,
+                  "512-1023": 416,
+                  "64-127": 15952
+                },
+                "count": 322040,
+                "max": 1024,
+                "sum": 11714560
+              },
+              "length": {
+                "buckets": {
+                  "1": 143224,
+                  "16-31": 896,
+                  "2-3": 138544,
+                  "32-63": 432,
+                  "4-7": 35128,
+                  "64-127": 280,
+                  "8-15": 3536
+                },
+                "count": 322040,
+                "max": 98,
+                "sum": 732968
+              }
+            },
+            "record_extra_box": {
+              "capacity": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "32-63": 2880
+                },
+                "count": 2880,
+                "max": 40,
+                "sum": 115200
+              },
+              "length": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              }
+            },
+            "record_overflow_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "8-15": 2880
+                },
+                "count": 2880,
+                "max": 8,
+                "sum": 23040
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "128-255": 2880
+                },
+                "count": 2880,
+                "max": 128,
+                "sum": 368640
+              },
+              "length": {
+                "buckets": {
+                  "1": 2880
+                },
+                "count": 2880,
+                "max": 1,
+                "sum": 2880
+              }
+            },
+            "table_array": {
+              "capacity": {
+                "buckets": {
+                  "1024-2047": 8192,
+                  "128-255": 1296,
+                  "16-31": 1576,
+                  "16384-32767": 131072,
+                  "2-3": 46,
+                  "2048-4095": 16384,
+                  "256-511": 2048,
+                  "32-63": 504,
+                  "32768-65535": 178808,
+                  "4-7": 50894,
+                  "4096-8191": 32768,
+                  "512-1023": 4096,
+                  "64-127": 768,
+                  "65536-131071": 229856,
+                  "8-15": 3480,
+                  "8192-16383": 65536
+                },
+                "count": 727324,
+                "max": 65536,
+                "sum": 23786648020
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 1296,
+                  "128-255": 1576,
+                  "131072-262143": 131072,
+                  "16-31": 46,
+                  "16384-32767": 16384,
+                  "2048-4095": 2048,
+                  "256-511": 504,
+                  "262144-524287": 178808,
+                  "32-63": 50894,
+                  "32768-65535": 32768,
+                  "4096-8191": 4096,
+                  "512-1023": 768,
+                  "524288-1048575": 229856,
+                  "64-127": 3480,
+                  "65536-131071": 65536,
+                  "8192-16383": 8192
+                },
+                "count": 727324,
+                "max": 524288,
+                "sum": 190293184160
+              },
+              "length": {
+                "buckets": {
+                  "1": 35345,
+                  "1024-2047": 16384,
+                  "128-255": 2048,
+                  "16-31": 552,
+                  "16384-32767": 178816,
+                  "2-3": 13706,
+                  "2048-4095": 32768,
+                  "256-511": 4096,
+                  "32-63": 768,
+                  "32768-65535": 229864,
+                  "4-7": 4881,
+                  "4096-8191": 65536,
+                  "512-1023": 8192,
+                  "64-127": 1304,
+                  "8-15": 1992,
+                  "8192-16383": 131072
+                },
+                "count": 727324,
+                "max": 61500,
+                "sum": 17127753906
+              }
+            },
+            "table_hash_key_slots": {
+              "capacity": {
+                "buckets": {
+                  "16-31": 207,
+                  "256-511": 1,
+                  "32-63": 545,
+                  "64-127": 95,
+                  "8-15": 514
+                },
+                "count": 1362,
+                "max": 256,
+                "sum": 31200
+              },
+              "capacity_bytes": {
+                "buckets": {
+                  "1024-2047": 95,
+                  "128-255": 514,
+                  "256-511": 207,
+                  "4096-8191": 1,
+                  "512-1023": 545
+                },
+                "count": 1362,
+                "max": 4096,
+                "sum": 499200
+              },
+              "length": {
+                "buckets": {
+                  "1": 229,
+                  "128-255": 1,
+                  "16-31": 273,
+                  "2-3": 179,
+                  "32-63": 24,
+                  "4-7": 277,
+                  "8-15": 379
+                },
+                "count": 1362,
+                "max": 137,
+                "sum": 13302
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "scope": "managed_heap_observations_not_global_allocator_traffic"
+      }
+    ]
+  },
+  "globalOnlyDiagnostics": {
+    "checker-source": [
+      {
+        "reason": "after-vm-drop",
+        "stats": {
+          "allocation_requested_bytes": 5060591511,
+          "allocations": 43181975,
+          "allocator": "system",
+          "current_requested_bytes": 349231,
+          "deallocations": 43165400,
+          "mode": "global",
+          "peak_requested_bytes": 1697906320,
+          "reallocation_requested_bytes": 3539191192,
+          "reallocations": 1481661,
+          "scope": "successful Rust global allocator requests since process start; heap diagnostic bookkeeping disabled; excludes direct C allocations and allocator retained pages"
+        }
+      }
+    ],
+    "parser-source": [
+      {
+        "reason": "after-vm-drop",
+        "stats": {
+          "allocation_requested_bytes": 352132924,
+          "allocations": 1657326,
+          "allocator": "system",
+          "current_requested_bytes": 46594068,
+          "deallocations": 1643078,
+          "mode": "global",
+          "peak_requested_bytes": 187763932,
+          "reallocation_requested_bytes": 195009619,
+          "reallocations": 87610,
+          "scope": "successful Rust global allocator requests since process start; heap diagnostic bookkeeping disabled; excludes direct C allocations and allocator retained pages"
+        }
+      }
+    ]
+  },
+  "diagnosticRunHashes": {
+    "/private/tmp/nupp-allocation-experiments/nupp-vm-jemalloc-metrics": "be18771ac98bf6627388f4c1adfece5513a8601889a3de35f9915835f96e555e",
+    "/private/tmp/nupp-allocation-experiments/nupp-vm-system-metrics": "163fa55b6f4f9d3cd5e960b1a9e252b22f2a5771e97250f45cb952e77e64b28f",
+    "/private/tmp/nupp-allocation-experiments/parser.image": "2cee881404c1e6bb1cf8d98ce814115454f24f6f8013b93a03859e3603746a1a",
+    "/private/tmp/nupp-allocation-experiments/tasks-perf.image": "02e00ba7f9539e4108761eecf8cc36810ad01adb8a7f9d239491629b5792aff1",
+    "/private/tmp/nupp-cli-complete/root-owner.image": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+    "/private/tmp/nupp-codegen-experiment/bin/nupp": "bf54a2cbe044b70246b245edd93488d46550c1dc4e0b8e45028e8187ae67051f",
+    "/private/tmp/nupp-codegen-experiment/src/nupp/compiler/syntax/parser.nupp": "6388115eb8d824aa24d56173f829ee5f44c826e110f32f2aada30fe652e8e407"
+  },
+  "globalOnlyBinarySha256": "a26925c5aa1ca3e4be5f675221668f85c2e48eb5a1d75edd1ce2e441e560de74",
+  "inputs": {
+    "/private/tmp/nupp-allocation-experiments/check.image": "db9853e25e442b0b91046296e95340e86b5fa848020c10fb54c34061a0eb03f3",
+    "/private/tmp/nupp-allocation-experiments/parser.image": "2cee881404c1e6bb1cf8d98ce814115454f24f6f8013b93a03859e3603746a1a",
+    "/private/tmp/nupp-allocation-experiments/tasks-perf.image": "02e00ba7f9539e4108761eecf8cc36810ad01adb8a7f9d239491629b5792aff1",
+    "src/nupp/compiler/syntax/lexer.nupp": "83f7bead77d35e54fdbe1c8bbe0e08b0444d282826fb1e2a7c605a791219cb29",
+    "src/nupp/compiler/syntax/parser.nupp": "6388115eb8d824aa24d56173f829ee5f44c826e110f32f2aada30fe652e8e407",
+    "native/crates/vm/tests/project/lib/demo/math.nupp": "bcfd0c0a346f5112bb13c14b93792fe1618f889487b7b458e7a83303d0bfbef1"
+  },
+  "repositoryBaseline": {
+    "scope": "single cold/warm baseline acceptance, not a paired speed verdict; background CPU load present",
+    "binarySha256": "b76e43d4ca6da289989c273fefd8130a90637373f14db7878e027b14562fb5c3",
+    "imageSha256": "98adf54f7828cd475dd8564f20cccf1106496146d62d9d5decaad836598feec9",
+    "runs": [
+      {
+        "command": [
+          "/private/tmp/nupp-codegen-experiment/bin/nupp",
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "timedOut": false,
+        "stdout": "/private/tmp/nupp-allocation-experiments/baseline-repository-final-cold.stdout",
+        "stderr": "/private/tmp/nupp-allocation-experiments/baseline-repository-final-cold.stderr",
+        "output": "{\"diagnostics\":[{\"code\":\"NUPP2505\",\"docs\":\"docs/reference/lints.md#loop-invariant-closure\",\"file\":\"src/nupp/compiler/vm/chunks.nupp\",\"fixes\":[],\"help\":\"declare it once above the loop and pass the name\",\"lint\":\"loop-invariant-closure\",\"message\":\"this function is built once per iteration but does not use the iteration, so every one of them is the same function, and building one is what keeps the loop from compiling\",\"notes\":[],\"range\":{\"end\":{\"column\":58,\"line\":99,\"offset\":3307},\"start\":{\"column\":57,\"line\":99,\"offset\":3306}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":118,\"offset\":3686},\"start\":{\"column\":9,\"line\":118,\"offset\":3683}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":119,\"offset\":3697},\"start\":{\"column\":9,\"line\":119,\"offset\":3695}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":119,\"offset\":3697},\"start\":{\"column\":9,\"line\":119,\"offset\":3695}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":574,\"offset\":19250},\"start\":{\"column\":9,\"line\":574,\"offset\":19247}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":575,\"offset\":19261},\"start\":{\"column\":9,\"line\":575,\"offset\":19259}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":575,\"offset\":19261},\"start\":{\"column\":9,\"line\":575,\"offset\":19259}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":620,\"offset\":20532},\"start\":{\"column\":9,\"line\":620,\"offset\":20529}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":621,\"offset\":20543},\"start\":{\"column\":9,\"line\":621,\"offset\":20541}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":621,\"offset\":20543},\"start\":{\"column\":9,\"line\":621,\"offset\":20541}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":711,\"offset\":23543},\"start\":{\"column\":9,\"line\":711,\"offset\":23540}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":712,\"offset\":23554},\"start\":{\"column\":9,\"line\":712,\"offset\":23552}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":712,\"offset\":23554},\"start\":{\"column\":9,\"line\":712,\"offset\":23552}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":716,\"offset\":23803},\"start\":{\"column\":9,\"line\":716,\"offset\":23800}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":717,\"offset\":23814},\"start\":{\"column\":9,\"line\":717,\"offset\":23812}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":717,\"offset\":23814},\"start\":{\"column\":9,\"line\":717,\"offset\":23812}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":719,\"offset\":23917},\"start\":{\"column\":9,\"line\":719,\"offset\":23914}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":720,\"offset\":23928},\"start\":{\"column\":9,\"line\":720,\"offset\":23926}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":720,\"offset\":23928},\"start\":{\"column\":9,\"line\":720,\"offset\":23926}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":16,\"line\":1117,\"offset\":38850},\"start\":{\"column\":13,\"line\":1117,\"offset\":38847}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":15,\"line\":1118,\"offset\":38865},\"start\":{\"column\":13,\"line\":1118,\"offset\":38863}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":15,\"line\":1118,\"offset\":38865},\"start\":{\"column\":13,\"line\":1118,\"offset\":38863}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1755,\"offset\":64948},\"start\":{\"column\":9,\"line\":1755,\"offset\":64945}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1756,\"offset\":64959},\"start\":{\"column\":9,\"line\":1756,\"offset\":64957}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1756,\"offset\":64959},\"start\":{\"column\":9,\"line\":1756,\"offset\":64957}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1758,\"offset\":65030},\"start\":{\"column\":9,\"line\":1758,\"offset\":65027}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1759,\"offset\":65041},\"start\":{\"column\":9,\"line\":1759,\"offset\":65039}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1759,\"offset\":65041},\"start\":{\"column\":9,\"line\":1759,\"offset\":65039}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1866,\"offset\":68957},\"start\":{\"column\":9,\"line\":1866,\"offset\":68954}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1867,\"offset\":68968},\"start\":{\"column\":9,\"line\":1867,\"offset\":68966}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1867,\"offset\":68968},\"start\":{\"column\":9,\"line\":1867,\"offset\":68966}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1878,\"offset\":69461},\"start\":{\"column\":9,\"line\":1878,\"offset\":69458}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1879,\"offset\":69472},\"start\":{\"column\":9,\"line\":1879,\"offset\":69470}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1879,\"offset\":69472},\"start\":{\"column\":9,\"line\":1879,\"offset\":69470}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2507\",\"docs\":\"docs/reference/lints.md#unused-binding\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[],\"help\":\"delete the binding, or name it _ if it is deliberately unused\",\"lint\":\"unused-binding\",\"message\":\"nothing uses FUNCTION_KINDS\",\"notes\":[],\"range\":{\"end\":{\"column\":25,\"line\":3549,\"offset\":141829},\"start\":{\"column\":11,\"line\":3549,\"offset\":141815}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2107\",\"docs\":\"docs/reference/lints.md#exhaustiveness\",\"file\":\"src/nupp/compiler/vm/metadata.nupp\",\"fixes\":[],\"help\":\"add branches for \\\"cdata\\\", \\\"function\\\", \\\"table\\\", \\\"thread\\\", \\\"userdata\\\" or add an else clause\",\"lint\":\"exhaustiveness\",\"message\":\"every branch returns, so this handles \\\"boolean\\\" | \\\"cdata\\\" | \\\"function\\\" | \\\"nil\\\" | \\\"number\\\" | \\\"string\\\" | \\\"table\\\" | \\\"thread\\\" | \\\"userdata\\\" and leaves \\\"cdata\\\", \\\"function\\\", \\\"table\\\", \\\"thread\\\", \\\"userdata\\\" unhandled\",\"notes\":[],\"range\":{\"end\":{\"column\":7,\"line\":50,\"offset\":1382},\"start\":{\"column\":5,\"line\":50,\"offset\":1380}},\"related\":[],\"severity\":\"warning\"}],\"ok\":true,\"timing\":{\"compiledModules\":552,\"optimizerFacts\":{\"consumed\":8326,\"families\":{\"callableEffects\":1792,\"callableRelations\":1792,\"identity\":89,\"traceFindings\":89,\"traceProfileId\":370},\"produced\":4132,\"selectionChangedModules\":0,\"selectorMs\":0,\"unique\":4132},\"parallel\":{\"batches\":0,\"mode\":\"serial\",\"reason\":\"requested serial checking\",\"retries\":0,\"workers\":1},\"phases\":[{\"durationMs\":314417.9765625,\"name\":\"check\"},{\"durationMs\":11312.46435546875,\"name\":\"generate\"},{\"durationMs\":2280.5390625,\"name\":\"scan\"},{\"durationMs\":131.053955078125,\"name\":\"persist\"},{\"durationMs\":82.134033203125,\"name\":\"other\"}],\"reusedModules\":0,\"slowest\":[{\"durationMs\":61714.20068359375,\"module\":\"nupp.serde.native\"},{\"durationMs\":61379.690185546875,\"module\":\"nupp.serde.internal.json.extensions\"},{\"durationMs\":55955.737060546875,\"module\":\"nupp.serde.debug\"},{\"durationMs\":12703.597900390625,\"module\":\"nupp.compiler.lua.gen\"},{\"durationMs\":5090.484619140625,\"module\":\"nupp.compiler.aot.lower\"}],\"specializedBodies\":0,\"totalMs\":328224.7900390625}}",
+        "wallMs": 328682.106333,
+        "peakRssBytes": 12522504192,
+        "warmMs": null,
+        "firstMs": null,
+        "loadMs": null
+      },
+      {
+        "command": [
+          "/private/tmp/nupp-codegen-experiment/bin/nupp",
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "timedOut": false,
+        "stdout": "/private/tmp/nupp-allocation-experiments/baseline-repository-final-warm.stdout",
+        "stderr": "/private/tmp/nupp-allocation-experiments/baseline-repository-final-warm.stderr",
+        "output": "{\"diagnostics\":[{\"code\":\"NUPP2505\",\"docs\":\"docs/reference/lints.md#loop-invariant-closure\",\"file\":\"src/nupp/compiler/vm/chunks.nupp\",\"fixes\":[],\"help\":\"declare it once above the loop and pass the name\",\"lint\":\"loop-invariant-closure\",\"message\":\"this function is built once per iteration but does not use the iteration, so every one of them is the same function, and building one is what keeps the loop from compiling\",\"notes\":[],\"range\":{\"end\":{\"column\":58,\"line\":99,\"offset\":3307},\"start\":{\"column\":57,\"line\":99,\"offset\":3306}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":118,\"offset\":3686},\"start\":{\"column\":9,\"line\":118,\"offset\":3683}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":119,\"offset\":3697},\"start\":{\"column\":9,\"line\":119,\"offset\":3695}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":119,\"offset\":3697},\"start\":{\"column\":9,\"line\":119,\"offset\":3695}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":574,\"offset\":19250},\"start\":{\"column\":9,\"line\":574,\"offset\":19247}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":575,\"offset\":19261},\"start\":{\"column\":9,\"line\":575,\"offset\":19259}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":575,\"offset\":19261},\"start\":{\"column\":9,\"line\":575,\"offset\":19259}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":620,\"offset\":20532},\"start\":{\"column\":9,\"line\":620,\"offset\":20529}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":621,\"offset\":20543},\"start\":{\"column\":9,\"line\":621,\"offset\":20541}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":621,\"offset\":20543},\"start\":{\"column\":9,\"line\":621,\"offset\":20541}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":711,\"offset\":23543},\"start\":{\"column\":9,\"line\":711,\"offset\":23540}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":712,\"offset\":23554},\"start\":{\"column\":9,\"line\":712,\"offset\":23552}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":712,\"offset\":23554},\"start\":{\"column\":9,\"line\":712,\"offset\":23552}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":716,\"offset\":23803},\"start\":{\"column\":9,\"line\":716,\"offset\":23800}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":717,\"offset\":23814},\"start\":{\"column\":9,\"line\":717,\"offset\":23812}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":717,\"offset\":23814},\"start\":{\"column\":9,\"line\":717,\"offset\":23812}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":719,\"offset\":23917},\"start\":{\"column\":9,\"line\":719,\"offset\":23914}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":720,\"offset\":23928},\"start\":{\"column\":9,\"line\":720,\"offset\":23926}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":720,\"offset\":23928},\"start\":{\"column\":9,\"line\":720,\"offset\":23926}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":16,\"line\":1117,\"offset\":38850},\"start\":{\"column\":13,\"line\":1117,\"offset\":38847}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":15,\"line\":1118,\"offset\":38865},\"start\":{\"column\":13,\"line\":1118,\"offset\":38863}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":15,\"line\":1118,\"offset\":38865},\"start\":{\"column\":13,\"line\":1118,\"offset\":38863}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1755,\"offset\":64948},\"start\":{\"column\":9,\"line\":1755,\"offset\":64945}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1756,\"offset\":64959},\"start\":{\"column\":9,\"line\":1756,\"offset\":64957}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1756,\"offset\":64959},\"start\":{\"column\":9,\"line\":1756,\"offset\":64957}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1758,\"offset\":65030},\"start\":{\"column\":9,\"line\":1758,\"offset\":65027}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1759,\"offset\":65041},\"start\":{\"column\":9,\"line\":1759,\"offset\":65039}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1759,\"offset\":65041},\"start\":{\"column\":9,\"line\":1759,\"offset\":65039}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1866,\"offset\":68957},\"start\":{\"column\":9,\"line\":1866,\"offset\":68954}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1867,\"offset\":68968},\"start\":{\"column\":9,\"line\":1867,\"offset\":68966}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1867,\"offset\":68968},\"start\":{\"column\":9,\"line\":1867,\"offset\":68966}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2510\",\"docs\":\"docs/reference/lints.md#else-if\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[{\"edits\":[{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"\",\"range\":{\"end\":{\"column\":12,\"line\":1878,\"offset\":69461},\"start\":{\"column\":9,\"line\":1878,\"offset\":69458}}},{\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"newText\":\"elseif\",\"range\":{\"end\":{\"column\":11,\"line\":1879,\"offset\":69472},\"start\":{\"column\":9,\"line\":1879,\"offset\":69470}}}],\"title\":\"write `elseif`\"}],\"help\":\"replace the second if with elseif and remove the preceding end\",\"lint\":\"else-if\",\"message\":\"this condition is mutually exclusive with the preceding if; write elseif instead\",\"notes\":[],\"range\":{\"end\":{\"column\":11,\"line\":1879,\"offset\":69472},\"start\":{\"column\":9,\"line\":1879,\"offset\":69470}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2507\",\"docs\":\"docs/reference/lints.md#unused-binding\",\"file\":\"src/nupp/compiler/vm/lower.nupp\",\"fixes\":[],\"help\":\"delete the binding, or name it _ if it is deliberately unused\",\"lint\":\"unused-binding\",\"message\":\"nothing uses FUNCTION_KINDS\",\"notes\":[],\"range\":{\"end\":{\"column\":25,\"line\":3549,\"offset\":141829},\"start\":{\"column\":11,\"line\":3549,\"offset\":141815}},\"related\":[],\"severity\":\"warning\"},{\"code\":\"NUPP2107\",\"docs\":\"docs/reference/lints.md#exhaustiveness\",\"file\":\"src/nupp/compiler/vm/metadata.nupp\",\"fixes\":[],\"help\":\"add branches for \\\"cdata\\\", \\\"function\\\", \\\"table\\\", \\\"thread\\\", \\\"userdata\\\" or add an else clause\",\"lint\":\"exhaustiveness\",\"message\":\"every branch returns, so this handles \\\"boolean\\\" | \\\"cdata\\\" | \\\"function\\\" | \\\"nil\\\" | \\\"number\\\" | \\\"string\\\" | \\\"table\\\" | \\\"thread\\\" | \\\"userdata\\\" and leaves \\\"cdata\\\", \\\"function\\\", \\\"table\\\", \\\"thread\\\", \\\"userdata\\\" unhandled\",\"notes\":[],\"range\":{\"end\":{\"column\":7,\"line\":50,\"offset\":1382},\"start\":{\"column\":5,\"line\":50,\"offset\":1380}},\"related\":[],\"severity\":\"warning\"}],\"ok\":true,\"timing\":{\"compiledModules\":0,\"optimizerFacts\":{\"consumed\":8326,\"families\":{\"callableEffects\":1792,\"callableRelations\":1792,\"identity\":89,\"traceFindings\":89,\"traceProfileId\":370},\"produced\":61,\"selectionChangedModules\":0,\"selectorMs\":0,\"unique\":4132},\"phases\":[{\"durationMs\":1416.28125,\"name\":\"generate\"},{\"durationMs\":347.629150390625,\"name\":\"scan\"},{\"durationMs\":219.061767578125,\"name\":\"check\"},{\"durationMs\":117.37890625,\"name\":\"other\"},{\"durationMs\":32.18798828125,\"name\":\"persist\"}],\"reusedModules\":552,\"slowest\":[],\"specializedBodies\":0,\"totalMs\":2132.56201171875}}",
+        "wallMs": 2317.2586249999654,
+        "peakRssBytes": 380092416,
+        "warmMs": null,
+        "firstMs": null,
+        "loadMs": null
+      }
+    ]
+  },
+  "nextDecision": "Model inline-array capacity against empty-object frequency and actual size classes before changing representation. Current profile does not establish a nursery as the next optimization; dynamic indexing/call helpers lead warm self samples, and register allocation dominates startup."
+}

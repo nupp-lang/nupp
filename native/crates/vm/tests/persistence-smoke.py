@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Compile and test persistence; optional second argument retains the emitted image."""
+import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 
-binary = "build/rust/target/release/nupp-vm"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("seed", type=Path)
+parser.add_argument("retained_image", type=Path, nargs="?")
+parser.add_argument("--binary", type=Path, default=Path("build/rust/target/release/nupp-vm"))
+args = parser.parse_args()
+binary = str(args.binary.resolve())
 env = dict(os.environ, NO_JIT="1")
 compiled = subprocess.run(
-    [binary, "run", sys.argv[1], "nupp.tools.vm.project", "emit",
+    [binary, "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit",
      "native/crates/vm/tests/persist-project", "main"],
     env=env, capture_output=True, text=True, check=True,
 )
 image_text = json.loads(compiled.stdout)
-if len(sys.argv) > 2:
-    Path(sys.argv[2]).write_text(image_text)
+if args.retained_image:
+    args.retained_image.write_text(image_text)
 with tempfile.TemporaryDirectory() as directory:
     image = Path(directory) / "persistence.image"
     image.write_text(image_text)

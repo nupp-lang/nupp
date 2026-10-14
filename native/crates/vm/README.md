@@ -1617,3 +1617,66 @@ in order:
 
 Nothing in 3 is worth building before 1, and 1 is a contracts item, so this
 is recorded here and in the runtime plan rather than started.
+
+### Allocation experiments
+
+The VM executable can select an allocator without changing an embedding
+application's allocator. Candidates are opt-in and mutually exclusive:
+
+```sh
+cargo build --release -p nupp-vm --features allocator-mimalloc
+cargo build --release -p nupp-vm --features allocator-jemalloc
+```
+
+The default remains the system allocator. The experiment features admit
+aarch64 and x86_64 macOS and GNU Linux; a successful local build establishes
+only the host tested. The shared executable module also selects the allocator
+for the persistence, compiler-checkpoint, and scheduler examples. Rust
+integration test executables do not inherit the VM executable's allocator.
+`tests/allocator-host-smoke.sh` builds an independent Rust application that
+declares its own allocator and checks repeated graph, worker, channel, and
+checkpoint teardown under all three dependency configurations.
+
+Build candidates serially in the shared Cargo target directory and copy each
+binary before the next build overwrites it. With identical pre-emitted images,
+run the paired harness from the repository root:
+
+```sh
+python3 native/crates/vm/tests/allocation-perf.py SYSTEM CANDIDATE \
+  --check-image CHECK_IMAGE --parser-image PARSER_IMAGE \
+  --cli-image ROOT_IMAGE --tasks-image TASK_PERF_IMAGE --output NEW_DIRECTORY
+```
+
+The harness alternates seven independent process pairs and retains checksums,
+binary/input hashes, raw output, first-call costs, warm medians, process wall
+time, and peak RSS. Its paired bootstrap uses process pairs, with a 5% practical
+margin. `--case` selects workloads. `--repository-only --cli-image ROOT_IMAGE`
+runs one cold and warm repository check per binary with separate fresh caches.
+It moves the existing project cache (`build/cache`, or `--project-cache`) into
+the output directory, creates a fresh cache, and restores the original entry
+after each binary, including on failure. Generated caches and a recovery journal
+remain in the output directory. Original symlinks are preserved without following
+them. The cache and output must be on the same filesystem and must not overlap.
+Shared prelude caches use a separate fresh `NUPP_CACHE_DIR`. These runs establish
+acceptance, with no duration verdict. Run measurements on an otherwise quiet
+machine after builds and correctness tests finish. Keep other compiler commands
+out of the worktree while its project cache is isolated.
+
+For separate diagnostic processes, build with `allocation-metrics` and set
+`NUPP_ALLOCATION_STATS=1`, or give diagnostic binaries to the harness with
+`--diagnostics-only`. Normal builds contain no allocation instrumentation.
+Heap reports distinguish construction, observed payload changes, GC
+reclamation, and the final allocated-object snapshot. Changes observed through
+capacity accounting and pointer refresh are not every native store. GC work
+counts roots, scanned objects, child slots, occupied sweep objects, and all
+visited sweep slots. Worker heaps report distinct IDs on teardown; the CLI
+flushes before its process exit, which skips VM teardown.
+
+Global reports count successful Rust allocator requests, including diagnostic
+bookkeeping. They exclude direct C allocation and allocator-retained pages;
+requested live bytes are not RSS. Heap byte counters distinguish object sizes,
+rounded assigned slots, acquired chunks, and positive external-capacity deltas.
+Use a separate process with `NUPP_ALLOCATION_STATS=global` for global request
+totals with heap bookkeeping disabled; its report records that mode explicitly.
+An embedding thread can destroy its diagnostic registry before its VM; its
+final report marks that condition and still includes the live snapshot.

@@ -6,6 +6,8 @@
 //! modes come from the environment: GC_STRESS, GC_INTERLEAVE, GC_ORACLE,
 //! GC_QUARANTINE.
 
+mod executable_allocator;
+
 use nupp_vm::builtins;
 use nupp_vm::heap::KIND_NAMES;
 use nupp_vm::host::Host;
@@ -89,6 +91,17 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
 
 fn cpu_now() -> f64 { std::time::Instant::now().elapsed().as_secs_f64() + START.with(|s| s.elapsed().as_secs_f64()) }
 thread_local! { static START: std::time::Instant = std::time::Instant::now(); }
+
+fn emit_allocator_metrics(reason: &str) {
+    #[cfg(feature = "allocation-metrics")]
+    if executable_allocator::enabled() {
+        let snapshot = executable_allocator::snapshot();
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr().lock(), "global_allocation_stats {}", serde_json::json!({"reason": reason, "stats": snapshot}));
+    }
+    #[cfg(not(feature = "allocation-metrics"))]
+    let _ = reason;
+}
 
 /// Runs the tasks to completion, delivering host completions as they arrive.
 fn drive(it: &mut Interp, ts: &[usize]) {
@@ -322,8 +335,12 @@ fn main() {
         let status = outs.first().copied().unwrap_or(Value::NIL);
         if !status.is_num() || !status.as_num().is_finite() || status.as_num().fract() != 0.0 || !(0.0..=255.0).contains(&status.as_num()) {
             eprintln!("{}.main must return an exit status from 0 to 255", args[3]);
+            it.heap.emit_allocation_metrics("cli-invalid-status");
+            emit_allocator_metrics("cli-invalid-status-before-drop");
             std::process::exit(1);
         }
+        it.heap.emit_allocation_metrics("cli-exit");
+        emit_allocator_metrics("cli-exit-before-drop");
         std::process::exit(status.as_num() as i32);
     }
     let shown: Vec<String> = outs.iter().map(|&v| show(&it, v)).collect();
@@ -390,4 +407,6 @@ fn main() {
     }
     if let Some(st) = it.op_stats.as_ref() { let mut rows: Vec<(&&str, &u64)> = st.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); let total: u64 = st.values().sum(); eprintln!("ops executed {total}"); for (n, c) in rows.iter().take(40) { eprintln!("  {n}\t{c}\t{:.1}%", **c as f64 * 100.0 / total as f64); } }
     let _ = Outcome::Done(Value::NIL);
+    drop(it);
+    emit_allocator_metrics("after-vm-drop");
 }

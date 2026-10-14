@@ -1,4 +1,7 @@
 //! Exercise a loaded compiler, checkpoint it, then compile again after restore.
+#[path = "../src/executable_allocator.rs"]
+mod executable_allocator;
+
 use nupp_vm::{
     image,
     interp::Interp,
@@ -20,6 +23,8 @@ fn emit(vm: &mut Interp) -> Value {
     result
 }
 fn main() {
+    #[cfg(feature = "allocation-metrics")]
+    let _allocation_report = executable_allocator::ReportOnDrop;
     let path = std::env::args().nth(1).expect("compiler image");
     let mut vm = Interp::new();
     image::load(&mut vm, &std::fs::read_to_string(path).unwrap()).unwrap();
