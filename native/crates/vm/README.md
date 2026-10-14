@@ -1456,3 +1456,79 @@ best of nine rounds; LuaJIT executes the explicit species as one-lane Lua,
 which is why it is three orders slower than any native path. Results and
 provenance, including the commit of each binary, are in
 `tests/native-simd-loop-results.json`.
+
+### SIMD on the interpreter (2026-10-13)
+
+The interpreter and the threaded core refused any function containing a
+vector instruction, so SIMD ran only on the typed tier and linked AOT: a
+checkpoint taken inside a kernel could not resume in a no-JIT process, the
+replay plan's interpreter stepping had a hole, and the Cranelift lowering had
+no independent implementation to be checked against. `simd_exec.rs` is that
+implementation: every packet operation `simd_jit::emit` lowers, executed one
+lane at a time in plain Rust over the same `Packet`, plus the span loads and
+stores, splats, extracts, prefix masks and `VAny` over the interpreter's
+16-byte vector registers. `prepare` and `finish` are the typed tier's own
+helpers, so validation, allocation and rooting are shared; only the lane
+arithmetic is interpreted. The threaded core takes its slow path into the
+same arms.
+
+Semantics follow the lowering, not the Lua reference, so the two tiers can
+be compared bit for bit: integers wrap at their width, `float` lanes compute
+in binary32, `fmin`/`fmax` order the zeros and propagate NaN as Cranelift's
+do, division by zero and the signed minimum over minus one take the typed
+tier's corner rules, float-to-integer conversion truncates through int64
+and zeroes invalid lanes, and float results the typed tier canonicalises
+are canonicalised. `tests/simd.rs` now runs every case on both tiers in the
+same VM and asserts identical result bytes or values, so the 19 cases that
+were the typed tier's specification are now an agreement test; the first run
+agreed everywhere. Both public-source smokes gained interpreter cases
+(`NO_JIT=1`, including tasks and workers for the public fixture and
+collector stress for the kernels), and the Rust loop runs both fixtures
+under stress as well. The refusal test became an interpreter run with the
+plugin's side effect observed.
+
+Where it runs is a policy. A JIT-capable host under `NO_JIT=1` interprets
+SIMD freely; that is the oracle and the developer path. A linked no-JIT
+host keeps the plan's rule that an unmatched bytecode plugin is refused
+before its first side effect rather than running a kernel a thousand times
+slower without saying so, and interprets only with `SIMD_INTERPRET=1`; the
+public AOT smoke checks both the refusal and the opt-in.
+
+It is a correctness tier, not a fast one: the 65,539-element map takes
+21 ms interpreted against 14 us compiled, because every span instruction
+revalidates its span through the record's named fields. That cost is in
+`storage::native_span`, not in the lane loop, and is the first thing to cut
+if the interpreter path is ever on a hot path; LuaJIT's one-lane fallback
+for the same kernel is 8.4 ms.
+
+```sh
+cargo test --offline -p nupp-vm --test simd
+NO_JIT=1 python3 native/crates/vm/tests/simd-smoke.py COMPILER_IMAGE --output OUT
+```
+
+### Struct and SoA field access: what it waits on (2026-10-13)
+
+The language's `load(span, at, field)` and `store` field forms, over a span
+of structs (strided) or a `nupp.mem.soa` column (contiguous), are refused on
+the VM by name. They are not a SIMD feature to add; they are the last
+consumer of a storage representation the VM does not have yet. The chain,
+in order:
+
+1. **Struct descriptors in VM storage.** `storage::layout` knows scalars,
+   pointers and arrays and refuses anything else, so `array.newArray` of a
+   struct witness cannot allocate here. The descriptor needs fields with
+   name, kind and offset, and the struct's size and alignment: contracts 2.9's
+   layout record, the same item the entity ID plan puts first.
+2. **`nupp.mem.soa` off the FFI.** The module is LuaJIT `ffi` over a slab
+   with one column per top-level field. On the VM it is one scalar storage
+   per field under one owner, with the row count shared; the view and the
+   affine tokens are unchanged.
+3. **The two SIMD forms.** A strided field load is the plain lane load with a
+   row stride and a field offset in `storage::simd_access`; a SoA field load
+   is the plain load on that field's column. Both are descriptor arguments
+   `prepare` already parses, so the managed path is small once 1 and 2
+   exist, and the adapter admits the span parameter it refuses today
+   (`p.soa`, a field name in the memory operation).
+
+Nothing in 3 is worth building before 1, and 1 is a contracts item, so this
+is recorded here and in the runtime plan rather than started.

@@ -50,7 +50,15 @@ fn binary(kind: u8, name: &str, lanes: usize) -> Vec<u8> {
         simd::ELEMENTS[kind as usize]
     );
     assert!(vm.compiled_frame_entries > 0);
-    vm.bytes_of(vm.tasks[task.index].result)[16..].to_vec()
+    let compiled = vm.bytes_of(vm.tasks[task.index].result)[16..].to_vec();
+    // The interpreter's lane loop is the oracle: same bytes, no code generator.
+    vm.jit = None;
+    let task = vm.schedule(Value::func(0), &[a, a], None).unwrap();
+    let results = vm.run_ready(1).unwrap();
+    assert_eq!(results[0].status, Status::Completed, "interpreter {} {name}", simd::ELEMENTS[kind as usize]);
+    let interpreted = vm.bytes_of(vm.tasks[task.index].result)[16..].to_vec();
+    assert_eq!(compiled, interpreted, "interpreter disagrees: {} {name}", simd::ELEMENTS[kind as usize]);
+    compiled
 }
 
 #[test]
@@ -129,7 +137,25 @@ fn execute(
         simd::ELEMENTS[kind as usize],
         result
     );
+    vm.handles.push(result);
+    // The interpreter's lane loop must produce the same value or bytes.
+    let jit = vm.jit.take();
+    let task = vm.schedule(Value::func(0), &args, None).unwrap();
+    let results = vm.run_ready(1).unwrap();
+    let again = vm.tasks[task.index].result;
+    assert_eq!(results[0].status, Status::Completed, "interpreter {} {op}: {:?}", simd::ELEMENTS[kind as usize], again);
+    assert!(same_result(&vm, result, again), "interpreter disagrees: {} {op}", simd::ELEMENTS[kind as usize]);
+    vm.jit = jit;
     (vm, result)
+}
+
+/// Two results agree when they are the same value or byte objects with
+/// the same contents.
+fn same_result(vm: &Interp, a: Value, b: Value) -> bool {
+    match (vm.kind_of(a), vm.kind_of(b)) {
+        (Some(ka), Some(kb)) if ka == kb && ka == nupp_vm::heap::KIND_BYTES => vm.bytes_of(a) == vm.bytes_of(b),
+        _ => a == b || (a.is_num() && b.is_num() && a.as_num().to_bits() == b.as_num().to_bits()),
+    }
 }
 
 #[test]
@@ -348,7 +374,7 @@ fn image_verifier_rejects_invalid_simd_before_execution() {
 }
 
 #[test]
-fn separately_loaded_simd_compiles_before_its_first_side_effect_or_refuses() {
+fn separately_loaded_simd_runs_on_the_interpreter_and_the_typed_tier() {
     let mut vm = Box::new(Interp::new());
     image::load(&mut vm, "function host 0 0 2 1 :v\nRetNil\nend\nentry 0\n").unwrap();
     vm.install_globals();
@@ -383,17 +409,18 @@ entry 0
         &data,
     );
     vm.handles.push(input);
-    let failed = vm.pcall_values(Value::func(entry), &[state, input]);
-    assert_eq!(failed[0], Value::FALSE);
-    assert!(String::from_utf8_lossy(vm.bytes_of(failed[1])).contains("native compilation"));
-    let key = vm.intern("entered");
-    assert_eq!(vm.get_index(state, key), Value::NIL);
-    vm.jit = Some(Box::new(Jit::new()));
-    let result = vm.call_value(Value::func(entry), &[state, input])[0];
+    // Without a code generator the lane loop runs the plugin's SIMD, with
+    // the side effect it performs on the way; with one, the typed tier does.
     let expected: Vec<u8> = [18014398509481986u64, 6]
         .into_iter()
         .flat_map(u64::to_ne_bytes)
         .collect();
+    let key = vm.intern("entered");
+    let interpreted = vm.call_value(Value::func(entry), &[state, input])[0];
+    assert_eq!(&vm.bytes_of(interpreted)[16..], expected);
+    assert_eq!(vm.get_index(state, key), Value::num(42.0));
+    vm.jit = Some(Box::new(Jit::new()));
+    let result = vm.call_value(Value::func(entry), &[state, input])[0];
     assert_eq!(&vm.bytes_of(result)[16..], expected);
     assert_eq!(vm.get_index(state, key), Value::num(42.0));
 }

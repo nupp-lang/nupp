@@ -56,8 +56,11 @@ if args.aot:
     assert "linked entries after restore" in restored.stderr
     run("unmatched-plugin", "missingPlugin", ("--tasks",))
     run("unlinked-refusal", "run", flags={"NO_AOT": "1"}, failure=True)
+    run("interpreter-by-policy", "run", flags={"NO_AOT": "1", "SIMD_INTERPRET": "1"})
 else:
-    run("no-jit-refusal", "run", flags={"NO_JIT": "1"}, failure=True)
-    run("no-jit-tasks-refusal", "run", ("--tasks",), flags={"NO_JIT": "1"}, failure=True)
+    # The interpreter's lane loop runs the same fixture without a code generator.
+    run("interpreter", "run", flags={"NO_JIT": "1"})
+    run("interpreter-tasks", "run", ("--tasks",), flags={"NO_JIT": "1"})
+    run("interpreter-workers", "workers", ("--tasks",), flags={"NO_JIT": "1"})
 digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 (args.output / "results.json").write_text(json.dumps(dict(imageSha256=digest(image), binarySha256=digest(binary), sourceSha256=digest("native/crates/vm/tests/simd-input.nupp"), results=records, engine="aot" if args.aot else "jit"), indent=2) + "\n")

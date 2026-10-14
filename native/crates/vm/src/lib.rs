@@ -13,6 +13,7 @@ mod native_simd;
 mod simd_reduce;
 #[cfg(feature = "jit")]
 mod simd_jit;
+mod simd_exec;
 pub mod heap;
 pub mod interp;
 pub mod builtins;

@@ -140,9 +140,19 @@ for name, function, extra in (("direct", "run", []), ("tasks", "run", ["--tasks"
         assert re.search(r"worker compiled entries: [1-9]", p.stderr)
     records.append(dict(case=name, passed=True))
     print(name + ": passed", flush=True)
-flags = {"NO_AOT": "1"} if args.aot else {"NO_JIT": "1"}
-p = subprocess.run([binary, "run", str(image.resolve()), "nupp.tests.vmnativesimd", "run"], env=dict(env, **flags), capture_output=True, text=True, timeout=180)
-assert p.returncode != 0 and "native compilation" in p.stderr
-records.append(dict(case="uncompiled-refusal", passed=True))
+# Without a code generator the interpreter's lane loop runs the kernels and
+# must agree with the typed tier, under the same collector stress.
+flags = {"NO_AOT": "1", "SIMD_INTERPRET": "1"} if args.aot else {"NO_JIT": "1"}
+p = subprocess.run([binary, "run", str(image.resolve()), "nupp.tests.vmnativesimd", "run"], env=dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", **flags), capture_output=True, text=True, timeout=300)
+(args.output / "interpreter.log").write_text(p.stdout + p.stderr)
+assert p.returncode == 0 and p.stdout.strip() == "42", ("interpreter", p.stdout, p.stderr[-12000:])
+records.append(dict(case="interpreter", passed=True))
+print("interpreter: passed", flush=True)
+if args.aot:
+    # Without the policy the linked host refuses, as the plan requires.
+    p = subprocess.run([binary, "run", str(image.resolve()), "nupp.tests.vmnativesimd", "run"], env=dict(env, NO_AOT="1"), capture_output=True, text=True, timeout=180)
+    assert p.returncode != 0 and "native compilation" in p.stderr
+    records.append(dict(case="unlinked-refusal", passed=True))
+    print("unlinked-refusal: passed", flush=True)
 digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 (args.output / "results.json").write_text(json.dumps(dict(imageSha256=digest(image), binarySha256=digest(binary), sourceSha256=digest(source_path), results=records), indent=2) + "\n")

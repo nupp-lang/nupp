@@ -447,6 +447,10 @@
       "no LuaJIT control in the performance records",
       "candidate binary of the native run identified by sha256 only; artifacts under /private/tmp/nupp-simd are not reproducible",
       "none of this runs in CI"
+    ],
+    "followUp": [
+      "2026-10-13: the interpreter runs SIMD (simd_exec.rs); tests/simd.rs compares both tiers; smokes run NO_JIT cases",
+      "2026-10-13: native kernel loop falls through and charges its budget per chunk; tests/native-simd-loop-results.json"
     ]
   }
 }

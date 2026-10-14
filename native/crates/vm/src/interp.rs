@@ -416,7 +416,6 @@ pub struct Interp {
     pub frame_entries: Vec<u64>,
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
-    native_required: Vec<bool>,
     // Transient handoff from native frame helpers; never part of a snapshot.
     pub(crate) native_task: usize,
     pub(crate) native_exit: Option<Step>,
@@ -437,6 +436,11 @@ pub struct Interp {
     /// Per shape, the slot table's address and mask, for compiled field reads.
     pub shape_probe: Vec<(u64, u64)>,
     pub extra: [Value; MAX_RESULTS],
+    native_required: Vec<bool>,
+    /// Whether a function with vector instructions may run on the lane loop
+    /// when no native entry exists: always on a JIT-capable host, by
+    /// `SIMD_INTERPRET=1` on a linked no-JIT host (the plan's refusal rule).
+    pub simd_interpret: bool,
     pub extra_n: usize,
     /// The value of a raise that is propagating as `Value::ERROR` returns.
     pub pending_error: Option<Value>,
@@ -504,7 +508,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_required: Vec::new(), native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1079,6 +1083,15 @@ impl Interp {
         h.bytes_mut()
     }
     pub fn is_stringish(&self, v: Value) -> bool { v.as_obj().map(|p| unsafe { (*p.as_ptr()).is_stringish() }).unwrap_or(false) }
+    /// Whether a function carries vector instructions. Images only append
+    /// immutable function bodies, so this is cached once per body.
+    pub(crate) fn function_needs_native(&mut self, fid: u32) -> bool {
+        if self.native_required.len() < self.funcs.len() {
+            self.native_required.extend(self.funcs[self.native_required.len()..].iter()
+                .map(|f| f.code.iter().any(|op| crate::native_simd::required(op))));
+        }
+        self.native_required[fid as usize]
+    }
     pub fn kind_of(&self, v: Value) -> Option<u8> { v.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }) }
     /// Equality: identical words, or two string-like objects with the same bytes.
     pub fn values_equal(&self, x: Value, y: Value) -> bool {
@@ -1322,15 +1335,6 @@ impl Interp {
     }
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
-    pub(crate) fn function_needs_native(&mut self, fid: u32) -> bool {
-        // Images only append immutable function bodies. Cache this once per
-        // body, including functions added by another image or checkpoint.
-        if self.native_required.len() < self.funcs.len() {
-            self.native_required.extend(self.funcs[self.native_required.len()..].iter()
-                .map(|f| f.code.iter().any(|op| crate::native_simd::required(op))));
-        }
-        self.native_required[fid as usize]
-    }
     fn compiled_frames_active(&self) -> bool {
         if !self.frame_mode { return false; }
         #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
@@ -1343,8 +1347,8 @@ impl Interp {
         let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
         loop {
             let (mut win, mut pc) = self.window(tid);
-            if !self.compiled_frames_active() && self.function_needs_native(win.fid) {
-                self.err("SIMD function requires native compilation or a matching AOT entry");
+            if !self.simd_interpret && !self.compiled_frames_active() && self.function_needs_native(win.fid) {
+                self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
             }
             #[cfg(feature = "compiled-runtime")]
             if self.compiled_frames_active() {
@@ -1568,7 +1572,71 @@ impl Interp {
                     Op::BufFinish(d, bf) => { let v = self.buf_finish(r!(bf)); r!(d) = v; }
                     Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap_new_bytes(n); r!(d) = v; }
                     Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = self.bytes_of(r!(s))[..n].to_vec(); let v = self.string_of(&text); r!(d) = v; }
-                    Op::Simd(..) | Op::SpanLen(..) | Op::SpanBounds(..) | Op::SpanLoad(..) | Op::SpanStore(..) | Op::VOp(..) | Op::VSplatN(..) | Op::VExtractN(..) | Op::VAny(..) | Op::VPrefix(..) | Op::Raise(..) => self.err("SIMD function requires native compilation"),
+                    Op::Simd(op, kind, source, base, nargs) => {
+                        // The lane loop: prepare and finish are the typed tier's own
+                        // helpers; only the packet arithmetic is interpreted.
+                        let n = nargs as usize;
+                        let args: Vec<Value> = (0..n).map(|k| r!(base as usize + 1 + k)).collect();
+                        if crate::simd::OPERATIONS[op as usize] == "store" {
+                            crate::simd::store(self, kind, &args, &[]);
+                            self.extra_n = 0; self.last_nres = 1;
+                            r!(base) = Value::NIL;
+                        } else {
+                            let mut packet = Box::new(crate::simd::Packet::default());
+                            crate::simd::prepare(self, op, kind, source, &args, &mut packet);
+                            if let Err(e) = crate::simd_exec::execute(&mut packet, op, kind, source) { self.err(&e); }
+                            self.extra_n = 0; self.last_nres = 1;
+                            let v = crate::simd::finish(self, &packet, &args);
+                            r!(base) = v;
+                            for k in 1..crate::simd::result_count(op) { r!(base as usize + k) = self.extra[k - 1]; }
+                        }
+                    }
+                    Op::SpanLen(d, s, k) => { let (_, n) = crate::storage::native_span(self, r!(s), k, false); ir!(d) = n as i64; }
+                    Op::SpanBounds(s, i, n, k, w) => {
+                        let (_, len) = crate::storage::native_span(self, r!(s), k, w);
+                        let (index, count) = (ir!(i) as u64, ir!(n) as u64);
+                        if count != 0 && (count > len as u64 || index > len as u64 - count || count > 64) { self.err("SIMD span index out of bounds"); }
+                    }
+                    Op::SpanLoad(d, s, i, n, k, off, lanes) => {
+                        let (ptr, len) = crate::storage::native_span(self, r!(s), k, false);
+                        let (index, active) = (ir!(i) as u64, ir!(n) as u64);
+                        let used = active.min((off + lanes) as u64);
+                        if used > off as u64 && index.checked_add(used).map_or(true, |end| end > len as u64) { self.err("SIMD span index out of bounds"); }
+                        let bytes = unsafe { std::slice::from_raw_parts(ptr, len * crate::simd::width(k)) };
+                        let v = crate::simd_exec::span_load(bytes, index as usize, active, k, off, lanes);
+                        vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) };
+                    }
+                    Op::SpanStore(s, i, x, n, k, off, lanes) => {
+                        let (ptr, len) = crate::storage::native_span(self, r!(s), k, true);
+                        let (index, active) = (ir!(i) as u64, ir!(n) as u64);
+                        let used = active.min((off + lanes) as u64);
+                        if used > off as u64 && index.checked_add(used).map_or(true, |end| end > len as u64) { self.err("SIMD span index out of bounds"); }
+                        let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) };
+                        let bytes = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len * crate::simd::width(k)) };
+                        crate::simd_exec::span_store(bytes, index as usize, active, k, off, lanes, &v);
+                    }
+                    Op::VOp(op, k, d, x, y, z) => {
+                        let name = crate::simd::OPERATIONS[op as usize];
+                        let cast = |v: [f64; 2]| unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(v) };
+                        let (rx, ry, rz) = (vr!(x), vr!(y), vr!(z));
+                        let (p, q, w) = (cast(rx), cast(ry), cast(rz));
+                        match crate::simd_exec::vector16(name, k, p, q, w, true) {
+                            Ok(v) => vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) },
+                            Err(e) => self.err(&e),
+                        }
+                    }
+                    Op::VSplatN(d, x, k) => {
+                        let v = if k >= 8 { crate::simd_exec::splat(k, fr!(x), 0) } else { crate::simd_exec::splat(k, 0.0, ir!(x)) };
+                        vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) };
+                    }
+                    Op::VExtractN(d, x, k, l) => {
+                        let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) };
+                        let (f, i) = crate::simd_exec::extract(&v, k, l);
+                        if k >= 8 { fr!(d) = f; } else { ir!(d) = i; }
+                    }
+                    Op::VAny(d, x) => { let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) }; ir!(d) = v.iter().any(|b| *b != 0) as i64; }
+                    Op::VPrefix(d, n, k, off, lanes) => { let v = crate::simd_exec::prefix(ir!(n) as u64, k, off, lanes); vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) }; }
+                    Op::Raise(k) => { let v = unsafe { *consts.add(k as usize) }; std::panic::panic_any(crate::builtins::LuaError(v.0)); }
                     Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
                     Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
                     Op::VLoadM(d, s, i, off, active) => {

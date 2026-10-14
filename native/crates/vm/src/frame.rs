@@ -24,11 +24,9 @@ impl Interp {
                 jit.probe_addr = self.shape_probe.as_ptr() as i64;
                 let result = jit.compile_frame(&self.funcs[fid as usize], fid);
                 self.jit = Some(jit);
-                if let Err(reason) = &result {
-                    if self.function_needs_native(fid) {
-                        self.err(&format!("SIMD function {} cannot compile: {reason}", self.funcs[fid as usize].name));
-                    }
-                }
+                // A SIMD function the typed tier refuses runs on the interpreter's
+                // lane loop, like any other function it refuses.
+                let _ = &result;
                 self.frame_entries[fid as usize] = result.map(|p| p as u64).unwrap_or(u64::MAX);
             }
         }
@@ -54,8 +52,13 @@ impl Interp {
         use std::sync::atomic::Ordering;
         let entry = self.prepare_frame_entry(fid);
         if entry == 0 || entry == u64::MAX {
-            if self.function_needs_native(fid) {
-                self.err("SIMD function requires native compilation or a matching AOT entry");
+            // A host without a code generator runs SIMD interpreted only by
+            // policy: the no-JIT product refuses an unmatched plugin before
+            // its first side effect rather than running a kernel a thousand
+            // times slower without saying so. JIT-capable hosts under NO_JIT
+            // are the oracle path and interpret freely.
+            if !self.simd_interpret && self.function_needs_native(fid) {
+                self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
             }
             return Ok(pc);
         }
