@@ -3,6 +3,9 @@
 use crate::interp::{Function, Op};
 use std::collections::BTreeMap;
 
+/// Backedges a typed loop runs between charges of the bounded-turn budget.
+pub(crate) const BUDGET_CHUNK: i64 = 64;
+
 pub(crate) fn required(op: &Op) -> bool {
     matches!(
         op,

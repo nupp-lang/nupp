@@ -13,7 +13,7 @@ local function refuse()
     error(REFUSED, 0)
 end
 
-local function translate(program, body)
+local function translate(program, body, hoist)
     if program.body == nil
         or not program.usesSimd
         or program.entryMode ~= "kernel"
@@ -25,6 +25,9 @@ local function translate(program, body)
         refuse()
     end
     local code, constants, names, spans = {}, {}, {}, {}
+    -- Splats of parameters are loop-invariant: the first pass records them,
+    -- the second emits each once after the prologue and reuses the registers.
+    local hoisted, hoistable = {}, {}
     local ni, nf, nv = 0, 0, 0
 
     local function emit(...)
@@ -368,6 +371,14 @@ local function translate(program, body)
             return shape
         end
         if e.op == "simd_splat" then
+            local source = e.args[1]
+            local key = source.op == "uniform" and (source.uniqueName or source.name) .. "/" .. e.type
+            if key and hoisted[key] then
+                return hoisted[key]
+            end
+            if key and names[source.uniqueName or source.name] then
+                hoistable[key] = {name = source.uniqueName or source.name, type = e.type}
+            end
             local d = alloc(e.type);
             local a = expression(e.args[1])
             if d.kind >= 8 then
@@ -586,13 +597,33 @@ local function translate(program, body)
             end
         end
     end
+    for key, h in pairs(hoist or {}) do
+        local d = alloc(h.type)
+        local a = names[h.name]
+        if d.kind >= 8 then
+            a = floating(a)
+        else
+            a = integer(a)
+        end
+        for _, r in ipairs(d.regs) do
+            emit("VSplatN", r, a.reg, d.kind)
+        end
+        hoisted[key] = d
+    end
     block(program.body);
     emit("RetNil")
     if ni >= 240 or nf >= 240 or nv >= 250 then
         refuse()
     end
 
-    return {code = code, consts = constants, nregs = #program.params + 2, nfregs = math.max(ni, nf), nvregs = nv}
+    return {
+        code = code,
+        consts = constants,
+        nregs = #program.params + 2,
+        nfregs = math.max(ni, nf),
+        nvregs = nv,
+        hoistable = hoistable
+    }
 end
 
 function native.plans(root: any): any
@@ -616,7 +647,12 @@ function native.plans(root: any): any
         local context = new lowering.Context(checked = true, vectors = true, nativeCpu = true, reject = refuse)
         local ok, result = pcall(function()
             local program = verify.program(lowering.program(declarations, application, true, context))
-            return translate(program, application.tail.body)
+            local first = translate(program, application.tail.body)
+            if next(first.hoistable) ~= nil then
+                return translate(program, application.tail.body, first.hoistable)
+            end
+
+            return first
         end)
         if ok then
             plans[application.tail.body] = result

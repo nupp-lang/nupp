@@ -469,6 +469,26 @@ impl<M: Module> Compiler<M> {
             let native_budget = if frame && typed_native {
                 let c = b.ins().call(helper_refs["j_native_budget"],&[]); Some(b.inst_results(c)[0])
             } else { None };
+            // The budget is charged in chunks: a register counts backedges and the
+            // shared counter is touched once per chunk, so a loop body pays a
+            // decrement and a branch rather than a load, a store and three
+            // compares per iteration. The turn stops within one chunk of exact.
+            // The counter starts at the remaining budget clamped to one chunk, so
+            // a small budget stops exactly where it would have and a large one
+            // charges once per chunk. Without a budget pointer it counts a chunk
+            // from a slot holding one, branch-free.
+            let budget_counter = if let Some(ptr) = native_budget {
+                let v = b.declare_var(types::I64);
+                let chunk = b.ins().iconst(types::I64, crate::native_simd::BUDGET_CHUNK);
+                let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                b.ins().stack_store(types::I64, chunk, slot, 0);
+                let fallback = b.ins().stack_addr(types::I64, slot, 0);
+                let present = b.ins().icmp_imm(IntCC::NotEqual, ptr, 0);
+                let addr = b.ins().select(present, ptr, fallback);
+                let n = b.ins().load(types::I64, flags, addr, 0);
+                let one = b.ins().iconst(types::I64, 1); let first = b.ins().umin(n, chunk); let first = b.ins().umax(first, one);
+                b.def_var(v, first); Some(v)
+            } else { None };
             let mut native_ptrs = HashMap::new();
             for (span,(kind,write)) in crate::native_simd::spans(f) {
                 let value = if frame { b.ins().load(types::I64, flags, params[0], ((crate::interp::HDR + span as usize) * 8) as i32) } else { b.use_var(rvars[span as usize]) };
@@ -582,19 +602,29 @@ impl<M: Module> Compiler<M> {
                 let target = |off: i32| blocks[&((pc as i64 + 1 + off as i64) as usize)];
                 let backedge = matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0);
                 let poll_cont = if frame && backedge && !crate::frame::boundary(op) {
-                    let stop = if let Some(ptr) = native_budget {
-                        let poll = b.create_block(); let join = b.create_block(); b.append_block_param(join,types::I8);
-                        let present = b.ins().icmp_imm(IntCC::NotEqual,ptr,0); let no = b.ins().iconst(types::I8,0);
-                        b.ins().brif(present,poll,&[],join,&[no.into()]); b.switch_to_block(poll); b.seal_block(poll);
-                        let n = b.ins().load(types::I64,flags,ptr,0);
-                        let positive = b.ins().icmp_imm(IntCC::NotEqual,n,0); let dec = b.ins().iadd_imm(n,-1);
-                        let left = b.ins().select(positive,dec,n); b.ins().store(flags,left,ptr,0);
-                        let stop = b.ins().icmp_imm(IntCC::Equal,left,0); b.ins().jump(join,&[stop.into()]);
-                        b.switch_to_block(join); b.seal_block(join); b.block_params(join)[0]
-                    } else { let call = b.ins().call(helper_refs["j_frame_poll"], &[]); b.inst_results(call)[0] };
                     let spill = b.create_block();
                     let cont = b.create_block();
-                    b.ins().brif(stop, spill, &[], cont, &[]);
+                    if let Some(ptr) = native_budget {
+                        // The fast path is a decrement and a branch straight to the
+                        // loop; the chunk boundary charges the shared budget.
+                        let counter = budget_counter.unwrap();
+                        let poll = b.create_block(); let charge = b.create_block();
+                        b.set_cold_block(poll); b.set_cold_block(charge); b.set_cold_block(spill);
+                        let c = b.use_var(counter); let c1 = b.ins().iadd_imm(c,-1); b.def_var(counter,c1);
+                        let due = b.ins().icmp_imm(IntCC::Equal,c1,0);
+                        b.ins().brif(due,poll,&[],cont,&[]); b.switch_to_block(poll); b.seal_block(poll);
+                        let chunk = b.ins().iconst(types::I64,crate::native_simd::BUDGET_CHUNK); b.def_var(counter,chunk);
+                        let present = b.ins().icmp_imm(IntCC::NotEqual,ptr,0);
+                        b.ins().brif(present,charge,&[],cont,&[]); b.switch_to_block(charge); b.seal_block(charge);
+                        let n = b.ins().load(types::I64,flags,ptr,0);
+                        let take = b.ins().umin(n,chunk); let left = b.ins().isub(n,take); b.ins().store(flags,left,ptr,0);
+                        let next = b.ins().umin(left,chunk); let one = b.ins().iconst(types::I64,1); let next = b.ins().umax(next,one); b.def_var(counter,next);
+                        let stop = b.ins().icmp_imm(IntCC::Equal,left,0);
+                        b.ins().brif(stop, spill, &[], cont, &[]);
+                    } else {
+                        let call = b.ins().call(helper_refs["j_frame_poll"], &[]); let stop = b.inst_results(call)[0];
+                        b.ins().brif(stop, spill, &[], cont, &[]);
+                    }
                     b.switch_to_block(spill); b.seal_block(spill);
                     Some(cont)
                 } else { None };
@@ -671,8 +701,11 @@ impl<M: Module> Compiler<M> {
                     Op::JmpIfNot(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, next, &[], target(off), &[]); terminated = true; }
                     Op::JmpIf(c, off) if cond_of.contains_key(&c) => { let cv = cond_of[&c]; let next = blocks[&(pc + 1)]; b.ins().brif(cv, target(off), &[], next, &[]); terminated = true; }
                     Op::JmpIfNot(c, off) => { let fl = falsy!(rv!(c)); let next = blocks[&(pc + 1)]; b.ins().brif(fl, target(off), &[], next, &[]); terminated = true; }
-                    Op::JmpIf(c, off) => { let fl = falsy!(rv!(c)); let next = blocks[&(pc + 1)]; b.ins().brif(fl, next, &[], target(off), &[]); terminated = true; }
-                    Op::JmpIfIZero(c, off) => { let v = iv!(c); let next = blocks[&(pc + 1)]; b.ins().brif(v, next, &[], target(off), &[]); terminated = true; }
+                    Op::JmpIf(c, off) => { let fl = falsy!(rv!(c)); let t = b.ins().icmp_imm(IntCC::Equal, fl, 0); let next = blocks[&(pc + 1)]; b.ins().brif(t, target(off), &[], next, &[]); terminated = true; }
+                    // The block order places a branch's `then` target after its `else`
+                    // subtree, so the taken target is the exit and the loop body
+                    // falls through (one taken branch per iteration, at the backedge).
+                    Op::JmpIfIZero(c, off) => { let v = iv!(c); let z = b.ins().icmp_imm(IntCC::Equal, v, 0); let next = blocks[&(pc + 1)]; b.ins().brif(z, target(off), &[], next, &[]); terminated = true; }
                     Op::IJmpIfUle(x, y, off) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, p, q); let next = blocks[&(pc + 1)]; b.ins().brif(c, target(off), &[], next, &[]); terminated = true; }
                     Op::IJmpIfUlt(x, y, off) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::UnsignedLessThan, p, q); let next = blocks[&(pc + 1)]; b.ins().brif(c, target(off), &[], next, &[]); terminated = true; }
                     Op::Jmp(off) => { b.ins().jump(target(off), &[]); terminated = true; }

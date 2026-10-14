@@ -1,0 +1,282 @@
+{
+ "host": "macOS-26.6-arm64-arm-64bit",
+ "baseline": {
+  "path": "/private/tmp/claude-501/-Users-dowling-projects-nupp/8439c42e-1160-48bd-a50f-ca145a713008/scratchpad/nupp-vm-base",
+  "sha256": "14b064d627455760020dd56695b8bf379489837a038ba6b5f9f2e1a6beb0ba4c",
+  "commit": "3fe37d29f",
+  "note": "binary built at 3fe37d29f with the image emitted by the compiler at 158897100 (/private/tmp/nupp-simd/native-perf.image)"
+ },
+ "candidate": {
+  "path": "build/rust/target/release/nupp-vm",
+  "sha256": "d4be8388cb366d480c5e9a5ebda54374fda3c55b6e7d94bd347d8caf814354a1",
+  "commit": "this commit (kernel loop fixes); image emitted by the compiler at this commit"
+ },
+ "imageSha256": "02c2512c6b5d371a0c0f953af5427df4a57e1ff8dea43841ba51a04ccdabcf0b",
+ "baselineImageSha256": "e563a0e1ac7e9039eb0a14157cc94537b64a5f90a96881a45bbfc6310f9530fc",
+ "sourceSha256": "4bc5107f7cb55ddd426f6e50496d340b283255057c42b98659e03d5b19c1b227",
+ "forks": 9,
+ "repeats": 21,
+ "practicalMargin": 0.05,
+ "scope": "Unmodified simd11 map/explicitMap; separately emitted images when specified, alternating process order; setup excluded; each sample is a process median. Interval is a paired bootstrap of the geometric mean speedup, not a within-process interval.",
+ "results": [
+  {
+   "elements": 63,
+   "function": "scalar",
+   "baselineMs": 0.041,
+   "candidateMs": 0.041042,
+   "speedup": 1.0047432152116456,
+   "pairedBootstrap95": [
+    0.986289376555204,
+    1.026760284042541
+   ],
+   "verdict": "unchanged",
+   "firstCallMs": {
+    "baseline": 3.154,
+    "candidate": 3.186
+   },
+   "allocatedFirstCall": {
+    "baseline": 528,
+    "candidate": 528
+   }
+  },
+  {
+   "elements": 63,
+   "function": "explicit",
+   "baselineMs": 0.006583,
+   "candidateMs": 0.006458,
+   "speedup": 1.0050707640812828,
+   "pairedBootstrap95": [
+    0.9935821094357483,
+    1.0174260406022895
+   ],
+   "verdict": "unchanged",
+   "firstCallMs": {
+    "baseline": 3.44,
+    "candidate": 3.475
+   },
+   "allocatedFirstCall": {
+    "baseline": 528,
+    "candidate": 528
+   }
+  },
+  {
+   "elements": 65539,
+   "function": "scalar",
+   "baselineMs": 37.091959,
+   "candidateMs": 36.978542,
+   "speedup": 1.0019638692990676,
+   "pairedBootstrap95": [
+    0.9896093773785007,
+    1.0146432375644814
+   ],
+   "verdict": "unchanged",
+   "firstCallMs": {
+    "baseline": 40.228,
+    "candidate": 39.909
+   },
+   "allocatedFirstCall": {
+    "baseline": 528,
+    "candidate": 528
+   }
+  },
+  {
+   "elements": 65539,
+   "function": "explicit",
+   "baselineMs": 0.021125,
+   "candidateMs": 0.017916,
+   "speedup": 1.1742670746711978,
+   "pairedBootstrap95": [
+    1.1474054810611574,
+    1.1998922535594414
+   ],
+   "verdict": "improved",
+   "firstCallMs": {
+    "baseline": 3.7,
+    "candidate": 3.555
+   },
+   "allocatedFirstCall": {
+    "baseline": 528,
+    "candidate": 528
+   }
+  }
+ ],
+ "controls": {
+  "metadata": {
+   "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+   "target": {
+    "architecture": "aarch64",
+    "tier": "neon",
+    "triple": "aarch64-apple-darwin"
+   },
+   "sourceSha256": "4bc5107f7cb55ddd426f6e50496d340b283255057c42b98659e03d5b19c1b227",
+   "artifacts": {
+    "llvm": {
+     "path": "/private/tmp/nupp-simd/perf/baseline/llvm.dylib",
+     "command": [
+      "clang",
+      "-std=c11",
+      "-O3",
+      "-ffp-contract=off",
+      "-fno-fast-math",
+      "-fPIC",
+      "-D_POSIX_C_SOURCE=200809L",
+      "-dynamiclib",
+      "/private/tmp/nupp-simd/perf/baseline/llvm.c",
+      "/private/tmp/nupp-simd/perf/baseline/llvm.o",
+      "-o",
+      "/private/tmp/nupp-simd/perf/baseline/llvm.dylib"
+     ],
+     "sha256": "95d9ede93e40904c7e56f4c5a80ec513016d75f3de47292d958c9167e809749a"
+    },
+    "auto_vector": {
+     "path": "/private/tmp/nupp-simd/perf/baseline/auto_vector.dylib",
+     "command": [
+      "clang",
+      "-std=c11",
+      "-O3",
+      "-ffp-contract=off",
+      "-fno-fast-math",
+      "-fPIC",
+      "-D_POSIX_C_SOURCE=200809L",
+      "-dynamiclib",
+      "/private/tmp/nupp-simd/perf/baseline/auto_vector.c",
+      "-o",
+      "/private/tmp/nupp-simd/perf/baseline/auto_vector.dylib"
+     ],
+     "sha256": "969a09230f9d80d53a479492282828e9246f49928920968e03676c4a0484dae7"
+    },
+    "no_vector": {
+     "path": "/private/tmp/nupp-simd/perf/baseline/no_vector.dylib",
+     "command": [
+      "clang",
+      "-std=c11",
+      "-O3",
+      "-ffp-contract=off",
+      "-fno-fast-math",
+      "-fPIC",
+      "-D_POSIX_C_SOURCE=200809L",
+      "-dynamiclib",
+      "/private/tmp/nupp-simd/perf/baseline/no_vector.c",
+      "-fno-vectorize",
+      "-fno-slp-vectorize",
+      "-o",
+      "/private/tmp/nupp-simd/perf/baseline/no_vector.dylib"
+     ],
+     "sha256": "c94d5fb1ea2407fe9b6b7b6e7f7d4c20595dcb8c438dee92747744239158f010"
+    }
+   }
+  },
+  "results": [
+   {
+    "elements": 63,
+    "timings": {
+     "llvm": {
+      "warmMs": 4.901404085422459e-06,
+      "samplesMs": [
+       4.901404085422459e-06,
+       4.901409952760546e-06,
+       4.901404085422459e-06,
+       4.901404085422459e-06,
+       4.901404085422459e-06,
+       4.838406476377878e-06,
+       4.674602131653409e-06,
+       4.662004956779728e-06,
+       4.662004956779728e-06
+      ]
+     },
+     "auto_vector": {
+      "warmMs": 5.24160408240699e-06,
+      "samplesMs": [
+       5.254207124618759e-06,
+       5.254207124618759e-06,
+       5.254201257280671e-06,
+       5.24160408240699e-06,
+       5.254207124618759e-06,
+       4.888806910548778e-06,
+       4.737605608036078e-06,
+       4.737605608036078e-06,
+       4.737605608036078e-06
+      ]
+     },
+     "no_vector": {
+      "warmMs": 1.611541854571449e-05,
+      "samplesMs": [
+       1.611541854571449e-05,
+       1.6115412678376403e-05,
+       1.611541854571449e-05,
+       1.611541854571449e-05,
+       1.6115412678376403e-05,
+       1.614061876279994e-05,
+       1.6102815503502722e-05,
+       1.622881658892997e-05,
+       1.6102815503502722e-05
+      ]
+     }
+    }
+   },
+   {
+    "elements": 65539,
+    "timings": {
+     "llvm": {
+      "warmMs": 0.008200001902878284,
+      "samplesMs": [
+       0.008259997703135014,
+       0.008209999650716782,
+       0.008200001902878284,
+       0.008220002055168152,
+       0.008199997246265411,
+       0.008200001902878284,
+       0.008209999650716782,
+       0.008199997246265411,
+       0.008200001902878284
+      ]
+     },
+     "auto_vector": {
+      "warmMs": 0.008220002055168152,
+      "samplesMs": [
+       0.008279997855424881,
+       0.008219997398555279,
+       0.008219997398555279,
+       0.008220002055168152,
+       0.008219997398555279,
+       0.008219997398555279,
+       0.008229999803006649,
+       0.008220002055168152,
+       0.008220002055168152
+      ]
+     },
+     "no_vector": {
+      "warmMs": 0.0153200002387166,
+      "samplesMs": [
+       0.0153299979865551,
+       0.0153200002387166,
+       0.0153200002387166,
+       0.01534000039100647,
+       0.0153299979865551,
+       0.0153200002387166,
+       0.0153200002387166,
+       0.0153200002387166,
+       0.0153200002387166
+      ]
+     }
+    }
+   }
+  ],
+  "scope": "Replayed preserved LLVM and C artifacts; setup and span wrappers excluded. These are native controls, not paired VM speedup observations."
+ },
+ "directRun": {
+  "note": "nupp-vm run IMAGE nupp.tests.vmsimdperf65539 explicit --setup setup --repeat 21, without --tasks, medians of three processes",
+  "baselineMs": 0.0176,
+  "candidateMs": 0.0142,
+  "switchedOffForMeasurement": {
+   "nanNormalisation": 0.0112,
+   "budgetPoll": 0.012,
+   "both": 0.0106
+  },
+  "luajitControlMs": {
+   "explicit63": 0.0074,
+   "explicit65539": 8.43,
+   "method": "bench module over bench/simd11/kernels.nupp under ./bin/nupp run, os.clock, best of nine rounds of 200 (65539) or 20000 (63) calls"
+  }
+ }
+}

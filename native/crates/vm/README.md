@@ -1398,3 +1398,61 @@ python3 native/crates/vm/tests/simd-smoke.py COMPILER_IMAGE --output OUT
 python3 native/crates/vm/tests/native-simd-smoke.py COMPILER_IMAGE --output OUT
 CARGO_TARGET_DIR=build/rust/target sh native/crates/vm/tests/simd-aot-smoke.sh COMPILER_IMAGE OUT/simd.image OUT typed
 ```
+
+### Kernel loop: branches, not instructions (2026-10-13)
+
+The 65,539-element map ran 2.6x slower than LLVM and 1.4x slower than scalar
+C after the native lowering landed, although the P1 prototype had matched
+LLVM on the same map. The loop body was read from the generated assembly
+and changed in four places, each measured alone:
+
+- **Branch polarity.** Cranelift lays a conditional branch's `then` target
+  after its `else` subtree, and the lowering emitted `JmpIfIZero` and
+  `JmpIf` with the fall-through as `then`. Every loop iteration therefore
+  took a branch into its own body and another back. The exit is now the
+  taken target and the body falls through, and the budget poll's blocks are
+  cold. This was the largest term, worth more than the instruction count
+  suggested, because taken branches bound the loop on this core.
+- **Budget poll.** The bounded-turn budget was charged in memory on every
+  backedge: a load, a compare, a select, a store and two branches. A
+  register now counts the remaining budget clamped to a chunk of 64
+  (`BUDGET_CHUNK`) and the shared budget is charged once per chunk, so a
+  turn still stops exactly where it did and the loop pays a decrement and
+  a never-taken branch.
+- **Invariant splats.** The adapter re-splatted `scale` and `bias` into
+  vector registers at every use. A second translation pass now hoists the
+  splat of a parameter to the prologue and reuses its registers.
+- **Canonicalisation.** The NaN blend after a stored float result selected
+  on not-equal, which needs a mask inversion; it selects on equal now.
+  Hoisting the NaN splat out of the loop was tried two ways and the
+  optimiser rematerialised it at each use both times, so it stays inline.
+
+| explicitMap, 65,539 elements | before | after |
+| --- | ---: | ---: |
+| direct call, median of three processes of 21 | 17.6 us | 14.2 us |
+| under the scheduler, paired nine forks of 21 | 21.1 us | 17.9 us (1.17x, interval 1.15 to 1.20) |
+| LLVM backend (control, same run) | | 8.1 us |
+| clang scalar (control, same run) | | 16.1 us |
+| LuaJIT, the product's `nupp.simd` without `@aot` | | 8,430 us |
+
+The direct call now beats scalar C. Two measured terms remain on the loop:
+the canonical-NaN blend after every stored float packet costs 3 us here
+(14.2 to 11.2 us with it off), and the chunked poll 2 us; with both off the
+loop runs at 10.6 us, 1.3x LLVM, which does `ldp`/`stp` pairs over an
+unrolled body. The blend is a contract choice, that storage never holds a
+NaN payload so its bytes are the same on every platform, not a limit of
+the backend; LuaJIT's own `species:store` keeps payloads. Dropping it is a
+decision for the contracts document, recorded here with its price.
+
+One caveat. The 63-element rows do not measure the kernel: a `sample` of that call shows
+its 2 us in the untyped harness around it, span views created through
+builtins resolved by name and hashed on each call, with the interpreter
+running the wrapper. That is the builtin-dispatch cost already on the P5
+list, not the kernel's.
+
+The LuaJIT control is the first in these records. It ran the same
+`kernels.nupp` under `./bin/nupp run` from a bench module with `os.clock`,
+best of nine rounds; LuaJIT executes the explicit species as one-lane Lua,
+which is why it is three orders slower than any native path. Results and
+provenance, including the commit of each binary, are in
+`tests/native-simd-loop-results.json`.
