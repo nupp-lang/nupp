@@ -38,6 +38,8 @@ pub const NAMES: &[&str] = &[
     "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory", "temporary.toString", "temporary.close", "temporary.isReleased", "temporary.persist",
     "tasks.vmSpawn", "tasks.vmCapture", "tasks.vmPrepare", "tasks.vmReplace", "tasks.vmFork", "tasks.vmStep", "tasks.vmPoll", "tasks.vmGeneration", "tasks.vmClose", "tasks.vmDiscard",
     "storage.layout",
+    "storage.structDefine", "storage.arrayType", "storage.valueNew", "storage.valueOf", "storage.valueCopy", "storage.valueIsa", "storage.structIs",
+    "foreign.bind", "foreign.call", "foreign.close", "foreign.errno", "foreign.callback", "foreign.setCallback",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -386,6 +388,7 @@ fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if
 fn type_name(it: &Interp, v: Value) -> &'static str {
     if crate::coroutines::is_coroutine(it,v) {return "thread";}
     if crate::numeric::is_numeric(v) { return "number"; }
+    if crate::storage::is_native(v) { return "cdata"; }
     if v == Value::NIL { return "nil"; }
     if v == Value::TRUE || v == Value::FALSE { return "boolean"; }
     if v.as_func().is_some() || v.as_builtin().is_some() { return "function"; }
@@ -415,6 +418,9 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // Supervision is synchronous, including affine cleanup invoked directly
     // through the builtin path rather than a scheduled bytecode call.
+    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("foreign.")) {
+        return crate::foreign::call(it, name, args);
+    }
     if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("tasks.vm")) {
         return match crate::task_api::call(it, 0, name, args) {
             crate::task_api::Answer::Values(values) => values.into_iter().collect(),
@@ -756,7 +762,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                     b'X' => format!("{:X}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
                     b'f' => format!("{:.*}", prec.unwrap_or(6), crate::numeric::double(it, v)).into_bytes(),
                     b'g' => general_number(crate::numeric::double(it, v), prec.unwrap_or(6)).into_bytes(),
-                    b'q' => { let t = bytes_of(it, v); let mut q = vec![b'"']; for &c in &t { match c { b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\n"), b'\r' => q.extend_from_slice(b"\\r"), 0 => q.extend_from_slice(b"\\0"), c if c < 32 || c == 127 => q.extend_from_slice(format!("\\{}", c).as_bytes()), c => q.push(c) } } q.push(b'"'); q }
+                    b'q' => { let t = bytes_of(it, v); let mut q = vec![b'"']; for &c in &t { match c { b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\n"), b'\r' => q.extend_from_slice(b"\\r"), c if c < 32 || c == 127 => q.extend_from_slice(format!("\\{c:03}").as_bytes()), c => q.push(c) } } q.push(b'"'); q }
                     b'c' => vec![v.as_num() as u8],
                     other => panic!("runtime error: string.format conversion %{}", other as char),
                 };

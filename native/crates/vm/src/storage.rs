@@ -1,4 +1,4 @@
-//! Native-layout scalar storage with managed owners and bounded views.
+//! Native-layout scalar and aggregate storage with managed owners and bounded views.
 //! Views and descriptors are ordinary graph objects, so collection, worker
 //! transfer and persistence retain the owner without saving a process address.
 use crate::{
@@ -51,6 +51,31 @@ pub const METHODS: &[&str] = &[
     "layout",
 ];
 
+/// Native storage identity is an object flag, never inferred from user fields.
+pub fn is_native(value: Value) -> bool {
+    value.as_obj().is_some_and(|p| unsafe {
+        let h = p.as_ref();
+        h.kind == KIND_TABLE && h.flags & crate::heap::F_NATIVE_STORAGE != 0
+    })
+}
+/// Physical field access is fixed; other metamethods follow the live witness.
+/// The witness is retained by the instance metatable and survives graph restore.
+pub(crate) fn metamethod(vm: &Interp, value: Value, meta: Value, name: &str) -> Option<Value> {
+    if matches!(name, "__index" | "__newindex") || !is_native(value) {
+        return None;
+    }
+    let methods = get(vm, meta, "\0nupp:storage:methods");
+    if methods == Value::NIL {
+        return None;
+    }
+    Some(get(vm, methods, name))
+}
+fn mark_native(value: Value) {
+    unsafe {
+        (*value.as_obj().unwrap().as_ptr()).flags |= crate::heap::F_NATIVE_STORAGE;
+    }
+}
+
 fn scope(vm: &mut Interp, body: impl FnOnce(&mut Interp) -> Value) -> Value {
     let mark = vm.open_scope();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(vm)));
@@ -97,65 +122,189 @@ fn text(vm: &Interp, value: Value) -> String {
 }
 fn scalar_width(kind: &str) -> Option<usize> {
     Some(match kind {
-        "uint8" | "int8" => 1,
+        "uint8" | "int8" | "boolean" => 1,
         "uint16" | "int16" => 2,
-        "uint32" | "int32" | "float" => 4,
+        "uint32" | "int32" | "integer" | "float" => 4,
         "uint64" | "int64" | "number" => 8,
         _ => return None,
     })
 }
-fn layout(vm: &Interp, descriptor: Value, depth: usize) -> (String, usize) {
-    if depth > 32 {
-        vm.err("nupp: storage descriptor nesting is too deep");
-    }
-    let kind = text(vm, get(vm, descriptor, "kind"));
-    if let Some(width) = scalar_width(&kind) {
-        return (kind, width);
-    }
-    let (name, width) = layout(vm, get(vm, descriptor, "element"), depth + 1);
-    match kind.as_str() {
-        "pointer" => (format!("{name}*"), std::mem::size_of::<usize>()),
-        "array" => {
-            let n = count(vm, get(vm, descriptor, "count"));
-            let size = n
-                .checked_mul(width)
-                .filter(|n| *n <= LIMIT)
-                .unwrap_or_else(|| {
-                    vm.err("nupp: storage array extent exceeds native allocation limit")
-                });
-            (format!("{name}[{n}]"), size)
-        }
-        _ => vm.err("nupp: unsupported storage descriptor"),
+fn scalar_alignment(kind: &str) -> Option<usize> {
+    Some(match kind {
+        "uint8" | "int8" | "boolean" => 1,
+        "uint16" | "int16" => std::mem::align_of::<u16>(),
+        "uint32" | "int32" | "integer" => std::mem::align_of::<u32>(),
+        "float" => std::mem::align_of::<f32>(),
+        "uint64" | "int64" => std::mem::align_of::<u64>(),
+        "number" => std::mem::align_of::<f64>(),
+        _ => return None,
+    })
+}
+fn extent(vm: &Interp, size: Option<usize>) -> usize {
+    size.filter(|n| *n <= LIMIT)
+        .unwrap_or_else(|| vm.err("nupp: storage extent exceeds native allocation limit"))
+}
+fn aligned(vm: &Interp, size: usize, alignment: usize) -> usize {
+    extent(
+        vm,
+        size.checked_add(alignment - 1)
+            .map(|n| n & !(alignment - 1)),
+    )
+}
+fn field_type(vm: &Interp, field: Value) -> Value {
+    let ty = get(vm, field, "type");
+    if ty == Value::NIL {
+        field
+    } else {
+        ty
     }
 }
-// Bounds checks need a validated extent, not an allocated display name.
-fn layout_width(vm: &Interp, descriptor: Value, depth: usize) -> usize {
+fn reject_unmodeled_layout(vm: &Interp, value: Value) {
+    for name in ["bitWidth", "bitPos", "pack", "packed", "explicitAlignment"] {
+        let value = get(vm, value, name);
+        if value != Value::NIL && value != Value::FALSE {
+            vm.err("nupp: packed, over-aligned, and bitfield layouts need target ABI metadata");
+        }
+    }
+}
+// Validate compiler facts against the executing host ABI, including every
+// nested offset. A foreign-target descriptor must never become native memory.
+fn measure(vm: &Interp, ty: Value, depth: usize) -> (usize, usize) {
+    reject_unmodeled_layout(vm, ty);
     if depth > 32 {
         vm.err("nupp: storage descriptor nesting is too deep");
     }
-    let kind = get(vm, descriptor, "kind");
-    if !vm.is_stringish(kind) {
+    if get(vm, ty, "supported") == Value::FALSE {
+        vm.err("nupp: unsupported native struct layout");
+    }
+    let kind_value = get(vm, ty, "kind");
+    if !vm.is_stringish(kind_value) {
         vm.err("nupp: storage kind must be a string");
     }
-    let kind = vm.bytes_of(kind);
-    if let Ok(name) = std::str::from_utf8(kind) {
-        if let Some(width) = scalar_width(name) {
-            return width;
+    let kind = std::str::from_utf8(vm.bytes_of(kind_value))
+        .unwrap_or_else(|_| vm.err("nupp: invalid storage kind"));
+    let result = if let Some(width) = scalar_width(kind) {
+        (width, scalar_alignment(kind).unwrap())
+    } else {
+        match kind {
+            "pointer" => (std::mem::size_of::<usize>(), std::mem::align_of::<usize>()),
+            "array" => {
+                let (width, alignment) = measure(vm, get(vm, ty, "element"), depth + 1);
+                (
+                    extent(vm, width.checked_mul(count(vm, get(vm, ty, "count")))),
+                    alignment,
+                )
+            }
+            "struct" | "union" => {
+                let fields = get(vm, ty, "fields");
+                let mut size = 0;
+                let mut alignment = 1;
+                let mut names = std::collections::HashSet::new();
+                for i in 0..vm.array_len(fields) {
+                    let field = vm.array_get(fields, i);
+                    let name = text(vm, get(vm, field, "name"));
+                    if !names.insert(name) {
+                        vm.err("nupp: duplicate native struct field");
+                    }
+                    let (width, align) = measure(vm, field_type(vm, field), depth + 1);
+                    reject_unmodeled_layout(vm, field);
+                    let offset = if kind == "union" {
+                        0
+                    } else {
+                        aligned(vm, size, align)
+                    };
+                    if count(vm, get(vm, field, "offset")) != offset {
+                        vm.err("nupp: aggregate field offset differs from host ABI");
+                    }
+                    size = if kind == "union" {
+                        size.max(width)
+                    } else {
+                        extent(vm, offset.checked_add(width))
+                    };
+                    alignment = alignment.max(align);
+                }
+                (aligned(vm, size, alignment), alignment)
+            }
+            _ => vm.err("nupp: unsupported storage descriptor"),
+        }
+    };
+    for (name, actual) in [("size", result.0), ("alignment", result.1)] {
+        let supplied = get(vm, ty, name);
+        if supplied != Value::NIL && count(vm, supplied) != actual {
+            vm.err("nupp: native layout differs from host ABI");
         }
     }
-    let width = layout_width(vm, get(vm, descriptor, "element"), depth + 1);
-    match kind {
-        b"pointer" => std::mem::size_of::<usize>(),
-        b"array" => count(vm, get(vm, descriptor, "count"))
-            .checked_mul(width)
-            .filter(|n| *n <= LIMIT)
-            .unwrap_or_else(|| {
-                vm.err("nupp: storage array extent exceeds native allocation limit")
-            }),
+    result
+}
+fn type_key(vm: &Interp, ty: Value, depth: usize) -> String {
+    if depth > 32 {
+        vm.err("nupp: storage descriptor nesting is too deep");
+    }
+    let kind = text(vm, get(vm, ty, "kind"));
+    if scalar_width(&kind).is_some() {
+        return kind;
+    }
+    match kind.as_str() {
+        "pointer" => format!("{}*", type_key(vm, get(vm, ty, "element"), depth + 1)),
+        "array" => format!(
+            "{}[{}]",
+            type_key(vm, get(vm, ty, "element"), depth + 1),
+            count(vm, get(vm, ty, "count"))
+        ),
+        "struct" | "union" => {
+            // Nominal identity is independent of a local declaration alias.
+            let identity = text(vm, get(vm, ty, "identity"));
+            let fields = get(vm, ty, "fields");
+            let mut members = Vec::new();
+            for i in 0..vm.array_len(fields) {
+                let f = vm.array_get(fields, i);
+                members.push(format!(
+                    "{:?}:{}@{}",
+                    text(vm, get(vm, f, "name")),
+                    type_key(vm, field_type(vm, f), depth + 1),
+                    count(vm, get(vm, f, "offset"))
+                ));
+            }
+            format!("{kind}:{identity:?}{{{}}}", members.join(","))
+        }
         _ => vm.err("nupp: unsupported storage descriptor"),
     }
 }
-
+fn layout(vm: &Interp, descriptor: Value, depth: usize) -> (String, usize) {
+    let width = measure(vm, descriptor, depth).0;
+    (type_key(vm, descriptor, depth), width)
+}
+fn layout_width(vm: &Interp, descriptor: Value, depth: usize) -> usize {
+    measure(vm, descriptor, depth).0
+}
+fn descriptor_methods(vm: &mut Interp, ty: Value) {
+    for (name, method) in [
+        ("new", "valueNew"),
+        ("zero", "valueNew"),
+        ("of", "valueOf"),
+        ("copy", "valueCopy"),
+        ("isa", "valueIsa"),
+    ] {
+        set(
+            vm,
+            ty,
+            name,
+            Value::builtin(builtins::id_of(&format!("storage.{method}")).unwrap()),
+        );
+    }
+    let meta = table(vm);
+    set(
+        vm,
+        meta,
+        "__call",
+        Value::builtin(builtins::id_of("storage.valueOf").unwrap()),
+    );
+    let methods = get(vm, ty, "methods");
+    if methods != Value::NIL {
+        set(vm, meta, "__index", get(vm, methods, "__index"));
+    }
+    vm.set_metatable(ty, meta);
+}
 fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
     let name = if element == Value::NIL {
         kind.to_string()
@@ -183,8 +332,106 @@ fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
     if kind == "array" {
         set(vm, result, "count", Value::num(n as f64));
     }
-    layout(vm, result, 0);
+    let (size, alignment) = measure(vm, result, 0);
+    set(vm, result, "size", Value::num(size as f64));
+    set(vm, result, "alignment", Value::num(alignment as f64));
+    descriptor_methods(vm, result);
+    mark_native(result);
     vm.set_index(cache, key, result);
+    result
+}
+fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize) -> Value {
+    let (size, alignment) = measure(vm, input, depth);
+    let kind = text(vm, get(vm, input, "kind"));
+    if scalar_width(&kind).is_some() {
+        return descriptor(vm, &kind, Value::NIL, 0);
+    }
+    if kind == "array" {
+        let element = normalize_layout(vm, get(vm, input, "element"), Value::NIL, depth + 1);
+        return descriptor(vm, "array", element, count(vm, get(vm, input, "count")));
+    }
+    if !matches!(kind.as_str(), "struct" | "union") {
+        vm.err("nupp: native struct field kind is unsupported");
+    }
+    let identity = text(vm, get(vm, input, "identity"));
+    if identity.is_empty() {
+        vm.err("nupp: native struct requires canonical identity");
+    }
+    let key_text = format!("nominal:{identity}");
+    let key = vm.intern(&key_text);
+    vm.handles.push(key);
+    let cache = vm.loaded[TYPES];
+    let signature = type_key(vm, input, depth);
+    let previous = vm.get_index(cache, key);
+    let result = if previous != Value::NIL {
+        if type_key(vm, previous, depth) != signature {
+            vm.err("nupp: conflicting native struct declaration");
+        }
+        if methods == Value::NIL {
+            return previous;
+        }
+        previous
+    } else {
+        let result = table(vm);
+        let k = vm.intern(&kind);
+        set(vm, result, "kind", k);
+        for name in [
+            "identity",
+            "name",
+            "typeName",
+            "fingerprint",
+            "target",
+            "abi",
+        ] {
+            let value = get(vm, input, name);
+            if value != Value::NIL {
+                set(vm, result, name, value);
+            }
+        }
+        set(vm, result, "size", Value::num(size as f64));
+        set(vm, result, "alignment", Value::num(alignment as f64));
+        set(vm, result, "layout", input);
+        let fields = table(vm);
+        let source = get(vm, input, "fields");
+        for i in 0..vm.array_len(source) {
+            let f = vm.array_get(source, i);
+            let member = table(vm);
+            set(vm, member, "name", get(vm, f, "name"));
+            set(vm, member, "offset", get(vm, f, "offset"));
+            let ty = normalize_layout(vm, field_type(vm, f), Value::NIL, depth + 1);
+            set(vm, member, "type", ty);
+            vm.push_array(fields, member);
+        }
+        set(vm, result, "fields", fields);
+        vm.set_index(cache, key, result);
+        result
+    };
+    if methods != Value::NIL {
+        set(vm, result, "methods", methods);
+    }
+    descriptor_methods(vm, result);
+    let previous_meta = get(vm, result, "instanceMeta");
+    let meta = if previous_meta == Value::NIL {
+        table(vm)
+    } else {
+        previous_meta
+    };
+    if methods != Value::NIL {
+        set(vm, meta, "\0nupp:storage:methods", methods);
+    }
+    for (name, method) in [("__index", "index"), ("__newindex", "write")] {
+        set(
+            vm,
+            meta,
+            name,
+            Value::builtin(builtins::id_of(&format!("storage.{method}")).unwrap()),
+        );
+    }
+    set(vm, result, "instanceMeta", meta);
+    mark_native(result);
+    if methods != Value::NIL && get(vm, methods, "__index") == methods {
+        mark_native(methods);
+    }
     result
 }
 #[derive(Clone, Copy)]
@@ -196,37 +443,290 @@ struct View {
     element: Value,
     readonly: bool,
 }
+fn view_field(vm: &Interp, value: Value, name: &str) -> Value {
+    let key = match name {
+        "owner" => "\0nupp:storage:owner",
+        "offset" => "\0nupp:storage:offset",
+        "end" => "\0nupp:storage:end",
+        "descriptor" => "\0nupp:storage:descriptor",
+        "readonly" => "\0nupp:storage:readonly",
+        _ => unreachable!(),
+    };
+    let v = get(vm, value, key);
+    if v == Value::NIL {
+        get(vm, value, name)
+    } else {
+        v
+    }
+}
 fn view(vm: &Interp, value: Value) -> View {
-    let owner = get(vm, value, "owner");
+    let owner = view_field(vm, value, "owner");
     let size = vm.bytes_of(owner).len();
-    let offset = count(vm, get(vm, value, "offset"));
-    let end = count(vm, get(vm, value, "end"));
+    let offset = count(vm, view_field(vm, value, "offset"));
+    let end = count(vm, view_field(vm, value, "end"));
     if offset > end || end > size {
         vm.err("nupp: storage view is out of bounds");
     }
-    let ty = get(vm, value, "descriptor");
+    let ty = view_field(vm, value, "descriptor");
     let element = get(vm, ty, "element");
-    layout_width(vm, ty, 0);
-    layout_width(vm, element, 0);
+    let width = layout_width(vm, ty, 0);
+    if element != Value::NIL {
+        layout_width(vm, element, 0);
+    } else if !matches!(text(vm, get(vm, ty, "kind")).as_str(), "struct" | "union") {
+        vm.err("nupp: invalid storage value descriptor");
+    }
+    if element == Value::NIL && width > end - offset {
+        vm.err("nupp: truncated native struct view");
+    }
     View {
         owner,
         offset,
         end,
         ty,
         element,
-        readonly: get(vm, value, "readonly").truthy() || vm.kind_of(owner) != Some(KIND_BYTES),
+        readonly: view_field(vm, value, "readonly").truthy()
+            || vm.kind_of(owner) != Some(KIND_BYTES),
     }
 }
 fn make_view(vm: &mut Interp, v: View) -> Value {
     vm.handles.extend_from_slice(&[v.owner, v.ty]);
     let result = table(vm);
-    set(vm, result, "owner", v.owner);
-    set(vm, result, "offset", Value::num(v.offset as f64));
-    set(vm, result, "end", Value::num(v.end as f64));
-    set(vm, result, "descriptor", v.ty);
-    set(vm, result, "readonly", Value::boolean(v.readonly));
-    vm.set_metatable(result, vm.loaded[META]);
+    mark_native(result);
+    set(vm, result, "\0nupp:storage:owner", v.owner);
+    set(
+        vm,
+        result,
+        "\0nupp:storage:offset",
+        Value::num(v.offset as f64),
+    );
+    set(vm, result, "\0nupp:storage:end", Value::num(v.end as f64));
+    set(vm, result, "\0nupp:storage:descriptor", v.ty);
+    set(
+        vm,
+        result,
+        "\0nupp:storage:readonly",
+        Value::boolean(v.readonly),
+    );
+    let meta = get(vm, v.ty, "instanceMeta");
+    vm.set_metatable(
+        result,
+        if meta == Value::NIL {
+            vm.loaded[META]
+        } else {
+            meta
+        },
+    );
     result
+}
+fn same_type(vm: &Interp, a: Value, b: Value) -> bool {
+    a == b || (measure(vm, a, 0) == measure(vm, b, 0) && type_key(vm, a, 0) == type_key(vm, b, 0))
+}
+fn is_view(vm: &Interp, value: Value) -> bool {
+    if !matches!(vm.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) {
+        return false;
+    }
+    get(vm, value, "\0nupp:storage:owner") != Value::NIL
+        || (get(vm, value, "owner") != Value::NIL
+            && get(vm, value, "descriptor") != Value::NIL
+            && get(vm, value, "offset") != Value::NIL
+            && get(vm, value, "end") != Value::NIL)
+}
+fn value_isa(vm: &Interp, ty: Value, value: Value) -> bool {
+    let kind = text(vm, get(vm, ty, "kind"));
+    if kind == "boolean" {
+        return matches!(value, Value::TRUE | Value::FALSE);
+    }
+    if scalar_width(&kind).is_some() {
+        return numeric::is_numeric(value);
+    }
+    is_native(value) && is_view(vm, value) && same_type(vm, ty, view(vm, value).ty)
+}
+fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
+    let (size, alignment) = measure(vm, ty, 0);
+    let kind = text(vm, get(vm, ty, "kind"));
+    if scalar_width(&kind).is_some() {
+        return decode(vm, &kind, &[0; 8]);
+    }
+    if !matches!(kind.as_str(), "array" | "struct" | "union") {
+        vm.err("nupp: cannot allocate a raw native pointer");
+    }
+    let owner = vm.heap_new_aligned_bytes(size, alignment);
+    make_view(
+        vm,
+        View {
+            owner,
+            offset: 0,
+            end: size,
+            ty,
+            element: get(vm, ty, "element"),
+            readonly: false,
+        },
+    )
+}
+fn read_value(vm: &mut Interp, v: View, ty: Value, offset: usize) -> Value {
+    let width = layout_width(vm, ty, 0);
+    let end = offset
+        .checked_add(width)
+        .filter(|end| *end <= v.end)
+        .unwrap_or_else(|| vm.err("nupp: storage field is out of bounds"));
+    let kind = text(vm, get(vm, ty, "kind"));
+    if scalar_width(&kind).is_some() {
+        let mut bytes = [0; 8];
+        bytes[..width].copy_from_slice(&vm.bytes_of(v.owner)[offset..end]);
+        return decode(vm, &kind, &bytes[..width]);
+    }
+    if !matches!(kind.as_str(), "struct" | "union" | "array") {
+        vm.err("nupp: raw native pointers are not VM storage values");
+    }
+    make_view(
+        vm,
+        View {
+            offset,
+            end,
+            ty,
+            element: get(vm, ty, "element"),
+            ..v
+        },
+    )
+}
+fn write_value(vm: &mut Interp, v: View, ty: Value, offset: usize, value: Value) {
+    if v.readonly {
+        vm.err("nupp: storage view is read-only");
+    }
+    let width = layout_width(vm, ty, 0);
+    let end = offset
+        .checked_add(width)
+        .filter(|end| *end <= v.end)
+        .unwrap_or_else(|| vm.err("nupp: storage field is out of bounds"));
+    let kind = text(vm, get(vm, ty, "kind"));
+    if scalar_width(&kind).is_some() {
+        let bytes = encode(vm, &kind, value);
+        vm.bytes_mut(v.owner)[offset..end].copy_from_slice(&bytes);
+    } else {
+        if !value_isa(vm, ty, value) {
+            vm.err("nupp: aggregate assignment requires the same native type");
+        }
+        let source = view(vm, value);
+        if width > source.end - source.offset {
+            vm.err("nupp: truncated aggregate source");
+        }
+        if v.owner == source.owner {
+            vm.bytes_mut(v.owner)
+                .copy_within(source.offset..source.offset + width, offset);
+        } else {
+            let bytes = vm.bytes_of(source.owner)[source.offset..source.offset + width].to_vec();
+            vm.bytes_mut(v.owner)[offset..end].copy_from_slice(&bytes);
+        }
+    }
+}
+fn member(vm: &Interp, ty: Value, key: Value) -> Option<(Value, usize)> {
+    if !vm.is_stringish(key) {
+        return None;
+    }
+    let fields = get(vm, ty, "fields");
+    for i in 0..vm.array_len(fields) {
+        let field = vm.array_get(fields, i);
+        if vm.values_equal(get(vm, field, "name"), key) {
+            return Some((field_type(vm, field), count(vm, get(vm, field, "offset"))));
+        }
+    }
+    None
+}
+fn initialize_value(vm: &mut Interp, ty: Value, args: &[Value]) -> Value {
+    let result = allocate_value(vm, ty);
+    vm.handles.push(result);
+    let kind = text(vm, get(vm, ty, "kind"));
+    if scalar_width(&kind).is_some() {
+        return if let Some(value) = args.first() {
+            let bytes = encode(vm, &kind, *value);
+            decode(vm, &kind, &bytes)
+        } else {
+            result
+        };
+    }
+    let target = view(vm, result);
+    if matches!(kind.as_str(), "struct" | "union") {
+        let fields = get(vm, ty, "fields");
+        let limit = if kind == "union" {
+            vm.array_len(fields).min(1)
+        } else {
+            vm.array_len(fields)
+        };
+        if args.len() > limit {
+            vm.err("nupp: too many native struct initializers");
+        }
+        for (i, value) in args.iter().copied().enumerate() {
+            let field = vm.array_get(fields, i);
+            write_value(
+                vm,
+                target,
+                field_type(vm, field),
+                count(vm, get(vm, field, "offset")),
+                value,
+            );
+        }
+    } else {
+        let n = count(vm, get(vm, ty, "count"));
+        if args.len() > n {
+            vm.err("nupp: too many fixed-array initializers");
+        }
+        let width = layout_width(vm, target.element, 0);
+        for (i, value) in args.iter().copied().enumerate() {
+            write_value(vm, target, target.element, i * width, value);
+        }
+    }
+    result
+}
+
+/// Root `owner` (or the source value) while using the pointer. Physical owners
+/// never resize, so allocations and GC during a callback cannot invalidate it.
+/// The requested write capability must agree with the foreign parameter.
+pub struct NativeView {
+    pub owner: Value,
+    pub pointer: *mut u8,
+    pub length: usize,
+    pub alignment: usize,
+    pub descriptor: Value,
+}
+pub fn native_view(vm: &Interp, value: Value, write: bool) -> NativeView {
+    if !is_native(value) {
+        vm.err("nupp: native pointer requires a native storage value");
+    }
+    let v = view(vm, value);
+    let mut owner = unsafe { v.owner.as_obj().unwrap().as_ref() };
+    if owner.kind == crate::heap::KIND_SLICE {
+        owner = unsafe { owner.slice().source.as_obj().unwrap().as_ref() };
+    }
+    let fixed = match owner.kind {
+        KIND_BYTES => unsafe { &*(owner.payload() as *const crate::heap::BytesPayload) }
+            .data
+            .is_fixed(),
+        crate::heap::KIND_STR => true,
+        _ => false,
+    };
+    if !fixed {
+        vm.err("nupp: native pointer requires a fixed owner");
+    }
+    if write && v.readonly {
+        vm.err("nupp: storage view is read-only");
+    }
+    let pointer = unsafe { vm.bytes_of(v.owner).as_ptr().add(v.offset) as *mut u8 };
+    let ty = if v.element == Value::NIL {
+        v.ty
+    } else {
+        v.element
+    };
+    let alignment = measure(vm, ty, 0).1;
+    if (pointer as usize) % alignment != 0 {
+        vm.err("nupp: native view is unaligned");
+    }
+    NativeView {
+        owner: v.owner,
+        pointer,
+        length: v.end - v.offset,
+        alignment,
+        descriptor: v.ty,
+    }
 }
 fn range(vm: &Interp, value: Value, n: usize, write: bool) -> (Value, usize) {
     if vm.is_stringish(value) && !write {
@@ -255,13 +755,16 @@ pub(crate) fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
         vm.err("nupp: storage decode input is too short");
     }
     let b = &bytes[..width];
+    if kind == "boolean" {
+        return Value::boolean(b[0] != 0);
+    }
     let n = match kind {
         "uint8" => b[0] as f64,
         "int8" => b[0] as i8 as f64,
         "uint16" => u16::from_ne_bytes(b.try_into().unwrap()) as f64,
         "int16" => i16::from_ne_bytes(b.try_into().unwrap()) as f64,
         "uint32" => u32::from_ne_bytes(b.try_into().unwrap()) as f64,
-        "int32" => i32::from_ne_bytes(b.try_into().unwrap()) as f64,
+        "int32" | "integer" => i32::from_ne_bytes(b.try_into().unwrap()) as f64,
         "uint64" | "int64" => {
             return vm.box_integer(numeric::Integer {
                 bits: u64::from_ne_bytes(b.try_into().unwrap()),
@@ -275,6 +778,13 @@ pub(crate) fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
     Value::num(n)
 }
 fn encode(vm: &Interp, kind: &str, value: Value) -> Vec<u8> {
+    if kind == "boolean" {
+        return match value {
+            Value::TRUE => vec![1],
+            Value::FALSE => vec![0],
+            _ => vm.err("nupp: native boolean field requires a boolean"),
+        };
+    }
     if kind == "float" {
         return (numeric::double(vm, value) as f32).to_ne_bytes().to_vec();
     }
@@ -449,6 +959,22 @@ pub fn install(vm: &mut Interp) {
             let id = builtins::id_of(&format!("storage.{name}")).unwrap();
             set(vm, provider, name, Value::builtin(id));
         }
+        let structs = table(vm);
+        for (name, method) in [
+            ("scalar", "scalar"),
+            ("array", "arrayType"),
+            ("define", "structDefine"),
+        ] {
+            set(
+                vm,
+                structs,
+                name,
+                Value::builtin(builtins::id_of(&format!("storage.{method}")).unwrap()),
+            );
+        }
+        set(vm, structs, "referenceValued", Value::TRUE);
+        set(vm, provider, "structs", structs);
+        vm.loaded.insert("nupp.runtime.structvalue".into(), structs);
         vm.loaded
             .insert("nupp.runtime.provider.nativestorage".into(), provider);
         provider
@@ -484,10 +1010,53 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             };
         }
         match name {
+            "structDefine" => normalize_layout(vm, arg(0), arg(1), 0),
+            "arrayType" => descriptor(vm, "array", arg(0), count(vm, arg(1))),
+            "valueNew" | "valueOf" => initialize_value(vm, arg(0), &args[1.min(args.len())..]),
+            "valueIsa" => Value::boolean(value_isa(vm, arg(0), arg(1))),
+            "structIs" => {
+                let value = arg(0);
+                if !is_native(value) || !is_view(vm, value) {
+                    return Value::FALSE;
+                }
+                let ty = view(vm, value).ty;
+                Value::boolean(
+                    vm.values_equal(get(vm, ty, "identity"), arg(1))
+                        && get(vm, ty, "identity") != Value::NIL,
+                )
+            }
+            "valueCopy" => {
+                let ty = arg(0);
+                if !value_isa(vm, ty, arg(1)) {
+                    vm.err("nupp: cannot copy a value of another native type");
+                }
+                let kind = text(vm, get(vm, ty, "kind"));
+                if scalar_width(&kind).is_some() {
+                    let bytes = encode(vm, &kind, arg(1));
+                    return decode(vm, &kind, &bytes);
+                }
+                let result = allocate_value(vm, ty);
+                vm.handles.push(result);
+                let target = view(vm, result);
+                write_value(vm, target, ty, target.offset, arg(1));
+                result
+            }
             "layout" => {
                 // Compiler facts describe a declaration's target ABI. They do
                 // not turn its boxed values into physical native row views.
                 let subject = arg(0);
+                if is_view(vm, subject) {
+                    let ty = view(vm, subject).ty;
+                    let facts = get(vm, ty, "layout");
+                    return if facts == Value::NIL { ty } else { facts };
+                }
+                if matches!(vm.kind_of(subject), Some(KIND_TABLE | KIND_RECORD))
+                    && get(vm, subject, "kind") != Value::NIL
+                {
+                    measure(vm, subject, 0);
+                    let facts = get(vm, subject, "layout");
+                    return if facts == Value::NIL { subject } else { facts };
+                }
                 let Some(key) = vm.heap.interned_key("\0nupp:structLayout") else {
                     return Value::NIL;
                 };
@@ -529,8 +1098,8 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                 };
                 let n = count(vm, arg(if name == "allocateBytes" { 0 } else { 1 }));
                 let ty = descriptor(vm, "array", element, n);
-                let (_, size) = layout(vm, ty, 0);
-                let owner = vm.heap_new_bytes(size);
+                let (size, alignment) = measure(vm, ty, 0);
+                let owner = vm.heap_new_aligned_bytes(size, alignment);
                 make_view(
                     vm,
                     View {
@@ -578,7 +1147,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             }
             "sizeOf" => {
                 let value = arg(0);
-                let ty = if get(vm, value, "owner") != Value::NIL {
+                let ty = if is_view(vm, value) {
                     view(vm, value).ty
                 } else {
                     value
@@ -621,39 +1190,61 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             }
             "index" | "write" => {
                 let v = view(vm, arg(0));
-                let i = count(vm, arg(1));
-                let (kind, width) = layout(vm, v.element, 0);
-                if width == 0 || i >= (v.end - v.offset) / width {
-                    vm.err("nupp: storage index is out of bounds");
-                }
-                let offset = v.offset + i * width;
-                if name == "write" {
-                    if v.readonly {
-                        vm.err("nupp: storage view is read-only");
+                let (ty, offset) = if v.element == Value::NIL {
+                    let field = member(vm, v.ty, arg(1));
+                    if field.is_none() && name == "index" {
+                        let methods = get(vm, v.ty, "methods");
+                        if methods != Value::NIL {
+                            let index = get(vm, methods, "__index");
+                            if index != Value::NIL {
+                                if !matches!(vm.kind_of(index), Some(KIND_TABLE | KIND_RECORD)) {
+                                    return vm
+                                        .call_value(index, &[arg(0), arg(1)])
+                                        .first()
+                                        .copied()
+                                        .unwrap_or(Value::NIL);
+                                }
+                                let method = vm.get_index(index, arg(1));
+                                if method != Value::NIL {
+                                    return method;
+                                }
+                            }
+                        }
                     }
-                    if scalar_width(&kind).is_none() {
-                        vm.err("nupp: aggregate storage assignment requires a byte copy");
-                    }
-                    let bytes = encode(vm, &kind, arg(2));
-                    vm.bytes_mut(v.owner)[offset..offset + width].copy_from_slice(&bytes);
-                    Value::NIL
-                } else if scalar_width(&kind).is_some() {
-                    let bytes = vm.bytes_of(v.owner)[offset..offset + width].to_vec();
-                    decode(vm, &kind, &bytes)
-                } else if text(vm, get(vm, v.element, "kind")) == "array" {
-                    let element = get(vm, v.element, "element");
-                    make_view(
-                        vm,
-                        View {
-                            offset,
-                            end: offset + width,
-                            ty: v.element,
-                            element,
-                            ..v
-                        },
+                    let (ty, offset) =
+                        field.unwrap_or_else(|| vm.err("nupp: native struct has no such field"));
+                    (
+                        ty,
+                        v.offset
+                            .checked_add(offset)
+                            .unwrap_or_else(|| vm.err("nupp: native field extent overflow")),
                     )
                 } else {
-                    vm.err("nupp: raw native pointers are not VM storage values")
+                    let i = count(vm, arg(1));
+                    let width = layout_width(vm, v.element, 0);
+                    let elements = if text(vm, get(vm, v.ty, "kind")) == "array" {
+                        count(vm, get(vm, v.ty, "count"))
+                    } else if width == 0 {
+                        0
+                    } else {
+                        (v.end - v.offset) / width
+                    };
+                    if i >= elements {
+                        vm.err("nupp: storage index is out of bounds");
+                    }
+                    (
+                        v.element,
+                        extent(
+                            vm,
+                            i.checked_mul(width).and_then(|n| v.offset.checked_add(n)),
+                        ),
+                    )
+                };
+                if name == "write" {
+                    write_value(vm, v, ty, offset, arg(2));
+                    Value::NIL
+                } else {
+                    read_value(vm, v, ty, offset)
                 }
             }
             "add" | "sub" => {
@@ -663,6 +1254,9 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                     (arg(0), arg(1))
                 };
                 let v = view(vm, pointer);
+                if v.element == Value::NIL {
+                    vm.err("nupp: struct value is not an element pointer");
+                }
                 let width = layout(vm, v.element, 0).1;
                 if width == 0 {
                     vm.err("nupp: pointer arithmetic needs a nonzero element width");
@@ -739,10 +1333,15 @@ pub(crate) fn native_span(vm: &Interp, span: Value, kind: u8, write: bool) -> (*
     let offset = count(vm, get(vm, span, "offset"));
     let n = count(vm, get(vm, span, "count"));
     let w = crate::simd::width(kind);
-    let start = offset.checked_mul(w).and_then(|x| x.checked_add(v.offset))
+    let start = offset
+        .checked_mul(w)
+        .and_then(|x| x.checked_add(v.offset))
         .unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
-    let end = n.checked_mul(w).and_then(|x| x.checked_add(start))
-        .filter(|&x| x <= v.end).unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
+    let end = n
+        .checked_mul(w)
+        .and_then(|x| x.checked_add(start))
+        .filter(|&x| x <= v.end)
+        .unwrap_or_else(|| vm.err("SIMD storage index out of bounds"));
     let bytes = vm.bytes_of(v.owner);
     (unsafe { bytes.as_ptr().add(end - n * w) }, n)
 }

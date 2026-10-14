@@ -120,7 +120,7 @@ function lower.emit(
         if tag == "boolean" then
             return "bool"
         end
-        if tag == "nominal" and shapeOfNominal(t) then
+        if tag == "nominal" and shapeOfNominal(t) and not shapeOfNominal(t).physical then
             return "rec:" .. shapeOfNominal(t).id
         end
         if tag == "literal" then
@@ -150,6 +150,10 @@ function lower.emit(
             end
         end
         local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}, node = node, module = currentModule}
+        if node.declKind == "struct" or node.kind == "cdefStruct" then
+            shape.physical = true
+            shape.layout = require("nupp.compiler.vm.metadata").structLayout(node, layoutTarget)
+        end
         shapes[name] = shapes[name] or {}
         table.insert(shapes[name], shape)
         if nominal then
@@ -775,7 +779,7 @@ function lower.emit(
     -- metatable expression to evaluate for its effects (or nil).
     local function recordConstructorCast(f, node)
         local shape = shapeOf(node.inferredType)
-        if not shape or shape.name:sub(1, 7) == "struct:" then
+        if not shape or shape.physical or shape.name:sub(1, 7) == "struct:" then
             return nil
         end
         local e = node.expr
@@ -851,6 +855,46 @@ function lower.emit(
         float = "number",
         ["function"] = "function"
     }
+
+    local function builtinRegisters(f, name, values, dst)
+        dst = dst or f:reg()
+        local callee, base = f:reg(), f:reg()
+        for _ = 1, #values do
+            f:reg()
+        end
+        f:op("K", callee, f:const("builtin", name))
+        for index, value in ipairs(values) do
+            f:op("Move", base + index, value)
+        end
+        f:op("CallDyn", callee, base, #values)
+        f:op("Move", dst, base)
+
+        return dst
+    end
+
+    local function structDescriptor(witness)
+        return {kind = "dotIndex", obj = witness, name = {text = "\0nupp:structType"}}
+    end
+
+    local function inlineImplicitSelf(entry)
+        local first = entry.body and entry.body.params and entry.body.params[1]
+        return not entry.inlineStatic and not (first and first.name and first.name.text == "self")
+    end
+
+    local function shapeTest(f, shape, value, dst)
+        if shape.physical then
+            local identity = f:reg()
+            f:op(
+                "K",
+                identity,
+                f:const("str", shape.node.resolvedType.runtimeDeclarationKey or shape.node.resolvedType.cdefIdentity)
+            )
+            builtinRegisters(f, "storage.structIs", {value, identity}, dst)
+        else
+            f:op("IsRec", dst, value, shape.id)
+        end
+    end
+
     -- `x is T`, as the Lua backend decides it: settled by the checker, a nil
     -- test, or a `type()` comparison for a primitive.
     emitIs = function(f, node, dst)
@@ -892,6 +936,9 @@ function lower.emit(
             exprAs(f, node.expr, "v", value)
             f:op("CallDyn", callee, base, 1)
             f:op("Move", dst, base)
+        elseif shapeOfNominal(node.typeTestTarget) then
+            local value = exprAs(f, node.expr, "v")
+            shapeTest(f, shapeOfNominal(node.typeTestTarget), value, dst)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
             typeTest(IS_TYPE[t.base.text])
         elseif t.primitiveTest then
@@ -900,14 +947,14 @@ function lower.emit(
             typeTest("function")
         elseif t.recordName and (shapeOfNominal(t.resolvedType) or shapeByBareName(t.recordName)) then
             local v = exprAs(f, node.expr, "v");
-            f:op("IsRec", dst, v, (shapeOfNominal(t.resolvedType) or shapeByBareName(t.recordName)).id)
+            shapeTest(f, shapeOfNominal(t.resolvedType) or shapeByBareName(t.recordName), v, dst)
         elseif t.recordNames then
             -- One of several records: the subject is read once, tested in order.
             local v = exprAs(f, node.expr, "v")
             local exits = {}
             for i, rn in ipairs(t.recordNames) do
                 local sh = assert(shapeByBareName(rn), "is-test against unknown record " .. tostring(rn))
-                f:op("IsRec", dst, v, sh.id)
+                shapeTest(f, sh, v, dst)
                 if i < #t.recordNames then
                     exits[#exits + 1] = f:op("JmpIf", dst, 0)
                 end
@@ -1246,6 +1293,24 @@ function lower.emit(
         nres = nres or 1
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
+            return
+        end
+        if node.carrayElem then
+            local descriptor = exprAs(f, structDescriptor(node.carrayElem), "v")
+            local count = exprAs(f, node.args.exprs[2], "v")
+            local element = node.carrayElem.inferredType
+            local shape = element and shapeOf(element.tag == "typeobject" and element.of or element)
+            if shape and shape.physical and not shape.layout.supported then
+                local reason = f:reg()
+                f:op("K", reason, f:const("str", shape.layout.error))
+                builtinRegisters(f, "error", {reason}, dst)
+                return
+            end
+            builtinRegisters(f, "storage.allocateArray", {descriptor, count}, dst)
+            return
+        elseif node.layoutOf then
+            local witness = exprAs(f, node.args.exprs[1], "v")
+            builtinRegisters(f, "storage.layout", {witness}, dst)
             return
         end
         if simdCall(f, node, dst, nres) then
@@ -1859,7 +1924,11 @@ function lower.emit(
         if numeric and k == "dotIndex" then
             local shape = shapeOf(node.obj.inferredType)
             local fname = tokText(node.name)
-            if shape and shape.slotIndex[fname] and shape.slots[shape.slotIndex[fname] + 1].ty == "num" then
+            if shape
+                and not shape.physical
+                and shape.slotIndex[fname]
+                and shape.slots[shape.slotIndex[fname] + 1].ty == "num"
+            then
                 local o = exprAs(f, node.obj, "v")
                 local d = f:freg();
                 f:op("GetSlotF", d, o, shape.slotIndex[fname], shape.id);
@@ -2176,7 +2245,7 @@ function lower.emit(
             else
                 local shape = shapeOf(node.obj.inferredType)
                 local o = exprAs(f, node.obj, "v")
-                if shape and shape.slotIndex[fname] then
+                if shape and not shape.physical and shape.slotIndex[fname] then
                     f:op("GetSlot", dst, o, shape.slotIndex[fname], shape.id)
                 else
                     f:op("GetField", dst, o, f:const("str", fname))
@@ -2233,7 +2302,28 @@ function lower.emit(
                     ) .. " [" .. table.concat(keys, " ") .. "]"
                 )
             end
-            f:op("NewRecord", dst, shape.id)
+            if shape.physical then
+                if not shape.layout.supported then
+                    local reason = f:reg()
+                    f:op("K", reason, f:const("str", shape.layout.error))
+                    builtinRegisters(f, "error", {reason}, dst)
+                    return dst, "v"
+                end
+                emitCall(
+                    f,
+                    {
+                        kind = "methodCall",
+                        obj = structDescriptor(
+                            assert(call.vmStructWitness or call.obj, "struct construction has no witness")
+                        ),
+                        name = {text = "new"},
+                        args = {exprs = {}}
+                    },
+                    dst
+                )
+            else
+                f:op("NewRecord", dst, shape.id)
+            end
             local fields = call.recordFields
             if not fields then
                 fields = {}
@@ -2242,6 +2332,10 @@ function lower.emit(
                     fields[#fields + 1] = {name = tokText(argument.name), node = argument.value}
                 end
             end
+            assert(
+                not (shape.physical and shape.layout.kind == "union") or #fields <= 1,
+                "a union constructor initializes at most one member"
+            )
             local fieldMark, fieldFloatMark = f.nregs, f.nfregs
             for _, field in ipairs(fields) do
                 f.nregs = math.max(fieldMark, f.declTop or 0)
@@ -2256,7 +2350,10 @@ function lower.emit(
                 )
                 local value = field.isDefault and require("nupp.compiler.vm.metadata").literal(field.defaultValue)
                     or field.node
-                if shape.slots[slot + 1].ty == "num" then
+                if shape.physical then
+                    local v = exprAs(f, value, "v")
+                    f:op("SetField", dst, f:const("str", field.name), v)
+                elseif shape.slots[slot + 1].ty == "num" then
                     local v = exprAs(f, value, "f");
                     f:op("SetSlotF", dst, slot, v, shape.id)
                 else
@@ -2555,7 +2652,11 @@ function lower.emit(
             for _, t in ipairs(stat.names or {}) do
                 names[#names + 1] = tokText(t)
             end
-        elseif stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct") then
+        elseif stat.kind == "cdefFunc" then
+            names[1] = stat.name and tokText(stat.name)
+        elseif stat.kind == "cdefStruct"
+            or stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct")
+        then
             names[1] = stat.name and tokText(stat.name)
         end
 
@@ -2655,7 +2756,7 @@ function lower.emit(
             local shape = shapeOf(target.obj.inferredType)
             local o = exprAs(f, target.obj, "v")
             local fname = tokText(target.name)
-            if shape and shape.slotIndex[fname] then
+            if shape and not shape.physical and shape.slotIndex[fname] then
                 local slot = shape.slotIndex[fname]
                 if shape.slots[slot + 1].ty == "num" then
                     local fv = f:freg();
@@ -3382,7 +3483,26 @@ function lower.emit(
                     registerCleanups(f, token.cleanupRegistrations, c)
                 end
             end
-        elseif k == "recordDecl" then
+        elseif k == "cdefFunc" then
+            local metadata = require("nupp.compiler.vm.metadata")
+            local signature = metadata.foreignSignature(node)
+            local library = f:reg()
+            if node.fromLib then
+                exprAs(f, {kind = "string", token = node.fromLib}, "v", library)
+            else
+                f:op("Nil", library)
+            end
+            local symbol = f:reg()
+            f:op("K", symbol, f:const("str", node.cAbiSignature.symbol))
+            local descriptor = exprAs(f, metadata.literal(signature), "v")
+            local value = builtinRegisters(f, "foreign.bind", {library, symbol, descriptor})
+            local register, cell, spill = f:declare(tokText(node.name), "v", true)
+            local destination = spill and f:reg() or register
+            f:op(cell and "NewCell" or "Move", destination, value)
+            if spill then
+                f:storeSpill(spill, destination)
+            end
+        elseif k == "recordDecl" or k == "cdefStruct" then
             local shape = declareShape(node)
             -- The record's name is also a value: the table its static members live on
             -- (`R.new`, `R.SCHEMA`), what `function R.f()` and `export record R` see.
@@ -3423,18 +3543,22 @@ function lower.emit(
                 identity = exprAs(f, {kind = "name", token = node.name}, "v")
             end
             f:op("SetField", identity, f:const("str", "__index"), identity)
-            if node.declKind == "struct" then
+            if node.declKind == "struct" or node.kind == "cdefStruct" then
                 local metadata = require("nupp.compiler.vm.metadata")
-                local descriptor = exprAs(f, metadata.literal(metadata.structLayout(node, layoutTarget)), "v")
+                local descriptor = exprAs(f, metadata.literal(shape.layout), "v")
                 local key = f:const("str", "\0nupp:structLayout")
                 f:op("SetField", identity, key, descriptor)
                 f:op("SetMethod", shape.id, key, descriptor)
+                if shape.layout.supported then
+                    local physical = builtinRegisters(f, "storage.structDefine", {descriptor, identity})
+                    f:op("SetField", identity, f:const("str", "\0nupp:structType"), physical)
+                end
             end
             for _, entry in ipairs(node.entries) do
                 if entry.kind == "inlineMethod" then
                     local member = entry.overloadMember or tokText(entry.name)
                     local c = f:reg();
-                    emitClosure(f, entry.body, c, shape.name .. ":" .. member)
+                    emitClosure(f, entry.body, c, shape.name .. ":" .. member, inlineImplicitSelf(entry))
                     if not entry.inlineStatic then
                         f:op("SetMethod", shape.id, f:const("str", member), c)
                     end
@@ -3746,6 +3870,8 @@ function lower.emit(
             for _, t in ipairs(st.names or {}) do
                 scope[tokText(t)] = here
             end
+        elseif k == "cdefFunc" then
+            scope[tokText(st.name)] = here
         elseif k == "localFuncStmt" then
             scope[tokText(st.name)] = here
             analyzeFunction(st.body, chain, seen)
@@ -3757,13 +3883,13 @@ function lower.emit(
         elseif k == "compoundAssign" then
             analyzeExpr(st.target, chain, here, seen);
             analyzeExpr(st.value, chain, here, seen)
-        elseif k == "recordDecl" then
+        elseif k == "recordDecl" or k == "cdefStruct" then
             if st.name and not st.qualifiers then
                 scope[tokText(st.name)] = here
             end
             for _, entry in ipairs(st.entries or {}) do
                 if entry.kind == "inlineMethod" then
-                    analyzeFunction(entry.body, chain, seen)
+                    analyzeFunction(entry.body, chain, seen, inlineImplicitSelf(entry))
                 elseif entry.kind ~= "constructorDecl" then
                     analyzeExpr(entry, chain, here, seen)
                 end
@@ -3891,7 +4017,12 @@ function lower.emit(
         walkSyntax(body, {}, function(node)
             if node.kind == "localStmt" then
                 n = n + #(node.names or {})
-            elseif node.kind == "localFuncStmt" or node.kind == "recordDecl" or node.kind == "fornumStmt" then
+            elseif node.kind == "localFuncStmt"
+                or node.kind == "cdefFunc"
+                or node.kind == "recordDecl"
+                or node.kind == "cdefStruct"
+                or node.kind == "fornumStmt"
+            then
                 n = n + 1
             elseif node.kind == "forinStmt" then
                 n = n + #(node.names or {})
@@ -4121,16 +4252,19 @@ function lower.emit(
         currentModule = name
         nativePlans = require("nupp.compiler.vm.native").plans(rootNode)
         for _, s in ipairs(stats) do
-            if s.kind == "recordDecl" then
+            if s.kind == "recordDecl" or s.kind == "cdefStruct" then
                 declareShape(s)
-            elseif s.kind == "exportStmt" and s.stat and s.stat.kind == "recordDecl" then
+            elseif s.kind == "exportStmt"
+                and s.stat
+                and (s.stat.kind == "recordDecl" or s.stat.kind == "cdefStruct")
+            then
                 declareShape(s.stat)
             end
         end
         -- Records declared inside functions get their shapes now too, so a
         -- constructor in a closure defined before the declaration finds them.
         walkSyntax(rootNode, {}, function(n)
-            if n.kind == "recordDecl" then
+            if n.kind == "recordDecl" or n.kind == "cdefStruct" then
                 declareShape(n)
             end
         end)

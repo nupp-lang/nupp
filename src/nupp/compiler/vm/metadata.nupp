@@ -52,7 +52,10 @@ local function data(value)
     elseif kind == "boolean" then
         return node(value and "trueExpr" or "falseExpr")
     elseif kind == "string" then
-        return node("string", {token = {text = string.format("%q", value)}})
+        local quoted = '"' .. value:gsub('[%c"\\\128-\255]', function(character)
+            return string.format("\\%03d", character:byte())
+        end) .. '"'
+        return node("string", {token = {text = quoted}})
     elseif kind == "number" then
         return node("number", {token = {text = string.format("%.17g", value)}})
     end
@@ -80,6 +83,83 @@ local function data(value)
 end
 
 metadata.literal = data
+
+function metadata.foreignSignature(declaration)
+    local signature = assert(declaration.cAbiSignature, "C function has no checked ABI signature")
+    assert(signature.schema == 1 and signature.convention == "c", "unsupported VM C function ABI")
+    assert(not signature.varargs, "VM C variadic functions are not supported")
+    assert(not declaration.countedAbi, "VM C counted-pointer argument mappings are not supported")
+    local scalars = {
+        boolean = "bool",
+        integer = "int32",
+        number = "number",
+        float = "float",
+        int8 = "int8",
+        int16 = "int16",
+        int32 = "int32",
+        int64 = "int64",
+        uint8 = "uint8",
+        uint16 = "uint16",
+        uint32 = "uint32",
+        uint64 = "uint64",
+        ptr = "pointer",
+        carray = "pointer",
+        string = "pointer",
+        cstring = "pointer",
+        voidptr = "pointer"
+    }
+
+    local function scalar(subject, parameter)
+        while subject
+            and (
+                subject.tag == "const" or subject.tag == "affine" or subject.tag == "borrowed" or subject.tag == "owned"
+            ) do
+            subject = subject.inner
+        end
+        if subject and subject.tag == "union" and subject.hasNil and #(subject.members or {}) == 2 then
+            local first, second = subject.members[1], subject.members[2]
+            local other = first.tag == "nil" and second or first
+            if other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" then
+                return scalar(other, parameter)
+            end
+        end
+        if parameter and subject then
+            local readonly = subject.tag == "string" or subject.tag == "cstring"
+            local element = (subject.tag == "ptr" or subject.tag == "carray") and subject.elem or nil
+            while element and (element.tag == "affine" or element.tag == "borrowed" or element.tag == "owned") do
+                element = element.inner
+            end
+            readonly = readonly or element and element.tag == "const"
+            if readonly then
+                return {kind = "pointer", readonly = true}
+            end
+        end
+
+        return subject and scalars[subject.tag]
+    end
+
+    local result = {params = {}, result = "void"}
+    for index, parameter in ipairs(signature.params or {}) do
+        assert(parameter.mode ~= "out", "VM C out-parameter result mappings are not supported")
+        assert(not parameter.countedBy, "VM C counted-pointer argument mappings are not supported")
+        result.params[
+            index
+        ] = assert(
+            scalar(parameter.type, true),
+            "unsupported VM C parameter " .. tostring(
+                index
+            ) .. " type " .. tostring(parameter.type and parameter.type.tag)
+        )
+    end
+    if signature.result then
+        result.result = assert(
+            scalar(signature.result),
+            "unsupported VM C result type " .. tostring(signature.result.tag)
+        )
+    end
+
+    return result
+end
 
 -- Layout facts come from the checked nominal graph under an explicit target.
 -- Unsupported layouts keep their reason so unrelated declarations can still
@@ -119,9 +199,6 @@ function metadata.structLayout(declaration, target)
         end
         local tag = subject.tag
         if tag == "nominal" then
-            if subject.cdefName or subject.cdefKind then
-                return nil, "C aggregate layouts are unsupported in VM struct storage"
-            end
             if subject.origin
                 or #(subject.typeParams or {}) > 0
                 or #(subject.packParams or {}) > 0
@@ -129,7 +206,7 @@ function metadata.structLayout(declaration, target)
             then
                 return nil, "generic struct layouts are unsupported in VM struct storage"
             end
-            if not subject.runtimeDeclarationKey then
+            if not (subject.runtimeDeclarationKey or subject.cdefIdentity) then
                 return nil, "the struct has no canonical runtime declaration identity"
             end
         end
@@ -144,7 +221,7 @@ function metadata.structLayout(declaration, target)
             return nil, reason
         end
         local result = {
-            kind = tag == "nominal" and "struct" or tag == "carray" and "array" or tag,
+            kind = tag == "nominal" and (subject.cdefKind or "struct") or tag == "carray" and "array" or tag,
             size = measured.size,
             alignment = measured.alignment
         }
@@ -163,7 +240,7 @@ function metadata.structLayout(declaration, target)
         end
         result.name, result.fields = subject.runtimePath or subject.name, {}
         result.typeName = (subject.moduleName and subject.moduleName .. ":" or "") .. result.name
-        result.identity = subject.runtimeDeclarationKey
+        result.identity = subject.runtimeDeclarationKey or subject.cdefIdentity
         local signatures = {}
         for index, fieldLayout in ipairs(measured.fields) do
             local name = fieldLayout.name
@@ -179,7 +256,8 @@ function metadata.structLayout(declaration, target)
             end
             member.name, member.offset = name, fieldLayout.offset
             local following = measured.fields[index + 1]
-            member.padding = (following and following.offset or measured.size) - fieldLayout.offset - fieldLayout.size
+            member.padding = result.kind == "union" and measured.size - fieldLayout.size
+                or (following and following.offset or measured.size) - fieldLayout.offset - fieldLayout.size
             result.fields[#result.fields + 1] = member
             signatures[#signatures + 1] = name .. ":" .. signature
         end
@@ -272,7 +350,7 @@ local function constructors(declaration, identity, statements)
             local parameters, arguments = {}, {
                 node("newExpr", {
                     inferredType = nominal,
-                    call = {recordFields = {}, args = {exprs = {}}}
+                    call = {recordFields = {}, args = {exprs = {}}, vmStructWitness = identity}
                 })
             }
             for position, parameter in ipairs(entry.body.params or {}) do

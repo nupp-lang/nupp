@@ -1,0 +1,1849 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-14",
+  "baselineNuppCommit": "6d8f658af317ad89b49f15b54a6342a4c829a277",
+  "scope": "Capability parity inventory against documented LuaJIT FFI, not a claim of a drop-in ffi module or completed parity. Pending implementation may move after this baseline.",
+  "luajit": {
+    "commit": "1ee778a4e37122d8ca7d5733c590a47dafd6b15c",
+    "sources": [
+      {
+        "path": "/Users/dowling/projects/LuaJIT/doc/ext_ffi_api.html",
+        "sha256": "5121c63d47738e7f9d7e04fc965a97c6f0f848876328a55ba7f5d059f49a63a2"
+      },
+      {
+        "path": "/Users/dowling/projects/LuaJIT/doc/ext_ffi_semantics.html",
+        "sha256": "ef1751f0221b5d4e4ddb7d11f1a3fff0b373d8aee92b8ec942f1c1ef543cb197"
+      }
+    ]
+  },
+  "statusMeaning": {
+    "partial": "Existing test proves only the named Nupp subset; remaining acceptance scenario is not satisfied.",
+    "pending": "No VM acceptance evidence for this capability at baseline.",
+    "validated": "Reserved for full declared scenario passing all required applicable modes/targets; no entries promoted from code inspection alone."
+  },
+  "acceptancePolicy": {
+    "executionModes": [
+      "rust",
+      "threaded",
+      "jit",
+      "frame-jit",
+      "linked-aot-with-executable-memory-denied"
+    ],
+    "targetMatrix": [
+      "aarch64-macos",
+      "x86_64-linux",
+      "x86_64-windows",
+      "additional supported ABI targets require their own evidence"
+    ],
+    "nativeOracle": "ffi/fixture.c must be built independently and called from Nupp; a Python/C oracle run alone is not Nupp FFI acceptance.",
+    "memory": "GC stress/oracle for managed owners, callbacks, namespace lifetimes and native return values; tests never intentionally dereference invalid pointers.",
+    "performance": "Keep feature correctness separate from compiled coverage and dispatch overhead. LuaJIT interpreter fallback features still belong in capability parity.",
+    "persistence": "Managed pointers/views must preserve aliases; external libraries/functions/pointers need explicit rebind/resource policy and must never serialize process addresses."
+  },
+  "knownSemanticDifferences": [
+    "Nupp exact numeric equality and interned numeric keys differ from LuaJIT cast-before-compare and object-identity cdata keys. Do not change core Nupp semantics implicitly to mimic ffi.",
+    "Nupp managed views retain owners and bounds; LuaJIT raw pointers are untraced/unbounded. Separate managed storage from explicit external native pointers.",
+    "Lua-only userdata/lightuserdata/FILE* carriers and LuaJIT-specific ABI flags require documented equivalents or compatibility API scope."
+  ],
+  "capabilities": [
+    {
+      "id": "decl.cdef",
+      "capability": "C99 declaration units, typedefs, enums, extern functions and variables",
+      "reference": "api#ffi_cdef;semantics#clang",
+      "status": "partial",
+      "evidence": [
+        "c_declarations.rs::c_headers_preserve_recursive_identity_layout_and_function_types",
+        "c_declarations.rs::inspection_reports_rejected_units_and_enumerators"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Declare recursive Node, enum constants, a function prototype and mutable global; resolve them independently.",
+        "expected": "Recursive nominal identity and type qualifiers preserved; values and calls bind only when requested.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.constants",
+      "capability": "Integer constant expressions and integer static const up to32 bits",
+      "reference": "semantics#clang;semantics#status",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare enum N=(1<<5)+3, static const int LIMIT=35 and use N as fixed array bound.",
+        "expected": "N and LIMIT equal35 and array sizeof is35*element size; no native symbol lookup for constants.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.redeclaration",
+      "capability": "Repeated declarations and nominal anonymous-type identity",
+      "reference": "api#ffi_new;semantics#status",
+      "status": "partial",
+      "evidence": [
+        "c_declarations.rs::rejected_c_declarations_do_not_poison_the_registry",
+        "c_declarations.rs::anonymous_layout_probes_have_distinct_member_identity"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Declare the same prototype twice; parse two separate anonymous structs, then reuse one cached ctype.",
+        "expected": "Repeated compatible declaration accepted; separate anonymous declarations differ; cached type identity is stable.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.incomplete",
+      "capability": "Incomplete struct/union/enum, later completion and self-reference",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Forward-declare Node and enum Mode, define Node with Node*next, complete enum later.",
+        "expected": "Pointer declaration works while incomplete; unknown sizeof returns nil; completed type retains identity.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.typedef-predefined",
+      "capability": "va_list,size_t,ptrdiff_t,wchar_t,ssize_t,intN_t,uintN_t,intptr_t,uintptr_t aliases",
+      "reference": "semantics#clang",
+      "status": "partial",
+      "evidence": [
+        "c_declarations.rs::c_headers_preserve_recursive_identity_layout_and_function_types"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Resolve every documented predefined alias against the native target.",
+        "expected": "Size, signedness and pointer width agree with the C compiler; predefined redeclarations do not replace identity.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.parameterized",
+      "capability": "Typed $ placeholders in cdef/typeof",
+      "reference": "semantics#param",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Pass cached ctype, identifier string and numeric extents into declarations, including uint8_t[$][$].",
+        "expected": "Type/name/number substitutions are semantic; string int is not accepted as a type substitution.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.extensions",
+      "capability": "GCC/MSVC alternate keywords, fixed-width __intN, __extension__, __alignof__, escape \\e",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Parse equivalent __const__/const, __int8/16/32/64, alignof and escaped-char declarations.",
+        "expected": "Same resolved layouts/constants as native target; unsupported attributes ignored where LuaJIT documents ignoring them.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.abi-attributes",
+      "capability": "cdecl/fastcall/stdcall/thiscall, __ptr32/__ptr64 and align(n)",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare attributed pointers and call-convention functions on matching targets.",
+        "expected": "Physical widths and calling convention match compiled C fixture; inappropriate target modes report unsupported.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.symbol-redirection",
+      "capability": "__asm__(symbol) function symbol redirection",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare local_name with external symbol ffi_test_i32.",
+        "expected": "local_name(42) returns42; lookup uses redirected name.",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "decl.scoped-constants",
+      "capability": "Anonymous enum and scoped static const inside aggregates",
+      "reference": "semantics#clang;semantics#cdata_array",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare aggregate-local enum/static integer; read through witness/instance and global enum name.",
+        "expected": "Scoped and global enum visibility matches docs; writes to constants reject.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.no-prototype",
+      "capability": "Empty parameter prototype means zero arguments; no K&R inference",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare int f(); verify zero-argument signature; reject declaration missing type specifier.",
+        "expected": "No implicit int or old-style arbitrary arguments.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.inline-body",
+      "capability": "Inline C function bodies ignored by declaration parser",
+      "reference": "semantics#clang",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Parse an inline definition and inspect its prototype without compiling body.",
+        "expected": "Header inspection succeeds; declaration does not supply executable native code.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "decl.typeinfo-extension",
+      "capability": "LuaJIT CType graph introspection used by Tecs (undocumented ffi.typeinfo)",
+      "reference": "local-extension",
+      "status": "partial",
+      "evidence": [
+        "struct-layout-coverage.json",
+        "tecs-storage-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Inspect scalar, fixed array, nested struct and bitfield metadata using compiler-owned descriptors.",
+        "expected": "Equivalent field offsets/kinds/widths available without exposing unstable LuaJIT CType IDs.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "scalar.bool",
+      "capability": "bool/_Bool",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "zero converts false and nonzero true; writes normalize to0/1",
+        "nativeOracleSymbols": [
+          "ffi_test_bool"
+        ]
+      }
+    },
+    {
+      "id": "scalar.char",
+      "capability": "target char signedness",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "signedness agrees with ffi_test_layout(11)",
+        "nativeOracleSymbols": [
+          "ffi_test_char"
+        ]
+      }
+    },
+    {
+      "id": "scalar.narrow",
+      "capability": "signed/unsigned8,16,32",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::scalar_layouts_and_native_byte_vectors"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "boundary reads sign/zero extend; stores wrap/narrow as documented",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "scalar.wide",
+      "capability": "signed/unsigned64",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::exact_boundaries_comparison_and_numeric_keys",
+        "storage.rs::scalar_layouts_and_native_byte_vectors"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "all bits survive -2^63,2^63,2^64-1 storage/calls/return",
+        "nativeOracleSymbols": [
+          "ffi_test_u64"
+        ]
+      }
+    },
+    {
+      "id": "scalar.float",
+      "capability": "float/double",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::scalar_layouts_and_native_byte_vectors"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "binary32 rounds ties correctly; binary64, signedzero, infinity and NaN survive",
+        "nativeOracleSymbols": [
+          "ffi_test_double"
+        ]
+      }
+    },
+    {
+      "id": "scalar.enum",
+      "capability": "enum scalar values",
+      "reference": "semantics#convert_tolua;semantics#convert_between",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct scalar, store/read an array element and roundtrip corresponding native function.",
+        "expected": "boxed enum type identity and string-to-enumerator conversions are retained",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "scalar.complex",
+      "capability": "complex double and complex float representation/conversion",
+      "reference": "semantics#clang;semantics#cdata_array",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct from real/imaginary parts, read re/im and indices0/1, convert realpart to scalar, roundtrip native function.",
+        "expected": "Exact component widths; immutable parts; aggregate field replacement works. Arithmetic is outside LuaJIT supported scope.",
+        "nativeOracleSymbols": [
+          "ffi_test_complex",
+          "ffi_test_complex_float"
+        ]
+      }
+    },
+    {
+      "id": "scalar.vector",
+      "capability": "GCC mode/vector_size vectors: load/store/initialize and immutable lane access",
+      "reference": "semantics#clang;semantics#cdata_array;semantics#status",
+      "status": "partial",
+      "evidence": [
+        "simd-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Define16-byte vector, initialize scalar splat or lanes, store/read as structfield, attempt lane mutation.",
+        "expected": "Loading/storing/initialization and lane reads work; direct lane mutation rejects. General arithmetic is outside LuaJIT documented scope.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "convert.numeric",
+      "capability": "C casts: signed/unsigned narrowing/extensions, float truncation/rounding and bool conversion",
+      "reference": "semantics#convert_between",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::wrapping_operations_and_graph_roundtrip",
+        "storage.rs::scalar_layouts_and_native_byte_vectors"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Check -1->uint32/uint64, 0xffffffff->int32, fractions->integer, int64->double and float rounding.",
+        "expected": "Documented extended input ranges work; precision loss only at explicit float conversion.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "convert.lua-inputs",
+      "capability": "nil/lightuserdata/userdata/file/string/function/table input conversion categories",
+      "reference": "semantics#convert_fromlua",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Exercise each available Nupp carrier against matching C pointer/string/aggregate/callback destination.",
+        "expected": "Conversions follow declared target type; unavailable Lua-only carriers require explicitly documented Nupp equivalent, not silent acceptance.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "convert.aggregate",
+      "capability": "Same-type aggregate copy and compatible array copy",
+      "reference": "semantics#convert_between",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Copy array, struct and union; mutate original; attempt same-layout different nominal struct assignment.",
+        "expected": "Owned copies independent; different anonymous nominal struct rejects unless explicit cast/copy operation authorizes it.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "convert.reference",
+      "capability": "C++ reference types and immutable reference binding",
+      "reference": "semantics#convert_fromlua;semantics#convert_tolua",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Bind int& to one-element array, mutate through call, attempt reseating after initialization.",
+        "expected": "Reference dereferences automatically; referent changes, binding cannot change.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "layout.struct",
+      "capability": "Physical structs with target offsets/alignment/padding",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "partial",
+      "evidence": [
+        "struct-layout-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Allocate FfiNested, mutate nested row fields and call ffi_test_nested.",
+        "expected": "Offsets/sizeof agree with ffi_test_layout; native writes visible through the same owner.",
+        "nativeOracleSymbols": [
+          "ffi_test_nested",
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.union",
+      "capability": "Unions and overlapping field storage",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Set union.bits to0x3f800000 and read union.real; pass/return union.",
+        "expected": "Bits alias exactly with value1.0 and correct target ABI.",
+        "nativeOracleSymbols": [
+          "ffi_test_union"
+        ]
+      }
+    },
+    {
+      "id": "layout.bitfield",
+      "capability": "Signed/unsigned bitfields within storage containers",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Set FfiBits low7,middle-8,high0x123456; compare native accessor and neighboring fields.",
+        "expected": "Width truncation, sign extension and shared-container preservation match C.",
+        "nativeOracleSymbols": [
+          "ffi_test_bits",
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.packed",
+      "capability": "Packed layout via attribute and pragma pack",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Allocate FfiPacked, read tag/value at unaligned offset, roundtrip bytes.",
+        "expected": "sizeof5,value offset1; unaligned access semantics correct.",
+        "nativeOracleSymbols": [
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.aligned",
+      "capability": "Explicit alignment and over-aligned allocations",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Allocate FfiAligned and arrays; inspect base and each element address.",
+        "expected": "Base and strides obey requested16-byte alignment.",
+        "nativeOracleSymbols": [
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.anonymous-members",
+      "capability": "Transparent anonymous struct/union members",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare nested unnamed union and access promoted fields from outer object.",
+        "expected": "Promoted member lookup, offsets and shared bytes agree with native layout.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "layout.empty",
+      "capability": "Zero-length arrays and empty structs/unions",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare empty aggregate and zero-length fixed array, query sizeof and allocate arrays.",
+        "expected": "Target sizes match oracle; zero-sized pointer differences reject.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "layout.array-fixed",
+      "capability": "Fixed arrays and nested arrays",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::nested_array_descriptors_preserve_width_and_row_aliases"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Allocate uint16[3][2], mutate rows, retain row view and compare complete native bytes.",
+        "expected": "Exact row stride, aliasing and widths; declared fixed bounds honored.",
+        "nativeOracleSymbols": [
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.array-vla",
+      "capability": "Variable-length arrays [?]",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::scalar_layouts_and_native_byte_vectors"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Allocate arrays at counts0,1,10000 and query instance sizeof.",
+        "expected": "Runtime extent tracked and count-specific sizeof matches allocation. Structured element support required.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "layout.struct-vls",
+      "capability": "Variable-length structs with trailing VLA",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Allocate FfiFlex(count3), set header and3 doubles, query sizeof and offset.",
+        "expected": "Header padding and runtime trailing extent match compiler ABI.",
+        "nativeOracleSymbols": [
+          "ffi_test_layout"
+        ]
+      }
+    },
+    {
+      "id": "layout.owner-gc",
+      "capability": "Managed aggregate ownership and derived views",
+      "reference": "semantics#clang;api#ffi_new",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::only_a_view_keeps_its_owner_alive_and_graphs_keep_aliases"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Retain only nested row/byte view, collect parent then mutate; save/load graph with both aliases.",
+        "expected": "Nupp owners keep views valid and persistence preserves aliases. This is stronger ownership than untraced LuaJIT pointers.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.zero",
+      "capability": "Initialization: zero",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Allocate scalar,array,struct,union without initializer.",
+        "expected": "All storage bytes zero, including aggregate padding.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.scalar",
+      "capability": "Initialization: scalar",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize scalar once; attempt two initializers.",
+        "expected": "Target conversion applied; excess initializer rejects.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.array-list",
+      "capability": "Initialization: array-list",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize fixed int[3] with1 value versus2 values.",
+        "expected": "Single value repeats all3; two values leave last zero.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.byte-string",
+      "capability": "Initialization: byte-string",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize char/uint8 arrays from string including embeddedzero and exact-size array.",
+        "expected": "Copy terminator where capacity permits; fixed array truncates at declared bound.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.struct-list",
+      "capability": "Initialization: struct-list",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize nested struct with flat outer list and nested table.",
+        "expected": "Declaration order applied; remaining fields zero; extra flat initializers reject.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.union",
+      "capability": "Initialization: union",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize first field by list versus named alternative field.",
+        "expected": "Exactly one field initialized; no initializer zeroes union.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.table-base",
+      "capability": "Initialization: table-base",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize arrays/structs with table[0] present versus absent.",
+        "expected": "Base0 selected only when index0 nonnil; otherwise base1; stop at firstnil.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.table-named",
+      "capability": "Initialization: table-named",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize struct by named fields with unrelated entries and extras.",
+        "expected": "Known fields set, missing fields zero, unrelated/excess struct entries ignored; array excess rejects.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.vla-table",
+      "capability": "Initialization: vla-table",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Initialize VLA/VLS with limited explicit entries.",
+        "expected": "VLA repetition differs from fixedarray; no invented terminator; trailing VLS semantics tested.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "init.copy",
+      "capability": "Initialization: copy",
+      "reference": "semantics#init;semantics#init_table",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct an aggregate from same-type aggregate.",
+        "expected": "Copy constructor independent bytes; canonical type preserved.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "pointer.cast",
+      "capability": "Compatible pointers, explicit reinterpret casts, pointer/integer conversion",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Cast aligned buffer among int*,void*,uintptr_t; roundtrip address.",
+        "expected": "Compatible implicit conversion accepted; explicitcast overrides compatibility; pointer width exact.",
+        "nativeOracleSymbols": [
+          "ffi_test_pointer"
+        ]
+      }
+    },
+    {
+      "id": "pointer.index",
+      "capability": "Pointer/array numeric indexing and struct-pointer field dereference",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::nested_array_descriptors_preserve_width_and_row_aliases"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Pass native malloc buffer and managedarray to indexedaccess; access Pair* fields.",
+        "expected": "Index*element-size and memberoffset correct; unknown element size errors.",
+        "nativeOracleSymbols": [
+          "ffi_test_alloc",
+          "ffi_test_free"
+        ]
+      }
+    },
+    {
+      "id": "pointer.const",
+      "capability": "Const pointers/elements/fields and qualifier compatibility",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::overlap_bounds_and_readonly_views"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Attempt writes through const byteview and const field, compare qualified ctypes.",
+        "expected": "Writes reject and permitted qualifier conversions match docs.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "pointer.arithmetic",
+      "capability": "Pointer +/- element count and commutative numeric addition",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::overlap_bounds_and_readonly_views"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Offset typed pointer by positive/negative count including non-power-of-two struct size.",
+        "expected": "Result element type/stride retained, same-allocation difference returns element count.",
+        "nativeOracleSymbols": [
+          "ffi_test_offset"
+        ]
+      }
+    },
+    {
+      "id": "pointer.difference",
+      "capability": "Compatible pointer difference including zero/unknown element size",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Subtract pointers to 3-byte structs; attempt zero-sized and void difference.",
+        "expected": "Correct scaled difference; undefined/zero-sized element errors.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "pointer.comparison",
+      "capability": "Pointer address ordering, equality, NULL/nil and incompatible equality",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Compare sameaddress compatible/incompatible casts, NULL and ordered views.",
+        "expected": "Unsigned address ordering, NULL compatibility and incompatible equality behavior match docs.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "pointer.external-owner",
+      "capability": "Returned external pointers and explicit release",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Allocate native memory, mutate/read, release exactly once after finaluse.",
+        "expected": "No invented managed bound; resource lifetime and persistence policy explicit.",
+        "nativeOracleSymbols": [
+          "ffi_test_alloc",
+          "ffi_test_free",
+          "ffi_test_frees"
+        ]
+      }
+    },
+    {
+      "id": "pointer.argument-lifetime",
+      "capability": "Native argument temporary lifetimes and retained pointers",
+      "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Pass temporary array/string through call; later access only with retained owner.",
+        "expected": "Temporary stays live until return; saved native pointers require explicit retained owner.",
+        "nativeOracleSymbols": [
+          "ffi_test_copy",
+          "ffi_test_strlen"
+        ]
+      }
+    },
+    {
+      "id": "native.default-namespace",
+      "capability": "Default/global process symbol namespace",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Declare known fixture/exported libc symbol and resolve default namespace.",
+        "expected": "Target default library set documented; missing declaration/symbol fails.",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "native.load",
+      "capability": "Dynamic library explicit path and canonical name",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Load fixture by fullpath and target shortname; load missingpath.",
+        "expected": "Correct symbol scope and target name canonicalization; clear missinglibrary error.",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "native.global-load",
+      "capability": "POSIX global library visibility",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Load fixture globally and resolve symbol through defaultnamespace.",
+        "expected": "Visibility matches flag; Windows behavior documented separately.",
+        "nativeOracleSymbols": [
+          "ffi_test_global"
+        ]
+      }
+    },
+    {
+      "id": "native.binding-cache",
+      "capability": "Lazy symbol binding cached by namespace/name/type",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Resolve same function twice; resolve from two separate libraries with same symbol.",
+        "expected": "Canonical namespace binding stable and library isolation retained.",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "native.globals",
+      "capability": "Mutable/const external globals and constants",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Read/write int32 anduint64 globals, read constglobal, attempt constwrite.",
+        "expected": "Exact values and readonly rejection; native helper sees updates.",
+        "nativeOracleSymbols": [
+          "ffi_test_global",
+          "ffi_test_wide_global",
+          "ffi_test_constant"
+        ]
+      }
+    },
+    {
+      "id": "native.calls-scalars",
+      "capability": "Native C calls for all scalar/pointer signatures",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Roundtrip every scalar oracle and void-pointer argument/result.",
+        "expected": "ABI register/stack passing, signedness and all64bits preserved.",
+        "nativeOracleSymbols": [
+          "ffi_test_bool",
+          "ffi_test_char",
+          "ffi_test_i8",
+          "ffi_test_u8",
+          "ffi_test_i16",
+          "ffi_test_u16",
+          "ffi_test_i32",
+          "ffi_test_u32",
+          "ffi_test_i64",
+          "ffi_test_u64",
+          "ffi_test_float",
+          "ffi_test_double",
+          "ffi_test_pointer"
+        ]
+      }
+    },
+    {
+      "id": "native.calls-aggregate",
+      "capability": "By-value aggregate arguments/results",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Roundtrip Pair, mixed Integers, Large and Union from C.",
+        "expected": "ABI classifications, hidden returnpointer and padding work across target architectures.",
+        "nativeOracleSymbols": [
+          "ffi_test_pair",
+          "ffi_test_integers",
+          "ffi_test_large",
+          "ffi_test_union"
+        ]
+      }
+    },
+    {
+      "id": "native.calls-function-pointer",
+      "capability": "Calls through returned/cast function pointer",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Obtain ffi_test_i32 address then call through declared typedfunctionpointer.",
+        "expected": "Call uses signature and actualaddress, not symbolname specialcase.",
+        "nativeOracleSymbols": [
+          "ffi_test_function_address",
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "native.calls-varargs",
+      "capability": "Native varargs and documented default promotions",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Call integer summation with explicitboxedints, double summation with Lua/Nuppnumbers and floatcdata.",
+        "expected": "Explicitinteger carriers remaininteger; defaultnumber/float promotion to double correct.",
+        "nativeOracleSymbols": [
+          "ffi_test_varargs_int",
+          "ffi_test_varargs_double"
+        ]
+      }
+    },
+    {
+      "id": "native.calling-conventions",
+      "capability": "Platform calling conventions and Windows/x86 stdcall autodetection",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Call cdecl/stdcall/fastcall/thiscall fixtures on supportedx86targets.",
+        "expected": "Stack cleanup/register conventions correct; documented stdcall-call autodetection tested separately from callbacks.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "native.library-lifetime",
+      "capability": "Namespace lifetime, library unload and function-pointer anchoring",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Keep namespace through calls, release namespace after alluses.",
+        "expected": "Library remainsvalid whileowner retained; no use-after-unload. Stronger ownership may retain namespace throughfunction.",
+        "nativeOracleSymbols": [
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "native.errno",
+      "capability": "errno get/set and VM-activity preservation",
+      "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Set errno via nativefailedcall; allocate/GC/JIT; readerrno and swapnewvalue.",
+        "expected": "Priorerror preserved across VM activities and returned by setter; thread-local scope correct.",
+        "nativeOracleSymbols": [
+          "ffi_test_errno",
+          "ffi_test_read_errno"
+        ]
+      }
+    },
+    {
+      "id": "callback.create",
+      "capability": "Implicit/explicit function-to-C callback conversion",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Call C with closure taking2ints and closure takingdouble.",
+        "expected": "Arguments/returnvalues converted correctly and closure captures retained.",
+        "nativeOracleSymbols": [
+          "ffi_test_callback",
+          "ffi_test_callback_double"
+        ]
+      }
+    },
+    {
+      "id": "callback.retained",
+      "capability": "Retained callback lifetime and rooting",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Register callback with C, GC, invoke later, clearbefore release.",
+        "expected": "Closure remainslive and exactcallback used; ownership explicit.",
+        "nativeOracleSymbols": [
+          "ffi_test_save_callback",
+          "ffi_test_call_saved",
+          "ffi_test_clear_saved"
+        ]
+      }
+    },
+    {
+      "id": "callback.set",
+      "capability": "Callback target replacement without changing pointer",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Replace callbackreceiver and invoke saved C pointer.",
+        "expected": "Stable functionpointer reachesnewclosure.",
+        "nativeOracleSymbols": [
+          "ffi_test_call_saved"
+        ]
+      }
+    },
+    {
+      "id": "callback.free",
+      "capability": "Callback resource release and reuse",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Create/free many callbacks; verify reclaimedslot and closure collected.",
+        "expected": "Resource count bounded; freedpointer explicitly invalid, never called in test.",
+        "nativeOracleSymbols": [
+          "ffi_test_clear_saved"
+        ]
+      }
+    },
+    {
+      "id": "callback.reentrancy",
+      "capability": "C->Nupp reentrancy and nested native calls",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Callback calls another Cfunction and protectedNuppcallee.",
+        "expected": "State, roots, stack and errors preserved; JIT policy must avoid LuaJIT bad-callback limitation.",
+        "nativeOracleSymbols": [
+          "ffi_test_callback",
+          "ffi_test_i32"
+        ]
+      }
+    },
+    {
+      "id": "callback.error",
+      "capability": "Callback error propagation through an approved C boundary",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Throw fromcallback through fixture that owns no resources.",
+        "expected": "Controlled error result/unwind with no GC roots or callbackslot leak; ABI exceptionpolicy explicit.",
+        "nativeOracleSymbols": [
+          "ffi_test_callback"
+        ]
+      }
+    },
+    {
+      "id": "callback.unsupported-signatures",
+      "capability": "Reject callbacks with varargs or aggregate-by-value arguments/results",
+      "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Try callback typedefs with varargs and Pair argument/result.",
+        "expected": "Rejection matches documented LuaJIT unsupportedscope; no silent partial callback.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.permanent",
+      "capability": "Permanent metatype association for struct/union/complex/vector",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Associate metatype, construct through multiple paths, attempt reassociation.",
+        "expected": "Allinstances share association; declaredfield precedence retained; invalidtype/reassociation rejects.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.operators",
+      "capability": "Standard unary/binary/comparison/len/concat/call metamethods",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Define metamethods and mixctype/cdata/noncdata left/right operands.",
+        "expected": "Predefinedops first; leftoperand lookupfirst; standard metamethod semantics preserved.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.index",
+      "capability": "Index/newindex function and table handlers, non-string lookup",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Read/write unknownfields via handlers and typewitness statics; retain declaredfield.",
+        "expected": "Declaredfields cannotbeoverridden; function/table/nonstring cases allcovered.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.new",
+      "capability": "__new constructor override and ffi.new bypass",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Construct via ctype() override that delegates rawffi.new.",
+        "expected": "__new receivesctype+arguments; rawallocation avoidsrecursion.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.gc",
+      "capability": "Finalizers for pointers/aggregates and implicit struct/union __gc",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Attach function/Cfunction finalizer; replace, clear and collect; explicitfree removesfinalizer.",
+        "expected": "Exactlyonce release; receiveroriginalobject; nil detaches; no scalar/vector implicitgc claim.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "metatype.iteration",
+      "capability": "__pairs/__ipairs and __tostring on cdata",
+      "reference": "api#ffi_metatype;api#ffi_gc;api#pairs;semantics#cdata_ops",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Invoke pairs/ipairs/tostring on associatedtype.",
+        "expected": "Typehandlers selected and objectpassed; defaultrepresentations tested separately.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.sizeof",
+      "capability": "sizeof type/value including VLA/VLS and unknownsizeof",
+      "reference": "api#ffi_sizeof",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::scalar_layouts_and_native_byte_vectors",
+        "struct-layout-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Query scalar/aggregate/incomplete/function/void and runtimeextent objects.",
+        "expected": "Physicalsize correct; unknownsize nil; VLA type requirescount.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.alignof",
+      "capability": "Minimum required typealignment",
+      "reference": "api#ffi_alignof",
+      "status": "partial",
+      "evidence": [
+        "struct-layout-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Query scalar,nested,packed,alignedtype.",
+        "expected": "Targetalignment matches nativecompiler.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.offsetof",
+      "capability": "Field byteoffset and bitposition/bitwidth",
+      "reference": "api#ffi_offsetof",
+      "status": "partial",
+      "evidence": [
+        "struct-layout-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Query normalfield andbitfield.",
+        "expected": "Correct byteoffset andoptional bitcoordinates.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.istype",
+      "capability": "Exacttype/qualifier/pointer compatibility introspection",
+      "reference": "api#ffi_istype",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Compare scalarwidths,qualifiers,structpointer,voidpointer andnoncdata.",
+        "expected": "Qualifiers ignored; structpointer admitted; void* no specialcase; noncdatafalse.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.typeof",
+      "capability": "Typeof from declaration/cdata/ctype and cachedconstructor",
+      "reference": "api#ffi_typeof",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Gettype from value andcacheconstructor.",
+        "expected": "Canonicalnominaltype retained and equivalent usecasesconstruct correctly.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.string",
+      "capability": "Pointer-to-string length and zero-terminated variants",
+      "reference": "api#ffi_string",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::overlap_bounds_and_readonly_views"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Read ffi_test_text withlength8 andwithoutlength; mutatebacking afterward.",
+        "expected": "Explicitlength keeps embeddedzero; defaultstopsatzero; copiedstring independent.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.copy",
+      "capability": "Bytecopy explicitlength and string+terminator overload",
+      "reference": "api#ffi_copy",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::overlap_bounds_and_readonly_views"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Copybytes,copystringwithoutlength,copy#string+1 includingterminator.",
+        "expected": "Exactbytecount; omittedlength appendszero; callerprovided capacity respected.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.fill",
+      "capability": "Bytefill with optional zero default",
+      "reference": "api#ffi_fill",
+      "status": "partial",
+      "evidence": [
+        "storage.rs::overlap_bounds_and_readonly_views"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Fillnativebuffer with0xab then defaultzero partialrange.",
+        "expected": "Bytevalues and unaffectedtail correct.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.abi",
+      "capability": "TargetABI flags",
+      "reference": "api#ffi_abi",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Query32bit,64bit,le,be,fpu,softfp,hardfp,eabi,win,pauth,uwp,gc64,dualnum andunknownflag.",
+        "expected": "Targetfacts correct; LuaJIT-specific flags explicitly mapped/unavailable, never hostguess duringcrosscompile.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.os-arch",
+      "capability": "TargetOS/architecture names",
+      "reference": "api#ffi_os;api#ffi_arch",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Compare nativecurrenttarget and explicitcross-targetprofile.",
+        "expected": "Stable documented mapping for ffi.os/arch-equivalent.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.tonumber",
+      "capability": "Cnumeric->double conversion",
+      "reference": "api#tonumber",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::exact_boundaries_comparison_and_numeric_keys"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Convert maxuint64 andfractionalfloat.",
+        "expected": "Explicitprecisionloss followsdouble; nonnumericconversion behaviorcovered.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.tostring",
+      "capability": "64-bit,complex,ctype,cdata string representations",
+      "reference": "api#tostring",
+      "status": "pending",
+      "evidence": [],
+      "acceptance": {
+        "state": "planned",
+        "scenario": "Stringify signed/unsigned64,complex,type andpointer with/withoutoverride.",
+        "expected": "Documented suffix/type/address semantics or explicit Nupp API compatibilitydifference.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.literals",
+      "capability": "LL/ULL decimal/hex/binary and imaginary i/I literal syntax",
+      "reference": "api#literals",
+      "status": "partial",
+      "evidence": [
+        "numeric-coverage.json"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Parse mixedcasewide literals and12.5i/1I.",
+        "expected": "Exact64bits preserved; imaginarysyntax/parsingrequires explicitcoverage.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.arithmetic-wide",
+      "capability": "Sticky64-bit arithmetic and bitwiseoperators",
+      "reference": "api#tonumber;semantics#cdata_arith",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::wrapping_operations_and_graph_roundtrip"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Mixwide withdouble/signed/unsigned; exercise+-*/%^,unary,shifts,rotates,band/bor/bxor/tobit.",
+        "expected": "LuaJITconversionrules andundefinedsentinelcases compared explicitly against Nuppnumericsemantics.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.comparison-wide",
+      "capability": "64-bit comparisons and enum/string comparison",
+      "reference": "api#tonumber;semantics#cdata_comp",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::exact_boundaries_comparison_and_numeric_keys"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Comparewide tofloatfraction,signedagainstunsigned andenumagainststring.",
+        "expected": "LuaJITcast-before-compare behavior distinguished from Nupp exactnumericcomparison.",
+        "nativeOracleSymbols": []
+      }
+    },
+    {
+      "id": "utility.table-key-identity",
+      "capability": "Cdata identity as tablekeys",
+      "reference": "api#tonumber;semantics#cdata_key",
+      "status": "partial",
+      "evidence": [
+        "numeric.rs::exact_boundaries_comparison_and_numeric_keys"
+      ],
+      "acceptance": {
+        "state": "existing-narrow",
+        "scenario": "Create two equalboxedvalues andindexatable; compare tonumber-key.",
+        "expected": "LuaJITusesobjectidentity; Nupp value-interned keys are explicitly documented semanticdifference.",
+        "nativeOracleSymbols": []
+      }
+    }
+  ],
+  "luajitUnsupported": [
+    {
+      "id": "preprocessor",
+      "reference": "api#ffi_cdef;semantics#status",
+      "limit": "No integrated C preprocessor except pragma pack; prepare headers externally."
+    },
+    {
+      "id": "full-constant-expression-c",
+      "reference": "semantics#status",
+      "limit": "Obscure C constant expressions beyond documented parser support need not match."
+    },
+    {
+      "id": "implicit-int-kr",
+      "reference": "semantics#clang",
+      "limit": "No implicit int or K&R unprototyped functions; f() means zero parameters."
+    },
+    {
+      "id": "long-double-operations",
+      "reference": "semantics#clang",
+      "limit": "long double parses but conversions, access and arithmetic unsupported."
+    },
+    {
+      "id": "wide-literals",
+      "reference": "semantics#clang",
+      "limit": "Wide-character string and character literals unsupported; wchar_t type itself exists."
+    },
+    {
+      "id": "noninteger-static-const",
+      "reference": "semantics#status",
+      "limit": "static const limited to integer types up to32bits; string/float constants unsupported."
+    },
+    {
+      "id": "packed-crossing-bitfield",
+      "reference": "semantics#status",
+      "limit": "Packed bitfields crossing storage-container boundaries unsupported."
+    },
+    {
+      "id": "general-vector-operations",
+      "reference": "semantics#status",
+      "limit": "Vectors load/store/initialize and lane read only; general arithmetic unsupported."
+    },
+    {
+      "id": "volatile-compiled",
+      "reference": "semantics#status",
+      "limit": "Compiled LuaJIT ignores volatile; stronger Nupp semantics may be implemented independently."
+    },
+    {
+      "id": "complex-arithmetic",
+      "reference": "semantics#status",
+      "limit": "Complex storage/conversion supported; complex arithmetic unsupported."
+    },
+    {
+      "id": "aggregate-varargs",
+      "reference": "semantics#status",
+      "limit": "Passing structs by value to variadic C functions unsupported."
+    },
+    {
+      "id": "callback-varargs-aggregate",
+      "reference": "semantics#callback",
+      "limit": "Callbacks cannot be variadic or take/return by-value aggregates."
+    },
+    {
+      "id": "jit-callback-reentry",
+      "reference": "semantics#callback",
+      "limit": "Compiled LuaJIT FFI calls back into Lua are disallowed; interpreter routing required."
+    },
+    {
+      "id": "cpp-exception-compiled",
+      "reference": "semantics#status",
+      "limit": "C++ exception interoperability does not cover compiled FFI calls."
+    }
+  ],
+  "luajitInterpreterOnly": [
+    "vector operations",
+    "table initializers",
+    "nested struct/union initialization",
+    "non-default VLA/VLS or large initialization (>128bytes or>16arrayelements)",
+    "bitfield initialization",
+    "pointer differences with non-power-of-two element sizes",
+    "aggregate-by-value calls/results",
+    "nonfunction ctype metamethods",
+    "ctype __newindex tables and nonstring __index table lookup",
+    "cdata tostring",
+    "ffi.cdef",
+    "ffi.load",
+    "ffi.metatype"
+  ],
+  "progress": {
+    "fullParityAccepted": false,
+    "allEntriesAreBaselineInventory": true,
+    "nativeOracleBuilt": true,
+    "nativeOracleExecutedFromNupp": true
+  },
+  "currentAcceptance": {
+    "date": "2026-10-14",
+    "target": "aarch64-apple-darwin",
+    "fullParityAccepted": false,
+    "fixtures": [
+      "foreign.rs",
+      "ffi/fixture.c",
+      "ffi-project/src/nupp/tests/foreign.nupp"
+    ],
+    "drivers": [
+      "ffi-smoke.py",
+      "ffi-aot-smoke.py"
+    ],
+    "rust": {
+      "command": "cargo test -p nupp-vm --features aot --test foreign -- --test-threads=1",
+      "passed": 4,
+      "scope": "Scalar widths, exact wide integers, promoted varargs, errno, managed-pointer private owners under public and source metadata mutation plus GC, forged/growable-owner rejection, readonly signature admission and mutable string rejection, external-pointer persistence rejection, natural HFA/large and semantic boolean/integer aggregate copy semantics, C union layout and pointer overlay, and union/nested-union by-value signature rejection."
+    },
+    "acceptedSlice": [
+      "bool, signed/unsigned 8/16/32/64-bit scalar C calls; exact wide values",
+      "binary32/binary64 C calls including rounding, signed zero, infinity and NaN",
+      "nil and managed native pointers, copied NUL-terminated native strings and embedded-NUL copy",
+      "explicit promoted int32/double variadic signatures",
+      "natural struct by-value HFA arguments/return and 32-byte hidden return ABI",
+      "missing symbol, invalid signature, arity, and closed-handle errors",
+      "scalar callback allocation/GC, native reentry, retention, replacement, error recovery, bool/uint64/double returns",
+      "AOT scalar/pointer/vararg/aggregate calls in three fresh processes with executable memory denied",
+      "Mutable native signatures reject readonly views; readonly pointer descriptors admit them",
+      "Forged storage dictionaries and marked views over growable owners are rejected",
+      "Returned pointers privately root physical owners even after source view metadata is removed",
+      "Natural union C size/alignment/offset/pointer overlay; direct and nested union by-value signatures explicitly rejected",
+      "Callbacks can close the active binding and a pointer with a closed parent, force GC, and return safely while C still reads the retained owner",
+      "Callbacks can close an aggregate-return binding and force GC while its otherwise unreachable result descriptor remains valid",
+      "Semantic boolean/integer struct fields match independent C _Bool/int32 by-value layout and copy semantics",
+      "Managed strings and slices require readonly pointer parameter descriptors"
+    ],
+    "limits": [
+      "Only aarch64 macOS has this native ABI execution evidence; other platforms remain pending.",
+      "Callbacks are excluded from the no-executable-memory gate because libffi closures allocate executable code.",
+      "Pointer/aggregate/variadic callback signatures, by-value unions, native globals, finalizers, metatypes and the remaining baseline inventory are not accepted by this slice.",
+      "The original Tecs snapshot benchmark remains a separate uncompleted integration."
+    ],
+    "runs": [
+      {
+        "kind": "source",
+        "status": "passed",
+        "report": "/private/tmp/nupp-ffi-final-v5/results.json",
+        "sha256": {
+          "runtime": "a4924ab196a7a7a469ab4872a9374491fb8fc7b6c3b15cc60c5005a91487e071",
+          "seed": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4",
+          "image": "2047d5d2a5d96dca453874efee5090de061bd5624c2a5333eaba2ab2e326fa07",
+          "library": "29736dda51718a31f70356efcf9aec3087a70609bdb09c6d2270ea95bad7ee45",
+          "nativeSource": "24a72a96b706e82e3bf626d4d6fe3ae9620f018b6b65f5e31912da07e34aaee4"
+        },
+        "phases": [
+          {
+            "name": "rust",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "rust-callbacks",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "callbacks",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "threaded",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "threaded-callbacks",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "callbacks",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "jit",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0,
+            "compiledFunctions": 37
+          },
+          {
+            "name": "jit-callbacks",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "callbacks",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib"
+            ],
+            "exitCode": 0,
+            "compiledFunctions": 37
+          },
+          {
+            "name": "frames",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0,
+            "compiledFrameEntries": 73
+          },
+          {
+            "name": "frames-callbacks",
+            "command": [
+              "/private/tmp/nupp-physical-struct/runtime-v5",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "callbacks",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0,
+            "compiledFrameEntries": 30
+          }
+        ]
+      },
+      {
+        "kind": "linkedAot",
+        "status": "passed",
+        "report": "/private/tmp/nupp-ffi-linked-final-v5/results.json",
+        "sha256": {
+          "image": "2047d5d2a5d96dca453874efee5090de061bd5624c2a5333eaba2ab2e326fa07",
+          "runtime": "09c62c5ef1df0cfa8618847e38dc2a605d8c438d5cf80c7ead981096fc154a73",
+          "library": "29736dda51718a31f70356efcf9aec3087a70609bdb09c6d2270ea95bad7ee45",
+          "manifest": "9b53a188e26e2ab98fffb51ed8b68b70c17c45c1f594cbd75691197aff6969b0"
+        },
+        "phases": [
+          {
+            "name": "symbols",
+            "command": [
+              "nm",
+              "/private/tmp/nupp-ffi-final-v5/nupp-vm-linked"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "build-denial",
+            "command": [
+              "cc",
+              "-dynamiclib",
+              "native/crates/vm/tests/deny-exec.c",
+              "-o",
+              "/private/tmp/nupp-ffi-linked-final-v5/deny-exec.dylib"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "build-probe",
+            "command": [
+              "cc",
+              "/private/tmp/nupp-ffi-linked-final-v5/probe.c",
+              "-o",
+              "/private/tmp/nupp-ffi-linked-final-v5/probe"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "deny-mapping",
+            "command": [
+              "/private/tmp/nupp-ffi-linked-final-v5/probe"
+            ],
+            "exitCode": 86
+          },
+          {
+            "name": "deny-protection",
+            "command": [
+              "/private/tmp/nupp-ffi-linked-final-v5/probe",
+              "protect"
+            ],
+            "exitCode": 86
+          },
+          {
+            "name": "interpreted",
+            "command": [
+              "/private/tmp/nupp-ffi-final-v5/nupp-vm-linked",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "aot-0",
+            "command": [
+              "/private/tmp/nupp-ffi-final-v5/nupp-vm-linked",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "aot-1",
+            "command": [
+              "/private/tmp/nupp-ffi-final-v5/nupp-vm-linked",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0
+          },
+          {
+            "name": "aot-2",
+            "command": [
+              "/private/tmp/nupp-ffi-final-v5/nupp-vm-linked",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/foreign.image",
+              "nupp.tests.foreign",
+              "run",
+              "/private/tmp/nupp-ffi-final-v4/libnupp-ffi-fixture.dylib",
+              "--tasks"
+            ],
+            "exitCode": 0
+          }
+        ],
+        "compiledFunctions": 51,
+        "imageFunctions": 51,
+        "executableMemoryDenied": true
+      }
+    ],
+    "relatedRust": {
+      "native_aggregates": 9,
+      "storage": 6,
+      "persistence": 21
+    },
+    "compiledScope": "Typed JIT compiles 37 functions and explicitly refuses two vararg helpers; heap-frame JIT executes 73 entries for calls and 30 for callbacks. Linked AOT compiles every image function and records compiled frame entry execution.",
+    "fullRustSuite": {
+      "command": "cargo test -p nupp-vm --features aot --offline",
+      "status": "passed",
+      "log": "/private/tmp/nupp-ffi-final-v4/full-suite.log",
+      "scope": "Full pass before the final indexed-read helper root repair; focused aggregate/storage regressions and all FFI execution gates reran after that repair."
+    },
+    "noDefaultBuild": {
+      "command": "cargo check -p nupp-vm --no-default-features --offline",
+      "status": "passed",
+      "log": "/private/tmp/nupp-ffi-final-v4/no-default-check.log"
+    },
+    "sourceSha256": {
+      "native/crates/vm/src/foreign.rs": "6351f80844d881663612b40c420c5521009d474d7648d202df47b4f3bc4611a9",
+      "native/crates/vm/src/storage.rs": "1d71f27f0fc865ce7e077c91d9b596d5069e38c9c86f17e66aa6d2139b04751e",
+      "native/crates/vm/tests/foreign.rs": "dfca9a1a37b398013b450bb0f9f9ac0281cfe3651bd063146de9bc7f1643f1a9",
+      "native/crates/vm/tests/ffi/fixture.c": "24a72a96b706e82e3bf626d4d6fe3ae9620f018b6b65f5e31912da07e34aaee4",
+      "native/crates/vm/tests/ffi-project/src/nupp/tests/foreign.nupp": "41c3fc51db3477a421596085f86e2ed10a6eca9956c8228d128b2c05454a4f51",
+      "native/crates/vm/src/compiled.rs": "b1f9d188824a9d97a35873326ac922c28ce4146adb56849aac3d405aef67e4ae",
+      "native/crates/vm/tests/native_aggregates.rs": "fa3e9dc11852bd518ace51ecfc496e0498c1a2f5163343a023bb98114a01beab"
+    },
+    "buildScope": "Final runtime-v5 source and linked AOT gates include the indexed-read helper root repair and Android errno cfg correction. Android remains unvalidated. Existing image/object bytes are reused; all 51 image functions compiled, and executed native calls use the rebuilt runtime helpers.",
+    "followupGcRegression": {
+      "test": "compiled_physical_index_allocations_keep_other_live_values_rooted",
+      "before": "fails with index of a non-table (freed table)",
+      "beforeLog": "/private/tmp/nupp-index-gc-before.log",
+      "after": "passed; aggregate9 and storage6 passed",
+      "afterLog": "/private/tmp/nupp-index-gc-after.log",
+      "scope": "Compiled GetIdx/GetIdxF/GetIdxI allocation retains unrelated live values under GC stress/oracle/quarantine"
+    }
+  }
+}

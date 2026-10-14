@@ -128,3 +128,31 @@ fn numeric_image_precision_round_trips() {
     }
     it.release(root);
 }
+
+#[test]
+fn quoted_control_bytes_before_digits_round_trip() {
+    let mut vm = Interp::new();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.install_globals();
+    let format = Value::builtin(nupp_vm::builtins::id_of("string.format").unwrap());
+    let load = Value::builtin(nupp_vm::builtins::id_of("loadstring").unwrap());
+    let spec = vm.intern("%q");
+    vm.register(spec);
+    for original in [b"\x001".as_slice(), b"\x012", b"\x1f9\x7f0", b"a\n\r\"\\b"] {
+        let mark = vm.open_scope();
+        let input = vm.string_of(original);
+        vm.handles.push(input);
+        let quoted = vm.call_value(format, &[spec, input])[0];
+        vm.handles.push(quoted);
+        let mut source = b"return ".to_vec();
+        source.extend_from_slice(vm.bytes_of(quoted));
+        let source = vm.string_of(&source);
+        vm.handles.push(source);
+        let function = vm.call_value(load, &[source])[0];
+        vm.handles.push(function);
+        let result = vm.call_value(function, &[])[0];
+        assert_eq!(vm.bytes_of(result), original);
+        vm.close_scope(mark);
+    }
+}

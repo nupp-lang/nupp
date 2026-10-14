@@ -1,0 +1,237 @@
+module physical.main
+
+local storage: any = assert(require("nupp.mem.representation").storage)
+local persist = require("nupp.vm.persist")
+local test = {}
+
+cdef function abs(value: int32): int32
+cdef function strlen(value: cstring): uint64
+cdef function memcmp(left: cstring, right: cstring, count: uint64): int32
+
+local struct Vector
+    x: number
+    y: number
+
+    function total(): number
+        return self.x + self.y
+    end
+
+    function __len(): number
+        return self.x + self.y
+    end
+
+    function __tostring(): string
+        return "physical Vector"
+    end
+
+    function __add(other: Vector): Vector
+        return new Vector(self.x + other.x, self.y + other.y)
+    end
+end
+
+local record Holder
+    value: Vector
+end
+
+cdef union Overlay
+    word: uint32
+    bytes: uint8[4]
+end
+
+cdef struct CPair
+    left: int32
+    right: int32
+end
+
+local struct Other
+    x: number
+    y: number
+end
+
+local struct Body
+    position: Vector
+    cells: Vector[2]
+    lanes: uint16[3]
+    ready: boolean
+end
+
+local struct Numeric
+    narrow: int8
+    ordinary: integer
+    fraction: float
+    signed: int64
+    unsigned: uint64
+end
+
+local struct Defaults
+    x: number = 3
+    y: number = 4
+end
+
+local struct Constructed
+    x: float
+    y: float = 2
+
+    constructor(self, x: float)
+        self.x = x * 2
+    end
+end
+
+local function isOther(value: any): boolean
+    return value is Other
+end
+
+local function addDynamic(left: any, right: any): any
+    return left + right
+end
+
+local function bump(value: Vector): nil
+    value.x = value.x + 1
+end
+
+function test.run(): number
+    assert(abs(-42) == 42)
+    assert(strlen("physical") == 8ULL)
+    assert(memcmp("same", "same", 4ULL) == 0)
+    assert(memcmp("abc", "abd", 3ULL) < 0)
+    local initialized = new Overlay(42)
+    assert(initialized.word == 42)
+    local pair = new CPair(3, 9)
+    assert(pair.left + pair.right == 12)
+    local overlay = new Overlay()
+    overlay.word = 0x01020304
+    assert(overlay.bytes[0] == 4 and overlay.bytes[3] == 1)
+    overlay.bytes[1] = 9
+    assert(overlay.word == 0x01020904)
+    assert(storage.sizeOf(overlay) == 4)
+    local overlays = carray(Overlay, 2)
+    overlays[0] = overlay
+    overlay.word = 0
+    assert(overlays[0].word == 0x01020904)
+    local vector = new Vector(3, 4)
+    assert(type(Vector) == "cdata" and type(vector) == "cdata")
+    assert(type(Overlay) == "cdata" and type(overlay) == "cdata")
+    local holder = new Holder(vector)
+    assert(rawequal(holder.value, vector))
+    assert(vector:total() == 7)
+    assert(#vector == 7 and tostring(vector) == "physical Vector")
+    local dynamicWitness: any = Vector
+    local originalLength = dynamicWitness.__len
+    dynamicWitness.__len = function(value: any): number
+        return value.x + value.y + 1
+    end
+    assert(#vector == 8)
+    dynamicWitness.__len = originalLength
+    local sum = addDynamic(vector, new Vector(2, 3))
+    assert(sum.x == 5 and sum.y == 7)
+    bump(vector)
+    assert(vector.x == 4)
+    local alias = vector
+    alias.y = 5
+    assert(vector.y == 5)
+    local erased: any = vector
+    assert(erased is Vector and not isOther(erased))
+    assert(not (({x = 4, y = 5} as any) is Vector))
+    local descriptor = storage.descriptor(vector)
+    assert(storage.sizeOf(vector) == 16)
+    assert(storage.sizeOf(descriptor) == 16)
+    assert(#storage.string(vector, 16) == 16)
+    assert(rawequal(storage.layout(vector), storage.layout(Vector)))
+    assert(layoutof(Vector).size == 16)
+
+    local body = new Body()
+    body.position = vector
+    vector.x = 99
+    assert(body.position.x == 4)
+    body.position.x = 8
+    assert(vector.x == 99)
+    local position = body.position
+    position.y = 9
+    assert(body.position.y == 9 and position:total() == 17)
+    body.cells[0] = vector
+    vector.y = 101
+    assert(body.cells[0].y == 5)
+    body.cells[1] = body.position
+    body.position.x = 10
+    assert(body.cells[1].x == 8)
+    body.cells[0].x = 12
+    assert(body.cells[0].x == 12)
+    body.lanes[0] = 1
+    body.lanes[1] = 65535
+    body.lanes[2] = 42
+    assert(body.lanes[1] == 65535 and body.lanes[2] == 42)
+    body.ready = true
+    assert(body.ready)
+
+    local rows = carray(Vector, 2)
+    rows[0] = vector
+    vector.x = 111
+    assert(rows[0].x == 99)
+    rows[1] = rows[0]
+    rows[0].x = 7
+    assert(rows[1].x == 99)
+    local row = rows[0]
+    row.y = 13
+    assert(rows[0].y == 13 and row:total() == 20)
+    local dynamicRows: any = rows
+    assert(
+        not pcall(function()
+            return dynamicRows[-1]
+        end)
+    )
+    assert(
+        not pcall(function()
+            return dynamicRows[2]
+        end)
+    )
+    assert(
+        not pcall(function()
+            dynamicRows[0] = new Other(1, 2)
+        end)
+    )
+
+    local numeric = new Numeric()
+    local dynamicNumber: any = numeric
+    dynamicNumber.narrow = 255
+    dynamicNumber.ordinary = 4294967295
+    numeric.fraction = 0.1
+    numeric.signed = -9223372036854775807LL
+    numeric.unsigned = 18446744073709551615ULL
+    assert(numeric.narrow == -1 and numeric.ordinary == -1)
+    assert(numeric.fraction ~= 0.1)
+    assert(numeric.signed == -9223372036854775807LL)
+    assert(numeric.unsigned == 18446744073709551615ULL)
+    numeric.unsigned = 0x7ffe000000000001ULL
+    assert(numeric.unsigned == 0x7ffe000000000001ULL)
+    numeric.fraction = -0.0
+    assert(1 / numeric.fraction == -math.huge)
+    local constructed = new Constructed(1.5)
+    assert(constructed.x == 3 and constructed.y == 2 and type(constructed) == "cdata")
+    local defaults = new Defaults()
+    assert(defaults.x == 3 and defaults.y == 4)
+
+    local dynamicBody: any = body
+    local graph = {
+        owner = body,
+        view = dynamicBody.position,
+        rows = rows,
+        row = dynamicRows[0],
+        numeric = numeric,
+        overlays = overlays
+    }
+    local restored = persist.load(persist.save(graph))
+    assert(type(restored.owner) == "cdata" and type(restored.view) == "cdata")
+    assert(restored.overlays[0].word == 0x01020904)
+    restored.view.x = 27
+    assert(restored.owner.position.x == 27 and body.position.x == 10)
+    restored.row.y = 29
+    assert(restored.rows[0].y == 29 and rows[0].y == 13)
+    assert(restored.numeric.unsigned == 0x7ffe000000000001ULL)
+    assert(restored.view:total() == 36)
+    storage.fill(vector, 16, 0)
+    assert(vector.x == 0 and vector.y == 0)
+
+    return 42
+end
+
+export = test

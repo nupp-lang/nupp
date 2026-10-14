@@ -20,9 +20,11 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
-default = ["jit", "c-headers"]
+default = ["jit", "c-headers", "native-ffi"]
 # Optional in-process C declaration inspection for compiler hosts.
 c-headers = ["dep:libloading", "dep:serde_json"]
+# Dynamic native C calls and callback trampolines.
+native-ffi = ["dep:libffi", "dep:libloading"]
 # The typed tier: Cranelift lowering of the bytecode (P5). Off, the crate is
 # the interpreter alone, which is what the browser build and a bootstrap
 # without Cranelift need.
@@ -61,6 +63,9 @@ libc = "0.2"
 [target.'cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))))'.dependencies]
 mimalloc = { version = "0.1.52", optional = true, default-features = false }
 tikv-jemallocator = { version = "0.7.0", optional = true, default-features = false }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+libffi = { version = "5.1.1", optional = true }
 
 [build-dependencies]
 cc = "1"

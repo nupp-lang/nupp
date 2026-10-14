@@ -339,17 +339,23 @@ function targetLayout.of(t: any, key: string): any?, string?
             active[subject] = true
             local fields, offsets = {}, {}
             local cursor: integer, aggregateAlignment: integer = 0, 1
+            local isUnion = subject.cdefKind == "union"
             for _, name in ipairs(subject.fieldOrder or {}) do
+                local definition = subject.fieldDefs and subject.fieldDefs[name]
+                if definition and definition.bitWidth then
+                    active[subject] = nil
+                    return nil, "bitfield " .. name .. " has no modeled target layout"
+                end
                 local fieldType = subject.byname and subject.byname[name] or nil
                 local one, why = layoutType(fieldType)
                 if not one then
                     active[subject] = nil
                     return nil, ("field %q %s"):format(name, why or "has no layout")
                 end
-                cursor = roundUp(cursor, one.alignment)
-                fields[#fields + 1] = {name = name, offset = cursor, size = one.size, alignment = one.alignment,}
-                offsets[name] = cursor
-                cursor = cursor + one.size
+                local offset = isUnion and 0 or roundUp(cursor, one.alignment)
+                fields[#fields + 1] = {name = name, offset = offset, size = one.size, alignment = one.alignment,}
+                offsets[name] = offset
+                cursor = isUnion and math.max(cursor, one.size) or offset + one.size
                 if one.alignment > aggregateAlignment then
                     aggregateAlignment = one.alignment
                 end
@@ -370,6 +376,9 @@ function targetLayout.of(t: any, key: string): any?, string?
     end
     fields, offsets = fields or {}, offsets or {}
     local parts = {key, "abi=" .. targetLayout.ABI}
+    if t.cdefKind then
+        parts[#parts + 1] = "aggregate=" .. t.cdefKind
+    end
     for _, field in ipairs(fields) do
         parts[#parts + 1] = ("%s@%d:%d/%d"):format(field.name, field.offset, field.size, field.alignment)
     end

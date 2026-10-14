@@ -16,6 +16,8 @@ pub type Result<T> = std::result::Result<T, String>;
 const MAGIC: &[u8; 8] = b"NUPPSAV1";
 // Preserve the original record encoding for graphs without metatables.
 const RECORD_WITH_METATABLE: u8 = 11;
+const ALIGNED_BYTES: u8 = 13;
+const NATIVE_TABLE: u8 = 14;
 const LIMIT: usize = 256 * 1024 * 1024;
 const ITEMS: usize = 4_000_000;
 
@@ -566,12 +568,12 @@ fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
 enum Node<'a> {
     Integer(crate::numeric::Integer),
     String(bool, &'a [u8]),
-    Table(Vec<Ref>, Vec<Ref>, Ref),
+    Table(Vec<Ref>, Vec<Ref>, Ref, bool),
     Record(usize, Vec<Ref>, Vec<Ref>, Vec<Ref>, Ref),
     Storage(&'a [u8]),
     Closure(usize, Vec<Ref>),
     Cell(Ref),
-    Bytes(&'a [u8]),
+    Bytes(&'a [u8], usize),
     Iter(u8, usize, Ref, Ref, Vec<Ref>),
     Slice(Ref, usize, usize),
     Resource(String, &'a [u8]),
@@ -593,7 +595,8 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
             let b = r.bytes()?;
             Node::String(interned, b)
         }
-        KIND_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?),
+        KIND_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, false),
+        NATIVE_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, true),
         KIND_RECORD => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::Bits(Value::NIL.0)),
         RECORD_WITH_METATABLE => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::read(r)?),
         KIND_STORAGE => {
@@ -605,7 +608,12 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
         }
         KIND_CLOSURE => Node::Closure(r.u32()?, refs_read(r)?),
         KIND_CELL => Node::Cell(Ref::read(r)?),
-        KIND_BYTES => Node::Bytes(r.bytes()?),
+        KIND_BYTES => Node::Bytes(r.bytes()?, 0),
+        ALIGNED_BYTES => {
+            let alignment = r.u32()?;
+            if !alignment.is_power_of_two() || alignment > ByteBuffer::MAX_ALIGNMENT { return Err("invalid byte alignment".into()); }
+            Node::Bytes(r.bytes()?, alignment)
+        },
         KIND_ITER => Node::Iter(
             r.byte()?,
             r.u32()?,
@@ -620,7 +628,7 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
 }
 fn node_refs<'a>(n: &'a Node) -> Vec<&'a Ref> {
     match n {
-        Node::Table(a, b, m) => a.iter().chain(b).chain(std::iter::once(m)).collect(),
+        Node::Table(a, b, m, _) => a.iter().chain(b).chain(std::iter::once(m)).collect(),
         Node::Record(_, a, b, c, m) => a.iter().chain(b).chain(c).chain(std::iter::once(m)).collect(),
         Node::Closure(_, a) => a.iter().collect(),
         Node::Cell(v) | Node::Slice(v, _, _) => vec![v],
@@ -756,7 +764,7 @@ fn save_graph_mode(
                 }
             }
             let h = unsafe { p.as_ref() };
-            payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else { h.kind });
+            payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else if !plain && h.kind == KIND_TABLE && h.flags & F_NATIVE_STORAGE != 0 { NATIVE_TABLE } else if h.kind == KIND_BYTES && unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { ALIGNED_BYTES } else { h.kind });
             // Use the collector's edge enumeration to discover every ordinary
             // reference. Transient records use their filtered edge list below.
             if kind != KIND_RECORD && !(plain && kind == KIND_TABLE) {
@@ -825,7 +833,11 @@ fn save_graph_mode(
                     }
                 }
                 KIND_INTEGER => { payload.byte(h.aux as u8); payload.u64(h.aux_len); }
-                KIND_BYTES => payload.bytes(h.bytes())?,
+                KIND_BYTES => {
+                    let alignment = unsafe { &*(h.payload() as *const BytesPayload) }.data.alignment();
+                    if unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { payload.u32(alignment)?; }
+                    payload.bytes(h.bytes())?;
+                },
                 KIND_CLOSURE => {
                     graph.functions = true;
                     payload.u32(h.fid() as usize)?;
@@ -1034,7 +1046,7 @@ fn refs_validate(vm: &Interp, g: &Graph) -> Result<()> {
                     return Err("invalid record payload".into());
                 }
             }
-            Node::Table(_, pairs, meta) => {
+            Node::Table(_, pairs, meta, _) => {
                 if pairs.len() % 2 != 0 {
                     return Err("invalid table pairs".into());
                 }
@@ -1075,7 +1087,7 @@ fn refs_validate(vm: &Interp, g: &Graph) -> Result<()> {
             }
         }
         let pairs = match n {
-            Node::Table(_, p, _) | Node::Record(_, _, _, p, _) => Some(p),
+            Node::Table(_, p, _, _) | Node::Record(_, _, _, p, _) => Some(p),
             _ => None,
         };
         if let Some(pairs) = pairs {
@@ -1150,7 +1162,7 @@ fn plain_graph(data: &[u8]) -> Result<()> {
     for node in &graph.nodes {
         match node {
             Node::Integer(_) | Node::String(..) | Node::Slice(..) => (),
-            Node::Table(_, _, meta) | Node::Record(_, _, _, _, meta)
+            Node::Table(_, _, meta, false) | Node::Record(_, _, _, _, meta)
                 if matches!(meta, Ref::Bits(bits) if *bits == Value::NIL.0) => (),
             _ => return Err("plain data cannot contain resources, closures, or metatables".into()),
         }
@@ -1317,14 +1329,14 @@ pub(crate) fn load_graph_with(
                 target.unwrap()
             } else {
                 match n {
-                    Node::Table(array, pairs, _) => {
+                    Node::Table(array, pairs, _, _) => {
                         vm.new_table_sized(array.len(), pairs.len() / 2)
                     }
                     Node::Resource(..) => vm.new_table(),
                     Node::Integer(value) => vm.box_integer(*value),
                     Node::Record(s, ..) => vm.new_record(shape_ids[*s]),
-                    Node::Bytes(b) => {
-                        let v = vm.heap_new_bytes(b.len());
+                    Node::Bytes(b, alignment) => {
+                        let v = if *alignment != 0 { vm.heap_new_aligned_bytes(b.len(), *alignment) } else { vm.heap_new_bytes(b.len()) };
                         vm.bytes_mut(v).copy_from_slice(b);
                         v
                     }
@@ -1368,7 +1380,9 @@ pub(crate) fn load_graph_with(
             let h = unsafe { &mut *p.as_ptr() };
             let before = h.external_bytes();
             match n {
-                Node::Table(array, pairs, meta) => {
+                Node::Table(array, pairs, meta, native) => {
+                    h.flags &= !F_NATIVE_STORAGE;
+                    if *native { h.flags |= F_NATIVE_STORAGE; }
                     let t = h.table();
                     t.array.extend(resolve_all(array, &objects)?);
                     t.meta = resolve(meta, &objects)?;

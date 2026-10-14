@@ -71,7 +71,7 @@ function M.roundTripsStructBitWidths()
     testAssert.equal(loaded.writeFieldDefs.ready.bitWidth, 1, "writable bit width")
 end
 
-function M.vmLayoutsRejectForeignAndGenericStructs()
+function M.vmLayoutsSupportUnionsAndRejectGenericStructs()
     local metadata = require("nupp.compiler.vm.metadata")
     local aggregate = indexed("Foreign", "/project/sample.nupp", "struct")
     aggregate.runtimeDeclarationKey = "sample\0runtime\0" .. "1"
@@ -79,8 +79,8 @@ function M.vmLayoutsRejectForeignAndGenericStructs()
     aggregate.fieldOrder = {"value"}
     aggregate.cdefKind = "union"
     local foreign = metadata.structLayout({resolvedType = aggregate}, "aarch64-apple-darwin")
-    assert(not foreign.supported and foreign.size == nil)
-    assert(foreign.error:find("C aggregate", 1, true))
+    assert(foreign.supported and foreign.size == 4 and foreign.kind == "union")
+    testAssert.equal(foreign.fields[1].offset, 0)
     aggregate.cdefKind = nil
     aggregate.typeParams = {T.typevar("Unused", "vm-layout:unused")}
     local generic = metadata.structLayout({resolvedType = aggregate}, "aarch64-apple-darwin")
@@ -549,6 +549,14 @@ end
         descriptor.fingerprint,
         "fingerprint after moving"
     )
+end
+
+function M.vmMetadataLiteralsPreserveBinaryIdentity()
+    local metadata = require("nupp.compiler.vm.metadata")
+    for _, value in ipairs({"module\0runtime\0" .. "1", "\1" .. "23", "\255\0\"\\"}) do
+        local literal = metadata.literal(value)
+        testAssert.equal(assert(loadstring("return " .. literal.token.text))(), value)
+    end
 end
 
 return M

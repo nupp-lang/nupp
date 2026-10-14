@@ -372,6 +372,7 @@ pub struct Interp {
     pub c_declarations: Option<Box<crate::cdecl::Registry>>,
     pub(crate) processes: crate::process::State,
     pub(crate) temporary_paths: std::collections::HashMap<Value, crate::temporary::Owner>,
+    pub(crate) foreign: crate::foreign::State,
     pub native_files: std::collections::HashMap<Value, std::fs::File>,
     pub heap: Heap,
     /// The host services, once started.
@@ -469,7 +470,7 @@ pub struct Interp {
     pub pending_error: Option<Value>,
 }
 
-struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String> }
+struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String>, foreign: &'a crate::foreign::State }
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
         for t in self.tasks {
@@ -497,6 +498,7 @@ impl Roots for TaskRoots<'_> {
         for fun in self.funcs { for &k in &fun.consts { f(k); } }
         for &v in self.handles { f(v); }
         for &v in self.resources.keys() { f(v); }
+        self.foreign.trace(f);
         for &v in self.registered { f(v); }
         for &v in &self.extra[..self.extra_n.min(MAX_RESULTS)] { f(v); }
         if let Some(e) = self.pending { f(e); }
@@ -522,7 +524,7 @@ pub enum Flow { Next, Reenter, Return(Outcome) }
 /// (re-derive the windows), or the task's outcome.
 pub enum Step { Next(usize), Reenter, Return(Outcome) }
 
-macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n, pending: $self.pending_error, resources: &$self.resources } } }
+macro_rules! roots { ($self:ident) => { &TaskRoots { tasks: &$self.tasks, funcs: &$self.funcs, handles: &$self.handles, registered: &$self.registered, extra: &$self.extra, extra_n: $self.extra_n, pending: $self.pending_error, resources: &$self.resources, foreign: &$self.foreign } } }
 
 /// The header behind an object value, or an error; the message is built
 /// only on the error path.
@@ -531,7 +533,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), foreign: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1013,6 +1015,7 @@ impl Interp {
     pub fn install_globals(&mut self) {
         self.code_events.push(crate::persist::CodeEvent::Globals);
         crate::storage::install(self);
+        crate::foreign::install(self);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
         self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
@@ -1168,6 +1171,7 @@ impl Interp {
     pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value) -> Value { self.heap.new_iter(kind, obj, pattern, Vec::new(), roots!(self)) }
     pub fn new_iter_keys(&mut self, kind: u8, obj: Value, keys: Vec<Value>) -> Value { self.heap.new_iter(kind, obj, Value::NIL, keys, roots!(self)) }
     pub fn heap_new_bytes(&mut self, n: usize) -> Value { self.heap.new_bytes(n, roots!(self)) }
+    pub fn heap_new_aligned_bytes(&mut self, n: usize, alignment: usize) -> Value { self.heap.new_aligned_bytes(n, alignment, roots!(self)) }
     pub fn heap_new_buffer(&mut self) -> Value { self.heap.new_buffer(roots!(self)) }
     /// A string that is not interned: long results, as Lua 5.4 treats them.
     pub fn heap_new_string(&mut self, text: &str) -> Value { self.heap.new_string(text, roots!(self)) }
@@ -1315,7 +1319,7 @@ impl Interp {
         }
         self.heap.account_resize(before, h.external_bytes());
     }
-    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
+    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } if let Some(value) = crate::storage::metamethod(self, t, m, name) { return value; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
     /// A read that follows `__index` (a function or a table) when a table
     /// lacks the key, including tables represented by record shapes.
     pub fn index(&mut self, t: Value, key: Value) -> Value {
@@ -1414,6 +1418,7 @@ impl Interp {
     pub fn buf_finish(&mut self, buf: Value) -> Value {
         let h = hdr!(self, buf, "finish of a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
+        if matches!(h.byte_buffer().data, crate::heap::ByteBuffer::Aligned(_)) { self.err("fixed native storage cannot be resized or consumed") }
         let before = h.external_bytes();
         let bytes = std::mem::take(&mut h.byte_buffer().data);
         h.refresh();
@@ -1423,6 +1428,7 @@ impl Interp {
     pub fn buf_append(&mut self, buf: Value, text: &[u8]) {
         let h = hdr!(self, buf, "append to a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
+        if matches!(h.byte_buffer().data, crate::heap::ByteBuffer::Aligned(_)) { self.err("fixed native storage cannot be resized or consumed") }
         let before = h.external_bytes();
         h.byte_buffer().data.extend_from_slice(text);
         h.refresh();

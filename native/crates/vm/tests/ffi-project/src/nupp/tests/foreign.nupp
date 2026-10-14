@@ -1,0 +1,264 @@
+module nupp.tests.foreign
+
+local foreign: any = _G.require("nupp.vm.foreign")
+local storage: any = assert(require("nupp.mem.representation").storage)
+local test = {}
+
+local struct Pair
+    x: number
+    y: number
+end
+
+local struct Large
+    a: uint64
+    b: uint64
+    c: uint64
+    d: uint64
+end
+
+local struct NuppScalars
+    flag: boolean
+    count: integer
+end
+
+function test.run(library: string): number
+    local functions: {any} = {}
+
+    local function bind(symbol: string, signature: any): any
+        const functionValue = foreign.bind(library, symbol, signature)
+        functions[#functions + 1] = functionValue
+        return functionValue
+    end
+
+    local function identity(symbol: string, kind: string, value: any): nil
+        const native = bind(symbol, {result = kind, params = {kind}})
+        assert(native(value) == value, symbol)
+    end
+
+    identity("ffi_test_bool", "bool", true)
+    identity("ffi_test_bool", "bool", false)
+    identity("ffi_test_i8", "int8", -128)
+    identity("ffi_test_u8", "uint8", 255)
+    identity("ffi_test_i16", "int16", -32768)
+    identity("ffi_test_u16", "uint16", 65535)
+    identity("ffi_test_i32", "int32", -2147483648)
+    identity("ffi_test_u32", "uint32", 4294967295)
+    identity("ffi_test_i64", "int64", -9223372036854775808LL)
+    identity("ffi_test_u64", "uint64", 18446744073709551615ULL)
+    identity("ffi_test_float", "float", 1.5)
+    identity("ffi_test_double", "number", -2.25)
+
+    const asFloat = bind("ffi_test_float", {result = "float", params = {"float"}})
+    assert(asFloat(16777217) == 16777216)
+    const asDouble = bind("ffi_test_double", {result = "number", params = {"number"}})
+    assert(1 / asDouble(-0.0) == -math.huge)
+    assert(asDouble(math.huge) == math.huge)
+    const nan = asDouble(0 / 0)
+    assert(nan ~= nan)
+    const asPointer = bind("ffi_test_pointer", {result = "pointer", params = {"pointer"}})
+    assert(asPointer(nil) == nil)
+
+    const readonlyPointer = {kind = "pointer", readonly = true}
+    const copy = bind("ffi_test_copy", {result = "void", params = {"pointer", readonlyPointer, "uint64"},})
+    const strlen = bind("ffi_test_strlen", {result = "uint64", params = {readonlyPointer}})
+    assert(not pcall(asPointer, "immutable"))
+    const bytes = storage.allocateBytes(8)
+    copy(bytes, "nupp\0ffi", 8ULL)
+    assert(storage.string(bytes, 8) == "nupp\0ffi")
+    assert(strlen("nupp") == 4ULL)
+    assert(strlen("nupp\0ffi") == 4ULL)
+    const origin = storage.allocateArray(storage.scalar("uint64"), 1)
+    origin[0] = 18446744073709551615ULL
+    const destination = storage.allocateArray(storage.scalar("uint64"), 1)
+    copy(destination, origin, 8ULL)
+    assert(destination[0] == 18446744073709551615ULL)
+
+    const sumInts = bind("ffi_test_varargs_int", {
+        result = "uint64",
+        params = {"int32", "int32", "int32", "int32"},
+        fixed = 1,
+    })
+    assert(sumInts(3, 2, 3, 5) == 10ULL)
+    const sumDoubles = bind("ffi_test_varargs_double", {
+        result = "number",
+        params = {"int32", "number", "number", "number"},
+        fixed = 1,
+    })
+    assert(sumDoubles(3, 1.5, 2.25, 3.5) == 7.25)
+    assert(not pcall(foreign.bind, library, "ffi_test_missing_symbol", {result = "void", params = {}}))
+    assert(not pcall(foreign.bind, library, "ffi_test_i32", {result = "not-a-type", params = {"int32"}}))
+    assert(not pcall(asDouble))
+    assert(not pcall(asDouble, 1, 2))
+    const pairType = storage.descriptor(new Pair(0, 0))
+    const pairCall = bind("ffi_test_pair", {result = pairType, params = {pairType, "number"}})
+    const pair = new Pair(1.5, 2.5)
+    const pairResult = pairCall(pair, 2)
+    assert(pairResult.x == 3.5 and pairResult.y == 0.5)
+    assert(pair.x == 1.5 and pair.y == 2.5)
+    const semantic = new NuppScalars(true, 41)
+    const semanticType = storage.descriptor(semantic)
+    const semanticCall = bind("ffi_test_nupp_scalars", {result = semanticType, params = {semanticType}})
+    const semanticResult = semanticCall(semantic)
+    assert(semanticResult.flag == false and semanticResult.count == 42)
+    assert(semantic.flag == true and semantic.count == 41)
+    const large = new Large(18446744073709551615ULL, 2ULL, 3ULL, 4ULL)
+    const largeType = storage.descriptor(large)
+    const largeCall = bind("ffi_test_large", {result = largeType, params = {largeType}})
+    const largeResult = largeCall(large)
+    assert(largeResult.a == 18446744073709551615ULL and largeResult.d == 4ULL)
+    largeResult.a = 7ULL
+    assert(large.a == 18446744073709551615ULL)
+    const errorCall = bind("ffi_test_errno", {result = "int32", params = {"int32"}})
+    assert(errorCall(31) == -1)
+    const allocated = storage.allocateBytes(16)
+    assert(storage.sizeOf(allocated) == 16 and foreign.errno() == 31)
+    assert(foreign.errno(17) == 31)
+    const readError = bind("ffi_test_read_errno", {result = "int32", params = {}})
+    assert(readError() == 17)
+    for _, functionValue in ipairs(functions) do
+        foreign.close(functionValue)
+    end
+    assert(not pcall(asDouble, 1))
+
+    return 42
+end
+
+function test.callbacks(library: string): number
+    local functions: {any} = {}
+
+    local function bind(symbol: string, signature: any): any
+        const functionValue = foreign.bind(library, symbol, signature)
+        functions[#functions + 1] = functionValue
+        return functionValue
+    end
+
+    const invoke = bind("ffi_test_callback", {result = "int32", params = {"pointer", "int32", "int32"}})
+    const save = bind("ffi_test_save_callback", {result = "void", params = {"pointer"}})
+    const saved = bind("ffi_test_call_saved", {result = "int32", params = {"int32", "int32"}})
+    const clear = bind("ffi_test_clear_saved", {result = "void", params = {}})
+    const inner = bind("ffi_test_i32", {result = "int32", params = {"int32"}})
+    local calls = 0
+    const callback = foreign.callback(
+        {
+            result = "int32",
+            params = {"int32", "int32"}
+        },
+        function(a: number, b: number): number
+            calls = calls + 1
+            const buffer = storage.allocateBytes(64)
+            assert(storage.sizeOf(buffer) == 64)
+            return inner(a + b)
+        end
+    )
+    assert(invoke(callback, 19, 23) == 42 and calls == 1)
+    save(callback)
+    const allocation = storage.allocateBytes(128)
+    assert(storage.sizeOf(allocation) == 128)
+    assert(saved(20, 22) == 42 and calls == 2)
+    foreign.setCallback(callback, function(a: number, b: number): number
+        return a * b
+    end)
+    assert(saved(6, 7) == 42)
+    foreign.setCallback(callback, function(a: number, b: number): number
+        error("native callback failure")
+    end)
+    const ok, problem = pcall(saved, 6, 7)
+    assert(not ok and tostring(problem):find("native callback failure", 1, true) ~= nil)
+    foreign.setCallback(callback, function(a: number, b: number): number
+        return a + b
+    end)
+    assert(saved(1, 2) == 3)
+    clear()
+    foreign.close(callback)
+    assert(saved(1, 2) == -1)
+
+    const wideCall = bind("ffi_test_callback_u64", {result = "uint64", params = {"pointer", "uint64"}})
+    const wide = foreign.callback({result = "uint64", params = {"uint64"}}, function(value: uint64): uint64
+        return value
+    end)
+    assert(wideCall(wide, 18446744073709551615ULL) == 18446744073709551615ULL)
+    foreign.close(wide)
+    const boolCall = bind("ffi_test_callback_bool", {result = "bool", params = {"pointer", "bool"}})
+    const boolean = foreign.callback({result = "bool", params = {"bool"}}, function(value: boolean): boolean
+        return not value
+    end)
+    assert(boolCall(boolean, true) == false and boolCall(boolean, false) == true)
+    foreign.close(boolean)
+    const doubleCall = bind("ffi_test_callback_double", {result = "number", params = {"pointer", "number"}})
+    const double = foreign.callback({result = "number", params = {"number"}}, function(value: number): number
+        return value + 0.25
+    end)
+    assert(doubleCall(double, 1.5) == 1.75)
+    foreign.close(double)
+
+    const pointerCall = bind("ffi_test_pointer", {result = "pointer", params = {"pointer"}})
+    local backing: any = storage.allocateArray(storage.scalar("uint8"), 1)
+    backing[0] = 42
+    local parentPointer: any = pointerCall(backing)
+    local activePointer: any = pointerCall(parentPointer)
+    rawset(backing, "\0nupp:storage:owner", nil)
+    backing = nil
+    foreign.close(parentPointer)
+    parentPointer = nil
+    local active: any = foreign.bind(library, "ffi_test_callback_pointer", {
+        result = "uint32",
+        params = {{kind = "pointer", readonly = true}, "pointer"}
+    })
+    const closingCallback = foreign.callback(
+        {
+            result = "int32",
+            params = {"int32", "int32"}
+        },
+        function(a: number, b: number): number
+            foreign.close(activePointer)
+            activePointer = nil
+            foreign.close(active)
+            active = nil
+            collectgarbage("collect")
+
+            return 0
+        end
+    )
+    assert(active(activePointer, closingCallback) == 42)
+    foreign.close(closingCallback)
+
+    local resultType: any = {
+        kind = "struct",
+        size = 16,
+        alignment = 8,
+        fields = {
+            {name = "x", offset = 0, type = {kind = "number"}},
+            {name = "y", offset = 8, type = {kind = "number"}}
+        }
+    }
+    local returning: any = foreign.bind(library, "ffi_test_callback_pair", {result = resultType, params = {"pointer"}})
+    resultType = nil
+    const closingAggregate = foreign.callback(
+        {
+            result = "int32",
+            params = {"int32", "int32"}
+        },
+        function(a: number, b: number): number
+            foreign.close(returning)
+            returning = nil
+            collectgarbage("collect")
+            return 0
+        end
+    )
+    const aggregate = returning(closingAggregate)
+    assert(aggregate.x == 19 and aggregate.y == 23)
+    foreign.close(closingAggregate)
+
+    assert(
+        not pcall(foreign.callback, {result = "int32", params = {"int32"}, fixed = 1}, function(value: number): number
+            return value
+        end)
+    )
+    for _, functionValue in ipairs(functions) do
+        foreign.close(functionValue)
+    end
+
+    return 42
+end
+
+export = test

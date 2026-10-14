@@ -1,0 +1,362 @@
+{
+  "scope": "Physical plain/C structs, natural C unions, nested fixed arrays, and initial semantic C function lowering; not complete LuaJIT FFI parity or actual Tecs snapshot benchmark acceptance.",
+  "status": "passed",
+  "storage": [
+    "Aligned byte owners and bounded nested views",
+    "By-value aggregate field and array writes; aliasing locals and parameters",
+    "Exact signed/unsigned widths, float32 rounding, negative zero",
+    "Custom constructors/defaults, live methods/metamethods, nominal type tests and cdata identity",
+    "Graph persistence preserving owner/view aliasing and native type identity",
+    "Natural unions with overlapping members and one-member constructor admission"
+  ],
+  "dispatch": "GetField/SetField helpers and descriptor lookup; direct constant-offset Cranelift field lowering remains open. No new performance claim.",
+  "sourceForeign": "Checked scalar cdef signatures, readonly const pointees and cstring parameters; libc abs/strlen/memcmp acceptance. Runtime direct foreign API has broader coverage separately.",
+  "remaining": [
+    "Packed layouts and explicit alignment source metadata",
+    "Bitfield ABI rules",
+    "Generic structs",
+    "Managed and pointer struct fields",
+    "Full cdef signature lowering including callbacks, variadics, out/count mappings and by-value aggregates",
+    "Full LuaJIT FFI compatibility",
+    "Actual Tecs snapshot integration"
+  ],
+  "sourceSha256": {
+    "src/nupp/compiler/vm/lower.nupp": "a8a2888e9f618b5c16e671e7bdbc28d2df32db5e1885ccf16b4399ca97b1f76c",
+    "src/nupp/compiler/vm/metadata.nupp": "07fd65f7ab92f12b7307460d359b1b0e9b87768939d0ae87065028f5c957d5f8",
+    "src/nupp/compiler/check/cdef.nupp": "27b43cfc0f6f883db27e6a25bd2a72ad40215e7420875a2c239e58e913b0017e",
+    "src/nupp/compiler/targetlayout.nupp": "9e1b19a225544bf2eba2e0fa3d156ffb7ff8dcfcef98e665cc3e90aeaf74b63c",
+    "tests/cabitest.lua": "23e74d98f103f04c792a54bf105a21421d72cc051dfdb9f38d0b3287d8f711a4",
+    "tests/interfaceimagetest.lua": "478aefcf825a2efb67e851c8cbde3adae2f6d18fd7e28aef7c5d8af0e42d9bdc",
+    "native/crates/vm/tests/physical-struct-project/src/physical/main.nupp": "59ec1c324dd8afebb04bc152faf5c7cd3d5eb0d742fcee9201fae03e08126308",
+    "native/crates/vm/tests/physical-struct-project/src/physical/rejectunion.nupp": "0a762b4d6e80d8be99279d3de3902ee1181d84c4ddd887e22eda62b269d294aa"
+  },
+  "sourceAcceptance": {
+    "seedSha256": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4",
+    "imageSha256": "9e5cb0c1a3405aa057e9d92d5cfead24f1fd740d0118f8f7e0a873a1c526dc3f",
+    "binarySha256": "86b20a71be5a408c6172e52a9d3429cd63c5f50b97dbd8deab294b340d47e7d2",
+    "sourceSha256": "59ec1c324dd8afebb04bc152faf5c7cd3d5eb0d742fcee9201fae03e08126308",
+    "rejectedUnionSha256": "0a762b4d6e80d8be99279d3de3902ee1181d84c4ddd887e22eda62b269d294aa",
+    "multipleUnionInitializersRejected": true,
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "finalRuntimeExecution": {
+    "binarySha256": "a4924ab196a7a7a469ab4872a9374491fb8fc7b6c3b15cc60c5005a91487e071",
+    "imageSha256": "9e5cb0c1a3405aa057e9d92d5cfead24f1fd740d0118f8f7e0a873a1c526dc3f",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "layoutRegression": {
+    "scope": "Resolved native struct layout metadata only; no physical struct allocation or actual Tecs snapshot benchmark acceptance",
+    "status": "passed",
+    "phases": [
+      {
+        "name": "explicit-emit",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/compiler3/generation1.image",
+          "nupp.tools.vm.project",
+          "emit",
+          "/private/tmp/nupp-physical-structs/layout-regression/explicit",
+          "tecs.tests.structlayout"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "explicit-rust",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/explicit.image",
+          "tecs.tests.structlayout",
+          "run"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "explicit-threaded",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/explicit.image",
+          "tecs.tests.structlayout",
+          "run"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "explicit-jit",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/explicit.image",
+          "tecs.tests.structlayout",
+          "run"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "missing-emit",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/compiler3/generation1.image",
+          "nupp.tools.vm.project",
+          "emit",
+          "/private/tmp/nupp-physical-structs/layout-regression/missing",
+          "tecs.tests.structlayout"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "missing-rust",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/missing.image",
+          "tecs.tests.structlayout",
+          "missingTarget"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "missing-threaded",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/missing.image",
+          "tecs.tests.structlayout",
+          "missingTarget"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "missing-jit",
+        "command": [
+          "/private/tmp/nupp-physical-struct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-structs/layout-regression/missing.image",
+          "tecs.tests.structlayout",
+          "missingTarget"
+        ],
+        "exitCode": 0
+      }
+    ],
+    "sha256": {
+      "seed": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4",
+      "runtime": "86b20a71be5a408c6172e52a9d3429cd63c5f50b97dbd8deab294b340d47e7d2",
+      "explicit": "7eb68dd4d2ace7731873f12d9a34343f80cdd8a78d9cbd2d747fea7107ba380e",
+      "missing": "44208fc9fd9ba83bfd516a8e3f357ddde79b88a6857d16502e741b6da89fc60c"
+    }
+  },
+  "compilerGenerations": {
+    "byteIdentical": true,
+    "generations": [
+      {
+        "path": "/private/tmp/nupp-physical-structs/compiler3/generation1.image",
+        "bytes": 8907998,
+        "sha256": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4"
+      },
+      {
+        "path": "/private/tmp/nupp-physical-structs/final-generations/generation1.image",
+        "bytes": 8907998,
+        "sha256": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4"
+      }
+    ],
+    "note": "Two successive source rebuilds are identical; redundant additional generation stopped after identity established."
+  },
+  "logs": {
+    "sourceAcceptance": "/private/tmp/nupp-physical-structs/acceptance6",
+    "finalRuntimeExecution": "/private/tmp/nupp-physical-structs/acceptance-v5",
+    "layoutRegression": "/private/tmp/nupp-physical-structs/layout-regression",
+    "fixpoint": "/private/tmp/nupp-physical-structs/final-fixpoint.json",
+    "coldCheck": "/private/tmp/nupp-physical-structs/final-check-current.json"
+  },
+  "pinnedFixpoint": {
+    "diagnostics": [],
+    "kind": "compiler",
+    "ok": true,
+    "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+    "target": "compiler"
+  },
+  "focusedCompilerTests": {
+    "passed": true,
+    "count": 15,
+    "tests": [
+      "cabi.aGuardIsAlwaysACIdentifier: passed",
+      "cabi.aPointerToAnArrayKeepsItsParentheses: passed",
+      "cabi.byValueCyclesAreRejectedBeforeEmission: passed",
+      "cabi.canonicalIdentityIsNominalAndModuleQualified: passed",
+      "cabi.descriptionCarriesTargetLayoutAndSemanticFingerprints: passed",
+      "cabi.functionRecordsRejectUnmodelledCallingConventions: passed",
+      "cabi.headerOrdersByValueDependenciesAndAssertsEveryOffset: passed",
+      "cabi.hostRuntimeLayoutAgreesWithTheCanonicalRecord: passed",
+      "cabi.layoutAndSemanticChangesAlterThePublishedFingerprints: passed",
+      "cabi.oneFunctionRecordRendersTypedAndErasedPointers: passed",
+      "cabi.pointerRecursionUsesForwardDeclarations: passed",
+      "cabi.vmForeignSignaturesUseCheckedTypes: passed",
+      "interface.roundTripsStructBitWidths: passed",
+      "interface.vmLayoutsSupportUnionsAndRejectGenericStructs: passed",
+      "interface.vmMetadataLiteralsPreserveBinaryIdentity: passed"
+    ],
+    "provenance": "Direct provisioned LuaJIT, build/?.lua modules produced by the final pinned fixpoint."
+  },
+  "coldCheckProvenance": {
+    "launcher": "/private/tmp/nupp-current-checker-host/bin/nupp",
+    "checker": "build/nupp/tools/main.lua and build/?.lua from final pinned fixpoint",
+    "compilerRoot": "/private/tmp/nupp-current-checker-host (symlinks to this worktree except a direct LuaJIT launcher)",
+    "wrapperSha256": "051bb8b6ea77ec73cf856e5e18a4eb33a8095f1d8c4264f3dcfe4ca4f158dd69",
+    "note": "Temporary wrapper keeps parent and comptime/parallel workers on the current checker while bypassing default launcher native-provider freshness rebuilds. Direct .lua execution lacked an executable worker launcher; the repository launcher then hit the 10s comptime deadline attempting a legacy provider rebuild. This repository source check does not close default CLI packaging/launcher migration."
+  },
+  "validationNotes": [
+    "Frozen root-owner CLI check was replaced before completion by current rebuilt-checker repository validation; it is not counted as a completed gate.",
+    "Initial direct current-checker attempts failed in worker launch configuration, before repository source validation. The temporary launcher is recorded separately."
+  ],
+  "coldRepositoryCheck": {
+    "ok": true,
+    "errors": 0,
+    "diagnostics": 13,
+    "timing": {
+      "compiledModules": 552,
+      "optimizerFacts": {
+        "consumed": 8334,
+        "families": {
+          "callableEffects": 1794,
+          "callableRelations": 1794,
+          "identity": 89,
+          "traceFindings": 89,
+          "traceProfileId": 372
+        },
+        "produced": 4138,
+        "selectionChangedModules": 0,
+        "selectorMs": 0,
+        "unique": 4138
+      },
+      "parallel": {
+        "batches": 435,
+        "mode": "serial-fallback",
+        "reason": "parallel worker recursively checked src/nupp/serde/init.nupp [paths src/nupp/serde/internal/documentcodec.nupp; worker said ]",
+        "retries": 0,
+        "workers": 6
+      },
+      "phases": [
+        {
+          "durationMs": 77637.66381835938,
+          "name": "check"
+        },
+        {
+          "durationMs": 15678.10498046875,
+          "name": "parallel check"
+        },
+        {
+          "durationMs": 1203.0048828125,
+          "name": "generate"
+        },
+        {
+          "durationMs": 437.25,
+          "name": "other"
+        },
+        {
+          "durationMs": 288.933349609375,
+          "name": "scan"
+        },
+        {
+          "durationMs": 9.906005859375,
+          "name": "persist"
+        },
+        {
+          "durationMs": 1.212890625,
+          "name": "resolve"
+        }
+      ],
+      "reusedModules": 0,
+      "slowest": [
+        {
+          "durationMs": 15337.321044921875,
+          "module": "nupp.serde.native"
+        },
+        {
+          "durationMs": 14939.56689453125,
+          "module": "nupp.serde.internal.json.extensions"
+        },
+        {
+          "durationMs": 12527.87646484375,
+          "module": "nupp.serde.debug"
+        },
+        {
+          "durationMs": 1686.531982421875,
+          "module": "nupp.serde.internal.json.writer"
+        },
+        {
+          "durationMs": 1338.174072265625,
+          "module": "nupp.compiler.lua.gen"
+        }
+      ],
+      "specializedBodies": 0,
+      "totalMs": 95256.30419921875
+    }
+  },
+  "formatting": {
+    "files": [
+      "native/crates/vm/tests/ffi-project/nupp.lua",
+      "native/crates/vm/tests/ffi-project/src/nupp/tests/foreign.nupp",
+      "native/crates/vm/tests/physical-struct-project/nupp.lua",
+      "native/crates/vm/tests/physical-struct-project/src/physical/main.nupp",
+      "native/crates/vm/tests/physical-struct-project/src/physical/rejectunion.nupp",
+      "src/nupp/compiler/check/cdef.nupp",
+      "src/nupp/compiler/targetlayout.nupp",
+      "src/nupp/compiler/vm/lower.nupp",
+      "src/nupp/compiler/vm/metadata.nupp",
+      "tests/cabitest.lua",
+      "tests/interfaceimagetest.lua"
+    ],
+    "changed": [],
+    "sha256": {
+      "native/crates/vm/tests/ffi-project/nupp.lua": "d99f0e01a33f8c0ceaa5b633e9f03f47aa6243b51fc07a1a2f3bfe673aaa0a41",
+      "native/crates/vm/tests/ffi-project/src/nupp/tests/foreign.nupp": "41c3fc51db3477a421596085f86e2ed10a6eca9956c8228d128b2c05454a4f51",
+      "native/crates/vm/tests/physical-struct-project/nupp.lua": "5db1123e903994711bdba4c26133a8c7859e3153451716ee28d641769c086927",
+      "native/crates/vm/tests/physical-struct-project/src/physical/main.nupp": "59ec1c324dd8afebb04bc152faf5c7cd3d5eb0d742fcee9201fae03e08126308",
+      "native/crates/vm/tests/physical-struct-project/src/physical/rejectunion.nupp": "0a762b4d6e80d8be99279d3de3902ee1181d84c4ddd887e22eda62b269d294aa",
+      "src/nupp/compiler/check/cdef.nupp": "27b43cfc0f6f883db27e6a25bd2a72ad40215e7420875a2c239e58e913b0017e",
+      "src/nupp/compiler/targetlayout.nupp": "9e1b19a225544bf2eba2e0fa3d156ffb7ff8dcfcef98e665cc3e90aeaf74b63c",
+      "src/nupp/compiler/vm/lower.nupp": "a8a2888e9f618b5c16e671e7bdbc28d2df32db5e1885ccf16b4399ca97b1f76c",
+      "src/nupp/compiler/vm/metadata.nupp": "07fd65f7ab92f12b7307460d359b1b0e9b87768939d0ae87065028f5c957d5f8",
+      "tests/cabitest.lua": "23e74d98f103f04c792a54bf105a21421d72cc051dfdb9f38d0b3287d8f711a4",
+      "tests/interfaceimagetest.lua": "478aefcf825a2efb67e851c8cbde3adae2f6d18fd7e28aef7c5d8af0e42d9bdc"
+    }
+  },
+  "diffCheckPassed": true
+}

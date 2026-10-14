@@ -334,7 +334,7 @@ fn j_len_value_impl(v: u64, number: bool) -> V {
     if number { V::num(crate::numeric::double(it, value)) } else { value }
 }
 fn j_len_impl(v: u64) -> u64 { let it = ctx(); match it.kind_of(V(v)) { Some(KIND_TABLE) | Some(KIND_RECORD) => it.array_len(V(v)) as u64, _ => it.bytes_of(V(v)).len() as u64 } }
-fn j_get_index_impl(t: u64, k: u64) -> u64 { let it = ctx(); it.index_any(V(t), V(k)).0 }
+fn j_get_index_impl(t: u64, k: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); it.index_any(V(t), V(k)).0 }
 fn j_new_record_impl(shape: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(_hp); v.0 }
 fn j_new_table_impl() -> u64 { let _hp = enter_helper!(); let v = ctx().new_table(); leave_helper!(_hp); v.0 }
 fn j_new_table_sized_impl(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
@@ -456,13 +456,14 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     leave_helper!(_hp);
     outs[0].0
 }
-fn j_get_field_impl(t: u64, name: u64) -> u64 { ctx().index(V(t), V(name)).0 }
+fn j_get_field_impl(t: u64, name: u64) -> u64 { let _hp = enter_helper!(); ctx().index(V(t), V(name)).0 }
 /// A field read that missed its site cache: resolve by name and, for a
 /// record whose shape names the field, remember the shape and slot.
 pub static IC_STATS: [std::sync::atomic::AtomicU64; 8] = [const { std::sync::atomic::AtomicU64::new(0) }; 8];
 pub static INTERP_CALLEES: std::sync::Mutex<Option<std::collections::HashMap<u32, u64>>> = std::sync::Mutex::new(None);
 pub static IC_SITES: std::sync::Mutex<Option<std::collections::HashMap<usize, std::collections::HashSet<u32>>>> = std::sync::Mutex::new(None);
 fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
+    let _hp = enter_helper!();
     let it = ctx(); let tv = V(t);
     if it.ic_stats { let kind = tv.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }); let i = match kind { Some(KIND_RECORD) => if unsafe { *cache } == 0 { 0 } else { 1 }, Some(KIND_TABLE) => 2, _ => 3 }; IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if kind == Some(KIND_RECORD) { let sh = unsafe { (*tv.as_obj().unwrap().as_ptr()).shape() }; let mut g = IC_SITES.lock().unwrap(); g.get_or_insert_with(Default::default).entry(cache as usize).or_default().insert(sh); } }
     if let Some(p) = tv.as_obj() {

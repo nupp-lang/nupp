@@ -1,0 +1,15 @@
+module physical.rejectunion
+
+cdef union Ambiguous
+    left: int32
+    right: int32
+end
+
+local test = {}
+
+function test.run(): number
+    local value = new Ambiguous(1, 2)
+    return value.left
+end
+
+export = test

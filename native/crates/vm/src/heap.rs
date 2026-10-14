@@ -44,6 +44,8 @@ pub const F_INTERNED: u8 = 1;
 pub const F_TOMBSTONE: u8 = 2;
 /// An optimized table carries a per-object metatable.
 pub const F_METATABLE: u8 = 4;
+/// A validated native storage descriptor, value, or declaration witness.
+pub const F_NATIVE_STORAGE: u8 = 8;
 
 /// The size class byte of an object allocated on its own.
 pub const CLASS_LARGE: u8 = 0xff;
@@ -141,7 +143,44 @@ pub const OFF_T_META: i32 = (HEADER + std::mem::offset_of!(TablePayload, meta)) 
 #[repr(C)]
 pub struct StoragePayload { pub data: Vec<f64> }
 #[repr(C)]
-pub struct BytesPayload { pub data: Vec<u8> }
+// Ordinary buffers retain Vec storage; native aggregates request an explicit
+// allocation alignment. The header still exposes only a logical byte span.
+pub enum ByteBuffer { Bytes(Vec<u8>), Aligned(AlignedBytes) }
+pub struct AlignedBytes { pointer: NonNull<u8>, length: usize, layout: std::alloc::Layout }
+impl Drop for AlignedBytes {
+    fn drop(&mut self) { unsafe { std::alloc::dealloc(self.pointer.as_ptr(), self.layout); } }
+}
+impl Default for ByteBuffer { fn default() -> Self { Self::Bytes(Vec::new()) } }
+impl ByteBuffer {
+    pub const MAX_ALIGNMENT: usize = 4096;
+    pub fn aligned(length: usize, alignment: usize) -> Self {
+        assert!(alignment.is_power_of_two() && alignment <= Self::MAX_ALIGNMENT);
+        let layout = std::alloc::Layout::from_size_align(length.max(1), alignment).expect("aligned byte extent");
+        let pointer = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) })
+            .unwrap_or_else(|| std::alloc::handle_alloc_error(layout));
+        Self::Aligned(AlignedBytes { pointer, length, layout })
+    }
+    pub fn is_fixed(&self) -> bool { matches!(self, Self::Aligned(_)) }
+    pub fn alignment(&self) -> usize { match self { Self::Bytes(_) => 1, Self::Aligned(b) => b.layout.align() } }
+    pub fn capacity(&self) -> usize { match self { Self::Bytes(b) => b.capacity(), Self::Aligned(b) => b.layout.size() } }
+    pub fn extend_from_slice(&mut self, bytes: &[u8]) {
+        match self {
+            Self::Bytes(b) => b.extend_from_slice(bytes),
+            Self::Aligned(b) => {
+                let _ = b;
+                panic!("fixed native allocation cannot grow");
+            }
+        }
+    }
+}
+impl std::ops::Deref for ByteBuffer {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts(b.pointer.as_ptr(), b.length) } } }
+}
+impl std::ops::DerefMut for ByteBuffer {
+    fn deref_mut(&mut self) -> &mut [u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer.as_ptr(), b.length) } } }
+}
+pub struct BytesPayload { pub data: ByteBuffer }
 /// Iteration state for `pairs` (1, over a key snapshot), `ipairs` (2) and
 /// `gmatch` (3, `pattern` holds the pattern string).
 #[repr(C)]
@@ -427,12 +466,13 @@ impl Heap {
 
     /// A fresh, uninterned string with these bytes (hash 0 until needed).
     pub fn new_string_bytes(&mut self, bytes: &[u8], roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_STR, 8 + bytes.len(), roots);
+        let p = self.alloc(KIND_STR, 9usize.checked_add(bytes.len()).expect("string extent overflow"), roots);
         unsafe {
             let h = &mut *p.as_ptr();
             (h.payload() as *mut StrPayload).write(StrPayload { hash: 0 });
             let dst = h.payload().add(8);
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+            *dst.add(bytes.len()) = 0;
             h.aux_ptr = dst; h.aux_len = bytes.len() as u64;
         }
         #[cfg(feature = "allocation-metrics")]
@@ -566,8 +606,18 @@ impl Heap {
     }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: vec![0u8; n] }); h.refresh(); }
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: ByteBuffer::Bytes(vec![0u8; n]) }); h.refresh(); }
         self.account_resize(0, n);
+        #[cfg(feature = "allocation-metrics")]
+        crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
+        Value::obj(p)
+    }
+    pub fn new_aligned_bytes(&mut self, n: usize, alignment: usize, roots: &dyn Roots) -> Value {
+        let data = ByteBuffer::aligned(n, alignment);
+        let size = data.capacity();
+        let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data }); h.refresh(); }
+        self.account_resize(0, size);
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
@@ -575,7 +625,7 @@ impl Heap {
     /// A growable buffer with room for a short result before it reallocates.
     pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: Vec::with_capacity(64) }); h.refresh(); }
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: ByteBuffer::Bytes(Vec::with_capacity(64)) }); h.refresh(); }
         self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });

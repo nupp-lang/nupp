@@ -8,6 +8,7 @@
 pub mod value;
 pub mod numeric;
 mod storage;
+mod foreign;
 pub mod simd;
 mod native_simd;
 mod simd_reduce;

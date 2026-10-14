@@ -90,7 +90,10 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
         },
         nil
     )
-    testAssert.equal(assert(cabi.prototype(signature, false)), "void integrate(nupp_4_game_8_Position *position, float dt);")
+    testAssert.equal(
+        assert(cabi.prototype(signature, false)),
+        "void integrate(nupp_4_game_8_Position *position, float dt);"
+    )
     testAssert.equal(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
@@ -104,7 +107,10 @@ function M.aPointerToAnArrayKeepsItsParentheses()
     testAssert.equal(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
     testAssert.equal(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
     testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
-    testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"), 4 * ffi.sizeof("void *"))
+    testAssert.equal(
+        ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"),
+        4 * ffi.sizeof("void *")
+    )
 end
 
 function M.aGuardIsAlwaysACIdentifier()
@@ -113,7 +119,10 @@ function M.aGuardIsAlwaysACIdentifier()
     local header = assert(cabi.header({position}, {}, "3d-game.h"))
     assert(header:find("#ifndef NUPP_3D_GAME_H\n", 1, true), header:sub(1, 120))
     local absolute = assert(cabi.header({position}, {}, "/tmp/out/game.h"))
-    assert(absolute:find("#ifndef TMP_OUT_GAME_H\n", 1, true), "no reserved leading underscore: " .. absolute:sub(1, 120))
+    assert(
+        absolute:find("#ifndef TMP_OUT_GAME_H\n", 1, true),
+        "no reserved leading underscore: " .. absolute:sub(1, 120)
+    )
 end
 
 function M.functionRecordsRejectUnmodelledCallingConventions()
@@ -200,6 +209,60 @@ return game
         diagnostics[1].msg:find("contain itself", 1, true),
         "the source diagnostic explains why the layout is impossible"
     )
+end
+
+function M.vmForeignSignaturesUseCheckedTypes()
+    local metadata = require("nupp.compiler.vm.metadata")
+    local T = require("nupp.compiler.types")
+    local declaration = {cAbiSignature = cabi.functionRecord("strlen", {{type = T.cstring, mode = "plain"}}, T.uint64)}
+    local signature = metadata.foreignSignature(declaration)
+    testAssert.equal(signature.params[1].kind, "pointer")
+    testAssert.equal(signature.params[1].readonly, true)
+    testAssert.equal(signature.result, "uint64")
+    local pointer = {tag = "ptr", elem = {tag = "const", inner = T.uint8}}
+    declaration.cAbiSignature.params[1].type = pointer
+    local readonly = metadata.foreignSignature(declaration)
+    testAssert.equal(readonly.params[1].readonly, true)
+    pointer.elem = T.uint8
+    testAssert.equal(metadata.foreignSignature(declaration).params[1], "pointer")
+    local cases = {
+        {
+            change = function(d)
+                d.cAbiSignature.varargs = true
+            end,
+            reason = "variadic"
+        },
+        {
+            change = function(d)
+                d.countedAbi = {}
+            end,
+            reason = "counted-pointer"
+        },
+        {
+            change = function(d)
+                d.cAbiSignature.params[1].mode = "out"
+            end,
+            reason = "out-parameter"
+        },
+        {
+            change = function(d)
+                d.cAbiSignature.params[1].type = T.any
+            end,
+            reason = "parameter 1 type any"
+        },
+        {
+            change = function(d)
+                d.cAbiSignature.result = T.any
+            end,
+            reason = "result type any"
+        },
+    }
+    for _, case in ipairs(cases) do
+        local candidate = {cAbiSignature = cabi.functionRecord("test", {{type = T.cstring, mode = "plain"}}, T.uint64)}
+        case.change(candidate)
+        local ok, why = pcall(metadata.foreignSignature, candidate)
+        assert(not ok and tostring(why):find(case.reason, 1, true), tostring(why))
+    end
 end
 
 return M
