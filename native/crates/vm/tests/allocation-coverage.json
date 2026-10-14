@@ -4449,5 +4449,536 @@
       }
     ]
   },
-  "nextDecision": "Model inline-array capacity against empty-object frequency and actual size classes before changing representation. Current profile does not establish a nursery as the next optimization; dynamic indexing/call helpers lead warm self samples, and register allocation dominates startup."
+  "nextDecision": "Model inline-array capacity against empty-object frequency and actual size classes before changing representation. Current profile does not establish a nursery as the next optimization; dynamic indexing/call helpers lead warm self samples, and register allocation dominates startup.",
+  "postCleanupRerun": {
+    "date": "2026-10-14",
+    "status": "completed-after-authorized-process-cleanup",
+    "stoppedProcesses": [
+      {
+        "pid": 27987,
+        "command": "build/nupp-test utilbitsettest"
+      },
+      {
+        "pid": 69942,
+        "command": "luajit check.lua require"
+      }
+    ],
+    "termination": "Both ignored SIGTERM; SIGKILL followed and ps confirmed neither PID remained.",
+    "scope": "Repeat the original six first-gate cases using the exact same frozen binaries, images, inputs, seven alternating process pairs and seven repeats. The current physical-storage/FFI edits are not in these timing binaries.",
+    "environment": "Our compiler/Cargo/test processes were idle throughout the final runs. macOS fseventsd still consumed about one CPU core; this is reduced background load, not a fully quiet-host acceptance.",
+    "supersededRun": "mimalloc-post-cleanup was repeated as mimalloc-post-cleanup-final after a storage test finished near the first run start. Only final runs contribute here.",
+    "decision": "Keep the system allocator. Neither candidate clears the 5% practical large-parser gate; candidate checker and full-repository timing gates remain unrun.",
+    "candidates": {
+      "mimalloc": {
+        "report": "/private/tmp/nupp-allocation-experiments/mimalloc-post-cleanup-final/results.json",
+        "reportSha256": "8ec1d4c7b96f2e6de8748d9d3c400ece96fc7d86ac5c76b8021add5fde138714",
+        "inputHashesMatchOriginal": true,
+        "results": [
+          {
+            "name": "parser-small",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 0.065042,
+                "candidateMedian": 0.06025,
+                "baselineOverCandidate": 1.0581477104665253,
+                "pairedBootstrap95": [
+                  1.0204267053699108,
+                  1.0993702298219366
+                ],
+                "verdict": "inconclusive"
+              },
+              "firstMs": {
+                "baselineMedian": 0.467,
+                "candidateMedian": 0.516,
+                "baselineOverCandidate": 0.8218484175944314,
+                "pairedBootstrap95": [
+                  0.6951988958250508,
+                  0.9600046726904071
+                ],
+                "verdict": "inconclusive"
+              },
+              "wallMs": {
+                "baselineMedian": 284.47200000000004,
+                "candidateMedian": 277.10474999999997,
+                "baselineOverCandidate": 1.0279129287535602,
+                "pairedBootstrap95": [
+                  1.020505650489504,
+                  1.0356594855468257
+                ],
+                "verdict": "unchanged"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 80035840,
+                "candidateMedian": 94470144,
+                "baselineOverCandidate": 0.8498498930054907,
+                "pairedBootstrap95": [
+                  0.8473021724679417,
+                  0.8530749218054777
+                ],
+                "verdict": "regressed"
+              }
+            }
+          },
+          {
+            "name": "parser-source",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 48.995541,
+                "candidateMedian": 47.638709,
+                "baselineOverCandidate": 1.027284775271044,
+                "pairedBootstrap95": [
+                  1.0133046738060634,
+                  1.0451300612290086
+                ],
+                "verdict": "unchanged"
+              },
+              "firstMs": {
+                "baselineMedian": 50.731,
+                "candidateMedian": 50.091,
+                "baselineOverCandidate": 1.0176636689654863,
+                "pairedBootstrap95": [
+                  1.0081546091034,
+                  1.0284842137970178
+                ],
+                "verdict": "unchanged"
+              },
+              "wallMs": {
+                "baselineMedian": 669.9508339999998,
+                "candidateMedian": 653.3370000000004,
+                "baselineOverCandidate": 1.0251581344784364,
+                "pairedBootstrap95": [
+                  1.0233161452728496,
+                  1.0268420670719725
+                ],
+                "verdict": "unchanged"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 207601664,
+                "candidateMedian": 229425152,
+                "baselineOverCandidate": 0.9043566046469312,
+                "pairedBootstrap95": [
+                  0.9034685728363367,
+                  0.9049591386482102
+                ],
+                "verdict": "regressed"
+              }
+            }
+          },
+          {
+            "name": "cli-version",
+            "primaryMetric": "wallMs",
+            "comparisons": {
+              "warmMs": {
+                "verdict": "unavailable"
+              },
+              "firstMs": {
+                "verdict": "unavailable"
+              },
+              "wallMs": {
+                "baselineMedian": 165.18295899999913,
+                "candidateMedian": 129.53766599999915,
+                "baselineOverCandidate": 1.270804800794499,
+                "pairedBootstrap95": [
+                  1.2584568921954569,
+                  1.2808536354336455
+                ],
+                "verdict": "improved"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 104235008,
+                "candidateMedian": 103038976,
+                "baselineOverCandidate": 1.012605100439959,
+                "pairedBootstrap95": [
+                  1.0116286043479765,
+                  1.0137412929327758
+                ],
+                "verdict": "unchanged"
+              }
+            }
+          },
+          {
+            "name": "cli-help",
+            "primaryMetric": "wallMs",
+            "comparisons": {
+              "warmMs": {
+                "verdict": "unavailable"
+              },
+              "firstMs": {
+                "verdict": "unavailable"
+              },
+              "wallMs": {
+                "baselineMedian": 168.78687499999856,
+                "candidateMedian": 131.5247080000006,
+                "baselineOverCandidate": 1.2890000994925725,
+                "pairedBootstrap95": [
+                  1.2780386523129172,
+                  1.3013708367290624
+                ],
+                "verdict": "improved"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 104235008,
+                "candidateMedian": 103022592,
+                "baselineOverCandidate": 1.012653884332214,
+                "pairedBootstrap95": [
+                  1.0116550640387176,
+                  1.0137438436503672
+                ],
+                "verdict": "unchanged"
+              }
+            }
+          },
+          {
+            "name": "tasks-worker",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 268.359374,
+                "candidateMedian": 267.730001,
+                "baselineOverCandidate": 1.0026231293701846,
+                "pairedBootstrap95": [
+                  1.0005606556069562,
+                  1.0049244725378128
+                ],
+                "verdict": "unchanged"
+              },
+              "firstMs": {
+                "baselineMedian": 323.953,
+                "candidateMedian": 324.33,
+                "baselineOverCandidate": 0.9980264176261925,
+                "pairedBootstrap95": [
+                  0.9809844256790288,
+                  1.0110615301652999
+                ],
+                "verdict": "unchanged"
+              },
+              "wallMs": {
+                "baselineMedian": 2234.488125000002,
+                "candidateMedian": 2228.9296249999993,
+                "baselineOverCandidate": 1.0013463377326721,
+                "pairedBootstrap95": [
+                  0.9949155877542837,
+                  1.0069818078412522
+                ],
+                "verdict": "unchanged"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 26230784,
+                "candidateMedian": 26820608,
+                "baselineOverCandidate": 0.9779135636506647,
+                "pairedBootstrap95": [
+                  0.9753053372610649,
+                  0.9807008791909086
+                ],
+                "verdict": "unchanged"
+              }
+            }
+          },
+          {
+            "name": "tasks-checkpoints",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 5.998749,
+                "candidateMedian": 5.567668,
+                "baselineOverCandidate": 1.0750410655711338,
+                "pairedBootstrap95": [
+                  1.0666987348901835,
+                  1.0832603328770534
+                ],
+                "verdict": "improved"
+              },
+              "firstMs": {
+                "baselineMedian": 8.352,
+                "candidateMedian": 7.938,
+                "baselineOverCandidate": 1.0472906250816845,
+                "pairedBootstrap95": [
+                  1.0160156148514223,
+                  1.0720488354439295
+                ],
+                "verdict": "inconclusive"
+              },
+              "wallMs": {
+                "baselineMedian": 67.34699999999805,
+                "candidateMedian": 63.25295799999964,
+                "baselineOverCandidate": 1.0616305258978278,
+                "pairedBootstrap95": [
+                  1.0506059026462748,
+                  1.0718909858152694
+                ],
+                "verdict": "inconclusive"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 15073280,
+                "candidateMedian": 14024704,
+                "baselineOverCandidate": 1.0725779389342434,
+                "pairedBootstrap95": [
+                  1.0700968362852625,
+                  1.0750441397424337
+                ],
+                "verdict": "improved"
+              }
+            }
+          }
+        ]
+      },
+      "jemalloc": {
+        "report": "/private/tmp/nupp-allocation-experiments/jemalloc-post-cleanup-final/results.json",
+        "reportSha256": "abb60f8c176cd501136f51b450f93023cc73878787b9d26c51638fc6a8c28f8b",
+        "inputHashesMatchOriginal": true,
+        "results": [
+          {
+            "name": "parser-small",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 0.063917,
+                "candidateMedian": 0.056667,
+                "baselineOverCandidate": 1.099780517966035,
+                "pairedBootstrap95": [
+                  1.0675709429825009,
+                  1.1328048111677609
+                ],
+                "verdict": "improved"
+              },
+              "firstMs": {
+                "baselineMedian": 0.463,
+                "candidateMedian": 0.437,
+                "baselineOverCandidate": 1.1526177922177236,
+                "pairedBootstrap95": [
+                  0.9697829686508426,
+                  1.424906616036024
+                ],
+                "verdict": "inconclusive"
+              },
+              "wallMs": {
+                "baselineMedian": 284.07849999999996,
+                "candidateMedian": 276.0046669999998,
+                "baselineOverCandidate": 1.0364244103170206,
+                "pairedBootstrap95": [
+                  1.0157343074694694,
+                  1.0670014506074976
+                ],
+                "verdict": "inconclusive"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 80461824,
+                "candidateMedian": 81182720,
+                "baselineOverCandidate": 1.0034682955291543,
+                "pairedBootstrap95": [
+                  0.9882838407751573,
+                  1.0279791882827947
+                ],
+                "verdict": "unchanged"
+              }
+            }
+          },
+          {
+            "name": "parser-source",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 48.693916,
+                "candidateMedian": 47.718293,
+                "baselineOverCandidate": 1.005329883026491,
+                "pairedBootstrap95": [
+                  0.9807568767452375,
+                  1.0263121365625623
+                ],
+                "verdict": "unchanged"
+              },
+              "firstMs": {
+                "baselineMedian": 50.471,
+                "candidateMedian": 49.975,
+                "baselineOverCandidate": 1.0095277563597127,
+                "pairedBootstrap95": [
+                  1.000932967229934,
+                  1.0186982909331064
+                ],
+                "verdict": "unchanged"
+              },
+              "wallMs": {
+                "baselineMedian": 666.4787499999995,
+                "candidateMedian": 654.5872079999997,
+                "baselineOverCandidate": 1.0163414455168525,
+                "pairedBootstrap95": [
+                  1.0076313935714827,
+                  1.023339648878474
+                ],
+                "verdict": "unchanged"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 206995456,
+                "candidateMedian": 207994880,
+                "baselineOverCandidate": 0.996296433377287,
+                "pairedBootstrap95": [
+                  0.9946448977599142,
+                  0.9980742931922717
+                ],
+                "verdict": "unchanged"
+              }
+            }
+          },
+          {
+            "name": "cli-version",
+            "primaryMetric": "wallMs",
+            "comparisons": {
+              "warmMs": {
+                "verdict": "unavailable"
+              },
+              "firstMs": {
+                "verdict": "unavailable"
+              },
+              "wallMs": {
+                "baselineMedian": 166.61745800000105,
+                "candidateMedian": 138.5005830000008,
+                "baselineOverCandidate": 1.2015802977183043,
+                "pairedBootstrap95": [
+                  1.1872782821179764,
+                  1.2179440032011826
+                ],
+                "verdict": "improved"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 104218624,
+                "candidateMedian": 87080960,
+                "baselineOverCandidate": 1.1975692924416392,
+                "pairedBootstrap95": [
+                  1.196747764098263,
+                  1.1986869884439635
+                ],
+                "verdict": "improved"
+              }
+            }
+          },
+          {
+            "name": "cli-help",
+            "primaryMetric": "wallMs",
+            "comparisons": {
+              "warmMs": {
+                "verdict": "unavailable"
+              },
+              "firstMs": {
+                "verdict": "unavailable"
+              },
+              "wallMs": {
+                "baselineMedian": 165.37770800000118,
+                "candidateMedian": 139.01145800000236,
+                "baselineOverCandidate": 1.1987074895769947,
+                "pairedBootstrap95": [
+                  1.1914657027709972,
+                  1.2056591645208692
+                ],
+                "verdict": "improved"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 104267776,
+                "candidateMedian": 87113728,
+                "baselineOverCandidate": 1.1975588428424435,
+                "pairedBootstrap95": [
+                  1.1966085725198783,
+                  1.1986387771283764
+                ],
+                "verdict": "improved"
+              }
+            }
+          },
+          {
+            "name": "tasks-worker",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 268.608209,
+                "candidateMedian": 268.703708,
+                "baselineOverCandidate": 1.0000899642677297,
+                "pairedBootstrap95": [
+                  0.9988933389946499,
+                  1.0010463948794777
+                ],
+                "verdict": "unchanged"
+              },
+              "firstMs": {
+                "baselineMedian": 324.215,
+                "candidateMedian": 324.11,
+                "baselineOverCandidate": 1.0089793775854334,
+                "pairedBootstrap95": [
+                  1.0010913149521605,
+                  1.0150695033278718
+                ],
+                "verdict": "unchanged"
+              },
+              "wallMs": {
+                "baselineMedian": 2233.591167,
+                "candidateMedian": 2230.336958999999,
+                "baselineOverCandidate": 1.0012450864253613,
+                "pairedBootstrap95": [
+                  0.9974744495810791,
+                  1.004894353968547
+                ],
+                "verdict": "unchanged"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 26165248,
+                "candidateMedian": 23707648,
+                "baselineOverCandidate": 1.1052427807372385,
+                "pairedBootstrap95": [
+                  1.1025722509088087,
+                  1.1080890958598177
+                ],
+                "verdict": "improved"
+              }
+            }
+          },
+          {
+            "name": "tasks-checkpoints",
+            "primaryMetric": "warmMs",
+            "comparisons": {
+              "warmMs": {
+                "baselineMedian": 5.911416,
+                "candidateMedian": 5.681375,
+                "baselineOverCandidate": 1.047798653745215,
+                "pairedBootstrap95": [
+                  1.0374316476287604,
+                  1.0630009010481911
+                ],
+                "verdict": "inconclusive"
+              },
+              "firstMs": {
+                "baselineMedian": 8.264,
+                "candidateMedian": 7.926,
+                "baselineOverCandidate": 1.0438137698676866,
+                "pairedBootstrap95": [
+                  1.0361598510344492,
+                  1.051853702038981
+                ],
+                "verdict": "unchanged"
+              },
+              "wallMs": {
+                "baselineMedian": 66.49008400000156,
+                "candidateMedian": 63.822584000000404,
+                "baselineOverCandidate": 1.0438703047032527,
+                "pairedBootstrap95": [
+                  1.0346568844938673,
+                  1.0558289519820705
+                ],
+                "verdict": "inconclusive"
+              },
+              "peakRssBytes": {
+                "baselineMedian": 14991360,
+                "candidateMedian": 13795328,
+                "baselineOverCandidate": 1.0877429466208963,
+                "pairedBootstrap95": [
+                  1.086247137239075,
+                  1.08959353287143
+                ],
+                "verdict": "improved"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
 }
