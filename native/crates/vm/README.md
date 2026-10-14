@@ -925,7 +925,7 @@ the bounded-turn budget, including loops without calls or explicit checkpoints;
 a save or cancellation never requires interrupting a native activation. Restored
 workers compile again on demand. Worker teardown frees generated code and removes
 its stack maps. Linked frame AOT works in workers too: object
-code obtains VM addresses through `nupp_vm_runtime_v2` on the executing thread.
+code obtains VM addresses through `nupp_vm_runtime_v3` on the executing thread.
 The previous process-global address table is gone. Older objects must be re-emitted.
 
 Ordinary Nupp locals returned by `tasks.channel`, `coroutine.create`, or
@@ -1680,3 +1680,82 @@ Use a separate process with `NUPP_ALLOCATION_STATS=global` for global request
 totals with heap bookkeeping disabled; its report records that mode explicitly.
 An embedding thread can destroy its diagnostic registry before its VM; its
 final report marks that condition and still includes the live snapshot.
+
+
+### Relocatable compiler AOT
+
+The compiler image can run from linked native functions without Cranelift in the
+runtime. Emit the object once, then build the runtime with that object:
+
+```sh
+cargo build --release -p nupp-vm --features aot --offline
+build/rust/target/release/nupp-vm aot COMPILER_IMAGE /tmp/compiler.o --frames
+NUPP_AOT_OBJECT=/tmp/compiler.o cargo build --release -p nupp-vm \
+  --no-default-features --features aot-linked,c-headers --offline
+python3 native/crates/vm/tests/compiler-aot-smoke.py COMPILER_IMAGE \
+  --binary build/rust/target/release/nupp-vm --manifest /tmp/compiler.o.manifest \
+  --frames --output /tmp/compiler-aot-acceptance
+```
+
+`nupp_vm_runtime_v3` supplies the executing VM's address table. It refreshes
+addresses after dynamic image loading grows the function and shape tables.
+Field caches belong to each VM's loaded functions; native objects contain no
+shared mutable field-cache storage, and JIT teardown no longer leaks those
+cache allocations. Workers and restored VMs start with independent caches.
+Objects using the previous binding ABI must be emitted again.
+
+The acceptance driver checks every manifest entry, rejects mismatched images,
+compares compiler output across fresh processes against the interpreter, runs
+the emitted program, and compares invalid-source diagnostics. On macOS it
+verifies that both executable mappings and write-to-execute protection changes
+are denied before running the compiler under the same denial. It requires all
+functions in a frame object to compile and checks that Cranelift symbols are
+absent. This is host-native acceptance; platform packaging and console targets
+have separate gates.
+
+### Unsigned registers
+
+`UUnbox` checks the unsigned range before moving a dynamic value into a raw
+64-bit register. `UBox` preserves every bit when returning to a dynamic value,
+using the existing immediate-or-interned representation.
+
+The lowerer emits raw unsigned addition, subtraction, and bitwise operations
+for checked unsigned-producing expressions. Names and erased casts keep their
+existing helper behavior, including truncation and wrapping of operands;
+a type assertion alone does not change their runtime representation. Tests
+cover both interpreters, native entries and frames, numeric keys, worker
+transfer, graph persistence, and parked-register checkpoints. Ordinary
+`integer` semantics and general propagation through typed locals remain open.
+
+
+### Supervised VM replacement
+
+`nupp.vm` exposes host-driven game handles over the existing worker VM runtime.
+The supervisor owns checkpoint bytes and routing generations outside the game.
+
+```sh
+python3 native/crates/vm/tests/supervision-smoke.py COMPILER_IMAGE \
+  --binary build/rust/target/release/nupp-vm --output /tmp/supervision.json
+```
+
+`spawn` returns an affine game owner. Its `capture`, `prepareRestore`, `replace`,
+and `fork` operations reuse worker graph transfer and whole-VM persistence.
+Preparation quiesces the old game and its descendants, reconstructs and validates
+the candidate without running gameplay, and keeps the old game paused until
+commit or discard. Failed preparation leaves the old game available. Replacing
+consumes the candidate and advances a generation that never rewinds; `step` and
+`poll` reject retired generations. Retirement errors are reported after
+publication and do not undo the replacement.
+
+Native entries are rebound only when the checkpoint preserves the original
+code recipe prefix, including descendants. Appending code preserves earlier
+function IDs and remains compatible with later capture and rewind. Changing
+that prefix requires explicit migration. Native handle identity is checked
+against its registry owner, and live supervision owners prevent capturing the
+supervisor itself. Closing or dropping the owner retires its worker threads.
+
+The synthetic fixture checks transactions on 10,000 two-field entity records
+and measures full checkpoint capture. Its timing report records background-load
+limits; it is not the Tecs snapshot benchmark. Self-capture/self-replacement,
+resource restoration policies, direct host event rebinding, incremental history,
+and the default launcher integration remain separate work.

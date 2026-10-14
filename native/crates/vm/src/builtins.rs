@@ -36,6 +36,7 @@ pub const NAMES: &[&str] = &[
     "crypto.randomBytes", "system.availableParallelism", "collectgarbage", "os.date", "xpcall", "io.type", "io.lines", "vm.encodePlain", "vm.decodePlain",
     "package.preloadLoader", "package.imageLoader", "vm.withInstructionBudget",
     "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory", "temporary.toString", "temporary.close", "temporary.isReleased", "temporary.persist",
+    "tasks.vmSpawn", "tasks.vmCapture", "tasks.vmPrepare", "tasks.vmReplace", "tasks.vmFork", "tasks.vmStep", "tasks.vmPoll", "tasks.vmGeneration", "tasks.vmClose", "tasks.vmDiscard",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -411,6 +412,14 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
+    // Supervision is synchronous, including affine cleanup invoked directly
+    // through the builtin path rather than a scheduled bytecode call.
+    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("tasks.vm")) {
+        return match crate::task_api::call(it, 0, name, args) {
+            crate::task_api::Answer::Values(values) => values.into_iter().collect(),
+            _ => unreachable!("supervision cannot suspend its caller"),
+        };
+    }
     if matches!(NAMES.get(id as usize), Some(&"io.stdin.read" | &"io.stdout.flush" | &"io.stderr.flush" | &"io.flush" | &"io.stdout.setvbuf" | &"io.stderr.setvbuf")) { return crate::stdio::call(it, NAMES[id as usize], args); }
     if NAMES.get(id as usize) == Some(&"io.popen") { return crate::process::popen(it, args); }
     if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("process.")) { return crate::process::call(it, name, args); }

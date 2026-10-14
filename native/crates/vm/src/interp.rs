@@ -39,6 +39,8 @@ pub enum Op {
     SetIdxI(u8, u8, u8),
     /// Unbox a number from a value register into an integer register.
     IUnbox(u8, u8),
+    /// Unbox an exact unsigned value without a signed conversion.
+    UUnbox(u8, u8),
     ICmpSLt(u8, u8, u8),
     ICmpSLe(u8, u8, u8),
     IShl(u8, u8, u8),
@@ -163,6 +165,7 @@ pub enum Op {
     GetUpval(u8, u8),
     FBox(u8, u8),
     IBox(u8, u8),
+    UBox(u8, u8),
     GetSlotF(u8, u8, u16, u32),
     SetSlotF(u8, u16, u8, u32),
     FDiv(u8, u8, u8),
@@ -426,8 +429,12 @@ pub struct Interp {
     pub compiled_frame_entries: u64,
     pub worker_compiled_entries: u64,
     pub worker_compile_micros: u128,
+    pub(crate) supervised: crate::supervision::Registry,
     pub linked_frames: Vec<u64>,
     pub runtime_consts: Vec<u64>,
+    // Transient native bindings and field caches belong to this VM, not code.
+    pub(crate) runtime_addresses: [u64; 7],
+    pub(crate) field_caches: std::collections::HashMap<u32, Box<[[u64; 2]]>>,
     pub lazy_compiled: usize,
     pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
@@ -512,7 +519,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, linked_frames: Vec::new(), runtime_consts: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1074,6 +1081,7 @@ impl Interp {
         let persistence = self.new_table(); self.registered.push(persistence);
         for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
+        crate::supervision::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); for name in ["path", "cpath"] { let k = self.intern(name); self.set_index(package, k, v); } self.release(vh); }
@@ -1629,6 +1637,7 @@ impl Interp {
                     Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let h = hdr!(self, clo, "upvalue outside a closure"); if h.kind != KIND_CLOSURE { self.err("not a closure") } r!(d) = h.slots()[i as usize]; }
                     Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
                     Op::IBox(d, a) => r!(d) = self.box_integer(crate::numeric::Integer { bits: ir!(a) as u64, unsigned: false }),
+                    Op::UBox(d, a) => r!(d) = self.box_integer(crate::numeric::Integer { bits: ir!(a) as u64, unsigned: true }),
                     Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
                     Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.index(tv, Value::num(k)); }
@@ -1667,6 +1676,7 @@ impl Interp {
                     Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
                     Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::IUnbox(d, v) => ir!(d) = crate::numeric::bits(self, r!(v), false) as i64,
+                    Op::UUnbox(d, v) => ir!(d) = crate::numeric::bits(self, r!(v), true) as i64,
                     Op::ICmpSLt(d, a, b) => ir!(d) = (ir!(a) < ir!(b)) as i64,
                     Op::ICmpSLe(d, a, b) => ir!(d) = (ir!(a) <= ir!(b)) as i64,
                     Op::IShl(d, a, b) => ir!(d) = ir!(a).wrapping_shl(ir!(b) as u32),
@@ -1990,6 +2000,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::GetIdxI(..) => "GetIdxI",
         Op::SetIdxI(..) => "SetIdxI",
         Op::IUnbox(..) => "IUnbox",
+        Op::UUnbox(..) => "UUnbox",
         Op::ICmpSLt(..) => "ICmpSLt",
         Op::ICmpSLe(..) => "ICmpSLe",
         Op::IShl(..) => "IShl",
@@ -2065,6 +2076,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::GetUpval(..) => "GetUpval",
         Op::FBox(..) => "FBox",
         Op::IBox(..) => "IBox",
+        Op::UBox(..) => "UBox",
         Op::GetSlotF(..) => "GetSlotF",
         Op::SetSlotF(..) => "SetSlotF",
         Op::FDiv(..) => "FDiv",

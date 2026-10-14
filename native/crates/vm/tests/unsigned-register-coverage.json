@@ -1,0 +1,72 @@
+{
+  "seed": "/private/tmp/nupp-unsigned-registers/compiler.image",
+  "image": "/private/tmp/nupp-unsigned-registers/numeric.image",
+  "imageSha256": "18b4028729db6d9563979fc5eda050bf61ba8d8ec97757715b5e11bfc2e31b8b",
+  "binarySha256": "f4ec100aa6cd312b0f7fc1d58fe5f8a41db1cee9bd6c2b684f777c37ed918742",
+  "gc": "incremental every allocation, oracle, quarantine",
+  "results": [
+    {
+      "engine": "rust",
+      "passed": true
+    },
+    {
+      "engine": "threaded",
+      "passed": true
+    },
+    {
+      "engine": "jit",
+      "passed": true
+    },
+    {
+      "engine": "frames",
+      "passed": true
+    }
+  ],
+  "date": "2026-10-14",
+  "scope": "Unsigned expression-register boxing and unboxing. General integer-register lowering and the ordinary integer language contract remain open.",
+  "compilerImageSha256": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+  "sourceSha256": {
+    "src/nupp/compiler/vm/lower.nupp": "cb7cf2f27b92a58814b7ef85f3bd2b9abb6f190d20a0fe68cf84d107cac29e41",
+    "native/crates/vm/tests/project/lib/demo/numeric.nupp": "239542460e7772b3c849cf10c10656989930e8c97b2112107d95add0bc3ebc4f"
+  },
+  "typedLowering": {
+    "operations": [
+      "uint64 +",
+      "uint64 -",
+      "uint64 &",
+      "uint64 |",
+      "uint64 ~"
+    ],
+    "eligibility": "Operands must come from checked uint64 literal or arithmetic/unary producer nodes; an inferred type alone does not prove representation because as assertions are erased.",
+    "newInstructions": [
+      "UUnbox",
+      "UBox"
+    ],
+    "dynamicBoundary": "Preserves the exact unsigned bits and boxes only values that a double cannot represent exactly."
+  },
+  "rustAcceptance": {
+    "command": "cargo test -p nupp-vm --offline --test numeric",
+    "profile": "debug",
+    "passed": 12,
+    "failed": 0,
+    "cases": [
+      "Rust and threaded interpreter unsigned registers",
+      "JIT leaf and compiled task frames",
+      "All 64 payload bits, including the ERROR sentinel bit pattern",
+      "Unsigned range rejection",
+      "Numeric table keys and graph snapshots",
+      "Worker heap transfer",
+      "Unsigned register parked task checkpoint"
+    ]
+  },
+  "compatibilityRegressions": [
+    "An erased uint64 assertion over a signed negative operand retains wrapping wide-helper arithmetic.",
+    "An erased uint64 assertion over a fractional operand retains truncating wide-helper arithmetic.",
+    "An erased uint64 assertion over an int64 box retains its exact original kind until an operation creates a new value."
+  ],
+  "remaining": [
+    "Ordinary integer wrapping and division semantics across checker, slots, and every lowering path.",
+    "General typed local and parameter propagation while preserving erased assertion behavior.",
+    "Native unsigned instruction handlers in the threaded C core; new opcodes currently use its Rust slow path."
+  ]
+}

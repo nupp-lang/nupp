@@ -12,6 +12,7 @@ type Result<T> = std::result::Result<T, String>;
 enum Command {
     Step(u64),
     Save,
+    Quiesce,
     Stop,
 }
 pub struct Progress {
@@ -23,6 +24,7 @@ pub struct Progress {
 enum Reply {
     Step(Result<Progress>),
     Save(Result<Vec<u8>>),
+    Quiesce(Result<()>),
 }
 pub struct Worker {
     commands: mpsc::Sender<Command>,
@@ -31,6 +33,8 @@ pub struct Worker {
     cancellation: Cancellation,
     pending: bool,
     buffered: Option<Progress>,
+    code_recipe: Vec<CodeEvent>,
+    linked_frames: Vec<u64>,
 }
 impl Worker {
     /// Copies a function, its captured graph, and arguments into an isolated VM.
@@ -75,20 +79,59 @@ impl Worker {
         })
     }
     pub fn restore(bytes: Vec<u8>) -> Result<Self> {
-        Self::restore_shared(bytes, Default::default(), Vec::new())
+        Self::restore_validated(bytes, |_| Ok(()))
+    }
+    pub fn restore_validated(
+        bytes: Vec<u8>,
+        validate: impl FnOnce(&Interp) -> Result<()> + Send + 'static,
+    ) -> Result<Self> {
+        Self::restore_checked(bytes, Default::default(), Vec::new(), None, validate)
+    }
+    pub(crate) fn restore_bound(
+        &self,
+        bytes: Vec<u8>,
+        validate: impl FnOnce(&Interp) -> Result<()> + Send + 'static,
+    ) -> Result<Self> {
+        Self::restore_checked(
+            bytes,
+            Default::default(),
+            self.linked_frames.clone(),
+            Some(self.code_recipe.clone()),
+            validate,
+        )
     }
     fn restore_shared(
         bytes: Vec<u8>,
         registry: crate::channels::Shared,
         linked_frames: Vec<u64>,
+        expected_code: Option<Vec<CodeEvent>>,
     ) -> Result<Self> {
-        Self::start(move || {
+        Self::restore_checked(bytes, registry, linked_frames, expected_code, |_| Ok(()))
+    }
+    fn restore_checked(
+        bytes: Vec<u8>,
+        registry: crate::channels::Shared,
+        linked_frames: Vec<u64>,
+        expected_code: Option<Vec<CodeEvent>>,
+        validate: impl FnOnce(&Interp) -> Result<()> + Send + 'static,
+    ) -> Result<Self> {
+        let binding_recipe = expected_code.clone();
+        let mut worker = Self::start(move || {
             let mut vm = persist::load_vm_channels(
                 &bytes,
                 &Policies::default(),
                 &mut ResourceCodecs::default(),
                 registry,
             )?;
+            if expected_code
+                .as_ref()
+                .is_some_and(|expected| !vm.code_events.starts_with(expected))
+            {
+                return Err(
+                    "checkpoint code differs from the supervised game; explicit migration required"
+                        .into(),
+                );
+            }
             let task = vm
                 .scheduler
                 .as_ref()
@@ -98,8 +141,16 @@ impl Worker {
                 .ok_or("worker checkpoint has no task")?;
             vm.threaded = false;
             vm.linked_frames = linked_frames;
+            // Reconstruct descendants now; preparation must discover a broken
+            // child before publication, without running any gameplay turn.
+            vm.restore_workers_bound(expected_code)?;
+            validate(&vm)?;
             Ok((vm, task))
-        })
+        })?;
+        if let Some(recipe) = binding_recipe {
+            worker.code_recipe = recipe;
+        }
+        Ok(worker)
     }
     fn start(init: impl FnOnce() -> Result<(Interp, TaskId)> + Send + 'static) -> Result<Self> {
         let (tx, rx) = mpsc::channel();
@@ -150,12 +201,32 @@ impl Worker {
                     vm.jit = Some(Box::new(crate::jit::Jit::new()));
                 }
                 let token = vm.scheduler.as_ref().unwrap().cancellation(task).unwrap();
-                if ready.send(Ok(token)).is_err() {
+                if ready
+                    .send(Ok((
+                        token,
+                        vm.code_events.clone(),
+                        vm.linked_frames.clone(),
+                    )))
+                    .is_err()
+                {
                     return;
                 }
                 while let Ok(command) = rx.recv() {
                     match command {
                         Command::Stop => break,
+                        Command::Quiesce => {
+                            let result = (|| {
+                                persist::safepoint(&vm)?;
+                                vm.restore_workers()?;
+                                for child in vm.workers.values_mut() {
+                                    child.quiesce()?;
+                                }
+                                Ok(())
+                            })();
+                            if out.send(Reply::Quiesce(result)).is_err() {
+                                break;
+                            }
+                        }
                         Command::Save => {
                             let result = persist::save_vm(
                                 &mut vm,
@@ -223,7 +294,8 @@ impl Worker {
                 }
             })
             .map_err(|e| e.to_string())?;
-        let cancellation = started.recv().map_err(|e| e.to_string())??;
+        let (cancellation, code_recipe, linked_frames) =
+            started.recv().map_err(|e| e.to_string())??;
         Ok(Self {
             commands: tx,
             replies,
@@ -231,6 +303,8 @@ impl Worker {
             cancellation,
             pending: false,
             buffered: None,
+            code_recipe,
+            linked_frames,
         })
     }
     pub fn cancel(&self) {
@@ -273,6 +347,18 @@ impl Worker {
         }
         Ok(())
     }
+    /// Reject outstanding host effects and quiesce every descendant before
+    /// preparing a replacement. This never runs a new gameplay turn.
+    pub fn quiesce(&mut self) -> Result<()> {
+        self.pause()?;
+        self.commands
+            .send(Command::Quiesce)
+            .map_err(|e| e.to_string())?;
+        match self.replies.recv().map_err(|e| e.to_string())? {
+            Reply::Quiesce(result) => result,
+            _ => Err("unexpected worker reply".into()),
+        }
+    }
     pub fn snapshot(&mut self) -> Result<Vec<u8>> {
         self.pause()?;
         self.commands
@@ -283,14 +369,23 @@ impl Worker {
             _ => Err("unexpected worker reply".into()),
         }
     }
-}
-impl Drop for Worker {
-    fn drop(&mut self) {
+    pub fn close(mut self) -> Result<()> {
+        self.shutdown()
+    }
+    fn shutdown(&mut self) -> Result<()> {
         self.cancel();
         let _ = self.commands.send(Command::Stop);
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            thread
+                .join()
+                .map_err(|_| "worker retirement panicked".to_string())?;
         }
+        Ok(())
+    }
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let _ = self.shutdown();
     }
 }
 
@@ -353,6 +448,14 @@ impl Interp {
             .collect()
     }
     fn restore_workers(&mut self) -> Result<()> {
+        let expected_code = if self.linked_frames.is_empty() {
+            None
+        } else {
+            Some(self.code_events.clone())
+        };
+        self.restore_workers_bound(expected_code)
+    }
+    fn restore_workers_bound(&mut self, expected_code: Option<Vec<CodeEvent>>) -> Result<()> {
         for (task, record) in self.worker_records() {
             if !self.workers.contains_key(&task.generation) {
                 let data = field(self, record, "snapshot");
@@ -360,6 +463,7 @@ impl Interp {
                     self.bytes_of(data).to_vec(),
                     self.channel_registry.clone(),
                     self.linked_frames.clone(),
+                    expected_code.clone(),
                 )?;
                 self.workers.insert(task.generation, worker);
             }
@@ -441,5 +545,55 @@ impl Interp {
     }
     pub fn has_workers(&self) -> bool {
         !self.workers.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    const CODE: &str = "function value 0 0 2 1 :v\nconst 0 num 42\nK 1 0\nRet 1\nend\nentry 0\n";
+    fn fixture(code: &str) -> Interp {
+        let mut vm = Interp::new();
+        crate::image::load(&mut vm, code).unwrap();
+        vm.install_globals();
+        vm.enable_scheduler().unwrap();
+        vm
+    }
+    #[test]
+    fn descendant_code_is_validated_before_native_binding() {
+        let mut parent = fixture(CODE);
+        parent.linked_frames = vec![0; parent.funcs.len()];
+        let task = parent.fork_inner(Value::func(0), &[], None).unwrap();
+        let record = parent
+            .worker_records()
+            .into_iter()
+            .find(|(id, _)| *id == task)
+            .unwrap()
+            .1;
+        let mut other = fixture(&CODE.replace("num 42", "num 43"));
+        let mut worker = Worker::spawn(&mut other, Value::func(0), &[]).unwrap();
+        let bytes = worker.snapshot().unwrap();
+        parent.workers.clear();
+        let snapshot = parent.intern_bytes(&bytes);
+        put(&mut parent, record, "snapshot", snapshot);
+        assert!(parent.restore_workers().unwrap_err().contains("migration"));
+        assert!(parent.workers.is_empty());
+    }
+    #[test]
+    fn appended_code_preserves_original_binding_prefix() {
+        let mut vm = fixture(CODE);
+        let mut original = Worker::spawn(&mut vm, Value::func(0), &[]).unwrap();
+        let before = original.snapshot().unwrap();
+        crate::image::load(
+            &mut vm,
+            "function extra 0 0 2 1 :v\nconst 0 num 7\nK 1 0\nRet 1\nend\nentry 0\n",
+        )
+        .unwrap();
+        let mut evolved = Worker::spawn(&mut vm, Value::func(0), &[]).unwrap();
+        let after = evolved.snapshot().unwrap();
+        let restored = original.restore_bound(after, |_| Ok(())).unwrap();
+        // Rewinding before the appended module must remain admissible after
+        // the first replacement too, without changing existing function IDs.
+        assert!(restored.restore_bound(before, |_| Ok(())).is_ok());
     }
 }

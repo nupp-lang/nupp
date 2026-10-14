@@ -46,6 +46,7 @@ mod cleanup;
 mod task_api;
 
 pub mod workers;
+pub mod supervision;
 
 mod channels;
 

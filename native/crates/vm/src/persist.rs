@@ -19,7 +19,7 @@ const RECORD_WITH_METATABLE: u8 = 11;
 const LIMIT: usize = 256 * 1024 * 1024;
 const ITEMS: usize = 4_000_000;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodeEvent {
     Image(String),
     Globals,
@@ -1454,7 +1454,7 @@ pub(crate) fn load_graph_with(
     result
 }
 
-fn safepoint(vm: &Interp) -> Result<()> {
+pub(crate) fn safepoint(vm: &Interp) -> Result<()> {
     if vm.execution_depth.get() != 0
         || vm.pending_error.is_some()
         || vm.active_cancellation.is_some()
@@ -1512,6 +1512,9 @@ pub fn save_vm(
     codecs: &mut ResourceCodecs,
 ) -> Result<Vec<u8>> {
     policies.checkpoint_safe()?;
+    if !vm.supervised.is_empty() {
+        return Err("checkpoint cannot capture external VM supervision owners; capture the game instead".into());
+    }
     safepoint(vm)?;
     vm.snapshot_workers()?;
     if let Some(&clock) = vm.loaded.get("nupp.vm.clock") {

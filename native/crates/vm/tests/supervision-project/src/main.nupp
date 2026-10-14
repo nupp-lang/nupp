@@ -1,0 +1,105 @@
+module main
+
+local vm = require("nupp.vm")
+local persist = require("nupp.vm.persist")
+local main = {}
+
+local record Entity
+    x: number
+    y: number
+end
+
+local function sum(values: {Entity}): number
+    local total = 0
+    for index = 1, #values do
+        total = total + values[index].x
+    end
+
+    return total
+end
+
+function main.run(): number
+    local values: {Entity} = {}
+    for index = 1, 10000 do
+        values[index] = new Entity(x = index, y = -index)
+    end
+    with game = vm.spawn(sum, values) do
+        const original = game:generation()
+        const snapshot = game:capture()
+        assert(#snapshot > 80000)
+        const malformed = pcall(function(): nil
+            with candidate = game:prepareRestore("broken") do
+            end
+        end)
+        assert(not malformed)
+        assert(game:generation() == original)
+        with candidate = game:prepareRestore(snapshot) do
+            const paused = pcall(function(): nil
+                game:step(original, 0)
+            end)
+            assert(not paused)
+        end
+        game:step(original, 0)
+        do
+            local candidate = game:prepareRestore(snapshot)
+            const generation, retirementError = game:replace(candidate)
+            assert(generation ~= original and retirementError == nil)
+        end
+        const stale = pcall(function(): nil
+            game:step(original, 0)
+        end)
+        assert(not stale)
+        with branch = game:fork(snapshot) do
+            const generation = game:generation()
+            const branchGeneration = branch:generation()
+            assert(generation ~= branchGeneration)
+            local done = false
+            local branchDone = false
+            local answer = 0
+            local branchAnswer = 0
+            for turn = 1, 100000 do
+                if not done then
+                    game:step(generation, 0)
+                    const status, result = game:poll(generation)
+                    if status == "done" then
+                        answer = persist.load(result as string) as number
+                        done = true
+                    end
+                end
+                if not branchDone then
+                    branch:step(branchGeneration, 0)
+                    const status, result = branch:poll(branchGeneration)
+                    if status == "done" then
+                        branchAnswer = persist.load(result as string) as number
+                        branchDone = true
+                    end
+                end
+                if done and branchDone then
+                    assert(answer == 50005000 and branchAnswer == answer)
+                    return 42
+                end
+            end
+            error("supervised workers did not finish")
+        end
+    end
+end
+
+function main.captureTimes(): string
+    local values: {Entity} = {}
+    for index = 1, 10000 do
+        values[index] = new Entity(x = index, y = -index)
+    end
+    local samples: {number} = {}
+    with game = vm.spawn(sum, values) do
+        for sample = 1, 101 do
+            const start = os.clock()
+            const snapshot = game:capture()
+            samples[sample] = (os.clock() - start) * 1000
+            samples[102] = #snapshot
+        end
+    end
+
+    return table.concat(samples, ",")
+end
+
+export = main

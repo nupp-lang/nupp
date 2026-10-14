@@ -291,7 +291,7 @@ fn weak_interning_does_not_keep_discarded_numbers_alive() {
 fn wide_values_cross_worker_heaps() {
     use nupp_vm::{scheduler::Status, workers::Worker};
     let mut vm = Interp::new();
-    let source = "function identity 0 1 10 1 v:v\nRet 1\nend\nentry 0\n";
+    let source = "function identity 0 1 10 2 v:v\nUUnbox 1 1\nUBox 2 1\nRet 2\nend\nentry 0\n";
     image::load(&mut vm, source).unwrap();
     vm.install_globals();
     vm.enable_scheduler().unwrap();
@@ -477,5 +477,176 @@ entry 1
         }
         vm.full_cycle();
         assert_eq!(vm.heap.object_count(), baseline, "engine {engine}");
+    }
+}
+
+const UNSIGNED_REGISTERS: &str = r#"
+function unsigned_roundtrip 0 1 4 3 v:v
+UUnbox 1 1
+UBox 2 1
+Ret 2
+end
+function unsigned_park 1 1 4 3 v:v
+UUnbox 1 1
+Park 1
+UBox 2 1
+Ret 2
+end
+entry 0
+"#;
+
+fn check_unsigned_registers(vm: &mut Interp, scheduled: bool) {
+    for bits in [
+        0,
+        1 << 53,
+        (1 << 53) + 1,
+        1 << 63,
+        (1 << 63) + 5,
+        u64::MAX,
+        Value::ERROR.0,
+    ] {
+        let input = integer(vm, bits, true);
+        #[cfg(feature = "compiled-runtime")]
+        nupp_vm::compiled::CTX.store(vm, std::sync::atomic::Ordering::Relaxed);
+        let result = if scheduled {
+            let task = vm.schedule(Value::func(0), &[input], None).unwrap();
+            vm.run_ready(1).unwrap();
+            assert_eq!(vm.tasks[task.index].state, nupp_vm::interp::State::Done);
+            vm.tasks[task.index].result
+        } else {
+            vm.call_value(Value::func(0), &[input])[0]
+        };
+        vm.register(result);
+        assert_eq!(numeric::bits(vm, result, true), bits);
+        assert_eq!(
+            numeric::integer(result),
+            Integer {
+                bits,
+                unsigned: true
+            }
+            .immediate()
+            .is_none()
+            .then_some(Integer {
+                bits,
+                unsigned: true
+            })
+        );
+        let table = vm.new_table();
+        vm.register(table);
+        vm.set_index(table, result, Value::TRUE);
+        assert_eq!(vm.get_index(table, input), Value::TRUE);
+        let bytes = persist::save_graph(vm, &[result, table], &Policies::default()).unwrap();
+        let mut restored = Interp::new();
+        let roots = persist::load_graph(&mut restored, &bytes, &Policies::default(), None).unwrap();
+        assert_eq!(numeric::bits(&restored, roots[0], true), bits);
+        assert_eq!(numeric::integer(roots[0]), numeric::integer(result));
+        assert_eq!(restored.get_index(roots[1], roots[0]), Value::TRUE);
+    }
+    if scheduled {
+        return;
+    }
+    for invalid in [
+        Value::num(-1.0),
+        Value::num(0.5),
+        Value::num(18446744073709551616.0),
+        Value::num(f64::NAN),
+        Value::NIL,
+    ] {
+        #[cfg(feature = "compiled-runtime")]
+        nupp_vm::compiled::CTX.store(vm, std::sync::atomic::Ordering::Relaxed);
+        let result = vm.call_value(
+            Value::builtin(builtins::id_of("pcall").unwrap()),
+            &[Value::func(0), invalid],
+        );
+        assert_eq!(
+            result[0],
+            Value::FALSE,
+            "unsigned register accepted {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn unsigned_registers_preserve_bits_kind_keys_and_snapshots() {
+    for threaded in [false, true] {
+        let mut vm = Interp::new();
+        image::load(&mut vm, UNSIGNED_REGISTERS).unwrap();
+        vm.install_globals();
+        vm.entries.resize(vm.funcs.len(), 0);
+        if threaded {
+            vm.prepare_threaded();
+        }
+        vm.heap.stress = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        check_unsigned_registers(&mut vm, false);
+    }
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn compiled_unsigned_registers_preserve_every_bit() {
+    use nupp_vm::{compiled, jit::Jit};
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, UNSIGNED_REGISTERS).unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    let mut jit = Jit::new();
+    jit.extra_addr = vm.extra.as_ptr() as i64;
+    jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+    jit.entries_addr = vm.entries.as_ptr() as i64;
+    jit.callee_info = vm.funcs.iter().map(|f| (f.nparams, true)).collect();
+    vm.calltab = jit
+        .callee_info
+        .iter()
+        .map(|&(n, _)| n as u64 | 256)
+        .collect();
+    jit.calltab_addr = vm.calltab.as_ptr() as i64;
+    compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+    vm.entries[0] = jit.try_compile(&vm.funcs[0], 0).unwrap() as u64;
+    vm.heap.stress = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    check_unsigned_registers(&mut vm, false);
+    vm.entries[0] = 0;
+    vm.enable_scheduler().unwrap();
+    vm.jit = Some(Box::new(jit));
+    check_unsigned_registers(&mut vm, true);
+    assert!(vm.compiled_frame_entries > 0);
+}
+
+#[test]
+fn unsigned_register_survives_parked_checkpoint() {
+    use nupp_vm::persist::ResourceCodecs;
+    for compiled in [false, true] {
+        let mut vm = Interp::new();
+        image::load(&mut vm, UNSIGNED_REGISTERS).unwrap();
+        vm.install_globals();
+        vm.enable_scheduler().unwrap();
+        #[cfg(feature = "jit")]
+        if compiled {
+            vm.jit = Some(Box::new(nupp_vm::jit::Jit::new()));
+        }
+        #[cfg(not(feature = "jit"))]
+        let _ = compiled;
+        let input = integer(&mut vm, u64::MAX, true);
+        let task = vm.schedule(Value::func(1), &[input], None).unwrap();
+        assert!(vm.run_ready(1).unwrap().is_empty());
+        let bytes =
+            persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+        let mut restored =
+            persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+        for runtime in [&mut vm, &mut restored] {
+            runtime.wake_task(task).unwrap();
+            runtime.run_ready(1).unwrap();
+            let value = runtime.tasks[task.index].result;
+            assert_eq!(
+                numeric::integer(value),
+                Some(Integer {
+                    bits: u64::MAX,
+                    unsigned: true
+                })
+            );
+        }
     }
 }

@@ -121,7 +121,7 @@ pub fn verify(f: &Function) -> Result<(), String> {
 
 /// The integer register an opcode defines, if any.
 fn lower_dest(o: &Op) -> Option<u8> {
-    match *o { Op::IMov(d, _) | Op::IK(d, _) | Op::IAdd(d, ..) | Op::IAddK(d, ..) | Op::ISub(d, ..) | Op::IMaskU32(d, _) | Op::FToI(d, _) | Op::StorageLen(d, _) | Op::ICmpLe(d, ..) | Op::ICmpLt(d, ..) | Op::ICmpEq(d, ..) | Op::ICmpNe(d, ..) | Op::Truthy(d, _) | Op::IAnd(d, ..) | Op::IOr(d, ..) | Op::IShl(d, ..) | Op::IShrU(d, ..) | Op::IBswap32(d, _) | Op::BytesLen(d, _) | Op::LoadU8(d, ..) | Op::LoadU8K(d, ..) | Op::LoadU32W(d, ..) | Op::IUnbox(d, _) | Op::ICmpSLt(d, ..) | Op::ICmpSLe(d, ..) => Some(d), _ => None }
+    match *o { Op::IMov(d, _) | Op::IK(d, _) | Op::IAdd(d, ..) | Op::IAddK(d, ..) | Op::ISub(d, ..) | Op::IMaskU32(d, _) | Op::FToI(d, _) | Op::StorageLen(d, _) | Op::ICmpLe(d, ..) | Op::ICmpLt(d, ..) | Op::ICmpEq(d, ..) | Op::ICmpNe(d, ..) | Op::Truthy(d, _) | Op::IAnd(d, ..) | Op::IOr(d, ..) | Op::IShl(d, ..) | Op::IShrU(d, ..) | Op::IBswap32(d, _) | Op::BytesLen(d, _) | Op::LoadU8(d, ..) | Op::LoadU8K(d, ..) | Op::LoadU32W(d, ..) | Op::IUnbox(d, _) | Op::UUnbox(d, _) | Op::ICmpSLt(d, ..) | Op::ICmpSLe(d, ..) => Some(d), _ => None }
 }
 
 /// Whether register `idx` at `at` was computed as `cursor + 1 - 1` through the
@@ -172,7 +172,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         Switch(i, _) => r(&[(I, i)]),
         GetIdxI(d, t, i) => r(&[(V, d), (V, t), (I, i)]),
         SetIdxI(t, i, v) => r(&[(V, t), (I, i), (V, v)]),
-        IUnbox(d, v) | Truthy(d, v) | BytesLen(d, v) | StorageLen(d, v) => r(&[(I, d), (V, v)]),
+        IUnbox(d, v) | UUnbox(d, v) | Truthy(d, v) | BytesLen(d, v) | StorageLen(d, v) => r(&[(I, d), (V, v)]),
         ICmpSLt(d, a, b) | ICmpSLe(d, a, b) | IShl(d, a, b) | IShrU(d, a, b) | IOr(d, a, b) | ICmpEq(d, a, b) | ICmpNe(d, a, b) | IAdd(d, a, b) | ISub(d, a, b) | ICmpLe(d, a, b) | ICmpLt(d, a, b) | IAnd(d, a, b) => r(&[(I, d), (I, a), (I, b)]),
         IBswap32(d, a) | IMaskU32(d, a) | IMov(d, a) => r(&[(I, d), (I, a)]),
         LoadU8(d, s, i) | LoadU8K(d, s, i) | LoadU32W(d, s, i) => r(&[(I, d), (V, s), (I, i)]),
@@ -214,7 +214,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         Scalar(_, d, a, b) => r(&[(V, d), (V, a), (V, b)]),
         NewClosure(d, _, base, _) => r(&[(V, d), (V, base)]),
         GetUpval(d, _) => r(&[(V, d)]),
-        IBox(d, i) => r(&[(V, d), (I, i)]),
+        IBox(d, i) | UBox(d, i) => r(&[(V, d), (I, i)]),
         FBox(d, f) => r(&[(V, d), (F, f)]),
         GetSlotF(f, o, _, _) => r(&[(F, f), (V, o)]),
         SetSlotF(o, _, f, _) => r(&[(V, o), (F, f)]),

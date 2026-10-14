@@ -1,0 +1,21 @@
+-- Host-driven isolated VMs. Checkpoint bytes live in the supervisor.
+-- This surface does not yet provide self-capture or self-replacement.
+local record PreparedVm is nupp.Closeable
+    close: function(takes self: PreparedVm): nil
+end
+
+local record Game is nupp.Closeable
+    capture: function(borrows self: Game): string
+    prepareRestore: function(borrows self: Game, snapshot: string): affine(PreparedVm)
+    replace: function(borrows self: Game, takes prepared: PreparedVm): (string, string?)
+    fork: function(borrows self: Game, snapshot: string): affine(Game)
+    generation: function(borrows self: Game): string
+    step: function(borrows self: Game, generation: string, now: number): nil
+    poll: function(borrows self: Game, generation: string): (string?, string?)
+    close: function(takes self: Game): nil
+end
+
+local record Vm
+    spawn: function<A..., R...>(body: function(A...): R..., ...: A...): affine(Game)
+end
+return Vm

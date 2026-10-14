@@ -19,7 +19,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 #[cfg(feature = "aot")]
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
 use std::collections::{BTreeSet, HashMap};
 
 
@@ -83,9 +83,9 @@ pub type Jit = Compiler<JITModule>;
 
 fn runtime_addr(b: &mut FunctionBuilder, table: Option<FuncRef>, slot: i32, jit_addr: i64) -> Value {
     if let Some(table) = table {
-        let slot = b.ins().iconst(types::I64, slot as i64);
-        let call = b.ins().call(table, &[slot]);
-        b.inst_results(call)[0]
+        let call = b.ins().call(table, &[]);
+        let view = b.inst_results(call)[0];
+        b.ins().load(types::I64, MemFlagsData::new().with_notrap(), view, slot * 8)
     } else {
         b.ins().iconst(types::I64, jit_addr)
     }
@@ -148,8 +148,8 @@ impl Compiler<ObjectModule> {
         let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(fb)).unwrap();
         let builder = ObjectBuilder::new(isa, "nupp-vm", cranelift_module::default_libcall_names()).unwrap();
         let module = ObjectModule::new(builder);
-        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime_v2"));
-        // Object code reads the actual addresses through nupp_vm_runtime_v2.
+        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime_v3"));
+        // Object code reads the actual addresses through nupp_vm_runtime_v3.
         // Nonzero placeholders only select the same lowering paths as the JIT.
         compiler.extra_addr = 1;
         compiler.last_nres_addr = 1;
@@ -185,7 +185,6 @@ impl<M: Module> Compiler<M> {
         }
         let runtime_data = runtime_symbol.map(|name| {
             let mut sig = module.make_signature();
-            sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function(name, Linkage::Import, &sig).unwrap()
         });
@@ -406,6 +405,15 @@ impl<M: Module> Compiler<M> {
                 let table = runtime_addr(&mut b, runtime, 6, 0);
                 Some(b.ins().load(types::I64, flags, table, (fid * 8) as i32))
             } else { None };
+            let field_sites: HashMap<usize, usize> = f.code.iter().enumerate()
+                .filter(|(_, op)| matches!(op, Op::GetField(..)))
+                .enumerate().map(|(site, (pc, _))| (pc, site)).collect();
+            let field_cache_base = if field_sites.is_empty() { None } else {
+                let id = b.ins().iconst(types::I64, fid as i64);
+                let count = b.ins().iconst(types::I64, field_sites.len() as i64);
+                let call = b.ins().call(helper_refs["j_field_caches"], &[id, count]);
+                Some(b.inst_results(call)[0])
+            };
             let cast = MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
             // Registers as variables; value registers are stack-map variables.
             let ivars: Vec<Variable> = (0..f.nireg).map(|_| { let v = b.declare_var(types::I64); let z = b.ins().iconst(types::I64, 0); b.def_var(v, z); v }).collect();
@@ -700,6 +708,7 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(join); b.seal_block(join); let result = b.block_params(join)[0]; setf!(d, b.ins().bitcast(types::F64, cast, result));
                     }
                     Op::IBox(d, x) => { let v = iv!(x); let c = hcall!("j_ibox", &[v]); setr!(d, b.inst_results(c)[0]); }
+                    Op::UBox(d, x) => { let v = iv!(x); let c = hcall!("j_ubox", &[v]); setr!(d, b.inst_results(c)[0]); }
                     Op::FBox(d, x) => { let v = fv!(x); setr!(d, box_f64!(v)); }
                     Op::FDiv(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); setf!(d, b.ins().fdiv(p, q)); }
                     Op::FNeg(d, x) => { let p = fv!(x); setf!(d, b.ins().fneg(p)); }
@@ -902,13 +911,14 @@ impl<M: Module> Compiler<M> {
                     Op::BufFinish(d, bf) => { let p = rv!(bf); let c = hcall!("j_buf_finish", &[p]); setr!(d, b.inst_results(c)[0]); }
                     Op::NewBytes(d, n) => { let nv = iv!(n); let c = hcall!("j_new_bytes", &[nv]); setr!(d, b.inst_results(c)[0]); }
                     Op::BytesToStr(d, s, n) => { let (sv, nv) = (rv!(s), iv!(n)); let c = hcall!("j_bytes_to_str", &[sv, nv]); setr!(d, b.inst_results(c)[0]); }
-                    Op::IUnbox(d, r) => {
-                        let v = rv!(r); let code = b.ins().iconst(types::I64, 1); hcall!("j_numeric", &[v, code]);
+                    Op::IUnbox(d, r) | Op::UUnbox(d, r) => {
+                        let unsigned = matches!(op, Op::UUnbox(..));
+                        let v = rv!(r); let code = b.ins().iconst(types::I64, if unsigned { 6 } else { 1 }); hcall!("j_numeric", &[v, code]);
                         let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
                         let immediate = b.create_block(); let boxed = b.create_block(); let join = b.create_block(); b.append_block_param(join, types::I64);
                         b.ins().brif(num, immediate, &[], boxed, &[]);
                         b.switch_to_block(immediate); b.seal_block(immediate);
-                        let fv = b.ins().bitcast(types::F64, cast, v); let i = b.ins().fcvt_to_sint_sat(types::I64, fv); b.ins().jump(join, &[i.into()]);
+                        let fv = b.ins().bitcast(types::F64, cast, v); let i = if unsigned { b.ins().fcvt_to_uint_sat(types::I64, fv) } else { b.ins().fcvt_to_sint_sat(types::I64, fv) }; b.ins().jump(join, &[i.into()]);
                         b.switch_to_block(boxed); b.seal_block(boxed);
                         let obj = b.ins().band_imm(v, PAYLOAD); let i = b.ins().load(types::I64, flags, obj, OFF_AUX_LEN); b.ins().jump(join, &[i.into()]);
                         b.switch_to_block(join); b.seal_block(join); seti!(d, b.block_params(join)[0]);
@@ -1126,25 +1136,11 @@ impl<M: Module> Compiler<M> {
                         // (records by shape table and overflow, tables by hash part),
                         // and what that cannot settle goes to the helper, which refills
                         // the cache (2.10).
-                        let cache_ref = if self.runtime_data.is_some() {
-                            let name = format!("nupp_cache_{fid}_{pc}");
-                            let id = self.module.declare_data(&name, Linkage::Local, true, false).unwrap();
-                            let mut data = DataDescription::new();
-                            data.define_zeroinit(16);
-                            self.module.define_data(id, &data).unwrap();
-                            Some(self.module.declare_data_in_func(id, b.func))
-                        } else { None };
-                        let cache_addr = if cache_ref.is_none() {
-                            let cache: &'static mut [u64; 2] = Box::leak(Box::new([0u64; 2]));
-                            cache.as_ptr() as i64
-                        } else { 0 };
                         let tv = rv!(t);
                         let chk = b.create_block(); let fast = b.create_block(); let probe = b.create_block(); let helper = b.create_block(); let join = b.create_block();
                         b.append_block_param(join, types::I64);
                         b.set_cold_block(helper);
-                        let ca = if let Some(cache_ref) = cache_ref {
-                            b.ins().symbol_value(types::I64, cache_ref)
-                        } else { b.ins().iconst(types::I64, cache_addr) };
+                        let ca = b.ins().iadd_imm(field_cache_base.unwrap(), (field_sites[&pc] * 16) as i64);
                         let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
                         b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);

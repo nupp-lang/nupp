@@ -63,32 +63,57 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
     }
 }
 
-/// Object code asks the current thread's VM for addresses. No process-global
-/// mutable address table is shared by parent and worker heaps.
+// Object code binds addresses through one versioned symbol. Refresh the view
+// on every access: a helper can append an image and grow its runtime tables.
+// Mutable data stays with the executing VM, including on worker threads.
 #[unsafe(no_mangle)]
-pub extern "C" fn nupp_vm_runtime_v2(slot: u64) -> u64 {
+pub extern "C" fn nupp_vm_runtime_v3() -> u64 {
     let it = ctx();
-    match slot {
-        0 => closure_address(),
-        1 => it.extra.as_ptr() as u64,
-        2 => &it.last_nres as *const usize as u64,
-        3 => it.entries.as_ptr() as u64,
-        4 => it.calltab.as_ptr() as u64,
-        5 => it.shape_probe.as_ptr() as u64,
-        6 => it.runtime_consts.as_ptr() as u64,
-        _ => unreachable!("invalid runtime address slot"),
+    it.entries.resize(it.funcs.len(), 0);
+    for f in &it.funcs[it.calltab.len()..] {
+        let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
+        it.calltab.push(f.nparams as u64 | ((plain as u64) << 8));
     }
+    for f in &it.funcs[it.runtime_consts.len()..] {
+        it.runtime_consts.push(f.consts.as_ptr() as u64);
+    }
+    for shape in &it.heap.shapes[it.shape_probe.len()..] {
+        it.shape_probe.push((shape.table.as_ptr() as u64, shape.mask));
+    }
+    it.runtime_addresses = [
+        closure_address(),
+        it.extra.as_ptr() as u64,
+        &it.last_nres as *const usize as u64,
+        it.entries.as_ptr() as u64,
+        it.calltab.as_ptr() as u64,
+        it.shape_probe.as_ptr() as u64,
+        it.runtime_consts.as_ptr() as u64,
+    ];
+    it.runtime_addresses.as_ptr() as u64
+}
+
+// The image fixes each function's site order; each VM owns the mutable bank.
+// Boxes keep site addresses stable while loading more functions. Neither the
+// cache words nor the runtime address view are captured in checkpoints.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_field_caches(fid: u64, count: u64) -> u64 {
+    let it = ctx();
+    let bank = it.field_caches.entry(fid as u32)
+        .or_insert_with(|| vec![[0; 2]; count as usize].into_boxed_slice());
+    assert_eq!(bank.len(), count as usize);
+    bank.as_mut_ptr() as u64
 }
 
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
+        ("j_field_caches", j_field_caches as *const u8, 2),
         ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_prepare_locals", j_simd_prepare_locals as *const u8, 6), ("j_simd_finish", j_simd_finish as *const u8, 3), ("j_simd_store", j_simd_store as *const u8, 4),
         ("j_native_budget", j_native_budget as *const u8, 0),
         ("j_native_bounds_error", j_native_bounds_error as *const u8, 0),
         ("j_native_span", j_native_span as *const u8, 4), ("j_native_raise", j_native_raise as *const u8, 1),
         ("j_frame_poll", j_frame_poll as *const u8, 0),
-        ("j_ibox", j_ibox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
+        ("j_ibox", j_ibox as *const u8, 1), ("j_ubox", j_ubox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
         ("j_frame_step", j_frame_step as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
@@ -316,11 +341,14 @@ fn j_arith_slow_impl(a: u64, b: u64, op: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn j_ibox(bits: u64) -> u64 { ctx().guarded(|_| { let _hp = enter_helper!(); ctx().box_integer(crate::numeric::Integer { bits, unsigned: false }) }).0 }
 #[unsafe(no_mangle)]
+pub extern "C" fn j_ubox(bits: u64) -> u64 { ctx().guarded(|_| { let _hp = enter_helper!(); ctx().box_integer(crate::numeric::Integer { bits, unsigned: true }) }).0 }
+
+#[unsafe(no_mangle)]
 pub extern "C" fn j_numeric(v: u64, op: u64) -> u64 { ctx().guarded(|_| {
     let _hp = enter_helper!(); let it = ctx(); let v = V(v);
     match op {
         0 => V::num(crate::numeric::double(it, v)),
-        1 => { crate::numeric::bits(it, v, false); v },
+        1 | 6 => { crate::numeric::bits(it, v, op == 6); v },
         4 | 5 => crate::numeric::check_kind(it, v, op == 5),
         2 => { if !v.is_num() { it.err("value is not a number"); } v },
         _ => if let Some(i) = crate::numeric::integer(v) { it.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { V::num(-crate::numeric::double(it, v)) },

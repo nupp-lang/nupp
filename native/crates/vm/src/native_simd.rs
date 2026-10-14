@@ -96,7 +96,7 @@ pub(crate) fn verify(f: &Function) -> Result<(), String> {
             if !entry_prefix || !lengths.insert(r) {
                 return Err("span lengths must have unique definitions in the entry prefix".into());
             }
-        } else if !matches!(op, Op::IUnbox(..) | Op::FUnbox(..)) {
+        } else if !matches!(op, Op::IUnbox(..) | Op::UUnbox(..) | Op::FUnbox(..)) {
             entry_prefix = false;
         }
     }
@@ -158,8 +158,10 @@ pub(crate) fn verify(f: &Function) -> Result<(), String> {
             | Op::Nil(..)
             | Op::Move(..)
             | Op::IUnbox(..)
+            | Op::UUnbox(..)
             | Op::FUnbox(..)
             | Op::IBox(..)
+            | Op::UBox(..)
             | Op::FBox(..)
             | Op::BoolFromI(..)
             | Op::IMov(..)

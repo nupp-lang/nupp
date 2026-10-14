@@ -30,6 +30,19 @@ function numeric.run(): number
     assert(first + 2LL == second)
     assert(wide + 1ULL == 0ULL)
     assert(wide - 1ULL == 18446744073709551614ULL)
+    assert((((-1LL as any) as uint64) + 1ULL) == 0ULL)
+    assert((((3.75 as any) as uint64) + 1ULL) == 4ULL)
+    local registerBits: uint64 = 0x7ffe000000000001ULL
+    local registerResult: any = (registerBits + 2ULL) - 1ULL
+    assert(registerResult == 0x7ffe000000000002ULL and registerResult is uint64)
+    local highResult: any = (0x8000000000000005ULL + 2ULL) - 1ULL
+    assert(highResult == 0x8000000000000006ULL and highResult is uint64)
+    assert(((wide & registerBits) | 2ULL) == 0x7ffe000000000003ULL)
+    assert((wide ~ registerBits) == 0x8001fffffffffffeULL)
+    local registerKeys: {[any]: any} = {[highResult] = registerResult}
+    local registerRestored = persist.load(persist.save(registerKeys))
+    assert(registerRestored[0x8000000000000006ULL] == registerResult)
+
     assert(first * 3LL == 27021597764222979LL)
     assert(-7LL / 3LL == -2LL and -7LL // 3LL == -3LL)
     assert(-7LL % 3LL == -1LL and 3LL ^ 4LL == 81LL)

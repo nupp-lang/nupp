@@ -588,6 +588,39 @@ function lower.emit(
         return tag == "int64" and "i64" or tag == "uint64" and "u64" or nil
     end
 
+    local function unsignedProducer(node)
+        if node.kind == "paren" then
+            return unsignedProducer(node.expr)
+        end
+        if wideKind(node.inferredType) ~= "u64" then
+            return false
+        end
+        if node.kind == "number" then
+            return true
+        end
+        if node.kind == "unop" then
+            return tokText(node.op) == "-" or tokText(node.op) == "~"
+        end
+        if node.kind == "binop" then
+            local op = tokText(node.op)
+            return op == "+"
+                or op == "-"
+                or op == "*"
+                or op == "/"
+                or op == "//"
+                or op == "%"
+                or op == "^"
+                or op == "&"
+                or op == "|"
+                or op == "~"
+                or op == "<<"
+                or op == ">>"
+                or op == "~>>"
+        end
+
+        return false
+    end
+
     local function isIntegerish(n)
         if n.kind == "paren" then
             return isIntegerish(n.expr)
@@ -604,18 +637,30 @@ function lower.emit(
     local function coerce(f, reg, class, want, dst)
         if class == want then
             if dst and dst ~= reg then
-                f:op(want == "f" and "FMov" or want == "i" and "IMov" or "Move", dst, reg)
+                f:op(want == "f" and "FMov" or (want == "i" or want == "u") and "IMov" or "Move", dst, reg)
                 return dst
             end
             return reg
         end
         if want == "v" then
             dst = dst or f:reg()
-            if class == "i" then
-                f:op("IBox", dst, reg)
+            if class == "i" or class == "u" then
+                f:op(class == "u" and "UBox" or "IBox", dst, reg)
             else
                 f:op("FBox", dst, reg)
             end
+            return dst
+        end
+        if class == "u" or want == "u" then
+            -- Signedness belongs to the typed register, not to its bit pattern.
+            -- Cross-class conversions pass through the exact value boundary.
+            dst = dst or f:freg()
+            local value = reg
+            if class ~= "v" then
+                value = f:reg()
+                f:op(class == "u" and "UBox" or class == "i" and "IBox" or "FBox", value, reg)
+            end
+            f:op(want == "u" and "UUnbox" or want == "i" and "IUnbox" or "FUnbox", dst, value)
             return dst
         end
         if want == "f" then
@@ -1512,10 +1557,10 @@ function lower.emit(
         -- The checker identifies indexed views. Their public operators use
         -- checked library methods even when the view has no Lua metatable.
         if k == "bracketIndex" and node.indexedAccess and node.indexedAccess.adapter == "span" then
-            return spanAccess(f, node, nil, (want ~= "f" and want ~= "i") and dst or nil)
+            return spanAccess(f, node, nil, (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil)
         end
         if k == "unop" and node.indexedLength and node.operand then
-            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             local receiver = exprAs(f, node.operand, "v")
             f:op("GetField", d, receiver, f:const("str", "count"))
             return d, "v"
@@ -1569,7 +1614,7 @@ function lower.emit(
         if k == "binop" and node.fixedArithmetic then
             local a = exprAs(f, node.lhs, "v")
             local b = exprAs(f, node.rhs, "v")
-            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             f:op("Scalar", assert(SCALAR_KIND[node.fixedArithmetic]), d, a, b)
             return d, "v"
         end
@@ -1583,7 +1628,7 @@ function lower.emit(
         if k == "number" and (wide or node.wideIntegerLiteralTag) then
             local tag = node.wideIntegerLiteralTag or (wide == "u64" and "uint64" or "int64")
             local text = node.wideIntegerLiteralText or tokText(node.token):gsub("_", ""):gsub("[uUlL]+$", "")
-            local d = (want ~= "f" and want ~= "i" and dst) or f:reg()
+            local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             f:op("K", d, f:const(tag, text))
             return d, "v"
         end
@@ -1611,13 +1656,26 @@ function lower.emit(
                 [">"] = "lt",
                 [">="] = "le"
             }
+            -- An erased assertion can claim uint64 for a negative or fractional
+            -- value. Only these producer nodes establish an unsigned operand;
+            -- other operations retain the wide helper's coercion contract.
+            if family == "u64" and unsignedProducer(node.lhs) and unsignedProducer(node.rhs) then
+                local direct = {["+"] = "IAdd", ["-"] = "ISub", ["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor"}
+                if direct[op] then
+                    local a = exprAs(f, node.lhs, "u")
+                    local b = exprAs(f, node.rhs, "u")
+                    local d = f:freg()
+                    f:op(direct[op], d, a, b)
+                    return d, "u"
+                end
+            end
             if family and operations[op] then
                 local args = (op == ">" or op == ">=") and {node.rhs, node.lhs} or {node.lhs, node.rhs}
                 return wideOperation(
                     f,
                     "wide." .. family .. "." .. operations[op],
                     args,
-                    (want ~= "f" and want ~= "i") and dst or nil
+                    (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
                 )
             end
         end
@@ -1626,12 +1684,12 @@ function lower.emit(
                 f,
                 "wide." .. wide .. (tokText(node.op) == "-" and ".neg" or ".not"),
                 {node.operand},
-                (want ~= "f" and want ~= "i") and dst or nil
+                (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
             )
         end
         if k == "number" then
             local n = assert(tonumber(tokText(node.token)), "invalid numeric literal")
-            if want ~= "i" and want ~= "f" then
+            if want ~= "i" and want ~= "u" and want ~= "f" then
                 dst = dst or f:reg();
                 f:op("K", dst, f:const("num", n));
                 return dst, "v"
@@ -1706,14 +1764,14 @@ function lower.emit(
         if k == "binop" and tokText(node.op) == "//" then
             local a = exprAs(f, node.lhs, "v");
             local b = exprAs(f, node.rhs, "v")
-            dst = (want ~= "f" and want ~= "i" and dst) or f:reg();
+            dst = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg();
             f:op("IDiv", dst, a, b);
             return dst, "v"
         end
         if k == "binop" and tokText(node.op) == "^" then
             local a = exprAs(f, node.lhs, "v");
             local b = exprAs(f, node.rhs, "v")
-            dst = (want ~= "f" and want ~= "i" and dst) or f:reg();
+            dst = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg();
             f:op("Pow", dst, a, b);
             return dst, "v"
         end
@@ -1737,7 +1795,7 @@ function lower.emit(
             return d, "f"
         end
         if numeric and k == "unop" and tokText(node.op) == "#" then
-            if want ~= "f" and want ~= "i" then
+            if want ~= "f" and want ~= "i" and want ~= "u" then
                 local a = exprAs(f, node.operand, "v");
                 dst = dst or f:reg();
                 f:op("Len", dst, a);
@@ -1942,7 +2000,7 @@ function lower.emit(
             return dst, "v"
         end
         -- Everything else lands in a value register.
-        dst = (want ~= "f" and want ~= "i" and dst) or nil
+        dst = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or nil
         dst = dst or f:reg()
         if k == "number" then
             f:op("K", dst, f:const("num", tonumber(tokText(node.token))))

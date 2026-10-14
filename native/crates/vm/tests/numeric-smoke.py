@@ -28,6 +28,8 @@ if not args.image:
     (args.output / "emit.log").write_text(result.stderr)
     assert result.returncode == 0, result.stderr[-12000:]
     image.write_text(json.loads(result.stdout))
+assert re.search(r"^\s*UUnbox ", image.read_text(), re.M), "unsigned expressions did not use integer registers"
+assert re.search(r"^\s*UBox ", image.read_text(), re.M), "unsigned register results did not preserve their kind"
 records = []
 for engine in ("rust", "threaded", "jit", "frames"):
     flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")

@@ -242,7 +242,7 @@ fn close_scope_deadline(vm: &mut Interp, tid: usize, scope: Value) {
 pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> Answer {
     use Answer::*;
     let arg = |i| args.get(i).copied().unwrap_or(Value::NIL);
-    if vm.scheduler.is_none() {
+    if vm.scheduler.is_none() && !name.starts_with("tasks.vm") {
         vm.err("nupp.tasks needs the host's task scheduler")
     }
     if (vm.nonsuspending_cleanup != 0 || vm.callback_depth.get() != 0)
@@ -251,12 +251,16 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             "tasks.isCancelled" | "tasks.checkpoint" | "tasks.deadline"
                 | "tasks.coRunning" | "tasks.coStatus" | "tasks.coIsYieldable" | "tasks.coCreate"
                 | "tasks.pollWorkers" | "tasks.isDone" | "tasks.status"
+                | "tasks.vmClose" | "tasks.vmDiscard"
         )
     {
         vm.err("task operation in a nonsuspending cleanup callback")
     }
     if name.starts_with("tasks.co") && !matches!(name, "tasks.close") {
         return crate::coroutines::call(vm, tid, name, args);
+    }
+    if name.starts_with("tasks.vm") {
+        return crate::supervision::call(vm, name, args);
     }
     if name.starts_with("tasks.channel") {
         return crate::channels::call(vm, name, args);

@@ -1,0 +1,161 @@
+{
+  "binarySha256": "6942247337b19a74da9419655be153cfc32204553a3b49cee14b014762d9aabe",
+  "imageSha256": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+  "manifestSha256": "dc6158cf754bb601832881e0251ef17c179e60939de0c5172040247190d3e7a7",
+  "compiledFunctions": 3093,
+  "imageFunctions": 3093,
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "freshProcesses": 3,
+  "results": [
+    {
+      "name": "symbols",
+      "exitStatus": 0,
+      "seconds": 0.019,
+      "status": "passed"
+    },
+    {
+      "name": "build-denial",
+      "exitStatus": 0,
+      "seconds": 0.06,
+      "status": "passed"
+    },
+    {
+      "name": "build-probe",
+      "exitStatus": 0,
+      "seconds": 0.04,
+      "status": "passed"
+    },
+    {
+      "name": "deny-mapping",
+      "exitStatus": 86,
+      "seconds": 0.308,
+      "status": "passed"
+    },
+    {
+      "name": "deny-protection",
+      "exitStatus": 86,
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "name": "emit-interpreted",
+      "exitStatus": 0,
+      "seconds": 15.017,
+      "status": "passed"
+    },
+    {
+      "name": "emit-aot-0",
+      "exitStatus": 0,
+      "seconds": 11.394,
+      "status": "passed"
+    },
+    {
+      "name": "emit-aot-1",
+      "exitStatus": 0,
+      "seconds": 8.909,
+      "status": "passed"
+    },
+    {
+      "name": "emit-aot-2",
+      "exitStatus": 0,
+      "seconds": 8.251,
+      "status": "passed"
+    },
+    {
+      "name": "verify-emitted",
+      "exitStatus": 0,
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "name": "execute-emitted",
+      "exitStatus": 0,
+      "seconds": 0.006,
+      "status": "passed"
+    },
+    {
+      "name": "reject-mismatched-image",
+      "exitStatus": 1,
+      "seconds": 0.112,
+      "status": "passed"
+    },
+    {
+      "name": "invalid-interpreted",
+      "exitStatus": 1,
+      "seconds": 9.621,
+      "status": "passed"
+    },
+    {
+      "name": "invalid-aot",
+      "exitStatus": 1,
+      "seconds": 7.738,
+      "status": "passed"
+    }
+  ],
+  "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+  "executableMemoryDenied": true,
+  "emittedImageSha256": "4138798d60c268ea37bd881c65f0a3d30b3e7ee83430bcc41ceea32ea32d685c",
+  "diagnosticCodes": [
+    "NUPP2001"
+  ],
+  "status": "passed",
+  "schemaVersion": 1,
+  "date": "2026-10-14",
+  "branch": "codegen-experiment",
+  "runtimeBindingAbi": "nupp_vm_runtime_v3",
+  "refusedFunctions": 0,
+  "objectBytes": 64440688,
+  "objectSha256": "094a7c7caf686674f6db0975d8a04e27172e9ac8a670e7fe9dd00d141cec16a1",
+  "linkedBinaryBytes": 88102936,
+  "artifacts": "/private/tmp/nupp-relocatable-aot",
+  "selfHosting": {
+    "stages": [
+      {
+        "stage": 2,
+        "bytes": 8874953,
+        "sha256": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+        "identical": true
+      },
+      {
+        "stage": 3,
+        "bytes": 8874953,
+        "sha256": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+        "identical": true
+      }
+    ],
+    "executableMemoryDenied": true,
+    "binarySha256": "d5b99a56271c9440d19dfa7b69fa3f4afa951077441081d49685fa318c5bb687",
+    "scope": "Two native compiler-image rebuilds before supervision cleanup-only changes; final linked runtime separately reran compiler acceptance."
+  },
+  "isolation": {
+    "test": "aot_relocation",
+    "status": "passed",
+    "cases": [
+      "one object in VMs with different field layouts",
+      "dynamic image append",
+      "concurrent VM threads"
+    ]
+  },
+  "runtimeTests": {
+    "passed": 157,
+    "failed": 0,
+    "scope": "Full default-feature Rust suite before final supervision review fixes; final lib, supervision and worker tests subsequently passed 19+5+6."
+  },
+  "sourceSha256": {
+    "native/crates/vm/src/jit.rs": "6e016d6c8730b948ec81314ae0d0d7a24bbab3aee237dc1463352d70f6b06854",
+    "native/crates/vm/src/compiled.rs": "771cf375b333f042d2ac77d09b97ef2e9841a31c4f1ccefaee0fb77cb1b11fc4",
+    "native/crates/vm/src/interp.rs": "58ea5f500659f79252b0f1d48c5bdb8390ae9590d80272d1b9b699c5bfb7a49b",
+    "src/nupp/compiler/vm/lower.nupp": "cb7cf2f27b92a58814b7ef85f3bd2b9abb6f190d20a0fe68cf84d107cac29e41"
+  },
+  "remaining": [
+    "Default compiler distribution and bootstrap packaging",
+    "Cross-platform AOT and console validation"
+  ],
+  "pinnedBootstrapFixpoint": {
+    "diagnostics": [],
+    "kind": "compiler",
+    "ok": true,
+    "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+    "target": "compiler"
+  }
+}
