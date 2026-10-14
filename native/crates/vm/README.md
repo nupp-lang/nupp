@@ -1935,3 +1935,59 @@ although every key object has a new address.
 A stable per-object serial for snapshot deltas (snapshot plan section 4) is
 not part of this: it would need a header word the 32-byte layout does not
 have, and insertion order alone is what replay and restore needed.
+
+## Corpus fix-forward (2026-10-14)
+
+The 32 corpus suites that did not pass were rerun on the corrected runtime
+and a new root image; six now pass (74 of 100, 1159 passing cases against
+1143). What moved them, and what the work found along the way:
+
+- **Safe navigation** (`?.name`, `?.[key]`, `?.(args)`, `?.:m()`, `:m?.()`)
+  had no VM lowering. The checker also refused `t?.[k]` on an optional
+  table, because only `?.name` stripped nil from its receiver.
+- **Missing builtins**: `os.exit` (the test runner's refusals exited 1, not
+  2), `debug.traceback` (every `xpcall(f, debug.traceback)` answered "error
+  in error handling"), and `files.lines` in the VM's `nupp.io.files`, with
+  an `io.Reader` adapter because a Lua handle answers nil at the end where a
+  reader answers `""`.
+- **`os` and `io` are looked up at call time.** The lowering bound them as
+  builtin constants, so a program that replaced `os.getenv` to substitute
+  its environment was not observed. The pure libraries stay bound.
+- **Image closure follows `@requires-dynamically`.** The component build
+  loaded `nupp.tools.build.package` by computed name, and the image lacked it.
+- **`tostring` was lossy on non-UTF-8 strings.** It answered U+FFFD, so
+  the lowerer's constant key merged `"\128"` and `"\255"` into one constant
+  in any function holding both, on a VM-hosted compile. `print` and `%s`
+  shared the helper; all three are byte-exact now.
+- **Smaller host gaps**: build tools read `jit.os` (absent on the VM; they
+  ask the host target key now), the C type probe accepted tags the
+  declarations never named (LuaJIT refuses them, and NUPP2304 went silent),
+  `loadstring`'s literal fast path accepted a raw newline inside quotes,
+  dynamic `simd.vectors` raised instead of answering nil, and VM `bc`
+  reported a missing file as a tool failure instead of NUPP0001.
+- **`nupp run` outside the checkout** compiles a `nupp.` module the image
+  lacks from the checkout's sources, in the checkout's own environment;
+  LuaJIT finds the compiled copies on `package.path`.
+
+The root image was emitted under LuaJIT from the same sources and then
+VM-hosted from that image: the two are byte-identical.
+
+What remains, by cause:
+
+| Cause | Suites |
+| --- | --- |
+| LuaJIT bytecode, trace and bootstrap assumptions | bctest, bootstraptest, lspclitest (bytecode artifact), jsonschematest (trace aborts) |
+| C modules the VM cannot load (`ffi`, LPeg, lunamark) | evalstest, preludecachetest, coveragetest, examplestest |
+| Native providers not ported | jsonpolicytest, jsonfuseddifferentialtest, tlstest, workerstartuptest |
+| Stub catalog not carried by the VM CLI | perfbudgettest (hello world), releasetest |
+| Environment capabilities (wasm, node, Chromium) | three simdwasm suites |
+| Timeouts under collector interleave | nine, including serdecontracttest and publicclitest |
+| Other | referencetest (one example only under the corpus image), perfbudgettest (checker allocation per module 2.5 MB against 2 MB) |
+
+Errors carry no `file:line:` prefix. Images hold no line table, and a
+builtin does not see its caller's pc on every tier. That is the plan's
+per-instruction debug info, next.
+
+`TRACE_FAILURES=1` prints the frame chain of a scheduled task that fails,
+and `AOT_VERBOSE=1` restores the linked-entry banner the CLI used to print
+on every run.

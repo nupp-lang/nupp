@@ -32,17 +32,23 @@
       {
         "selection": "suite name at or after m",
         "suites": 44
+      },
+      {
+        "selection": "the 32 suites not passing before, rerun 2026-10-14 with the corrected runtime and root image",
+        "suites": 32,
+        "seedSha256": "36e5cc3a61351803348c9427e3679c80aaa54260f7b25b0ca344e237b7ba3076",
+        "binarySha256": "cc6097cb332bf5e4db1117343893f57708a802d3565ab7a326cfda261fd77a31"
       }
     ],
     "path": "inherited; compiler subprocesses routed through the VM root CLI"
   },
   "summary": {
     "suites": 100,
-    "passedSuites": 68,
-    "failedSuites": 23,
+    "passedSuites": 74,
+    "failedSuites": 17,
     "timedOutSuites": 9,
-    "passingCaseOrHookResults": 1143,
-    "failingCaseOrHookResults": 67,
+    "passingCaseOrHookResults": 1159,
+    "failingCaseOrHookResults": 49,
     "incompleteSuites": 12,
     "dispositions": {
       "not-executed": 1
@@ -65,7 +71,8 @@
     "The runtime and child root CLI image are the final versions tested by root-cli-coverage.json. The corpus image predates the final conditional ownership activation fix; its dedicated fixture was subsequently validated on both interpreters, JIT, and compiled frames.",
     "The 600-second limit applies to a whole suite. Timed-out suites retain any reported cases; the harness kills their subprocess group. A timeout is not evidence of a deadlock.",
     "Failures include legacy bootstrap and bytecode assumptions, source-lowering gaps, provider and documentation dependencies, and compilation timeouts. Failure samples do not establish one cause for every failure.",
-    "A passing inventory or capability-report test does not establish support for an unavailable deployment target. Full CLI command coverage is recorded separately."
+    "A passing inventory or capability-report test does not establish support for an unavailable deployment target. Full CLI command coverage is recorded separately.",
+    "2026-10-14 rerun: safe navigation lowering, os.exit, debug.traceback, files.lines, runtime os/io lookups, @requires-dynamically image closure, byte-exact tostring and a stdlib fallback loader moved six suites to passing. Remaining failures are LuaJIT bytecode and bootstrap assumptions, C modules (ffi, lpeg, lunamark), unported native providers, stub catalogs, error positions, and GC-interleave timeouts."
   ],
   "suites": [
     {
@@ -244,84 +251,39 @@
       "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
       "exitStatus": 1,
-      "passed": 7,
-      "failed": 16,
+      "passed": 8,
+      "failed": 15,
       "total": 23,
       "completed": true,
-      "durationSeconds": 553.503,
+      "durationSeconds": 467.192,
       "error": "",
       "failureSamples": [
         {
-          "ok": false,
-          "facts": {},
-          "error": "a guarded, reused function is not a loop that cannot compile:\nnupp: statement kind cdefFunc in module:guarded\n",
-          "metrics": {},
           "suite": "bctest",
           "name": "aFunctionBuiltOnceBehindAGuardIsAdvisory",
-          "capabilities": {}
+          "ok": false,
+          "error": "the blocker path remains visible without claiming the whole loop fails:\n  1 | cdef function free(takes value: voidptr)                         | 0000 Nil 1\n    |                                                                  | 0001 K 2 0\n    |                                                                  | 0002 NewTableN 3 0 2\n    |                                                                  | 0003 K 4 1\n    |                                                                  | 0004 NewTableN 5 0 1\n    |                                                                  | 0005 K 6 2\n    |                                                                  | 0006 K 7 3\n    |                                                                  | 0007 SetIdx 5 6 7\n    |                                                                  | 0008 SetIdx 3 4 5\n    |                                                                  | 0009 K 4 4\n    |                                                                  | 0010 K 5 5\n    |                                                                  | 0011 SetIdx 3 4 5\n    |                                                                  | 0012 K 7 6\n    |                                                                  | 0013 Move 9 1\n    |                                                                  | 0014 Move 10 2\n    |                                                                  | 0015 Move 11 3\n    |                                                                  | 0016 CallDyn 7 8 3\n    |                                                                  | 0017 Move 6 8\n    |                                                                  | 0018 Move 12 6\n  2 | cdef function malloc(size: uint64): voidptr                      | 0019 Nil 13\n    |                                                                  | 0020 K 14 7\n    |                                                                  | 0021 NewTableN 15 0 2\n    |                                                                  | 0022 K 16 1\n    |                                                                  | 0023 NewTableN 17 0 1\n    |                                                                  | 0024 K 18 2\n    |                                                                  | 0025 K 19 8\n    |                                                                  | 0026 SetIdx 17 18 19\n    |                                                                  | 0027 SetIdx 15 16 17\n    |                                                                  | 0028 K 16 4\n    |                                                                  | 0029 K 17 3\n    |                                                                  | 0030 SetIdx 15 16 17\n    |                                                                  | 0031 K 19 6\n    |                                                                  | 0032 Move 21 13\n    |                                                                  | 0033 Move 22 14\n    |                                                                  | 0034 Move 23 15\n    |                                                                  | 0035 CallDyn 19 20 3\n    |                                                                  | 0036 Move 18 20\n    |                                                                  | 0037 NewCell 24 18\n  3 | local function ownedMalloc(size: integer): affine(voidptr, free) | 0038 Move 27 24\n    |                                                                  | 0039 NewClosure 25 1 26 1\n  4 |    return malloc(size)                                           | 0001 GetCell 12 2\n    |                                                                  | 0002 Move 14 1\n    |                                                                  | 0003 CallDyn 12 13 1\n    |                                                                  | 0004 Move 3 13\n    |                                                                  | 0005 Move 4 14\n    |                                                                  | 0006 Move 5 15\n    |                                                                  | 0007 Move 6 16\n    |                                                                  | 0008 Move 7 17\n    |                                                                  | 0009 Move 8 18\n    |                                                                  | 0010 Move 9 19\n    |                                                                  | 0011 Move 10 20\n    |                                                                  | 0012 RetN 3 128\n  5 | end\n  6 |\n  7 | local n = 0                                                      | 0040 IK 1 0\n    |                                                                  | 0041 IMov 0 1\n  8 | for i = 1, 3000 do                                               | 0042 FK 2 1\n    |                                                                  | 0043 FMov 1 2\n    |                                                                  | 0044 FK 3 3000\n    |                                                                  | 0045 FK 4 1\n    |                                                                  | 0046 FCmpLe 5 1 3\n    |                                                                  | 0047 JmpIfIZero 5 7\n  9 |     local value = ownedMalloc(8)                                 | 0048 K 27 9\n    |                                                                  | 0049 CallK 1 25 26 1 1\n    |                                                                  | 0050 PadResults 26 1\n    |                                                                  | 0051 Defer 26 12\n    |                                                                  | 0052 Unwind 0\n    |                                                                  | 0053 FAdd 1 1 4\n    |                                                                  | 0054 Jmp -9\n 10 | end\n 11 | return n                                                         | 0055 IBox 26 0\n    |                                                                  | 0056 Ret 26\n",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
-          "ok": false,
-          "facts": {},
-          "error": "the first line's own instructions remain visible:\n  1 | local answer = tonumber('42') | 0000 K 4 0\n    |                               | 0001 K 2 1\n    |                               | 0002 CallDyn 4 1 1\n    |                               | 0003 PadResults 1 1\n  2 | return answer                 | 0004 Ret 1\n",
-          "metrics": {},
           "suite": "bctest",
           "name": "authoredCodeOnLineOneIsNotFoldedWithThePreamble",
-          "capabilities": {}
+          "ok": false,
+          "error": "the first line's own instructions remain visible:\n  1 | local answer = tonumber('42') | 0000 K 4 0\n    |                               | 0001 K 2 1\n    |                               | 0002 CallDyn 4 1 1\n    |                               | 0003 PadResults 1 1\n  2 | return answer                 | 0004 Ret 1\n",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
-          "ok": false,
-          "facts": {},
-          "error": "expected 0, got 1: {\"diagnostics\":[{\"code\":\"NUPP0004\",\"docs\":\"docs/reference/diagnostics.md#failures-outside-source\",\"file\":\"constructor.nupp\",\"fixes\":[],\"message\":\"VM bytecode inspection does not use Lua optimization levels\",\"notes\":[],\"related\":[],\"severity\":\"error\"}],\"file\":\"constructor.nupp\",\"functions\":[],\"ok\":false,\"unrecordable\":0}\n",
-          "metrics": {},
           "suite": "bctest",
           "name": "bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls",
-          "capabilities": {}
-        },
-        {
           "ok": false,
+          "error": "expected 0, got 1: {\"diagnostics\":[{\"code\":\"NUPP0004\",\"docs\":\"docs/reference/diagnostics.md#failures-outside-source\",\"file\":\"constructor.nupp\",\"fixes\":[],\"message\":\"VM bytecode inspection does not use Lua optimization levels\",\"notes\":[],\"related\":[],\"severity\":\"error\"}],\"file\":\"constructor.nupp\",\"functions\":[],\"ok\":false,\"unrecordable\":0}\n",
+          "capabilities": {},
           "facts": {},
-          "error": "expected 1, got 0: a loop that cannot compile must fail --check:\n  1 | local function each(items: {number}, fn: function(n: number): numb~ | 0000 NewClosure 1 1 2 0\n  2 |     local total = 0                                                 | 0000 K 3 0\n  3 |     for i = 1, #items do                                            | 0001 FK 1 1\n    |                                                                     | 0002 FMov 0 1\n    |                                                                     | 0003 LenF 2 1\n    |                                                                     | 0004 FK 3 1\n    |                                                                     | 0005 FCmpLe 4 0 2\n    |                                                                     | 0006 JmpIfIZero 4 8\n  4 |         total = total + fn(items[i])                                | 0007 FToI 5 0\n    |                                                                     | 0008 GetIdxI 7 1 5\n    |                                                                     | 0009 Move 5 7\n    |                                                                     | 0010 CallDyn 2 4 1\n    |                                                                     | 0011 PadResults 4 1\n    |                                                                     | 0012 Add 3 3 4\n    |                                                                     | 0013 FAdd 0 0 3\n    |                                                                     | 0014 Jmp -10\n  5 |     end\n  6 |     return total                                                    | 0015 Ret 3\n  7 | end\n  8 |\n  9 | local out = 0                                                       | 0001 K 2 0\n 10 | for round = 1, 4 do                                                 | 0002 FK 1 1\n    |                                                                     | 0003 FMov 0 1\n    |                                                                     | 0004 FK 2 4\n    |                                                                     | 0005 FK 3 1\n    |                                                                     | 0006 FCmpLe 4 0 2\n    |                                                                     | 0007 JmpIfIZero 4 17\n    |                                                                     | 0008 FBox 3 0\n    |                                                                     | 0009 NewCell 4 3\n 11 |     out = out + each({1, 2}, function(n: number): number            | 0010 NewTableN 9 2 0\n    |                                                                     | 0011 K 10 1\n    |                                                                     | 0012 K 11 1\n    |                                                                     | 0013 SetIdx 9 10 11\n    |                                                                     | 0014 K 10 2\n    |                                                                     | 0015 K 11 2\n    |                                                                     | 0016 SetIdx 9 10 11\n    |                                                                     | 0017 Move 6 9\n    |                                                                     | 0018 Move 13 4\n    |                                                                     | 0019 NewClosure 7 2 12 1\n    |                                                                     | 0020 CallK 1 1 5 2 1\n    |                                                                     | 0021 PadResults 5 1\n    |                                                                     | 0022 Add 2 2 5\n    |                                                                     | 0023 FAdd 0 0 3\n    |                                                                     | 0024 Jmp -19\n 12 |         return n * round                                            | 0001 GetCell 3 2\n    |                                                                     | 0002 Mul 4 1 3\n    |                                                                     | 0003 Ret 4\n 13 |     end)\n 14 | end\n 15 | return out                                                          | 0025 Ret 2\n",
-          "metrics": {},
-          "suite": "bctest",
-          "name": "checkReportsALoopThatCannotCompileAndFailsForIt",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "facts": {},
-          "error": "cleanup captures must not leave either enclosing loop unrecordable:\nnupp: statement kind cdefFunc in module:captured\n",
-          "metrics": {},
-          "suite": "bctest",
-          "name": "cleanupRegionsWritingFunctionAndLoopLocalsStillCompile",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "facts": {},
-          "error": "the instruction is muted as one run:\n\u001b[90m  1 | \u001b[0m\u001b[35mlocal\u001b[0m greeting = \u001b[32m\"hi\"\u001b[0m\u001b[90m | \u001b[0m\u001b[90m0000 K 1 0\u001b[0m\n\u001b[90m  2 | \u001b[0m\u001b[94mprint\u001b[0m(greeting)      \u001b[90m | \u001b[0m\u001b[90m0001 K 5 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0002 Move 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0003 CallDyn 5 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0004 PadResults 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                     \u001b[90m | \u001b[0m\u001b[90m0005 RetNil\u001b[0m\n",
-          "metrics": {},
-          "suite": "bctest",
-          "name": "colorHighlightsSourceAndMutesTheBytecode",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "facts": {},
-          "error": "expected 1, got 0: \u001b[90m  1 | \u001b[0m\u001b[35mlocal\u001b[0m \u001b[35mfunction\u001b[0m \u001b[94meach\u001b[0m(items: {\u001b[36mnumber\u001b[0m}, fn: \u001b[35mfunction\u001b[0m(n: \u001b[36mnumber\u001b[0m): \u001b[36mnumb\u001b[0m~\u001b[90m | \u001b[0m\u001b[90m0000 NewClosure 1 1 2 0\u001b[0m\n\u001b[90m  2 | \u001b[0m    \u001b[35mlocal\u001b[0m total = \u001b[33m0\u001b[0m                                                \u001b[90m | \u001b[0m\u001b[90m0000 K 3 0\u001b[0m\n\u001b[90m  3 | \u001b[0m    \u001b[35mfor\u001b[0m i = \u001b[33m1\u001b[0m, #items \u001b[35mdo\u001b[0m                                           \u001b[90m | \u001b[0m\u001b[90m0001 FK 1 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0002 FMov 0 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 LenF 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0004 FK 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0005 FCmpLe 4 0 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0006 JmpIfIZero 4 8\u001b[0m\n\u001b[90m  4 | \u001b[0m        total = total + \u001b[94mfn\u001b[0m(items[i])                               \u001b[90m | \u001b[0m\u001b[90m0007 FToI 5 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0008 GetIdxI 7 1 5\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0009 Move 5 7\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0010 CallDyn 2 4 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0011 PadResults 4 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0012 Add 3 3 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0013 FAdd 0 0 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0014 Jmp -10\u001b[0m\n\u001b[90m  5 | \u001b[0m    \u001b[35mend\u001b[0m\n\u001b[90m  6 | \u001b[0m    \u001b[35mreturn\u001b[0m total                                                   \u001b[90m | \u001b[0m\u001b[90m0015 Ret 3\u001b[0m\n\u001b[90m  7 | \u001b[0m\u001b[35mend\u001b[0m\n\u001b[90m  8 |\u001b[0m\n\u001b[90m  9 | \u001b[0m\u001b[35mlocal\u001b[0m \u001b[35mout\u001b[0m = \u001b[33m0\u001b[0m                                                      \u001b[90m | \u001b[0m\u001b[90m0001 K 2 0\u001b[0m\n\u001b[90m 10 | \u001b[0m\u001b[35mfor\u001b[0m round = \u001b[33m1\u001b[0m, \u001b[33m4\u001b[0m \u001b[35mdo\u001b[0m                                                \u001b[90m | \u001b[0m\u001b[90m0002 FK 1 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 FMov 0 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0004 FK 2 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0005 FK 3 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0006 FCmpLe 4 0 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0007 JmpIfIZero 4 17\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0008 FBox 3 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0009 NewCell 4 3\u001b[0m\n\u001b[90m 11 | \u001b[0m    \u001b[35mout\u001b[0m = \u001b[35mout\u001b[0m + \u001b[94meach\u001b[0m({\u001b[33m1\u001b[0m, \u001b[33m2\u001b[0m}, \u001b[35mfunction\u001b[0m(n: \u001b[36mnumber\u001b[0m): \u001b[36mnumber\u001b[0m           \u001b[90m | \u001b[0m\u001b[90m0010 NewTableN 9 2 0\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0011 K 10 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0012 K 11 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0013 SetIdx 9 10 11\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0014 K 10 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0015 K 11 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0016 SetIdx 9 10 11\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0017 Move 6 9\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0018 Move 13 4\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0019 NewClosure 7 2 12 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0020 CallK 1 1 5 2 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0021 PadResults 5 1\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0022 Add 2 2 5\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0023 FAdd 0 0 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0024 Jmp -19\u001b[0m\n\u001b[90m 12 | \u001b[0m        \u001b[35mreturn\u001b[0m n * round                                           \u001b[90m | \u001b[0m\u001b[90m0001 GetCell 3 2\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0002 Mul 4 1 3\u001b[0m\n\u001b[90m    | \u001b[0m                                                                   \u001b[90m | \u001b[0m\u001b[90m0003 Ret 4\u001b[0m\n\u001b[90m 13 | \u001b[0m    \u001b[35mend\u001b[0m)\n\u001b[90m 14 | \u001b[0m\u001b[35mend\u001b[0m\n\u001b[90m 15 | \u001b[0m\u001b[35mreturn\u001b[0m \u001b[35mout\u001b[0m                                                         \u001b[90m | \u001b[0m\u001b[90m0025 Ret 2\u001b[0m\n",
-          "metrics": {},
-          "suite": "bctest",
-          "name": "colorMarksAVerdictWithItsSeverity",
-          "capabilities": {}
-        },
-        {
-          "ok": false,
-          "facts": {},
-          "error": "the declared module's preamble is folded:\n  1 | module declared\n  2 | export function answer(): integer | 0002 NewClosure 3 1 4 0\n    |                                   | 0003 Move 2 3\n    |                                   | 0004 SetField 1 0 2\n    |                                   | 0005 Ret 1\n  3 |     return 42                     | 0000 K 1 0\n    |                                   | 0001 Ret 1\n  4 | end\n",
-          "metrics": {},
-          "suite": "bctest",
-          "name": "declaredModulesFoldTheirPreambleInsideTheLoader",
-          "capabilities": {}
+          "metrics": {}
         }
       ]
     },
@@ -336,9 +298,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 600.018,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 600.011,
+      "error": ""
     },
     {
       "suite": "benchrunnertest",
@@ -351,9 +312,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 600.016,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 600.012,
+      "error": ""
     },
     {
       "suite": "binderidentitytest",
@@ -379,52 +339,34 @@
       "failed": 5,
       "total": 11,
       "completed": true,
-      "durationSeconds": 11.917,
+      "durationSeconds": 8.381,
       "error": "",
       "failureSamples": [
         {
           "suite": "bootstraptest",
           "name": "aBuildWaitsForTheBuildAlreadyRunning",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "and did not run once the lock was free: while held: [nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)]\nafter: [nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)]\n",
+          "capabilities": {},
+          "facts": {},
           "metrics": {}
         },
         {
           "suite": "bootstraptest",
           "name": "aColdBuildPublishesSelfHostedRuntimeArtifacts",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)\n",
+          "capabilities": {},
+          "facts": {},
           "metrics": {}
         },
         {
           "suite": "bootstraptest",
           "name": "aFallbackDropsTheBytecodeTheBuiltCompilerLoaded",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "nupp: cannot load nupp.lua: nupp.lua: No such file or directory (os error 2)\n",
-          "metrics": {}
-        },
-        {
-          "suite": "bootstraptest",
-          "name": "aStamplessTreeStillRunsTheCompilerItHas",
           "capabilities": {},
-          "ok": false,
           "facts": {},
-          "error": "a build in progress has removed the stamp, and the compiler it is rewriting is still a better answer than one from whenever stage zero was published",
-          "metrics": {}
-        },
-        {
-          "suite": "bootstraptest",
-          "name": "theStageZeroIsNamedToWhatItRuns",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "the planted stage zero did not run: Nupp compiler and project tool.\n\nExamples:\n\n    nupp check\n    nupp build\n    nupp run src/main.nupp\n\nUsage:\n  nupp <command> [options]\n  nupp help [command ...]\n  nupp --version\n\nCommands:\n  init             Create a project from a template.\n  ast              Dump a Nupp file's parsed syntax tree as JSON.\n  aot              Show what the @aot functions in a file compile to.\n  bc               Show the bytecode a Nupp file compiles to.\n  check            Type-check source without emitting Lua.\n  fmt              Format Nupp source.\n  build            Build source files or a configured project target.\n  clean            Remove build outputs configured in nupp.lua.\n  bench            Run isolated benchmark programs.\n  lints            List the lints and the level each runs at.\n  ownership-audit  List foreign pointer contracts and unsafe assertion sites.\n  explain          Describe a diagnostic code, with an example either way.\n  reference        List or print a focused Nupp reference chapter.\n  completions      Print a shell completion script.\n  test             Build and run project tests.\n  task             List, inspect, or run project tasks from nupp.lua.\n  doc              Generate API documentation from source comments.\n  fixpoint         Verify a byte-identical self-hosting rebuild.\n  run              Compile and run a Nupp or Lua program.\n  import-c         Generate typed Nupp bindings from a C header.\n  migrate          Migrates annotated Lua or retired serialization APIs.\n  export-c         Export canonical C declarations for Nupp structs.\n  rock             Package and check typed LuaRocks libraries.\n  lsp              Language-server and semantic source operations.\n  version          Print the compiler version.\n  help             Show general or command-specific help.\n\nRun 'nupp help <command>' for command-specific help.\n",
           "metrics": {}
         }
       ]
@@ -486,25 +428,13 @@
       "class": "portable",
       "facilities": "spawn",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 1,
-      "failed": 1,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 2,
+      "failed": 0,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.318,
-      "error": "",
-      "failureSamples": [
-        {
-          "name": "resolvesAndAuthenticatesTargetIndexedTools",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "nil",
-          "metrics": {},
-          "suite": "compilerpacktest"
-        }
-      ]
+      "durationSeconds": 0.279
     },
     {
       "suite": "corpustest",
@@ -543,17 +473,17 @@
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.284,
+      "durationSeconds": 0.242,
       "error": "",
       "failureSamples": [
         {
-          "ok": false,
-          "facts": {},
-          "error": "assertion failed!",
-          "metrics": {},
           "suite": "coveragetest",
           "name": "highlightsLongCommentsAcrossSourceLines",
-          "capabilities": {}
+          "ok": false,
+          "error": "assertion failed!",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -594,9 +524,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 600.015,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 600.013,
+      "error": ""
     },
     {
       "suite": "diagnosticgoldentest",
@@ -674,17 +603,17 @@
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 60.077,
+      "durationSeconds": 69.827,
       "error": "",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "the Nupp evaluation self-test failed: nupp: expression kind safeIndex in module:vm.chunk.fn2.fn8\n",
-          "metrics": {},
           "suite": "evalstest",
           "name": "theEvaluationHarnessIsImplementedAndTestedInNupp",
+          "ok": false,
+          "error": "the Nupp evaluation self-test failed: nupp: module 'ffi' not found:\n\tno nupp source for module 'ffi'\n",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -699,9 +628,8 @@
       "failed": 0,
       "total": 19,
       "completed": false,
-      "durationSeconds": 600.218,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 600.196,
+      "error": ""
     },
     {
       "suite": "examplestest",
@@ -714,17 +642,17 @@
       "failed": 1,
       "total": 1,
       "completed": false,
-      "durationSeconds": 600.274,
+      "durationSeconds": 600.192,
       "error": "",
       "failureSamples": [
         {
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "nupp doc needs lunamark; declare it as a luarocks dependency of the docs target and it is installed with the build (module 'lunamark' not found:)",
-          "metrics": {},
           "suite": "examplestest",
-          "name": "aMarkedFenceStillRendersAsNupp"
+          "name": "aMarkedFenceStillRendersAsNupp",
+          "ok": false,
+          "error": "nupp doc needs lunamark; declare it as a luarocks dependency of the docs target and it is installed with the build (module 'lunamark' not found:)",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -746,50 +674,26 @@
       "class": "portable",
       "facilities": "getinfo,spawn",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 12,
-      "failed": 1,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 13,
+      "failed": 0,
       "total": 13,
       "completed": true,
-      "durationSeconds": 54.472,
-      "error": "",
-      "failureSamples": [
-        {
-          "name": "everyWorkedExampleMatchesItsDiagnosticEntry",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "NUPP2304: its `wrong` example no longer reports it",
-          "metrics": {},
-          "suite": "explaintest"
-        }
-      ]
+      "durationSeconds": 47.185
     },
     {
       "suite": "filecomponenttest",
       "class": "portable",
       "facilities": "getinfo,spawn",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 0,
-      "failed": 1,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 1,
+      "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 52.966,
-      "error": "",
-      "failureSamples": [
-        {
-          "facts": {},
-          "error": "expected 0, got 1: task: Failed(\"runtime error: field os of a non-object\")\n",
-          "metrics": {},
-          "suite": "filecomponenttest",
-          "name": "buildsFilesAndLineReadersInAColdComponent",
-          "capabilities": {},
-          "ok": false
-        }
-      ]
+      "durationSeconds": 39.387
     },
     {
       "suite": "fleettest",
@@ -867,9 +771,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 600.015,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 600.014,
+      "error": ""
     },
     {
       "suite": "fmtwidthtest",
@@ -928,25 +831,13 @@
       "class": "portable",
       "facilities": "getinfo,spawn",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 6,
-      "failed": 1,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 7,
+      "failed": 0,
       "total": 7,
       "completed": true,
-      "durationSeconds": 17.157,
-      "error": "",
-      "failureSamples": [
-        {
-          "metrics": {},
-          "suite": "jsonfacadedefaulttest",
-          "name": "scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "nupp: runtime error: SIMD operation requires a statically resolved call\n"
-        }
-      ]
+      "durationSeconds": 84.29
     },
     {
       "suite": "jsonfuseddifferentialtest",
@@ -959,9 +850,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.278,
-      "error": "task: Failed(\"module 'nupp.runtime.provider.nativebuffer' not found:\")\n",
-      "failureSamples": []
+      "durationSeconds": 0.236,
+      "error": "task: Failed(\"module 'nupp.runtime.provider.nativebuffer' not found:\")\n"
     },
     {
       "suite": "jsonpolicytest",
@@ -974,80 +864,35 @@
       "failed": 10,
       "total": 17,
       "completed": true,
-      "durationSeconds": 0.283,
+      "durationSeconds": 0.258,
       "error": "",
       "failureSamples": [
         {
+          "suite": "jsonpolicytest",
           "name": "abortingWritersDiscardsOnlyUnpublishedBytes",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
+          "suite": "jsonpolicytest",
           "name": "arrayMarkersRequireEveryConsecutiveIndex",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
+          "suite": "jsonpolicytest",
           "name": "decodeProblemsNameTheTextNotTheDecoder",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
-        },
-        {
-          "name": "duplicateMemberNamesAreRefusedByEveryProvider",
           "capabilities": {},
-          "ok": false,
           "facts": {},
-          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
-        },
-        {
-          "name": "exactNumberFragmentsPreserveTokensAcrossProviders",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
-        },
-        {
-          "name": "failedWritesLeaveTheWriterAtItsPriorPosition",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
-        },
-        {
-          "name": "nonFiniteNumbersAreRefusedByEveryProvider",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
-        },
-        {
-          "name": "portableEncodingRejectsInvalidUtf8Everywhere",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "module 'nupp.runtime.provider.nativebuffer' not found:",
-          "metrics": {},
-          "suite": "jsonpolicytest"
+          "metrics": {}
         }
       ]
     },
@@ -1058,30 +903,21 @@
       "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
       "exitStatus": 1,
-      "passed": 22,
-      "failed": 2,
+      "passed": 23,
+      "failed": 1,
       "total": 24,
       "completed": true,
-      "durationSeconds": 90.34,
+      "durationSeconds": 88.494,
       "error": "",
       "failureSamples": [
         {
-          "metrics": {},
           "suite": "jsonschematest",
           "name": "aRunReportsItsTraceAbortsInTheSharedShapes",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
-          "error": ""
-        },
-        {
-          "metrics": {},
-          "suite": "jsonschematest",
-          "name": "everyCommandReportsAMissingFileAsACodedFailure",
+          "error": "",
           "capabilities": {},
-          "ok": false,
           "facts": {},
-          "error": "bc nosuch.nupp --json (in a project) should report NUPP0001:\n{\"diagnostics\":[{\"code\":\"NUPP0004\",\"docs\":\"docs/reference/diagnostics.md#failures-outside-source\",\"file\":\"nosuch.nupp\",\"fixes\":[],\"message\":\"nosuch.nupp: No such file or directory (os error 2)\",\"notes\":[],\"related\":[],\"severity\":\"error\"}],\"file\":\"nosuch.nupp\",\"functions\":[],\"ok\":false,\"unrecordable\":0}\n"
+          "metrics": {}
         }
       ]
     },
@@ -1096,9 +932,8 @@
       "failed": 0,
       "total": 19,
       "completed": false,
-      "durationSeconds": 601.228,
-      "error": "",
-      "failureSamples": []
+      "durationSeconds": 601.344,
+      "error": ""
     },
     {
       "suite": "lspclitest",
@@ -1111,26 +946,26 @@
       "failed": 2,
       "total": 21,
       "completed": true,
-      "durationSeconds": 88.914,
+      "durationSeconds": 45.49,
       "error": "nupp: option --only does not take refactor; expected quickfix\nTry 'nupp help lsp actions' for usage.\nnupp: NUPP1004:2: expression expected; found end of file\nnupp: unknown option -O\nTry 'nupp help lsp artifact' for usage.\nnupp: unknown option --opt-level\nTry 'nupp help lsp artifact' for usage.\n",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "the file compiles",
-          "metrics": {},
           "suite": "lspclitest",
           "name": "artifactPrintsABytecodeListingLaidOutAgainstTheSource",
+          "ok": false,
+          "error": "the file compiles",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         },
         {
-          "facts": {},
-          "error": "with the reason it does not load: NUPP3005 in\n_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local v1 = 1\nlocal v2 = 2\nlocal v3 = 3\nlocal v4 = 4\nlocal v5 = 5\nlocal v6 = 6\nlocal v7 = 7\nlocal v8 = 8\nlocal v9 = 9\nlocal v10 = 10\nlocal v11 = 11\nlocal v12 = 12\nlocal v13 = 13\nlocal v14 = 14\nlocal v15 = 15\nlocal v16 = 16\nlocal v17 = 17\nlocal v18 = 18\nlocal v19 = 19\nlocal v20 = 20\nlocal v21 = 21\nlocal v22 = 22\nlocal v23 = 23\nlocal v24 = 24\nlocal v25 = 25\nlocal v26 = 26\nlocal v27 = 27\nlocal v28 = 28\nlocal v29 = 29\nlocal v30 = 30\nlocal v31 = 31\nlocal v32 = 32\nlocal v33 = 33\nlocal v34 = 34\nlocal v35 = 35\nlocal v36 = 36\nlocal v37 = 37\nlocal v38 = 38\nlocal v39 = 39\nlocal v40 = 40\nlocal v41 = 41\nlocal v42 = 42\nlocal v43 = 43\nlocal v44 = 44\nlocal v45 = 45\nlocal v46 = 46\nlocal v47 = 47\nlocal v48 = 48\nlocal v49 = 49\nlocal v50 = 50\nlocal v51 = 51\nlocal v52 = 52\nlocal v53 = 53\nlocal v54 = 54\nlocal v55 = 55\nlocal v56 = 56\nlocal v57 = 57\nlocal v58 = 58\nlocal v59 = 59\nlocal v60 = 60\nlocal v61 = 61\nlocal function f ( ) \nreturn v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20 + v21 + v22 + v23 + v24 + v25 + v26 + v27 + v28 + v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 + v38 + v39 + v40 + v41 + v42 + v43 + v44 + v45 + v46 + v47 + v48 + v49 + v50 + v51 + v52 + v53 + v54 + v55 + v56 + v57 + v58 + v59 + v60 + v61\nend\nreturn f ( )\n__exit__:0\n",
-          "metrics": {},
           "suite": "lspclitest",
           "name": "artifactPrintsGeneratedLuaThatDoesNotLoad",
+          "ok": false,
+          "error": "with the reason it does not load: NUPP3005 in\n_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local v1 = 1\nlocal v2 = 2\nlocal v3 = 3\nlocal v4 = 4\nlocal v5 = 5\nlocal v6 = 6\nlocal v7 = 7\nlocal v8 = 8\nlocal v9 = 9\nlocal v10 = 10\nlocal v11 = 11\nlocal v12 = 12\nlocal v13 = 13\nlocal v14 = 14\nlocal v15 = 15\nlocal v16 = 16\nlocal v17 = 17\nlocal v18 = 18\nlocal v19 = 19\nlocal v20 = 20\nlocal v21 = 21\nlocal v22 = 22\nlocal v23 = 23\nlocal v24 = 24\nlocal v25 = 25\nlocal v26 = 26\nlocal v27 = 27\nlocal v28 = 28\nlocal v29 = 29\nlocal v30 = 30\nlocal v31 = 31\nlocal v32 = 32\nlocal v33 = 33\nlocal v34 = 34\nlocal v35 = 35\nlocal v36 = 36\nlocal v37 = 37\nlocal v38 = 38\nlocal v39 = 39\nlocal v40 = 40\nlocal v41 = 41\nlocal v42 = 42\nlocal v43 = 43\nlocal v44 = 44\nlocal v45 = 45\nlocal v46 = 46\nlocal v47 = 47\nlocal v48 = 48\nlocal v49 = 49\nlocal v50 = 50\nlocal v51 = 51\nlocal v52 = 52\nlocal v53 = 53\nlocal v54 = 54\nlocal v55 = 55\nlocal v56 = 56\nlocal v57 = 57\nlocal v58 = 58\nlocal v59 = 59\nlocal v60 = 60\nlocal v61 = 61\nlocal function f ( ) \nreturn v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20 + v21 + v22 + v23 + v24 + v25 + v26 + v27 + v28 + v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 + v38 + v39 + v40 + v41 + v42 + v43 + v44 + v45 + v46 + v47 + v48 + v49 + v50 + v51 + v52 + v53 + v54 + v55 + v56 + v57 + v58 + v59 + v60 + v61\nend\nreturn f ( )\n__exit__:0\n",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1262,26 +1097,26 @@
       "failed": 2,
       "total": 6,
       "completed": true,
-      "durationSeconds": 22.836,
+      "durationSeconds": 28.656,
       "error": "",
       "failureSamples": [
         {
-          "error": "the hello-world binary was not built: ",
-          "metrics": {},
           "suite": "perfbudgettest",
           "name": "aStampedHelloWorldStaysSmall",
-          "capabilities": {},
           "ok": false,
-          "facts": {}
+          "error": "the hello-world binary was not built: ",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
-          "error": "checking allocates 2426 KB a module, over the budget of 2048 KB",
-          "metrics": {},
           "suite": "perfbudgettest",
           "name": "theCheckerAllocatesPerModuleNotPerProject",
-          "capabilities": {},
           "ok": false,
-          "facts": {}
+          "error": "checking allocates 2521 KB a module, over the budget of 2048 KB",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1296,26 +1131,26 @@
       "failed": 2,
       "total": 12,
       "completed": true,
-      "durationSeconds": 26.467,
-      "error": "wrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685094383000-5 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685533278000-7 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685605597000-9 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955685941048000-13 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-55911-1791955686185242000-15 with 9 tables\n",
+      "durationSeconds": 11.035,
+      "error": "wrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-50996-1792018355777622000-5 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-50996-1792018355834836000-7 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-50996-1792018356014820000-9 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-50996-1792018356249701000-13 with 9 tables\nwrote /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-50996-1792018356429890000-15 with 9 tables\n",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "expected \"shared ids: 0\", got nil: the writer's own arena is consistent:\nluajit: ...x00000gn/T/nupp-55911-1791955673720012000-1/identity.lua:2: module 'nupp.compiler.types' not found:\n\tno field package.preload['nupp.compiler.types']\n\tno file './nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\n\tno file './nupp.so'\n\tno file '/usr/local/lib/lua/5.1/nupp.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\nstack traceback:\n\t[C]: in function 'require'\n\t...x00000gn/T/nupp-55911-1791955673720012000-1/identity.lua:2: in main chunk\n\t[C]: at 0x0100a20c0c\n",
-          "metrics": {},
           "suite": "preludecachetest",
           "name": "aStoredPreludeFromAnotherIdentityIsNotRestored",
+          "ok": false,
+          "error": "expected \"shared ids: 0\", got nil: the writer's own arena is consistent:\nluajit: ...x00000gn/T/nupp-50996-1792018353932334000-1/identity.lua:2: module 'nupp.compiler.types' not found:\n\tno field package.preload['nupp.compiler.types']\n\tno file './nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp/compiler/types.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\n\tno file './nupp.so'\n\tno file '/usr/local/lib/lua/5.1/nupp.so'\n\tno file '/opt/homebrew/lib/lua/5.1/nupp.so'\n\tno file '/usr/local/lib/lua/5.1/loadall.so'\nstack traceback:\n\t[C]: in function 'require'\n\t...x00000gn/T/nupp-50996-1792018353932334000-1/identity.lua:2: in main chunk\n\t[C]: at 0x0104870c0c\n",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         },
         {
-          "facts": {},
-          "error": "module 'ffi' not found:",
-          "metrics": {},
           "suite": "preludecachetest",
           "name": "aStoredPreludeIsNotRestoredOverAnotherIdentity",
+          "ok": false,
+          "error": "module 'ffi' not found:",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1343,16 +1178,16 @@
       "failed": 1,
       "total": 3,
       "completed": false,
-      "durationSeconds": 600.049,
+      "durationSeconds": 600.015,
       "error": "",
       "failureSamples": [
         {
           "suite": "publicclitest",
           "name": "playgroundOutputIsAlwaysValidUtf8",
-          "capabilities": {},
           "ok": false,
+          "error": "module 'nupp.runtime.browser.playground' not found:\nstack traceback:\n\tM.playgroundOutputIsAlwaysValidUtf8 at pc 23\n\trunner.main at pc 190",
+          "capabilities": {},
           "facts": {},
-          "error": "error in error handling",
           "metrics": {}
         }
       ]
@@ -1381,17 +1216,17 @@
       "failed": 1,
       "total": 14,
       "completed": true,
-      "durationSeconds": 48.474,
+      "durationSeconds": 29.95,
       "error": "",
       "failureSamples": [
         {
-          "ok": false,
-          "facts": {},
-          "error": "the \"Checked span views\" example reports NUPP2004: \nlocal span = require(\"nupp.mem.span\")\nlocal indexed = require(\"nupp.mem.indexed\")\nlocal m = {}\n\nlocal struct Value\n    n: integer\nend\n\nfunction m.total(): number\n    const storage = carray(Value, 4)\n    const values = span.fromCarray(storage, 4)\n    const rows = indexed.range(1, #values, values)\n    local total = 0\n    for index = rows.first, rows.last do\n        total = total + values[index].n\n    end\n    return total\nend\n\nreturn m\n",
-          "metrics": {},
           "suite": "referencetest",
           "name": "everyExampleChecksClean",
-          "capabilities": {}
+          "ok": false,
+          "error": "the \"Checked span views\" example reports NUPP2004: \nlocal span = require(\"nupp.mem.span\")\nlocal indexed = require(\"nupp.mem.indexed\")\nlocal m = {}\n\nlocal struct Value\n    n: integer\nend\n\nfunction m.total(): number\n    const storage = carray(Value, 4)\n    const values = span.fromCarray(storage, 4)\n    const rows = indexed.range(1, #values, values)\n    local total = 0\n    for index = rows.first, rows.last do\n        total = total + values[index].n\n    end\n    return total\nend\n\nreturn m\n",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1428,39 +1263,21 @@
       "reason": "pure Lua against compiler modules within the subset",
       "status": "failed",
       "exitStatus": 1,
-      "passed": 4,
-      "failed": 3,
+      "passed": 6,
+      "failed": 1,
       "total": 7,
       "completed": true,
-      "durationSeconds": 0.433,
+      "durationSeconds": 0.302,
       "error": "",
       "failureSamples": [
         {
-          "error": "the link kit kit.tar.gz for linux-x86_64 is not cached and its record names no URL; put it in NUPP_STUB_DIR",
-          "metrics": {},
-          "suite": "releasetest",
-          "name": "aKitThatFailsToUnpackLeavesNoStagingDirectory",
-          "capabilities": {},
-          "ok": false,
-          "facts": {}
-        },
-        {
-          "error": "embedded stub catalog is absent",
-          "metrics": {},
-          "suite": "releasetest",
-          "name": "kitRecordsJoinTheCatalogANuppIsBuiltWith",
-          "capabilities": {},
-          "ok": false,
-          "facts": {}
-        },
-        {
-          "error": "the compiler carries /build/stub-catalog.json",
-          "metrics": {},
           "suite": "releasetest",
           "name": "theEmbeddedCatalogIsTheCommittedJsonArtifact",
-          "capabilities": {},
           "ok": false,
-          "facts": {}
+          "error": "the compiler carries /build/stub-catalog.json",
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1510,23 +1327,12 @@
       "reason": "pure Lua against compiler modules within the subset",
       "status": "timeout",
       "exitStatus": null,
-      "passed": 1,
-      "failed": 1,
-      "total": 2,
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
       "completed": false,
-      "durationSeconds": 600.018,
-      "error": "",
-      "failureSamples": [
-        {
-          "error": "nupp: module 'nupp.serde' not found:\n\tno nupp source for module 'nupp.serde'\n",
-          "metrics": {},
-          "suite": "serdecontracttest",
-          "name": "binaryCodecUsesSchemaDirectedNumbersTuplesAndOwnedUnknownFields",
-          "capabilities": {},
-          "ok": false,
-          "facts": {}
-        }
-      ]
+      "durationSeconds": 600.011,
+      "error": ""
     },
     {
       "suite": "shellsyntaxtest",
@@ -1617,35 +1423,35 @@
       "failed": 3,
       "total": 3,
       "completed": true,
-      "durationSeconds": 0.92,
+      "durationSeconds": 0.879,
       "error": "",
       "failureSamples": [
         {
+          "suite": "simdwasmalgorithmdifferentialtest",
           "name": "wasmbase64simd",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "runtime error: field version of a non-object",
-          "metrics": {},
-          "suite": "simdwasmalgorithmdifferentialtest"
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
+          "suite": "simdwasmalgorithmdifferentialtest",
           "name": "wasmsimd_json",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "runtime error: field version of a non-object",
-          "metrics": {},
-          "suite": "simdwasmalgorithmdifferentialtest"
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         },
         {
+          "suite": "simdwasmalgorithmdifferentialtest",
           "name": "wasmutf8simd",
-          "capabilities": {},
           "ok": false,
-          "facts": {},
           "error": "runtime error: field version of a non-object",
-          "metrics": {},
-          "suite": "simdwasmalgorithmdifferentialtest"
+          "capabilities": {},
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1660,13 +1466,15 @@
       "failed": 1,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.598,
+      "durationSeconds": 0.45,
       "error": "",
       "failureSamples": [
         {
-          "metrics": {},
           "suite": "simdwasmbrowsersmoketest",
           "name": "countedRuntimeRoutesReachChromium",
+          "ok": false,
+          "error": "missing capability fleet.browser-smoke",
+          "disposition": "not-executed",
           "capabilities": [
             {
               "available": false,
@@ -1676,10 +1484,8 @@
               "name": "fleet.browser-smoke"
             }
           ],
-          "disposition": "not-executed",
-          "ok": false,
           "facts": {},
-          "error": "missing capability fleet.browser-smoke"
+          "metrics": {}
         }
       ]
     },
@@ -1694,26 +1500,26 @@
       "failed": 2,
       "total": 2,
       "completed": true,
-      "durationSeconds": 0.738,
+      "durationSeconds": 0.601,
       "error": "",
       "failureSamples": [
         {
-          "facts": {},
-          "error": "runtime error: field version of a non-object",
-          "metrics": {},
           "suite": "simdwasmtimeconformancetest",
           "name": "wasmSemanticConformance",
+          "ok": false,
+          "error": "runtime error: field version of a non-object",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         },
         {
-          "facts": {},
-          "error": "runtime error: field version of a non-object",
-          "metrics": {},
           "suite": "simdwasmtimeconformancetest",
           "name": "wasmSpeciesInventory",
+          "ok": false,
+          "error": "runtime error: field version of a non-object",
           "capabilities": {},
-          "ok": false
+          "facts": {},
+          "metrics": {}
         }
       ]
     },
@@ -1774,113 +1580,26 @@
       "class": "portable",
       "facilities": "-",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 0,
-      "failed": 1,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 1,
+      "failed": 0,
       "total": 1,
       "completed": true,
-      "durationSeconds": 0.31,
-      "error": "",
-      "failureSamples": [
-        {
-          "suite": "testrunnertest",
-          "name": "workerCommandQuotesShellMetacharactersInTheCompilerPath",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "'/private/tmp/nupp-codegen-experiment/bin/nupp' test --internal-runner",
-          "metrics": {}
-        }
-      ]
+      "durationSeconds": 0.249
     },
     {
       "suite": "testtimingstest",
       "class": "portable",
       "facilities": "getinfo,spawn",
       "reason": "pure Lua against compiler modules within the subset",
-      "status": "failed",
-      "exitStatus": 1,
-      "passed": 1,
-      "failed": 8,
+      "status": "passed",
+      "exitStatus": 0,
+      "passed": 9,
+      "failed": 0,
       "total": 9,
       "completed": true,
-      "durationSeconds": 21.448,
-      "error": "",
-      "failureSamples": [
-        {
-          "suite": "testtimingstest",
-          "name": "aGlobGroupTracksEverySuiteItMatches",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "values differ:\n  want: \"alphatest\\nbetatest\\ngammatest\\n\"\n  got:  \"alphatest\\nbetatest\\ngammatest\\ntask: Failed(\\\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\\\")\\n\"",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "aGroupMemberThatMatchesNothingIsRefused",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 2, got 1: a group naming a missing suite should be refused: nupp: test group stale names deltatest, which matches no suite\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "aGroupSelectsExactlyItsMembers",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 0, got 1: listing a group should succeed: alphatest\nbetatest\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "aNarrowRunKeepsTheTimingsItDidNotMeasure",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 0, got 1: the whole project should run: ...\n\n3 tests, 3 passed, 0 skipped, 0 failed (4.6ms)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "aRecordThatIsNotADurationIsIgnored",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 0, got 1: a damaged record should not stop the run: 3 suites across 2 Nupp workers\n\n\n3 tests, 3 passed, 0 skipped, 0 failed (2076.2ms)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "anUnknownExclusionIsRefused",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 2, got 1: excluding a suite that does not exist should be refused: nupp: no test suite named deltatest to exclude\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "anUnknownGroupIsRefused",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "expected 2, got 1: an unknown group should be refused: nupp: no test group named nope (have greek, pair)\ntask: Failed(\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\")\n",
-          "metrics": {}
-        },
-        {
-          "suite": "testtimingstest",
-          "name": "excludingAGroupLeavesTheRest",
-          "capabilities": {},
-          "ok": false,
-          "facts": {},
-          "error": "values differ:\n  want: \"gammatest\\n\"\n  got:  \"gammatest\\ntask: Failed(\\\"runtime error: call of a non-function (0x7ff9000000000000) in module:vm.chunk.fn11 at pc 10 register 15\\\")\\n\"",
-          "metrics": {}
-        }
-      ]
+      "durationSeconds": 21.443
     },
     {
       "suite": "tier2test",
@@ -1919,9 +1638,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.307,
-      "error": "task: Failed(\"module 'nupp.runtime.provider.nativenet' not found:\")\n",
-      "failureSamples": []
+      "durationSeconds": 0.252,
+      "error": "task: Failed(\"module 'nupp.runtime.provider.nativenet' not found:\")\n"
     },
     {
       "suite": "typedtest",
@@ -1973,9 +1691,8 @@
       "failed": 0,
       "total": 0,
       "completed": false,
-      "durationSeconds": 0.31,
-      "error": "task: Failed(\"module 'nupp.workers.native' not found:\")\n",
-      "failureSamples": []
+      "durationSeconds": 0.251,
+      "error": "task: Failed(\"module 'nupp.workers.native' not found:\")\n"
     }
   ]
 }
