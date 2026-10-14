@@ -838,7 +838,7 @@ impl Interp {
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
             let h = hdr!(self, callee, &format!("call_value of a non-function {:#x}", callee.0));
-            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE => { let f = self.call_handler(callee); if f == Value::NIL { self.err("call of a table without __call") } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
+            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE | KIND_RECORD => { let f = self.call_handler(callee); if f == Value::NIL { self.err("call of a table without __call") } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
         let entry = self.entry_of(fid);
         if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
@@ -1035,7 +1035,7 @@ impl Interp {
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
-        let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn"]);
+        let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn", "table.clone", "table.clear"]);
         let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename"]);
@@ -1056,7 +1056,7 @@ impl Interp {
         // modules: a `require` finds them before the image's.
         let process = table_of(self, &["process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady"]);
         self.loaded.insert("nupp.vm.process".into(), process);
-        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory"]);
+        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.write", "files.createTemporaryFile", "files.createTemporaryDirectory"]);
         crate::simd::install(self);
         let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
         for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
@@ -1103,7 +1103,7 @@ impl Interp {
         let cancelled = self.new_table(); self.registered.push(cancelled);
         self.loaded.insert("nupp.vm.cancellation".into(), cancelled);
         let persistence = self.new_table(); self.registered.push(persistence);
-        for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
+        for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto"), ("saveData", "vm.saveData"), ("loadData", "vm.loadData")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         crate::supervision::install(self);
         let package = self.new_table(); self.registered.push(package);
@@ -1254,7 +1254,7 @@ impl Interp {
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { let i = match h.kind { KIND_TABLE => if key.is_num() { 0 } else { 1 }, KIND_RECORD => if key.is_num() { 2 } else { 3 }, _ => 4 }; TABLE_COUNTS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if h.kind == KIND_TABLE && !key.is_num() { let n = h.table_ref().hash.len(); let b = if n == 0 { 5 } else if n <= 4 { 6 } else if n <= 16 { 7 } else if n <= 64 { 8 } else { 9 }; TABLE_COUNTS[b].fetch_add(1, std::sync::atomic::Ordering::Relaxed); } }
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= t.array.len() && n.fract() == 0.0 { return t.array[n as usize - 1]; } } *t.hash.get(&key).unwrap_or(&Value::NIL) }
-            KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); return if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { a[n as usize - 1] } else { Value::NIL }; } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
+            KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { return a[n as usize - 1]; } } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
     }
@@ -1297,9 +1297,35 @@ impl Interp {
                 } else { t.hash.insert(iv, v); }
                 h.refresh();
             }
-            // A record written by name: the shape is closed, so an unknown name is an error.
+            // Shaped tables retain ordinary table keys beyond their fixed slots.
             KIND_RECORD => {
-                if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } self.heap.account_resize(before, h.external_bytes()); return; } self.err("record index outside its children") }
+                if iv.is_num() {
+                    let n = iv.as_num();
+                    let len = h.record_array_ref().len();
+                    if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= len + 1 {
+                        let k = n as usize;
+                        if k == len + 1 {
+                            if let Some(extra) = h.record_extra() { extra.insert(iv, Value::NIL); }
+                            if v != Value::NIL {
+                                h.record_array().push(v);
+                                loop {
+                                    let next = Value::num((h.record_array_ref().len() + 1) as f64);
+                                    let Some(value) = h.record_extra_ref().as_ref().and_then(|m| m.get(&next).copied()) else { break; };
+                                    h.record_extra().as_mut().unwrap().insert(next, Value::NIL);
+                                    h.record_array().push(value);
+                                }
+                            }
+                        } else {
+                            let a = h.record_array();
+                            a[k - 1] = v;
+                            if v == Value::NIL && k == a.len() {
+                                while a.last() == Some(&Value::NIL) { a.pop(); }
+                            }
+                        }
+                    } else { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); }
+                    self.heap.account_resize(before, h.external_bytes());
+                    return;
+                }
                 let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
             }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
@@ -1963,7 +1989,7 @@ impl Interp {
         }
         let h = hdr!(self, callee, &format!("call of a non-function ({:#x}) in {} at pc {} register {}", callee.0, self.funcs[fid as usize].name, pc, fr));
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
-        if h.kind == KIND_TABLE {
+        if matches!(h.kind, KIND_TABLE | KIND_RECORD) {
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             let outs = self.call_value(callee, args.as_slice()); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
         }

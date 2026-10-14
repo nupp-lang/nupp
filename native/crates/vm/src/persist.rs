@@ -14,6 +14,9 @@ use std::{
 
 pub type Result<T> = std::result::Result<T, String>;
 const MAGIC: &[u8; 8] = b"NUPPSAV1";
+// Plain compiler data uses a sparse schema catalog with original identity hints.
+// Graph/checkpoint kinds 0, 1 and 2 retain their existing representations.
+const PLAIN_GRAPH: u8 = 3;
 // Preserve the original record encoding for graphs without metatables.
 const RECORD_WITH_METATABLE: u8 = 11;
 const ALIGNED_BYTES: u8 = 13;
@@ -493,6 +496,7 @@ fn builtin_id(name: &str) -> Result<u32> {
 
 #[derive(Debug)]
 struct Schema {
+    source_id: usize,
     name: String,
     structural: bool,
     fields: Vec<(String, String)>,
@@ -507,29 +511,31 @@ fn ty_name(vm: &Interp, t: SlotTy, p: &Policies) -> String {
     }
 }
 fn schemas(vm: &Interp, p: &Policies) -> Vec<Schema> {
-    vm.heap
-        .shapes
-        .iter()
-        .map(|s| Schema {
-            name: p.name(&s.name),
-            structural: s.structural,
-            fields: s
-                .names
-                .iter()
-                .zip(&s.types)
-                .map(|(&n, &t)| {
-                    (
-                        String::from_utf8_lossy(vm.bytes_of(n)).into_owned(),
-                        ty_name(vm, t, p),
-                    )
-                })
-                .collect(),
-        })
-        .collect()
+    (0..vm.heap.shapes.len()).map(|id| schema(vm, p, id)).collect()
 }
-fn schema_write(w: &mut Writer, ss: &[Schema]) -> Result<()> {
+fn schema(vm: &Interp, p: &Policies, id: usize) -> Schema {
+    let s = &vm.heap.shapes[id];
+    Schema {
+        source_id: id,
+        name: p.name(&s.name),
+        structural: s.structural,
+        fields: s
+            .names
+            .iter()
+            .zip(&s.types)
+            .map(|(&n, &t)| {
+                (
+                    String::from_utf8_lossy(vm.bytes_of(n)).into_owned(),
+                    ty_name(vm, t, p),
+                )
+            })
+            .collect(),
+    }
+}
+fn schema_write(w: &mut Writer, ss: &[Schema], sparse: bool) -> Result<()> {
     w.u32(ss.len())?;
     for s in ss {
+        if sparse { w.u32(s.source_id)?; }
         w.text(&s.name)?;
         w.byte(s.structural as u8);
         w.u32(s.fields.len())?;
@@ -540,10 +546,11 @@ fn schema_write(w: &mut Writer, ss: &[Schema]) -> Result<()> {
     }
     Ok(())
 }
-fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
+fn schema_read(r: &mut Reader, sparse: bool) -> Result<Vec<Schema>> {
     let n = r.count()?;
     let mut ss = Vec::new();
     for _ in 0..n {
+        let source_id = if sparse { r.u32()? } else { ss.len() };
         let name = r.text()?;
         let structural = match r.byte()? {
             0 => false,
@@ -556,6 +563,7 @@ fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
             fields.push((r.text()?, r.text()?));
         }
         ss.push(Schema {
+            source_id,
             name,
             structural,
             fields,
@@ -724,7 +732,12 @@ fn save_graph_mode(
         let mut graph = GraphWriter::new();
         graph.roots = graph.values(vm, roots)?;
         let mut payload = Writer(vec![0; 33]);
-        schema_write(&mut payload, &schemas(vm, policies))?;
+        // Plain messages carry only the declarations their objects use. Writing
+        // the entire compiler's catalog into each nested bundle is quadratic in
+        // the number of bundles and can exhaust the frame limit on small data.
+        let mut plain_shapes = Vec::new();
+        let mut plain_shape_ids = HashMap::new();
+        if !plain { schema_write(&mut payload, &schemas(vm, policies), false)?; }
         refs_write(&mut payload, &graph.roots)?;
         let count_at = payload.0.len();
         payload.u32(0)?;
@@ -789,7 +802,14 @@ fn save_graph_mode(
                     graph.value(vm, if plain { Value::NIL } else { t.meta })?.write(&mut payload)?
                 }
                 KIND_RECORD => {
-                    payload.u32(h.shape() as usize)?;
+                    let source_shape = h.shape() as usize;
+                    let saved_shape = if plain {
+                        *plain_shape_ids.entry(source_shape).or_insert_with(|| {
+                            plain_shapes.push(source_shape);
+                            plain_shapes.len() - 1
+                        })
+                    } else { source_shape };
+                    payload.u32(saved_shape)?;
                     let shape = &vm.heap.shapes[h.shape() as usize];
                     let policy = policies.shapes.get(&shape.name);
                     let slots: Vec<Value> = h
@@ -876,6 +896,27 @@ fn save_graph_mode(
         }
         payload.0[count_at..count_at + 4]
             .copy_from_slice(&(graph.objects.len() as u32).to_le_bytes());
+        if plain {
+            // A typed field can name a declaration even without an object of
+            // that type. Keep its transitive schema dependencies too.
+            let mut cursor = 0;
+            while cursor < plain_shapes.len() {
+                for ty in &vm.heap.shapes[plain_shapes[cursor]].types {
+                    if let SlotTy::Record(id) = ty {
+                        plain_shape_ids.entry(*id as usize).or_insert_with(|| {
+                            plain_shapes.push(*id as usize);
+                            plain_shapes.len() - 1
+                        });
+                    }
+                }
+                cursor += 1;
+            }
+            let selected: Vec<_> = plain_shapes.iter().map(|&id| schema(vm, policies, id)).collect();
+            let mut framed = Writer(payload.0[..33].to_vec());
+            schema_write(&mut framed, &selected, true)?;
+            framed.0.extend_from_slice(&payload.0[33..]);
+            return frame(PLAIN_GRAPH, framed.0);
+        }
         frame(0, payload.0)
     })();
     vm.close_scope(scope);
@@ -890,8 +931,9 @@ struct Graph<'a> {
     nodes: Vec<Node<'a>>,
 }
 fn parse_graph(data: &[u8]) -> Result<Graph<'_>> {
+    let sparse = data.get(8) == Some(&PLAIN_GRAPH);
     let mut r = Reader {
-        data: unframe(data, 0)?,
+        data: unframe(data, if sparse { PLAIN_GRAPH } else { 0 })?,
         at: 0,
     };
     let functions = match r.byte()? {
@@ -900,7 +942,7 @@ fn parse_graph(data: &[u8]) -> Result<Graph<'_>> {
         _ => return Err("invalid function flag".into()),
     };
     let digest = r.take(32)?.try_into().unwrap();
-    let schemas = schema_read(&mut r)?;
+    let schemas = schema_read(&mut r, sparse)?;
     let roots = refs_read(&mut r)?;
     let n = r.count()?;
     let mut nodes = Vec::new();
@@ -923,6 +965,7 @@ fn bind_schemas(
     create: bool,
     required: &HashSet<usize>,
 ) -> Result<Vec<u32>> {
+    if ss.is_empty() { return Ok(Vec::new()); }
     let known = schemas(vm, policies);
     let mut ids = Vec::new();
     for (index, s) in ss.iter().enumerate() {
@@ -940,7 +983,7 @@ fn bind_schemas(
             .collect();
         if let Some(&id) = matches
             .iter()
-            .find(|&&id| id == ids.len())
+            .find(|&&id| id == s.source_id)
             .or(matches.first())
         {
             ids.push(id as u32);
@@ -1151,7 +1194,7 @@ pub fn load_graph(
 }
 // Compiler caches and worker messages may come from project-writable files.
 // Validate the complete graph before allocating or resolving executable values.
-fn plain_graph(data: &[u8]) -> Result<()> {
+fn plain_graph(data: &[u8], portable: bool) -> Result<()> {
     let graph = parse_graph(data)?;
     if graph.functions || graph.roots.len() != 1 {
         return Err("plain data must contain one non-executable root".into());
@@ -1162,10 +1205,25 @@ fn plain_graph(data: &[u8]) -> Result<()> {
     };
     reference(&graph.roots[0])?;
     for node in &graph.nodes {
+        if portable {
+            if let Node::Record(schema, ..) = node {
+                if !graph
+                    .schemas
+                    .get(*schema)
+                    .is_some_and(|schema| schema.structural)
+                {
+                    return Err(
+                        "data graphs cannot contain nominal records; encode their fields as data"
+                            .into(),
+                    );
+                }
+            }
+        }
         match node {
             Node::Integer(_) | Node::String(..) | Node::Slice(..) => (),
-            Node::Table(_, _, meta, 0) | Node::Record(_, _, _, _, meta)
-                if matches!(meta, Ref::Bits(bits) if *bits == Value::NIL.0) => (),
+            Node::Table(_, _, meta, 0) | Node::Record(_, _, _, _, meta) if matches!(meta, Ref::Bits(bits) if *bits == Value::NIL.0) => {
+                ()
+            }
             _ => return Err("plain data cannot contain resources, closures, or metatables".into()),
         }
         for value in node_refs(node) { reference(value)?; }
@@ -1176,14 +1234,35 @@ fn plain_graph(data: &[u8]) -> Result<()> {
 /// Encode stored compiler data, omitting table behavior as Lua plain-data encoding does.
 pub fn save_plain(vm: &mut Interp, value: Value) -> Result<Vec<u8>> {
     let bytes = save_graph_mode(vm, &[value], &Policies::default(), None, false, true)?;
-    plain_graph(&bytes)?;
+    plain_graph(&bytes, false)?;
     Ok(bytes)
 }
 
 /// Decode compiler data after rejecting every executable and external edge.
 pub fn load_plain(vm: &mut Interp, data: &[u8]) -> Result<Value> {
-    plain_graph(data)?;
+    plain_graph(data, false)?;
     Ok(load_graph(vm, data, &Policies::default(), None)?[0])
+}
+
+/// Durable data cannot regain behavior through a program's nominal record witness.
+pub fn save_data(vm: &mut Interp, value: Value) -> Result<Vec<u8>> {
+    let bytes = save_graph_mode(vm, &[value], &Policies::default(), None, false, false)?;
+    plain_graph(&bytes, true)?;
+    Ok(bytes)
+}
+
+pub fn load_data(vm: &mut Interp, data: &[u8]) -> Result<Value> {
+    plain_graph(data, true)?;
+    Ok(load_graph_mode(
+        vm,
+        data,
+        &Policies::default(),
+        None,
+        None,
+        false,
+        None,
+        true,
+    )?[0])
 }
 
 /// Replace a record in place, preserving references to its identity. A rejected
@@ -1218,9 +1297,22 @@ pub(crate) fn load_graph_with(
     data: &[u8],
     policies: &Policies,
     expected: Option<SlotTy>,
+    codecs: Option<&mut ResourceCodecs>,
+    create: bool,
+    target: Option<Value>,
+) -> Result<Vec<Value>> {
+    load_graph_mode(vm, data, policies, expected, codecs, create, target, false)
+}
+
+fn load_graph_mode(
+    vm: &mut Interp,
+    data: &[u8],
+    policies: &Policies,
+    expected: Option<SlotTy>,
     mut codecs: Option<&mut ResourceCodecs>,
     create: bool,
     target: Option<Value>,
+    data_only: bool,
 ) -> Result<Vec<Value>> {
     let g = parse_graph(data)?;
     refs_validate(vm, &g)?;
@@ -1248,7 +1340,7 @@ pub(crate) fn load_graph_with(
                 }
             })
             .collect();
-        loop {
+        while !data_only {
             let previous = required.len();
             for index in required.clone() {
                 for (_, ty) in &g.schemas[index].fields {
@@ -1266,8 +1358,29 @@ pub(crate) fn load_graph_with(
                 break;
             }
         }
-        let shape_ids = bind_schemas(vm, &g.schemas, policies, create, &required)?;
+        // Durable data uses field names, never a destination program's shape
+        // identity or methods. Root every interned key before allocating nodes.
+        let mut data_names = if data_only { vec![Vec::new(); g.schemas.len()] } else { Vec::new() };
+        let shape_ids = if data_only {
+            for &index in &required {
+                let mut unique = HashSet::new();
+                for (name, _) in &g.schemas[index].fields {
+                    if !unique.insert(name) {
+                        return Err("duplicate data field".into());
+                    }
+                    let key = vm.intern(name);
+                    vm.handles.push(key);
+                    data_names[index].push(key);
+                }
+            }
+            Vec::new()
+        } else {
+            bind_schemas(vm, &g.schemas, policies, create, &required)?
+        };
         for node in &g.nodes {
+            if data_only {
+                continue;
+            }
             if let Node::Record(s, fields, ..) = node {
                 let shape = &vm.heap.shapes[shape_ids[*s] as usize];
                 for (index, value) in fields.iter().enumerate() {
@@ -1336,6 +1449,9 @@ pub(crate) fn load_graph_with(
                     }
                     Node::Resource(..) => vm.new_table(),
                     Node::Integer(value) => vm.box_integer(*value),
+                    Node::Record(_, fields, array, extra, _) if data_only => {
+                        vm.new_table_sized(array.len(), fields.len() + extra.len() / 2)
+                    }
                     Node::Record(s, ..) => vm.new_record(shape_ids[*s]),
                     Node::Bytes(b, alignment) => {
                         let v = if *alignment != 0 { vm.heap_new_aligned_bytes(b.len(), *alignment) } else { vm.heap_new_bytes(b.len()) };
@@ -1395,6 +1511,19 @@ pub(crate) fn load_graph_with(
                     }
                     h.refresh();
                 }
+                Node::Record(schema, slots, array, extra, _) if data_only => {
+                    let table = h.table();
+                    table.array.extend(resolve_all(array, &objects)?);
+                    for pair in extra.chunks_exact(2) {
+                        table
+                            .hash
+                            .insert(resolve(&pair[0], &objects)?, resolve(&pair[1], &objects)?);
+                    }
+                    for (&key, field) in data_names[*schema].iter().zip(slots) {
+                        table.hash.insert(key, resolve(field, &objects)?);
+                    }
+                    h.refresh();
+                }
                 Node::Record(_, slots, array, extra, meta) => {
                     h.slots_mut()
                         .copy_from_slice(&resolve_all(slots, &objects)?);
@@ -1448,6 +1577,9 @@ pub(crate) fn load_graph_with(
             }
         }
         for (i, n) in g.nodes.iter().enumerate() {
+            if data_only {
+                continue;
+            }
             if let Node::Record(s, ..) = n {
                 let name = vm.heap.shapes[shape_ids[*s] as usize].name.clone();
                 if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.after_load) {

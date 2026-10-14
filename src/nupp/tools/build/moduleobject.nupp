@@ -5,6 +5,7 @@ module nupp.tools.build.moduleobject
 -- the coordinator links them into the components it schedules.
 
 local cst = require("nupp.compiler.syntax.cst")
+local docblock = require("nupp.compiler.syntax.docblock")
 local receiverIntrinsics = require("nupp.compiler.check.receiverintrinsics")
 
 local moduleobject = {}
@@ -28,8 +29,7 @@ local function dottedPath(node): {string}?
 end
 
 -- The declared module a qualified name like `a.b.member` reaches, longest first.
-local function qualifiedModule(node, declaredModules: {[string]: boolean}?): string?
-    local parts = dottedPath(node)
+local function modulePrefix(parts: {string}?, declaredModules: {[string]: boolean}?): string?
     if not parts or not declaredModules then
         return nil
     end
@@ -41,6 +41,18 @@ local function qualifiedModule(node, declaredModules: {[string]: boolean}?): str
     end
 
     return nil
+end
+
+local function raisedModule(name: string, declaredModules: {[string]: boolean}?): string?
+    local parts: {string} = {}
+    for part in (name .. "."):gmatch("([^%.]*)%.") do
+        if not cst.identifier(part) then
+            return nil
+        end
+        parts[#parts + 1] = part
+    end
+
+    return modulePrefix(parts, declaredModules)
 end
 
 -- The module `_G.require("name")` names, when the argument is a string literal.
@@ -110,9 +122,41 @@ function moduleobject.emit(path: string, parsed: any, header: any, index: any): 
             end
         end
         if node.kind == "dotIndex" and not insideDot then
-            local reached = qualifiedModule(node, index.declaredModules)
+            local reached = modulePrefix(dottedPath(node), index.declaredModules)
             if reached and (not supported or supported[reached] ~= false) then
                 dependencySet[reached as string] = true
+            end
+        end
+        -- These are the declarations whose @raises tags the checker resolves as
+        -- types. Read the same parsed docblocks, including adjacency and fences,
+        -- so a documented qualified type orders its module before this one.
+        local declaration = node
+        while declaration and (declaration.kind == "exportStmt" or declaration.kind == "pragmaStmt") do
+            declaration = declaration.stat
+        end
+        if declaration
+            and (
+                declaration.kind == "localFuncStmt"
+                or declaration.kind == "funcStmt"
+                or declaration.kind == "inlineMethod"
+                or declaration.kind == "constructorDecl"
+                or declaration.kind == "cdefFunc"
+                or declaration.kind == "fieldDecl" and declaration.type and declaration.type.kind == "tfunc"
+                or declaration.kind == "localStmt"
+                and #declaration.names == 1
+                and declaration.types
+                and declaration.types[1]
+                and declaration.types[1].kind == "tfunc"
+            )
+        then
+            local lines = docblock.linesOf(node)
+            if #lines > 0 then
+                for _, raise in ipairs(docblock.parse(lines).raises) do
+                    local reached = raisedModule(raise.type, index.declaredModules)
+                    if reached and (not supported or supported[reached] ~= false) then
+                        dependencySet[reached as string] = true
+                    end
+                end
             end
         end
         for _, child in ipairs(node) do

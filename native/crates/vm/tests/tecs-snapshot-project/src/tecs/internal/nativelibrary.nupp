@@ -1,0 +1,47 @@
+module tecs.internal.nativelibrary
+
+local system: any = _G.require("nupp.runtime.provider.nativesystem")
+local RELATIVE: {string} = {"/lib/", "/target/release/", "/target/debug/"}
+
+local function libraryFile(stem: string): string
+    if system.platform == "windows" then
+        return stem .. ".dll"
+    elseif system.platform == "macos" then
+        return "lib" .. stem .. ".dylib"
+    end
+
+    return "lib" .. stem .. ".so"
+end
+
+local function readable(path: string): boolean
+    local handle = io.open(path, "rb")
+    if handle == nil then
+        return false
+    end
+    handle:close()
+
+    return true
+end
+
+export function resolve(stem: string, override: string?): string
+    if override ~= nil then
+        local named = os.getenv(override)
+        if named ~= nil then
+            return named
+        end
+    end
+    local file = libraryFile(stem)
+    local source = debug.getinfo(1, "S").source
+    local directory = source:match("^@(.+)[/\\][^/\\]+$") or "."
+    for _ = 0, 8 do
+        for _, relative in ipairs(RELATIVE) do
+            local candidate = directory .. relative .. file
+            if readable(candidate) then
+                return candidate
+            end
+        end
+        directory = directory .. "/.."
+    end
+
+    return file
+end

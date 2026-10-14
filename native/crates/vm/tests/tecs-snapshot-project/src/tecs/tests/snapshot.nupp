@@ -1,0 +1,6 @@
+module tecs.tests.snapshot
+
+export function main(): number
+    require("tecs.bench.programs.snapshot")
+    return 0
+end

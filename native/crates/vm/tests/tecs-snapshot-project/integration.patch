@@ -1,0 +1,1414 @@
+--- a/bench/nupp/tecs/bench/programs/snapshot.nupp
++++ b/bench/nupp/tecs/bench/programs/snapshot.nupp
+@@ -22 +22 @@
+-local buffer = require("string.buffer")
++local buffer = require("nupp.text")
+@@ -97 +97 @@
+-const output = buffer.new()
++const output = buffer.newBuffer()
+@@ -114,0 +115,30 @@
++-- Integration acceptance stays outside the original measured windows.
++for id = 1, COUNT do
++    const expected = assert(saveWorld:get(id, Position))
++    const actual = assert(loadWorld:get(id, Position))
++    assert(actual.x == expected.x and actual.y == expected.y, "snapshot position changed")
++    const expectedVelocity = saveWorld:get(id, Velocity)
++    const actualVelocity = loadWorld:get(id, Velocity)
++    assert((expectedVelocity == nil) == (actualVelocity == nil), "snapshot archetype changed")
++    if expectedVelocity ~= nil then
++        const velocity = assert(actualVelocity)
++        assert(velocity.x == expectedVelocity.x and velocity.y == expectedVelocity.y, "snapshot velocity changed")
++    end
++    const expectedHealth = saveWorld:get(id, Vitality)
++    const actualHealth = loadWorld:get(id, Vitality)
++    assert((expectedHealth == nil) == (actualHealth == nil), "snapshot health membership changed")
++    if expectedHealth ~= nil then
++        const health = assert(actualHealth)
++        assert(
++            health.current == expectedHealth.current and health.maximum == expectedHealth.maximum,
++            "snapshot health changed"
++        )
++    end
++end
++const originalX = assert(saveWorld:get(1, Position)).x
++assert(loadWorld:getMut(1, Position)).x = -1
++assert(assert(saveWorld:get(1, Position)).x == originalX, "restored world aliases source storage")
++loadWorld:loadSnapshot(prepared)
++assert(assert(loadWorld:get(1, Position)).x == originalX, "prepared snapshot changed after destination mutation")
++print("snapshot values, archetype membership, storage independence, and repeat restore passed")
++
+--- /dev/null
++++ b/src/nupp/spi/index.nupp
+@@ -0,0 +1,3 @@
++module nupp.spi.index
++
++export = {["nupp.text.spi.Provider"] = {"nupp.runtime.provider.tablebuffer"}}
+--- a/src/tecs/internal/archetype.nupp
++++ b/src/tecs/internal/archetype.nupp
+@@ -14,0 +15,6 @@
++
++-- Validate dynamic row targets before entering table.sort's callback boundary.
++local record TargetEdge
++    target: integer
++    value: any
++end
+@@ -1162,2 +1168,6 @@
+-    table.sort(result, function(left: any, right: any): boolean
+-        return components.edgeTarget(left) < components.edgeTarget(right)
++    const ordered: {TargetEdge} = {}
++    for index = 1, #result do
++        ordered[index] = new TargetEdge(target = components.edgeTarget(result[index]), value = result[index])
++    end
++    table.sort(ordered, function(left: TargetEdge, right: TargetEdge): boolean
++        return left.target < right.target
+@@ -1164,0 +1175,3 @@
++    for index = 1, #ordered do
++        result[index] = ordered[index].value
++    end
+--- a/src/tecs/internal/assetnative.nupp
++++ b/src/tecs/internal/assetnative.nupp
+@@ -3,3 +3,2 @@
+-local ffi = require("ffi")
+-local readCString: function(value: any): string = ffi.string as any
+-local readBytes: function(value: any, length: integer): string = ffi.string as any
++local foreign: any = _G.require("nupp.vm.foreign")
++local storage: any = assert(require("nupp.mem.representation").storage)
+@@ -7 +6 @@
+-nativelibrary.open("tecs_assets", "TECS_ASSETS_LIBRARY")
++local native: any = nil
+@@ -9,7 +8,7 @@
+-cdef function tecsAssetLoad(borrows path: cstring, length: uint64, kind: uint32, transparent: uint32): voidptr?
+-cdef function tecsAssetError(): cstring
+-cdef function tecsAssetData(borrows result: voidptr): cstring
+-cdef function tecsAssetLength(borrows result: voidptr): uint64
+-cdef function tecsAssetWidth(borrows result: voidptr): uint32
+-cdef function tecsAssetHeight(borrows result: voidptr): uint32
+-cdef function tecsAssetDestroy(borrows result: voidptr)
++local function bindings(): any
++    if native ~= nil then
++        return native
++    end
++    local library = nativelibrary.resolve("tecs_assets", "TECS_ASSETS_LIBRARY")
++    local readonly = {kind = "pointer", readonly = true}
++    local pending: {any} = {}
+@@ -17 +16,54 @@
+---- Decodes a TMX map or image and copies its owned result before release.
++    local function bind(path: string?, name: string, result: any, params: {any}): any
++        local value = foreign.bind(path, name, {result = result, params = params})
++        pending[#pending + 1] = value
++        return value
++    end
++
++    local ok, value = pcall(function(): any
++        return {
++            load = bind(library, "tecsAssetLoad", "pointer", {
++                readonly,
++                "uint64",
++                "uint32",
++                "uint32"
++            }),
++            error = bind(library, "tecsAssetError", "pointer", {}),
++            data = bind(library, "tecsAssetData", "pointer", {
++                readonly
++            }),
++            length = bind(library, "tecsAssetLength", "uint64", {readonly}),
++            width = bind(library, "tecsAssetWidth", "uint32", {readonly}),
++            height = bind(library, "tecsAssetHeight", "uint32", {readonly}),
++            destroy = bind(library, "tecsAssetDestroy", "void", {"pointer"}),
++            copy = bind(nil, "memcpy", "void", {"pointer", readonly, "uint64"}),
++            strlen = bind(nil, "strlen", "uint64", {readonly})
++        }
++    end)
++    if not ok then
++        for _, handle in ipairs(pending) do
++            foreign.close(handle)
++        end
++        error(value, 0)
++    end
++    native = value
++
++    return value
++end
++
++local function readBytes(api: any, pointer: any, count: uint64): string
++    if count > 268435456ULL then
++        error("Tecs asset result exceeds 256 MiB", 2)
++    end
++    local size = tonumber(count) as integer
++    if size == 0 then
++        return ""
++    end
++    if pointer == nil then
++        error("Tecs asset returned a null data pointer", 2)
++    end
++    local bytes = storage.allocateBytes(size)
++    api.copy(bytes, pointer, count)
++
++    return storage.string(bytes, size) as string
++end
++
+@@ -18,0 +71 @@
++    local api = bindings()
+@@ -20 +73 @@
+-    local result = tecsAssetLoad(path, #path as uint64, kind as uint32, color as uint32)
++    local result = api.load(path, #path as uint64, kind as uint32, color as uint32)
+@@ -22 +75,9 @@
+-        error("Tecs asset load: " .. readCString(tecsAssetError()), 2)
++        local pointer = api.error()
++        local ok, message = pcall(function(): string
++            return pointer == nil and "unknown native failure" or readBytes(api, pointer, api.strlen(pointer) as uint64)
++        end)
++        foreign.close(pointer)
++        if not ok then
++            error(message, 0)
++        end
++        error("Tecs asset load: " .. message, 2)
+@@ -24,5 +85,15 @@
+-    local pointer = assert(result)
+-    local bytes = readBytes(tecsAssetData(pointer), tonumber(tecsAssetLength(pointer)) as integer)
+-    local width = tonumber(tecsAssetWidth(pointer)) as integer
+-    local height = tonumber(tecsAssetHeight(pointer)) as integer
+-    tecsAssetDestroy(pointer)
++    local pointer: any = nil
++    local ok, bytes, width, height = pcall(function(): string, integer, integer
++        pointer = api.data(result)
++        return readBytes(
++            api,
++            pointer,
++            api.length(result) as uint64
++        ), api.width(result) as integer, api.height(result) as integer
++    end)
++    api.destroy(result)
++    foreign.close(pointer)
++    foreign.close(result)
++    if not ok then
++        error(bytes, 0)
++    end
+@@ -30 +101 @@
+-    return bytes, width, height
++    return bytes as string, width as integer, height as integer
+--- a/src/tecs/internal/components.nupp
++++ b/src/tecs/internal/components.nupp
+@@ -17 +17,6 @@
+-local ffi = require("ffi")
++local nativeStorage: any = assert(require("nupp.mem.representation").storage)
++
++-- Reuse the compiler declaration's canonical physical descriptor.
++local function nativeType(witness: any): any
++    return nativeStorage.structs.define(assert(nativeStorage.layout(witness)), witness)
++end
+@@ -376 +381 @@
+-local nativeReferences: {[integer]: Component} = {}
++local nativeReferences: {[string]: Component} = {}
+@@ -694 +699 @@
+-        witness ~= nil and ffi.new(witness) or options.default(),
++        witness ~= nil and nativeType(witness):new() or options.default(),
+@@ -913 +918 @@
+-            const value = native and ffi.new(witness) or setmetatable({}, witness)
++            const value = native and nativeType(witness):new() or setmetatable({}, witness)
+@@ -926 +931 @@
+-            return ffi.new(witness)
++            return nativeType(witness):new()
+@@ -1009,2 +1014,4 @@
+-        -- CType witnesses convert to their numeric type id; struct instances do not.
+-        if tonumber(value) ~= nil then
++        -- A declaration is not a physical instance. Descriptor lookup accepts
++        -- owned structs and borrowed rows, retaining their canonical witness.
++        const valid, descriptor = pcall(nativeStorage.descriptor, value)
++        if not valid then
+@@ -1013,2 +1020,5 @@
+-        const witness = ffi.typeof(value)
+-        const typeId = assert(tonumber(witness)) as integer
++        const witness = descriptor.methods
++        if witness == nil then
++            return nil
++        end
++        const typeId = descriptor.identity as string
+@@ -1024 +1034 @@
+-        -- A borrowed row has a reference CType. Resolve it once per reference type.
++        -- Resolve undeclared references once per canonical physical type identity.
+@@ -1027 +1037 @@
+-            if entry.schema.data.tecs ~= nil and type(entry.mt) == "cdata" and ffi.istype(entry.mt, value) then
++            if entry.schema.data.tecs ~= nil and type(entry.mt) == "cdata" and nativeType(entry.mt):isa(value) then
+--- a/src/tecs/internal/entitycolumn.nupp
++++ b/src/tecs/internal/entitycolumn.nupp
+@@ -4,3 +4,4 @@
+-Native double entity IDs with the count stored in slot zero.
+-The metatype supplies indexed access and length to Nupp callers; LuaJIT inlines
+-these loads. Capacity changes happen only at publication and maintenance.
++Adapted from Tecs entitycolumn.nupp at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
++Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
++Native binary64 entity IDs keep the count in slot zero. Managed byte owners
++replace FFI allocations; indexing and capacity changes retain the original rules.
+@@ -9 +10,2 @@
+-local ffi = require("ffi")
++local storage: any = assert(require("nupp.mem.representation").storage)
++local element = storage.scalar("number")
+@@ -18 +20 @@
+-const native = ffi.metatype(ffi.typeof("struct { double data[?]; }"), {
++const native = {
+@@ -41 +43 @@
+-})
++}
+@@ -45 +47 @@
+-    return ffi.new(native, capacity + 1) as DoubleArray
++    return setmetatable({data = storage.allocateArray(element, capacity + 1)}, native) as DoubleArray
+@@ -51 +53 @@
+-    ffi.copy((output as any).data, (value as any).data, (#value + 1) * 8)
++    storage.copy((output as any).data, (value as any).data, (#value + 1) * 8)
+--- a/src/tecs/internal/ffistorage.nupp
++++ b/src/tecs/internal/ffistorage.nupp
+@@ -3,0 +4,2 @@
++Adapted from Tecs ffistorage.nupp at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
++Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
+@@ -6,2 +8,2 @@
+-reserve and memcpy relocation. Archetypes own capacity; no
+-weak-key lookup or allocation occurs on an indexed read or write.
++reserve and bulk relocation. Archetypes own capacity; indexing uses the
++runtime's physical row views. Portable buffer I/O currently copies strings.
+@@ -10,2 +12,2 @@
+-local ffi = require("ffi")
+-local buffer = require("string.buffer")
++local native: any = assert(require("nupp.mem.representation").storage)
++local buffer = require("nupp.text")
+@@ -22 +23,0 @@
+-    arrayType: any
+@@ -40,28 +41,4 @@
+--- LuaJIT's declared CType graph, read once at registration. No cdefs or
+--- metatypes are created here: Nupp owns both, including instance methods.
+-local function typeKind(info: any): integer
+-    return math.floor((info.info as integer) / 268435456) % 16
+-end
+-
+-local function childId(info: any): integer
+-    return (info.info as integer) % 65536
+-end
+-
+-local function unqualified(id: integer): any
+-    local info = assert(ffi.typeinfo(id))
+-    while typeKind(info) == 7 or typeKind(info) == 8 do
+-        info = assert(ffi.typeinfo(childId(info)))
+-    end
+-
+-    return info
+-end
+-
+-local function scalarSpelling(info: any): string
+-    if typeKind(info) ~= 0 then
+-        error(
+-            "FFI components support numeric and boolean fields and fixed scalar arrays, not pointers or nested objects",
+-            3
+-        )
+-    end
+-    const flags = info.info as integer
+-    if math.floor(flags / 134217728) % 2 == 1 then
++-- Canonical descriptors replace LuaJIT's private CType graph. C scalar labels
++-- remain unchanged because existing snapshot fingerprints include these names.
++local function scalarSpelling(kind: string): string?
++    if kind == "boolean" then
+@@ -70,12 +47,14 @@
+-    if math.floor(flags / 67108864) % 2 == 1 then
+-        if info.size == 4 then
+-            return "float"
+-        end
+-        if info.size == 8 then
+-            return "double"
+-        end
+-        error("FFI component floating-point width is unsupported", 3)
+-    end
+-    const prefix = math.floor(flags / 8388608) % 2 == 1 and "uint" or "int"
+-
+-    return prefix .. tostring((info.size as integer) * 8) .. "_t"
++    if kind == "float" then
++        return "float"
++    end
++    if kind == "number" then
++        return "double"
++    end
++    if kind == "integer" then
++        return "int32_t"
++    end
++    if kind:match("^u?int%d+$") then
++        return kind .. "_t"
++    end
++
++    return nil
+@@ -85,2 +64 @@
+-    const info = unqualified(assert(tonumber(element)) as integer)
+-    if typeKind(info) ~= 1 or math.floor((info.info as integer) / 8388608) % 2 == 1 then
++    if element.kind ~= "struct" then
+@@ -90,21 +68,14 @@
+-    local id = info.sib as integer?
+-    while id ~= nil do
+-        const field = assert(ffi.typeinfo(id))
+-        if typeKind(field) == 9 then
+-            local kind = unqualified(childId(field))
+-            local count: integer = 0
+-            if typeKind(kind) == 3 then
+-                const member = unqualified(childId(kind))
+-                if kind.size == nil or (kind.size as integer) <= 0 then
+-                    error("FFI component arrays must have a positive fixed extent", 3)
+-                end
+-                count = (kind.size as integer) // (member.size as integer)
+-                kind = member
+-            end
+-            local scalar: string
+-            if typeKind(kind) == 0 then
+-                scalar = scalarSpelling(kind)
+-            elseif opaque and (typeKind(kind) == 1 or typeKind(kind) == 2) then
+-                -- Custom codecs own the representation of nested values and pointers.
+-                -- These spellings deliberately cannot enter the automatic raw codec.
+-                scalar = "opaque" .. tostring(childId(field))
++    for _, field in ipairs(element.fields) do
++        local kind: any = field.type
++        local count: integer = 0
++        if kind.kind == "array" then
++            count = kind.count as integer
++            if count <= 0 then
++                error("FFI component arrays must have a positive fixed extent", 3)
++            end
++            kind = kind.element
++        end
++        local scalar = scalarSpelling(kind.kind as string)
++        if scalar == nil then
++            if opaque and (kind.kind == "struct" or kind.kind == "pointer") then
++                scalar = "opaque" .. tostring(kind.identity)
+@@ -114,8 +85,5 @@
+-            const spelling = scalar .. (count > 0 and "[" .. tostring(count) .. "]" or "")
+-            result[
+-                #result + 1
+-            ] = new Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
+-        elseif typeKind(field) ~= 8 then
+-            error("FFI component bitfields and anonymous fields are unsupported", 3)
+-        end
+-        id = field.sib as integer?
++        end
++        const spelling = scalar .. (count > 0 and "[" .. tostring(count) .. "]" or "")
++        result[
++            #result + 1
++        ] = new Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
+@@ -134,2 +102,2 @@
+-    const element = ffi.typeof(sample)
+-    if not tostring(element):match("^ctype<struct ") then
++    const element = native.descriptor(sample)
++    if element.kind ~= "struct" then
+@@ -138 +106 @@
+-    const width = assert(ffi.sizeof(element))
++    const width = native.sizeOf(element) as integer
+@@ -142 +109,0 @@
+-    local spelling = "$[?]"
+@@ -151 +117,0 @@
+-        arrayType = ffi.typeof(spelling, element),
+@@ -153 +119 @@
+-        alignment = ffi.alignof(element),
++        alignment = element.alignment as integer,
+@@ -170 +136 @@
+-    if not ffi.istype(storage.element, value) then
++    if not storage.element:isa(value) then
+@@ -173,2 +139,2 @@
+-    if ffi.typeof(value) ~= storage.element then
+-        return ffi.new(storage.element, value)
++    if native.isBorrowed(value) then
++        return storage.element:copy(value)
+@@ -193,7 +159,3 @@
+-        const address = tonumber(ffi.cast("uintptr_t", pointer)) as number
+-        if address == 0 or address % storage.alignment ~= 0 then
+-            error("FFI column allocator returned a null or misaligned pointer", 2)
+-        end
+-        local spelling = "$ *"
+-        column = ffi.cast(ffi.typeof(spelling, storage.element), pointer)
+-        ffi.fill(column, bytes, 0)
++        column = native.castWritableElements(storage.element, pointer)
++        native.boundedCount(column, capacity + 1)
++        native.fill(column, bytes, 0)
+@@ -201 +163 @@
+-        column = ffi.new(storage.arrayType, capacity + 1)
++        column = native.allocateArray(storage.element, capacity + 1)
+@@ -215 +177 @@
+-        ffi.copy(result, source, (count + 1) * storage.width)
++        native.copy(result, source, (count + 1) * storage.width)
+@@ -226 +188 @@
+-    ffi.fill(column, (count + 1) * storage.width, 0)
++    native.fill(column, (count + 1) * storage.width, 0)
+@@ -289 +251 @@
+-    local result: any = ffi.new(spelling, 0)
++    local result: uint64 = 0ULL
+@@ -291,4 +253,11 @@
+-        result = result * 10 + (string.byte(value, index) - 48)
+-    end
+-
+-    return negative and -result or result
++        result = result * 10ULL + ((string.byte(value, index) - 48) as uint64)
++    end
++    if spelling == "uint64_t" then
++        return result
++    end
++    if negative and result == 9223372036854775808ULL then
++        return -9223372036854775808LL
++    end
++    const signed = result as int64
++
++    return negative and -signed or signed
+@@ -301 +270 @@
+-    const result: any = ffi.new(storage.element)
++    const result: any = storage.element:new()
+@@ -335,4 +304,2 @@
+-    local spelling = "uint8_t *"
+-    const pointer: any = ffi.cast(spelling, column)
+-
+-    return pointer + first * storage.width, count * storage.width
++
++    return column + first, count * storage.width
+@@ -352 +319 @@
+-    ffi.copy(target, origin, bytes)
++    native.copy(target, origin, bytes)
+@@ -358,4 +325,4 @@
+-    ffi.fill(pointer, bytes, 0)
+-end
+-
+---- Appends live rows directly to the buffer without intermediate strings.
++    native.fill(pointer, bytes, 0)
++end
++
++--- Appends live rows to the portable buffer through a bounded byte copy.
+@@ -364 +331 @@
+-    output:putcdata(pointer as voidptr, bytes)
++    output:put(native.string(pointer, bytes))
+@@ -373,3 +340,2 @@
+-    ffi.copy(pointer, input:ref(), bytes)
+-    input:skip(bytes)
+-end
++    native.copy(pointer, input:get(bytes), bytes)
++end
+--- a/src/tecs/internal/idallocator.nupp
++++ b/src/tecs/internal/idallocator.nupp
+@@ -15 +15 @@
+-local ffi = require("ffi")
++local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+@@ -59,2 +59,6 @@
+-            ffi.copy(fresh, allocator.slots, (allocator.capacity + 1) * ffi.sizeof(EntitySlot))
+-            ffi.copy(free, allocator.freeStack, (allocator.freeCount + 1) * ffi.sizeof(FreeSlot))
++            nativeStorage.copy(fresh, allocator.slots, (allocator.capacity + 1) * nativeStorage.layout(EntitySlot).size)
++            nativeStorage.copy(
++                free,
++                allocator.freeStack,
++                (allocator.freeCount + 1) * nativeStorage.layout(FreeSlot).size
++            )
+--- a/src/tecs/internal/nativelibrary.nupp
++++ b/src/tecs/internal/nativelibrary.nupp
+@@ -3,27 +3 @@
+---[[
+-Loading for the Rust service libraries Tecs binds through the FFI.
+-
+-A `cdef function` declaration can name its library with a `from` clause, but
+-that clause has to spell one platform's file name in a source file shared by
+-three, and it binds at module load with no say in where the file is found. The
+-loader path a developer would otherwise set is stripped from a protected
+-process on macOS, so `DYLD_LIBRARY_PATH` is not an answer either.
+-
+-Loading a library into the process namespace instead lets every declaration
+-name a bare symbol, and lets one search cover both a packaged install and a
+-development checkout. Call `open` above the declarations that need it.
+-
+-```nupp
+-tecs.internal.nativelibrary.open("tecs_physics", "TECS_PHYSICS_LIBRARY")
+-
+-cdef function tecsPhysicsStep(world: voidptr?, batch: voidptr?): uint32
+-```
+-]]
+-
+-local ffi = require("ffi")
+-
+---- The directories searched under each ancestor, in order.
+----
+---- `lib` is where a packaged build puts the library and the Cargo directories
+---- are where a development checkout has it, so a package never picks up a
+---- stale build tree and a checkout needs no staging step.
++local system: any = _G.require("nupp.runtime.provider.nativesystem")
+@@ -32,3 +5,0 @@
+---- Returns a library's file name on the running platform.
+---- @param stem the library name without prefix or extension
+---- @return the platform's file name for that library
+@@ -36 +7 @@
+-    if ffi.os == "Windows" then
++    if system.platform == "windows" then
+@@ -38 +9 @@
+-    elseif ffi.os == "OSX" then
++    elseif system.platform == "macos" then
+@@ -45,3 +15,0 @@
+---- Reports whether a path names a readable file.
+---- @param path the path to test
+---- @return whether the file could be opened for reading
+@@ -58,14 +26 @@
+---- Loads a Tecs native library into the process namespace.
+----
+---- The environment variable named by `override` is tried first and names an
+---- exact file. Otherwise the search walks up from this module through eight
+---- ancestors, looking under each for `lib` and then for a Cargo target
+---- directory. A plain load by file name runs last, so an installed library
+---- still resolves and so its own diagnostic is what a failure reports.
+----
+---- Loading is global, which is what lets a `cdef function` declared after this
+---- call name a bare symbol rather than a file.
+---- @param stem the library name without prefix or extension
+---- @param override the environment variable naming an exact file, if any
+---- @raises string when no candidate can be loaded
+-export function open(stem: string, override: string?): nil
++export function resolve(stem: string, override: string?): string
+@@ -75,3 +30 @@
+-            ffi.load(named, true)
+-
+-            return
++            return named
+@@ -87,3 +40 @@
+-                ffi.load(candidate, true)
+-
+-                return
++                return candidate
+@@ -94 +45,2 @@
+-    ffi.load(file, true)
++
++    return file
+--- a/src/tecs/internal/snapshotcodec.nupp
++++ b/src/tecs/internal/snapshotcodec.nupp
+@@ -4,4 +4,6 @@
+-Version-one snapshot framing. Dense native columns use
+-one buffer append and one restore copy. Parsing retains the input owner until
+-publication completes; no entity-sized native objects are allocated on that path.
+-The schema slow path is cached by saved fingerprint and projects named fields.
++Runtime graph framing for Tecs snapshots. Native columns remain byte spans
++until publication copies them into final allocations; changed layouts project
++named fields through the registered component codecs.
++
++Adapted from Tecs at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
++Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
+@@ -10,2 +12,3 @@
+-local ffi = require("ffi")
+-local buffer = require("string.buffer")
++local native: any = assert(require("nupp.mem.representation").storage)
++local persist = require("nupp.vm.persist")
++local buffer = require("nupp.text")
+@@ -44 +47 @@
+-    owner: buffer.Buffer
++    owner: string
+@@ -73,2 +76,8 @@
+---- Writes version-one binary framing, with raw native columns where their codecs allow
+---- it.
++local struct AbiWitness
++    byte: uint8
++end
++
++const hostLayout = native.layout(AbiWitness)
++const CODEC = "tecs.vm.snapshot"
++
++--- Writes a runtime graph with native columns where their codecs allow it.
+@@ -141,2 +150 @@
+-    output:reset()
+-    output:encode(1):encode(nextId):encode(total):encode(#plans):encode(#entries)
++    const schemas: {any} = {}
+@@ -144,4 +152,6 @@
+-        output:encode(entries[index].name):encode(entries[index].fingerprint)
+-    end
+-    local ids: any = nil
+-    local capacity: integer = 0
++        if entries[index].fingerprint ~= nil then
++            const component = assert(components.resolveSnapshotName(entries[index].name))
++            schemas[index] = native.layout(assert(ffistorage.find(component.componentId)).element)
++        end
++    end
++    const frames: {any} = {}
+@@ -150,5 +160 @@
+-        output:encode(#plan.columns):encode(plan.count)
+-        for column = 1, #plan.indices do
+-            output:encode(plan.indices[column])
+-        end
+-        output:encode(0)
++        local ids: string
+@@ -156 +162 @@
+-            output:putcdata(entitycolumn.pointer(plan.source.entities) as voidptr, plan.count * 8)
++            ids = native.string(entitycolumn.pointer(plan.source.entities), plan.count * 8) as string
+@@ -158,4 +164 @@
+-            if capacity < plan.count then
+-                ids = ffi.new("double[?]", plan.count)
+-                capacity = plan.count
+-            end
++            const selected = native.allocateArray(native.scalar("number"), plan.count)
+@@ -163,4 +166,5 @@
+-                ids[row - 1] = plan.source.entities[assert(plan.rows)[row]]
+-            end
+-            output:putcdata(ids as voidptr, plan.count * 8)
+-        end
++                selected[row - 1] = plan.source.entities[assert(plan.rows)[row]]
++            end
++            ids = native.string(selected, plan.count * 8) as string
++        end
++        const columns: {any} = {}
+@@ -171,2 +175,12 @@
+-            if raw and plan.rows == nil then
+-                ffistorage.writeRows(assert(storage), plan.source.columns[component.componentId], 1, plan.count, output)
++            if raw then
++                const layout = assert(storage)
++                const source = assert(plan.source.columns[component.componentId])
++                const rawOutput = buffer.newBuffer()
++                if plan.rows == nil then
++                    ffistorage.writeRows(layout, source, 1, plan.count, rawOutput)
++                else
++                    for row = 1, plan.count do
++                        ffistorage.writeRows(layout, source, assert(plan.rows)[row], 1, rawOutput)
++                    end
++                end
++                columns[column] = {entry = plan.indices[column], bytes = rawOutput:tostring()}
+@@ -173,0 +188 @@
++                const values: {any} = {}
+@@ -176,8 +191,12 @@
+-                    if raw then
+-                        ffistorage.writeRows(
+-                            assert(storage),
+-                            plan.source.columns[component.componentId],
+-                            sourceRow,
+-                            1,
+-                            output
+-                        )
++                    const relationship = components.asRelationship(component)
++                    if relationship ~= nil and components.targetOf(component) == nil then
++                        const edges = archetype.edgeValues(plan.source, sourceRow - 1, relationship)
++                        if relationship.exclusive then
++                            values[row] = serialize(component, edges[1])
++                        else
++                            const saved: {any} = {}
++                            for edge = 1, #edges do
++                                saved[edge] = serialize(component, edges[edge])
++                            end
++                            values[row] = {edges = saved}
++                        end
+@@ -185,17 +204 @@
+-                        const relationship = components.asRelationship(component)
+-                        if relationship ~= nil and components.targetOf(component) == nil then
+-                            const edges = archetype.edgeValues(plan.source, sourceRow - 1, relationship)
+-                            if relationship.exclusive then
+-                                output:encode(serialize(component, edges[1]))
+-                            else
+-                                const saved: {any} = {}
+-                                for edge = 1, #edges do
+-                                    saved[edge] = serialize(component, edges[edge])
+-                                end
+-                                output:encode({edges = saved})
+-                            end
+-                        else
+-                            output:encode(
+-                                serialize(component, archetype.valueAt(plan.source, sourceRow - 1, component))
+-                            )
+-                        end
++                        values[row] = serialize(component, archetype.valueAt(plan.source, sourceRow - 1, component))
+@@ -204,3 +207,10 @@
+-            end
+-        end
+-    end
++                columns[column] = {entry = plan.indices[column], values = values}
++            end
++        end
++        frames[index] = {count = plan.count, ids = ids, columns = columns}
++    end
++    const plainEntries: {any} = {}
++    for index = 1, #entries do
++        plainEntries[index] = {name = entries[index].name, fingerprint = entries[index].fingerprint}
++    end
++    const plainData: {any} = {}
+@@ -208,3 +218,15 @@
+-        output:encode(true):encode(data[index].key):encode(data[index].value)
+-    end
+-    output:encode(false)
++        plainData[index] = {key = data[index].key, value = data[index].value}
++    end
++    const bytes = persist.saveData({
++        codec = CODEC,
++        version = 1,
++        target = hostLayout.target,
++        abi = hostLayout.abi,
++        nextId = nextId,
++        total = total,
++        entries = plainEntries,
++        schemas = schemas,
++        frames = frames,
++        data = plainData,
++    })
++    output:reset():put(bytes)
+@@ -221,2 +243 @@
+-local function integer(input: buffer.Buffer, label: string, maximum: integer): integer
+-    const value = input:decode()
++local function integer(value: any, label: string, maximum: integer): integer
+@@ -226 +246,0 @@
+-
+@@ -230,57 +250,122 @@
+-const schemas: {[string]: ffistorage.Storage} = {}
+-
+-local function savedSchema(fingerprint: string): ffistorage.Storage
+-    const cached = schemas[fingerprint]
+-    if cached ~= nil then
+-        return cached
+-    end
+-    const fields, width = fingerprint:match("^(.-)|(%d+)$")
+-    if fields == nil or width == nil then
+-        error("invalid snapshot FFI fingerprint", 3)
+-    end
+-    const declarations: {string} = {}
+-    for entry in fields:gmatch("[^,]+") do
+-        const name, spelling = entry:match("^([%a_][%w_]*):(.+)$")
+-        if name == nil or spelling == nil then
+-            error("invalid snapshot FFI field", 3)
+-        end
+-        local scalar, extent = spelling:match("^([%w_ ]+)%[(%d+)%]$")
+-        if scalar == nil then
+-            scalar = spelling
+-        end
+-        if not scalar:match("^[%w_ ]+$") then
+-            error("invalid snapshot FFI scalar", 3)
+-        end
+-        const allowed = scalar == "double"
+-            or scalar == "float"
+-            or scalar == "bool"
+-            or scalar == "int"
+-            or scalar == "unsigned int"
+-            or scalar == "char"
+-            or scalar == "unsigned char"
+-            or scalar == "short"
+-            or scalar == "unsigned short"
+-            or scalar:match("^u?int[1368][0246]?_t$") ~= nil
+-        if not allowed then
+-            error("snapshot FFI schema contains an unsupported scalar", 3)
+-        end
+-        if extent ~= nil and (tonumber(extent) == 0 or assert(tonumber(extent)) > 1048576) then
+-            error("snapshot FFI array exceeds layout limit", 3)
+-        end
+-        declarations[#declarations + 1] = scalar .. " " .. name .. (extent ~= nil and "[" .. extent .. "]" or "") .. ";"
+-    end
+-    if #declarations == 0 or #declarations > 4096 then
+-        error("invalid snapshot FFI field count", 3)
+-    end
+-    const element = ffi.typeof("struct { " .. table.concat(declarations) .. " }")
+-    if ffi.sizeof(element) ~= tonumber(width) then
+-        error("snapshot FFI fingerprint size does not match its layout", 3)
+-    end
+-    const storage = ffistorage.new(ffi.new(element))
+-    schemas[fingerprint] = storage
+-
+-    return storage
+-end
+-
+---- Parses and bounds-checks framing while retaining native column spans in the input
+---- owner.
++local function array(value: any, label: string, maximum: integer): {any}
++    if type(value) ~= "table" then
++        error("snapshot has invalid " .. label, 3)
++    end
++    const length = #value
++    if length > maximum then
++        error("snapshot " .. label .. " exceeds limit", 3)
++    end
++    for key in pairs(value) do
++        if type(key) ~= "number" or key < 1 or key > length or key % 1 ~= 0 then
++            error("snapshot has invalid " .. label .. " index", 3)
++        end
++    end
++    for index = 1, length do
++        if value[index] == nil then
++            error("snapshot has a hole in " .. label, 3)
++        end
++    end
++
++    return value as {any}
++end
++
++const scalars: {
++    [string]: boolean
++} = {
++    boolean = true,
++    integer = true,
++    number = true,
++    float = true,
++    int8 = true,
++    uint8 = true,
++    int16 = true,
++    uint16 = true,
++    int32 = true,
++    uint32 = true,
++    int64 = true,
++    uint64 = true,
++}
++
++-- Rebuild only the supported data layout. No persisted nominal identity,
++-- methods, metatable or pointer becomes a live component declaration.
++local function plainLayout(source: any): nil
++    for _, key in ipairs({"bitWidth", "bitPos", "pack", "packed", "explicitAlignment"}) do
++        if source[key] ~= nil and source[key] ~= false then
++            error("snapshot native schema contains an unsupported layout modifier", 3)
++        end
++    end
++end
++
++local function fieldType(source: any, nested: boolean): any
++    if type(source) ~= "table" or type(source.kind) ~= "string" then
++        error("invalid snapshot native field", 3)
++    end
++    plainLayout(source)
++    const result: any = {
++        kind = source.kind,
++        size = integer(source.size, "native field size", 2147483647),
++        alignment = integer(source.alignment, "native field alignment", 65536),
++    }
++    if source.kind == "array" and not nested then
++        result.count = integer(source.count, "native array extent", 1048576)
++        if result.count == 0 then
++            error("snapshot native array extent must be positive", 3)
++        end
++        result.element = fieldType(source.element, true)
++    elseif not scalars[source.kind] then
++        error("snapshot native schema contains an unsupported field", 3)
++    end
++
++    return result
++end
++
++local function savedSchema(fingerprint: string, source: any): ffistorage.Storage
++    if type(source) ~= "table"
++        or source.kind ~= "struct"
++        or source.target ~= hostLayout.target
++        or source.abi ~= hostLayout.abi
++    then
++        error("snapshot native schema has incompatible target ABI", 3)
++    end
++    plainLayout(source)
++    const fields = array(source.fields, "native fields", 4096)
++    if #fields == 0 then
++        error("snapshot native schema has no fields", 3)
++    end
++    const normalized: {any} = {}
++    const names: {[string]: boolean} = {}
++    for index = 1, #fields do
++        const field = fields[index]
++        if type(field) ~= "table"
++            or type(field.name) ~= "string"
++            or not field.name:match("^[%a_][%w_]*$")
++            or names[field.name]
++        then
++            error("invalid or repeated snapshot native field name", 3)
++        end
++        names[field.name] = true
++        const member = fieldType(field, false)
++        member.name = field.name
++        member.offset = integer(field.offset, "native field offset", 2147483647)
++        normalized[index] = member
++    end
++    const layout = {
++        kind = "struct",
++        supported = true,
++        identity = CODEC .. ":" .. hostLayout.target .. ":" .. tostring(hostLayout.abi) .. ":" .. fingerprint,
++        target = hostLayout.target,
++        abi = hostLayout.abi,
++        size = integer(source.size, "native schema size", 2147483647),
++        alignment = integer(source.alignment, "native schema alignment", 65536),
++        fields = normalized,
++    }
++    const descriptor = native.structs.define(layout, {})
++    const result = ffistorage.new(descriptor:new())
++    if result.fingerprint ~= fingerprint then
++        error("snapshot native fingerprint does not match its schema", 3)
++    end
++
++    return result
++end
++
++--- Reads and validates detached frames before the world publishes any entities.
+@@ -288,10 +373,15 @@
+-    const input = buffer.new()
+-    input:set(bytes)
+-    const version = integer(input, "version", 1)
+-    if version ~= 1 then
+-        error("unsupported snapshot version", 2)
+-    end
+-    const nextId = integer(input, "next entity id", maximum + 1)
+-    const total = integer(input, "entity count", maximum)
+-    const frameCount = integer(input, "archetype count", #bytes)
+-    const componentCount = integer(input, "component count", #bytes)
++    const saved = persist.loadData(bytes)
++    if type(saved) ~= "table" or saved.codec ~= CODEC or saved.version ~= 1 then
++        error("unsupported snapshot binary codec", 2)
++    end
++    if saved.target ~= hostLayout.target or saved.abi ~= hostLayout.abi then
++        error("snapshot has incompatible target ABI", 2)
++    end
++    const nextId = integer(saved.nextId, "next entity id", maximum + 1)
++    const total = integer(saved.total, "entity count", maximum)
++    const savedEntries = array(saved.entries, "component table", #bytes)
++    const savedFrames = array(saved.frames, "archetype frames", #bytes)
++    const savedData = array(saved.data, "custom data", #bytes)
++    if type(saved.schemas) ~= "table" then
++        error("snapshot has invalid native schemas", 2)
++    end
+@@ -302,4 +392,3 @@
+-    for index = 1, componentCount do
+-        const name = input:decode()
+-        const fingerprint = input:decode()
+-        if type(name) ~= "string" or names[name] then
++    for index = 1, #savedEntries do
++        const entry = savedEntries[index]
++        if type(entry) ~= "table" or type(entry.name) ~= "string" or names[entry.name] then
+@@ -308,2 +397,2 @@
+-        names[name] = true
+-        local component = components.resolveSnapshotName(name)
++        names[entry.name] = true
++        const component = components.resolveSnapshotName(entry.name)
+@@ -311,3 +400,3 @@
+-            error("world.loadSnapshot: unknown component " .. name, 2)
+-        end
+-        if fingerprint ~= nil and type(fingerprint) ~= "string" then
++            error("world.loadSnapshot: unknown component " .. entry.name, 2)
++        end
++        if entry.fingerprint ~= nil and type(entry.fingerprint) ~= "string" then
+@@ -316 +405,3 @@
+-        entries[index] = new events.SnapshotComponentEntry(name = name, fingerprint = fingerprint as string?)
++        entries[
++            index
++        ] = new events.SnapshotComponentEntry(name = entry.name, fingerprint = entry.fingerprint as string?)
+@@ -318 +409,4 @@
+-        if fingerprint ~= nil then
++        if entry.fingerprint ~= nil then
++            -- Validate schema even for the fast path; matching a string alone
++            -- must not bypass malformed or foreign-target layout checks.
++            const projected = savedSchema(entry.fingerprint, saved.schemas[index])
+@@ -320,2 +414,9 @@
+-            layouts[index] = current ~= nil and current.fingerprint == fingerprint and current
+-                or savedSchema(fingerprint as string)
++            layouts[index] = current ~= nil and current.fingerprint == entry.fingerprint and current or projected
++        elseif saved.schemas[index] ~= nil then
++            error("snapshot schema has no fingerprint", 2)
++        end
++    end
++    for key in pairs(saved.schemas) do
++        integer(key, "schema index", #entries)
++        if key == 0 or entries[key].fingerprint == nil then
++            error("snapshot has an unexpected native schema", 2)
+@@ -326,3 +427,6 @@
+-    for index = 1, frameCount do
+-        const columnCount = integer(input, "column count", componentCount)
+-        const count = integer(input, "frame entity count", maximum - counted)
++    for index = 1, #savedFrames do
++        const frame = savedFrames[index]
++        if type(frame) ~= "table" then
++            error("snapshot has invalid frame", 2)
++        end
++        const count = integer(frame.count, "frame entity count", maximum - counted)
+@@ -329,0 +434,6 @@
++        if type(frame.ids) ~= "string" or #frame.ids ~= count * 8 then
++            error("snapshot has invalid entity byte span", 2)
++        end
++        const ids = native.allocateArray(native.scalar("number"), count)
++        native.copy(ids, frame.ids, count * 8)
++        const savedColumns = array(frame.columns, "frame columns", #entries)
+@@ -332,2 +442,6 @@
+-        for column = 1, columnCount do
+-            const entry = integer(input, "column index", componentCount)
++        for column = 1, #savedColumns do
++            const item = savedColumns[column]
++            if type(item) ~= "table" then
++                error("snapshot has invalid column", 2)
++            end
++            const entry = integer(item.entry, "column index", #entries)
+@@ -337,0 +452,20 @@
++            const storage = layouts[entry]
++            local pointer: any = nil
++            local values: {any}? = nil
++            if storage ~= nil then
++                if type(item.bytes) ~= "string" or #item.bytes ~= count * storage.width or item.values ~= nil then
++                    error("snapshot has invalid native column byte span", 2)
++                end
++                pointer = native.castElements(storage.element, item.bytes)
++                native.boundedCount(pointer, count)
++            else
++                if type(item.values) ~= "table" or item.bytes ~= nil then
++                    error("snapshot has invalid value column", 2)
++                end
++                for key in pairs(item.values) do
++                    if integer(key, "value row", count) == 0 then
++                        error("snapshot has invalid value row", 2)
++                    end
++                end
++                values = item.values as {any}
++            end
+@@ -340,70 +474,9 @@
+-            ] = new Column(component = definitions[entry], storage = layouts[entry], pointer = nil, scratch = nil)
+-        end
+-        const mode = integer(input, "frame mode", 1)
+-        const ids: any = ffi.new("double[?]", math.max(1, count))
+-        if mode == 0 then
+-            if #input < count * 8 then
+-                error("truncated snapshot entity ids", 2)
+-            end
+-            ffi.copy(ids, input:ref(), count * 8)
+-            input:skip(count * 8)
+-            for column = 1, #columns do
+-                const selected = columns[column]
+-                if selected.storage ~= nil then
+-                    const length = selected.storage.width * count
+-                    if #input < length then
+-                        error("truncated snapshot FFI column", 2)
+-                    end
+-                    -- The frame retains bytes, so this pointer survives parser
+-                    -- advancement and is never a borrowed buffer view escaping its
+-                    -- lexical scope.
+-                    selected.pointer = (ffi.cast("const uint8_t *", bytes) as any) + (#bytes - #input)
+-                    input:skip(length)
+-                else
+-                    const values: {any} = {}
+-                    for row = 1, count do
+-                        values[row] = input:decode()
+-                    end
+-                    selected.values = values
+-                end
+-            end
+-        else
+-            if columnCount > 52 then
+-                error("snapshot row mask exceeds exact integer width", 2)
+-            end
+-            for column = 1, #columns do
+-                columns[column].values = {};
+-                columns[column].present = {}
+-            end
+-            for row = 1, count do
+-                ids[row - 1] = integer(input, "entity id", 9007199254740991)
+-                local mask = integer(input, "row mask", (2 ^ columnCount - 1) as integer)
+-                for column = 1, #columns do
+-                    const selected = columns[column]
+-                    if mask % 2 == 1 then
+-                        assert(selected.present)[row] = true
+-                        if selected.storage ~= nil then
+-                            const layout = selected.storage
+-                            if #input < layout.width then
+-                                error("truncated snapshot FFI row", 2)
+-                            end
+-                            if selected.scratch == nil then
+-                                selected.scratch = ffi.new(layout.element)
+-                            end
+-                            const scratch = selected.scratch
+-                            ffi.copy(scratch, input:ref(), layout.width)
+-                            input:skip(layout.width)
+-                            assert(selected.values)[row] = ffistorage.serialize(layout, scratch)
+-                        else
+-                            assert(selected.values)[row] = input:decode()
+-                        end
+-                    end
+-                    mask = mask // 2
+-                end
+-            end
+-            -- Row payloads have already been converted to field-keyed values.
+-            for column = 1, #columns do
+-                columns[column].storage = nil
+-            end
+-        end
+-        frames[#frames + 1] = new Frame(owner = bytes, ids = ids as number[?], count = count, columns = columns)
++            ] = new Column(
++                component = definitions[entry],
++                storage = storage,
++                pointer = pointer,
++                values = values,
++                scratch = nil
++            )
++        end
++        frames[index] = new Frame(owner = bytes, ids = ids as number[?], count = count, columns = columns)
+@@ -415,10 +488,3 @@
+-    while true do
+-        const present = input:decode()
+-        if present == false then
+-            break
+-        end
+-        if present ~= true then
+-            error("invalid snapshot data framing", 2)
+-        end
+-        const key = input:decode()
+-        if type(key) ~= "string" then
++    for index = 1, #savedData do
++        const entry = savedData[index]
++        if type(entry) ~= "table" or type(entry.key) ~= "string" then
+@@ -427,4 +493 @@
+-        data[#data + 1] = new Data(key = key, value = input:decode())
+-    end
+-    if #input ~= 0 then
+-        error("snapshot has trailing bytes", 2)
++        data[index] = new Data(key = entry.key, value = entry.value)
+@@ -435 +498 @@
+-            version = version,
++            version = 1,
+@@ -438 +501 @@
+-            archetypeCount = frameCount,
++            archetypeCount = #frames,
+@@ -443 +506 @@
+-        owner = input
++        owner = bytes
+@@ -447 +510 @@
+---- Returns a field-keyed payload from a saved native schema on the migration path.
++--- Projects a saved native row into named fields for the component load hook.
+@@ -453,10 +516,6 @@
+-    if column.scratch == nil then
+-        column.scratch = ffi.new(layout.element)
+-    end
+-    const scratch = column.scratch
+-    ffi.copy(scratch, (ffi.cast("uint8_t *", column.pointer) as any) + (row - 1) * layout.width, layout.width)
+-
+-    return ffistorage.serialize(layout, scratch)
+-end
+-
+---- Copies a checked native frame column directly into its final archetype allocation.
++    native.boundedCount(column.pointer, row)
++
++    return ffistorage.serialize(layout, column.pointer[row - 1])
++end
++
++--- Copies a checked native column into the world's final archetype allocation.
+@@ -466 +525,7 @@
+-    if first < 1 or first + count - 1 > ffistorage.capacity(destination) or column.storage ~= storage then
++    if first < 1
++        or count < 0
++        or first % 1 ~= 0
++        or count % 1 ~= 0
++        or first + count - 1 > ffistorage.capacity(destination)
++        or column.storage ~= storage
++    then
+@@ -469,3 +534,3 @@
+-    const pointer: any = ffi.cast("uint8_t *", destination)
+-    ffi.copy(pointer + first * storage.width, column.pointer, count * storage.width)
+-end
++    native.boundedCount(column.pointer, count)
++    native.copy(destination + first, column.pointer, count * storage.width)
++end
+--- a/src/tecs/internal/world.nupp
++++ b/src/tecs/internal/world.nupp
+@@ -23 +23 @@
+-local ffi = require("ffi")
++local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+@@ -38 +38 @@
+-local buffer = require("string.buffer")
++local buffer = require("nupp.text")
+@@ -39,0 +40,5 @@
++
++local record TargetEdge
++    target: integer
++    value: any
++end
+@@ -1157,2 +1162,6 @@
+-    table.sort(result, function(left: any, right: any): boolean
+-        return components.edgeTarget(left) < components.edgeTarget(right)
++    const ordered: {TargetEdge} = {}
++    for index = 1, #result do
++        ordered[index] = new TargetEdge(target = components.edgeTarget(result[index]), value = result[index])
++    end
++    table.sort(ordered, function(left: TargetEdge, right: TargetEdge): boolean
++        return left.target < right.target
+@@ -1159,0 +1169,3 @@
++    for index = 1, #ordered do
++        result[index] = ordered[index].value
++    end
+@@ -1952 +1964 @@
+-    if count < 0 or count % 1 ~= 0 or count == math.huge or count * 8 > ffi.sizeof(ids) then
++    if count < 0 or count % 1 ~= 0 or count == math.huge or count * 8 > nativeStorage.sizeOf(ids) then
+@@ -2071 +2083 @@
+-            const ids = ffi.new("double[?]", count) as number[?]
++            const ids = nativeStorage.allocateArray(nativeStorage.structs.scalar("number"), count) as number[?]
+@@ -4109 +4121 @@
+-        const output = assert(options).buffer or buffer.new()
++        const output = assert(options).buffer or buffer.newBuffer()
+@@ -4409,2 +4421 @@
+-                    const pointerType = "$ *"
+-                    const rows: any = ffi.cast(ffi.typeof(pointerType, native.element), savedColumn.pointer)
++                    const rows: any = savedColumn.pointer
+--- /dev/null
++++ b/src/tecs/tests/assets.nupp
+@@ -0,0 +1,27 @@
++module tecs.tests.assets
++
++local assetnative = require("tecs.internal.assetnative")
++local fixture = {}
++
++function fixture.run(path: string): integer
++    local bytes, width, height = assetnative.load(path, 1)
++    assert(width > 0 and height > 0)
++    assert(#bytes == width * height * 4)
++    local color: {integer} = {string.byte(bytes, 1, 3)}
++    local transparent, changedWidth, changedHeight = assetnative.load(path, 1, color)
++    assert(changedWidth == width and changedHeight == height)
++    for offset = 1, #bytes, 4 do
++        local r, g, b, a = string.byte(bytes, offset, offset + 3)
++        local rr, gg, bb, aa = string.byte(transparent, offset, offset + 3)
++        assert(r == rr and g == gg and b == bb)
++        assert(aa == (r == color[1] and g == color[2] and b == color[3] and 0 or a))
++    end
++    local ok, message = pcall(assetnative.load, path .. ".missing", 1)
++    assert(not ok and tostring(message):find("Tecs asset load:", 1, true) ~= nil)
++    local again, againWidth, againHeight = assetnative.load(path, 1)
++    assert(again == bytes and againWidth == width and againHeight == height)
++
++    return width * height
++end
++
++export = fixture
+--- /dev/null
++++ b/src/tecs/tests/snapshot.nupp
+@@ -0,0 +1,6 @@
++module tecs.tests.snapshot
++
++export function main(): number
++    require("tecs.bench.programs.snapshot")
++    return 0
++end
+--- /dev/null
++++ b/src/tecs/tests/snapshotcodec.nupp
+@@ -0,0 +1,130 @@
++module tecs.tests.snapshotcodec
++
++local native: any = assert(require("nupp.mem.representation").storage)
++local persist = require("nupp.vm.persist")
++local text = require("nupp.text")
++local archetype = require("tecs.internal.archetype")
++local components = require("tecs.internal.components")
++local codec = require("tecs.internal.snapshotcodec")
++local ffistorage = require("tecs.internal.ffistorage")
++local query = require("tecs.internal.query")
++local suite = {}
++
++local struct Point
++    x: number
++    y: number
++end
++
++local struct OldPoint
++    y: number
++    x: number
++    extra: uint32[2]
++end
++
++const Position = components.newFFIComponent({
++    name = "test.VMSnapshotCodec.Position",
++    construct = function(x: number, y: number): Point
++        return new Point(x, y)
++    end,
++    default = function(): Point
++        return new Point(0, 0)
++    end,
++})
++
++local function rejected(saved: any, message: string): nil
++    const bytes = persist.saveData(saved)
++    const ok, problem = pcall(function(): nil
++        codec.read(bytes, 32)
++    end)
++    assert(not ok and tostring(problem):find(message, 1, true))
++end
++
++function suite.run(): number
++    const source = archetype.new(1, {Position as components.Component})
++    archetype.append(source, 1, {[Position.componentId] = new Point(1.5, 2.5)})
++    archetype.append(source, 2, {[Position.componentId] = new Point(3.5, 4.5)})
++    const output = text.newBuffer()
++    const prelude = codec.write(
++        {source},
++        query.new(),
++        nil,
++        3,
++        {new codec.Data(key = "custom", value = {answer = 42})},
++        output
++    )
++    assert(prelude.entityCount == 2 and prelude.archetypeCount == 1)
++    const bytes = output:tostring()
++    const decoded = codec.read(bytes, 32)
++    @unsafe do
++        assert(decoded.frames[1].ids[0] == 1 and decoded.frames[1].ids[1] == 2)
++    end
++    const column = decoded.frames[1].columns[1]
++    const current = assert(ffistorage.find(Position.componentId))
++    assert(rawequal(column.component, Position) and rawequal(column.storage, current))
++    assert(codec.value(column, 1).x == 1.5 and codec.value(column, 2).y == 4.5)
++    assert(decoded.data[1].key == "custom" and decoded.data[1].value.answer == 42)
++    source.columns[Position.componentId][1].x = 99
++    assert(codec.value(column, 1).x == 1.5)
++    const target = archetype.new(2, {Position as components.Component})
++    archetype.reserveCapacity(target, 2)
++    codec.copy(column, target, 1, 2)
++    assert(target.columns[Position.componentId][1].x == 1.5)
++    assert(target.columns[Position.componentId][2].y == 4.5)
++    local saved = persist.loadData(bytes)
++    const oldValue = new OldPoint()
++    oldValue.y, oldValue.x = 12.5, 11.5
++    @unsafe do
++        oldValue.extra[0], oldValue.extra[1] = 7, 8
++    end
++    const old = ffistorage.new(oldValue)
++    const rows = native.allocateArray(old.element, 2)
++    rows[0] = oldValue
++    rows[1] = oldValue
++    saved.entries[1].fingerprint = old.fingerprint
++    saved.schemas[1] = native.layout(old.element)
++    saved.frames[1].columns[1].bytes = native.string(rows, 2 * old.width)
++    const projected = codec.read(persist.saveData(saved), 32).frames[1].columns[1]
++    assert(rawequal(projected.component, Position) and not rawequal(projected.storage, current))
++    const payload = codec.value(projected, 1)
++    assert(payload.extra[1] == 7 and payload.extra[2] == 8)
++    const loaded = Position.snapshotLoad(payload, {})
++    assert(loaded.x == 11.5 and loaded.y == 12.5)
++    saved = persist.loadData(bytes)
++    saved.target = "incompatible-target"
++    rejected(saved, "incompatible target ABI")
++    saved = persist.loadData(bytes)
++    saved.schemas[1].fields[2].offset = 0
++    rejected(saved, "offset differs")
++    saved = persist.loadData(bytes)
++    saved.frames[1].columns[1].bytes = "short"
++    rejected(saved, "native column byte span")
++    saved = persist.loadData(bytes)
++    saved.entries[2] = saved.entries[1]
++    rejected(saved, "repeated snapshot component name")
++    saved = persist.loadData(bytes)
++    saved.entries[1].name = "missing.component"
++    rejected(saved, "unknown component")
++    saved = persist.loadData(bytes)
++    saved.total = 3
++    rejected(saved, "counts do not match")
++
++    saved = persist.loadData(bytes)
++    saved.schemas[1].fields[1].bitWidth = 1
++    rejected(saved, "unsupported layout modifier")
++    local invoked = false
++    const hostile = setmetatable({}, {
++        __index = function(): any
++            invoked = true
++            return nil
++        end
++    })
++    const hostileBytes = persist.save(hostile)
++    const ok, problem = pcall(function(): nil
++        codec.read(hostileBytes, 32)
++    end)
++    assert(not ok and not invoked and tostring(problem):find("plain data", 1, true))
++
++    return 42
++end
++
++export = suite
+--- /dev/null
++++ b/src/tecs/tests/worldsnapshots.nupp
+@@ -0,0 +1,17 @@
++module tecs.tests.worldsnapshots
++
++local suite = require("tecs.snapshottest")
++
++export function run(): number
++    suite.roundTripsIdsComponentsRelationshipsAndStates()
++    suite.detachesSavedRecordValuesFromTheWorld()
++    suite.omitsTransientComponentsButKeepsTheirEntities()
++    suite.usesCustomComponentSnapshotHooks()
++    suite.savesLoadsAndFinishesNamedHandlerData()
++    suite.rejectsInvalidSnapshotsBeforeClearingTheWorld()
++    suite.rebuildsAllocatorHolesAfterLoading()
++    suite.commitsPendingWorkBeforeSaving()
++    suite.rejectsCyclesAndDuplicateDataKeys()
++
++    return 42
++end

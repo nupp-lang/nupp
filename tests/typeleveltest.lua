@@ -151,24 +151,13 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         "NUPP2421"
     )
     testAssert.equal(
-        codes(
-            table.concat(
-                {
-                    "local function Runtime(T: any): any return T end",
-                    "local bad: Runtime(string)",
-                },
-                "\n"
-            )
-        ),
+        codes(table.concat({"local function Runtime(T: any): any return T end", "local bad: Runtime(string)",}, "\n")),
         "NUPP2421"
     )
 end
 
 function M.compilerOnlyTypeHandlesCannotEnterRuntimeSignatures()
-    testAssert.equal(
-        codes("local function identity(T: type): type return T end"),
-        "NUPP2421 NUPP2421"
-    )
+    testAssert.equal(codes("local function identity(T: type): type return T end"), "NUPP2421 NUPP2421")
     testAssert.equal(codes("local value: type = nil as any"), "NUPP2421")
 end
 
@@ -274,10 +263,7 @@ function M.comptimeTypeAliasesNameReusableDescriptorShapes()
     )
     oneDiagnostic(
         table.concat(
-            {
-                "@comptime local type Field = {name: string, read: type?}",
-                "local value: Field = nil as any",
-            },
+            {"@comptime local type Field = {name: string, read: type?}", "local value: Field = nil as any",},
             "\n"
         ),
         "NUPP2421",
@@ -1246,6 +1232,119 @@ function M.sharedGenericMembersRefreshAgainAfterDeclarationChanges()
     testAssert.equal(other.byname.left.byname.get.rets[1], types.number)
 end
 
+function M.sharedGenericSignatureSubstitutionUsesOneRefreshWalk()
+    local count = 16
+    local parameter = types.typevar("Element", "shared-signature-refresh")
+    local declarations, open = {}, {}
+    for index = 1, count do
+        local declaration = types.nominal("Signature" .. index, "record")
+        declaration.typeParams = {parameter}
+        declarations[index] = declaration
+        open[index] = generics.reserveInstantiation(declaration, {[parameter] = parameter})
+    end
+    for index, declaration in ipairs(declarations) do
+        declaration.byname = {
+            value = parameter,
+            next = open[index % count + 1],
+            method = types.func({parameter}, {
+                parameter
+            }),
+        }
+        declaration.writeByname = {value = parameter, next = open[index % count + 1]}
+    end
+    local signature = types.func(open, open)
+    local bindings = {[parameter] = types.integer}
+    local operations = {
+        function()
+            return generics.rebind(signature, bindings)
+        end,
+        function()
+            return generics.materialize(signature, bindings)
+        end,
+        function()
+            return generics.materializePack(signature.paramPack, bindings)
+        end,
+        function()
+            return generics.evaluate(signature, bindings).type
+        end,
+        function()
+            return generics.reduce(signature, bindings)
+        end,
+        function()
+            return generics.instantiateFunction(signature, bindings)
+        end,
+    }
+    for index, operation in ipairs(operations) do
+        local instantiate, visits = generics.instantiate, 0
+        generics.instantiate = function(declaration, map)
+            visits = visits + 1
+            assert(visits <= count * 8, "signature substitution repeats shared nominal walks")
+            return instantiate(declaration, map)
+        end
+        local ok, result = pcall(operation)
+        generics.instantiate = instantiate
+        assert(ok, tostring(result))
+        local parameters = result.tag == "pack" and result.head or result.params
+        for position = 1, count do
+            testAssert.equal(parameters[position].byname.value, types.integer)
+            testAssert.equal(parameters[position].byname.next, parameters[position % count + 1])
+            if result.tag ~= "pack" then
+                testAssert.equal(parameters[position], result.rets[position])
+            end
+        end
+        declarations[1].byname.late = types.literal(index, types.number)
+        testAssert.equal(
+            generics.rebind(signature, bindings).params[1].byname.late,
+            declarations[1].byname.late,
+            "later declaration changes remain visible"
+        )
+    end
+end
+
+function M.failedSubstitutionsRestoreEnclosingRefreshScope()
+    local parameter = types.typevar("Element", "failed-substitution-refresh")
+    local first, nested = types.nominal("SubstitutionOuter", "record"), types.nominal("SubstitutionInner", "record")
+    local trigger, failure = types.nominal(
+        "SubstitutionTrigger",
+        "record"
+    ), types.nominal("SubstitutionFailure", "record")
+    local open = {}
+    for _, declaration in ipairs({first, nested, trigger, failure}) do
+        declaration.typeParams = {parameter}
+        open[declaration] = generics.reserveInstantiation(declaration, {[parameter] = parameter})
+    end
+    first.byname.method = types.func({parameter}, {parameter})
+    nested.byname.value = parameter
+    local bindings = {[parameter] = types.integer}
+    local inner = types.func({open[nested], open[failure]}, {})
+    local outer = types.func({open[first], open[trigger], open[first], open[failure]}, {})
+    local instantiate, funcWith, outerRefreshes = generics.instantiate, types.funcWith, 0
+    types.funcWith = function(fn, overrides)
+        if fn == first.byname.method then
+            outerRefreshes = outerRefreshes + 1
+        end
+        return funcWith(fn, overrides)
+    end
+    generics.instantiate = function(declaration, map)
+        if declaration == failure then
+            error("substitution failure", 0)
+        elseif declaration == trigger then
+            local ok, problem = pcall(generics.rebind, inner, bindings)
+            assert(not ok and tostring(problem):find("substitution failure", 1, true))
+            nested.byname.late = types.string
+            testAssert.equal(generics.rebind(open[nested], bindings).byname.late, types.string)
+        end
+
+        return instantiate(declaration, map)
+    end
+    local ok, problem = pcall(generics.rebind, outer, bindings)
+    generics.instantiate, types.funcWith = instantiate, funcWith
+    assert(not ok and tostring(problem):find("substitution failure", 1, true))
+    testAssert.equal(outerRefreshes, 1, "failed nested substitution preserves enclosing visits")
+    first.byname.afterFailure = types.boolean
+    testAssert.equal(generics.rebind(open[first], bindings).byname.afterFailure, types.boolean)
+end
+
 function M.typeComputationAndConstBindersEraseFromGeneratedLua()
     local source = table.concat(
         {
@@ -1946,10 +2045,10 @@ function M.comptimeCountsThePackItWasPassed()
     )
 end
 
--- A type argument that is itself a type parameter satisfies a bound only when its
--- own bound implies it. An unbounded one stands for anything, and the old
--- permissive typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
--- whose method then read a field no integer has.
+-- A type argument that is itself a type parameter satisfies a bound only when its own
+-- bound implies it. An unbounded one stands for anything, and the old permissive
+-- typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>` whose
+-- method then read a field no integer has.
 function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
     local body = table.concat(
         {

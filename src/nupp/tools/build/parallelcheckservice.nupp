@@ -110,6 +110,21 @@ end
 --- another worker decodes into its own checker identity.
 local function checkBatch(request: any): any
     local batchStarted = clock.now()
+    local trace = os.getenv("NUPP_PARALLEL_CHECK_TRACE") ~= nil
+
+    local function phase(name: string): nil
+        if trace then
+            io.stderr:write(
+                "parallel worker phase=" .. name .. " initializer=" .. tostring(
+                    request.initializer
+                ) .. " request=" .. tostring(
+                    request.requestId
+                ) .. " elapsedMs=" .. tostring(clock.now() - batchStarted) .. "\n"
+            )
+        end
+    end
+
+    phase("setup")
     if request.init ~= nil then
         workerContext = openContext(request.init)
     end
@@ -132,6 +147,7 @@ local function checkBatch(request: any): any
 
     local newlyImported: {[string]: any} = {}
     local decodeStarted = clock.now()
+    phase("decode")
     for _, import in ipairs(request.imports or {}) do
         local image, problem = protocol.decode(import.bytes or "")
         if image == nil or image.fingerprint ~= import.fingerprint then
@@ -164,6 +180,7 @@ local function checkBatch(request: any): any
     local diagnostics: {any} = {}
     local unchecked: {string} = {}
     local checkStarted = clock.now()
+    phase("semantic")
     local semanticMs = 0
     local recordMs = 0
     for _, source in ipairs(request.sources or {}) do
@@ -218,6 +235,7 @@ local function checkBatch(request: any): any
         }
     end
     local checkedAt = clock.now()
+    phase("interfaces")
 
     local interfaces: {[string]: any} = {}
     local interfaceNames: {string} = {}
@@ -235,6 +253,7 @@ local function checkBatch(request: any): any
     end
     table.sort(interfaceNames)
     local interfaceAt = clock.now()
+    phase("encode")
     local produced: any? = nil
     local nodes: integer = 0
     if #interfaceNames > 0 then
@@ -274,6 +293,7 @@ local function checkBatch(request: any): any
         }
     end
     local encodedAt = clock.now()
+    phase("done")
 
     local importedCount: integer = 0
     for _ in pairs(newlyImported) do

@@ -1,0 +1,17 @@
+module tecs.tests.worldsnapshots
+
+local suite = require("tecs.snapshottest")
+
+export function run(): number
+    suite.roundTripsIdsComponentsRelationshipsAndStates()
+    suite.detachesSavedRecordValuesFromTheWorld()
+    suite.omitsTransientComponentsButKeepsTheirEntities()
+    suite.usesCustomComponentSnapshotHooks()
+    suite.savesLoadsAndFinishesNamedHandlerData()
+    suite.rejectsInvalidSnapshotsBeforeClearingTheWorld()
+    suite.rebuildsAllocatorHolesAfterLoading()
+    suite.commitsPendingWorkBeforeSaving()
+    suite.rejectsCyclesAndDuplicateDataKeys()
+
+    return 42
+end

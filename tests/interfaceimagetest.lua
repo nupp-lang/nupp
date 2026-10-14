@@ -489,6 +489,103 @@ function M.decodesApplicationsThroughGenerics()
     assert(recursive, "recursive application")
 end
 
+function M.completesSharedRecursiveApplicationsInOneDecodeWalk()
+    local count = 16
+    local parameter = T.typevar("Element", "interface-image:refresh-batch")
+    local declarations, open, concrete = {}, {}, {}
+    for index = 1, count do
+        local declaration = indexed("Batch" .. index, "/project/sample.nupp")
+        declaration.typeParams, declaration.paramKinds = {parameter}, {"type"}
+        declaration.fieldOrder = {"value", "next", "method"}
+        declarations[index] = declaration
+        open[index] = generics.reserveInstantiation(declaration, {[parameter] = parameter})
+    end
+    for index, declaration in ipairs(declarations) do
+        declaration.byname = {
+            value = parameter,
+            next = open[index % count + 1],
+            method = T.func({parameter}, {
+                parameter
+            }),
+        }
+        declaration.writeByname = {value = parameter, next = open[index % count + 1]}
+    end
+    for index, declaration in ipairs(declarations) do
+        concrete[index] = generics.instantiate(declaration, {[parameter] = T.integer})
+    end
+    local sample = semantic("sample", concrete[1])
+    for index, declaration in ipairs(declarations) do
+        sample.exports.types["Declaration" .. index] = declaration
+        sample.exports.types["Application" .. index] = concrete[index]
+    end
+    local image = assert(encode({sample = sample}))
+    local instantiate, visits = generics.instantiate, 0
+    generics.instantiate = function(declaration, bindings)
+        visits = visits + 1
+        assert(visits <= count * 8, "interface completion repeats overlapping generic walks")
+        return instantiate(declaration, bindings)
+    end
+    local ok, decoded = pcall(interfaceimage.decode, image)
+    generics.instantiate = instantiate
+    assert(ok and decoded, tostring(decoded))
+    local exports = decoded.sample.exports.types
+    for index = 1, count do
+        local application = exports["Application" .. index]
+        testAssert.equal(application.byname.value, T.integer)
+        testAssert.equal(application.byname.next, exports["Application" .. (index % count + 1)])
+        testAssert.equal(application.byname.method.params[1], T.integer)
+    end
+    local declaration = exports.Declaration1
+    declaration.byname.late = T.string
+    local application = generics.instantiate(declaration, {[declaration.typeParams[1]] = T.integer})
+    testAssert.equal(application, exports.Application1)
+    testAssert.equal(application.byname.late, T.string, "post-batch changes remain visible")
+end
+
+function M.failedCompletionBatchesRestoreEnclosingRefreshScope()
+    local parameter = T.typevar("Element", "interface-image:failed-batch")
+    local first, nested = T.nominal("OuterBatch", "record"), T.nominal("InnerBatch", "record")
+    first.typeParams, nested.typeParams = {parameter}, {parameter}
+    first.byname.method = T.func({parameter}, {parameter})
+    nested.byname.value = parameter
+    local trigger, failure = T.nominal("BatchTrigger", "record"), T.nominal("BatchFailure", "record")
+    local bindings = {[parameter] = T.integer}
+    local instantiate, funcWith, outerRefreshes = generics.instantiate, T.funcWith, 0
+    T.funcWith = function(fn, overrides)
+        if fn == first.byname.method then
+            outerRefreshes = outerRefreshes + 1
+        end
+        return funcWith(fn, overrides)
+    end
+    generics.instantiate = function(declaration, map)
+        if declaration == failure then
+            error("completion failure", 0)
+        elseif declaration == trigger then
+            local ok, problem = pcall(generics.completeInstantiations, {
+                {origin = nested, map = bindings},
+                {origin = failure, map = {}},
+            })
+            assert(not ok and tostring(problem):find("completion failure", 1, true))
+            nested.byname.late = T.string
+            local retried = generics.instantiate(nested, bindings)
+            testAssert.equal(retried.byname.late, T.string, "failed nested visits must not leak")
+        end
+
+        return instantiate(declaration, map)
+    end
+    local ok, problem = pcall(generics.completeInstantiations, {
+        {origin = first, map = bindings},
+        {origin = trigger, map = {}},
+        {origin = first, map = bindings},
+        {origin = failure, map = {}},
+    })
+    generics.instantiate, T.funcWith = instantiate, funcWith
+    assert(not ok and tostring(problem):find("completion failure", 1, true))
+    testAssert.equal(outerRefreshes, 1, "nested failure restores the enclosing visited set")
+    first.byname.afterFailure = T.boolean
+    testAssert.equal(generics.instantiate(first, bindings).byname.afterFailure, T.boolean)
+end
+
 function M.loadsABinderWhoseBoundMentionsItself()
     local item = T.typevar("Item", "interface-image:self-bound")
     item.bound = T.shape({{name = "next", read = T.optional(item)}})

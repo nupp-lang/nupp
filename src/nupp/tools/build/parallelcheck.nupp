@@ -210,13 +210,70 @@ function parallelcheck.run(input: any): (any?, string?)
         state.lanes[index].initializer = state.spawned
     end
 
+    local function requestDescription(request: any, encodedBytes: integer?): string
+        local paths: {string} = {}
+        local sourceBytes, importBytes = 0, 0
+        for _, source in ipairs(request.sources or {}) do
+            if #paths < 8 then
+                paths[#paths + 1] = source.path
+            end
+            local known = sources[source.path]
+            sourceBytes = sourceBytes + (known and known.bytes or 0)
+        end
+        for _, import in ipairs(request.imports or {}) do
+            importBytes = importBytes + #(import.bytes or "")
+        end
+
+        return "kind=" .. tostring(
+            request.kind
+        ) .. " sources=" .. tostring(
+            #(request.sources or {})
+        ) .. " sourceBytes=" .. tostring(
+            sourceBytes
+        ) .. " imports=" .. tostring(
+            #(request.imports or {})
+        ) .. " importBytes=" .. tostring(
+            importBytes
+        ) .. " encodedBytes=" .. tostring(encodedBytes) .. " paths=" .. table.concat(paths, ",")
+    end
+
     local function requestWorker(index: integer, request: any): any
         local channel = state.channels[index]
         state.requestIds[index] = (state.requestIds[index] or 0) + 1
         request.schema = 1
         request.requestId = state.requestIds[index]
         request.initializer = state.lanes[index].initializer
-        local text, stopped = workerchannel.request(channel, protocol.encode(request), clock.now() + timeoutMs)
+        local encoded, payload = pcall(protocol.encode, request)
+        if not encoded then
+            error(
+                "parallel check request encoding failed [" .. requestDescription(
+                    request,
+                    nil
+                ) .. "]: " .. tostring(payload),
+                0
+            )
+        end
+        local requestStarted = clock.now()
+        local trace = tracing()
+        if trace then
+            -- Retain this request's phase diagnostics within the bounded stderr
+            -- capture.
+            channel.said = ""
+            io.stderr:write(
+                "parallel request begin worker=" .. tostring(
+                    index
+                ) .. " request=" .. tostring(request.requestId) .. " " .. requestDescription(request, #payload) .. "\n"
+            )
+        end
+        local text, stopped = workerchannel.request(channel, payload, requestStarted + timeoutMs)
+        local elapsed = clock.now() - requestStarted
+        if trace then
+            io.stderr:write(
+                "parallel request end worker=" .. tostring(
+                    index
+                ) .. " request=" .. tostring(request.requestId) .. " elapsedMs=" .. tostring(elapsed) .. "\n"
+            )
+        end
         if text == nil then
             local kind = stopped and stopped.kind or "ended"
             local said = stopped and stopped.said or ""
@@ -224,7 +281,13 @@ function parallelcheck.run(input: any): (any?, string?)
                 or kind == "stopped" and "parallel check worker stopped accepting requests"
                 or kind == "ended" and "parallel check worker stopped before answering"
                 or "parallel check worker returned an invalid frame (" .. kind .. ")"
-            error(reason .. (said ~= "" and (": " .. said) or ""), 0)
+            error(
+                reason .. " [" .. requestDescription(
+                    request,
+                    #payload
+                ) .. " elapsedMs=" .. tostring(elapsed) .. "]" .. (said ~= "" and (": " .. said) or ""),
+                0
+            )
         end
         local answer, problem = protocol.decode(text as string)
         if answer == nil then
@@ -584,6 +647,9 @@ function parallelcheck.run(input: any): (any?, string?)
                 error(answer, 0)
             end
             if not answered then
+                if tracing() then
+                    io.stderr:write("parallel worker retry: " .. tostring(answer) .. "\n")
+                end
                 -- A worker that stopped is restarted once. Its session is gone, so
                 -- the request is rebuilt for a worker holding nothing.
                 state.retries = state.retries + 1

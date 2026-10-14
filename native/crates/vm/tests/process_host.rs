@@ -15,6 +15,58 @@ fn put(vm: &mut Interp, object: Value, name: &str, value: Value) {
 }
 
 #[test]
+fn file_write_preserves_binary_views_and_reports_host_failures() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress = true;
+    vm.heap.oracle = true;
+    let owner = invoke(&mut vm, "files.createTemporaryDirectory", &[])[0];
+    let owner_root = vm.register(owner);
+    let directory = invoke(&mut vm, "temporary.toString", &[owner])[0];
+    let directory = std::path::PathBuf::from(std::str::from_utf8(vm.bytes_of(directory)).unwrap());
+    let destination = directory.join("binary.dat");
+    let path = vm.heap_new_string(destination.to_str().unwrap());
+    let path_root = vm.register(path);
+    let bytes = vm.new_string_bytes(b"before\0\xfftail");
+    let bytes_root = vm.register(bytes);
+    assert_eq!(invoke(&mut vm, "files.write", &[path, bytes]), vec![Value::TRUE]);
+    assert_eq!(std::fs::read(&destination).unwrap(), b"before\0\xfftail");
+
+    let getter = nupp_vm::image::load(&mut vm, r#"
+function view 0 1 4 1 v:v
+const 0 builtin collectgarbage
+const 1 str "_bytes"
+K 2 0
+CallDyn 2 3 0
+GetField 2 1 1
+Ret 2
+end
+entry 0
+"#).unwrap();
+    let view = vm.new_table();
+    let view_root = vm.register(view);
+    put(&mut vm, view, "getString", Value::func(getter));
+    let short = vm.new_string_bytes(b"\0\x80");
+    put(&mut vm, view, "_bytes", short);
+    let path_object = vm.new_table();
+    let object_root = vm.register(path_object);
+    put(&mut vm, path_object, "_text", path);
+    assert_eq!(invoke(&mut vm, "files.write", &[path_object, view]), vec![Value::TRUE]);
+    assert_eq!(std::fs::read(&destination).unwrap(), b"\0\x80", "write truncates and keeps embedded bytes");
+
+    put(&mut vm, view, "_bytes", Value::num(42.0));
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| invoke(&mut vm, "files.write", &[path, view])));
+    assert!(error.is_err());
+    assert_eq!(std::fs::read(&destination).unwrap(), b"\0\x80", "invalid view must not truncate the destination");
+    let missing = vm.heap_new_string(directory.join("missing/child").to_str().unwrap());
+    let failure = invoke(&mut vm, "files.write", &[missing, bytes]);
+    assert_eq!(failure[0], Value::FALSE);
+    assert!(!vm.bytes_of(failure[1]).is_empty());
+    invoke(&mut vm, "temporary.close", &[owner]);
+    for root in [object_root, view_root, bytes_root, path_root, owner_root] { vm.release(root); }
+}
+
+#[test]
 fn temporary_owners_persist_or_remove_their_paths() {
     let mut vm = Interp::new();
     vm.install_globals();

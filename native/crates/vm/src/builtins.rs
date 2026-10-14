@@ -41,6 +41,10 @@ pub const NAMES: &[&str] = &[
     "storage.structDefine", "storage.arrayType", "storage.valueNew", "storage.valueOf", "storage.valueCopy", "storage.valueIsa", "storage.structIs",
     "foreign.bind", "foreign.call", "foreign.close", "foreign.errno", "foreign.callback", "foreign.setCallback",
     "storage.castWritableElements", "storage.isBorrowed",
+    "files.write",
+    "vm.saveData", "vm.loadData",
+    "table.clone",
+    "table.clear",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -199,6 +203,20 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "files.read" => {
             let path = path_text(it, arg(args, 0));
             match std::fs::read(path) { Ok(bytes) => outs![it.new_string_bytes(&bytes)], Err(e) => outs![Value::NIL, it.heap_new_string(&e.to_string())] }
+        }
+        "files.write" => {
+            let path = path_text(it, arg(args, 0));
+            let mut bytes = arg(args, 1);
+            if !it.is_stringish(bytes) {
+                let key = it.intern("getString");
+                let getter = it.index(bytes, key);
+                bytes = it.call_value(getter, &[bytes]).first().copied().unwrap_or(Value::NIL);
+            }
+            if !it.is_stringish(bytes) { it.err("files.write expects a string or ByteView"); }
+            match std::fs::write(path, it.bytes_of(bytes)) {
+                Ok(()) => outs![Value::TRUE],
+                Err(e) => outs![Value::FALSE, it.heap_new_string(&e.to_string())],
+            }
         }
         "files.glob" => {
             let pattern = path_text(it, arg(args, 0));
@@ -437,6 +455,33 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
         return outs![Value::num(max)];
     }
+    if matches!(NAMES.get(id as usize), Some(&"table.clone" | &"table.clear")) {
+        let source = arg(args, 0);
+        if !matches!(it.kind_of(source), Some(KIND_TABLE | KIND_RECORD)) || crate::storage::is_native(source) {
+            it.err("table operation expects a table");
+        }
+        if NAMES[id as usize] == "table.clear" {
+            for key in it.table_keys(source) { it.set_index(source, key, Value::NIL); }
+            return Outs::new();
+        }
+        let copy = it.new_table();
+        let root = it.register(copy);
+        for key in it.table_keys(source) {
+            it.set_index(copy, key, it.get_index(source, key));
+        }
+        let mut meta = it.metatable_of(source);
+        if meta != Value::NIL {
+            if let Some(key) = it.heap.intern_lookup("__metatable") {
+                let protected = it.get_index(meta, key);
+                if protected != Value::NIL { meta = protected; }
+            }
+        }
+        if matches!(it.kind_of(meta), Some(KIND_TABLE | KIND_RECORD)) && !crate::storage::is_native(meta) {
+            it.set_metatable(copy, meta);
+        }
+        it.release(root);
+        return outs![copy];
+    }
     if NAMES.get(id as usize) == Some(&"vm.tableAppendResults") {
         let table = arg(args, 0);
         let start = arg(args, 1).as_num();
@@ -454,6 +499,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     if NAMES.get(id as usize) == Some(&"vm.encodePlain") {
         let bytes = crate::persist::save_plain(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
         return outs![it.new_string_bytes(&bytes)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.saveData") {
+        let bytes = crate::persist::save_data(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
+        return outs![it.new_string_bytes(&bytes)];
+    }
+    if NAMES.get(id as usize) == Some(&"vm.loadData") {
+        let bytes = bytes_of(it, arg(args, 0));
+        let value = crate::persist::load_data(it, &bytes).unwrap_or_else(|e| it.err(&e));
+        return outs![value];
     }
     if NAMES.get(id as usize) == Some(&"vm.decodePlain") {
         let bytes = bytes_of(it, arg(args, 0));

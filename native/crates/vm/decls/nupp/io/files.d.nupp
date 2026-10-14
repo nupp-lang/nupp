@@ -1,5 +1,6 @@
 -- The filesystem surface supplied by the VM compiler host.
 local paths = require("nupp.io.path")
+local bytes = require("nupp.io")
 local type Info = {
     kind: string,
     size: number,
@@ -29,6 +30,7 @@ local record Files
     createDirectory: function(path: string): (boolean, string?)
     remove: function(path: string, recursive: boolean?): (boolean, string?)
     read: function(path: string): (string?, string?)
+    write: function(path: string | paths.Path, borrows data: string | bytes.ByteView): (boolean, string?)
     glob: function(pattern: string): ({paths.Path}?, string?)
     createTemporaryFile: function(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
     createTemporaryDirectory: function(options: TemporaryOptions?): (affine(TemporaryPath?), string?)

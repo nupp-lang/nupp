@@ -579,6 +579,21 @@ local restored = persist.load(bytes)      -- same graph, new identities
 -- Optional nominal root check: persist.load(bytes, "module.Shape")
 ```
 
+Use `saveData` and `loadData` for data that must survive changes to the program's
+record declarations:
+
+```lua
+local persist = require("nupp.vm.persist")
+local bytes = persist.saveData({version = 1, score = 42})
+local restored = persist.loadData(bytes)
+assert(restored.score == 42)
+```
+
+These operations preserve aliases, cycles and object keys. Structural records
+restore as ordinary tables without attaching destination record methods or
+hooks. Nominal records, metatables, callable values and resources are rejected.
+Applications supply their own format version, schema migration and validation.
+
 Nupp callers can supply explicit policies for durable shape names, transient
 fields and before-save/after-load hooks:
 
@@ -607,9 +622,12 @@ shape hooks are supplied by the embedding host. `load_into` preserves an existin
 Shape fields/types must match; typed fields are checked throughout the graph.
 Transient typed fields require an after-load initializer. Hooks run after all
 references are resolved; hook errors can leave an in-place target modified.
-Selecting/excluding roots is the caller's responsibility. Tecs lifecycle,
-selection and skipped-value reporting remain future work; the current Tecs
-snapshot path uses LuaJIT FFI storage and needs that storage migration first.
+Selecting/excluding roots is the caller's responsibility. The licensed Tecs
+integration now uses runtime storage and data persistence for world save/load,
+including its existing selection and lifecycle hooks. See
+[tecs-storage-coverage.json](tests/tecs-storage-coverage.json) for the original
+world tests and 10,000-entity benchmark acceptance. Whole-game replacement,
+provider restoration and the complete snapshot-policy API remain separate.
 
 `save_vm` takes an embedding safepoint, outside active VM/native calls. It saves
 module globals, constant pools, shape methods, registered/scoped roots, every
@@ -1336,9 +1354,25 @@ corpus acceptance gate remains open.
 
 ## Root CLI
 
-Select the complete CLI image through the launcher; child compiler processes
-inherit the same runtime and image. The default launcher still uses the existing
-bootstrap.
+Install a complete CLI image and runtime to make the repository launcher use
+the VM by default. Child compiler processes inherit that exact installation.
+
+```bash
+./scripts/vm-cli install --runtime build/rust/target/release/nupp-vm \
+  --image /absolute/path/root.image
+./bin/nupp check --json
+./scripts/vm-cli status
+```
+
+Installation verifies the image and its root help command, then atomically
+selects an immutable generation under `.nupp/vm-cli`. Existing workers retain
+their generation when another is installed, and `nupp clean` preserves the
+installation. Source edits require explicitly rebuilding and installing a new
+image; `status` reports source changes and verifies the artifact hashes. A
+checkout without an installation uses the existing bootstrap. Release and
+bootstrap distribution remain open.
+
+An explicit image overrides the installed generation for one invocation:
 
 ```sh
 NO_JIT=1 NUPP_VM_CLI_IMAGE=/absolute/path/root.image \
@@ -1357,7 +1391,10 @@ The image carries the configured compiler resources, templates, and bundled
 library declarations. Source loading and source environments run interpreted.
 
 The acceptance driver derives its command inventory from the CLI registry;
-all 100 cases across 26 commands pass in [the recorded run](tests/root-cli-coverage.json).
+all 100 cases across 26 commands pass. See
+[root-cli-coverage.json](tests/root-cli-coverage.json) for the original command
+coverage and [launcher-package-coverage.json](tests/launcher-package-coverage.json)
+for default installation, worker inheritance and repository-check evidence.
 It exercises checking and cache reuse, builds, execution, tasks, tests,
 benchmarks, bytecode inspection, Markdown documentation, C import/export,
 templates, package installation, LSP sessions, generator workers, comptime
@@ -1758,7 +1795,7 @@ The synthetic fixture checks transactions on 10,000 two-field entity records
 and measures full checkpoint capture. Its timing report records background-load
 limits; it is not the Tecs snapshot benchmark. Self-capture/self-replacement,
 resource restoration policies, direct host event rebinding, incremental history,
-and the default launcher integration remain separate work.
+and launcher supervision remain separate work.
 
 Capture and result bytes use ordinary uninterned strings. String equality,
 table-key lookup, persistence, and collection preserve their normal behavior;

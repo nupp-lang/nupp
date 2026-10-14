@@ -6,6 +6,62 @@ use nupp_vm::{
 };
 
 #[test]
+fn shallow_clone_preserves_raw_entries_aliases_and_metatable() {
+    for record in [false, true] {
+        let mut vm = Interp::new();
+        vm.install_globals();
+        vm.heap.stress = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let field = vm.intern("nested");
+        let field_root = vm.register(field);
+        let source = if record {
+            let shape = vm.heap.shape("struct:nested", &[field], &[SlotTy::Any]);
+            vm.new_record(shape)
+        } else { vm.new_table() };
+        let source_root = vm.register(source);
+        let nested = vm.new_table();
+        vm.set_index(source, field, nested);
+        vm.set_index(source, Value::num(1.0), Value::num(7.0));
+        let extra = vm.intern("extra");
+        vm.set_index(source, extra, nested);
+        let meta = vm.new_table();
+        vm.set_metatable(source, meta);
+        let index = vm.intern("__index");
+        vm.set_index(meta, index, nested);
+        let missing = vm.intern("inherited");
+        vm.set_index(nested, missing, Value::TRUE);
+        let copy = call(&mut vm, id_of("table.clone").unwrap(), &[source])[0];
+        let copy_root = vm.register(copy);
+        call(&mut vm, id_of("collectgarbage").unwrap(), &[]);
+        assert_ne!(source, copy);
+        assert_eq!(vm.get_index(copy, field), nested);
+        assert_eq!(vm.get_index(copy, extra), nested);
+        assert_eq!(vm.metatable_of(copy), meta);
+        assert_eq!(vm.index(copy, missing), Value::TRUE);
+        assert_eq!(vm.get_index(copy, missing), Value::NIL, "inherited keys are not copied");
+        vm.set_index(copy, Value::num(1.0), Value::num(9.0));
+        assert_eq!(vm.get_index(source, Value::num(1.0)), Value::num(7.0));
+        call(&mut vm, id_of("table.clear").unwrap(), &[copy]);
+        assert!(vm.table_keys(copy).is_empty());
+        assert_eq!(vm.metatable_of(copy), meta);
+        assert_eq!(vm.get_index(source, field), nested);
+        let protected = vm.intern("__metatable");
+        vm.set_index(meta, protected, Value::FALSE);
+        let hidden = call(&mut vm, id_of("table.clone").unwrap(), &[source])[0];
+        assert_eq!(vm.metatable_of(hidden), Value::NIL);
+        vm.set_metatable(source, Value::NIL);
+        let plain = call(&mut vm, id_of("table.clone").unwrap(), &[source])[0];
+        assert_eq!(vm.metatable_of(plain), Value::NIL);
+        assert_eq!(vm.get_index(plain, field), nested,
+            "plain clone works after __metatable has been interned");
+        vm.release(copy_root);
+        vm.release(source_root);
+        vm.release(field_root);
+    }
+}
+
+#[test]
 fn string_capture_results_survive_later_capture_allocations() {
     for operation in ["string.find", "string.match", "string.gmatch"] {
         let mut vm = Interp::new();
@@ -85,6 +141,41 @@ Ret 1
 end
 entry 0
 "#;
+
+#[test]
+fn shaped_tables_call_their_explicit_metatable() {
+    let program = r#"
+shape 0 struct:value value:any
+function invoke 0 2 8 1 vv:v
+Move 3 2
+CallDyn 1 2 1
+Ret 2
+end
+function handler 1 2 4 1 vv:v
+Ret 2
+end
+entry 0
+"#;
+    for threaded in [false, true] {
+        let mut vm = Interp::new();
+        nupp_vm::image::load(&mut vm, program).unwrap();
+        vm.install_globals();
+        if threaded { vm.prepare_threaded(); }
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let object = vm.new_record(0);
+        vm.register(object);
+        let meta = vm.new_table();
+        vm.set_metatable(object, meta);
+        let key = vm.intern("__call");
+        vm.set_index(meta, key, Value::func(1));
+        assert_eq!(vm.call_value(object, &[Value::num(41.0)]), vec![Value::num(41.0)]);
+        assert_eq!(vm.call_value(Value::func(0), &[object, Value::num(42.0)]), vec![Value::num(42.0)]);
+        vm.full_cycle();
+        vm.check_oracle();
+    }
+}
 
 #[test]
 fn sparse_numeric_keys_move_into_the_array_once() {
@@ -350,4 +441,43 @@ fn compiled_slot_guards_and_field_caches_observe_metatable_changes() {
         );
     }
     compiled::CTX.store(std::ptr::null_mut(), Ordering::Relaxed);
+}
+
+#[test]
+fn shaped_tables_keep_sparse_numeric_keys_and_promote_contiguous_entries() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let shape = vm.heap.shape("struct:sparse", &[], &[]);
+    let table = vm.new_record(shape);
+    let root = vm.register(table);
+    let child = vm.new_table();
+    vm.set_index(table, Value::num(3.0), child);
+    for key in [0.0, -2.0, 1.5] {
+        vm.set_index(table, Value::num(key), Value::num(key + 10.0));
+        assert_eq!(vm.get_index(table, Value::num(key)), Value::num(key + 10.0));
+    }
+    call(&mut vm, id_of("collectgarbage").unwrap(), &[]);
+    assert_eq!(vm.get_index(table, Value::num(3.0)), child);
+    vm.set_index(table, Value::num(1.0), Value::TRUE);
+    vm.set_index(table, Value::num(2.0), Value::FALSE);
+    assert_eq!(vm.array_len(table), 3);
+    assert_eq!(vm.get_index(table, Value::num(3.0)), child);
+    assert_eq!(vm.table_keys(table).iter().filter(|&&k| k == Value::num(3.0)).count(), 1);
+    vm.set_index(table, Value::num(3.0), Value::NIL);
+    assert_eq!(vm.array_len(table), 2);
+    vm.set_index(table, Value::num(5.0), child);
+    let saved = nupp_vm::persist::save_plain(&mut vm, table).unwrap();
+    let restored = nupp_vm::persist::load_plain(&mut vm, &saved).unwrap();
+    let restored_root = vm.register(restored);
+    assert_ne!(vm.get_index(restored, Value::num(5.0)), Value::NIL);
+    assert_eq!(vm.get_index(restored, Value::num(1.5)), Value::num(11.5));
+    let clone = call(&mut vm, id_of("table.clone").unwrap(), &[table])[0];
+    assert_eq!(vm.get_index(clone, Value::num(5.0)), child);
+    call(&mut vm, id_of("table.clear").unwrap(), &[table]);
+    assert!(vm.table_keys(table).is_empty());
+    vm.release(restored_root);
+    vm.release(root);
 }

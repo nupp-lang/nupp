@@ -1,0 +1,102 @@
+module tecs.internal.assetnative
+
+local foreign: any = _G.require("nupp.vm.foreign")
+local storage: any = assert(require("nupp.mem.representation").storage)
+local nativelibrary = require("tecs.internal.nativelibrary")
+local native: any = nil
+
+local function bindings(): any
+    if native ~= nil then
+        return native
+    end
+    local library = nativelibrary.resolve("tecs_assets", "TECS_ASSETS_LIBRARY")
+    local readonly = {kind = "pointer", readonly = true}
+    local pending: {any} = {}
+
+    local function bind(path: string?, name: string, result: any, params: {any}): any
+        local value = foreign.bind(path, name, {result = result, params = params})
+        pending[#pending + 1] = value
+        return value
+    end
+
+    local ok, value = pcall(function(): any
+        return {
+            load = bind(library, "tecsAssetLoad", "pointer", {
+                readonly,
+                "uint64",
+                "uint32",
+                "uint32"
+            }),
+            error = bind(library, "tecsAssetError", "pointer", {}),
+            data = bind(library, "tecsAssetData", "pointer", {
+                readonly
+            }),
+            length = bind(library, "tecsAssetLength", "uint64", {readonly}),
+            width = bind(library, "tecsAssetWidth", "uint32", {readonly}),
+            height = bind(library, "tecsAssetHeight", "uint32", {readonly}),
+            destroy = bind(library, "tecsAssetDestroy", "void", {"pointer"}),
+            copy = bind(nil, "memcpy", "void", {"pointer", readonly, "uint64"}),
+            strlen = bind(nil, "strlen", "uint64", {readonly})
+        }
+    end)
+    if not ok then
+        for _, handle in ipairs(pending) do
+            foreign.close(handle)
+        end
+        error(value, 0)
+    end
+    native = value
+
+    return value
+end
+
+local function readBytes(api: any, pointer: any, count: uint64): string
+    if count > 268435456ULL then
+        error("Tecs asset result exceeds 256 MiB", 2)
+    end
+    local size = tonumber(count) as integer
+    if size == 0 then
+        return ""
+    end
+    if pointer == nil then
+        error("Tecs asset returned a null data pointer", 2)
+    end
+    local bytes = storage.allocateBytes(size)
+    api.copy(bytes, pointer, count)
+
+    return storage.string(bytes, size) as string
+end
+
+export function load(path: string, kind: integer, transparent: {integer}?): string, integer, integer
+    local api = bindings()
+    local color = transparent and (16777216 + transparent[1] * 65536 + transparent[2] * 256 + transparent[3]) or 0
+    local result = api.load(path, #path as uint64, kind as uint32, color as uint32)
+    if result == nil then
+        local pointer = api.error()
+        local ok, message = pcall(function(): string
+            return pointer == nil and "unknown native failure" or readBytes(api, pointer, api.strlen(pointer) as uint64)
+        end)
+        foreign.close(pointer)
+        if not ok then
+            error(message, 0)
+        end
+        error("Tecs asset load: " .. message, 2)
+    end
+    local pointer: any = nil
+    local ok, bytes, width, height = pcall(function(): string, integer, integer
+        pointer = api.data(result)
+        return readBytes(
+            api,
+            pointer,
+            api.length(result) as uint64
+        ), api.width(result) as integer, api.height(result) as integer
+    end)
+    api.destroy(result)
+    foreign.close(pointer)
+    foreign.close(result)
+    if not ok then
+        error(bytes, 0)
+    end
+
+    return bytes as string, width as integer, height as integer
+end

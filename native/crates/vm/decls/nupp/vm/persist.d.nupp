@@ -8,7 +8,12 @@ type Policy = {
     afterLoad: (function(value: any): nil)?
 }
 
+-- Data graphs permit scalar values and structural tables, including aliases/cycles.
+-- Structural record tables restore as ordinary tables across program images.
+-- Nominal record identity, callable values, and external resources are rejected.
 local record Persistence
+    saveData: function(value: any): string
+    loadData: function(bytes: string): any
     save: function(value: any, policies: {Policy}?): string
     load: function(bytes: string, shape: string?, policies: {Policy}?): any
     loadInto: function(bytes: string, target: any, policies: {Policy}?): any

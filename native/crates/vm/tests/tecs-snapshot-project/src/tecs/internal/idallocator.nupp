@@ -1,0 +1,420 @@
+module tecs.internal.idallocator
+
+--[[
+Packed entity identity allocation over geometrically grown native slot storage.
+
+An id combines a 22-bit slot with a 31-bit generation and therefore remains
+exact in a Lua number. Slot zero is reserved as the null entity. Recycled slots
+come from a LIFO stack, while contiguous ranges deliberately use only the fresh
+suffix.
+
+World code uses placement operations instead of retaining references across
+growth. Bulk transaction stamps share the slot array.
+]]
+
+local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+
+local SLOT_BITS: integer = 22
+local GEN_BITS: integer = 31
+local SLOT_COUNT: integer = 4194304
+local GEN_COUNT: integer = 2147483648
+local ABSOLUTE_MAX_SLOT_COUNT: integer = SLOT_COUNT - 1
+local DEFAULT_MAX_SLOT_COUNT: integer = 1048576
+
+local struct EntitySlot
+    generation: integer
+    archetypeId: integer
+    row: integer
+    spawnBatch: integer
+    mutationBatch: integer
+    flatSpawn: integer
+    flatMove: integer
+end
+
+local struct FreeSlot
+    slot: integer
+end
+
+--- An allocator for packed entity identities and their current placement.
+export record IdAllocator
+    @private slots: EntitySlot[?]
+    @private capacity: integer
+    @private highWater: integer
+    @private freeStack: FreeSlot[?]
+    maxSlotCount: integer
+    nextFreshSlot: integer
+    freeCount: integer
+    maxGeneration: integer
+end
+
+local function slotEntry(exclusive allocator: IdAllocator, slot: integer): EntitySlot borrows (allocator)
+    if slot < 1 or slot > allocator.maxSlotCount or slot % 1 ~= 0 then
+        error("idallocator: slot is out of range", 3)
+    end
+    if slot > allocator.capacity then
+        const capacity = math.min(allocator.maxSlotCount, math.max(slot, allocator.capacity * 2))
+        const fresh = carray(EntitySlot, capacity + 1)
+        const free = carray(FreeSlot, capacity + 1)
+        @unsafe do
+            nativeStorage.copy(fresh, allocator.slots, (allocator.capacity + 1) * nativeStorage.layout(EntitySlot).size)
+            nativeStorage.copy(
+                free,
+                allocator.freeStack,
+                (allocator.freeCount + 1) * nativeStorage.layout(FreeSlot).size
+            )
+        end
+        allocator.slots = fresh
+        allocator.freeStack = free
+        allocator.capacity = capacity
+    end
+    allocator.highWater = math.max(allocator.highWater, slot)
+    @unsafe do
+        return allocator.slots[slot]
+    end
+end
+
+--- Reserves a native slot prefix without constructing per-entity records.
+export function reserveSlots(exclusive allocator: IdAllocator, last: integer): nil
+    slotEntry(allocator, last)
+end
+
+--- Records a compact spawn descriptor on a reserved slot.
+export function stampSpawn(exclusive allocator: IdAllocator, slot: integer, batch: integer): nil
+    slotEntry(allocator, slot).spawnBatch = batch
+end
+
+--- Records the offset of a flat pending spawn, or zero after publication.
+export function stampFlatSpawn(exclusive allocator: IdAllocator, slot: integer, offset: integer): nil
+    slotEntry(allocator, slot).flatSpawn = offset
+end
+
+--- Returns the flat pending-spawn offset without allocating a slot wrapper.
+export function flatSpawnAt(borrows allocator: IdAllocator, slot: integer): integer
+    if slot < 1 or slot > allocator.highWater then
+        return 0
+    end
+    @unsafe do
+        return allocator.slots[slot].flatSpawn
+    end
+end
+
+--- Records the offset of the latest flat scalar mutation.
+export function stampFlatMove(exclusive allocator: IdAllocator, slot: integer, offset: integer): nil
+    slotEntry(allocator, slot).flatMove = offset
+end
+
+--- Returns the latest flat scalar mutation, or zero.
+export function flatMoveAt(borrows allocator: IdAllocator, slot: integer): integer
+    if slot < 1 or slot > allocator.highWater then
+        return 0
+    end
+    @unsafe do
+        return allocator.slots[slot].flatMove
+    end
+end
+
+--- Returns the pending spawn descriptor, or zero.
+export function spawnBatchAt(borrows allocator: IdAllocator, slot: integer): integer
+    if slot < 1 or slot > allocator.highWater then
+        return 0
+    end
+    @unsafe do
+        return allocator.slots[slot].spawnBatch
+    end
+end
+
+--- Records the latest bulk mutation descriptor on a slot.
+export function stampMutation(exclusive allocator: IdAllocator, slot: integer, batch: integer): nil
+    slotEntry(allocator, slot).mutationBatch = batch
+end
+
+--- Returns the latest bulk mutation descriptor, or zero.
+export function mutationBatchAt(borrows allocator: IdAllocator, slot: integer): integer
+    if slot < 1 or slot > allocator.highWater then
+        return 0
+    end
+    @unsafe do
+        return allocator.slots[slot].mutationBatch
+    end
+end
+
+--- Clears transient stamps after a successful or interrupted publication.
+export function clearStamps(exclusive allocator: IdAllocator): nil
+    @unsafe do
+        for slot = 1, allocator.highWater do
+            allocator.slots[slot].spawnBatch = 0
+            allocator.slots[slot].mutationBatch = 0
+            allocator.slots[slot].flatSpawn = 0
+            allocator.slots[slot].flatMove = 0
+        end
+    end
+end
+
+--- Reports the number of bits in an encoded slot.
+export const slotBits: integer = SLOT_BITS
+
+--- Reports the number of bits in an encoded generation.
+export const generationBits: integer = GEN_BITS
+
+--- Reports the number of values in the encoded slot field, including zero.
+export const slotCount: integer = SLOT_COUNT
+
+--- Reports the number of values in the encoded generation field.
+export const generationCount: integer = GEN_COUNT
+
+--- Reports the greatest usable slot count.
+export const absoluteMaxSlotCount: integer = ABSOLUTE_MAX_SLOT_COUNT
+
+--- Reports the default slot capacity.
+export const defaultMaxSlotCount: integer = DEFAULT_MAX_SLOT_COUNT
+
+--- Packs a slot and generation into an exact numeric entity id.
+export function encodeId(slot: integer, generation: integer): integer
+    return slot + generation * SLOT_COUNT
+end
+
+--- Extracts the slot from a packed entity id.
+export function slotOf(id: integer): integer
+    return (id % SLOT_COUNT) as integer
+end
+
+--- Extracts the generation from a packed entity id.
+export function generationPartOf(id: integer): integer
+    return (id // SLOT_COUNT) as integer
+end
+
+--- Extracts the generation when the slot was already decoded.
+export function generationOfWithSlot(id: integer, slot: integer): integer
+    return ((id - slot) // SLOT_COUNT) as integer
+end
+
+--- Creates an allocator with fixed logical capacity and geometrically grown native
+--- storage.
+export function new(maxSlotCount: integer?): IdAllocator
+    local count: integer = maxSlotCount or DEFAULT_MAX_SLOT_COUNT
+    if count < 1 or count % 1 ~= 0 then
+        error("idallocator.new: maxSlotCount must be a positive integer, got " .. tostring(count), 2)
+    end
+    if count > ABSOLUTE_MAX_SLOT_COUNT then
+        error(
+            "idallocator.new: maxSlotCount " .. tostring(
+                count
+            ) .. " exceeds format limit " .. tostring(ABSOLUTE_MAX_SLOT_COUNT),
+            2
+        )
+    end
+
+    return new IdAllocator(
+        slots = carray(EntitySlot, math.min(count, 64) + 1),
+        capacity = math.min(count, 64),
+        highWater = 0,
+        freeStack = carray(FreeSlot, math.min(count, 64) + 1),
+        maxSlotCount = count,
+        nextFreshSlot = 1,
+        freeCount = 0,
+        maxGeneration = 0
+    )
+end
+
+--- Allocates one slot, preferring the most recently freed slot.
+export function allocSlot(exclusive allocator: IdAllocator): integer
+    local freeCount = allocator.freeCount
+    if freeCount > 0 then
+        allocator.freeCount = freeCount - 1
+        @unsafe do
+            return allocator.freeStack[freeCount].slot
+        end
+    end
+    local slot = allocator.nextFreshSlot
+    if slot > allocator.maxSlotCount then
+        error("entity ID exhaustion: maxSlotCount (" .. tostring(allocator.maxSlotCount) .. ") reached", 2)
+    end
+    allocator.nextFreshSlot = slot + 1
+
+    return slot
+end
+
+--- Allocates a contiguous range from the never-used suffix.
+export function allocContiguousSlots(exclusive allocator: IdAllocator, count: integer): integer
+    if count < 1 then
+        error("idallocator.allocContiguousSlots: count must be a positive integer, got " .. tostring(count), 2)
+    end
+    local firstSlot = allocator.nextFreshSlot
+    local newNext = firstSlot + count
+    if newNext > allocator.maxSlotCount + 1 then
+        error("entity slot exhaustion: maxSlotCount (" .. tostring(allocator.maxSlotCount) .. ") reached", 2)
+    end
+    allocator.nextFreshSlot = newNext
+
+    return firstSlot
+end
+
+--- Records where a live slot currently resides.
+export function place(exclusive allocator: IdAllocator, slot: integer, archetypeId: integer, row: integer): nil
+    if slot < 1 or slot > allocator.maxSlotCount then
+        error("idallocator.place: slot is out of range", 2)
+    end
+    if archetypeId < 1 then
+        error("idallocator.place: archetypeId must be positive", 2)
+    end
+    if row < 0 then
+        error("idallocator.place: row must be nonnegative", 2)
+    end
+    local entry = slotEntry(allocator, slot)
+    entry.archetypeId = archetypeId
+    entry.row = row
+end
+
+--- Returns a slot's archetype and row, or zero values when it is dead.
+export function placement(borrows allocator: IdAllocator, slot: integer): integer, integer
+    if slot < 1 or slot > allocator.maxSlotCount then
+        return 0, 0
+    end
+    if slot > allocator.highWater then
+        return 0, 0
+    end
+    @unsafe do
+        return allocator.slots[slot].archetypeId, allocator.slots[slot].row
+    end
+end
+
+--- Returns a slot's current generation, or zero outside the allocator.
+export function generationAt(borrows allocator: IdAllocator, slot: integer): integer
+    if slot < 1 or slot > allocator.maxSlotCount then
+        return 0
+    end
+    if slot > allocator.highWater then
+        return 0
+    end
+    @unsafe do
+        return allocator.slots[slot].generation
+    end
+end
+
+--- Reports whether a packed id's generation no longer matches its slot.
+export function isStale(borrows allocator: IdAllocator, id: integer): boolean
+    local slot = slotOf(id)
+    if slot < 1 or slot > allocator.maxSlotCount then
+        return true
+    end
+
+    return slot > allocator.highWater or generationPartOf(id) ~= generationAt(allocator, slot)
+end
+
+--- Frees a live slot, advances its generation, and makes it recyclable.
+export function freeSlot(exclusive allocator: IdAllocator, slot: integer): nil
+    local entry = slotEntry(allocator, slot)
+    entry.archetypeId = 0
+    entry.spawnBatch = 0
+    entry.mutationBatch = 0
+    entry.flatSpawn = 0
+    entry.flatMove = 0
+    local generation = entry.generation + 1
+    if generation == GEN_COUNT then
+        generation = 0
+    end
+    entry.generation = generation
+    if generation > allocator.maxGeneration then
+        allocator.maxGeneration = generation
+    end
+    local freeCount = allocator.freeCount
+    @unsafe do
+        allocator.freeStack[freeCount + 1].slot = slot
+    end
+    allocator.freeCount = freeCount + 1
+end
+
+--- Rebuilds recycling state from dead slots below the fresh watermark.
+--- @param allocator The allocator whose unused slots become recyclable.
+--- @param reserved The optional set of staged slots that must not be reissued.
+export function rebuildFreeStack(exclusive allocator: IdAllocator, reserved: {[integer]: boolean}?): nil
+    if allocator.nextFreshSlot > 1 then
+        reserveSlots(allocator, allocator.nextFreshSlot - 1)
+    end
+    local count: integer = 0
+    for slot = 1, allocator.nextFreshSlot - 1 do
+        if placement(allocator, slot) == 0
+            and spawnBatchAt(allocator, slot) == 0
+            and flatSpawnAt(allocator, slot) == 0
+            and (reserved == nil or not reserved[slot])
+        then
+            count = count + 1
+            @unsafe do
+                allocator.freeStack[count].slot = slot
+            end
+        end
+    end
+    allocator.freeCount = count
+end
+
+--- Removes a staked slot from the recycle stack when present.
+export function unfree(exclusive allocator: IdAllocator, slot: integer): nil
+    local count = allocator.freeCount
+    local found: integer? = nil
+    @unsafe do
+        for index = 1, count do
+            if allocator.freeStack[index].slot == slot then
+                found = index
+                break
+            end
+        end
+    end
+    if found ~= nil then
+        @unsafe do
+            allocator.freeStack[found].slot = allocator.freeStack[count].slot
+        end
+        allocator.freeCount = count - 1
+    end
+end
+
+--- Reserves the exact slot and generation carried by an externally supplied id.
+--- Snapshot restoration leaves the slot dead until `place` assigns it.
+export function stakeId(exclusive allocator: IdAllocator, id: integer): integer
+    if id < 1 or id > 9007199254740991 or id % 1 ~= 0 then
+        error("idallocator.stakeId: invalid packed entity id", 2)
+    end
+    local slot = slotOf(id)
+    if slot < 1 or slot > allocator.maxSlotCount then
+        error(
+            "idallocator.stakeId: id " .. tostring(
+                id
+            ) .. " decodes to slot " .. tostring(slot) .. " outside [1, " .. tostring(allocator.maxSlotCount) .. "]",
+            2
+        )
+    end
+    if slot >= allocator.nextFreshSlot then
+        allocator.nextFreshSlot = slot + 1
+    elseif allocator.freeCount > 0 then
+        unfree(allocator, slot)
+    end
+    local generation = generationPartOf(id)
+    slotEntry(allocator, slot).generation = generation
+    if generation > allocator.maxGeneration then
+        allocator.maxGeneration = generation
+    end
+
+    return slot
+end
+
+--- Invalidates every used slot and returns the allocator to its fresh state.
+export function reset(exclusive allocator: IdAllocator): nil
+    local newGeneration = allocator.maxGeneration + 1
+    if newGeneration >= GEN_COUNT then
+        newGeneration = 0
+    end
+    @unsafe do
+        for slot = 1, allocator.highWater do
+            const entry = allocator.slots[slot]
+            entry.generation = newGeneration
+            entry.archetypeId = 0
+            entry.row = 0
+            entry.spawnBatch = 0
+            entry.mutationBatch = 0
+            entry.flatSpawn = 0
+            entry.flatMove = 0
+        end
+    end
+    allocator.maxGeneration = newGeneration
+    allocator.nextFreshSlot = 1
+    allocator.freeCount = 0
+end

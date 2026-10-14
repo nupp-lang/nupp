@@ -1,0 +1,97 @@
+{
+  "repository": "/Users/dowling/projects/tecs",
+  "commit": "87bd7da2873f7b7267752e5af3a8dfb8648785bb",
+  "originalCheckoutModified": false,
+  "license": "MIT, Copyright (c) 2026 Michael Dowling; LICENSE-MIT copied from original checkout",
+  "scope": "Actual Tecs source integration overlay; 10000-entity three-archetype runtime-persistence workload and all nine original world tests accepted across four execution tiers",
+  "files": [
+    {
+      "path": "bench/nupp/tecs/bench/programs/snapshot.nupp",
+      "adaptedSha256": "6aa1fc5295b90205260d012a2f806a3f8945656e56f52b09d1d496964684de8d",
+      "originalSha256": "6f27157632d599cc9b0aae8b360afca6dbe6bafc5f2858e14c24cf6b6755aec5"
+    },
+    {
+      "path": "src/nupp/spi/index.nupp",
+      "adaptedSha256": "8405216ab8b177278eb9a1e4ee7135f9b8f24392e8a419ff4ca55c66313e7d9a"
+    },
+    {
+      "path": "src/tecs/internal/archetype.nupp",
+      "adaptedSha256": "a69d2cd9bd63860f48fe2f644eaa431fa9e20eec9f428ceba429c83194026167",
+      "originalSha256": "952a42ae27a0e6caf6c66b3ec047a502121d09bd0f1f1cd7568e9a78303a4a18"
+    },
+    {
+      "path": "src/tecs/internal/assetnative.nupp",
+      "adaptedSha256": "c0ac9b1371376a6a4fa101efe22139e18994cb2285b687c95c627fe9b080e1f9",
+      "originalSha256": "290dbcc7028f0196497794b918a571c20fe8888e11eb38fc53c0b2c315490110"
+    },
+    {
+      "path": "src/tecs/internal/components.nupp",
+      "adaptedSha256": "25849565781c4f6b493f93a7dbf4278f0833d5e6dc3464858f96950dad426683",
+      "originalSha256": "32eeb3a47b2c5da99bebf8c1c2a8b7043c45adbc697e3d5b120e6c56cbbd5aff"
+    },
+    {
+      "path": "src/tecs/internal/entitycolumn.nupp",
+      "adaptedSha256": "a3cad9125e784a7d40f7e3669a0029f99c1cdb8604bcd1e2c5ec486a2972b9f7",
+      "originalSha256": "b3ec3cec1bf2efb85d37d8f9dfab2b7dc75f7d697def67db518a5141753ea2bf"
+    },
+    {
+      "path": "src/tecs/internal/ffistorage.nupp",
+      "adaptedSha256": "cd5bd142fba6292461930dea325430557e2c90df5b81997cf03c9ee5223eed42",
+      "originalSha256": "b0ad89eb2fc6b78482589d3a21c48a41028fa078ec14b2e9b3fbaee4941082b2"
+    },
+    {
+      "path": "src/tecs/internal/idallocator.nupp",
+      "adaptedSha256": "5d7bd736234e6b89e3dfa9aa2ca41019a1a2ddbd558efc4c2e39a7270bd1ad7f",
+      "originalSha256": "3fcf317403abf80403f8d10664195f419dcdf4ff5c5882545362de6e98742f64"
+    },
+    {
+      "path": "src/tecs/internal/nativelibrary.nupp",
+      "adaptedSha256": "3b7613add8a88605801e250d0b1ff17cb1fa4dfa0b46863ebe34893fdd66d5fd",
+      "originalSha256": "5417371533ce68c2b8334665873a4615534876fcf52fbc3ae030c976117bb607"
+    },
+    {
+      "path": "src/tecs/internal/snapshotcodec.nupp",
+      "adaptedSha256": "2db50f0bdc53620857012258578b70f10504169ed3d5e56e599d9c6e6097a312",
+      "originalSha256": "12da941948e35590281dbf2485f9e1b0567bf85d002a7704ab74d14c4ea306b9"
+    },
+    {
+      "path": "src/tecs/internal/world.nupp",
+      "adaptedSha256": "f7b9e482dc5c724bc1f8d292e32350282a2a54692e9e9ba6fa705712ad81c34c",
+      "originalSha256": "baea5154b82bcf1fdda23a554d5d40991564a629a9a4e4fd52a80bb001d9084e"
+    },
+    {
+      "path": "src/tecs/tests/assets.nupp",
+      "adaptedSha256": "2fa19668313d1f234d6cc030503963df5b97323fe6077dffe728648a00bb2ed2"
+    },
+    {
+      "path": "src/tecs/tests/snapshot.nupp",
+      "adaptedSha256": "f30651353a1ba78f7a5f0df06870ec59b59ec8d2ed8a54f7a4002869d635f0e3"
+    },
+    {
+      "path": "src/tecs/tests/snapshotcodec.nupp",
+      "adaptedSha256": "fceafab273531fff5a65a904daa0227dccb744166c7ecd7bf05bd326dbfb9f7a"
+    },
+    {
+      "path": "src/tecs/tests/worldsnapshots.nupp",
+      "adaptedSha256": "d736316c98040aa4e20e7aa6bcd985d9962fe70fdd5833b12aa1d92a36be8f3c"
+    },
+    {
+      "path": "tests/tecs/snapshottest.nupp",
+      "adaptedSha256": "46c7486f4bb15a82f573511d3581214867ac97fc6cbaf524170bc122f8bf7621",
+      "originalSha256": "46c7486f4bb15a82f573511d3581214867ac97fc6cbaf524170bc122f8bf7621"
+    }
+  ],
+  "adaptations": [
+    "Decorate dynamic relationship edge values with validated integer targets before sorting, preserving the non-suspending comparator boundary.",
+    "Reuse accepted physical ffistorage and entitycolumn ports; use compiler canonical layouts for struct construction and identity allocator bulk copies.",
+    "Preserve world publication and snapshot APIs; substitute managed native ID arrays and portable public Buffer operations.",
+    "Replace original binary framing with a versioned data-only runtime persistence envelope; resolve component registrations by persisted names, validate target ABI/layout/bounds, and reconstruct owned columns through existing world allocation.",
+    "Resolve real asset libraries explicitly and bind their real functions lazily; copy returned bytes into managed storage and release native results.",
+    "Keep original three-archetype populate/save/load benchmark; add untimed value/membership/alias/repeat-restore assertions.",
+    "Copy all nine original snapshottest functions unchanged and invoke them through a small acceptance wrapper."
+  ],
+  "formatCompatibility": "Component names and public snapshot version remain unchanged; runtime envelope identifies its separate codec. Legacy byte framing is not claimed compatible.",
+  "patch": "integration.patch",
+  "patchApply": "git apply --unidiff-zero integration.patch in a copy of the recorded Tecs source",
+  "acceptance": "../tecs-storage-coverage.json"
+}

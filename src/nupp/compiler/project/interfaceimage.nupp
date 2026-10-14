@@ -1299,9 +1299,7 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
         end
         -- Every declaration is whole now, so the applications reserved while they
         -- were filled can be completed from them.
-        for _, application in ipairs(reserved) do
-            generics.instantiate(application.origin, application.map)
-        end
+        generics.completeInstantiations(reserved)
     end)
     if not ok then
         return nil, tostring(problem)

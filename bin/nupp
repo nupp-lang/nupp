@@ -1,9 +1,8 @@
 #!/bin/sh
 # The nupp launcher.
 #
-# Runs build/nupp/tools when it is there and no source is newer than it, and builds it
-# first when it is not, so an edit to the compiler is picked up by the next
-# command rather than by the next person who remembers to build.
+# Runs an explicitly selected or installed VM compiler snapshot first. Without
+# one, runs build/nupp/tools and rebuilds it when compiler sources change.
 #
 # What it cannot do is start from nothing. The compiler is written in Nupp, so
 # compiling it needs a Nupp compiler, and the one it starts from is the previous
@@ -11,6 +10,27 @@
 # pinned in the tree. Nothing here is committed, and nothing here is fetched
 # until a command finds no compiler to run -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# A verified local VM package is an installed compiler snapshot. Publish a new
+# snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
+# Pin the selected immutable generation in the environment before any child can
+# start, so replacing `current` cannot mix compiler generations in one command.
+if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
+    VM_GENERATION=$(cat "$ROOT/.nupp/vm-cli/current") || exit 1
+    case "$VM_GENERATION" in
+        ""|*[!0-9a-f]*) echo "nupp: invalid VM CLI package selection; run scripts/vm-cli install" >&2; exit 1 ;;
+    esac
+    VM_PACKAGE="$ROOT/.nupp/vm-cli/$VM_GENERATION"
+    if [ "${#VM_GENERATION}" -ne 64 ] || [ "$(cat "$VM_PACKAGE/format" 2>/dev/null)" != nupp-vm-cli-1 ]; then
+        echo "nupp: incomplete VM CLI package; run scripts/vm-cli install" >&2
+        exit 1
+    fi
+    NUPP_VM_CLI_IMAGE="$VM_PACKAGE/compiler.image"
+    NUPP_VM_BINARY="$VM_PACKAGE/runtime"
+    # The packaged CLI disables JIT; heap-frame cleanup uses Rust dispatch. AOT remains
+    # available when the supplied runtime contains it.
+    NO_JIT=1
+    export NUPP_VM_CLI_IMAGE NUPP_VM_BINARY NO_JIT
+fi
 # An explicitly selected VM image owns this whole invocation, including worker
 # commands launched by the compiler. Missing artifacts are a configuration error.
 if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
@@ -557,9 +577,24 @@ native_is_current() {
     [ -f "$NUPP_NATIVE_LIBRARY.codegen" ] || ! llvm_is_available
 }
 
-if [ "$needs_native" = yes ] && ! native_is_current; then
+# A worker serves the compiler that launched it, including that compiler's
+# provider. Rebuilding after an edit here can exceed its request deadline or
+# replace the library while the parent is using it.
+worker_native=no
+case "${1:-}" in
+    __comptime-worker|__comptime-worker-service|__generator-worker|__parallel-check-service|__lsp-reader)
+        if [ "${NUPP_LAUNCHER_NATIVE_ROOT:-}" = "$ROOT" ] \
+            && [ "${NUPP_LAUNCHER_NATIVE_LIBRARY:-}" = "$NUPP_NATIVE_LIBRARY" ] \
+            && [ -f "$NUPP_NATIVE_LIBRARY" ]; then
+            worker_native=yes
+        fi ;;
+esac
+if [ "$needs_native" = yes ] && [ "$worker_native" != yes ] && ! native_is_current; then
     build_native || exit 1
 fi
+NUPP_LAUNCHER_NATIVE_ROOT=$ROOT
+NUPP_LAUNCHER_NATIVE_LIBRARY=$NUPP_NATIVE_LIBRARY
+export NUPP_LAUNCHER_NATIVE_ROOT NUPP_LAUNCHER_NATIVE_LIBRARY
 
 if [ "$rebuild" = yes ] && ! built_is_current; then
     if ! build_now; then

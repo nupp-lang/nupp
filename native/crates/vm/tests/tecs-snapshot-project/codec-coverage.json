@@ -1,0 +1,397 @@
+{
+  "status": "passed",
+  "scope": "Runtime data persistence port of actual Tecs snapshotcodec and focused real archetype/component acceptance. Full public world tests and original benchmark are separate gates.",
+  "sourceSha256": {
+    "src/tecs/internal/snapshotcodec.nupp": "2db50f0bdc53620857012258578b70f10504169ed3d5e56e599d9c6e6097a312",
+    "src/tecs/tests/snapshotcodec.nupp": "fceafab273531fff5a65a904daa0227dccb744166c7ecd7bf05bd326dbfb9f7a"
+  },
+  "admission": "/private/tmp/nupp-tecs-codec-acceptance/results.json",
+  "execution": {
+    "scope": "Actual Tecs archetype/component snapshot codec, not full world benchmark",
+    "phases": [
+      {
+        "mode": "rust",
+        "executionRoute": "rust",
+        "exitCode": 0,
+        "command": [
+          "/private/tmp/nupp-tecs-integration/runtime-v12",
+          "run",
+          "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+          "tecs.tests.snapshotcodec",
+          "run"
+        ],
+        "output": "42"
+      },
+      {
+        "mode": "threaded",
+        "executionRoute": "threaded",
+        "exitCode": 0,
+        "command": [
+          "/private/tmp/nupp-tecs-integration/runtime-v12",
+          "run",
+          "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+          "tecs.tests.snapshotcodec",
+          "run"
+        ],
+        "output": "42"
+      },
+      {
+        "mode": "jit",
+        "executionRoute": "on-demand compiled heap frames",
+        "exitCode": 0,
+        "command": [
+          "/private/tmp/nupp-tecs-integration/runtime-v12",
+          "run",
+          "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+          "tecs.tests.snapshotcodec",
+          "run",
+          "--tasks"
+        ],
+        "output": "42",
+        "compiledCount": 806
+      },
+      {
+        "mode": "frames",
+        "executionRoute": "eager compiled heap frames",
+        "exitCode": 0,
+        "command": [
+          "/private/tmp/nupp-tecs-integration/runtime-v12",
+          "run",
+          "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+          "tecs.tests.snapshotcodec",
+          "run",
+          "--tasks"
+        ],
+        "output": "42",
+        "compiledCount": 806
+      }
+    ],
+    "status": "passed",
+    "sha256": {
+      "runtime": "0e54394bb140622e88cdd850a00c40b2da2dd801072a9d8a10ed384a9a9f0921",
+      "image": "35f3016f1a8bc1e7bf78959ff9920a770cc1b2ae975691cd8de9627d6ba5a84b"
+    }
+  },
+  "runtimeChecks": [
+    "GC_INTERLEAVE=1",
+    "GC_ORACLE=1",
+    "GC_QUARANTINE=1",
+    "JIT_VERIFY=1"
+  ],
+  "contracts": [
+    "Component names resolve against the current permanent registry; no registry or weak backing map is persisted.",
+    "Matching schemas reuse the current canonical Storage for bounded bulk publication copies.",
+    "Changed scalar/fixed-array schemas use distinct validated projection descriptors and existing component load hooks.",
+    "Runtime data-only persistence rejects executable/metatable/nominal-behavior graphs; the compiler internal cache codec remains separate.",
+    "The VM binary envelope has an explicit codec marker and exact target/ABI; it is not LuaJIT string.buffer wire compatibility.",
+    "Original world validates entity IDs, slots, counts, pipeline, state, and custom data before publication; this module does not replace that path."
+  ],
+  "regressions": [
+    "Native row save detachment",
+    "Component and Storage identity",
+    "Bounded bulk restore",
+    "Reordered/added fields and fixed-array projection through actual component snapshotLoad",
+    "Foreign target ABI",
+    "Malformed field offset",
+    "Truncated column bytes",
+    "Repeated and unknown component names",
+    "Mismatched counts",
+    "Unsupported bitfield modifier",
+    "Executable/metatable graph rejection"
+  ],
+  "limits": [
+    "Public world integration and original three-archetype benchmark are tracked separately.",
+    "Existing Tecs snapshotvalue clone policy still rejects cycles and copies shared tables independently. Runtime graph support does not change that policy.",
+    "No claim of LuaJIT version-one binary compatibility."
+  ],
+  "executionLogRoot": "/private/tmp/nupp-tecs-codec-final-v12",
+  "durableDataAcceptance": {
+    "status": "passed",
+    "log": "/private/tmp/nupp-tecs-integration/data-portable-tests.log",
+    "plainCodecTests": 3,
+    "persistenceTests": 21,
+    "contracts": [
+      "Structural record tables restore as ordinary tables in a fresh VM or one with conflicting declarations, preserving aliases, cycles, object keys, and absent fields.",
+      "Nominal records, metatables, native storage markers, callable values, and resources are rejected before restoring the public data graph.",
+      "Internal compiler cache plain codec behavior remains unchanged."
+    ]
+  },
+  "previousExecutions": [
+    {
+      "execution": {
+        "scope": "Actual Tecs archetype/component snapshot codec, not full world benchmark",
+        "phases": [
+          {
+            "mode": "rust",
+            "executionRoute": "rust",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v8",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "threaded",
+            "executionRoute": "threaded",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v8",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "jit",
+            "executionRoute": "on-demand compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v8",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          },
+          {
+            "mode": "frames",
+            "executionRoute": "eager compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v8",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          }
+        ],
+        "status": "passed",
+        "sha256": {
+          "runtime": "83c8c4928eb404325ca8af5f964db5c81954f8f56a6439d30720e909432bd3cb",
+          "image": "35f3016f1a8bc1e7bf78959ff9920a770cc1b2ae975691cd8de9627d6ba5a84b"
+        }
+      },
+      "executionLogRoot": "/private/tmp/nupp-tecs-codec-final-v8"
+    },
+    {
+      "execution": {
+        "scope": "Actual Tecs archetype/component snapshot codec, not full world benchmark",
+        "phases": [
+          {
+            "mode": "rust",
+            "executionRoute": "rust",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v9",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "threaded",
+            "executionRoute": "threaded",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v9",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "jit",
+            "executionRoute": "on-demand compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v9",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          },
+          {
+            "mode": "frames",
+            "executionRoute": "eager compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v9",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          }
+        ],
+        "status": "passed",
+        "sha256": {
+          "runtime": "61aa9778cafdb9a31fcfea92bc7d3cb1cca1a96f07cd83c22aa9af1d3905df48",
+          "image": "35f3016f1a8bc1e7bf78959ff9920a770cc1b2ae975691cd8de9627d6ba5a84b"
+        }
+      },
+      "executionLogRoot": "/private/tmp/nupp-tecs-codec-final-v9"
+    },
+    {
+      "execution": {
+        "scope": "Actual Tecs archetype/component snapshot codec, not full world benchmark",
+        "phases": [
+          {
+            "mode": "rust",
+            "executionRoute": "rust",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v10",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "threaded",
+            "executionRoute": "threaded",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v10",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "jit",
+            "executionRoute": "on-demand compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v10",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          },
+          {
+            "mode": "frames",
+            "executionRoute": "eager compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v10",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          }
+        ],
+        "status": "passed",
+        "sha256": {
+          "runtime": "c1795989726699561391fc7bcbd6ad0d71638da265e0d08ec5e679cfa25dc7d0",
+          "image": "35f3016f1a8bc1e7bf78959ff9920a770cc1b2ae975691cd8de9627d6ba5a84b"
+        }
+      },
+      "executionLogRoot": "/private/tmp/nupp-tecs-codec-final-v10"
+    },
+    {
+      "execution": {
+        "scope": "Actual Tecs archetype/component snapshot codec, not full world benchmark",
+        "phases": [
+          {
+            "mode": "rust",
+            "executionRoute": "rust",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v11",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "threaded",
+            "executionRoute": "threaded",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v11",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run"
+            ],
+            "output": "42"
+          },
+          {
+            "mode": "jit",
+            "executionRoute": "on-demand compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v11",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          },
+          {
+            "mode": "frames",
+            "executionRoute": "eager compiled heap frames",
+            "exitCode": 0,
+            "command": [
+              "/private/tmp/nupp-tecs-integration/runtime-v11",
+              "run",
+              "/private/tmp/nupp-tecs-codec-acceptance/snapshot.image",
+              "tecs.tests.snapshotcodec",
+              "run",
+              "--tasks"
+            ],
+            "output": "42",
+            "compiledCount": 806
+          }
+        ],
+        "status": "passed",
+        "sha256": {
+          "runtime": "859a954fd562b69c8ae5be485c4ac74313678c80f4d6fc0130629271b520a429",
+          "image": "35f3016f1a8bc1e7bf78959ff9920a770cc1b2ae975691cd8de9627d6ba5a84b"
+        }
+      },
+      "executionLogRoot": "/private/tmp/nupp-tecs-codec-final-v11"
+    }
+  ]
+}

@@ -23,14 +23,28 @@ parser.add_argument("--target", required=True, help="Explicit target for physica
 parser.add_argument("--timeout", type=int, default=600, help="Maximum seconds for full source graph admission")
 parser.add_argument("--patch", type=Path, action="append", default=[], help="Apply a recorded integration adaptation to the copied graph")
 parser.add_argument("--suite", action="store_true", help="Admit the complete original ffistoragetest source instead of the benchmark")
+parser.add_argument("--overlay", type=Path, help="Licensed integration source tree copied over the original graph")
+parser.add_argument("--entry", help="Override entry module (for an actual workload wrapper or focused integration test)")
+parser.add_argument("--extras", default="", help="Comma-separated dynamic modules to include")
+parser.add_argument("--reuse", action="store_true", help="Reuse this harness output project; retain prior attempt diagnostics")
 args = parser.parse_args()
 root = Path.cwd()
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 project = output / "project"
+previous = None
 if project.exists():
-    raise SystemExit(f"refusing to replace existing copied project: {project}")
-project.mkdir()
+    if not args.reuse or not (output / "results.json").is_file():
+        raise SystemExit(f"refusing to replace existing copied project: {project}; use --reuse for a previous harness run")
+    previous = json.loads((output / "results.json").read_text())
+    if previous["sourceRoot"] != str(args.tecs.resolve()):
+        raise SystemExit("cannot reuse a copied project from another source checkout")
+    # Only this harness's source copy is refreshed. The frozen project emitter
+    # deliberately disables compiler caches; reuse preserves paths and logs.
+    for path in project.rglob("*.nupp"):
+        path.unlink()
+else:
+    project.mkdir()
 for name in ("LICENSE-MIT", "LICENSE-APACHE"):
     license_file = args.tecs / name
     if license_file.is_file():
@@ -42,6 +56,9 @@ report = {
     "sourceRoot": str(args.tecs.resolve()),
     "sourceFiles": {},
     "phases": [],
+    "attempt": (previous.get("attempt", 1) + 1) if previous else 1,
+    "previousAttempts": (previous.get("previousAttempts", []) + [{key: previous.get(key) for key in
+        ("attempt", "status", "diagnostic", "phases", "sha256", "entry")}]) if previous else [],
 }
 
 def digest(path):
@@ -71,21 +88,31 @@ report["sourceHead"] = subprocess.run(
 report["layoutTarget"] = args.target
 report["adaptations"] = []
 for patch in args.patch:
-    result = subprocess.run(["git", "apply", str(patch.resolve())], cwd=project, capture_output=True, text=True)
+    result = subprocess.run(["git", "apply", "--unidiff-zero", str(patch.resolve())], cwd=project, capture_output=True, text=True)
     report["adaptations"].append({"patch": str(patch.resolve()), "sha256": digest(patch), "exitCode": result.returncode})
     if result.returncode:
         report.update(status="patch-failed", diagnostic=result.stderr)
         save()
         raise SystemExit(result.stderr)
-if args.patch:
+if args.overlay:
+    report["overlay"] = {"root": str(args.overlay.resolve()), "files": {}}
+    for path in sorted(args.overlay.rglob("*.nupp")):
+        relative = path.relative_to(args.overlay)
+        target = project / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        report["overlay"]["files"][str(relative)] = digest(path)
+if args.patch or args.overlay:
     report["adaptedSourceFiles"] = {str(path.relative_to(project)): digest(path) for path in sorted(project.rglob("*.nupp"))}
     report["scope"] = "Actual Tecs source graph with recorded integration adaptations; compile admission probe"
 report["sha256"] = {"seed": digest(args.seed), "runtime": digest(args.binary)}
 report["status"] = "emitting"
 save()
 command = [str(args.binary.resolve()), "run", str(args.seed.resolve()),
-           "nupp.tools.vm.project", "emit", str(project), "tecs.ffistoragetest" if args.suite else "tecs.bench.programs.snapshot"]
+           "nupp.tools.vm.project", "emit", str(project), args.entry or ("tecs.ffistoragetest" if args.suite else "tecs.bench.programs.snapshot")]
 report["entry"] = command[-1]
+if args.extras:
+    command.append(args.extras)
 env = dict(os.environ, NUPP_COMPILER_ROOT=str(root), NO_JIT="1")
 for key in ("NO_THREADED", "GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE",
             "NUPP_ALLOCATION_STATS", "JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
@@ -99,9 +126,10 @@ except subprocess.TimeoutExpired as error:
     stdout = stdout.decode(errors="replace") if isinstance(stdout, bytes) else stdout
     stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
     code = 124
-(output / "emit.stdout").write_text(stdout)
-(output / "emit.stderr").write_text(stderr)
-report["phases"].append({"name": "emit", "command": command, "exitCode": code})
+log = "emit-" + str(report["attempt"])
+(output / (log + ".stdout")).write_text(stdout)
+(output / (log + ".stderr")).write_text(stderr)
+report["phases"].append({"name": "emit", "command": command, "exitCode": code, "stdout": log + ".stdout", "stderr": log + ".stderr"})
 if code:
     report["status"] = "blocked"
     report["diagnostic"] = stderr

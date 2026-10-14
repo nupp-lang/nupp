@@ -100,9 +100,7 @@ end
 
 return {answer = answer}
 ]],
-        [
-            "src/qualified.nupp"
-        ] = [[
+        ["src/qualified.nupp"] = [[
 module qualified
 
 export function value(): number
@@ -160,7 +158,8 @@ return value
         local dependency = index == 1 and "join" or ("layer%02d"):format(index - 1)
         files[
             "src/" .. name .. ".nupp"
-        ] = ([[
+        ] = (
+            [[
 local dependency = require(%q)
 
 local function value(): number
@@ -168,7 +167,8 @@ local function value(): number
 end
 
 return {value = value}
-]]):format(dependency, index == 1 and "answer" or "value")
+]]
+        ):format(dependency, index == 1 and "answer" or "value")
     end
     if withErrors then
         files["src/broken_a.nupp"] = "local wrong: string = 1\nreturn wrong\n"
@@ -190,6 +190,29 @@ local function tempProject(withErrors)
 end
 
 local function checkState(directory)
+    -- Cache bytes and compiler stamps belong to the selected compiler host.
+    -- A VM package uses its plain-data codec rather than LuaJIT string.buffer.
+    if os.getenv("NUPP_VM_CLI_IMAGE") or fs.readFile(ROOT .. "/.nupp/vm-cli/current") then
+        local reader = directory .. "/read-check-state.lua"
+        write(
+            reader,
+            [[
+local cache = require("nupp.tools.build.cache")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local store = require("nupp.compiler.project.store")
+local stable = require("nupp.compiler.stable")
+local directory = assert(arg[1])
+local contentCache = fingerprint.sharedCacheDir(directory .. "/build/cache")
+local moduleHash = cache.moduleCompilerFingerprint(contentCache, fingerprint.contentDigest(true))
+local saved = store.openValue(directory .. "/build/cache/checks.buf", "checks/1\0" .. moduleHash).value
+assert(saved, "the check did not persist its state")
+print(stable(saved))
+]]
+        )
+        local code, output = process.capture({NUPP, "run", reader, directory}, {cwd = directory})
+        assert(code == 0, "cannot read selected compiler check state: " .. output)
+        return (output:gsub("\n$", ""))
+    end
     local contentCache = fingerprint.sharedCacheDir(directory .. "/build/cache")
     local moduleHash = cache.moduleCompilerFingerprint(contentCache, fingerprint.contentDigest(true))
     local saved = store.openValue(directory .. "/build/cache/checks.buf", "checks/1\0" .. moduleHash).value
@@ -226,10 +249,7 @@ end
 
 local function coldCheck(directory, environment)
     os.remove(directory .. "/build/cache/checks.buf")
-    local code, output = process.capture({NUPP, "check", "--json"}, {
-        cwd = directory,
-        env = environment,
-    })
+    local code, output = process.capture({NUPP, "check", "--json"}, {cwd = directory, env = environment,})
     local decoded, report = pcall(json.decode, output)
     assert(decoded, tostring(report) .. "\n" .. output)
 
@@ -239,9 +259,11 @@ end
 -- Every file a build wrote, by path relative to `build`, caches aside.
 local function buildOutputs(directory)
     local outputs = {}
-    local list = assert(io.popen(("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(
-        directory
-    )))
+    local list = assert(
+        io.popen(
+            ("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(directory)
+        )
+    )
     for path in list:lines() do
         local file = assert(io.open(directory .. "/build/" .. path, "rb"))
         outputs[path] = file:read("*a")
@@ -256,8 +278,10 @@ end
 -- have had: no build state and no artifact.
 local function coldBuild(directory, environment, extra)
     os.execute(
-        ("cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
-        .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"):format(directory)
+        (
+            "cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
+            .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"
+        ):format(directory)
     )
     local argv = {NUPP, "build", "--json"}
     for _, argument in ipairs(extra or {}) do
@@ -313,6 +337,101 @@ function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
     assert(require("nupp.io.files").remove(directory, true))
 end
 
+function M.documentedRaiseDependenciesFollowParsedAdjacentTags()
+    local parser = require("nupp.compiler.syntax.parser")
+    local header = require("nupp.compiler.project.header")
+    local moduleobject = require("nupp.tools.build.moduleobject")
+    local samples = {
+        {
+            [[export interface Reader
+ --- @raises documented.errors.Problem when invalid
+ read: function(self): string
+end]],
+            true
+        },
+        {[[--- @raises documented.errors.Problem when invalid
+export function read(): string return '' end]], true},
+        {
+            [[local record Reader
+ --- @raises documented.errors.Problem when invalid
+ function read(self): string return '' end
+end]],
+            true
+        },
+        {[[local record Reader
+ --- @raises documented.errors.Problem when invalid
+ constructor(self) end
+end]], true},
+        {[[--- @raises documented.errors.Problem when invalid
+local read: function(): string]], true},
+        {
+            [[--- ```text
+--- @raises documented.errors.Problem when invalid
+--- ```
+export function read(): string return '' end]],
+            false
+        },
+        {[[--- @raises documented.errors.Problem when invalid
+
+export function read(): string return '' end]], false},
+        {[[--- @raises documented..errors.Problem when invalid
+export function read(): string return '' end]], false},
+    }
+    samples[#samples + 1] = {"--- @raises documented.errors.Problem when invalid\ncdef function read(): int32", true,}
+    samples[
+        #samples + 1
+    ] = {"--- @raises documented.errors.Problem when invalid\nlocal read: function(): string, other: string", false,}
+    for at, sample in ipairs(samples) do
+        local parsed = parser.parse('module documented.api\n' .. sample[1] .. '\n', 'api.nupp')
+        assert(#parsed.errors == 0, 'parse ' .. at)
+        local index = {declaredModules = {['documented.errors'] = true, ['documented.api'] = true}}
+        local emitted = moduleobject.emit('api.nupp', parsed, header.of('api.nupp', 'documented.api', parsed), index)
+        assert(
+            (#emitted.dependencies == 1 and emitted.dependencies[1] == 'documented.errors') == sample[2],
+            at .. ':' .. table.concat(emitted.dependencies, ',')
+        )
+    end
+end
+
+function M.documentedRaiseTypesOrderTheirDeclaringModules()
+    local directory = os.tmpname()
+    os.remove(directory)
+    write(directory .. "/nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        directory .. "/src/documented/errors.nupp",
+        [[
+module documented.errors
+export record Problem
+    message: string
+end
+]]
+    )
+    write(
+        directory .. "/src/documented/api.nupp",
+        [[
+module documented.api
+export interface Reader
+    --- Reads the next value.
+    --- @raises documented.errors.Problem when the input is invalid
+    read: function(self): string
+end
+]]
+    )
+    local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
+    testAssert.equal(serialCode, 0, "serial documented type")
+    for _, seed in ipairs({"17", "83"}) do
+        local code, report, state = coldCheck(directory, {
+            NUPP_CHECK_JOBS = "2",
+            NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED = seed,
+        })
+        testAssert.equal(code, serialCode, "parallel documented type")
+        testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "documented type diagnostics")
+        testAssert.equal(state, serialState, "documented type records")
+        testAssert.equal(report.timing.parallel.mode, "parallel", "documentation contributes a dependency")
+    end
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
 -- Checking a module whose effects need a feature runtime stages that runtime's
 -- carried source, and from then on the name resolves to the staged file. Workers
 -- check with nothing staged, so every record that names such a module was taken
@@ -341,7 +460,8 @@ return {stamp = stamp}
     for index = 1, 6 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            ([[
+            (
+                [[
 local clock = require("clock")
 local files = require("nupp.io.files")
 local time = require("nupp.time")
@@ -356,7 +476,8 @@ local function described(info: files.Info?): boolean
 end
 
 return {value = value, described = described}
-]]):format(index)
+]]
+            ):format(index)
         )
     end
 
@@ -411,7 +532,8 @@ return {count = count}
     for index = 1, 4 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            ([[
+            (
+                [[
 local world = require("world")
 local files = require("nupp.io.files")
 
@@ -420,7 +542,8 @@ local function value(path: string): integer
 end
 
 return {value = value}
-]]):format(index)
+]]
+            ):format(index)
         )
     end
 
@@ -459,7 +582,8 @@ end
     for index = 1, 6 do
         write(
             directory .. ("/src/use%d.nupp"):format(index),
-            ([[
+            (
+                [[
 const ann = require("lib.ann")
 
 @tag(name = "x")
@@ -474,7 +598,8 @@ local function make(): number
 end
 
 return {make = make}
-]]):format(index, index)
+]]
+            ):format(index, index)
         )
     end
 
@@ -496,11 +621,9 @@ end
 function M.parallelBuildsWriteWhatSerialBuildsWrite()
     local directory = tempProject(false)
     for _, level in ipairs({"-O0", "-O2"}) do
-        local serialCode, serialReport, serialOutputs, serialState = coldBuild(
-            directory,
-            {NUPP_CHECK_JOBS = "1"},
-            {level}
-        )
+        local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"}, {
+            level
+        })
         testAssert.equal(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
         local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
         testAssert.equal(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
@@ -566,6 +689,14 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
         testAssert.equal(code, 0, failure .. " fallback exit status")
         testAssert.equal(report.timing.parallel.mode, "serial-fallback", failure .. " fell back")
         testAssert.equal(state, serialState, failure .. " fallback records")
+        if failure == "hang" then
+            local reason = report.timing.parallel.reason
+            assert(reason:find("kind=scan", 1, true), "timeout identifies request kind")
+            assert(reason:find("sourceBytes=", 1, true), "timeout identifies source volume")
+            assert(reason:find("encodedBytes=", 1, true), "timeout identifies wire volume")
+            assert(reason:find("elapsedMs=", 1, true), "timeout records elapsed time")
+            assert(reason:find("paths=", 1, true), "timeout identifies assigned paths")
+        end
         if failure == "crash" then
             assert(report.timing.parallel.retries >= 1, "a crashed worker was restarted before falling back")
         end
@@ -599,25 +730,30 @@ function M.anInterruptedCheckLeavesNoWorkers()
     local directory = tempProject(false)
     local pidFile = directory .. "/workers.pid"
     local activeFile = directory .. "/active.pid"
-    local child = assert(process.startIsolated({
-        perl,
-        "-MPOSIX=:signal_h",
-        "-e",
-        '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
-            .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
-        NUPP,
-        "check",
-        "--quiet",
-    }, {
-        cwd = directory,
-        env = {
-            NUPP_CHECK_JOBS = "2",
-            NUPP_PARALLEL_CHECK_TRACE = "1",
-            NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
-            NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
-            NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
-        },
-    }))
+    local child = assert(
+        process.startIsolated(
+            {
+                perl,
+                "-MPOSIX=:signal_h",
+                "-e",
+                '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
+                .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
+                NUPP,
+                "check",
+                "--quiet",
+            },
+            {
+                cwd = directory,
+                env = {
+                    NUPP_CHECK_JOBS = "2",
+                    NUPP_PARALLEL_CHECK_TRACE = "1",
+                    NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
+                    NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
+                    NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
+                },
+            }
+        )
+    )
     -- Generous: the waits end as soon as the workers are up, and a loaded host can
     -- take several seconds to start two compilers.
     local deadline = time.now() + 60000
@@ -644,13 +780,9 @@ function M.anInterruptedCheckLeavesNoWorkers()
     child:close()
     assert(
         not exit:succeeded(),
-        ("the interrupted check did not stop: code=%s killed=%s timedOut=%s"):format(
-            tostring(exit.exitCode),
-            tostring(exit.killed),
-            tostring(exit.timedOut)
-        )
-            .. " output="
-            .. said
+        (
+            "the interrupted check did not stop: code=%s killed=%s timedOut=%s"
+        ):format(tostring(exit.exitCode), tostring(exit.killed), tostring(exit.timedOut)) .. " output=" .. said
     )
 
     deadline = time.now() + 60000

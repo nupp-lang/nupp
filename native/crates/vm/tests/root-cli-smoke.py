@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("image", type=Path)
 parser.add_argument("--binary", type=Path, default=Path("build/rust/target/release/nupp-vm"))
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--installed", action="store_true", help="use the default installed VM package without image environment overrides")
 parser.add_argument("--case", action="append", help="run only the named acceptance case")
 parser.add_argument("--luarocks", type=Path, help="provisioned LuaRocks executable for real package coverage")
 args = parser.parse_args()
@@ -23,6 +24,15 @@ image, binary = args.image.resolve(), args.binary.resolve()
 args.output.mkdir(parents=True, exist_ok=True)
 env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(root),
            NUPP_VM_CLI_IMAGE=str(image), NUPP_VM_BINARY=str(binary), NO_COLOR="1")
+package = None
+if args.installed:
+    generation = (root / ".nupp/vm-cli/current").read_text().strip()
+    assert re.fullmatch(r"[0-9a-f]{64}", generation), "invalid installed package selection"
+    package = root / ".nupp/vm-cli" / generation
+    for supplied, installed in ((binary, package / "runtime"), (image, package / "compiler.image")):
+        assert hashlib.sha256(supplied.read_bytes()).digest() == hashlib.sha256(installed.read_bytes()).digest(), "installed package differs from requested evidence artifacts"
+    env.pop("NUPP_VM_CLI_IMAGE", None)
+    env.pop("NUPP_VM_BINARY", None)
 for name in ("EMIT_STUBS", "EMIT_SURVEY", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
     env.pop(name, None)
 if args.luarocks:
@@ -231,12 +241,30 @@ print(42)
     (parallel / "src/main.nupp").write_text('module main\nlocal value = require("value")\nexport = value\n')
     env["NUPP_CHECK_JOBS"] = "2"
     case("parallel-check", ["check", "--json"], parallel, json_output=True, contains='"mode":"parallel"')
+    documented = work / "documented"
+    (documented / "src/documented").mkdir(parents=True)
+    (documented / "nupp.lua").write_text('return {include = {"src"}}\n')
+    (documented / "src/documented/errors.nupp").write_text(
+        'module documented.errors\nexport record Problem\n message: string\nend\n')
+    (documented / "src/documented/api.nupp").write_text(
+        'module documented.api\nexport interface Reader\n'
+        ' --- Reads the next value.\n'
+        ' --- @raises documented.errors.Problem when the input is invalid\n'
+        ' read: function(self): string\nend\n')
+    (documented / "src/documented/othererrors.nupp").write_text(
+        'module documented.othererrors\nexport record Problem\n message: string\nend\n')
+    (documented / "src/documented/exported.nupp").write_text(
+        'module documented.exported\n'
+        '--- @raises documented.othererrors.Problem when the input is invalid\n'
+        'export function read(): string return "" end\n')
+    case("parallel-doc-check", ["check", "--json"], documented, json_output=True, contains='"mode":"parallel"')
     env["NUPP_CHECK_JOBS"] = "1"
     case("clean-run", ["clean", "--json"], work, json_output=True)
 
 if args.case:
     assert set(args.case) == {row["name"] for row in results}, "unknown acceptance case"
-summary = dict(imageSha256=hashlib.sha256(image.read_bytes()).hexdigest(),
+summary = dict(launcherMode="installed" if args.installed else "explicit-image", package=str(package) if package else None,
+               imageSha256=hashlib.sha256(image.read_bytes()).hexdigest(),
                binarySha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                commands=commands, cases=len(results), passed=sum(row["status"] == "passed" for row in results))
 (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

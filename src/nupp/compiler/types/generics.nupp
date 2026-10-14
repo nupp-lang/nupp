@@ -44,6 +44,10 @@ local materializingDefault: {[Type]: boolean} = {}
 
 local MATERIALIZE = "materialize"
 
+-- One refresh walks a graph, not every path through it. Keep completed visits until
+-- the outer application returns, then forget them so later declarations are visible.
+local refreshingInstantiations: {[string]: boolean}?
+
 --- Normalization state, carried through the walk when one is running. Absent means
 --- the walk is an ordinary substitution and a projection is rebuilt, not reduced.
 ---
@@ -391,6 +395,30 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     return t
 end
 
+-- One pure substitution can reach the same nominal through several parameters,
+-- results, or structural fields. Keep those visits together, but never hold this
+-- scope across evaluation callbacks or later checker declarations.
+local function substitutionWalk(operation: any, value: any, map: Bindings, unmapped: string): any
+    local previous = refreshingInstantiations
+    local refreshed: {[string]: boolean} = {}
+    for key, visited in pairs(previous or {}) do
+        refreshed[key] = visited
+    end
+    refreshingInstantiations = refreshed
+    local ok, result = pcall(operation, value, map, unmapped)
+    refreshingInstantiations = previous
+    if not ok then
+        error(result, 0)
+    end
+    if previous then
+        for key, visited in pairs(refreshed) do
+            previous[key] = visited
+        end
+    end
+
+    return result
+end
+
 --- A projection, reduced as far as it goes.
 ---
 --- Three results rather than one. A gradual head makes the projection `any`,
@@ -568,7 +596,7 @@ end
 --- @param t the type to substitute into
 --- @param map what each binder stands for
 function generics.rebind(t: Type, map: Bindings): Type
-    return substWith(t, map, PRESERVE)
+    return substitutionWalk(substWith, t, map, PRESERVE)
 end
 
 --- Rebuilds `t` with the binders `map` names replaced, and every binder it does not
@@ -579,7 +607,7 @@ end
 --- @param t the type to substitute into
 --- @param map what inference worked out
 function generics.materialize(t: Type, map: Bindings): Type
-    return substWith(t, map, MATERIALIZE)
+    return substitutionWalk(substWith, t, map, MATERIALIZE)
 end
 
 ----------------------------------------------------------------------------
@@ -1353,7 +1381,7 @@ end
 --- @param control cancellation for the neutral half
 function generics.evaluate(t: Type, map: Bindings?, control: generics.ReductionControl?): generics.Evaluated
     local budget = newBudget(control)
-    local rebound = map and substWith(t, map, PRESERVE) or t
+    local rebound = map and generics.rebind(t, map) or t
     local reduced, err = normalize(rebound, {}, budget)
 
     return {type = reduced, error = err, gradual = budget.gradual, cycle = budget.cycle, cycleKeys = budget.cycleKeys,}
@@ -1365,7 +1393,7 @@ function generics.reduce(
     memo: ReductionMemo?,
     control: generics.ReductionControl?
 ): Type, string?
-    local rebound = substWith(t, map or {}, PRESERVE)
+    local rebound = generics.rebind(t, map or {})
 
     return normalize(rebound, memo or {}, newBudget(control))
 end
@@ -1376,7 +1404,7 @@ end
 
 --- `generics.materialize` for a value sequence.
 function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
-    return substPackWith(pack, map, MATERIALIZE)
+    return substitutionWalk(substPackWith, pack, map, MATERIALIZE)
 end
 
 --- The parameter names an expanded signature binds under: the written names for
@@ -1549,7 +1577,7 @@ end
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
 function generics.instantiateFunction(t: T.Func, map: Bindings, control: generics.ReductionControl?): T.Func, string?
-    local evaluated = generics.evaluate(substWith(t, map, MATERIALIZE), nil, control)
+    local evaluated = generics.evaluate(generics.materialize(t, map), nil, control)
     local concrete = evaluated.type
     if evaluated.error then
         return t, evaluated.error
@@ -1637,9 +1665,6 @@ end
 -- fields are substituted. Identical arguments give the identical type, so the
 -- instantiations are kept rather than rebuilt.
 local instantiations: {[string]: T.Nominal} = {}
--- One refresh walks a graph, not every path through it. Keep completed visits until
--- the outer application returns, then forget them so later declarations are visible.
-local refreshingInstantiations: {[string]: boolean}?
 -- Instantiations reserved before their declaration could be read, which the next
 -- `generics.instantiate` of the same application completes in place.
 local pendingInstantiations: {[T.Nominal]: boolean} = {}
@@ -1938,6 +1963,34 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
 
     return inst
+end
+
+--- Completes applications after a loader has populated every declaration.
+--- All applications share one refresh walk; later calls can still see new members.
+function generics.completeInstantiations(applications: {{
+    origin: T.Nominal,
+    map: Bindings
+}}): nil
+    local previous = refreshingInstantiations
+    local refreshed: {[string]: boolean} = {}
+    for key, visited in pairs(previous or {}) do
+        refreshed[key] = visited
+    end
+    refreshingInstantiations = refreshed
+    local ok, problem = pcall(function(): nil
+        for _, application in ipairs(applications) do
+            generics.instantiate(application.origin, application.map)
+        end
+    end)
+    refreshingInstantiations = previous
+    if not ok then
+        error(problem, 0)
+    end
+    if previous then
+        for key, visited in pairs(refreshed) do
+            previous[key] = visited
+        end
+    end
 end
 
 ----------------------------------------------------------------------------

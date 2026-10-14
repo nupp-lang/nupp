@@ -1,0 +1,3350 @@
+{
+  "date": "2026-10-14",
+  "baseCommit": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+  "scope": "Local installation and default launcher selection of a verified full VM CLI snapshot, plus inherited legacy worker provider selection. Release/bootstrap distribution remains separate.",
+  "artifacts": {
+    "image": "/private/tmp/nupp-cli-package/root.image",
+    "imageSha256": "dab5ac2df480cc8c8a1e6516d9426174f8ca76376e6f9c7f8cb4add3eb84c6c1",
+    "runtime": "/private/tmp/nupp-tecs-integration/runtime-v2",
+    "runtimeSha256": "52974e5891504ef1527cb946934945367bf7ddccc7c73adb4515888467e69229",
+    "installedPackage": "/private/tmp/nupp-codegen-experiment/build/vm-cli/44f5ebb69166272068d21400e981cc633bcd89094995ef9416080351d98d69f1",
+    "receipt": {
+      "format": "nupp-vm-cli-1",
+      "runtimeSha256": "52974e5891504ef1527cb946934945367bf7ddccc7c73adb4515888467e69229",
+      "imageSha256": "dab5ac2df480cc8c8a1e6516d9426174f8ca76376e6f9c7f8cb4add3eb84c6c1",
+      "installedFrom": {
+        "runtime": "/private/tmp/nupp-tecs-integration/runtime-v2",
+        "image": "/private/tmp/nupp-cli-package/root.image"
+      },
+      "sourceAtInstall": {
+        "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+        "fingerprint": "97ee5eacb81bd838d010e61fc29501ee2fa21fbd46a02fd0cbd721e602f40c5c"
+      },
+      "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+      "execution": "threaded; supplied linked AOT remains enabled",
+      "validation": [
+        "image verifier",
+        "full root CLI --help"
+      ]
+    }
+  },
+  "emission": {
+    "command": [
+      "/private/tmp/nupp-physical-direct/runtime-v4",
+      "run",
+      "/private/tmp/nupp-physical-fields/final-host.image",
+      "nupp.tools.vm.project",
+      "emit",
+      "/private/tmp/nupp-codegen-experiment",
+      "nupp.tools.vm.root",
+      "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+    ],
+    "log": "/private/tmp/nupp-cli-package/emit.stderr",
+    "declarationChange": "files.write and persistence compatibility declarations changed during root image emission. Host files module is excluded from image lowering; compiler resources carry only nupp/compiler paths. Final runtime-v2 provides the appended host services. No compiler implementation source changed during emission."
+  },
+  "launcherRegression": {
+    "command": "python3 native/crates/vm/tests/launcher-package.py",
+    "passed": 5,
+    "log": "/private/tmp/nupp-cli-package/launcher-tests-final.log",
+    "coverage": [
+      "Atomic package publication and worker pinning across generation changes",
+      "Source divergence remains visible without disabling installed compiler",
+      "Explicit image precedence and receipt corruption detection",
+      "Invalid installation preserves selected package; missing selected runtime fails directly",
+      "Legacy worker reuses inherited provider after source edit; standalone worker still provisions",
+      "Removing configured build outputs preserves the installed compiler in .nupp/vm-cli"
+    ]
+  },
+  "rootCli": {
+    "launcherMode": "installed; no NUPP_VM_CLI_IMAGE or NUPP_VM_BINARY overrides",
+    "execution": "no-JIT interpreter; heap-frame/affine functions use Rust dispatch",
+    "command": "python3 native/crates/vm/tests/root-cli-smoke.py /private/tmp/nupp-cli-package/root.image --binary /private/tmp/nupp-tecs-integration/runtime-v2 --installed --output /private/tmp/nupp-cli-package/full",
+    "packageCasesCommand": "python3 native/crates/vm/tests/root-cli-smoke.py /private/tmp/nupp-cli-package/root.image --binary /private/tmp/nupp-tecs-integration/runtime-v2 --installed --output /private/tmp/nupp-cli-package/rocks --luarocks /Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luarocks/bin/luarocks --case template-library --case rock-pack --case rock-test",
+    "commands": [
+      "init",
+      "ast",
+      "aot",
+      "bc",
+      "check",
+      "fmt",
+      "build",
+      "clean",
+      "bench",
+      "lints",
+      "ownership-audit",
+      "explain",
+      "reference",
+      "completions",
+      "test",
+      "task",
+      "doc",
+      "fixpoint",
+      "run",
+      "import-c",
+      "migrate",
+      "export-c",
+      "rock",
+      "lsp",
+      "version",
+      "help"
+    ],
+    "cases": 100,
+    "passed": 100,
+    "results": [
+      {
+        "name": "root-help",
+        "argv": [
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "unknown-command",
+        "argv": [
+          "definitely-not-a-command"
+        ],
+        "exitStatus": 2,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "init-help",
+        "argv": [
+          "init",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.17
+      },
+      {
+        "name": "init-schema",
+        "argv": [
+          "init",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.173
+      },
+      {
+        "name": "ast-help",
+        "argv": [
+          "ast",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "ast-schema",
+        "argv": [
+          "ast",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.17
+      },
+      {
+        "name": "aot-help",
+        "argv": [
+          "aot",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "aot-schema",
+        "argv": [
+          "aot",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "bc-help",
+        "argv": [
+          "bc",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "bc-schema",
+        "argv": [
+          "bc",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "check-help",
+        "argv": [
+          "check",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "check-schema",
+        "argv": [
+          "check",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "fmt-help",
+        "argv": [
+          "fmt",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "fmt-schema",
+        "argv": [
+          "fmt",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "build-help",
+        "argv": [
+          "build",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "build-schema",
+        "argv": [
+          "build",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "clean-help",
+        "argv": [
+          "clean",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "clean-schema",
+        "argv": [
+          "clean",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "bench-help",
+        "argv": [
+          "bench",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "bench-schema",
+        "argv": [
+          "bench",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "lints-help",
+        "argv": [
+          "lints",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.163
+      },
+      {
+        "name": "lints-schema",
+        "argv": [
+          "lints",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "ownership-audit-help",
+        "argv": [
+          "ownership-audit",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "ownership-audit-schema",
+        "argv": [
+          "ownership-audit",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "explain-help",
+        "argv": [
+          "explain",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.163
+      },
+      {
+        "name": "explain-schema",
+        "argv": [
+          "explain",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "reference-help",
+        "argv": [
+          "reference",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "reference-schema",
+        "argv": [
+          "reference",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "completions-help",
+        "argv": [
+          "completions",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.162
+      },
+      {
+        "name": "test-help",
+        "argv": [
+          "test",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "test-schema",
+        "argv": [
+          "test",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "task-help",
+        "argv": [
+          "task",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "task-schema",
+        "argv": [
+          "task",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.173
+      },
+      {
+        "name": "doc-help",
+        "argv": [
+          "doc",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "doc-schema",
+        "argv": [
+          "doc",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "fixpoint-help",
+        "argv": [
+          "fixpoint",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "fixpoint-schema",
+        "argv": [
+          "fixpoint",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "run-help",
+        "argv": [
+          "run",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "run-schema",
+        "argv": [
+          "run",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "import-c-help",
+        "argv": [
+          "import-c",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "import-c-schema",
+        "argv": [
+          "import-c",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "migrate-help",
+        "argv": [
+          "migrate",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "migrate-schema",
+        "argv": [
+          "migrate",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.17
+      },
+      {
+        "name": "export-c-help",
+        "argv": [
+          "export-c",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "export-c-schema",
+        "argv": [
+          "export-c",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "rock-help",
+        "argv": [
+          "rock",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "lsp-help",
+        "argv": [
+          "lsp",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.163
+      },
+      {
+        "name": "version-help",
+        "argv": [
+          "version",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.169
+      },
+      {
+        "name": "version-schema",
+        "argv": [
+          "version",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "help-command",
+        "argv": [
+          "help",
+          "check"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.163
+      },
+      {
+        "name": "version-json",
+        "argv": [
+          "version",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "version-alias",
+        "argv": [
+          "--version",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "ast-file",
+        "argv": [
+          "ast",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "check-file",
+        "argv": [
+          "check",
+          "--json",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.314
+      },
+      {
+        "name": "check-project",
+        "argv": [
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.256
+      },
+      {
+        "name": "check-project-cached",
+        "argv": [
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.235
+      },
+      {
+        "name": "check-invalid",
+        "argv": [
+          "check",
+          "--json",
+          "invalid.nupp"
+        ],
+        "exitStatus": 1,
+        "status": "passed",
+        "seconds": 1.221
+      },
+      {
+        "name": "check-missing",
+        "argv": [
+          "check",
+          "--json",
+          "missing.nupp"
+        ],
+        "exitStatus": 1,
+        "status": "passed",
+        "seconds": 0.165
+      },
+      {
+        "name": "build-file",
+        "argv": [
+          "build",
+          "--json",
+          "--output",
+          "generated",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.306
+      },
+      {
+        "name": "fmt-file",
+        "argv": [
+          "fmt",
+          "--write",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.201
+      },
+      {
+        "name": "lints-json",
+        "argv": [
+          "lints",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "ownership-file",
+        "argv": [
+          "ownership-audit",
+          "--json",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.192
+      },
+      {
+        "name": "explain-code",
+        "argv": [
+          "explain",
+          "--json",
+          "NUPP2004"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.17
+      },
+      {
+        "name": "reference-code",
+        "argv": [
+          "reference",
+          "--json",
+          "--for",
+          "NUPP2004"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.173
+      },
+      {
+        "name": "completion-script",
+        "argv": [
+          "completions",
+          "bash"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "completion-request",
+        "argv": [
+          "__complete",
+          "bash",
+          "2",
+          "check",
+          "--js"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "templates-list",
+        "argv": [
+          "init",
+          "--list",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "template-app",
+        "argv": [
+          "init",
+          "app",
+          "new-app",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.183
+      },
+      {
+        "name": "task-list",
+        "argv": [
+          "task",
+          "--list",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.17
+      },
+      {
+        "name": "import-header",
+        "argv": [
+          "import-c",
+          "--inspect",
+          "--json",
+          "header.h"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.223
+      },
+      {
+        "name": "migrate-lua",
+        "argv": [
+          "migrate",
+          "--json",
+          "plain.lua"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.185
+      },
+      {
+        "name": "lsp-symbols",
+        "argv": [
+          "lsp",
+          "symbols",
+          "--json",
+          "--file",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.205
+      },
+      {
+        "name": "run-file",
+        "argv": [
+          "run",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.206
+      },
+      {
+        "name": "fixture-store",
+        "argv": [
+          "run",
+          "fixtures.lua"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.211
+      },
+      {
+        "name": "source-sandbox",
+        "argv": [
+          "run",
+          "sandbox.lua"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.192
+      },
+      {
+        "name": "task-run",
+        "argv": [
+          "task",
+          "answer"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.373
+      },
+      {
+        "name": "test-run",
+        "argv": [
+          "test"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 3.256
+      },
+      {
+        "name": "aot-file",
+        "argv": [
+          "aot",
+          "--json",
+          "src/kernel.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.179
+      },
+      {
+        "name": "bc-file",
+        "argv": [
+          "bc",
+          "--json",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 9.195
+      },
+      {
+        "name": "bc-text",
+        "argv": [
+          "bc",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 9.206
+      },
+      {
+        "name": "bc-check",
+        "argv": [
+          "bc",
+          "--check",
+          "--json",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 9.401
+      },
+      {
+        "name": "bc-invalid",
+        "argv": [
+          "bc",
+          "--json",
+          "invalid.nupp"
+        ],
+        "exitStatus": 1,
+        "status": "passed",
+        "seconds": 9.446
+      },
+      {
+        "name": "doc-file",
+        "argv": [
+          "doc",
+          "--kind",
+          "markdown",
+          "--json",
+          "-o",
+          "api.md",
+          "src/main.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "export-header",
+        "argv": [
+          "export-c",
+          "--json",
+          "-o",
+          "game.h",
+          "src/game.nupp",
+          "game.Position"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.234
+      },
+      {
+        "name": "bench-list",
+        "argv": [
+          "bench",
+          "--list",
+          "--json",
+          "--file",
+          "/private/tmp/nupp-codegen-experiment/tests/fixtures/bench_fixed_records.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 2.302
+      },
+      {
+        "name": "bench-protocol",
+        "argv": [
+          "bench",
+          "--json",
+          "--forks",
+          "1",
+          "--file",
+          "/private/tmp/nupp-codegen-experiment/tests/fixtures/bench_protocol.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 7.403
+      },
+      {
+        "name": "bench-run",
+        "argv": [
+          "bench",
+          "--json",
+          "--forks",
+          "1",
+          "--case",
+          "fixed",
+          "--file",
+          "/private/tmp/nupp-codegen-experiment/tests/fixtures/bench_fixed_records.nupp"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 2.356
+      },
+      {
+        "name": "fixpoint-unconfigured",
+        "argv": [
+          "fixpoint",
+          "--json"
+        ],
+        "exitStatus": 1,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "rock-missing",
+        "argv": [
+          "rock",
+          "pack"
+        ],
+        "exitStatus": 1,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "clean-dry",
+        "argv": [
+          "clean",
+          "--dry-run",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.171
+      },
+      {
+        "name": "comptime-worker",
+        "argv": [
+          "__comptime-worker",
+          "comptime.json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "comptime-service",
+        "argv": [
+          "__comptime-worker-service"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "generator-worker",
+        "argv": [
+          "__generator-worker",
+          "generator.json",
+          "generator-result.json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.163
+      },
+      {
+        "name": "lsp-serve",
+        "argv": [
+          "lsp",
+          "serve"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.257
+      },
+      {
+        "name": "lsp-reader",
+        "argv": [
+          "__lsp-reader"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "parallel-check",
+        "argv": [
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 2.504
+      },
+      {
+        "name": "clean-run",
+        "argv": [
+          "clean",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.176
+      },
+      {
+        "name": "template-library",
+        "argv": [
+          "init",
+          "lib",
+          "sample-lib",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.183
+      },
+      {
+        "name": "rock-pack",
+        "argv": [
+          "rock",
+          "pack"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.59
+      },
+      {
+        "name": "rock-test",
+        "argv": [
+          "rock",
+          "test"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 1.993
+      }
+    ],
+    "packageLocationAtRun": "build/vm-cli; moved to .nupp/vm-cli after this run to survive build-output cleaning. Artifact hashes are unchanged; final focused validation records the corrected location separately."
+  },
+  "policy": [
+    "Installed snapshots live in ignored .nupp/vm-cli, outside configured build outputs so nupp clean does not remove the compiler.",
+    "Install verifies runtime/image compatibility and actual full root CLI help before publishing the pointer.",
+    "Package generation identity includes artifact hashes; existing generations are retained for running children.",
+    "Ordinary source edits do not rebuild the installed snapshot. scripts/vm-cli status compares current source with installation state; this state is not claimed artifact build provenance.",
+    "Explicit NUPP_VM_CLI_IMAGE selection retains precedence. Without any VM selection the legacy development/bootstrap path remains available."
+  ],
+  "limitations": [
+    "Local installed snapshot packaging does not replace release or stage-zero bootstrap distribution.",
+    "Cross-platform packaging, every CLI option/target combination, and full classified corpus acceptance remain separate gates.",
+    "This package disables JIT; heap-frame/affine functions use Rust dispatch. Linked AOT may be supplied, but no new AOT compiler packaging gate is claimed."
+  ],
+  "parallelDependencyRegression": {
+    "source": "src/nupp/tools/build/moduleobject.nupp",
+    "sourceSha256": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+    "cause": "Parsed @raises type dependencies were missing from the scheduling graph, causing recursive worker checks and serial fallback.",
+    "regressionFile": "tests/parallelchecktest.lua",
+    "parsedCases": 10,
+    "parsedResults": "/private/tmp/nupp-cli-package/moduleobject-regression.log",
+    "baselineReproduced": "/private/tmp/nupp-cli-package/doc-baseline/results.json",
+    "imageValidation": "/private/tmp/nupp-cli-package/final-focused/parallel-doc-check.stdout",
+    "rootSmokeCase": "parallel-doc-check",
+    "hostCodecRegression": {
+      "initialSuite": {
+        "total": 11,
+        "passed": 4,
+        "failed": 7,
+        "resultFile": "/private/tmp/nupp-cli-package/parallelcheck-suite-codec-mismatch.json",
+        "reason": "Legacy LuaJIT parent decoded VM-written checks.buf with string.buffer, producing a cache miss. All seven failures reached this same harness assertion."
+      },
+      "fix": "Inspect saved state through the selected compiler host, retaining full stable serial/parallel record equality.",
+      "focusedResult": {
+        "passed": 1,
+        "skipped": 0,
+        "failed": 0,
+        "suites": [
+          {
+            "slowestCaseMs": 59278.62109375,
+            "tests": 1,
+            "slowestCase": "documentedRaiseTypesOrderTheirDeclaringModules",
+            "loadMs": 95.533935546875,
+            "durationMs": 59377.06201171875,
+            "casesMs": 59278.62109375,
+            "hooksMs": 0.921142578125,
+            "suite": "parallelchecktest"
+          }
+        ],
+        "durationMs": 59537.988037109375,
+        "metrics": [],
+        "tests": [
+          {
+            "suite": "parallelchecktest",
+            "id": "parallelchecktest/documentedRaiseTypesOrderTheirDeclaringModules",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "name": "documentedRaiseTypesOrderTheirDeclaringModules",
+            "status": "passed",
+            "line": 396,
+            "durationMs": 59278.62109375
+          }
+        ],
+        "ok": true,
+        "schemaVersion": 1,
+        "notExecuted": 0,
+        "shards": [],
+        "total": 1
+      }
+    },
+    "sourceGraphAudit": {
+      "resultFile": "/private/tmp/nupp-cli-package/graph-sizes.json",
+      "scope": "All 555 src .nupp files, including declaration files; no target filtering. Parse-only built Lua compiler, no cache writes.",
+      "withoutDocumentation": {
+        "components": 549,
+        "largest": [
+          4,
+          3,
+          2
+        ]
+      },
+      "withDocumentation": {
+        "components": 549,
+        "largest": [
+          4,
+          3,
+          2
+        ]
+      }
+    },
+    "fullSuite": {
+      "command": "PATH=<verified staged LuaJIT>/bin:$PATH ./tests/run parallelchecktest --json",
+      "resultFile": "/private/tmp/nupp-cli-package/parallelcheck-suite.json",
+      "result": {
+        "total": 11,
+        "passed": 11,
+        "skipped": 0,
+        "failed": 0,
+        "suites": [
+          {
+            "loadMs": 80.221923828125,
+            "tests": 11,
+            "slowestCase": "aStandardGenericFillsAFieldInEitherSchedule",
+            "suite": "parallelchecktest",
+            "slowestCaseMs": 243926.794921875,
+            "durationMs": 555552.5659179688,
+            "casesMs": 555470.5949707031,
+            "hooksMs": 0.462158203125
+          }
+        ],
+        "ok": true,
+        "shards": [],
+        "notExecuted": 0,
+        "tests": [
+          {
+            "durationMs": 243926.794921875,
+            "line": 500,
+            "status": "passed",
+            "name": "aStandardGenericFillsAFieldInEitherSchedule",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/aStandardGenericFillsAFieldInEitherSchedule",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 1577.358154296875,
+            "line": 710,
+            "status": "passed",
+            "name": "anInterruptedCheckLeavesNoWorkers",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/anInterruptedCheckLeavesNoWorkers",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 20230.1640625,
+            "line": 642,
+            "status": "passed",
+            "name": "constGenericProjectsBuildSerially",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/constGenericProjectsBuildSerially",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 3.9189453125,
+            "line": 340,
+            "status": "passed",
+            "name": "documentedRaiseDependenciesFollowParsedAdjacentTags",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/documentedRaiseDependenciesFollowParsedAdjacentTags",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 50381.8369140625,
+            "line": 396,
+            "status": "passed",
+            "name": "documentedRaiseTypesOrderTheirDeclaringModules",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/documentedRaiseTypesOrderTheirDeclaringModules",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 11851.425048828125,
+            "line": 621,
+            "status": "passed",
+            "name": "parallelBuildsWriteWhatSerialBuildsWrite",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/parallelBuildsWriteWhatSerialBuildsWrite",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 50469.97705078125,
+            "line": 318,
+            "status": "passed",
+            "name": "parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 35239.626953125,
+            "line": 564,
+            "status": "passed",
+            "name": "projectAnnotationsReachEveryWorker",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/projectAnnotationsReachEveryWorker",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 44196.94287109375,
+            "line": 440,
+            "status": "passed",
+            "name": "recordsNamingStagedStandardModulesAreReused",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/recordsNamingStagedStandardModulesAreReused",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 97592.36010742188,
+            "line": 676,
+            "status": "passed",
+            "name": "workerAndInterfaceFailuresFallBackWithoutPublishingPartialState",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/workerAndInterfaceFailuresFallBackWithoutPublishingPartialState",
+            "suite": "parallelchecktest"
+          },
+          {
+            "durationMs": 0.18994140625,
+            "line": 309,
+            "status": "passed",
+            "name": "workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism",
+            "file": "/private/tmp/nupp-codegen-experiment/tests/parallelchecktest.lua",
+            "id": "parallelchecktest/workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism",
+            "suite": "parallelchecktest"
+          }
+        ],
+        "durationMs": 555605.3469238281,
+        "metrics": [],
+        "schemaVersion": 1
+      },
+      "execution": "Outside sandbox because runner process monitoring requires parent inspection."
+    },
+    "largePipeDiagnostic": {
+      "runtime": "/private/tmp/nupp-tecs-integration/runtime-v9",
+      "image": "/private/tmp/nupp-cli-package/root-stable.image",
+      "singleBytes": [
+        1048576,
+        8388608
+      ],
+      "concurrent": {
+        "tasks": 6,
+        "bytesPerTask": 8388608,
+        "delayedReaders": true
+      },
+      "result": "All sends returned the full byte count; independent Python readers verified payload and length. No throughput claim.",
+      "directory": "/private/tmp/nupp-cli-package/large-pipe"
+    }
+  },
+  "executionClarification": "Historical receipt execution strings say threaded, but NO_JIT=1 does not force threaded dispatch. The root image requires heap frames for affine cleanup and runs Rust interpreter dispatch. Artifact hashes and recorded commands are unchanged.",
+  "parallelRuntimeDiagnosis": {
+    "image": "/private/tmp/nupp-cli-package/root-context.image",
+    "emission": {
+      "command": [
+        "/private/tmp/nupp-tecs-integration/runtime-v9",
+        "run",
+        "/private/tmp/nupp-physical-fields/final-host.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+      ],
+      "sourceHashes": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "274aa743c352d80a33f0e4232709310df1c90ae85430884e679f9bcd72833b89",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "4c387470593f76196f5d24745342ba083e24e05f3bebadd0dc2f80d86b5a584a"
+      },
+      "sourceHashesAfter": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "274aa743c352d80a33f0e4232709310df1c90ae85430884e679f9bcd72833b89",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "4c387470593f76196f5d24745342ba083e24e05f3bebadd0dc2f80d86b5a584a"
+      },
+      "seconds": 345.867042583,
+      "exitStatus": 0,
+      "imageSha256": "53d21489ef7392e9c9540138044443fb882e0942bf824f0b2c09b819c710c329",
+      "imageBytes": 21034148
+    },
+    "runtime": "/private/tmp/nupp-tecs-integration/runtime-v9",
+    "runtimeSha256": "61aa9778cafdb9a31fcfea92bc7d3cb1cca1a96f07cd83c22aa9af1d3905df48",
+    "command": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "cwd": "/private/tmp/nupp-codegen-experiment",
+      "package": "a1c6b0fe8a24552217a581282b6afc50b87ab42b584fbfa24c964cc0ab9914cc",
+      "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+      "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+      "exitStatus": -15,
+      "elapsedSeconds": 506.854983916
+    },
+    "trace": "/private/tmp/nupp-cli-package/context-batch-check/final-cold-check.stderr",
+    "status": "Failed acceptance: three timed-out serde requests succeeded after restart, then request encoding exceeded persistence graph limit and selected serial fallback. Owned process group was terminated after evidence capture; no final JSON or warm result claimed.",
+    "serdeRetries": [
+      {
+        "path": "src/nupp/serde/debug.nupp",
+        "elapsedSeconds": 118.3078025
+      },
+      {
+        "path": "src/nupp/serde/native.nupp",
+        "elapsedSeconds": 104.1282901
+      },
+      {
+        "path": "src/nupp/serde/internal/json/extensions.nupp",
+        "elapsedSeconds": 107.3365604
+      }
+    ],
+    "largestObservedRequest": {
+      "path": "src/nupp/tools/doc/init.nupp",
+      "imports": 196,
+      "importBytes": 206811043,
+      "encodedBytes": 207842435
+    },
+    "cause": "Internal plain graph encoding includes every VM shape in every frame, creating approximately 1.02 MB fixed overhead per interface bundle. Nested bundle requests duplicate this metadata and can reach the existing persistence limit. Separate generic signature refresh work remains under investigation.",
+    "next": "Compact plain-codec schemas, preserve retry error context, apply independently measured generic substitution scope fix, then rebuild and repeat exact installed cold/warm acceptance.",
+    "codecProbe": {
+      "image": "/private/tmp/nupp-cli-package/root-context.image",
+      "source": "/private/tmp/nupp-cli-package/large-pipe/codec-size.lua",
+      "results": [
+        {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v9",
+          "exitStatus": 0,
+          "stdout": "1019826\t2049988\n",
+          "stderr": ""
+        },
+        {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v10",
+          "exitStatus": 0,
+          "stdout": "185\t10706\n",
+          "stderr": ""
+        },
+        {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v11",
+          "exitStatus": 0,
+          "stdout": "185\t10706\n",
+          "stderr": ""
+        }
+      ],
+      "interpretation": "Exact byte lengths, not a timing benchmark. All variants decode both payloads and verify values. The nested case contains 200 references to the same encoded request; distinct interface bundles retain their own bytes."
+    },
+    "finalRequestSizes": {
+      "previous": {
+        "largestRequest": {
+          "sources": 1,
+          "sourceBytes": 74077,
+          "imports": 196,
+          "importBytes": 206811043,
+          "encodedBytes": 207842435,
+          "paths": "src/nupp/tools/doc/init.nupp"
+        },
+        "serdeNativeRequests": [
+          {
+            "sources": 1,
+            "sourceBytes": 19677,
+            "imports": 6,
+            "importBytes": 6300856,
+            "encodedBytes": 7321242,
+            "paths": "src/nupp/serde/native.nupp"
+          },
+          {
+            "sources": 1,
+            "sourceBytes": 19677,
+            "imports": 56,
+            "importBytes": 63862974,
+            "encodedBytes": 64949011,
+            "paths": "src/nupp/serde/native.nupp"
+          }
+        ],
+        "minimumSteadyStateRequestBytes": 1020008
+      },
+      "final": {
+        "largestRequest": {
+          "sources": 1,
+          "sourceBytes": 113699,
+          "imports": 174,
+          "importBytes": 7778114,
+          "encodedBytes": 7788931,
+          "paths": "src/nupp/tools/build/modules.nupp"
+        },
+        "serdeNativeRequests": [
+          {
+            "sources": 1,
+            "sourceBytes": 19677,
+            "imports": 6,
+            "importBytes": 414002,
+            "encodedBytes": 415057,
+            "paths": "src/nupp/serde/native.nupp"
+          }
+        ],
+        "minimumSteadyStateRequestBytes": 602
+      }
+    },
+    "resolution": "Final v12+root-compact installed cold check passed parallel with six workers, zero retries, zero rechecked modules, and no fallback. Warm check reused all552 modules. Deadlines and persistence limit unchanged. Earlier successful v11 gate is retained separately.",
+    "finalRequestSizesRuntime": "v11; retained exact comparison trace, with v12 final correctness repeated separately."
+  },
+  "intermediatePackageValidation": {
+    "image": "/private/tmp/nupp-cli-package/root-stable.image",
+    "runtime": "/private/tmp/nupp-tecs-integration/runtime-v9",
+    "emission": {
+      "command": [
+        "/private/tmp/nupp-tecs-integration/runtime-v8",
+        "run",
+        "/private/tmp/nupp-physical-fields/final-host.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+      ],
+      "sourceSha256": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+      "imageSha256": "94b7ee17f454559c1d4dc3eb856bd634a129b1b74be3c25862d370a0f2d1e617",
+      "seconds": 382.86887829200003
+    },
+    "installation": {
+      "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/265d6ecbbb8896b5c463dff825d363f2fb285df320d7ffbab61055d723ce83f2",
+      "receipt": {
+        "format": "nupp-vm-cli-1",
+        "runtimeSha256": "61aa9778cafdb9a31fcfea92bc7d3cb1cca1a96f07cd83c22aa9af1d3905df48",
+        "imageSha256": "94b7ee17f454559c1d4dc3eb856bd634a129b1b74be3c25862d370a0f2d1e617",
+        "installedFrom": {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v9",
+          "image": "/private/tmp/nupp-cli-package/root-stable.image"
+        },
+        "sourceAtInstall": {
+          "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+          "fingerprint": "d088da425e7e3e8c13dfef715cc1e76f8c3da91e8d8c5b4644bf435c50639b90"
+        },
+        "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+        "execution": "threaded; supplied linked AOT remains enabled",
+        "validation": [
+          "image verifier",
+          "full root CLI --help"
+        ]
+      },
+      "sourceChangedSinceInstall": false,
+      "sourceNow": {
+        "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+        "fingerprint": "d088da425e7e3e8c13dfef715cc1e76f8c3da91e8d8c5b4644bf435c50639b90"
+      },
+      "policy": "Installed snapshot; source edits require explicitly installing a rebuilt compiler image."
+    },
+    "focusedResults": [
+      {
+        "name": "root-help",
+        "argv": [
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "check-help",
+        "argv": [
+          "check",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "check-schema",
+        "argv": [
+          "check",
+          "--schema"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "fmt-help",
+        "argv": [
+          "fmt",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.168
+      },
+      {
+        "name": "run-help",
+        "argv": [
+          "run",
+          "--help"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.16
+      },
+      {
+        "name": "version-json",
+        "argv": [
+          "version",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.167
+      },
+      {
+        "name": "comptime-worker",
+        "argv": [
+          "__comptime-worker",
+          "comptime.json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.166
+      },
+      {
+        "name": "comptime-service",
+        "argv": [
+          "__comptime-worker-service"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "generator-worker",
+        "argv": [
+          "__generator-worker",
+          "generator.json",
+          "generator-result.json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "lsp-reader",
+        "argv": [
+          "__lsp-reader"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 0.164
+      },
+      {
+        "name": "parallel-check",
+        "argv": [
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 2.418
+      },
+      {
+        "name": "parallel-doc-check",
+        "argv": [
+          "check",
+          "--json"
+        ],
+        "exitStatus": 0,
+        "status": "passed",
+        "seconds": 2.449
+      }
+    ],
+    "focusedSummary": {
+      "launcherMode": "installed",
+      "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/265d6ecbbb8896b5c463dff825d363f2fb285df320d7ffbab61055d723ce83f2",
+      "imageSha256": "94b7ee17f454559c1d4dc3eb856bd634a129b1b74be3c25862d370a0f2d1e617",
+      "binarySha256": "61aa9778cafdb9a31fcfea92bc7d3cb1cca1a96f07cd83c22aa9af1d3905df48",
+      "commands": [
+        "init",
+        "ast",
+        "aot",
+        "bc",
+        "check",
+        "fmt",
+        "build",
+        "clean",
+        "bench",
+        "lints",
+        "ownership-audit",
+        "explain",
+        "reference",
+        "completions",
+        "test",
+        "task",
+        "doc",
+        "fixpoint",
+        "run",
+        "import-c",
+        "migrate",
+        "export-c",
+        "rock",
+        "lsp",
+        "version",
+        "help"
+      ],
+      "cases": 12,
+      "passed": 12
+    },
+    "pinnedFixpoint": {
+      "command": [
+        "./bin/nupp",
+        "fixpoint",
+        "--json"
+      ],
+      "resultFile": "/private/tmp/nupp-tecs-integration/fixpoint-final.json",
+      "result": {
+        "diagnostics": [],
+        "kind": "compiler",
+        "ok": true,
+        "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+        "target": "compiler"
+      },
+      "sourceSha256": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a"
+    }
+  },
+  "finalPackage": {
+    "image": "/private/tmp/nupp-cli-package/root-compact.image",
+    "runtime": "/private/tmp/nupp-tecs-integration/runtime-v12",
+    "emission": {
+      "command": [
+        "/private/tmp/nupp-tecs-integration/runtime-v10",
+        "run",
+        "/private/tmp/nupp-physical-fields/final-host.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+      ],
+      "sourceHashes": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "4ef9320c0e661b7bd9ed08afca088cc99f50869141de2a6bf260f831b0af1944",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "f5939c630f4f9075e84e0c06b5fe7d27e6057f4e0b0dd7072c9f8a6b02714a18"
+      },
+      "sourceHashesAfter": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "4ef9320c0e661b7bd9ed08afca088cc99f50869141de2a6bf260f831b0af1944",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "f5939c630f4f9075e84e0c06b5fe7d27e6057f4e0b0dd7072c9f8a6b02714a18"
+      },
+      "seconds": 357.303710125,
+      "exitStatus": 0,
+      "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+      "imageBytes": 21036263
+    },
+    "installation": {
+      "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+      "receipt": {
+        "format": "nupp-vm-cli-1",
+        "runtimeSha256": "0e54394bb140622e88cdd850a00c40b2da2dd801072a9d8a10ed384a9a9f0921",
+        "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+        "installedFrom": {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v12",
+          "image": "/private/tmp/nupp-cli-package/root-compact.image"
+        },
+        "sourceAtInstall": {
+          "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+          "fingerprint": "9111d838d132ee12975f459dcbc5c3dda5d83a59eee583aeb4ace072494dc78e"
+        },
+        "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+        "execution": "no-JIT interpreter; heap-frame or affine cleanup uses Rust dispatch; supplied linked AOT remains enabled",
+        "validation": [
+          "image verifier",
+          "full root CLI --help"
+        ]
+      },
+      "sourceChangedSinceInstall": true,
+      "sourceNow": {
+        "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+        "fingerprint": "106fdbbdda49174764c6d153c78096b5683ebcf7c31e3299ee375a78f591103f"
+      },
+      "policy": "Installed snapshot; source edits require explicitly installing a rebuilt compiler image."
+    },
+    "rootCli": {
+      "summary": {
+        "launcherMode": "installed",
+        "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+        "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+        "binarySha256": "0e54394bb140622e88cdd850a00c40b2da2dd801072a9d8a10ed384a9a9f0921",
+        "commands": [
+          "init",
+          "ast",
+          "aot",
+          "bc",
+          "check",
+          "fmt",
+          "build",
+          "clean",
+          "bench",
+          "lints",
+          "ownership-audit",
+          "explain",
+          "reference",
+          "completions",
+          "test",
+          "task",
+          "doc",
+          "fixpoint",
+          "run",
+          "import-c",
+          "migrate",
+          "export-c",
+          "rock",
+          "lsp",
+          "version",
+          "help"
+        ],
+        "cases": 101,
+        "passed": 101
+      },
+      "resultsPath": "/private/tmp/nupp-cli-package/final-full-v12/results.json"
+    },
+    "semanticSuite": {
+      "command": "NUPP_COMPILER_ROOT=/private/tmp/nupp-codegen-experiment PATH=<staged LuaJIT>:$PATH ./tests/run interfaceimagetest typeleveltest --json",
+      "resultPath": "/private/tmp/nupp-cli-package/semantic-v12.json",
+      "passed": 122,
+      "total": 122,
+      "failed": 0,
+      "durationMs": 196128.61694335938
+    },
+    "parallelSuite": {
+      "evidence": "v11PackageValidation.parallelSuite",
+      "reason": "11/11 on the same compiler image and worker logic before the isolated sparse numeric record-key runtime fix. v12 semantic and full CLI gates re-exercise VM worker dispatch."
+    },
+    "pinnedFixpoint": {
+      "resultPath": "/private/tmp/nupp-cli-package/fixpoint-v11.json",
+      "result": {
+        "diagnostics": [],
+        "kind": "compiler",
+        "ok": true,
+        "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+        "target": "compiler"
+      },
+      "scope": "Final compiler source rebuilt from pinned stage zero and reached byte identity under runtime v11. Runtime v12 changes only sparse shaped-table indexing; compiler source/image unchanged."
+    },
+    "coldCheck": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "cwd": "/private/tmp/nupp-codegen-experiment",
+      "package": "fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+      "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+      "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+      "exitStatus": 0,
+      "elapsedSeconds": 168.202984666,
+      "timing": {
+        "compiledModules": 552,
+        "optimizerFacts": {
+          "consumed": 8338,
+          "families": {
+            "callableEffects": 1795,
+            "callableRelations": 1795,
+            "identity": 89,
+            "traceFindings": 89,
+            "traceProfileId": 372
+          },
+          "produced": 61,
+          "selectionChangedModules": 0,
+          "selectorMs": 0,
+          "unique": 4140
+        },
+        "parallel": {
+          "batches": 541,
+          "mode": "parallel",
+          "rechecked": 0,
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 153971.26196289062,
+            "name": "parallel check"
+          },
+          {
+            "durationMs": 12265.253173828125,
+            "name": "generate"
+          },
+          {
+            "durationMs": 682.847412109375,
+            "name": "scan"
+          },
+          {
+            "durationMs": 568.7734375,
+            "name": "check"
+          },
+          {
+            "durationMs": 261.7880859375,
+            "name": "persist"
+          },
+          {
+            "durationMs": 83.586181640625,
+            "name": "other"
+          },
+          {
+            "durationMs": 24.0390625,
+            "name": "resolve"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 137.323974609375,
+            "module": "nupp.runtime.vendor.lunajson.decoder"
+          },
+          {
+            "durationMs": 40.858154296875,
+            "module": "nupp.runtime.vendor.lunajson.encoder"
+          },
+          {
+            "durationMs": 6.858154296875,
+            "module": "nupp.workers.native"
+          },
+          {
+            "durationMs": 4.501953125,
+            "module": "nupp.serde.internal.identity"
+          },
+          {
+            "durationMs": 3.803955078125,
+            "module": "nupp.text.internal.buffer"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 167857.80126953125
+      },
+      "diagnosticCounts": {
+        "NUPP2506": 1,
+        "NUPP2505": 1,
+        "NUPP2510": 10,
+        "NUPP2507": 1,
+        "NUPP2107": 1
+      }
+    },
+    "warmCheck": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "cwd": "/private/tmp/nupp-codegen-experiment",
+      "package": "fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+      "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+      "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+      "exitStatus": 0,
+      "elapsedSeconds": 2.3583156659999815,
+      "timing": {
+        "compiledModules": 0,
+        "optimizerFacts": {
+          "consumed": 8338,
+          "families": {
+            "callableEffects": 1795,
+            "callableRelations": 1795,
+            "identity": 89,
+            "traceFindings": 89,
+            "traceProfileId": 372
+          },
+          "produced": 61,
+          "selectionChangedModules": 0,
+          "selectorMs": 0,
+          "unique": 4140
+        },
+        "phases": [
+          {
+            "durationMs": 1438.8544921875,
+            "name": "generate"
+          },
+          {
+            "durationMs": 382.419677734375,
+            "name": "scan"
+          },
+          {
+            "durationMs": 214.870849609375,
+            "name": "check"
+          },
+          {
+            "durationMs": 107.15869140625,
+            "name": "other"
+          },
+          {
+            "durationMs": 13.39111328125,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 552,
+        "slowest": [],
+        "specializedBodies": 0,
+        "totalMs": 2156.723876953125
+      },
+      "diagnosticCounts": {
+        "NUPP2506": 1,
+        "NUPP2505": 1,
+        "NUPP2510": 10,
+        "NUPP2507": 1,
+        "NUPP2107": 1
+      }
+    }
+  },
+  "historicalRepositoryCheck": {
+    "cold": {
+      "command": {
+        "command": [
+          "./bin/nupp",
+          "check",
+          "--json"
+        ],
+        "cwd": "/private/tmp/nupp-codegen-experiment",
+        "package": "44f5ebb69166272068d21400e981cc633bcd89094995ef9416080351d98d69f1",
+        "cache": "Removed only worktree build/cache before invocation.",
+        "environment": "No VM image, runtime, compiler root or worker-count overrides.",
+        "startedUnix": 1791996615.46992,
+        "exitStatus": 0,
+        "elapsedSeconds": 452.65445709228516
+      },
+      "result": {
+        "diagnostics": [
+          {
+            "code": "NUPP2505",
+            "docs": "docs/reference/lints.md#loop-invariant-closure",
+            "file": "src/nupp/compiler/vm/chunks.nupp",
+            "fixes": [],
+            "help": "declare it once above the loop and pass the name",
+            "lint": "loop-invariant-closure",
+            "message": "this function is built once per iteration but does not use the iteration, so every one of them is the same function, and building one is what keeps the loop from compiling",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 58,
+                "line": 99,
+                "offset": 3307
+              },
+              "start": {
+                "column": 57,
+                "line": 99,
+                "offset": 3306
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 119,
+                        "offset": 3713
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 119,
+                        "offset": 3710
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 120,
+                        "offset": 3724
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 120,
+                        "offset": 3722
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 120,
+                "offset": 3724
+              },
+              "start": {
+                "column": 9,
+                "line": 120,
+                "offset": 3722
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 628,
+                        "offset": 20770
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 628,
+                        "offset": 20767
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 629,
+                        "offset": 20781
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 629,
+                        "offset": 20779
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 629,
+                "offset": 20781
+              },
+              "start": {
+                "column": 9,
+                "line": 629,
+                "offset": 20779
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 810,
+                        "offset": 26618
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 810,
+                        "offset": 26615
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 811,
+                        "offset": 26629
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 811,
+                        "offset": 26627
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 811,
+                "offset": 26629
+              },
+              "start": {
+                "column": 9,
+                "line": 811,
+                "offset": 26627
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 815,
+                        "offset": 26878
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 815,
+                        "offset": 26875
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 816,
+                        "offset": 26889
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 816,
+                        "offset": 26887
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 816,
+                "offset": 26889
+              },
+              "start": {
+                "column": 9,
+                "line": 816,
+                "offset": 26887
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 818,
+                        "offset": 26992
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 818,
+                        "offset": 26989
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 819,
+                        "offset": 27003
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 819,
+                        "offset": 27001
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 819,
+                "offset": 27003
+              },
+              "start": {
+                "column": 9,
+                "line": 819,
+                "offset": 27001
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 16,
+                        "line": 1269,
+                        "offset": 43869
+                      },
+                      "start": {
+                        "column": 13,
+                        "line": 1269,
+                        "offset": 43866
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 15,
+                        "line": 1270,
+                        "offset": 43884
+                      },
+                      "start": {
+                        "column": 13,
+                        "line": 1270,
+                        "offset": 43882
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 15,
+                "line": 1270,
+                "offset": 43884
+              },
+              "start": {
+                "column": 13,
+                "line": 1270,
+                "offset": 43882
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 1970,
+                        "offset": 73217
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 1970,
+                        "offset": 73214
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 1971,
+                        "offset": 73228
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 1971,
+                        "offset": 73226
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 1971,
+                "offset": 73228
+              },
+              "start": {
+                "column": 9,
+                "line": 1971,
+                "offset": 73226
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 1973,
+                        "offset": 73299
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 1973,
+                        "offset": 73296
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 1974,
+                        "offset": 73310
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 1974,
+                        "offset": 73308
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 1974,
+                "offset": 73310
+              },
+              "start": {
+                "column": 9,
+                "line": 1974,
+                "offset": 73308
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 2085,
+                        "offset": 77309
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 2085,
+                        "offset": 77306
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 2086,
+                        "offset": 77320
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 2086,
+                        "offset": 77318
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 2086,
+                "offset": 77320
+              },
+              "start": {
+                "column": 9,
+                "line": 2086,
+                "offset": 77318
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2510",
+            "docs": "docs/reference/lints.md#else-if",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [
+              {
+                "edits": [
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "",
+                    "range": {
+                      "end": {
+                        "column": 12,
+                        "line": 2097,
+                        "offset": 77813
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 2097,
+                        "offset": 77810
+                      }
+                    }
+                  },
+                  {
+                    "file": "src/nupp/compiler/vm/lower.nupp",
+                    "newText": "elseif",
+                    "range": {
+                      "end": {
+                        "column": 11,
+                        "line": 2098,
+                        "offset": 77824
+                      },
+                      "start": {
+                        "column": 9,
+                        "line": 2098,
+                        "offset": 77822
+                      }
+                    }
+                  }
+                ],
+                "title": "write `elseif`"
+              }
+            ],
+            "help": "replace the second if with elseif and remove the preceding end",
+            "lint": "else-if",
+            "message": "this condition is mutually exclusive with the preceding if; write elseif instead",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 11,
+                "line": 2098,
+                "offset": 77824
+              },
+              "start": {
+                "column": 9,
+                "line": 2098,
+                "offset": 77822
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2507",
+            "docs": "docs/reference/lints.md#unused-binding",
+            "file": "src/nupp/compiler/vm/lower.nupp",
+            "fixes": [],
+            "help": "delete the binding, or name it _ if it is deliberately unused",
+            "lint": "unused-binding",
+            "message": "nothing uses FUNCTION_KINDS",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 25,
+                "line": 3841,
+                "offset": 153769
+              },
+              "start": {
+                "column": 11,
+                "line": 3841,
+                "offset": 153755
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          },
+          {
+            "code": "NUPP2107",
+            "docs": "docs/reference/lints.md#exhaustiveness",
+            "file": "src/nupp/compiler/vm/metadata.nupp",
+            "fixes": [],
+            "help": "add branches for \"cdata\", \"function\", \"table\", \"thread\", \"userdata\" or add an else clause",
+            "lint": "exhaustiveness",
+            "message": "every branch returns, so this handles \"boolean\" | \"cdata\" | \"function\" | \"nil\" | \"number\" | \"string\" | \"table\" | \"thread\" | \"userdata\" and leaves \"cdata\", \"function\", \"table\", \"thread\", \"userdata\" unhandled",
+            "notes": [],
+            "range": {
+              "end": {
+                "column": 7,
+                "line": 50,
+                "offset": 1382
+              },
+              "start": {
+                "column": 5,
+                "line": 50,
+                "offset": 1380
+              }
+            },
+            "related": [],
+            "severity": "warning"
+          }
+        ],
+        "ok": true,
+        "timing": {
+          "compiledModules": 552,
+          "optimizerFacts": {
+            "consumed": 8334,
+            "families": {
+              "callableEffects": 1794,
+              "callableRelations": 1794,
+              "identity": 89,
+              "traceFindings": 89,
+              "traceProfileId": 372
+            },
+            "produced": 4138,
+            "selectionChangedModules": 0,
+            "selectorMs": 0,
+            "unique": 4138
+          },
+          "parallel": {
+            "batches": 356,
+            "mode": "serial-fallback",
+            "reason": "parallel worker recursively checked src/nupp/serde/init.nupp [paths src/nupp/serde/internal/documentcodec.nupp; worker said ]",
+            "retries": 0,
+            "workers": 6
+          },
+          "phases": [
+            {
+              "durationMs": 339258.9064941406,
+              "name": "check"
+            },
+            {
+              "durationMs": 97391.47900390625,
+              "name": "parallel check"
+            },
+            {
+              "durationMs": 12733.358154296875,
+              "name": "generate"
+            },
+            {
+              "durationMs": 2433.3134765625,
+              "name": "scan"
+            },
+            {
+              "durationMs": 136.522216796875,
+              "name": "persist"
+            },
+            {
+              "durationMs": 86.10693359375,
+              "name": "other"
+            },
+            {
+              "durationMs": 4.64892578125,
+              "name": "resolve"
+            }
+          ],
+          "reusedModules": 0,
+          "slowest": [
+            {
+              "durationMs": 66516.47998046875,
+              "module": "nupp.serde.native"
+            },
+            {
+              "durationMs": 62441.03173828125,
+              "module": "nupp.serde.internal.json.extensions"
+            },
+            {
+              "durationMs": 60776.195068359375,
+              "module": "nupp.serde.debug"
+            },
+            {
+              "durationMs": 11297.58447265625,
+              "module": "nupp.compiler.lua.gen"
+            },
+            {
+              "durationMs": 6361.806396484375,
+              "module": "nupp.compiler.aot.lower"
+            }
+          ],
+          "specializedBodies": 0,
+          "totalMs": 452044.9609375
+        }
+      },
+      "imageSha256": "dab5ac2df480cc8c8a1e6516d9426174f8ca76376e6f9c7f8cb4add3eb84c6c1",
+      "runtimeSha256": "52974e5891504ef1527cb946934945367bf7ddccc7c73adb4515888467e69229",
+      "resultFile": "/private/tmp/nupp-cli-package/cold-check.json"
+    },
+    "finalAttemptWithoutReport": {
+      "resultFile": "/private/tmp/nupp-cli-package/final-check.log",
+      "status": "not accepted",
+      "reason": "Debugger attachment reparented the checker; subprocess wait/status capture no longer tracked its actual completion. The wrapper parsed an empty in-progress report.",
+      "sample": "/private/tmp/nupp-cli-package/cold-coordinator.sample",
+      "sampledFootprintGB": 11.8,
+      "peakFootprintGB": 14.9,
+      "terminationCause": "Diagnostic interference; runtime termination or OOM was not established."
+    }
+  },
+  "repositoryCheck": {
+    "cold": {
+      "command": {
+        "command": [
+          "./bin/nupp",
+          "check",
+          "--json"
+        ],
+        "cwd": "/private/tmp/nupp-codegen-experiment",
+        "package": "fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+        "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+        "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+        "exitStatus": 0,
+        "elapsedSeconds": 168.202984666,
+        "timing": {
+          "compiledModules": 552,
+          "optimizerFacts": {
+            "consumed": 8338,
+            "families": {
+              "callableEffects": 1795,
+              "callableRelations": 1795,
+              "identity": 89,
+              "traceFindings": 89,
+              "traceProfileId": 372
+            },
+            "produced": 61,
+            "selectionChangedModules": 0,
+            "selectorMs": 0,
+            "unique": 4140
+          },
+          "parallel": {
+            "batches": 541,
+            "mode": "parallel",
+            "rechecked": 0,
+            "retries": 0,
+            "workers": 6
+          },
+          "phases": [
+            {
+              "durationMs": 153971.26196289062,
+              "name": "parallel check"
+            },
+            {
+              "durationMs": 12265.253173828125,
+              "name": "generate"
+            },
+            {
+              "durationMs": 682.847412109375,
+              "name": "scan"
+            },
+            {
+              "durationMs": 568.7734375,
+              "name": "check"
+            },
+            {
+              "durationMs": 261.7880859375,
+              "name": "persist"
+            },
+            {
+              "durationMs": 83.586181640625,
+              "name": "other"
+            },
+            {
+              "durationMs": 24.0390625,
+              "name": "resolve"
+            }
+          ],
+          "reusedModules": 0,
+          "slowest": [
+            {
+              "durationMs": 137.323974609375,
+              "module": "nupp.runtime.vendor.lunajson.decoder"
+            },
+            {
+              "durationMs": 40.858154296875,
+              "module": "nupp.runtime.vendor.lunajson.encoder"
+            },
+            {
+              "durationMs": 6.858154296875,
+              "module": "nupp.workers.native"
+            },
+            {
+              "durationMs": 4.501953125,
+              "module": "nupp.serde.internal.identity"
+            },
+            {
+              "durationMs": 3.803955078125,
+              "module": "nupp.text.internal.buffer"
+            }
+          ],
+          "specializedBodies": 0,
+          "totalMs": 167857.80126953125
+        },
+        "diagnosticCounts": {
+          "NUPP2506": 1,
+          "NUPP2505": 1,
+          "NUPP2510": 10,
+          "NUPP2507": 1,
+          "NUPP2107": 1
+        }
+      },
+      "resultPath": "/private/tmp/nupp-cli-package/final-cold-check.json"
+    },
+    "warm": {
+      "command": {
+        "command": [
+          "./bin/nupp",
+          "check",
+          "--json"
+        ],
+        "cwd": "/private/tmp/nupp-codegen-experiment",
+        "package": "fb82942dfe242fe4b54d1eda5e655e87aabe98e375d5966a35f07d14d70be169",
+        "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+        "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+        "exitStatus": 0,
+        "elapsedSeconds": 2.3583156659999815,
+        "timing": {
+          "compiledModules": 0,
+          "optimizerFacts": {
+            "consumed": 8338,
+            "families": {
+              "callableEffects": 1795,
+              "callableRelations": 1795,
+              "identity": 89,
+              "traceFindings": 89,
+              "traceProfileId": 372
+            },
+            "produced": 61,
+            "selectionChangedModules": 0,
+            "selectorMs": 0,
+            "unique": 4140
+          },
+          "phases": [
+            {
+              "durationMs": 1438.8544921875,
+              "name": "generate"
+            },
+            {
+              "durationMs": 382.419677734375,
+              "name": "scan"
+            },
+            {
+              "durationMs": 214.870849609375,
+              "name": "check"
+            },
+            {
+              "durationMs": 107.15869140625,
+              "name": "other"
+            },
+            {
+              "durationMs": 13.39111328125,
+              "name": "persist"
+            }
+          ],
+          "reusedModules": 552,
+          "slowest": [],
+          "specializedBodies": 0,
+          "totalMs": 2156.723876953125
+        },
+        "diagnosticCounts": {
+          "NUPP2506": 1,
+          "NUPP2505": 1,
+          "NUPP2510": 10,
+          "NUPP2507": 1,
+          "NUPP2107": 1
+        }
+      },
+      "resultPath": "/private/tmp/nupp-cli-package/final-warm-check.json"
+    }
+  },
+  "finalSelfHosting": {
+    "command": [
+      "./bin/nupp",
+      "fixpoint",
+      "--json"
+    ],
+    "exitStatus": 0,
+    "report": {
+      "diagnostics": [],
+      "kind": "compiler",
+      "ok": true,
+      "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+      "target": "compiler"
+    },
+    "reportFile": "/private/tmp/nupp-cli-package/fixpoint-v11.json",
+    "stderr": "/private/tmp/nupp-cli-package/fixpoint-v11.stderr",
+    "sources": "Final frozen compiler sources; staged rebuild refreshes generated Lua used by final interface/typelevel suites."
+  },
+  "v11PackageValidation": {
+    "image": "/private/tmp/nupp-cli-package/root-compact.image",
+    "runtime": "/private/tmp/nupp-tecs-integration/runtime-v11",
+    "emission": {
+      "command": [
+        "/private/tmp/nupp-tecs-integration/runtime-v10",
+        "run",
+        "/private/tmp/nupp-physical-fields/final-host.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+      ],
+      "sourceHashes": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "4ef9320c0e661b7bd9ed08afca088cc99f50869141de2a6bf260f831b0af1944",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "f5939c630f4f9075e84e0c06b5fe7d27e6057f4e0b0dd7072c9f8a6b02714a18"
+      },
+      "sourceHashesAfter": {
+        "src/nupp/tools/build/moduleobject.nupp": "c3be7b476c94ef2a370293eabe0994a34d9a43988bd8063ef3a8c97df84cf09a",
+        "src/nupp/tools/build/parallelcheck.nupp": "4ef9320c0e661b7bd9ed08afca088cc99f50869141de2a6bf260f831b0af1944",
+        "src/nupp/tools/build/parallelcheckservice.nupp": "e13592b9977eeb41f683aba2e2c0d7589a631ba0598d777ec8d3d36a65af0618",
+        "src/nupp/compiler/project/interfaceimage.nupp": "60e207ef8382b4d473ad40594d16026fff940bbf749852f25099467453a53431",
+        "src/nupp/compiler/types/generics.nupp": "f5939c630f4f9075e84e0c06b5fe7d27e6057f4e0b0dd7072c9f8a6b02714a18"
+      },
+      "seconds": 357.303710125,
+      "exitStatus": 0,
+      "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+      "imageBytes": 21036263
+    },
+    "installation": {
+      "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/04e7235be1e97ef75dcdef10ab38834c9716ef4e13e1b6a35538389f03b12704",
+      "receipt": {
+        "format": "nupp-vm-cli-1",
+        "runtimeSha256": "859a954fd562b69c8ae5be485c4ac74313678c80f4d6fc0130629271b520a429",
+        "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+        "installedFrom": {
+          "runtime": "/private/tmp/nupp-tecs-integration/runtime-v11",
+          "image": "/private/tmp/nupp-cli-package/root-compact.image"
+        },
+        "sourceAtInstall": {
+          "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+          "fingerprint": "7d61f46d720c370d245691b4fadcc6a9a27d7206d8e71ee8374fce7dc6fe8da8"
+        },
+        "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+        "execution": "no-JIT interpreter; heap-frame or affine cleanup uses Rust dispatch; supplied linked AOT remains enabled",
+        "validation": [
+          "image verifier",
+          "full root CLI --help"
+        ]
+      },
+      "sourceChangedSinceInstall": false,
+      "sourceNow": {
+        "revision": "b43729fb5f71c616f4146e3d1fdc5312a6e72f90",
+        "fingerprint": "7d61f46d720c370d245691b4fadcc6a9a27d7206d8e71ee8374fce7dc6fe8da8"
+      },
+      "policy": "Installed snapshot; source edits require explicitly installing a rebuilt compiler image."
+    },
+    "coldCheck": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "cwd": "/private/tmp/nupp-codegen-experiment",
+      "package": "04e7235be1e97ef75dcdef10ab38834c9716ef4e13e1b6a35538389f03b12704",
+      "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+      "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+      "exitStatus": 0,
+      "elapsedSeconds": 171.09291925,
+      "timing": {
+        "compiledModules": 552,
+        "optimizerFacts": {
+          "consumed": 8338,
+          "families": {
+            "callableEffects": 1795,
+            "callableRelations": 1795,
+            "identity": 89,
+            "traceFindings": 89,
+            "traceProfileId": 372
+          },
+          "produced": 61,
+          "selectionChangedModules": 0,
+          "selectorMs": 0,
+          "unique": 4140
+        },
+        "parallel": {
+          "batches": 541,
+          "mode": "parallel",
+          "rechecked": 0,
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 157196.9951171875,
+            "name": "parallel check"
+          },
+          {
+            "durationMs": 12026.676025390625,
+            "name": "generate"
+          },
+          {
+            "durationMs": 610.97509765625,
+            "name": "scan"
+          },
+          {
+            "durationMs": 569.4091796875,
+            "name": "check"
+          },
+          {
+            "durationMs": 250.51171875,
+            "name": "persist"
+          },
+          {
+            "durationMs": 81.785888671875,
+            "name": "other"
+          },
+          {
+            "durationMs": 22.0908203125,
+            "name": "resolve"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 131.10595703125,
+            "module": "nupp.runtime.vendor.lunajson.decoder"
+          },
+          {
+            "durationMs": 39.932861328125,
+            "module": "nupp.runtime.vendor.lunajson.encoder"
+          },
+          {
+            "durationMs": 6.4111328125,
+            "module": "nupp.workers.native"
+          },
+          {
+            "durationMs": 4.27880859375,
+            "module": "nupp.serde.internal.identity"
+          },
+          {
+            "durationMs": 3.4677734375,
+            "module": "nupp.text.internal.buffer"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 170758.47509765625
+      },
+      "diagnosticCounts": {
+        "NUPP2506": 1,
+        "NUPP2505": 1,
+        "NUPP2510": 10,
+        "NUPP2507": 1,
+        "NUPP2107": 1
+      },
+      "resultPath": "/private/tmp/nupp-cli-package/v11-check/final-cold-check.json"
+    },
+    "warmCheck": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "cwd": "/private/tmp/nupp-codegen-experiment",
+      "package": "04e7235be1e97ef75dcdef10ab38834c9716ef4e13e1b6a35538389f03b12704",
+      "cache": "Removed only worktree build/cache before cold invocation; warm reuses it.",
+      "environment": "NUPP_PARALLEL_CHECK_TRACE=1; no image, runtime, compiler-root or worker-count overrides.",
+      "exitStatus": 0,
+      "elapsedSeconds": 2.354311542000005,
+      "timing": {
+        "compiledModules": 0,
+        "optimizerFacts": {
+          "consumed": 8338,
+          "families": {
+            "callableEffects": 1795,
+            "callableRelations": 1795,
+            "identity": 89,
+            "traceFindings": 89,
+            "traceProfileId": 372
+          },
+          "produced": 61,
+          "selectionChangedModules": 0,
+          "selectorMs": 0,
+          "unique": 4140
+        },
+        "phases": [
+          {
+            "durationMs": 1423.12890625,
+            "name": "generate"
+          },
+          {
+            "durationMs": 381.551025390625,
+            "name": "scan"
+          },
+          {
+            "durationMs": 207.421142578125,
+            "name": "check"
+          },
+          {
+            "durationMs": 102.23974609375,
+            "name": "other"
+          },
+          {
+            "durationMs": 14.1318359375,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 552,
+        "slowest": [],
+        "specializedBodies": 0,
+        "totalMs": 2128.496826171875
+      },
+      "diagnosticCounts": {
+        "NUPP2506": 1,
+        "NUPP2505": 1,
+        "NUPP2510": 10,
+        "NUPP2507": 1,
+        "NUPP2107": 1
+      },
+      "resultPath": "/private/tmp/nupp-cli-package/v11-check/final-warm-check.json"
+    },
+    "rootCli": {
+      "command": "python3 native/crates/vm/tests/root-cli-smoke.py /private/tmp/nupp-cli-package/root-compact.image --binary /private/tmp/nupp-tecs-integration/runtime-v11 --installed --luarocks /Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luarocks/bin/luarocks --output /private/tmp/nupp-cli-package/final-full",
+      "summary": {
+        "launcherMode": "installed",
+        "package": "/private/tmp/nupp-codegen-experiment/.nupp/vm-cli/04e7235be1e97ef75dcdef10ab38834c9716ef4e13e1b6a35538389f03b12704",
+        "imageSha256": "bb4060488982fbc08ac43e1c486a5f9be353f4ffe4ab9edf75c77a42825f91a2",
+        "binarySha256": "859a954fd562b69c8ae5be485c4ac74313678c80f4d6fc0130629271b520a429",
+        "commands": [
+          "init",
+          "ast",
+          "aot",
+          "bc",
+          "check",
+          "fmt",
+          "build",
+          "clean",
+          "bench",
+          "lints",
+          "ownership-audit",
+          "explain",
+          "reference",
+          "completions",
+          "test",
+          "task",
+          "doc",
+          "fixpoint",
+          "run",
+          "import-c",
+          "migrate",
+          "export-c",
+          "rock",
+          "lsp",
+          "version",
+          "help"
+        ],
+        "cases": 101,
+        "passed": 101
+      },
+      "resultsPath": "/private/tmp/nupp-cli-package/final-full/results.json"
+    },
+    "parallelSuite": {
+      "command": "NUPP_TEST_BUILD=/private/tmp/nupp-cli-package/test-host-final PATH=<staged LuaJIT>:$PATH ./tests/run parallelchecktest --json",
+      "resultPath": "/private/tmp/nupp-cli-package/parallelcheck-final.json",
+      "passed": 11,
+      "failed": 0,
+      "total": 11,
+      "durationMs": 300008.7822265625,
+      "host": {
+        "directory": "/private/tmp/nupp-cli-package/test-host-final",
+        "sha256": "5d1f4ac417ae881fd5fa9d8e63985fa59743211514256f37968973ffe98e55e4",
+        "files": 939,
+        "purpose": "Frozen Lua test-runner host; fixture compiler subprocesses use installed final VM image/runtime. Snapshot prevents concurrent pinned fixpoint build replacement from changing loaded test modules."
+      },
+      "caseNames": [
+        "aStandardGenericFillsAFieldInEitherSchedule",
+        "anInterruptedCheckLeavesNoWorkers",
+        "constGenericProjectsBuildSerially",
+        "documentedRaiseDependenciesFollowParsedAdjacentTags",
+        "documentedRaiseTypesOrderTheirDeclaringModules",
+        "parallelBuildsWriteWhatSerialBuildsWrite",
+        "parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules",
+        "projectAnnotationsReachEveryWorker",
+        "recordsNamingStagedStandardModulesAreReused",
+        "workerAndInterfaceFailuresFallBackWithoutPublishingPartialState",
+        "workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism"
+      ]
+    }
+  },
+  "semanticWorkerRegression": {
+    "environmentAttempts": [
+      "Sandboxed direct tests/run exited143 before test discovery because its process monitor cannot inspect parent process state.",
+      "Direct runner without NUPP_COMPILER_ROOT tried executing tests/run.lua as its comptime worker; corrected by setting the repository root."
+    ],
+    "v11Result": {
+      "path": "/private/tmp/nupp-cli-package/semantic-v11-sparse-failure.json",
+      "passed": 121,
+      "total": 122
+    },
+    "failure": "computedIteratorModesMakeBindingsIterationScopedBorrows received NUPP2006 record index outside its children instead of expected NUPP2608.",
+    "isolation": "Same failure with preserved pre-optimization Lua compiler host; same case passes with direct evaluator. This isolates sparse shaped-table numeric indexing in VM comptime workers.",
+    "v12SingleCase": {
+      "status": "passed",
+      "diagnostic": "NUPP2608 borrowed value cannot escape through assignment",
+      "log": "/private/tmp/nupp-cli-package/semantic-repro-v12.stderr"
+    },
+    "finalSuite": {
+      "command": "NUPP_COMPILER_ROOT=/private/tmp/nupp-codegen-experiment PATH=<staged LuaJIT>:$PATH ./tests/run interfaceimagetest typeleveltest --json",
+      "resultPath": "/private/tmp/nupp-cli-package/semantic-v12.json",
+      "passed": 122,
+      "total": 122,
+      "failed": 0,
+      "durationMs": 196128.61694335938
+    }
+  }
+}

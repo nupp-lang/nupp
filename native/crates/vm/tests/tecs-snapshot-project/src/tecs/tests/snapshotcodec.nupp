@@ -1,0 +1,130 @@
+module tecs.tests.snapshotcodec
+
+local native: any = assert(require("nupp.mem.representation").storage)
+local persist = require("nupp.vm.persist")
+local text = require("nupp.text")
+local archetype = require("tecs.internal.archetype")
+local components = require("tecs.internal.components")
+local codec = require("tecs.internal.snapshotcodec")
+local ffistorage = require("tecs.internal.ffistorage")
+local query = require("tecs.internal.query")
+local suite = {}
+
+local struct Point
+    x: number
+    y: number
+end
+
+local struct OldPoint
+    y: number
+    x: number
+    extra: uint32[2]
+end
+
+const Position = components.newFFIComponent({
+    name = "test.VMSnapshotCodec.Position",
+    construct = function(x: number, y: number): Point
+        return new Point(x, y)
+    end,
+    default = function(): Point
+        return new Point(0, 0)
+    end,
+})
+
+local function rejected(saved: any, message: string): nil
+    const bytes = persist.saveData(saved)
+    const ok, problem = pcall(function(): nil
+        codec.read(bytes, 32)
+    end)
+    assert(not ok and tostring(problem):find(message, 1, true))
+end
+
+function suite.run(): number
+    const source = archetype.new(1, {Position as components.Component})
+    archetype.append(source, 1, {[Position.componentId] = new Point(1.5, 2.5)})
+    archetype.append(source, 2, {[Position.componentId] = new Point(3.5, 4.5)})
+    const output = text.newBuffer()
+    const prelude = codec.write(
+        {source},
+        query.new(),
+        nil,
+        3,
+        {new codec.Data(key = "custom", value = {answer = 42})},
+        output
+    )
+    assert(prelude.entityCount == 2 and prelude.archetypeCount == 1)
+    const bytes = output:tostring()
+    const decoded = codec.read(bytes, 32)
+    @unsafe do
+        assert(decoded.frames[1].ids[0] == 1 and decoded.frames[1].ids[1] == 2)
+    end
+    const column = decoded.frames[1].columns[1]
+    const current = assert(ffistorage.find(Position.componentId))
+    assert(rawequal(column.component, Position) and rawequal(column.storage, current))
+    assert(codec.value(column, 1).x == 1.5 and codec.value(column, 2).y == 4.5)
+    assert(decoded.data[1].key == "custom" and decoded.data[1].value.answer == 42)
+    source.columns[Position.componentId][1].x = 99
+    assert(codec.value(column, 1).x == 1.5)
+    const target = archetype.new(2, {Position as components.Component})
+    archetype.reserveCapacity(target, 2)
+    codec.copy(column, target, 1, 2)
+    assert(target.columns[Position.componentId][1].x == 1.5)
+    assert(target.columns[Position.componentId][2].y == 4.5)
+    local saved = persist.loadData(bytes)
+    const oldValue = new OldPoint()
+    oldValue.y, oldValue.x = 12.5, 11.5
+    @unsafe do
+        oldValue.extra[0], oldValue.extra[1] = 7, 8
+    end
+    const old = ffistorage.new(oldValue)
+    const rows = native.allocateArray(old.element, 2)
+    rows[0] = oldValue
+    rows[1] = oldValue
+    saved.entries[1].fingerprint = old.fingerprint
+    saved.schemas[1] = native.layout(old.element)
+    saved.frames[1].columns[1].bytes = native.string(rows, 2 * old.width)
+    const projected = codec.read(persist.saveData(saved), 32).frames[1].columns[1]
+    assert(rawequal(projected.component, Position) and not rawequal(projected.storage, current))
+    const payload = codec.value(projected, 1)
+    assert(payload.extra[1] == 7 and payload.extra[2] == 8)
+    const loaded = Position.snapshotLoad(payload, {})
+    assert(loaded.x == 11.5 and loaded.y == 12.5)
+    saved = persist.loadData(bytes)
+    saved.target = "incompatible-target"
+    rejected(saved, "incompatible target ABI")
+    saved = persist.loadData(bytes)
+    saved.schemas[1].fields[2].offset = 0
+    rejected(saved, "offset differs")
+    saved = persist.loadData(bytes)
+    saved.frames[1].columns[1].bytes = "short"
+    rejected(saved, "native column byte span")
+    saved = persist.loadData(bytes)
+    saved.entries[2] = saved.entries[1]
+    rejected(saved, "repeated snapshot component name")
+    saved = persist.loadData(bytes)
+    saved.entries[1].name = "missing.component"
+    rejected(saved, "unknown component")
+    saved = persist.loadData(bytes)
+    saved.total = 3
+    rejected(saved, "counts do not match")
+
+    saved = persist.loadData(bytes)
+    saved.schemas[1].fields[1].bitWidth = 1
+    rejected(saved, "unsupported layout modifier")
+    local invoked = false
+    const hostile = setmetatable({}, {
+        __index = function(): any
+            invoked = true
+            return nil
+        end
+    })
+    const hostileBytes = persist.save(hostile)
+    const ok, problem = pcall(function(): nil
+        codec.read(hostileBytes, 32)
+    end)
+    assert(not ok and not invoked and tostring(problem):find("plain data", 1, true))
+
+    return 42
+end
+
+export = suite

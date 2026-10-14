@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Install or inspect a verified local VM CLI compiler snapshot."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGES = ROOT / ".nupp/vm-cli"
+FORMAT = "nupp-vm-cli-1"
+
+
+def digest(path):
+    with path.open("rb") as source:
+        result = hashlib.sha256()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            result.update(chunk)
+        return result.hexdigest()
+
+
+def source_state():
+    try:
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL, text=True).strip()
+    except subprocess.CalledProcessError:
+        revision = None
+    try:
+        paths = subprocess.check_output([
+            "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "src", "templates", "native", "runtime",
+            "scripts", "bin", "nupp.lua", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo",
+        ], cwd=ROOT, stderr=subprocess.DEVNULL).split(b"\0")
+    except subprocess.CalledProcessError:
+        return {"revision": None, "fingerprint": None}
+    state = hashlib.sha256()
+    for name in sorted(filter(None, paths)):
+        path = ROOT / os.fsdecode(name)
+        state.update(name + b"\0")
+        state.update(path.read_bytes() if path.is_file() else b"<missing>")
+        state.update(b"\0")
+    return {"revision": revision, "fingerprint": state.hexdigest()}
+
+
+def selected():
+    generation = (PACKAGES / "current").read_text().strip()
+    if len(generation) != 64 or any(c not in "0123456789abcdef" for c in generation):
+        raise ValueError("invalid VM CLI package selection")
+    package = PACKAGES / generation
+    if (package / "format").read_text().strip() != FORMAT:
+        raise ValueError("incomplete VM CLI package")
+    return package
+
+
+def validate_files(package, receipt):
+    for key, filename in (("runtimeSha256", "runtime"), ("imageSha256", "compiler.image")):
+        if digest(package / filename) != receipt[key]:
+            raise ValueError(f"VM CLI package {filename} does not match its receipt")
+    if not os.access(package / "runtime", os.X_OK):
+        raise ValueError("VM CLI runtime is not executable")
+
+
+def install(args):
+    runtime, image = args.runtime.resolve(strict=True), args.image.resolve(strict=True)
+    if not os.access(runtime, os.X_OK):
+        raise ValueError("runtime is not executable")
+    with image.open() as source:
+        if not any(line.startswith("module nupp.tools.vm.root ") for line in source):
+            raise ValueError("image does not contain the full nupp.tools.vm.root CLI")
+    PACKAGES.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".install-", dir=PACKAGES) as directory:
+        stage = Path(directory)
+        shutil.copyfile(runtime, stage / "runtime")
+        (stage / "runtime").chmod(0o755)
+        shutil.copyfile(image, stage / "compiler.image")
+        receipt = {
+            "format": FORMAT,
+            "runtimeSha256": digest(stage / "runtime"),
+            "imageSha256": digest(stage / "compiler.image"),
+            "installedFrom": {"runtime": str(runtime), "image": str(image)},
+            "sourceAtInstall": source_state(),
+            "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+            "execution": "no-JIT interpreter; heap-frame or affine cleanup uses Rust dispatch; supplied linked AOT remains enabled",
+            "validation": ["image verifier", "full root CLI --help"],
+        }
+        env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT),
+                   NUPP_VM_BINARY=str(stage / "runtime"), NUPP_VM_CLI_IMAGE=str(stage / "compiler.image"))
+        for name in ("JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "EMIT_STUBS", "EMIT_SURVEY"):
+            env.pop(name, None)
+        for command in (
+            [str(stage / "runtime"), "verify", str(stage / "compiler.image")],
+            [str(stage / "runtime"), "exec", str(stage / "compiler.image"), "nupp.tools.vm.root", "--help"],
+        ):
+            result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+            if result.returncode:
+                raise ValueError("package validation failed: " + result.stderr[-8000:])
+            if command[1] == "exec" and "Usage:" not in result.stdout:
+                raise ValueError("root CLI help did not produce its usage text")
+        material = json.dumps({key: receipt[key] for key in ("format", "runtimeSha256", "imageSha256")},
+                              sort_keys=True, separators=(",", ":")).encode()
+        generation = hashlib.sha256(material).hexdigest()
+        (stage / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        (stage / "format").write_text(FORMAT + "\n")
+        package = PACKAGES / generation
+        if package.exists():
+            validate_files(package, receipt)
+        else:
+            try:
+                stage.rename(package)
+            except OSError:
+                if not package.exists():
+                    raise
+                validate_files(package, receipt)
+        # Readers see either complete immutable generation. Existing children
+        # retain the previous absolute paths through their inherited environment.
+        handle, pending = tempfile.mkstemp(prefix=".current-", dir=PACKAGES)
+        try:
+            with os.fdopen(handle, "w") as target:
+                target.write(generation + "\n")
+            os.replace(pending, PACKAGES / "current")
+        finally:
+            Path(pending).unlink(missing_ok=True)
+    print(package)
+
+
+def status():
+    package = selected()
+    receipt = json.loads((package / "receipt.json").read_text())
+    validate_files(package, receipt)
+    current = source_state()
+    recorded = receipt["sourceAtInstall"]
+    print(json.dumps({
+        "package": str(package), "receipt": receipt,
+        "sourceChangedSinceInstall": None if current["fingerprint"] is None else current["fingerprint"] != recorded["fingerprint"],
+        "sourceNow": current,
+        "policy": "Installed snapshot; source edits require explicitly installing a rebuilt compiler image.",
+    }, indent=2))
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+commands = parser.add_subparsers(dest="command", required=True)
+command = commands.add_parser("install", help="verify and atomically select a runtime and full root CLI image")
+command.add_argument("--runtime", type=Path, required=True)
+command.add_argument("--image", type=Path, required=True)
+commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
+args = parser.parse_args()
+try:
+    install(args) if args.command == "install" else status()
+except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+    print(f"nupp: {error}", file=sys.stderr)
+    sys.exit(1)

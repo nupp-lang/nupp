@@ -1,0 +1,536 @@
+module tecs.internal.snapshotcodec
+
+--[[
+Runtime graph framing for Tecs snapshots. Native columns remain byte spans
+until publication copies them into final allocations; changed layouts project
+named fields through the registered component codecs.
+
+Adapted from Tecs at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
+Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
+]]
+
+local native: any = assert(require("nupp.mem.representation").storage)
+local persist = require("nupp.vm.persist")
+local buffer = require("nupp.text")
+local archetype = require("tecs.internal.archetype")
+local components = require("tecs.internal.components")
+local events = require("tecs.internal.events")
+local ffistorage = require("tecs.internal.ffistorage")
+local query = require("tecs.internal.query")
+local entitycolumn = require("tecs.internal.entitycolumn")
+
+export record Data
+    key: string
+    value: any
+end
+
+export record Column
+    component: components.Component
+    storage: ffistorage.Storage?
+    pointer: any
+    values: {any}?
+    present: {[integer]: boolean}?
+    scratch: any
+end
+
+export record Frame
+    owner: string
+    ids: number[?]
+    count: integer
+    columns: {Column}
+end
+
+export record Decoded
+    prelude: events.SnapshotPrelude
+    frames: {Frame}
+    data: {Data}
+    owner: string
+end
+
+local record Plan
+    source: archetype.Archetype
+    columns: {components.Component}
+    indices: {integer}
+    rows: {integer}?
+    count: integer
+end
+
+local function serialize(component: components.Component, value: any): any
+    const relationship = components.asRelationship(component)
+    if relationship ~= nil then
+        component = assert(components.findById(relationship.componentId))
+    end
+    if component.storageType == "tag" then
+        return nil
+    end
+    if component.storageType == "table" or component.storageType == "ffi" then
+        return (component as components.TableComponent<any>).snapshotSave(value)
+    end
+    if component.storageType == "relationship" then
+        return {target = components.edgeTarget(value)}
+    end
+
+    return value
+end
+
+local struct AbiWitness
+    byte: uint8
+end
+
+const hostLayout = native.layout(AbiWitness)
+const CODEC = "tecs.vm.snapshot"
+
+--- Writes a runtime graph with native columns where their codecs allow it.
+export function write(
+    sources: {archetype.Archetype},
+    selection: query.Query,
+    layers: {[integer]: boolean}?,
+    nextId: integer,
+    data: {Data},
+    output: buffer.Buffer
+): events.SnapshotPrelude
+    const plans: {Plan} = {}
+    const entries: {events.SnapshotComponentEntry} = {}
+    const byId: {[integer]: integer} = {}
+    const transform = components.findByName("Transform2D")
+    local total: integer = 0
+    for index = 1, #sources do
+        const source = sources[index]
+        if #source.entities == 0 or not query.matches(selection, source) then
+            goto nextSource
+        end
+        local rows: {integer}? = nil
+        local count = #source.entities
+        if layers ~= nil and transform ~= nil and archetype.has(source, transform) then
+            rows = {}
+            const poses = assert(source.columns[transform.componentId])
+            for row = 1, count do
+                if layers[poses[row].layer as integer] then
+                    rows[#rows + 1] = row
+                end
+            end
+            count = #rows
+        end
+        if count == 0 then
+            goto nextSource
+        end
+        const columns: {components.Component} = {}
+        const indices: {integer} = {}
+        for position = 1, #source.components do
+            const component = source.components[position]
+            const relationship = components.asRelationship(component)
+            const target = components.targetOf(component)
+            if component.transient or (relationship ~= nil and not relationship.sparse and target == nil) then
+                goto nextComponent
+            end
+            columns[#columns + 1] = component
+            local entry = byId[component.componentId]
+            if entry == nil then
+                entry = #entries + 1
+                byId[component.componentId] = entry
+                const storage = ffistorage.find(component.componentId)
+                entries[
+                    entry
+                ] = new events.SnapshotComponentEntry(
+                    name = component.componentName,
+                    fingerprint = storage ~= nil
+                    and storage.rawCodec
+                    and (relationship == nil or target ~= nil)
+                    and storage.fingerprint
+                    or nil
+                )
+            end
+            indices[#indices + 1] = entry
+            ::nextComponent::
+        end
+        plans[#plans + 1] = new Plan(source = source, columns = columns, indices = indices, rows = rows, count = count)
+        total = total + count
+        ::nextSource::
+    end
+    const schemas: {any} = {}
+    for index = 1, #entries do
+        if entries[index].fingerprint ~= nil then
+            const component = assert(components.resolveSnapshotName(entries[index].name))
+            schemas[index] = native.layout(assert(ffistorage.find(component.componentId)).element)
+        end
+    end
+    const frames: {any} = {}
+    for index = 1, #plans do
+        const plan = plans[index]
+        local ids: string
+        if plan.rows == nil then
+            ids = native.string(entitycolumn.pointer(plan.source.entities), plan.count * 8) as string
+        else
+            const selected = native.allocateArray(native.scalar("number"), plan.count)
+            for row = 1, plan.count do
+                selected[row - 1] = plan.source.entities[assert(plan.rows)[row]]
+            end
+            ids = native.string(selected, plan.count * 8) as string
+        end
+        const columns: {any} = {}
+        for column = 1, #plan.columns do
+            const component = plan.columns[column]
+            const storage = ffistorage.find(component.componentId)
+            const raw = entries[plan.indices[column]].fingerprint ~= nil
+            if raw then
+                const layout = assert(storage)
+                const source = assert(plan.source.columns[component.componentId])
+                const rawOutput = buffer.newBuffer()
+                if plan.rows == nil then
+                    ffistorage.writeRows(layout, source, 1, plan.count, rawOutput)
+                else
+                    for row = 1, plan.count do
+                        ffistorage.writeRows(layout, source, assert(plan.rows)[row], 1, rawOutput)
+                    end
+                end
+                columns[column] = {entry = plan.indices[column], bytes = rawOutput:tostring()}
+            else
+                const values: {any} = {}
+                for row = 1, plan.count do
+                    const sourceRow = plan.rows and plan.rows[row] or row
+                    const relationship = components.asRelationship(component)
+                    if relationship ~= nil and components.targetOf(component) == nil then
+                        const edges = archetype.edgeValues(plan.source, sourceRow - 1, relationship)
+                        if relationship.exclusive then
+                            values[row] = serialize(component, edges[1])
+                        else
+                            const saved: {any} = {}
+                            for edge = 1, #edges do
+                                saved[edge] = serialize(component, edges[edge])
+                            end
+                            values[row] = {edges = saved}
+                        end
+                    else
+                        values[row] = serialize(component, archetype.valueAt(plan.source, sourceRow - 1, component))
+                    end
+                end
+                columns[column] = {entry = plan.indices[column], values = values}
+            end
+        end
+        frames[index] = {count = plan.count, ids = ids, columns = columns}
+    end
+    const plainEntries: {any} = {}
+    for index = 1, #entries do
+        plainEntries[index] = {name = entries[index].name, fingerprint = entries[index].fingerprint}
+    end
+    const plainData: {any} = {}
+    for index = 1, #data do
+        plainData[index] = {key = data[index].key, value = data[index].value}
+    end
+    const bytes = persist.saveData({
+        codec = CODEC,
+        version = 1,
+        target = hostLayout.target,
+        abi = hostLayout.abi,
+        nextId = nextId,
+        total = total,
+        entries = plainEntries,
+        schemas = schemas,
+        frames = frames,
+        data = plainData,
+    })
+    output:reset():put(bytes)
+
+    return new events.SnapshotPrelude(
+        version = 1,
+        nextEntityId = nextId,
+        entityCount = total,
+        archetypeCount = #plans,
+        componentTable = entries
+    )
+end
+
+local function integer(value: any, label: string, maximum: integer): integer
+    if type(value) ~= "number" or value < 0 or value % 1 ~= 0 or value > maximum then
+        error("snapshot has invalid " .. label, 3)
+    end
+    return value as integer
+end
+
+local function array(value: any, label: string, maximum: integer): {any}
+    if type(value) ~= "table" then
+        error("snapshot has invalid " .. label, 3)
+    end
+    const length = #value
+    if length > maximum then
+        error("snapshot " .. label .. " exceeds limit", 3)
+    end
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key > length or key % 1 ~= 0 then
+            error("snapshot has invalid " .. label .. " index", 3)
+        end
+    end
+    for index = 1, length do
+        if value[index] == nil then
+            error("snapshot has a hole in " .. label, 3)
+        end
+    end
+
+    return value as {any}
+end
+
+const scalars: {
+    [string]: boolean
+} = {
+    boolean = true,
+    integer = true,
+    number = true,
+    float = true,
+    int8 = true,
+    uint8 = true,
+    int16 = true,
+    uint16 = true,
+    int32 = true,
+    uint32 = true,
+    int64 = true,
+    uint64 = true,
+}
+
+-- Rebuild only the supported data layout. No persisted nominal identity,
+-- methods, metatable or pointer becomes a live component declaration.
+local function plainLayout(source: any): nil
+    for _, key in ipairs({"bitWidth", "bitPos", "pack", "packed", "explicitAlignment"}) do
+        if source[key] ~= nil and source[key] ~= false then
+            error("snapshot native schema contains an unsupported layout modifier", 3)
+        end
+    end
+end
+
+local function fieldType(source: any, nested: boolean): any
+    if type(source) ~= "table" or type(source.kind) ~= "string" then
+        error("invalid snapshot native field", 3)
+    end
+    plainLayout(source)
+    const result: any = {
+        kind = source.kind,
+        size = integer(source.size, "native field size", 2147483647),
+        alignment = integer(source.alignment, "native field alignment", 65536),
+    }
+    if source.kind == "array" and not nested then
+        result.count = integer(source.count, "native array extent", 1048576)
+        if result.count == 0 then
+            error("snapshot native array extent must be positive", 3)
+        end
+        result.element = fieldType(source.element, true)
+    elseif not scalars[source.kind] then
+        error("snapshot native schema contains an unsupported field", 3)
+    end
+
+    return result
+end
+
+local function savedSchema(fingerprint: string, source: any): ffistorage.Storage
+    if type(source) ~= "table"
+        or source.kind ~= "struct"
+        or source.target ~= hostLayout.target
+        or source.abi ~= hostLayout.abi
+    then
+        error("snapshot native schema has incompatible target ABI", 3)
+    end
+    plainLayout(source)
+    const fields = array(source.fields, "native fields", 4096)
+    if #fields == 0 then
+        error("snapshot native schema has no fields", 3)
+    end
+    const normalized: {any} = {}
+    const names: {[string]: boolean} = {}
+    for index = 1, #fields do
+        const field = fields[index]
+        if type(field) ~= "table"
+            or type(field.name) ~= "string"
+            or not field.name:match("^[%a_][%w_]*$")
+            or names[field.name]
+        then
+            error("invalid or repeated snapshot native field name", 3)
+        end
+        names[field.name] = true
+        const member = fieldType(field, false)
+        member.name = field.name
+        member.offset = integer(field.offset, "native field offset", 2147483647)
+        normalized[index] = member
+    end
+    const layout = {
+        kind = "struct",
+        supported = true,
+        identity = CODEC .. ":" .. hostLayout.target .. ":" .. tostring(hostLayout.abi) .. ":" .. fingerprint,
+        target = hostLayout.target,
+        abi = hostLayout.abi,
+        size = integer(source.size, "native schema size", 2147483647),
+        alignment = integer(source.alignment, "native schema alignment", 65536),
+        fields = normalized,
+    }
+    const descriptor = native.structs.define(layout, {})
+    const result = ffistorage.new(descriptor:new())
+    if result.fingerprint ~= fingerprint then
+        error("snapshot native fingerprint does not match its schema", 3)
+    end
+
+    return result
+end
+
+--- Reads and validates detached frames before the world publishes any entities.
+export function read(bytes: string, maximum: integer): Decoded
+    const saved = persist.loadData(bytes)
+    if type(saved) ~= "table" or saved.codec ~= CODEC or saved.version ~= 1 then
+        error("unsupported snapshot binary codec", 2)
+    end
+    if saved.target ~= hostLayout.target or saved.abi ~= hostLayout.abi then
+        error("snapshot has incompatible target ABI", 2)
+    end
+    const nextId = integer(saved.nextId, "next entity id", maximum + 1)
+    const total = integer(saved.total, "entity count", maximum)
+    const savedEntries = array(saved.entries, "component table", #bytes)
+    const savedFrames = array(saved.frames, "archetype frames", #bytes)
+    const savedData = array(saved.data, "custom data", #bytes)
+    if type(saved.schemas) ~= "table" then
+        error("snapshot has invalid native schemas", 2)
+    end
+    const entries: {events.SnapshotComponentEntry} = {}
+    const definitions: {components.Component} = {}
+    const layouts: {[integer]: ffistorage.Storage} = {}
+    const names: {[string]: boolean} = {}
+    for index = 1, #savedEntries do
+        const entry = savedEntries[index]
+        if type(entry) ~= "table" or type(entry.name) ~= "string" or names[entry.name] then
+            error("invalid or repeated snapshot component name", 2)
+        end
+        names[entry.name] = true
+        const component = components.resolveSnapshotName(entry.name)
+        if component == nil then
+            error("world.loadSnapshot: unknown component " .. entry.name, 2)
+        end
+        if entry.fingerprint ~= nil and type(entry.fingerprint) ~= "string" then
+            error("invalid snapshot fingerprint", 2)
+        end
+        entries[
+            index
+        ] = new events.SnapshotComponentEntry(name = entry.name, fingerprint = entry.fingerprint as string?)
+        definitions[index] = component
+        if entry.fingerprint ~= nil then
+            -- Validate schema even for the fast path; matching a string alone
+            -- must not bypass malformed or foreign-target layout checks.
+            const projected = savedSchema(entry.fingerprint, saved.schemas[index])
+            const current = ffistorage.find(component.componentId)
+            layouts[index] = current ~= nil and current.fingerprint == entry.fingerprint and current or projected
+        elseif saved.schemas[index] ~= nil then
+            error("snapshot schema has no fingerprint", 2)
+        end
+    end
+    for key in pairs(saved.schemas) do
+        integer(key, "schema index", #entries)
+        if key == 0 or entries[key].fingerprint == nil then
+            error("snapshot has an unexpected native schema", 2)
+        end
+    end
+    const frames: {Frame} = {}
+    local counted: integer = 0
+    for index = 1, #savedFrames do
+        const frame = savedFrames[index]
+        if type(frame) ~= "table" then
+            error("snapshot has invalid frame", 2)
+        end
+        const count = integer(frame.count, "frame entity count", maximum - counted)
+        counted = counted + count
+        if type(frame.ids) ~= "string" or #frame.ids ~= count * 8 then
+            error("snapshot has invalid entity byte span", 2)
+        end
+        const ids = native.allocateArray(native.scalar("number"), count)
+        native.copy(ids, frame.ids, count * 8)
+        const savedColumns = array(frame.columns, "frame columns", #entries)
+        const columns: {Column} = {}
+        const seen: {[integer]: boolean} = {}
+        for column = 1, #savedColumns do
+            const item = savedColumns[column]
+            if type(item) ~= "table" then
+                error("snapshot has invalid column", 2)
+            end
+            const entry = integer(item.entry, "column index", #entries)
+            if entry == 0 or seen[entry] then
+                error("invalid or repeated snapshot column", 2)
+            end
+            seen[entry] = true
+            const storage = layouts[entry]
+            local pointer: any = nil
+            local values: {any}? = nil
+            if storage ~= nil then
+                if type(item.bytes) ~= "string" or #item.bytes ~= count * storage.width or item.values ~= nil then
+                    error("snapshot has invalid native column byte span", 2)
+                end
+                pointer = native.castElements(storage.element, item.bytes)
+                native.boundedCount(pointer, count)
+            else
+                if type(item.values) ~= "table" or item.bytes ~= nil then
+                    error("snapshot has invalid value column", 2)
+                end
+                for key in pairs(item.values) do
+                    if integer(key, "value row", count) == 0 then
+                        error("snapshot has invalid value row", 2)
+                    end
+                end
+                values = item.values as {any}
+            end
+            columns[
+                column
+            ] = new Column(
+                component = definitions[entry],
+                storage = storage,
+                pointer = pointer,
+                values = values,
+                scratch = nil
+            )
+        end
+        frames[index] = new Frame(owner = bytes, ids = ids as number[?], count = count, columns = columns)
+    end
+    if counted ~= total then
+        error("snapshot counts do not match its contents", 2)
+    end
+    const data: {Data} = {}
+    for index = 1, #savedData do
+        const entry = savedData[index]
+        if type(entry) ~= "table" or type(entry.key) ~= "string" then
+            error("invalid snapshot data key", 2)
+        end
+        data[index] = new Data(key = entry.key, value = entry.value)
+    end
+
+    return new Decoded(
+        prelude = new events.SnapshotPrelude(
+            version = 1,
+            nextEntityId = nextId,
+            entityCount = total,
+            archetypeCount = #frames,
+            componentTable = entries
+        ),
+        frames = frames,
+        data = data,
+        owner = bytes
+    )
+end
+
+--- Projects a saved native row into named fields for the component load hook.
+export function value(column: Column, row: integer): any
+    if column.values ~= nil then
+        return column.values[row]
+    end
+    const layout = assert(column.storage)
+    native.boundedCount(column.pointer, row)
+
+    return ffistorage.serialize(layout, column.pointer[row - 1])
+end
+
+--- Copies a checked native column into the world's final archetype allocation.
+export function copy(column: Column, target: archetype.Archetype, first: integer, count: integer): nil
+    const storage = assert(ffistorage.find(column.component.componentId))
+    const destination = assert(target.columns[column.component.componentId])
+    if first < 1
+        or count < 0
+        or first % 1 ~= 0
+        or count % 1 ~= 0
+        or first + count - 1 > ffistorage.capacity(destination)
+        or column.storage ~= storage
+    then
+        error("snapshot native copy has incompatible layout or bounds", 2)
+    end
+    native.boundedCount(column.pointer, count)
+    native.copy(destination + first, column.pointer, count * storage.width)
+end
