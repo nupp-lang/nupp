@@ -92,7 +92,14 @@ pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
 /// fixed so the typed tier and the core probe it inline, with the same hash
 /// the shape slot tables use.
 #[repr(C)]
-pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64 }
+/// The hash part of a table and a record's overflow: open-addressed
+/// `(key, value)` slots probed by `slot_hash` of the key's bits, which the C
+/// core and the typed tier read in place at the same offsets, plus two side
+/// arrays that make iteration insertion-ordered (contracts 2.13): `order`
+/// lists slot indices in the order keys were first inserted, and `rank`
+/// gives each slot its position in `order`. Placement may depend on
+/// addresses; the order a program observes never does.
+pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64, order: *mut u32, rank: *mut u32 }
 pub const VT_EMPTY: u64 = Value::NIL.0;
 /// Optional overflow for a shaped table; the field map stays first for native probes.
 #[repr(C)]
@@ -101,9 +108,15 @@ impl Default for RecordExtra { fn default() -> Self { Self { fields: ValueTable:
 impl std::ops::Deref for RecordExtra { type Target = ValueTable; fn deref(&self) -> &ValueTable { &self.fields } }
 impl std::ops::DerefMut for RecordExtra { fn deref_mut(&mut self) -> &mut ValueTable { &mut self.fields } }
 impl ValueTable {
-    pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0 } }
+    pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0, order: std::ptr::null_mut(), rank: std::ptr::null_mut() } }
     pub fn with_capacity(m: usize) -> ValueTable { let mut t = ValueTable::new(); if m > 0 { let mut c = 8; while c * 3 < m * 4 { c *= 2; } t.alloc(c); } t }
-    fn alloc(&mut self, cap: usize) { let v: Vec<u64> = (0..cap * 2).map(|i| if i % 2 == 0 { VT_EMPTY } else { 0 }).collect(); let b = v.into_boxed_slice(); self.ptr = Box::leak(b).as_mut_ptr(); self.cap = cap as u64; self.mask = (cap - 1) as u64; }
+    fn alloc(&mut self, cap: usize) {
+        let v: Vec<u64> = (0..cap * 2).map(|i| if i % 2 == 0 { VT_EMPTY } else { 0 }).collect();
+        self.ptr = Box::leak(v.into_boxed_slice()).as_mut_ptr();
+        self.order = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
+        self.rank = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
+        self.cap = cap as u64; self.mask = (cap - 1) as u64;
+    }
     #[inline] fn slot(&self, bits: u64) -> Option<usize> {
         // nil is never a key: its bits are the empty marker.
         if self.ptr.is_null() || bits == VT_EMPTY { return None; }
@@ -118,20 +131,55 @@ impl ValueTable {
         if self.ptr.is_null() || (self.len + 1) * 4 > self.cap * 3 { self.grow(); }
         let mut k = slot_hash(key.0) & self.mask;
         loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; }
-        unsafe { *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0; }
+        unsafe {
+            *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0;
+            *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32;
+        }
         self.len += 1;
     }
     fn grow(&mut self) {
+        // Live entries in their insertion order; a key whose value went nil is
+        // dropped here and only here, so the order of the rest is preserved.
         let live: Vec<(u64, u64)> = self.iter().map(|(k, v)| (k.0, v.0)).collect();
         let want = live.len() + 1; let mut c = 8; while c * 3 < want * 4 { c *= 2; } if c <= self.cap as usize && (want * 4 > (self.cap as usize) * 3) { c = (self.cap as usize) * 2; }
         self.free(); self.alloc(c); self.len = 0;
-        for (kb, vb) in live { let mut k = slot_hash(kb) & self.mask; loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; } unsafe { *self.ptr.add(2 * k as usize) = kb; *self.ptr.add(2 * k as usize + 1) = vb; } self.len += 1; }
+        for (kb, vb) in live {
+            let mut k = slot_hash(kb) & self.mask;
+            loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; }
+            unsafe { *self.ptr.add(2 * k as usize) = kb; *self.ptr.add(2 * k as usize + 1) = vb; *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32; }
+            self.len += 1;
+        }
     }
-    fn free(&mut self) { if !self.ptr.is_null() { unsafe { drop(Box::from_raw(std::slice::from_raw_parts_mut(self.ptr, self.cap as usize * 2))); } self.ptr = std::ptr::null_mut(); self.cap = 0; self.mask = 0; } }
-    /// Every key with a non-nil value.
+    fn free(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.ptr, self.cap as usize * 2)));
+                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.order, self.cap as usize)));
+                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.rank, self.cap as usize)));
+            }
+            self.ptr = std::ptr::null_mut(); self.order = std::ptr::null_mut(); self.rank = std::ptr::null_mut(); self.cap = 0; self.mask = 0;
+        }
+    }
+    /// Every key with a non-nil value, in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&Value, &Value)> + '_ {
-        let n = if self.ptr.is_null() { 0 } else { self.cap as usize };
-        (0..n).filter_map(move |k| unsafe { let b = *self.ptr.add(2 * k); if b == VT_EMPTY { return None; } let v = &*(self.ptr.add(2 * k + 1) as *const Value); if *v == Value::NIL { None } else { Some((&*(self.ptr.add(2 * k) as *const Value), v)) } })
+        let n = if self.ptr.is_null() { 0 } else { self.len as usize };
+        (0..n).filter_map(move |i| unsafe {
+            let k = *self.order.add(i) as usize;
+            let v = &*(self.ptr.add(2 * k + 1) as *const Value);
+            if *v == Value::NIL { None } else { Some((&*(self.ptr.add(2 * k) as *const Value), v)) }
+        })
+    }
+    /// The first live entry after `key` in insertion order, or the first
+    /// entry when `key` is nil; `None` when the key is absent or last.
+    pub fn next_after(&self, key: Value) -> Option<(Value, Value)> {
+        if self.ptr.is_null() { return None; }
+        let start = if key == Value::NIL { 0 } else { let k = self.slot(key.0)?; unsafe { *self.rank.add(k) as usize + 1 } };
+        for i in start..self.len as usize {
+            let k = unsafe { *self.order.add(i) as usize };
+            let v = Value(unsafe { *self.ptr.add(2 * k + 1) });
+            if v != Value::NIL { return Some((Value(unsafe { *self.ptr.add(2 * k) }), v)); }
+        }
+        None
     }
     pub fn len(&self) -> usize { self.len as usize }
     pub fn capacity(&self) -> usize { self.cap as usize }

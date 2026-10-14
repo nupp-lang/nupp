@@ -1904,3 +1904,34 @@ fifth of the run), re-reading every source to validate the cache (file reads
 and string construction, another fifth), and the dynamic call transfer
 through the frame driver, which is lane 2's direct-call item. Each is a few
 percent; none is the checker.
+
+## Insertion-ordered tables (2026-10-14)
+
+Tables hashed keys by their value bits, the address for an object or an
+interned string, and `pairs` walked the slots in that order, so a program's
+iteration order changed between runs, between platforms, and after a restore
+rebuilt the hash from relocated keys. Replay from a checkpoint could not
+reproduce any `pairs` loop. Contracts 2.13 now says iteration order is
+insertion order and never address order.
+
+The representation keeps every inline probe untouched: the open-addressed
+`(key, value)` slots the C core and the typed tier read in place are
+unchanged, and two side arrays record the order, `order` listing slot
+indices by first insertion and `rank` giving each slot its position. `iter`,
+`pairs`, `next` and the serialiser walk `order`; a key whose value is set to
+nil keeps its place until the next growth drops it, and growth reinserts
+the live entries in order, so the order a program sees is a function of its
+operation sequence alone. `next` gets an `O(1)` continuation through `rank`.
+The C core's hardcoded metatable offset moved with the payload.
+
+Cost: 8 bytes per slot. Measured on the linked CLI, alternating five pairs
+on the lexer check and three on the repository check, the difference is
+inside the run-to-run noise: 0.91 against 0.92 s and 1.18 against 1.19 s.
+Tests: the randomised map comparison and churn bound still hold; a new
+case checks scrambled insertion, a nil-then-reset key, growth, and `next`;
+a persistence case checks a restored table iterates in the original order
+although every key object has a new address.
+
+A stable per-object serial for snapshot deltas (snapshot plan section 4) is
+not part of this: it would need a header word the 32-byte layout does not
+have, and insertion order alone is what replay and restore needed.

@@ -96,7 +96,7 @@ enum {
 // TablePayload: `Vec` array (24 bytes), then the hash part's pointer and mask, cap, len, then the metatable; after the 32-byte header.
 #define OFF_T_HASH_PTR (32 + 24)
 #define OFF_T_HASH_MASK (32 + 32)
-#define OFF_T_META (32 + 56)
+#define OFF_T_META (32 + 72)
 #define HDR 4
 #define NONE 0xffffffffull
 

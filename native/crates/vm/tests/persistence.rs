@@ -848,3 +848,26 @@ entry 0
     assert!(vm.host_waiters.is_empty());
     assert!(vm.tasks.is_empty());
 }
+
+#[test]
+fn restore_keeps_table_iteration_order() {
+    // Contracts 2.13: a restored table iterates in the same order as the
+    // original, although every key object has a new address.
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let table = vm.new_table();
+    vm.register(table);
+    let names = ["zeta", "alpha", "mu", "omicron", "beta", "kappa", "rho", "delta", "pi", "eta", "nu", "chi"];
+    for (i, n) in names.iter().enumerate() {
+        let key = vm.intern(n);
+        vm.set_index(table, key, Value::num(i as f64));
+    }
+    let before: Vec<String> = vm.table_keys(table).iter().map(|k| String::from_utf8_lossy(vm.bytes_of(*k)).into_owned()).collect();
+    assert_eq!(before, names.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    let bytes = persist::save_graph(&mut vm, &[table], &Policies::default()).unwrap();
+    let mut other = Interp::new();
+    other.install_globals();
+    let roots = persist::load_graph(&mut other, &bytes, &Policies::default(), None).unwrap();
+    let after: Vec<String> = other.table_keys(roots[0]).iter().map(|k| String::from_utf8_lossy(other.bytes_of(*k)).into_owned()).collect();
+    assert_eq!(after, before);
+}

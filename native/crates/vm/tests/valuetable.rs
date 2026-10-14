@@ -58,3 +58,35 @@ fn churn_stays_bounded() {
     assert!(max_cap <= 64, "capacity reached {max_cap}");
     assert_eq!(t.iter().count(), 8);
 }
+
+#[test]
+fn iteration_is_insertion_order() {
+    // Keys arrive in a scrambled order; `iter` must return them in that
+    // order, keep a nil-valued key's place until the next growth drops it,
+    // and keep the relative order of the rest across growth (contracts 2.13).
+    let mut t = ValueTable::new();
+    let mut x: u64 = 0x2545F4914F6CDD1D;
+    let mut inserted: Vec<u64> = Vec::new();
+    for step in 0..3000u64 {
+        x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+        let k = key(x % 100_000);
+        if t.get(&k).is_none() && !inserted.contains(&k.0) { inserted.push(k.0); }
+        t.insert(k, Value::num(step as f64));
+    }
+    let seen: Vec<u64> = t.iter().map(|(k, _)| k.0).collect();
+    assert_eq!(seen, inserted);
+    // A key set to nil keeps its slot until growth; re-setting it keeps its place.
+    let victim = Value(inserted[10]);
+    t.insert(victim, Value::NIL);
+    let without: Vec<u64> = t.iter().map(|(k, _)| k.0).collect();
+    assert_eq!(without.len(), inserted.len() - 1);
+    assert!(!without.contains(&victim.0));
+    t.insert(victim, Value::num(1.0));
+    let again: Vec<u64> = t.iter().map(|(k, _)| k.0).collect();
+    assert_eq!(again, inserted);
+    // next_after walks the same order.
+    let mut walked = Vec::new();
+    let mut cursor = Value::NIL;
+    while let Some((k, _)) = t.next_after(cursor) { walked.push(k.0); cursor = k; }
+    assert_eq!(walked, inserted);
+}
