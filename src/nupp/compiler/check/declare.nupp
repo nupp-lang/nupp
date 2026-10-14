@@ -2347,6 +2347,7 @@ function declare.install(
                     end
                     local definition = c.definition(e.name, "property")
                     definition.type = ft
+                    definition.bitWidth = e.bitWidth and tonumber(e.bitWidth.text) or nil
                     definition.annotations = e.semanticAnnotations or {}
                     if stat.declKind == "interface" and ft.tag == "intersection" then
                         local contracts, callable = {}, true

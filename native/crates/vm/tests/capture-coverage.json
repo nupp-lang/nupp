@@ -1,0 +1,641 @@
+{
+  "schema_version": 1,
+  "status": "completed-provisional-host-load",
+  "timestamp_utc": "2026-10-14T14:02:50Z",
+  "command": [
+    "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+    "native/crates/vm/tests/capture-perf.py",
+    "--candidate",
+    "/private/tmp/nupp-capture-perf/final-runtime-v2",
+    "--output",
+    "/private/tmp/nupp-capture-perf/final-paired.json",
+    "--baseline-revision",
+    "12968b650c9f72a34cec8c1f5b3c321749961066",
+    "--candidate-revision",
+    "12968b650c9f72a34cec8c1f5b3c321749961066 plus fresh checkpoint bytes, storage layout, length metamethods, and scoped debug caller",
+    "--allow-snapshot-size-change",
+    "--host-load-note",
+    "External host load remains; all team Cargo, compiler, profiling, and other validation work stopped during measurement."
+  ],
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "image": {
+    "path": "/private/tmp/nupp-supervision/supervision.image",
+    "sha256": "bed25da5292e2d20edb5a8933d70f96c4430b03744fedae00cf36fc5dd0e5893"
+  },
+  "binaries": {
+    "baseline": {
+      "path": "/private/tmp/nupp-capture-perf/baseline",
+      "sha256": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e",
+      "revision": "12968b650c9f72a34cec8c1f5b3c321749961066"
+    },
+    "candidate": {
+      "path": "/private/tmp/nupp-capture-perf/final-runtime-v2",
+      "sha256": "ea09e57ddaa70c4607e4d859ba9649dcd03518b279b22b1d7dc63700bd0c0356",
+      "revision": "12968b650c9f72a34cec8c1f5b3c321749961066 plus fresh checkpoint bytes, storage layout, length metamethods, and scoped debug caller"
+    }
+  },
+  "forks": 5,
+  "preludes": 1,
+  "practical_margin": 0.05,
+  "primary_metric": "p99_ms",
+  "pause_gate": {
+    "p99_ms_below": 2,
+    "maximum_ms_below": 5,
+    "observed_pass": true,
+    "acceptance": "provisional"
+  },
+  "host": {
+    "confirmed_quiet": false,
+    "load_before": [
+      5.11474609375,
+      7.09326171875,
+      6.69775390625
+    ],
+    "notes": [
+      "External host load remains; all team Cargo, compiler, profiling, and other validation work stopped during measurement."
+    ],
+    "load_after": [
+      4.94287109375,
+      6.99072265625,
+      6.66552734375
+    ]
+  },
+  "timing_scope": "VM os.clock wall milliseconds; first capture included; separate-process prelude cannot warm measured heaps or worker JITs",
+  "inference_scope": "Only fresh processes are replicates; 101 within-process captures are not 101 independent trials",
+  "harness_sha256": "1d1f056d921babec62ca2300d9ba31aac8b6aed7d43ddc961b89d5a48ecf61a1",
+  "source_revision_at_measurement": "12968b650c9f72a34cec8c1f5b3c321749961066",
+  "source_patch_sha256": "a14ec6fbc018106b851fe5810c7cf64cc2a7de2764ee12b38c8ce968d3ccd1a0",
+  "frozen_artifact_hashes_verified_after_measurement": true,
+  "snapshot_size_policy": "record known runtime metadata changes",
+  "report": {
+    "path": "/private/tmp/nupp-capture-perf/final-paired.json",
+    "sha256": "7f32f793516501084f79ecc3a955b8bbda4125c0779a56a5c3c97b78192fa872"
+  },
+  "logs_directory": "/private/tmp/nupp-capture-perf/final-paired",
+  "mechanism": "Use existing uninterned binary strings for snapshot and result bytes; avoid whole-payload intern-table hashing, duplicate intern-key storage and weak-table removal.",
+  "profile": {
+    "path": "/private/tmp/nupp-capture-perf/capture.sample",
+    "summary": "Main thread samples spend comparable time waiting for worker serialization and interning captured bytes; interning includes whole-payload lookup, hash, insert and sweep removal.",
+    "binary": {
+      "path": "/private/tmp/nupp-capture-perf/baseline",
+      "sha256": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e",
+      "revision": "12968b650c9f72a34cec8c1f5b3c321749961066"
+    }
+  },
+  "snapshot_size_change": {
+    "baseline_bytes": 422108,
+    "candidate_bytes": 422144,
+    "delta_bytes": 36,
+    "reason": "Additional storage.layout runtime builtin registration; same source fixture and entity payload."
+  },
+  "modes": {
+    "rust": {
+      "correctness": {
+        "baseline": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/baseline",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1",
+            "NO_JIT": "1",
+            "NO_THREADED": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.019903540999999997,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "rust-baseline-correctness.stdout",
+          "stderr_log": "rust-baseline-correctness.stderr",
+          "correctness": "passed"
+        },
+        "candidate": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/final-runtime-v2",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1",
+            "NO_JIT": "1",
+            "NO_THREADED": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.016800416999999998,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "rust-candidate-correctness.stdout",
+          "stderr_log": "rust-candidate-correctness.stderr",
+          "correctness": "passed"
+        }
+      },
+      "comparisons": {
+        "p50_ms": {
+          "paired_candidate_over_baseline": [
+            0.5522963760315748,
+            0.5520114685064073,
+            0.5261851788464836,
+            0.5529780564263325,
+            0.5675820256776056
+          ],
+          "geometric_mean_ratio": 0.5500460969521488,
+          "interval95": [
+            0.531628612111206,
+            0.5691016282415685
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "p99_ms": {
+          "paired_candidate_over_baseline": [
+            0.34799685781618367,
+            0.3282604412923557,
+            0.3224054316197871,
+            0.3297458893871448,
+            0.340361741865723
+          ],
+          "geometric_mean_ratio": 0.33362859755054886,
+          "interval95": [
+            0.32118593587649275,
+            0.34655328478127373
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "max_ms": {
+          "paired_candidate_over_baseline": [
+            0.3518978706816731,
+            0.3332025695091462,
+            0.3237594130140954,
+            0.33177085903192444,
+            0.3423986814039179
+          ],
+          "geometric_mean_ratio": 0.33646782524619434,
+          "interval95": [
+            0.32336915548518885,
+            0.35009708101578324
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        }
+      },
+      "summaries": {
+        "baseline": {
+          "median_process_metrics": {
+            "p50_ms": 2.66194343566895,
+            "p99_ms": 4.85086441040039,
+            "max_ms": 4.89306449890137
+          },
+          "pause_gate_all_processes_pass": false,
+          "worst_p99_ms": 4.91619110107422,
+          "worst_max_ms": 4.93907928466797,
+          "snapshot_bytes": [
+            422108
+          ]
+        },
+        "candidate": {
+          "median_process_metrics": {
+            "p50_ms": 1.46889686584473,
+            "p99_ms": 1.58905982971191,
+            "max_ms": 1.62005424499512
+          },
+          "pause_gate_all_processes_pass": true,
+          "worst_p99_ms": 1.68991088867188,
+          "worst_max_ms": 1.72185897827148,
+          "snapshot_bytes": [
+            422144
+          ]
+        }
+      },
+      "duration_verdict": "provisional"
+    },
+    "threaded": {
+      "correctness": {
+        "baseline": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/baseline",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1",
+            "NO_JIT": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.018296208000000008,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "threaded-baseline-correctness.stdout",
+          "stderr_log": "threaded-baseline-correctness.stderr",
+          "correctness": "passed"
+        },
+        "candidate": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/final-runtime-v2",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1",
+            "NO_JIT": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.016551125,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "threaded-candidate-correctness.stdout",
+          "stderr_log": "threaded-candidate-correctness.stderr",
+          "correctness": "passed"
+        }
+      },
+      "comparisons": {
+        "p50_ms": {
+          "paired_candidate_over_baseline": [
+            0.5500450045004506,
+            0.5419298245614029,
+            0.5811159562160703,
+            0.6035825545171337,
+            0.5492818671454208
+          ],
+          "geometric_mean_ratio": 0.5647122435426419,
+          "interval95": [
+            0.5334651630997259,
+            0.5977895841482511
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "p99_ms": {
+          "paired_candidate_over_baseline": [
+            0.3508675433771679,
+            0.32789440358482325,
+            0.3460091107149931,
+            0.37912839554426325,
+            0.3337475149105361
+          ],
+          "geometric_mean_ratio": 0.3470833796593254,
+          "interval95": [
+            0.3236343486052355,
+            0.37223141781740593
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "max_ms": {
+          "paired_candidate_over_baseline": [
+            0.36257629137101227,
+            0.32738685166831855,
+            0.3781670625494848,
+            0.38268549522007034,
+            0.3429823265888847
+          ],
+          "geometric_mean_ratio": 0.3581389994404763,
+          "interval95": [
+            0.32995003146395013,
+            0.38873626515849974
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        }
+      },
+      "summaries": {
+        "baseline": {
+          "median_process_metrics": {
+            "p50_ms": 2.67910957336426,
+            "p99_ms": 4.81510162353516,
+            "max_ms": 4.84299659729004
+          },
+          "pause_gate_all_processes_pass": false,
+          "worst_p99_ms": 4.89497184753418,
+          "worst_max_ms": 5.05185127258301,
+          "snapshot_bytes": [
+            422108
+          ]
+        },
+        "candidate": {
+          "median_process_metrics": {
+            "p50_ms": 1.47294998168945,
+            "p99_ms": 1.66606903076172,
+            "max_ms": 1.74212455749512
+          },
+          "pause_gate_all_processes_pass": true,
+          "worst_p99_ms": 1.85012817382812,
+          "worst_max_ms": 1.88016891479492,
+          "snapshot_bytes": [
+            422144
+          ]
+        }
+      },
+      "duration_verdict": "provisional"
+    },
+    "jit": {
+      "correctness": {
+        "baseline": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/baseline",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.025182542000000002,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "jit-baseline-correctness.stdout",
+          "stderr_log": "jit-baseline-correctness.stderr",
+          "correctness": "passed"
+        },
+        "candidate": {
+          "command": [
+            "/private/tmp/nupp-capture-perf/final-runtime-v2",
+            "run",
+            "/private/tmp/nupp-supervision/supervision.image",
+            "main",
+            "run"
+          ],
+          "environment": {
+            "NO_AOT": "1"
+          },
+          "load_before": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "wall_seconds": 0.02355162500000002,
+          "exit_status": 0,
+          "load_after": [
+            5.11474609375,
+            7.09326171875,
+            6.69775390625
+          ],
+          "stdout_log": "jit-candidate-correctness.stdout",
+          "stderr_log": "jit-candidate-correctness.stderr",
+          "correctness": "passed"
+        }
+      },
+      "comparisons": {
+        "p50_ms": {
+          "paired_candidate_over_baseline": [
+            0.5560485331401677,
+            0.541976525400949,
+            0.560833993138031,
+            0.5373823477179905,
+            0.5623243586256895
+          ],
+          "geometric_mean_ratio": 0.5516194355803843,
+          "interval95": [
+            0.5376682333892645,
+            0.5659326380357759
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "p99_ms": {
+          "paired_candidate_over_baseline": [
+            0.3324194995513904,
+            0.34067511383884275,
+            0.34383407523357584,
+            0.3356941211430833,
+            0.3383775116500475
+          ],
+          "geometric_mean_ratio": 0.3381771102759431,
+          "interval95": [
+            0.3327507413953787,
+            0.34369197025679615
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        },
+        "max_ms": {
+          "paired_candidate_over_baseline": [
+            0.33510453394249345,
+            0.3400394477317563,
+            0.3454234805955584,
+            0.3490320999754968,
+            0.3427220701667078
+          ],
+          "geometric_mean_ratio": 0.34243155730909447,
+          "interval95": [
+            0.33591483298274044,
+            0.34907470563277126
+          ],
+          "observed_verdict": "improved",
+          "interval_method": "paired process log ratios, Student t; normal log-ratio assumption; five forks give limited tail precision"
+        }
+      },
+      "summaries": {
+        "baseline": {
+          "median_process_metrics": {
+            "p50_ms": 2.66098976135254,
+            "p99_ms": 4.81390953063965,
+            "max_ms": 4.83512878417969
+          },
+          "pause_gate_all_processes_pass": false,
+          "worst_p99_ms": 4.87399101257324,
+          "worst_max_ms": 4.88400459289551,
+          "snapshot_bytes": [
+            422108
+          ]
+        },
+        "candidate": {
+          "median_process_metrics": {
+            "p50_ms": 1.4641284942627,
+            "p99_ms": 1.61600112915039,
+            "max_ms": 1.64413452148438
+          },
+          "pause_gate_all_processes_pass": true,
+          "worst_p99_ms": 1.67584419250488,
+          "worst_max_ms": 1.69801712036133,
+          "snapshot_bytes": [
+            422144
+          ]
+        }
+      },
+      "duration_verdict": "provisional"
+    }
+  },
+  "historical_candidate1": {
+    "report": {
+      "path": "/private/tmp/nupp-capture-perf/paired.json",
+      "sha256": "e85ec5f7107b6e68da55c814b3510988e922981fa7053baa87ca7281ea601659"
+    },
+    "binaries": {
+      "baseline": {
+        "path": "/private/tmp/nupp-capture-perf/baseline",
+        "sha256": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e",
+        "revision": "12968b650c9f72a34cec8c1f5b3c321749961066"
+      },
+      "candidate": {
+        "path": "/private/tmp/nupp-capture-perf/candidate1",
+        "sha256": "41bead6e7a7edbd6440028e5b0455d13f396c3b0a2fa7435d0adb7789e11b2f9",
+        "revision": "12968b650c9f72a34cec8c1f5b3c321749961066 plus uncommitted fresh checkpoint byte strings"
+      }
+    },
+    "image": {
+      "path": "/private/tmp/nupp-supervision/supervision.image",
+      "sha256": "bed25da5292e2d20edb5a8933d70f96c4430b03744fedae00cf36fc5dd0e5893"
+    },
+    "pause_gate": {
+      "p99_ms_below": 2,
+      "maximum_ms_below": 5,
+      "observed_pass": true,
+      "acceptance": "provisional"
+    },
+    "correctness": {
+      "gc_stress": [
+        {
+          "mode": "rust",
+          "status": 0,
+          "stdout": "42\n"
+        },
+        {
+          "mode": "threaded",
+          "status": 0,
+          "stdout": "42\n"
+        },
+        {
+          "mode": "jit",
+          "status": 0,
+          "stdout": "42\n"
+        }
+      ],
+      "rust_tests": "20 library tests and 5 supervision tests passed; includes binary string equality, content-key lookup, full GC and prepared replacement."
+    },
+    "scope": "Earlier checkpoint-byte optimization build; these GC validation records belong to candidate1, not final-runtime-v2."
+  },
+  "validation": {
+    "runtime": {
+      "path": "/private/tmp/nupp-capture-perf/final-runtime-v2",
+      "sha256": "ea09e57ddaa70c4607e4d859ba9649dcd03518b279b22b1d7dc63700bd0c0356",
+      "revision": "12968b650c9f72a34cec8c1f5b3c321749961066 plus fresh checkpoint bytes, storage layout, length metamethods, and scoped debug caller"
+    },
+    "rust_aot_tests": {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nupp-vm",
+        "--features",
+        "aot",
+        "--offline"
+      ],
+      "passed": 166,
+      "ignored": 1,
+      "log": {
+        "path": "/private/tmp/nupp-capture-perf/final-v2-cargo-tests.log",
+        "sha256": "3c048750c54228279038413a6ecb45dcbe1cbeb6735c778fab8d1ded07f81086"
+      }
+    },
+    "debug_nojit_tests": {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nupp-vm",
+        "--no-default-features",
+        "--test",
+        "debug_info",
+        "--offline"
+      ],
+      "passed": 2,
+      "log": {
+        "path": "/private/tmp/nupp-capture-perf/debug-info-nojit-tests.log",
+        "sha256": "fd69f96049b1058a6c1c61ec20501facd2ad87da771779e076135f5ba051de12"
+      }
+    },
+    "entity_column_gc": {
+      "modes": [
+        "rust",
+        "threaded",
+        "jit"
+      ],
+      "runtime_sha256": "ea09e57ddaa70c4607e4d859ba9649dcd03518b279b22b1d7dc63700bd0c0356",
+      "report": {
+        "path": "/private/tmp/nupp-tecs-entitycolumn-final-v2/results.json",
+        "sha256": "ead211d5b3e123f02a42490c7e182639bb749e65c55b835d97b8b4b5742ac37d"
+      },
+      "scope": "Actual Tecs EntityColumn adapter correctness with full collection per allocation, oracle and quarantine; not full Tecs snapshot benchmark."
+    },
+    "linked_aot": {
+      "status": "passed",
+      "command": "FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh /private/tmp/nupp-capture-perf/length-debug-v2.image main run",
+      "runtime": {
+        "path": "/private/tmp/nupp-capture-perf/length-debug-v2-nojit-runtime",
+        "sha256": "caffc4221352b1ea5b9b406ebb23211882a9b85c3c02ac367f9d2cdafc5d389a"
+      },
+      "image": {
+        "path": "/private/tmp/nupp-capture-perf/length-debug-v2.image",
+        "sha256": "b275dbab1d973ee9bd383f6c5e3df7dae9f3ff2f724df166b5795d6e107f95b0"
+      },
+      "log": {
+        "path": "/private/tmp/nupp-capture-perf/length-debug-v2-aot.log",
+        "sha256": "583749ca0ca2d6287b731e43ab60dc413482b136f362719d526401d5216d9bbe"
+      },
+      "checks": [
+        "12 linked frame entries without Cranelift",
+        "Executable-memory mappings and protection changes denied",
+        "Generic and numeric length metamethod results both -3.5",
+        "debug.getinfo returns active source /fixture/length.nupp",
+        "GC stress and oracle",
+        "Fresh-process checkpoint restore",
+        "Mismatched image and checkpoint rejection"
+      ],
+      "scope": "Separate no-JIT executable linked from the same final runtime source; not the JIT timing binary."
+    }
+  },
+  "artifacts": "/private/tmp/nupp-capture-perf",
+  "scope": "Synthetic 10,000-record full captures without gameplay advancement. Bounds observed in all 15 final candidate processes; external load makes acceptance provisional. EntityColumn adapter correctness is accepted separately; real Tecs snapshot and live 60 Hz game acceptance remain open."
+}

@@ -1,0 +1,43 @@
+module tecs.tests.entitycolumn
+
+local columns = require("tecs.internal.entitycolumn")
+local storage: any = assert(require("nupp.mem.representation").storage)
+local persist = require("nupp.vm.persist")
+local test = {}
+
+function test.run(): number
+    const column = columns.new(10000)
+    assert(#column == 0 and column[0] == 0 and column[1] == nil)
+    for index = 1, 10000 do
+        column[index] = index
+    end
+    assert(#column == 10000 and column[10001] == nil and column[-1] == nil)
+    -- Packed IDs are exact binary64 values, including the maximum exact integer.
+    column[10000] = 9007199254740991
+    assert(column[10000] == 9007199254740991)
+    const pointer: any = columns.pointer(column)
+    assert(storage.sizeOf((column as any).data) == 80008)
+    assert(pointer[0] == 1 and pointer[9999] == 9007199254740991)
+    assert(storage.string(pointer, 8) == storage.encodeFloat64(1))
+    pointer[0] = 17
+    assert(column[1] == 17)
+    column[5000] = nil
+    assert(#column == 10000 and column[5000] == 0)
+    column[10000] = nil
+    assert(#column == 9999 and column[10000] == nil)
+    const grown = columns.resize(column, 12000)
+    assert(#grown == 9999 and grown[1] == 17 and grown[9999] == 9999)
+    grown[1] = 42
+    assert(column[1] == 17)
+    const restored: any = persist.load(persist.save({column = grown, pointer = columns.pointer(grown)}))
+    assert(#restored.column == 9999 and restored.column[1] == 42)
+    restored.pointer[0] = 43
+    assert(restored.column[1] == 43 and grown[1] == 42)
+    columns.clear(restored.column)
+    assert(#restored.column == 0 and restored.column[1] == nil)
+    assert(restored.pointer[0] == 43)
+
+    return 42
+end
+
+export = test

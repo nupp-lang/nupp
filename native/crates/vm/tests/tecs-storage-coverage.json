@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-14",
+  "scope": "Actual Tecs snapshot graph admission and a bounded native entity-column migration; not full Tecs persistence acceptance",
+  "tecs": {
+    "commit": "87bd7da2873f7b7267752e5af3a8dfb8648785bb",
+    "benchmark": "bench/nupp/tecs/bench/programs/snapshot.nupp",
+    "benchmarkSha256": "6f27157632d599cc9b0aae8b360afca6dbe6bafc5f2858e14c24cf6b6755aec5",
+    "copiedSourceFiles": 97,
+    "originalCheckoutModified": false
+  },
+  "actualSnapshot": {
+    "status": "blocked",
+    "command": [
+      "/private/tmp/nupp-relocatable-aot/emitter",
+      "run",
+      "/private/tmp/nupp-unsigned-registers/compiler.image",
+      "nupp.tools.vm.project",
+      "emit",
+      "/private/tmp/nupp-tecs-snapshot-admission/project",
+      "tecs.bench.programs.snapshot"
+    ],
+    "sha256": {
+      "seed": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+      "runtime": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e"
+    },
+    "error": "error: \"statement kind cdefFunc in module:tecs.internal.assetnative\"\n  lower.emit.fn2888 at pc 3222\n  lower.emit.fn2890 at pc 12\n  lower.emit.fn2891 at pc 97\n  compileModule at pc 511\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1146\n  project.emit at pc 247\n\n",
+    "report": "/private/tmp/nupp-tecs-snapshot-admission/results.json",
+    "runtimePersistenceAccepted": false
+  },
+  "entityColumn": {
+    "status": "passed",
+    "sourceProvenance": "tecs-storage-project/provenance.json",
+    "representation": "Managed binary64 array with capacity+1 elements; count remains in slot zero; public one-based IDs retain original Tecs semantics",
+    "firstFailure": "Fixed: __len dispatch now reaches the original count-in-slot-zero rule in all execution tiers.",
+    "fixture": "tecs-storage-project/src/tecs/tests/entitycolumn.nupp",
+    "sha256": {
+      "seed": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+      "runtime": "ea09e57ddaa70c4607e4d859ba9649dcd03518b279b22b1d7dc63700bd0c0356",
+      "image": "6d02721bdf5f081c80da5c006b8cd9d3af8e35afef1144959c636a036d78c417"
+    },
+    "report": "/private/tmp/nupp-tecs-entitycolumn-final-v2/results.json",
+    "modes": [
+      "rust",
+      "threaded",
+      "jit"
+    ],
+    "gc": "Full collection each allocation, oracle and quarantine",
+    "checks": [
+      "10000 native binary64 IDs with the count in slot zero.",
+      "Maximum exact integer 9007199254740991 retains its value and native double byte width.",
+      "One-based indexing, out-of-range nil, last-row removal, middle zeroing and length preserve Tecs rules.",
+      "Resize copies live prefix into independent owner; clear retains allocation.",
+      "Runtime graph save/load preserves column/view aliases and metatable behavior without aliasing the original owner."
+    ],
+    "runtime": "/private/tmp/nupp-capture-perf/final-runtime-v2"
+  },
+  "remaining": [
+    "Lower or isolate the actual tecs.internal.assetnative C declaration graph reached by tecs.ecs.",
+    "Supply physical native struct construction, field access, bounded row views, and copy/isa with canonical compiler layout metadata.",
+    "Migrate ffistorage registration away from LuaJIT CType introspection; avoid treating VM managed records as native struct columns.",
+    "Replace direct FFI and bespoke binary graph framing in snapshotcodec/world with runtime persistence while preserving publication, entity identity, selection and hooks.",
+    "Run unchanged real three-archetype 10000-entity snapshot workload after migration; no Tecs timing or full acceptance claimed here."
+  ]
+}

@@ -37,6 +37,7 @@ pub const NAMES: &[&str] = &[
     "package.preloadLoader", "package.imageLoader", "vm.withInstructionBudget",
     "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory", "temporary.toString", "temporary.close", "temporary.isReleased", "temporary.persist",
     "tasks.vmSpawn", "tasks.vmCapture", "tasks.vmPrepare", "tasks.vmReplace", "tasks.vmFork", "tasks.vmStep", "tasks.vmPoll", "tasks.vmGeneration", "tasks.vmClose", "tasks.vmDiscard",
+    "storage.layout",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -851,8 +852,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             }
         }
         51 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); outs![it.require(&name)] }
-        // `debug.getinfo(level, "S")`: enough for a module to ask where it was
-        // loaded from; the answer is this runtime, not a file.
         // table.sort: the array part, by `<` or the comparator. The table
         // stays rooted in the caller's register; the sorted copy is written back.
         53 => {
@@ -931,8 +930,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         70 => crate::process::execute(it, args),
         72 => crate::stdio::read(it, arg(args, 0)),
         52 => {
-            // The caller is the running task's top frame: a builtin pushes none.
-            let source = { let fid = if it.jit_fid != u32::MAX { Some(it.jit_fid as usize) } else { it.tasks.last().map(|t| (t.stack[t.cur()] & 0xffff_ffff) as usize) }; let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| format!("@{p}")).unwrap_or_else(|| "=nupp-vm".to_string()) };
+            // A builtin pushes no frame; resolve its scoped task or native caller.
+            let source = { let fid = it.caller_function(); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| format!("@{p}")).unwrap_or_else(|| "=nupp-vm".to_string()) };
             let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); } it.release(h); outs![t]
         }
         other => panic!("runtime error: builtin {} not implemented", NAMES[other as usize]),

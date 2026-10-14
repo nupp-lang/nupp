@@ -136,7 +136,8 @@ function project.emit(
             return parsed.root
         end,
         nil,
-        inspection and inspection.functions or nil
+        inspection and inspection.functions or nil,
+        env.layoutTarget
     )
 end
 

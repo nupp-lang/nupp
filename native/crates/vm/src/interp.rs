@@ -8,6 +8,19 @@ use std::ptr::NonNull;
 use crate::heap::{self, Header, Heap, Roots, SlotTy, KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_ITER, KIND_RECORD, KIND_SLICE, KIND_STORAGE, KIND_STR, KIND_TABLE};
 use crate::value::Value;
 
+// A builtin has no frame of its own. Track the executing caller explicitly:
+// task order includes parked/released tasks, and native callbacks may reenter
+// an interpreted task before returning to their native caller.
+#[derive(Clone, Copy)]
+pub(crate) enum Caller { Task(usize), Compiled(u32) }
+pub(crate) struct CallerScope {
+    slot: std::rc::Rc<std::cell::Cell<Option<Caller>>>,
+    previous: Option<Caller>,
+}
+impl Drop for CallerScope {
+    fn drop(&mut self) { self.slot.set(self.previous); }
+}
+
 /// An owned argument window: callbacks may relocate the task stack. The
 /// common case stays inline, but builtin calls have no eight-argument limit.
 pub(crate) struct CallArgs { inline: [Value; 8], wide: Vec<Value>, len: usize }
@@ -403,9 +416,8 @@ pub struct Interp {
     /// The function a `loadstring("return <literal>")` closure runs: it
     /// returns its one upvalue. Registered by `install_globals`.
     pub literal_fid: u32,
-    /// The compiled function a dynamic call came from (u32::MAX between
-    /// such calls): what `debug.getinfo` names when no frame was pushed.
-    pub jit_fid: u32,
+    // Transient caller state, scoped across nested execution and never saved.
+    caller: std::rc::Rc<std::cell::Cell<Option<Caller>>>,
     /// The function behind `loadstring` of anything else: loads, and raises
     /// when called, since the runtime evaluates no Lua.
     pub unavailable_fid: u32,
@@ -519,7 +531,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, jit_fid: u32::MAX, loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1338,6 +1350,31 @@ impl Interp {
         }
         self.set_index(t, key, v)
     }
+    // Generic length preserves the metamethod's first value. Only LenF asks
+    // for numeric conversion; contracts can also return nonnumeric values.
+    pub fn length(&mut self, value: Value) -> Value {
+        match self.kind_of(value) {
+            Some(KIND_TABLE | KIND_RECORD) => {
+                let handler = self.meta_field(value, "__len");
+                if handler == Value::NIL { return Value::num(self.array_len(value) as f64); }
+                let scope = self.open_scope();
+                let (last_nres, extra_n) = (self.last_nres, self.extra_n);
+                let extra = self.extra[..extra_n.min(MAX_RESULTS)].to_vec();
+                self.handles.extend_from_slice(&extra);
+                self.handles.extend([value, handler]);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.call_value(handler, &[value]).first().copied().unwrap_or(Value::NIL)
+                }));
+                self.extra[..extra.len()].copy_from_slice(&extra);
+                self.extra_n = extra_n;
+                self.last_nres = last_nres;
+                self.close_scope(scope);
+                match result { Ok(value) => value, Err(error) => std::panic::resume_unwind(error) }
+            }
+            Some(KIND_STR | KIND_SLICE) => Value::num(self.bytes_of(value).len() as f64),
+            _ => self.err("length of a non-object"),
+        }
+    }
     /// The function behind a callable table (`__call`), or nil.
     pub fn call_handler(&mut self, t: Value) -> Value { self.meta_field(t, "__call") }
     pub fn get_field(&self, t: Value, name: Value) -> Value { self.get_index(t, name) }
@@ -1416,9 +1453,19 @@ impl Interp {
 
     // ---- the dispatch loop -------------------------------------------------
 
+    pub(crate) fn enter_caller(&self, caller: Caller) -> CallerScope {
+        CallerScope { previous: self.caller.replace(Some(caller)), slot: self.caller.clone() }
+    }
+    pub(crate) fn caller_function(&self) -> Option<usize> {
+        self.caller.get().map(|caller| match caller {
+            Caller::Compiled(fid) => fid as usize,
+            Caller::Task(tid) => { let task = &self.tasks[tid]; (task.stack[task.cur()] & 0xffff_ffff) as usize }
+        })
+    }
     /// Run task `tid` until it finishes or parks: on the threaded core when
     /// it is built and enabled, else on the Rust loop.
     pub fn run(&mut self, tid: usize) -> Outcome {
+        let _caller = self.enter_caller(Caller::Task(tid));
         let old = self.frame_mode;
         // Ownership regions must use the frame driver: C return handlers do
         // not execute cleanup, and a native caller cannot survive a park.
@@ -1465,6 +1512,7 @@ impl Interp {
         false
     }
     pub fn run_rust(&mut self, tid: usize) -> Outcome {
+        let _caller = self.enter_caller(Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
@@ -1619,8 +1667,8 @@ impl Interp {
                     Op::SetSlot(t, i, s, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let v = r!(s); let tv = r!(t); let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
                     Op::GetSlotF(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); let v = if let Some(p) = exact { unsafe { (&*p.as_ptr()).slots()[i as usize] } } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
                     Op::SetSlotF(t, i, a, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
-                    Op::Len(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; r!(d) = Value::num(n as f64) }
-                    Op::LenF(d, a) => { let h = hdr!(self, r!(a), "length of a non-object"); let n = match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), KIND_STR | KIND_SLICE => h.aux_len as usize, _ => self.err("length of a non-object") }; fr!(d) = n as f64; }
+                    Op::Len(d, a) => { let value = self.length(r!(a)); r!(d) = value; }
+                    Op::LenF(d, a) => { let value = self.length(r!(a)); fr!(d) = crate::numeric::double(self, value); }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
                     Op::TagCheckInt(d, a, unsigned) => { r!(d) = crate::numeric::check_kind(self, r!(a), unsigned); }
                     Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }

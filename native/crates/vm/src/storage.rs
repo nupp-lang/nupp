@@ -48,6 +48,7 @@ pub const METHODS: &[&str] = &[
     "descriptor",
     "allocateArray",
     "boundedCount",
+    "layout",
 ];
 
 fn scope(vm: &mut Interp, body: impl FnOnce(&mut Interp) -> Value) -> Value {
@@ -483,6 +484,36 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             };
         }
         match name {
+            "layout" => {
+                // Compiler facts describe a declaration's target ABI. They do
+                // not turn its boxed values into physical native row views.
+                let subject = arg(0);
+                let Some(key) = vm.heap.interned_key("\0nupp:structLayout") else {
+                    return Value::NIL;
+                };
+                let result = match vm.kind_of(subject) {
+                    Some(KIND_RECORD) => {
+                        let shape = unsafe { subject.as_obj().unwrap().as_ref().shape() };
+                        vm.heap.shapes[shape as usize]
+                            .methods
+                            .get(&key)
+                            .copied()
+                            .unwrap_or(Value::NIL)
+                    }
+                    Some(KIND_TABLE) => vm.get_index(subject, key),
+                    _ => Value::NIL,
+                };
+                if result != Value::NIL && get(vm, result, "supported") == Value::FALSE {
+                    let error = get(vm, result, "error");
+                    let message = if vm.is_stringish(error) {
+                        text(vm, error)
+                    } else {
+                        "nupp: struct layout is unavailable for this target".into()
+                    };
+                    vm.err(&message);
+                }
+                result
+            }
             "scalar" => {
                 let kind = text(vm, arg(0));
                 if scalar_width(&kind).is_none() {

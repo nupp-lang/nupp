@@ -1,0 +1,163 @@
+{
+  "date": "2026-10-14",
+  "scope": "Resolved native struct layout metadata only; no physical struct allocation or actual Tecs snapshot benchmark acceptance",
+  "status": "passed",
+  "sha256": {
+    "seed": "46bbdc72f0b93f176a7d6f3e25333fe10fdab0d86e8dc64e7ed502f6185c411b",
+    "runtime": "ea09e57ddaa70c4607e4d859ba9649dcd03518b279b22b1d7dc63700bd0c0356",
+    "explicit": "7f2f04d321c282edb44eb93da4fb2615c968294d0cf6618b9f3aa582049b64a9",
+    "missing": "93287ac0c26c4ed6c10553d0269752839d862e22f8742c09d502f3ab31919fb6"
+  },
+  "report": "/private/tmp/nupp-struct-layout-final-acceptance/results.json",
+  "checks": [
+    "Actual Tecs snapshot Vector fields: number x/y, offsets0/8, width16 alignment8.",
+    "Actual Tecs snapshot Health fields: integer current/maximum, offsets0/4, width8 alignment4.",
+    "Canonical witness and instance return identical descriptor.",
+    "Padding and nested nominal names, nested uint16[3] array offsets/stride.",
+    "Same-width int32/float retain distinct semantic kinds and fingerprints.",
+    "Pointers and missing explicit target reject; unrelated values return nil.",
+    "Canonical runtime declaration identities distinguish same-named local structs and survive nested metadata.",
+    "Direct and nested bitfield queries reject with a bitfield error; field bit widths survive semantic interface schema6 round trips.",
+    "Pointer and missing-target rejections assert their specific diagnostic reasons.",
+    "Generic structs and C aggregates reject without fabricated sizes; unit regressions assert distinct rejection categories with otherwise valid nominal identities."
+  ],
+  "modes": [
+    "rust",
+    "threaded",
+    "jit"
+  ],
+  "gc": "Full collection each allocation, oracle and quarantine",
+  "remaining": [
+    "Physical struct allocation and bounded row field access are not implemented by this metadata acceptance.",
+    "Actual full Tecs snapshot benchmark remains blocked; see tecs-storage-coverage.json."
+  ],
+  "sourceSha256": {
+    "native/crates/vm/tests/struct-layout-project/src/tecs/tests/structlayout.nupp": "c1b90b2bfdbac996d0f9e482d2d365a1f37958c1b7ad6923da01dda29e1d48c8",
+    "tests/interfaceimagetest.lua": "c6893a9effe6719c11dd396eee8261eaa94495916a2a2a70d65ce27df299eb35"
+  },
+  "compilerGenerations": {
+    "report": "/private/tmp/nupp-struct-layout-final-generations/results.json",
+    "byteIdentical": true,
+    "generations": [
+      {
+        "generation": 1,
+        "path": "/private/tmp/nupp-struct-layout-final-generations/generation1.image",
+        "bytes": 8885705,
+        "sha256": "46bbdc72f0b93f176a7d6f3e25333fe10fdab0d86e8dc64e7ed502f6185c411b"
+      },
+      {
+        "generation": 2,
+        "path": "/private/tmp/nupp-struct-layout-final-generations/generation2.image",
+        "bytes": 8885705,
+        "sha256": "46bbdc72f0b93f176a7d6f3e25333fe10fdab0d86e8dc64e7ed502f6185c411b"
+      }
+    ]
+  },
+  "pinnedFixpoint": {
+    "status": "passed",
+    "report": "/private/tmp/nupp-struct-layout/final-fixpoint-vm.json",
+    "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua"
+  },
+  "interfaceRegressions": {
+    "status": "passed",
+    "schema": 6,
+    "report": "/private/tmp/nupp-struct-layout/final-interface-regressions.log",
+    "cases": [
+      "roundTripsStructBitWidths",
+      "vmLayoutsRejectForeignAndGenericStructs"
+    ],
+    "execution": "Direct provisioned LuaJIT calls against final pinned-fixpoint build modules; full interface suite is not counted."
+  },
+  "coldRepositoryCheck": {
+    "status": "passed",
+    "report": "/private/tmp/nupp-struct-layout/final-check.json",
+    "stderr": "/private/tmp/nupp-struct-layout/final-check.stderr",
+    "cache": "Deleted only build/cache before repository-wide check through frozen VM root CLI and final runtime.",
+    "exitCode": 0,
+    "diagnosticCount": 13,
+    "errors": 0,
+    "timing": {
+      "compiledModules": 552,
+      "optimizerFacts": {
+        "consumed": 8334,
+        "families": {
+          "callableEffects": 1794,
+          "callableRelations": 1794,
+          "identity": 89,
+          "traceFindings": 89,
+          "traceProfileId": 372
+        },
+        "produced": 4138,
+        "selectionChangedModules": 0,
+        "selectorMs": 0,
+        "unique": 4138
+      },
+      "parallel": {
+        "batches": 340,
+        "mode": "serial-fallback",
+        "reason": "parallel worker recursively checked src/nupp/serde/init.nupp [paths src/nupp/serde/internal/documentcodec.nupp; worker said ]",
+        "retries": 0,
+        "workers": 6
+      },
+      "phases": [
+        {
+          "durationMs": 301867.2160644531,
+          "name": "check"
+        },
+        {
+          "durationMs": 64202.692138671875,
+          "name": "parallel check"
+        },
+        {
+          "durationMs": 11399.18115234375,
+          "name": "generate"
+        },
+        {
+          "durationMs": 2028.88427734375,
+          "name": "scan"
+        },
+        {
+          "durationMs": 88.449951171875,
+          "name": "persist"
+        },
+        {
+          "durationMs": 81.052001953125,
+          "name": "other"
+        },
+        {
+          "durationMs": 6.45556640625,
+          "name": "resolve"
+        }
+      ],
+      "reusedModules": 0,
+      "slowest": [
+        {
+          "durationMs": 56898.936279296875,
+          "module": "nupp.serde.debug"
+        },
+        {
+          "durationMs": 56553.236083984375,
+          "module": "nupp.serde.native"
+        },
+        {
+          "durationMs": 54510.977294921875,
+          "module": "nupp.serde.internal.json.extensions"
+        },
+        {
+          "durationMs": 10968.41357421875,
+          "module": "nupp.compiler.lua.gen"
+        },
+        {
+          "durationMs": 5970.85498046875,
+          "module": "nupp.compiler.aot.lower"
+        }
+      ],
+      "specializedBodies": 0,
+      "totalMs": 379674.5280761719
+    }
+  },
+  "validationNotes": [
+    "Direct Lua fixpoint orchestration failed because a worker attempted to execute generated .lua directly; established frozen-VM orchestration passed the final pinned fixpoint.",
+    "Non-PTY test harness exited143 in sandbox watcher setup; direct targeted interface regression functions passed against the final rebuilt compiler modules."
+  ]
+}

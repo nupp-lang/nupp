@@ -1,0 +1,26 @@
+--- a/src/tecs/internal/entitycolumn.nupp
++++ b/src/tecs/internal/entitycolumn.nupp
+@@ -4,3 +4,4 @@
+-Native double entity IDs with the count stored in slot zero.
+-The metatype supplies indexed access and length to Nupp callers; LuaJIT inlines
+-these loads. Capacity changes happen only at publication and maintenance.
++Adapted from Tecs entitycolumn.nupp at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
++Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
++Native binary64 entity IDs keep the count in slot zero. Managed byte owners
++replace FFI allocations; indexing and capacity changes retain the original rules.
+@@ -9 +10,2 @@
+-local ffi = require("ffi")
++local storage: any = assert(require("nupp.mem.representation").storage)
++local element = storage.scalar("number")
+@@ -18 +20 @@
+-const native = ffi.metatype(ffi.typeof("struct { double data[?]; }"), {
++const native = {
+@@ -41 +43 @@
+-})
++}
+@@ -45 +47 @@
+-    return ffi.new(native, capacity + 1) as DoubleArray
++    return setmetatable({data = storage.allocateArray(element, capacity + 1)}, native) as DoubleArray
+@@ -51 +53 @@
+-    ffi.copy((output as any).data, (value as any).data, (#value + 1) * 8)
++    storage.copy((output as any).data, (value as any).data, (#value + 1) * 8)

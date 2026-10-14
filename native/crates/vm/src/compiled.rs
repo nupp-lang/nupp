@@ -117,6 +117,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
         ("j_frame_step", j_frame_step as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
+        ("j_len_value", j_len_value as *const u8, 1), ("j_len_number", j_len_number as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
         ("j_set_slot", j_set_slot as *const u8, 3), ("j_set_index", j_set_index as *const u8, 3), ("j_concat", j_concat as *const u8, 2), ("j_arith_slow", j_arith_slow as *const u8, 3),
         ("j_call_dyn", j_call_dyn as *const u8, 4), ("j_call_method", j_call_method as *const u8, 3), ("j_get_field", j_get_field as *const u8, 2), ("j_get_field_ic", j_get_field_ic as *const u8, 3), ("j_set_field", j_set_field as *const u8, 3),
@@ -174,6 +175,12 @@ pub extern "C" fn j_storage_ptr(v: u64) -> u64 { let it = ctx(); it.guarded(|_| 
 pub extern "C" fn j_storage_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_storage_len_impl(v))).0 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_len(v: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_len_impl(v))).0 }
+// Keep j_len's raw-count ABI for existing object files. New lowering uses
+// separately named helpers whose result is a boxed value or boxed double.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_len_value(v: u64) -> u64 { ctx().guarded(|_| j_len_value_impl(v, false)).0 }
+#[unsafe(no_mangle)]
+pub extern "C" fn j_len_number(v: u64) -> u64 { ctx().guarded(|_| j_len_value_impl(v, true)).0 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_get_index(t: u64, k: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_get_index_impl(t, k))).0 }
 #[unsafe(no_mangle)]
@@ -191,7 +198,7 @@ pub extern "C" fn j_concat(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|
 #[unsafe(no_mangle)]
 pub extern "C" fn j_arith_slow(a: u64, b: u64, op: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_arith_slow_impl(a, b, op))).0 }
 #[unsafe(no_mangle)]
-pub extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0; it.jit_fid = prev; r }
+pub extern "C" fn j_call_dyn(callee: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let _caller = it.enter_caller(crate::interp::Caller::Compiled(fid as u32)); let r = it.guarded(|_| V(j_call_dyn_impl(callee, argv, nargs))).0; r }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_call_method(name: u64, argv: *const u64, nargs: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_call_method_impl(name, argv, nargs))).0 }
 #[unsafe(no_mangle)]
@@ -209,7 +216,7 @@ pub extern "C" fn j_set_cell(c: u64, v: u64) -> u64 { let it = ctx(); it.guarded
 #[unsafe(no_mangle)]
 pub extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_new_closure_impl(fid, argv, n))).0 }
 #[unsafe(no_mangle)]
-pub extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let prev = it.jit_fid; it.jit_fid = fid as u32; let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; it.jit_fid = prev; r }
+pub extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let _caller = it.enter_caller(crate::interp::Caller::Compiled(fid as u32)); let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; r }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !x.is_num() || !y.is_num() { it.err("scalar intrinsic on a non-number") } V::num(crate::builtins::scalar_op(kind as u8, x.as_num(), y.as_num())) }).0 }
 /// An iterator object called from compiled code: the step, its first result
@@ -320,6 +327,12 @@ pub extern "C" fn j_simd_finish(packet: *const crate::simd::Packet, argv: *const
 
 fn j_storage_ptr_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_ptr as u64 }, None => 0 } }
 fn j_storage_len_impl(v: u64) -> u64 { match V(v).as_obj() { Some(p) => unsafe { (*p.as_ptr()).aux_len }, None => 0 } }
+fn j_len_value_impl(v: u64, number: bool) -> V {
+    let _hp = enter_helper!();
+    let it = ctx();
+    let value = it.length(V(v));
+    if number { V::num(crate::numeric::double(it, value)) } else { value }
+}
 fn j_len_impl(v: u64) -> u64 { let it = ctx(); match it.kind_of(V(v)) { Some(KIND_TABLE) | Some(KIND_RECORD) => it.array_len(V(v)) as u64, _ => it.bytes_of(V(v)).len() as u64 } }
 fn j_get_index_impl(t: u64, k: u64) -> u64 { let it = ctx(); it.index_any(V(t), V(k)).0 }
 fn j_new_record_impl(shape: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_record(shape as u32); leave_helper!(_hp); v.0 }

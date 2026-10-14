@@ -336,6 +336,7 @@ impl Interp {
     /// Runs the task on the threaded core until it finishes or parks.
     #[cfg(threaded)]
     pub fn run_threaded(&mut self, tid: usize) -> Outcome {
+        let _caller = self.enter_caller(crate::interp::Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }

@@ -14,7 +14,8 @@ function lower.emit(
     resolve: function(name: string): string?,
     check: function(name: string, path: string): table,
     environment: boolean?,
-    listing: table?
+    listing: table?,
+    layoutTarget: string?
 ): string
     local out = {}
     local assignedNames = {}
@@ -3422,6 +3423,13 @@ function lower.emit(
                 identity = exprAs(f, {kind = "name", token = node.name}, "v")
             end
             f:op("SetField", identity, f:const("str", "__index"), identity)
+            if node.declKind == "struct" then
+                local metadata = require("nupp.compiler.vm.metadata")
+                local descriptor = exprAs(f, metadata.literal(metadata.structLayout(node, layoutTarget)), "v")
+                local key = f:const("str", "\0nupp:structLayout")
+                f:op("SetField", identity, key, descriptor)
+                f:op("SetMethod", shape.id, key, descriptor)
+            end
             for _, entry in ipairs(node.entries) do
                 if entry.kind == "inlineMethod" then
                     local member = entry.overloadMember or tokText(entry.name)

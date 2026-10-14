@@ -758,8 +758,8 @@ impl<M: Module> Compiler<M> {
                     Op::SetSlotF(r, i, x, sh) => { let tv = rv!(r); let v = fv!(x); let boxed = box_f64!(v); let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); hcall!("j_slot_set", &[tv, shv, iv, boxed]); }
                     Op::SetSlot(r, i, x, sh) => { let (obj, v) = (rv!(r), rv!(x)); let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); hcall!("j_slot_set", &[obj, shv, iv, v]); }
                     Op::FMod(d, x, y) => { let (p, q) = (fv!(x), fv!(y)); let qv = b.ins().fdiv(p, q); let fl = b.ins().floor(qv); let m = b.ins().fmul(fl, q); setf!(d, b.ins().fsub(p, m)); }
-                    Op::LenF(d, r) => { let v = rv!(r); let c = hcall!("j_len", &[v]); let n = b.inst_results(c)[0]; setf!(d, b.ins().fcvt_from_sint(types::F64, n)); }
-                    Op::Len(d, a) => { let v = rv!(a); let c = hcall!("j_len", &[v]); let n = b.inst_results(c)[0]; let fl = b.ins().fcvt_from_uint(types::F64, n); setr!(d, box_f64!(fl)); }
+                    Op::LenF(d, r) => { let v = rv!(r); let c = hcall!("j_len_number", &[v]); let value = b.inst_results(c)[0]; setf!(d, b.ins().bitcast(types::F64, cast, value)); }
+                    Op::Len(d, a) => { let v = rv!(a); let c = hcall!("j_len_value", &[v]); setr!(d, b.inst_results(c)[0]); }
                     Op::GetIdxF(d, t, i) | Op::GetIdx(d, t, i) => {
                         // Inline array-part read: a table, an integral index in
                         // 1..=len; otherwise the general helper.

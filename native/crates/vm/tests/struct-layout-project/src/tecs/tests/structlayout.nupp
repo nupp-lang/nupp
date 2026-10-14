@@ -1,0 +1,117 @@
+module tecs.tests.structlayout
+
+local storage: any = assert(require("nupp.mem.representation").storage)
+local test = {}
+
+-- The actual snapshot benchmark declares these two field layouts.
+-- This checks compiler metadata only; it is not the Tecs snapshot workload.
+local struct Vector
+    x: number
+    y: number
+end
+
+local struct Health
+    current: integer
+    maximum: integer
+end
+
+local struct Padded
+    tag: uint8
+    value: number
+end
+
+local struct Group
+    position: Vector
+    lanes: uint16[3]
+end
+
+local struct Signed
+    value: int32
+end
+
+local struct Rounded
+    value: float
+end
+
+local struct Unsupported
+    address: uint8*
+end
+
+local struct Packed
+    ready: boolean:1
+    mode: uint32:3
+end
+
+local struct ContainsPacked
+    flags: Packed
+end
+
+local function firstLocal(): any
+    local struct Duplicate
+        value: int32
+    end
+    return storage.layout(Duplicate)
+end
+
+local function secondLocal(): any
+    local struct Duplicate
+        value: int32
+    end
+    return storage.layout(Duplicate)
+end
+
+function test.run(): number
+    const vector = storage.layout(Vector)
+    const health = storage.layout(Health)
+    assert(vector.kind == "struct" and vector.supported)
+    assert(type(vector.identity) == "string" and vector.identity ~= health.identity)
+    assert(vector.target == "aarch64-apple-darwin")
+    assert(vector.size == 16 and vector.alignment == 8 and #vector.fields == 2)
+    assert(vector.fields[1].name == "x" and vector.fields[1].kind == "number")
+    assert(vector.fields[1].offset == 0 and vector.fields[1].size == 8)
+    assert(vector.fields[2].name == "y" and vector.fields[2].offset == 8)
+    assert(health.size == 8 and health.alignment == 4 and #health.fields == 2)
+    assert(health.fields[1].name == "current" and health.fields[1].kind == "integer")
+    assert(health.fields[1].offset == 0 and health.fields[1].size == 4)
+    assert(health.fields[2].name == "maximum" and health.fields[2].offset == 4)
+    assert(type(vector.fingerprint) == "string" and #vector.fingerprint > 0)
+    assert(vector.fingerprint ~= health.fingerprint)
+    assert(rawequal(vector, storage.layout(new Vector(1.5, 2.5))))
+    assert(rawequal(health, storage.layout(new Health(100, 100))))
+    const padded = storage.layout(Padded)
+    assert(padded.size == 16 and padded.alignment == 8)
+    assert(padded.fields[1].size == 1 and padded.fields[2].offset == 8)
+    const group = storage.layout(Group)
+    assert(group.fields[1].name == "position" and group.fields[1].kind == "struct")
+    assert(group.fields[1].typeName:match("Vector$") ~= nil)
+    assert(group.fields[1].identity == vector.identity)
+    assert(group.fields[1].fields[1].name == "x")
+    assert(group.fields[2].kind == "array" and group.fields[2].count == 3)
+    assert(group.fields[2].element.kind == "uint16" and group.fields[2].size == 6)
+    assert(group.fields[2].offset == 16 and group.size == 24 and group.alignment == 8)
+    const signed = storage.layout(Signed)
+    const rounded = storage.layout(Rounded)
+    assert(signed.size == 4 and rounded.size == 4)
+    assert(signed.fields[1].kind == "int32" and rounded.fields[1].kind == "float")
+    assert(signed.fingerprint ~= rounded.fingerprint)
+    const pointerOk, pointerError = pcall(storage.layout, Unsupported)
+    assert(not pointerOk and tostring(pointerError):find("unsupported VM stored type ptr", 1, true))
+    const packedOk, packedError = pcall(storage.layout, Packed)
+    assert(not packedOk and tostring(packedError):find("bitfield", 1, true))
+    const nestedOk, nestedError = pcall(storage.layout, ContainsPacked)
+    assert(not nestedOk and tostring(nestedError):find("bitfield", 1, true))
+    assert(storage.layout({}) == nil)
+    const first, second = firstLocal(), secondLocal()
+    assert(first.typeName == second.typeName)
+    assert(first.identity ~= second.identity and first.fingerprint ~= second.fingerprint)
+
+    return 42
+end
+
+function test.missingTarget(): number
+    const ok, problem = pcall(storage.layout, Vector)
+    assert(not ok and tostring(problem):find("requires an explicit layoutTarget", 1, true))
+    return 42
+end
+
+export = test

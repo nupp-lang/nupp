@@ -1759,3 +1759,66 @@ and measures full checkpoint capture. Its timing report records background-load
 limits; it is not the Tecs snapshot benchmark. Self-capture/self-replacement,
 resource restoration policies, direct host event rebinding, incremental history,
 and the default launcher integration remain separate work.
+
+Capture and result bytes use ordinary uninterned strings. String equality,
+table-key lookup, persistence, and collection preserve their normal behavior;
+capture avoids hashing the full binary payload into the weak intern table.
+Compare frozen runtimes with interleaved fresh processes:
+
+```sh
+python3 native/crates/vm/tests/capture-perf.py --baseline BASELINE_RUNTIME \
+  --candidate CANDIDATE_RUNTIME --image SUPERVISION_IMAGE \
+  --forks 5 --output /tmp/capture-comparison.json
+```
+
+The report retains all 101 captures in each process, including the first, and
+compares process-level p99 values in pairs. `capture-coverage.json` records an
+observed p99 reduction from about 4.8 ms to 1.59–1.67 ms across three execution
+modes. Background load makes the measurements provisional; they do not close
+the live-game capture gate.
+
+### Struct layout queries
+
+`NativeStorage.layout` returns compiler layout facts for a struct declaration or
+instance. The VM image records the manifest's explicit `layoutTarget`:
+
+```lua
+return {
+  include = {"src"},
+  build = {entries = {"main"}, layoutTarget = "aarch64-apple-darwin"}
+}
+```
+
+The descriptor includes target, ABI, canonical declaration identity, size,
+alignment, fields, offsets, and a fingerprint that distinguishes scalar kinds
+and same-named declarations. Scalars, fixed arrays, and nested plain structs
+use the checker's resolved types and the compiler's target layout rules. Missing
+targets and layouts containing managed references, pointers, bitfields, recursive
+values, generic structs, or C aggregates report an error when queried.
+Ordinary values without layout metadata return `nil`.
+
+These facts describe the declared ABI. Struct instances still use boxed record
+storage; the descriptor does not enable physical struct allocation or bounded
+native row references. Checked bitfield widths survive interface caching, so
+unsupported packed fields cannot become ordinary layouts after a reload.
+The Tecs snapshot benchmark requires those operations and its native declaration
+graph before its full acceptance gate can run.
+
+The copied Tecs entity-column module replaces FFI allocation with managed
+binary64 storage while retaining its count in slot zero and its indexing,
+resize, and clear behavior. `tecs-storage-coverage.json` records 10,000 IDs,
+exact values through `2^53 - 1`, and persistence preserving shared views across
+Rust, threaded, and JIT execution under GC stress. Its original MIT license,
+source hash, and adaptation patch accompany the fixture.
+
+That integration exposed missing `__len` dispatch. Tables and records now call
+the metamethod across all execution tiers, preserve arbitrary first results,
+and keep native caller roots alive during callbacks. Numeric length operations
+convert the result through the existing numeric rules. Linked AOT tests cover
+the new helpers with executable memory denied and checkpoint restoration; the
+old raw-length helper ABI remains available to existing objects.
+
+The actual Tecs snapshot source graph currently stops at the `cdefFunc` in
+`tecs.internal.assetnative`. The reproducible admission harness records that
+failure separately from the entity-column acceptance. Physical struct rows and
+the snapshot codec migration remain open.

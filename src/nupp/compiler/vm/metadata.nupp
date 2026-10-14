@@ -81,6 +81,125 @@ end
 
 metadata.literal = data
 
+-- Layout facts come from the checked nominal graph under an explicit target.
+-- Unsupported layouts keep their reason so unrelated declarations can still
+-- compile; asking the native provider for that layout reports the failure.
+function metadata.structLayout(declaration, target)
+    local nominal = declaration.resolvedType
+    local label = nominal and (nominal.runtimePath or nominal.name) or declaration.name.text
+    local unavailable = {kind = "struct", name = label, supported = false, target = target}
+    if not target then
+        unavailable.error = "VM struct layout requires an explicit layoutTarget"
+        return unavailable
+    end
+    local layouts = require("nupp.compiler.targetlayout")
+    unavailable.abi = layouts.ABI
+    local active = {}
+    local scalars = {
+        boolean = true,
+        integer = true,
+        number = true,
+        float = true,
+        int8 = true,
+        int16 = true,
+        int32 = true,
+        int64 = true,
+        uint8 = true,
+        uint16 = true,
+        uint32 = true,
+        uint64 = true
+    }
+    local describe
+    describe = function(subject)
+        while subject and (subject.tag == "const" or subject.tag == "genericAlias") do
+            subject = subject.inner or subject.body
+        end
+        if not subject then
+            return nil, "unresolved stored type"
+        end
+        local tag = subject.tag
+        if tag == "nominal" then
+            if subject.cdefName or subject.cdefKind then
+                return nil, "C aggregate layouts are unsupported in VM struct storage"
+            end
+            if subject.origin
+                or #(subject.typeParams or {}) > 0
+                or #(subject.packParams or {}) > 0
+                or #(subject.constParams or {}) > 0
+            then
+                return nil, "generic struct layouts are unsupported in VM struct storage"
+            end
+            if not subject.runtimeDeclarationKey then
+                return nil, "the struct has no canonical runtime declaration identity"
+            end
+        end
+        if not scalars[tag] and tag ~= "carray" and not (tag == "nominal" and subject.declKind == "struct") then
+            return nil, "unsupported VM stored type " .. tostring(tag)
+        end
+        if active[subject] then
+            return nil, "a recursive by-value struct has no finite layout"
+        end
+        local measured, reason = layouts.of(subject, target)
+        if not measured then
+            return nil, reason
+        end
+        local result = {
+            kind = tag == "nominal" and "struct" or tag == "carray" and "array" or tag,
+            size = measured.size,
+            alignment = measured.alignment
+        }
+        if scalars[tag] then
+            return result, nil, tag
+        end
+        active[subject] = true
+        if tag == "carray" then
+            local element, problem, signature = describe(subject.elem)
+            active[subject] = nil
+            if not element then
+                return nil, problem
+            end
+            result.element, result.count = element, subject.count
+            return result, nil, "[" .. tostring(subject.count) .. "]" .. signature
+        end
+        result.name, result.fields = subject.runtimePath or subject.name, {}
+        result.typeName = (subject.moduleName and subject.moduleName .. ":" or "") .. result.name
+        result.identity = subject.runtimeDeclarationKey
+        local signatures = {}
+        for index, fieldLayout in ipairs(measured.fields) do
+            local name = fieldLayout.name
+            local definition = subject.fieldDefs and subject.fieldDefs[name]
+            if definition and definition.bitWidth then
+                active[subject] = nil
+                return nil, "bitfield " .. name .. " is unsupported in VM struct storage"
+            end
+            local member, problem, signature = describe(subject.byname[name])
+            if not member then
+                active[subject] = nil
+                return nil, "field " .. name .. ": " .. tostring(problem)
+            end
+            member.name, member.offset = name, fieldLayout.offset
+            local following = measured.fields[index + 1]
+            member.padding = (following and following.offset or measured.size) - fieldLayout.offset - fieldLayout.size
+            result.fields[#result.fields + 1] = member
+            signatures[#signatures + 1] = name .. ":" .. signature
+        end
+        active[subject] = nil
+        local signature = result.identity .. ":" .. result.typeName .. "{" .. table.concat(signatures, ",") .. "}"
+        result.fingerprint = measured.fingerprint .. "|fields=" .. signature
+
+        return result, nil, signature
+    end
+    local result, reason = describe(nominal)
+    if not result then
+        unavailable.error = "VM struct layout: " .. tostring(reason)
+        return unavailable
+    end
+    result.supported, result.target, result.abi = true, target, layouts.ABI
+    result.name = label
+
+    return result
+end
+
 local function required(module)
     return call(name("require"), {data(module)})
 end

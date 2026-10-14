@@ -287,7 +287,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> crate::task_a
     // VM exception and must leave the original game available after failure.
     let result: Result<Vec<Value>> = (|| match name {
         "tasks.vmGeneration" => Ok(vec![vm.intern(&game.generation().to_string())]),
-        "tasks.vmCapture" => Ok(vec![vm.intern_bytes(&game.capture()?)]),
+        "tasks.vmCapture" => Ok(vec![vm.new_string_bytes(&game.capture()?)]),
         "tasks.vmPrepare" => {
             let data = bytes(vm, arg(1))?;
             let prepared = game.prepare_restore(data)?;
@@ -358,7 +358,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> crate::task_a
                 let root = vm.register(status);
                 let values = progress
                     .values
-                    .map(|b| vm.intern_bytes(&b))
+                    .map(|b| vm.new_string_bytes(&b))
                     .unwrap_or(Value::NIL);
                 vm.release(root);
                 Ok(vec![status, values])
@@ -375,6 +375,41 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> crate::task_a
 #[cfg(test)]
 mod ownership_tests {
     use super::*;
+    #[test]
+    fn binary_captures_keep_string_semantics_across_collection_and_restore() {
+        fn values(answer: crate::task_api::Answer) -> Vec<Value> {
+            match answer {
+                crate::task_api::Answer::Values(values) => values,
+                _ => panic!("unexpected suspension"),
+            }
+        }
+        let mut vm = Interp::new();
+        crate::image::load(
+            &mut vm,
+            "function value 0 0 2 1 :v\nconst 0 num 42\nK 1 0\nRet 1\nend\nentry 0\n",
+        )
+        .unwrap();
+        vm.install_globals();
+        let game = values(call(&mut vm, "tasks.vmSpawn", &[Value::func(0)]))[0];
+        let snapshot = values(call(&mut vm, "tasks.vmCapture", &[game]))[0];
+        let saved = vm.register(snapshot);
+        let data = vm.bytes_of(snapshot).to_vec();
+        let copy = vm.new_string_bytes(&data);
+        let copied = vm.register(copy);
+        assert!(vm.values_equal(snapshot, copy));
+        let table = vm.new_table();
+        let table_root = vm.register(table);
+        vm.set_index(table, snapshot, Value::num(42.0));
+        vm.full_cycle();
+        assert_eq!(vm.get_index_any(table, copy), Value::num(42.0));
+        let prepared = values(call(&mut vm, "tasks.vmPrepare", &[game, copy]))[0];
+        call(&mut vm, "tasks.vmReplace", &[game, prepared]);
+        call(&mut vm, "tasks.vmClose", &[game]);
+        vm.release(table_root);
+        vm.release(copied);
+        vm.release(saved);
+    }
+
     #[test]
     fn forged_and_mutated_handles_cannot_select_native_owners() {
         let mut vm = Interp::new();

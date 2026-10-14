@@ -137,6 +137,7 @@ function cdef.install(
                 n.fieldDefs[text] = fieldDef
                 n.writeFieldDefs[text] = fieldDef
                 fieldDef.type = ft
+                fieldDef.bitWidth = bitWidth and tonumber(bitWidth.text) or nil
                 fieldDef.cdef = true
                 c.markToken(fieldName, fieldDef, ft, "property")
                 n.fieldOrder[#n.fieldOrder + 1] = text

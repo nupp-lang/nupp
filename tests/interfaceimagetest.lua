@@ -59,6 +59,35 @@ end
 
 local M = {}
 
+function M.roundTripsStructBitWidths()
+    local packed = indexed("Packed", "/project/sample.nupp", "struct")
+    packed.byname = {ready = T.boolean}
+    packed.writeByname = {ready = T.boolean}
+    packed.fieldOrder = {"ready"}
+    packed.fieldDefs = {ready = {name = "ready", bitWidth = 1}}
+    packed.writeFieldDefs = packed.fieldDefs
+    local loaded = roundTrip(packed)
+    testAssert.equal(loaded.fieldDefs.ready.bitWidth, 1, "stored bit width")
+    testAssert.equal(loaded.writeFieldDefs.ready.bitWidth, 1, "writable bit width")
+end
+
+function M.vmLayoutsRejectForeignAndGenericStructs()
+    local metadata = require("nupp.compiler.vm.metadata")
+    local aggregate = indexed("Foreign", "/project/sample.nupp", "struct")
+    aggregate.runtimeDeclarationKey = "sample\0runtime\0" .. "1"
+    aggregate.byname = {value = T.int32}
+    aggregate.fieldOrder = {"value"}
+    aggregate.cdefKind = "union"
+    local foreign = metadata.structLayout({resolvedType = aggregate}, "aarch64-apple-darwin")
+    assert(not foreign.supported and foreign.size == nil)
+    assert(foreign.error:find("C aggregate", 1, true))
+    aggregate.cdefKind = nil
+    aggregate.typeParams = {T.typevar("Unused", "vm-layout:unused")}
+    local generic = metadata.structLayout({resolvedType = aggregate}, "aarch64-apple-darwin")
+    assert(not generic.supported and generic.size == nil)
+    assert(generic.error:find("generic struct", 1, true))
+end
+
 function M.copyabilityIsPreservedAcrossInterfaceImages()
     local copyable = indexed("Copyable", "/project/sample.nupp", "interface")
     copyable.intrinsicCopyable = true

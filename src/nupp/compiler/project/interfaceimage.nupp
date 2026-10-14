@@ -22,7 +22,7 @@ local T = require("nupp.compiler.types")
 
 local interfaceimage = {}
 
-interfaceimage.SCHEMA = 5
+interfaceimage.SCHEMA = 6
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 type interfaceimage.EncodeOptions = {
@@ -125,6 +125,7 @@ local function copyDefinition(definition: any): any?
         scalarIntrinsic = definition.scalarIntrinsic,
         associated = definition.associated,
         cdefIdentity = definition.cdefIdentity,
+        bitWidth = definition.bitWidth,
         -- An `@aot` function's identity for a native call from another module,
         -- and whether its signature keeps it out of Lua's reach.
         aotNativeOnly = definition.aotNativeOnly,

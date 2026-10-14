@@ -45,6 +45,48 @@ fn fails(vm: &mut Interp, method: &str, args: &[Value]) {
 }
 
 #[test]
+fn declaration_layout_queries_survive_vm_restore_without_claiming_native_rows() {
+    let mut vm = vm();
+    let key = string(&mut vm, b"\0nupp:structLayout");
+    let key = vm.key_for_store(key);
+    vm.register(key);
+    let layout = vm.new_table();
+    vm.register(layout);
+    let supported = vm.intern("supported");
+    vm.set_index(layout, supported, Value::TRUE);
+    let witness = vm.new_table();
+    vm.register(witness);
+    vm.set_index(witness, key, layout);
+    let shape = vm.heap.shape("layout.Probe", &[], &[]);
+    vm.heap.shapes[shape as usize].methods.insert(key, layout);
+    let instance = vm.new_record(shape);
+    vm.register(instance);
+    vm.loaded.insert("layout.instance".into(), instance);
+    vm.loaded.insert("layout.witness".into(), witness);
+    assert_eq!(call(&mut vm, "layout", &[witness]), layout);
+    assert_eq!(call(&mut vm, "layout", &[instance]), layout);
+    assert_eq!(call(&mut vm, "layout", &[Value::num(42.0)]), Value::NIL);
+    // Metadata is a query result, not a physical allocation descriptor.
+    fails(&mut vm, "allocateArray", &[witness, Value::num(1.0)]);
+    let bytes =
+        persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    restored.full_cycle();
+    let witness = restored.loaded["layout.witness"];
+    let instance = restored.loaded["layout.instance"];
+    let layout = call(&mut restored, "layout", &[witness]);
+    assert_ne!(layout, Value::NIL);
+    assert_eq!(call(&mut restored, "layout", &[instance]), layout);
+    let supported = restored.intern("supported");
+    restored.set_index(layout, supported, Value::FALSE);
+    let error = restored.intern("error");
+    let message = restored.intern("explicit target required");
+    restored.set_index(layout, error, message);
+    fails(&mut restored, "layout", &[witness]);
+}
+
+#[test]
 fn scalar_layouts_and_native_byte_vectors() {
     let mut vm = vm();
     for (name, suffix, width, value, bytes) in [

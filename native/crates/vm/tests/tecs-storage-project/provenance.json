@@ -1,0 +1,9 @@
+{
+  "repository": "/Users/dowling/projects/tecs",
+  "commit": "87bd7da2873f7b7267752e5af3a8dfb8648785bb",
+  "source": "src/tecs/internal/entitycolumn.nupp",
+  "sourceSha256": "b3ec3cec1bf2efb85d37d8f9dfab2b7dc75f7d697def67db518a5141753ea2bf",
+  "license": "MIT, Copyright (c) 2026 Michael Dowling",
+  "scope": "Public entity-column operations retained; FFI allocation/copy replaced by managed NativeStorage binary64 owners. Not full ECS or snapshot benchmark acceptance.",
+  "patchApply": "From the original Tecs checkout: git apply --unidiff-zero /path/to/entitycolumn.patch"
+}
