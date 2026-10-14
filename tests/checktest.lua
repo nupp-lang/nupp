@@ -1906,6 +1906,19 @@ function M.identifierTyposCarryUnambiguousFixes()
     assertClean(applyFix(typeSource, typeFix))
 end
 
+function M.safeIndexesAcceptAnOptionalReceiver()
+    assertClean(
+        table.concat(
+            {
+                "local t: {[string]: number}? = {k = 1}",
+                "local byName: number? = t?.k",
+                "local byKey: number? = t?.[\"k\"]",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.recordDeclarationsCheck()
     assertClean(
         table.concat(

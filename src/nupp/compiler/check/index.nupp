@@ -963,6 +963,16 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         end
         local ot = rawType(trackedObject)
+        -- Safe navigation tolerates nil in the object, as `?.name` does.
+        if kind == "safeBracket" and ot.tag == "union" then
+            local nonnil = {}
+            for _, m in ipairs(ot.members) do
+                if m ~= T.nil_ then
+                    nonnil[#nonnil + 1] = m
+                end
+            end
+            ot = rawType(T.union(nonnil))
+        end
         local writing = node.writeContext == true
         if ot.tag == "const" then
             if writing then
