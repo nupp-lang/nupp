@@ -270,6 +270,9 @@ pub struct Function {
     pub name: String,
     /// The module the function was emitted in, for `debug.getinfo`.
     pub module: String,
+    /// The source its image named for that module: what an error position
+    /// names. Every loaded chunk shares a module name, so it is per function.
+    pub path: Option<std::sync::Arc<str>>,
     /// Parameter classes in declaration order, b'f' or b'v', and the return class.
     pub sig: Vec<u8>,
     pub ret: u8,
@@ -616,7 +619,7 @@ impl Interp {
         loop {
             let h0 = t.stack[s]; let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
             let f = &self.funcs[fid];
-            let pos = f.debug.get(pc.saturating_sub(1)).map(|(l, c)| format!(" (line {l}:{c})")).unwrap_or_default();
+            let pos = f.debug.get(pc.saturating_sub(1)).filter(|(l, _)| *l != 0).map(|(l, c)| if *c == 0 { format!(" (line {l})") } else { format!(" (line {l}:{c})") }).unwrap_or_default();
             out.push_str(&format!("  {} at pc {}{}\n", f.name, pc, pos));
             let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
             if caller == NONE { break; }
@@ -1027,11 +1030,11 @@ impl Interp {
         crate::foreign::install(self);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
-        self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
+        self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), path: None, code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
         self.unavailable_fid = self.funcs.len() as u32;
         let msg = self.intern("a chunk loaded from Lua source cannot run: this runtime evaluates no Lua"); self.registered.push(msg);
         let err_id = crate::builtins::id_of("error").unwrap();
-        self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
+        self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), path: None, code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
@@ -1531,6 +1534,36 @@ impl Interp {
 
     pub(crate) fn enter_caller(&self, caller: Caller) -> CallerScope {
         CallerScope { previous: self.caller.replace(Some(caller)), slot: self.caller.clone() }
+    }
+    /// Lua's short source name for a function's chunk (LUA_IDSIZE 60): a
+    /// `=name` as written, a path cut to its last characters when long.
+    pub(crate) fn chunk_id(&self, fid: usize) -> String {
+        let f = &self.funcs[fid];
+        let source = f.path.as_deref().map(str::to_string).or_else(|| self.module_paths.get(&f.module).cloned()).unwrap_or_else(|| f.module.clone());
+        if let Some(name) = source.strip_prefix('=') { return name.chars().take(59).collect(); }
+        let path = source.strip_prefix('@').unwrap_or(&source);
+        if path.len() <= 59 { return path.to_string(); }
+        let mut start = path.len() - 56;
+        while !path.is_char_boundary(start) { start += 1; }
+        format!("...{}", &path[start..])
+    }
+    /// The function and source line `skip` interpreted frames above the
+    /// builtin's caller, read from the frame chain and the line table. A
+    /// compiled caller keeps no chain, so it answers nothing.
+    pub(crate) fn caller_line(&self, skip: usize) -> Option<(usize, u32)> {
+        let tid = self.caller_task()?;
+        let t = &self.tasks[tid];
+        if t.stack.is_empty() { return None; }
+        let mut s = t.cur;
+        for _ in 0..skip {
+            let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
+            if caller == NONE { return None; }
+            s = caller as usize;
+        }
+        let h0 = t.stack[s];
+        let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
+        let line = self.funcs.get(fid)?.debug.get(pc.saturating_sub(1))?.0;
+        Some((fid, line))
     }
     /// The task a builtin was called from, when an interpreted task called it.
     pub(crate) fn caller_task(&self) -> Option<usize> {

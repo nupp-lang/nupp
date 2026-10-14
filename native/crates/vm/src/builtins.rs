@@ -50,6 +50,7 @@ pub const NAMES: &[&str] = &[
     "debug.traceback",
     "files.lines",
     "files.readerRead", "files.readerClose",
+    "error.site",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -479,6 +480,7 @@ enum Special {
     Plain,
     OsExit,
     DebugTraceback,
+    ErrorSite,
     Foreign,
     TasksVm,
     IoStdinRead,
@@ -529,6 +531,7 @@ fn classify(name: &str) -> Special {
     if name == "io.popen" { return Special::IoPopen; }
     if name == "os.exit" { return Special::OsExit; }
     if name == "debug.traceback" { return Special::DebugTraceback; }
+    if name == "error.site" { return Special::ErrorSite; }
     if name.starts_with("process.") { return Special::Process; }
     if name.starts_with("temporary.") { return Special::Temporary; }
     if name == "table.maxn" { return Special::TableMaxn; }
@@ -588,6 +591,25 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::IoPopen => {
             return crate::process::popen(it, args);
+        }
+        Special::ErrorSite => {
+            // `error(message, level)` as the lowering spells it: the error
+            // function the call named, the call's line, then the arguments.
+            // A replaced `error` is called as written.
+            let callee = arg(args, 0);
+            if callee != Value::builtin(id_of("error").unwrap()) { return it.call_outs(callee, &args[2.min(args.len())..]); }
+            let message = arg(args, 2);
+            let level = match arg(args, 3) { v if v == Value::NIL => 1, v if v.is_num() => v.as_num() as i64, _ => 1 };
+            let mut raised = message;
+            if level > 0 && (it.is_stringish(message) || message.is_num()) {
+                let site = if level == 1 { it.caller_function().map(|fid| (fid, arg(args, 1).as_num() as u32)) } else { it.caller_line(level as usize - 1) };
+                if let Some((fid, line)) = site.filter(|&(_, line)| line != 0) {
+                    let mut text = format!("{}:{}: ", it.chunk_id(fid), line).into_bytes();
+                    text.extend(tostring(it, message));
+                    raised = it.string_of(&text);
+                }
+            }
+            std::panic::panic_any(LuaError(raised.0))
         }
         Special::DebugTraceback => {
             // `debug.traceback([thread,] [message [, level]])`. A message that is
@@ -1188,7 +1210,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         72 => crate::stdio::read(it, arg(args, 0)),
         52 => {
             // A builtin pushes no frame; resolve its scoped task or native caller.
-            let source = { let fid = it.caller_function(); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| format!("@{p}")).unwrap_or_else(|| "=nupp-vm".to_string()) };
+            let source = { let fid = it.caller_function(); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| if p.starts_with('=') || p.starts_with('@') { p.clone() } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
             let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); } it.release(h); outs![t]
         }
         other => panic!("runtime error: builtin {} not implemented", NAMES[other as usize]),

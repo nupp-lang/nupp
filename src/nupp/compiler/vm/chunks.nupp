@@ -82,7 +82,9 @@ function chunks.install(): boolean
         local source = file:read("*a")
         file:close()
 
-        return compileChunk(source, path)
+        -- Lua names a file's chunk `@path`, which its errors print as given.
+
+        return compileChunk(source, "@" .. path)
     end)
 
     rawset(_G, "dofile", function(path: string): any

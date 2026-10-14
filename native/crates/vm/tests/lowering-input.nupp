@@ -15,9 +15,24 @@ function api.run(): number
         t.x = t.x + add(i)
     end
     local ok, why = pcall(function(): never
-        error("expected")
+        error("expected", 0)
     end)
     assert(not ok)
+    -- Level 1 names the line of the call, level 2 its caller's line where
+    -- the caller is interpreted; a compiled caller keeps no frame chain.
+    local _, positioned = pcall(function(): never
+        error("here")
+    end)
+    assert(tostring(positioned):find(":24: here$"), positioned)
+
+    local function blames(): never
+        error("caller", 2)
+    end
+
+    local _, blamed = pcall(function(): never
+        blames()
+    end)
+    assert(blamed == "caller" or tostring(blamed):find(":31: caller$"), blamed)
 
     -- An open receiver looks up its method through __index.
     local prototype = {}

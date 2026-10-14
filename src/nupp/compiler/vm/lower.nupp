@@ -352,9 +352,7 @@ function lower.emit(
 
     function Fn:op(...)
         local op: table = {...}
-        if listing then
-            op.line = nodeLine(self.curStmt)
-        end
+        op.line = self.curLine
         self.code[#self.code + 1] = op
 
         return #self.code
@@ -1429,6 +1427,37 @@ function lower.emit(
         if node.kind == "safeCall" or (node.kind == "methodCall" and (node.safeObj or node.safeMethod)) then
             emitSafeCall(f, node, dst, nres, all)
             return
+        end
+        -- `error(message, level)` carries its own line, which Lua prefixes to
+        -- the message: the runtime sees no caller pc on every tier. The
+        -- callee is still read as written, so a replaced `error` is called.
+        local errorArgs = node.kind == "call"
+            and node.obj
+            and node.obj.kind == "name"
+            and tokText(node.obj.token) == "error"
+            and not f:binding("error")
+            and node.args
+            and not node.args.loweredArgs
+            and node.args.exprs
+        if errorArgs and #errorArgs >= 1 and #errorArgs <= 2 then
+            local last = errorArgs[#errorArgs]
+            if not multiCall(last) and last.kind ~= "vararg" then
+                local site = f:reg()
+                f:op("K", site, f:const("builtin", "error.site"))
+                local line = {kind = "number", token = {text = tostring(nodeLine(node) or 0)}}
+                emitCall(
+                    f,
+                    {
+                        kind = "call",
+                        obj = {kind = "vmRegister", reg = site},
+                        args = {exprs = {node.obj, line, errorArgs[1], errorArgs[2] or {kind = "nil"}}},
+                    },
+                    dst,
+                    nres,
+                    all
+                )
+                return
+            end
         end
         if node.carrayElem then
             local descriptor = exprAs(f, structDescriptor(node.carrayElem), "v")
@@ -2722,6 +2751,7 @@ function lower.emit(
     -- moved into place, the closure value landing in `dst`.
     emitClosure = function(f, funcbody, dst, name, implicitSelf)
         local inner = newFn(name, f)
+        inner.curLine = f.curLine
         inner.sig = {}
         inner.implicitSelf = implicitSelf
         -- A vararg parameter is not a fixed parameter. Surplus arguments
@@ -3792,6 +3822,7 @@ function lower.emit(
 
     stmtReclaim = function(f, s)
         f.curStmt = s
+        f.curLine = nodeLine(s) or f.curLine
         local mark, fmark = f.nregs, f.nfregs
         stmt(f, s)
         if s.kind == "localStmt" then
@@ -4641,6 +4672,25 @@ function lower.emit(
                 emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value)))
             end
         end
+        -- The source line of every instruction, run-length encoded: `L` for
+        -- one instruction, `LxN` for N in a row, 0 where none is known.
+        local runs = {}
+        local runLine, runCount = nil, 0
+        for _, op in ipairs(f.code) do
+            local line = op.line or 0
+            if line == runLine then
+                runCount = runCount + 1
+            else
+                if runLine then
+                    runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
+                end
+                runLine, runCount = line, 1
+            end
+        end
+        if runLine and not (#runs == 0 and runLine == 0) then
+            runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
+            emit("  lines " .. table.concat(runs, " "))
+        end
         for pc, op in ipairs(f.code) do
             local parts = {}
             for i, value in ipairs(op) do
@@ -4656,10 +4706,11 @@ function lower.emit(
         end
         emit("end")
     end
-    -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`.
+    -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
+    -- and error positions. A chunk's own name (`=name` or `@path`) is kept.
     for _, name in ipairs(moduleOrder) do
         local p = modulePath(name)
-        if p and p:sub(1, 1) ~= "/" then
+        if p and p:sub(1, 1) ~= "/" and p:sub(1, 1) ~= "=" and p:sub(1, 1) ~= "@" then
             p = (os.getenv("PWD") or ".") .. "/" .. p
         end
         emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))

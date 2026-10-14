@@ -1991,3 +1991,34 @@ per-instruction debug info, next.
 `TRACE_FAILURES=1` prints the frame chain of a scheduled task that fails,
 and `AOT_VERBOSE=1` restores the linked-entry banner the CLI used to print
 on every run.
+
+## Source lines and error positions (2026-10-14)
+
+Every function in an image now carries a line table: one source line per
+instruction, run-length encoded on a `lines` line before the code
+(`lines 12x4 13 15x2`; 0 where no line is known). The lowerer already kept
+the statement line for the `bc` listing; it now records it always, and a
+closure starts at its definition's line. The loader checks that the table
+covers every instruction. Backtraces print `(line N)` from it.
+
+`error(message, level)` names its position the way Lua does,
+`chunk:line: message`, with Lua's short chunk names (a long path keeps its
+last 56 bytes behind `...`; `=name` is printed as written). A builtin does
+not see its caller's pc on every tier, so the lowering passes the call's
+line itself: `error(...)` becomes `error.site(error, line, message, level)`.
+The callee is still the one the program names, so a replaced `error` is
+called as written; level 0 adds nothing; level 2 reads the caller's saved
+pc from the frame chain and its line from the table. Each function also
+records its image's source path, since every loaded chunk shares the
+module name `vm.chunk`.
+
+`loadfile` now names its chunk `@path`, as Lua does, so `nupp run` on the
+VM prints `err.lua:3: negative input` exactly as the LuaJIT host does. The
+tables add 758 KB (3.6%) to the root image; the image emitted under
+LuaJIT and the one the VM emits from it remain byte-identical, and the
+linked CLI's `check` is unchanged (0.92 s warm).
+
+Two gaps remain. Level 2 answers without a position when the caller is
+compiled (JIT or linked AOT keep no frame chain), and the VM's own runtime
+errors (`index of a non-table`) carry its function and pc rather than a
+source position and Lua's wording.

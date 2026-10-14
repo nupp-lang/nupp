@@ -43,9 +43,18 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let (sig, ret) = parts.get(6).and_then(|s| s.split_once(':')).map(|(a, b)| (a.bytes().collect::<Vec<u8>>(), b.as_bytes()[0])).unwrap_or((Vec::new(), b'v'));
                 let nfp = sig.iter().filter(|&&c| c == b'f').count() as u8;
                 let nvp = sig.len() as u8 - nfp;
-                cur = Some(Function { name, module: String::new(), code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), ins: Vec::new() });
+                cur = Some(Function { name, module: String::new(), path: None, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), ins: Vec::new() });
             }
             "vectors" => { if parts.len()!=2 { return Err(format!("line {ln}: vector count")); } cur.as_mut().ok_or("vectors outside function")?.nvreg = parts.get(1).ok_or("missing vector count")?.parse().map_err(|_| "invalid vector count")?; }
+            "lines" => {
+                let f = cur.as_mut().ok_or("lines outside function")?;
+                for run in &parts[1..] {
+                    let (line, count) = run.split_once('x').unwrap_or((run, "1"));
+                    let line: u32 = line.parse().map_err(|_| format!("line {ln}: invalid source line"))?;
+                    let count: usize = count.parse().map_err(|_| format!("line {ln}: invalid line run"))?;
+                    f.debug.extend(std::iter::repeat_n((line, 0), count));
+                }
+            }
             "const" => {
                 let f = cur.as_mut().unwrap();
                 let v = match parts[2] {
@@ -72,6 +81,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
             }
             "end" => {
                 let mut f = cur.take().unwrap();
+                if !f.debug.is_empty() && f.debug.len() != f.code.len() { return Err(format!("line {ln}: line table covers {} of {} instructions", f.debug.len(), f.code.len())); }
                 // Named operations use identity keys in every execution tier.
                 // Long string literals are otherwise deliberately not interned.
                 for op in &f.code {
@@ -103,7 +113,14 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 let offs: Vec<i32> = parts[3..].iter().map(|s| s.parse().unwrap()).collect();
                 f.jump_tables.push((def, offs));
             }
-            "module" => { it.modules.insert(parts[1].to_string(), base + parts[2].parse::<u32>().unwrap()); if let Some(p) = parts.get(3) { it.module_paths.insert(parts[1].to_string(), p.to_string()); } }
+            "module" => {
+                it.modules.insert(parts[1].to_string(), base + parts[2].parse::<u32>().unwrap());
+                if let Some(p) = parts.get(3) {
+                    it.module_paths.insert(parts[1].to_string(), p.to_string());
+                    let path: std::sync::Arc<str> = (*p).into();
+                    for f in funcs.iter_mut().filter(|f| f.module == parts[1]) { f.path = Some(path.clone()); }
+                }
+            }
             "source" => { let f = cur.as_mut().ok_or(format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
             name => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;

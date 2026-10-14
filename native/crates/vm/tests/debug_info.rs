@@ -174,3 +174,19 @@ fn callbacks_restore_caller_on_success_and_error() {
         assert_eq!(source(&mut vm), "=nupp-vm", "panic restored host context");
     }
 }
+
+#[test]
+fn error_sites_name_the_shortened_chunk_and_line() {
+    let path = format!("/{}/file.nupp", "d".repeat(70));
+    let program = format!(
+        "function fail 0 0 8 1 :v\nsource m\nlines 9x7\nconst 0 builtin error.site\nconst 1 builtin error\nconst 2 num 9\nconst 3 str \"boom\"\nK 1 0\nK 3 1\nK 4 2\nK 5 3\nNil 6\nCallDyn 1 2 4\nRetNil\nend\nmodule m 0 {path}\nentry 0\n"
+    );
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, &program).unwrap();
+    vm.install_globals();
+    assert_eq!(vm.funcs[0].debug, vec![(9, 0); 7]);
+    let values = vm.pcall_values(Value::func(0), &[]);
+    assert_eq!(values[0], Value::FALSE);
+    let message = String::from_utf8(vm.bytes_of(values[1]).to_vec()).unwrap();
+    assert_eq!(message, format!("...{}:9: boom", &path[path.len() - 56..]));
+}
