@@ -451,21 +451,23 @@ fn type_name(it: &Interp, v: Value) -> &'static str {
 }
 
 /// Lua's `tostring`.
-pub fn tostring(it: &mut Interp, v: Value) -> String {
-    if let Some(i) = crate::numeric::integer(v) { return i.magnitude().to_string(); }
-    if v.is_num() { return num_text(v.as_num()); }
-    if v == Value::NIL { return "nil".into(); }
-    if v == Value::TRUE { return "true".into(); }
-    if v == Value::FALSE { return "false".into(); }
-    if it.is_stringish(v) { return String::from_utf8_lossy(it.bytes_of(v)).into_owned(); }
+/// Lua's `tostring`, byte for byte: a string's bytes are its text whether or
+/// not they are UTF-8.
+pub fn tostring(it: &mut Interp, v: Value) -> Vec<u8> {
+    if let Some(i) = crate::numeric::integer(v) { return i.magnitude().to_string().into_bytes(); }
+    if v.is_num() { return num_text(v.as_num()).into_bytes(); }
+    if v == Value::NIL { return b"nil".to_vec(); }
+    if v == Value::TRUE { return b"true".to_vec(); }
+    if v == Value::FALSE { return b"false".to_vec(); }
+    if it.is_stringish(v) { return it.bytes_of(v).to_vec(); }
     let handler = it.meta_field(v, "__tostring");
     if handler != Value::NIL {
         let values = it.call_value(handler, &[v]);
         let text = values.first().copied().unwrap_or(Value::NIL);
         if !it.is_stringish(text) { it.err("__tostring must return a string"); }
-        return String::from_utf8_lossy(it.bytes_of(text)).into_owned();
+        return it.bytes_of(text).to_vec();
     }
-    format!("{}: {:#x}", type_name(it, v), v.0)
+    format!("{}: {:#x}", type_name(it, v), v.0).into_bytes()
 }
 
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
@@ -997,7 +999,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 let v = arg(args, ai); ai += 1;
                 let (width, zero, left, prec) = parse_spec(&spec);
                 let body: Vec<u8> = match conv {
-                    b's' => { let t = tostring(it, v).into_bytes(); match prec { Some(p) => t[..t.len().min(p)].to_vec(), None => t } }
+                    b's' => { let t = tostring(it, v); match prec { Some(p) => t[..t.len().min(p)].to_vec(), None => t } }
                     b'd' | b'i' => crate::numeric::integer(v).map(|i| i.magnitude().to_string()).unwrap_or_else(|| format!("{}", v.as_num() as i64)).into_bytes(),
                     b'u' => format!("{}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as u64)).into_bytes(),
                     b'x' => format!("{:x}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
@@ -1054,12 +1056,19 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::num(0.0)] }
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
-        N_26 => { let v = arg(args, 0); let s = tostring(it, v); outs![it.intern(&s)] }
+        N_26 => { let v = arg(args, 0); if it.kind_of(v) == Some(crate::heap::KIND_STR) { return outs![v]; } let s = tostring(it, v); outs![it.string_of(&s)] }
         N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) { i64::from_str_radix(h, 16).ok().map(|x| x as f64) } else { s.parse::<f64>().ok() } } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
         N_30 => { let n = arg(args, 0); if !n.is_num() { return outs![Value::num((args.len() - 1) as f64)]; } let i = n.as_num() as i64; if i < 0 { args[(args.len() as i64 + i) as usize..].iter().copied().collect() } else { args[(i as usize).min(args.len())..].iter().copied().collect() } }
-        N_31 => { let parts: Vec<String> = args.iter().map(|&v| tostring(it, v)).collect(); println!("{}", parts.join("\t")); Outs::new() }
+        N_31 => {
+            use std::io::Write;
+            let mut line = Vec::new();
+            for (i, &v) in args.iter().enumerate() { if i > 0 { line.push(b'\t'); } line.extend(tostring(it, v)); }
+            line.push(b'\n');
+            let mut out = std::io::stdout().lock(); out.write_all(&line).unwrap(); out.flush().unwrap();
+            Outs::new()
+        }
         N_32 => outs![Value::boolean(arg(args, 0) == arg(args, 1))],
         N_33 => { let v = it.get_index(arg(args, 0), arg(args, 1)); outs![v] }
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }

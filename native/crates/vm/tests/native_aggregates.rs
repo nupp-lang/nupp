@@ -629,7 +629,7 @@ entry 0
         numeric::binary(&mut vm, value, value, "add", None),
         Value::num(7.0)
     );
-    assert_eq!(builtins::tostring(&mut vm, value), "physical");
+    assert_eq!(builtins::tostring(&mut vm, value), b"physical");
     set(&mut vm, witness, "__len", nine);
     assert_eq!(vm.length(value), Value::num(9.0));
     // Witness __index changes must not replace physical field access.
@@ -653,7 +653,7 @@ entry 0
     }
     restored.full_cycle();
     assert_eq!(restored.length(values[0]), Value::num(9.0));
-    assert_eq!(builtins::tostring(&mut restored, values[0]), "physical");
+    assert_eq!(builtins::tostring(&mut restored, values[0]), b"physical");
     set(&mut restored, values[1], "__len", Value::NIL);
     assert_eq!(restored.length(values[0]), Value::num(0.0));
 }

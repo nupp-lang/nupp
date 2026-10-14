@@ -73,6 +73,10 @@ function api.run(): number
     local counted = {pair?.()}
     assert(#counted == 2)
 
+    -- Non-UTF-8 literals stay distinct constants, and tostring keeps bytes.
+    assert(("\128"):byte() == 128 and ("\255"):byte() == 255)
+    assert(tostring("\128") == "\128" and #tostring("\255") == 1)
+
     return t.x + #tostring(why) + receiver:value()
 end
 
