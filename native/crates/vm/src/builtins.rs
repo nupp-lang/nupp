@@ -434,280 +434,400 @@ pub fn tostring(it: &mut Interp, v: Value) -> String {
 
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
+/// How a builtin id is dispatched, computed once from `NAMES` so a call
+/// does no string comparison before its own work.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Special {
+    Plain,
+    Foreign,
+    TasksVm,
+    IoStdinRead,
+    IoPopen,
+    Process,
+    Temporary,
+    TableMaxn,
+    TableClone,
+    VmTableappendresults,
+    VmClocknow,
+    AffineRelease,
+    VmEncodeplain,
+    VmSavedata,
+    VmLoaddata,
+    VmDecodeplain,
+    VmSavevalue,
+    VmLoadvalue,
+    VmLoadinto,
+    VmSha256,
+    VmCdeclarations,
+    VmCachedigest,
+    VmProcessid,
+    UuidUuid4,
+    CrcUpdate,
+    ClockNow,
+    Xpcall,
+    IoLines,
+    IoType,
+    OsDate,
+    Collectgarbage,
+    SystemAvailableparallelism,
+    CryptoRandombytes,
+    VmWithinstructionbudget,
+    PackagePreloadloader,
+    PackageImageloader,
+    VmLoadimage,
+    Tail,
+}
+static SPECIAL: std::sync::OnceLock<Vec<Special>> = std::sync::OnceLock::new();
+fn special_of(id: u32) -> Special {
+    let table = SPECIAL.get_or_init(|| NAMES.iter().map(|name| classify(*name)).collect());
+    table.get(id as usize).copied().unwrap_or(Special::Plain)
+}
+fn classify(name: &str) -> Special {
+    if name.starts_with("foreign.") { return Special::Foreign; }
+    if name.starts_with("tasks.vm") { return Special::TasksVm; }
+    if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
+    if name == "io.popen" { return Special::IoPopen; }
+    if name.starts_with("process.") { return Special::Process; }
+    if name.starts_with("temporary.") { return Special::Temporary; }
+    if name == "table.maxn" { return Special::TableMaxn; }
+    if name == "table.clone" || name == "table.clear" { return Special::TableClone; }
+    if name == "vm.tableAppendResults" { return Special::VmTableappendresults; }
+    if name == "vm.clockNow" || name == "vm.clockWall" || name == "vm.clockSleep" { return Special::VmClocknow; }
+    if name == "affine.release" { return Special::AffineRelease; }
+    if name == "vm.encodePlain" { return Special::VmEncodeplain; }
+    if name == "vm.saveData" { return Special::VmSavedata; }
+    if name == "vm.loadData" { return Special::VmLoaddata; }
+    if name == "vm.decodePlain" { return Special::VmDecodeplain; }
+    if name == "vm.saveValue" { return Special::VmSavevalue; }
+    if name == "vm.loadValue" { return Special::VmLoadvalue; }
+    if name == "vm.loadInto" { return Special::VmLoadinto; }
+    if name == "vm.sha256" { return Special::VmSha256; }
+    if name == "vm.cDeclarations" { return Special::VmCdeclarations; }
+    if name == "vm.cacheDigest" { return Special::VmCachedigest; }
+    if name == "vm.processId" { return Special::VmProcessid; }
+    if name == "uuid.uuid4" || name == "uuid.uuid7" { return Special::UuidUuid4; }
+    if name == "crc.update" { return Special::CrcUpdate; }
+    if name == "clock.now" { return Special::ClockNow; }
+    if name == "xpcall" { return Special::Xpcall; }
+    if name == "io.lines" { return Special::IoLines; }
+    if name == "io.type" { return Special::IoType; }
+    if name == "os.date" { return Special::OsDate; }
+    if name == "collectgarbage" { return Special::Collectgarbage; }
+    if name == "system.availableParallelism" { return Special::SystemAvailableparallelism; }
+    if name == "crypto.randomBytes" { return Special::CryptoRandombytes; }
+    if name == "vm.withInstructionBudget" { return Special::VmWithinstructionbudget; }
+    if name == "package.preloadLoader" { return Special::PackagePreloadloader; }
+    if name == "package.imageLoader" { return Special::PackageImageloader; }
+    if name == "vm.loadImage" { return Special::VmLoadimage; }
+    if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
+        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+    Special::Plain
+}
+
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // Supervision is synchronous, including affine cleanup invoked directly
     // through the builtin path rather than a scheduled bytecode call.
-    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("foreign.")) {
-        return crate::foreign::call(it, name, args);
-    }
-    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("tasks.vm")) {
-        return match crate::task_api::call(it, 0, name, args) {
-            crate::task_api::Answer::Values(values) => values.into_iter().collect(),
-            _ => unreachable!("supervision cannot suspend its caller"),
-        };
-    }
-    if matches!(NAMES.get(id as usize), Some(&"io.stdin.read" | &"io.stdout.flush" | &"io.stderr.flush" | &"io.flush" | &"io.stdout.setvbuf" | &"io.stderr.setvbuf")) { return crate::stdio::call(it, NAMES[id as usize], args); }
-    if NAMES.get(id as usize) == Some(&"io.popen") { return crate::process::popen(it, args); }
-    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("process.")) { return crate::process::call(it, name, args); }
-    if let Some(name) = NAMES.get(id as usize).filter(|name| name.starts_with("temporary.")) { return crate::temporary::call(it, name, args); }
-    if NAMES.get(id as usize) == Some(&"table.maxn") {
-        let table = arg(args, 0);
-        let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
-        return outs![Value::num(max)];
-    }
-    if matches!(NAMES.get(id as usize), Some(&"table.clone" | &"table.clear")) {
-        let source = arg(args, 0);
-        if !matches!(it.kind_of(source), Some(KIND_TABLE | KIND_RECORD)) || crate::storage::is_native(source) {
-            it.err("table operation expects a table");
+    let special = special_of(id);
+    match special {
+        Special::Foreign => {
+            let name = NAMES[id as usize];
+            return crate::foreign::call(it, name, args);
         }
-        if NAMES[id as usize] == "table.clear" {
-            for key in it.table_keys(source) { it.set_index(source, key, Value::NIL); }
+        Special::TasksVm => {
+            let name = NAMES[id as usize];
+            return match crate::task_api::call(it, 0, name, args) {
+                crate::task_api::Answer::Values(values) => values.into_iter().collect(),
+                _ => unreachable!("supervision cannot suspend its caller"),
+            };
+        }
+        Special::IoStdinRead => {
+            return crate::stdio::call(it, NAMES[id as usize], args);
+        }
+        Special::IoPopen => {
+            return crate::process::popen(it, args);
+        }
+        Special::Process => {
+            let name = NAMES[id as usize];
+            return crate::process::call(it, name, args);
+        }
+        Special::Temporary => {
+            let name = NAMES[id as usize];
+            return crate::temporary::call(it, name, args);
+        }
+        Special::TableMaxn => {
+            let table = arg(args, 0);
+            let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
+            return outs![Value::num(max)];
+        }
+        Special::TableClone => {
+            let source = arg(args, 0);
+            if !matches!(it.kind_of(source), Some(KIND_TABLE | KIND_RECORD)) || crate::storage::is_native(source) {
+                it.err("table operation expects a table");
+            }
+            if NAMES[id as usize] == "table.clear" {
+                for key in it.table_keys(source) { it.set_index(source, key, Value::NIL); }
+                return Outs::new();
+            }
+            let copy = it.new_table();
+            let root = it.register(copy);
+            for key in it.table_keys(source) {
+                it.set_index(copy, key, it.get_index(source, key));
+            }
+            let mut meta = it.metatable_of(source);
+            if meta != Value::NIL {
+                if let Some(key) = it.heap.intern_lookup("__metatable") {
+                    let protected = it.get_index(meta, key);
+                    if protected != Value::NIL { meta = protected; }
+                }
+            }
+            if matches!(it.kind_of(meta), Some(KIND_TABLE | KIND_RECORD)) && !crate::storage::is_native(meta) {
+                it.set_metatable(copy, meta);
+            }
+            it.release(root);
+            return outs![copy];
+        }
+        Special::VmTableappendresults => {
+            let table = arg(args, 0);
+            let start = arg(args, 1).as_num();
+            for (offset, value) in args.iter().skip(2).enumerate() { it.set_index(table, Value::num(start + offset as f64), *value); }
             return Outs::new();
         }
-        let copy = it.new_table();
-        let root = it.register(copy);
-        for key in it.table_keys(source) {
-            it.set_index(copy, key, it.get_index(source, key));
+        Special::VmClocknow => {
+            return crate::clock::call(it, NAMES[id as usize], args);
         }
-        let mut meta = it.metatable_of(source);
-        if meta != Value::NIL {
-            if let Some(key) = it.heap.intern_lookup("__metatable") {
-                let protected = it.get_index(meta, key);
-                if protected != Value::NIL { meta = protected; }
-            }
+        Special::AffineRelease => {
+            let body=it.affine_take_drop(arg(args,0)); if body!=Value::NIL { return it.call_outs(body,args); } return Outs::new();
         }
-        if matches!(it.kind_of(meta), Some(KIND_TABLE | KIND_RECORD)) && !crate::storage::is_native(meta) {
-            it.set_metatable(copy, meta);
-        }
-        it.release(root);
-        return outs![copy];
+        _ => {}
     }
-    if NAMES.get(id as usize) == Some(&"vm.tableAppendResults") {
-        let table = arg(args, 0);
-        let start = arg(args, 1).as_num();
-        for (offset, value) in args.iter().skip(2).enumerate() { it.set_index(table, Value::num(start + offset as f64), *value); }
-        return Outs::new();
-    }
-    if matches!(NAMES.get(id as usize), Some(&"vm.clockNow" | &"vm.clockWall" | &"vm.clockSleep")) {
-        return crate::clock::call(it, NAMES[id as usize], args);
-    }
-    if Some(id)==id_of("affine.release") { let body=it.affine_take_drop(arg(args,0)); if body!=Value::NIL { return it.call_outs(body,args); } return Outs::new(); }
     // A host service reached from a frame that cannot park: compiled code
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.
-    if id >= crate::host::HOST_BASE { it.err("host service called from a frame that cannot park"); }
-    if STATS.load(std::sync::atomic::Ordering::Relaxed) { let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
-    if NAMES.get(id as usize) == Some(&"vm.encodePlain") {
-        let bytes = crate::persist::save_plain(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
-        return outs![it.new_string_bytes(&bytes)];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.saveData") {
-        let bytes = crate::persist::save_data(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
-        return outs![it.new_string_bytes(&bytes)];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.loadData") {
-        let bytes = bytes_of(it, arg(args, 0));
-        let value = crate::persist::load_data(it, &bytes).unwrap_or_else(|e| it.err(&e));
-        return outs![value];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.decodePlain") {
-        let bytes = bytes_of(it, arg(args, 0));
-        let value = crate::persist::load_plain(it, &bytes).unwrap_or_else(|e| it.err(&e));
-        return outs![value];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.saveValue") {
-        let policies = crate::persist::policies_from_value(it, arg(args, 1)).unwrap_or_else(|e| it.err(&e));
-        let bytes = crate::persist::save_graph(it, &[arg(args, 0)], &policies).unwrap_or_else(|e| it.err(&e));
-        return outs![it.new_string_bytes(&bytes)];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.loadValue") {
-        let data = bytes_of(it, arg(args, 0));
-        let expected = if arg(args, 1) != Value::NIL {
-            let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 1))).into_owned();
-            Some(crate::heap::SlotTy::Record(it.heap.shapes.iter().position(|s| s.name == name).unwrap_or_else(|| it.err("unknown requested shape")) as u32))
-        } else { None };
-        let policies = crate::persist::policies_from_value(it, arg(args, 2)).unwrap_or_else(|e| it.err(&e));
-        let roots = crate::persist::load_graph(it, &data, &policies, expected).unwrap_or_else(|e| it.err(&e));
-        if roots.len() != 1 { it.err("saveValue payload must have exactly one root"); }
-        return outs![roots[0]];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.loadInto") {
-        let data = bytes_of(it, arg(args, 0));
-        let policies = crate::persist::policies_from_value(it, arg(args, 2)).unwrap_or_else(|e| it.err(&e));
-        let value = crate::persist::load_into(it, &data, arg(args, 1), &policies).unwrap_or_else(|e| it.err(&e));
-        return outs![value];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.sha256") {
-        use sha2::Digest;
-        let bytes = bytes_of(it, arg(args, 0));
-        if bytes.len() > 0x7fff_ffff { it.err("nupp: SHA-256 input is too long"); }
-        let digest = sha2::Sha256::digest(&bytes);
-        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-        return outs![it.heap_new_string(&hex)];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.cDeclarations") {
-        #[cfg(feature = "c-headers")]
-        {
-            let request = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
-            let response = crate::cdecl::request(&mut it.c_declarations, &request);
-            if it.c_declarations.is_some() {
-                if let Some(&module) = it.loaded.get("nupp.compiler.nativecdecl") { it.resources.insert(module, "nupp.compiler.c-declarations".into()); }
+    if id >= crate::host::HOST_BASE {it.err("host service called from a frame that cannot park"); }
+    if STATS.load(std::sync::atomic::Ordering::Relaxed) {let mut c = CALLS.lock().unwrap(); if c.len() < NAMES.len() { c.resize(NAMES.len(), 0); } c[id as usize] += 1; }
+    match special {
+        Special::VmEncodeplain => {
+            let bytes = crate::persist::save_plain(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
+            return outs![it.new_string_bytes(&bytes)];
+        }
+        Special::VmSavedata => {
+            let bytes = crate::persist::save_data(it, arg(args, 0)).unwrap_or_else(|e| it.err(&e));
+            return outs![it.new_string_bytes(&bytes)];
+        }
+        Special::VmLoaddata => {
+            let bytes = bytes_of(it, arg(args, 0));
+            let value = crate::persist::load_data(it, &bytes).unwrap_or_else(|e| it.err(&e));
+            return outs![value];
+        }
+        Special::VmDecodeplain => {
+            let bytes = bytes_of(it, arg(args, 0));
+            let value = crate::persist::load_plain(it, &bytes).unwrap_or_else(|e| it.err(&e));
+            return outs![value];
+        }
+        Special::VmSavevalue => {
+            let policies = crate::persist::policies_from_value(it, arg(args, 1)).unwrap_or_else(|e| it.err(&e));
+            let bytes = crate::persist::save_graph(it, &[arg(args, 0)], &policies).unwrap_or_else(|e| it.err(&e));
+            return outs![it.new_string_bytes(&bytes)];
+        }
+        Special::VmLoadvalue => {
+            let data = bytes_of(it, arg(args, 0));
+            let expected = if arg(args, 1) != Value::NIL {
+                let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 1))).into_owned();
+                Some(crate::heap::SlotTy::Record(it.heap.shapes.iter().position(|s| s.name == name).unwrap_or_else(|| it.err("unknown requested shape")) as u32))
+            } else { None };
+            let policies = crate::persist::policies_from_value(it, arg(args, 2)).unwrap_or_else(|e| it.err(&e));
+            let roots = crate::persist::load_graph(it, &data, &policies, expected).unwrap_or_else(|e| it.err(&e));
+            if roots.len() != 1 { it.err("saveValue payload must have exactly one root"); }
+            return outs![roots[0]];
+        }
+        Special::VmLoadinto => {
+            let data = bytes_of(it, arg(args, 0));
+            let policies = crate::persist::policies_from_value(it, arg(args, 2)).unwrap_or_else(|e| it.err(&e));
+            let value = crate::persist::load_into(it, &data, arg(args, 1), &policies).unwrap_or_else(|e| it.err(&e));
+            return outs![value];
+        }
+        Special::VmSha256 => {
+            use sha2::Digest;
+            let bytes = bytes_of(it, arg(args, 0));
+            if bytes.len() > 0x7fff_ffff { it.err("nupp: SHA-256 input is too long"); }
+            let digest = sha2::Sha256::digest(&bytes);
+            let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+            return outs![it.heap_new_string(&hex)];
+        }
+        Special::VmCdeclarations => {
+            #[cfg(feature = "c-headers")]
+            {
+                let request = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+                let response = crate::cdecl::request(&mut it.c_declarations, &request);
+                if it.c_declarations.is_some() {
+                    if let Some(&module) = it.loaded.get("nupp.compiler.nativecdecl") { it.resources.insert(module, "nupp.compiler.c-declarations".into()); }
+                }
+                return outs![it.heap_new_string(&response)];
             }
-            return outs![it.heap_new_string(&response)];
+            #[cfg(not(feature = "c-headers"))]
+            { it.err("C declaration inspection requires the c-headers runtime feature") }
         }
-        #[cfg(not(feature = "c-headers"))]
-        { it.err("C declaration inspection requires the c-headers runtime feature") }
-    }
-    if NAMES.get(id as usize) == Some(&"vm.cacheDigest") { let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)]; }
-    if NAMES.get(id as usize) == Some(&"vm.processId") { return outs![Value::num(std::process::id() as f64)]; }
-    if let Some(name @ ("uuid.uuid4" | "uuid.uuid7")) = NAMES.get(id as usize).copied() {
-        let value = if name == "uuid.uuid4" { nupp_native_platform::uuid4() } else { nupp_native_platform::uuid7() };
-        return outs![it.heap_new_string(&value.unwrap_or_else(|e| it.err(&e)))];
-    }
-    if NAMES.get(id as usize) == Some(&"crc.update") {
-        let id = crate::numeric::double(it, arg(args, 0));
-        if !(1.0..=4.0).contains(&id) || id.fract() != 0.0 { it.err("unknown CRC algorithm"); }
-        let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::bits(it, arg(args, 1), true)) };
-        let bytes = crate::storage::borrowed_bytes(it, arg(args, 2), arg(args, 3));
-        let [state, snapshot] = nupp_crc::update(id as u32, state, bytes).unwrap_or_else(|e| it.err(e));
-        let scope = it.open_scope();
-        let state = it.box_integer(crate::numeric::Integer { bits: state, unsigned: true }); it.handles.push(state);
-        let snapshot = it.box_integer(crate::numeric::Integer { bits: snapshot, unsigned: true });
-        let result = outs![state, snapshot];
-        it.close_scope(scope);
-        return result;
-    }
-    if NAMES.get(id as usize) == Some(&"clock.now") {
-        let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default().as_secs_f64() * 1000.0;
-        return outs![Value::num(millis)];
-    }
-    if NAMES.get(id as usize) == Some(&"xpcall") {
-        let scope = it.open_scope(); it.handles.extend_from_slice(args);
-        let values = it.pcall_values(arg(args, 0), &args[2.min(args.len())..]);
-        it.handles.extend_from_slice(&values);
-        let result = if values[0].truthy() { values.into_iter().collect() } else {
-            let handled = it.pcall_values(arg(args, 1), &[values[1]]);
-            if handled[0].truthy() { outs![Value::FALSE, handled.get(1).copied().unwrap_or(Value::NIL)] }
-            else { outs![Value::FALSE, it.intern("error in error handling")] }
-        };
-        it.close_scope(scope);
-        return result;
-    }
-    if NAMES.get(id as usize) == Some(&"io.lines") {
-        let scope = it.open_scope(); it.handles.extend_from_slice(args);
-        let path = arg(args, 0);
-        let file = if path == Value::NIL { Value::NIL } else {
-            let opened = call(it, id_of("io.open").unwrap(), &[path]);
-            if opened[0] == Value::NIL { let error = String::from_utf8_lossy(it.bytes_of(opened[1])).into_owned(); it.err(&error); }
-            opened[0]
-        };
-        it.handles.push(file);
-        let format = if arg(args, 1) == Value::NIL { it.intern("*l") } else { arg(args, 1) };
-        let iter = it.new_iter(if file == Value::NIL { 6 } else { 5 }, file, format);
-        it.close_scope(scope);
-        return outs![iter];
-    }
-    if NAMES.get(id as usize) == Some(&"io.type") {
-        let value = arg(args, 0);
-        if !matches!(it.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) { return outs![Value::NIL]; }
-        let scope = it.open_scope(); it.handles.push(value);
-        let mut known = false;
-        let io = it.loaded["io"];
-        for name in ["stdin", "stdout", "stderr"] { let key = it.intern(name); known |= it.get_index(io, key) == value; }
-        let key = it.intern("_data"); known |= it.is_stringish(it.get_index(value, key));
-        let native = crate::fileio::is_native(it, value); known |= native;
-        let key = it.intern("_processPipe"); let pipe = it.get_index(value, key) == Value::TRUE; known |= pipe;
-        let key = it.intern("_closed");
-        let closed = it.get_index(value, key) == Value::TRUE || native && !it.native_files.contains_key(&value) || pipe && !it.resources.contains_key(&value);
-        let result = if known { it.intern(if closed { "closed file" } else { "file" }) } else { Value::NIL };
-        it.close_scope(scope);
-        return outs![result];
-    }
-    if NAMES.get(id as usize) == Some(&"os.date") { return crate::datetime::date(it, args); }
-    if NAMES.get(id as usize) == Some(&"collectgarbage") {
-        let mode = arg(args, 0);
-        let mode = if mode == Value::NIL { "collect" } else {
-            if !it.is_stringish(mode) { it.err("collector option must be a string"); }
-            std::str::from_utf8(it.bytes_of(mode)).unwrap_or("")
-        };
-        return match mode {
-            "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
-            "count" => outs![Value::num(it.heap.live_bytes as f64 / 1024.0)],
-            "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
-            "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
-            "isrunning" => outs![Value::boolean(it.heap.automatic_collection)],
-            _ => it.err("unsupported collector option"),
-        };
-    }
-    if NAMES.get(id as usize) == Some(&"system.availableParallelism") {
-        return outs![Value::num(std::thread::available_parallelism().map_or(1, usize::from) as f64)];
-    }
-    if NAMES.get(id as usize) == Some(&"crypto.randomBytes") {
-        let value = arg(args, 0);
-        if !value.is_num() || !value.as_num().is_finite() || value.as_num().fract() != 0.0 || !(0.0..=1048576.0).contains(&value.as_num()) { it.err("random byte count must be an integer between 0 and 1048576"); }
-        let mut bytes = vec![0; value.as_num() as usize];
-        if !bytes.is_empty() { nupp_native_platform::random_bytes(&mut bytes).unwrap_or_else(|e| it.err(&e)); }
-        return outs![it.new_string_bytes(&bytes)];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.withInstructionBudget") {
-        let limit = arg(args, 1);
-        if !limit.is_num() || !limit.as_num().is_finite() || limit.as_num() < 1.0 || limit.as_num().fract() != 0.0 { it.err("instruction limit must be a positive integer"); }
-        let previous = it.execution_limit;
-        it.execution_limit = Some(previous.unwrap_or(usize::MAX).min(limit.as_num() as usize));
-        let before = it.execution_limit.unwrap();
-        let scope = it.open_scope(); it.handles.extend_from_slice(args);
-        let ntasks = it.tasks.len();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.call_value(arg(args, 0), &args[2..])));
-        let remaining = it.execution_limit.unwrap();
-        it.execution_limit = previous.map(|n| n.saturating_sub(before - remaining));
-        it.tasks.truncate(ntasks);
-        it.close_scope(scope);
-        return match result { Ok(values) => values.into_iter().collect(), Err(error) => std::panic::resume_unwind(error) };
-    }
-    if NAMES.get(id as usize) == Some(&"package.preloadLoader") {
-        let package = it.loaded["package"]; let k = it.intern("preload"); let preload = it.get_index(package, k);
-        return outs![it.get_index(preload, arg(args, 0))];
-    }
-    if NAMES.get(id as usize) == Some(&"package.imageLoader") {
-        let name = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
-        if let Some(fid) = it.modules.get(&name) { return outs![Value::func(*fid)]; }
-        if let Some(value) = it.loaded.get(&name).copied() {
-            let cell = it.new_cell(value); let root = it.register(cell);
-            let closure = it.new_closure(it.literal_fid, &[cell]); it.release(root);
-            return outs![closure];
+        Special::VmCachedigest => {
+            let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)];
         }
-        return outs![Value::NIL];
-    }
-    if NAMES.get(id as usize) == Some(&"vm.loadImage") {
-        if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
-        let bytes = bytes_of(it, arg(args, 0));
-        let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
-        let entry = crate::image::load(it, text).unwrap_or_else(|e| it.err(&e));
-        it.entries.resize(it.funcs.len(), 0);
-        if it.threaded { it.prepare_threaded(); }
-        return outs![Value::func(entry)];
-    }
-    if let Some(name) = NAMES.get(id as usize) {
-        if let Some(op) = name.strip_prefix("simd.") { return outs![crate::simd::call(it, op, args)]; }
-        if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
-        if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
-        if let Some(op) = name.strip_prefix("scalar.u64.") {
-            let op = match op { "andBits" => "and", "rotateLeft" => "rol", "rotateRight" => "ror", other => other };
-            return outs![crate::numeric::wide_call(it, &format!("u64.{op}"), args)];
+        Special::VmProcessid => {
+            return outs![Value::num(std::process::id() as f64)];
         }
-        if matches!(*name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp") {
-            let a = crate::numeric::double(it, arg(args, 0));
-            let v = match *name {
-                "math.sin" => a.sin(), "math.cos" => a.cos(), "math.tan" => a.tan(),
-                "math.asin" => a.asin(), "math.acos" => a.acos(), "math.atan" => a.atan(),
-                "math.atan2" => a.atan2(crate::numeric::double(it, arg(args, 1))), "math.exp" => a.exp(),
-                _ => crate::numeric::scale_power_of_two(a, crate::numeric::double(it, arg(args, 1)) as i32),
+        Special::UuidUuid4 => {
+            let name = NAMES[id as usize];
+            let value = if name == "uuid.uuid4" { nupp_native_platform::uuid4() } else { nupp_native_platform::uuid7() };
+            return outs![it.heap_new_string(&value.unwrap_or_else(|e| it.err(&e)))];
+        }
+        Special::CrcUpdate => {
+            let id = crate::numeric::double(it, arg(args, 0));
+            if !(1.0..=4.0).contains(&id) || id.fract() != 0.0 { it.err("unknown CRC algorithm"); }
+            let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::bits(it, arg(args, 1), true)) };
+            let bytes = crate::storage::borrowed_bytes(it, arg(args, 2), arg(args, 3));
+            let [state, snapshot] = nupp_crc::update(id as u32, state, bytes).unwrap_or_else(|e| it.err(e));
+            let scope = it.open_scope();
+            let state = it.box_integer(crate::numeric::Integer { bits: state, unsigned: true }); it.handles.push(state);
+            let snapshot = it.box_integer(crate::numeric::Integer { bits: snapshot, unsigned: true });
+            let result = outs![state, snapshot];
+            it.close_scope(scope);
+            return result;
+        }
+        Special::ClockNow => {
+            let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs_f64() * 1000.0;
+            return outs![Value::num(millis)];
+        }
+        Special::Xpcall => {
+            let scope = it.open_scope(); it.handles.extend_from_slice(args);
+            let values = it.pcall_values(arg(args, 0), &args[2.min(args.len())..]);
+            it.handles.extend_from_slice(&values);
+            let result = if values[0].truthy() { values.into_iter().collect() } else {
+                let handled = it.pcall_values(arg(args, 1), &[values[1]]);
+                if handled[0].truthy() { outs![Value::FALSE, handled.get(1).copied().unwrap_or(Value::NIL)] }
+                else { outs![Value::FALSE, it.intern("error in error handling")] }
             };
-            return outs![Value::num(v)];
+            it.close_scope(scope);
+            return result;
         }
-        if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
-        if name.starts_with("terminal.") { return terminal(name, args); }
-        if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
+        Special::IoLines => {
+            let scope = it.open_scope(); it.handles.extend_from_slice(args);
+            let path = arg(args, 0);
+            let file = if path == Value::NIL { Value::NIL } else {
+                let opened = call(it, id_of("io.open").unwrap(), &[path]);
+                if opened[0] == Value::NIL { let error = String::from_utf8_lossy(it.bytes_of(opened[1])).into_owned(); it.err(&error); }
+                opened[0]
+            };
+            it.handles.push(file);
+            let format = if arg(args, 1) == Value::NIL { it.intern("*l") } else { arg(args, 1) };
+            let iter = it.new_iter(if file == Value::NIL { 6 } else { 5 }, file, format);
+            it.close_scope(scope);
+            return outs![iter];
+        }
+        Special::IoType => {
+            let value = arg(args, 0);
+            if !matches!(it.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) { return outs![Value::NIL]; }
+            let scope = it.open_scope(); it.handles.push(value);
+            let mut known = false;
+            let io = it.loaded["io"];
+            for name in ["stdin", "stdout", "stderr"] { let key = it.intern(name); known |= it.get_index(io, key) == value; }
+            let key = it.intern("_data"); known |= it.is_stringish(it.get_index(value, key));
+            let native = crate::fileio::is_native(it, value); known |= native;
+            let key = it.intern("_processPipe"); let pipe = it.get_index(value, key) == Value::TRUE; known |= pipe;
+            let key = it.intern("_closed");
+            let closed = it.get_index(value, key) == Value::TRUE || native && !it.native_files.contains_key(&value) || pipe && !it.resources.contains_key(&value);
+            let result = if known { it.intern(if closed { "closed file" } else { "file" }) } else { Value::NIL };
+            it.close_scope(scope);
+            return outs![result];
+        }
+        Special::OsDate => {
+            return crate::datetime::date(it, args);
+        }
+        Special::Collectgarbage => {
+            let mode = arg(args, 0);
+            let mode = if mode == Value::NIL { "collect" } else {
+                if !it.is_stringish(mode) { it.err("collector option must be a string"); }
+                std::str::from_utf8(it.bytes_of(mode)).unwrap_or("")
+            };
+            return match mode {
+                "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
+                "count" => outs![Value::num(it.heap.live_bytes as f64 / 1024.0)],
+                "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
+                "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
+                "isrunning" => outs![Value::boolean(it.heap.automatic_collection)],
+                _ => it.err("unsupported collector option"),
+            };
+        }
+        Special::SystemAvailableparallelism => {
+            return outs![Value::num(std::thread::available_parallelism().map_or(1, usize::from) as f64)];
+        }
+        Special::CryptoRandombytes => {
+            let value = arg(args, 0);
+            if !value.is_num() || !value.as_num().is_finite() || value.as_num().fract() != 0.0 || !(0.0..=1048576.0).contains(&value.as_num()) { it.err("random byte count must be an integer between 0 and 1048576"); }
+            let mut bytes = vec![0; value.as_num() as usize];
+            if !bytes.is_empty() { nupp_native_platform::random_bytes(&mut bytes).unwrap_or_else(|e| it.err(&e)); }
+            return outs![it.new_string_bytes(&bytes)];
+        }
+        Special::VmWithinstructionbudget => {
+            let limit = arg(args, 1);
+            if !limit.is_num() || !limit.as_num().is_finite() || limit.as_num() < 1.0 || limit.as_num().fract() != 0.0 { it.err("instruction limit must be a positive integer"); }
+            let previous = it.execution_limit;
+            it.execution_limit = Some(previous.unwrap_or(usize::MAX).min(limit.as_num() as usize));
+            let before = it.execution_limit.unwrap();
+            let scope = it.open_scope(); it.handles.extend_from_slice(args);
+            let ntasks = it.tasks.len();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.call_value(arg(args, 0), &args[2..])));
+            let remaining = it.execution_limit.unwrap();
+            it.execution_limit = previous.map(|n| n.saturating_sub(before - remaining));
+            it.tasks.truncate(ntasks);
+            it.close_scope(scope);
+            return match result { Ok(values) => values.into_iter().collect(), Err(error) => std::panic::resume_unwind(error) };
+        }
+        Special::PackagePreloadloader => {
+            let package = it.loaded["package"]; let k = it.intern("preload"); let preload = it.get_index(package, k);
+            return outs![it.get_index(preload, arg(args, 0))];
+        }
+        Special::PackageImageloader => {
+            let name = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+            if let Some(fid) = it.modules.get(&name) { return outs![Value::func(*fid)]; }
+            if let Some(value) = it.loaded.get(&name).copied() {
+                let cell = it.new_cell(value); let root = it.register(cell);
+                let closure = it.new_closure(it.literal_fid, &[cell]); it.release(root);
+                return outs![closure];
+            }
+            return outs![Value::NIL];
+        }
+        Special::VmLoadimage => {
+            if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
+            let bytes = bytes_of(it, arg(args, 0));
+            let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
+            let entry = crate::image::load(it, text).unwrap_or_else(|e| it.err(&e));
+            it.entries.resize(it.funcs.len(), 0);
+            if it.threaded { it.prepare_threaded(); }
+            return outs![Value::func(entry)];
+        }
+        Special::Tail => {
+            let name = &NAMES[id as usize];
+            if let Some(op) = name.strip_prefix("simd.") { return outs![crate::simd::call(it, op, args)]; }
+            if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
+            if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
+            if let Some(op) = name.strip_prefix("scalar.u64.") {
+                let op = match op { "andBits" => "and", "rotateLeft" => "rol", "rotateRight" => "ror", other => other };
+                return outs![crate::numeric::wide_call(it, &format!("u64.{op}"), args)];
+            }
+            if matches!(*name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp") {
+                let a = crate::numeric::double(it, arg(args, 0));
+                let v = match *name {
+                    "math.sin" => a.sin(), "math.cos" => a.cos(), "math.tan" => a.tan(),
+                    "math.asin" => a.asin(), "math.acos" => a.acos(), "math.atan" => a.atan(),
+                    "math.atan2" => a.atan2(crate::numeric::double(it, arg(args, 1))), "math.exp" => a.exp(),
+                    _ => crate::numeric::scale_power_of_two(a, crate::numeric::double(it, arg(args, 1)) as i32),
+                };
+                return outs![Value::num(v)];
+            }
+            if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
+            if name.starts_with("terminal.") { return terminal(name, args); }
+            if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
+        }
+        _ => {}
     }
     match id {
         N_0 => {

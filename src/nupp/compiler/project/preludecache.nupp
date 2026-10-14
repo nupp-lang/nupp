@@ -330,10 +330,14 @@ local function arrayLength(value: any): integer?
         return nil
     end
     local length = #value
-    for key in pairs(value) do
-        if not isInteger(key) or key < 1 or key > length then
-            return nil
-        end
+    -- Exactly the keys 1..length: as many entries as the border says, and no
+    -- hole below it. A key outside that range would leave a hole inside it.
+    local entries = 0
+    for _ in pairs(value) do
+        entries = entries + 1
+    end
+    if entries ~= length then
+        return nil
     end
     for index = 1, length do
         if value[index] == nil then

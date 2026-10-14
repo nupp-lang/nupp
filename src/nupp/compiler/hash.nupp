@@ -38,6 +38,27 @@ function hash.sha256(input: string): string
     return digest.sha256(input)
 end
 
+-- A host that computes the same 32 hex digits natively answers `digest`
+-- through `nupp.compiler.nativehash`; the portable compiler keeps computing
+-- it here. Named indirectly so a portable bundle does not carry the native
+-- module in for a branch it never takes, and resolved once.
+local nativeDigest: any = nil
+
+local type DigestFunction = function(string): string
+
+local function resolveNativeDigest(): DigestFunction?
+    if nativeDigest == nil then
+        local ok, native = pcall(require, "nupp.compiler." .. "nativehash")
+        local resolved = ok and type(native) == "table" and (native as any).digest or nil
+        nativeDigest = resolved or false
+    end
+    if nativeDigest == false then
+        return nil
+    end
+
+    return nativeDigest as DigestFunction
+end
+
 local function u32(value: number): number
     return value % 4294967296
 end
@@ -265,6 +286,11 @@ const SEED_B_HI, SEED_B_LO = 0x9E3779B9, 0x7F4A7C15
 --- For cache keys. Read the note at the top of the file before reaching for it where
 --- the answer gets written down somewhere durable.
 function hash.digest(input: string): string
+    local native = resolveNativeDigest()
+    if native ~= nil then
+        return native(input)
+    end
+
     return hex64(xxh64(input, SEED_A_HI, SEED_A_LO)) .. hex64(xxh64(input, SEED_B_HI, SEED_B_LO))
 end
 

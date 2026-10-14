@@ -1859,3 +1859,48 @@ The actual Tecs snapshot source graph currently stops at the `cdefFunc` in
 `tecs.internal.assetnative`. The reproducible admission harness records that
 failure separately from the entity-column acceptance. Physical struct rows and
 the snapshot codec migration remain open.
+
+## The one-shot, measured on the CLI (2026-10-14)
+
+The number the relocatable compiler AOT was built for: a warm `nupp check` of
+`src/nupp/compiler/syntax/lexer.nupp` through the installed launcher, against
+LuaJIT's launcher on the same source in the main checkout. Wall time, three
+runs each, this host under its usual background load.
+
+| launcher | lexer.nupp | whole repository |
+| --- | ---: | ---: |
+| LuaJIT (main checkout) | 0.43 s | 0.80 s |
+| VM, packaged interpreter, before this pass | 1.78 s | |
+| VM, linked compiler AOT, before this pass | 1.60 s | |
+| VM, linked, after this pass | 0.89 s | 1.19 s |
+| VM, JIT on demand (for the record) | 44 s | |
+
+Loading the 21 MB root image is 0.15 s of that; the rest was runtime glue
+and the compiler's own cache path, not the checker, which runs in a quarter
+of the time on its own. Three findings closed half the gap:
+
+- **Builtin dispatch compared strings.** Every builtin call ran about 45
+  name comparisons, one of them a linear `id_of` search over the whole
+  builtin table, before reaching the `match` on its id. The classification is
+  now computed once per id into a table; the same branches run from a
+  single lookup. 1.78 to 1.47 s interpreted, 1.60 to 1.32 s linked.
+- **The content digest ran in Nupp on the VM.** `nupp.compiler.hash.digest`
+  is XXH64 under two seeds emulated over 32-bit halves, 6 MB/s. The VM has
+  installed `nupp.compiler.nativehash` over `nupp_native_platform::cache_digest`
+  since the CLI landed, byte-identical, but the prelude cache sealed and
+  unsealed through the portable spelling. `hash.digest` now resolves the
+  native module once and uses it where the host provides it, the pattern
+  `fingerprint.contentDigest` already used; the portable compiler is
+  unchanged. With the prelude cache's array validation also dropping a
+  per-key dynamic call, 1.32 to 0.89 s linked.
+- **With the JIT on, the CLI is unusable at 44 s**, because on-demand frame
+  compilation reaches most of the compiler on a check. The packaged launcher
+  already disables it; the linked runtime is the deployment, and the
+  installed package in this worktree is now that runtime with the new image.
+
+What remains, from the repository-check profile: the `stable` encoder of
+cache records (number formatting, concatenation and pattern matching, a
+fifth of the run), re-reading every source to validate the cache (file reads
+and string construction, another fifth), and the dynamic call transfer
+through the frame driver, which is lane 2's direct-call item. Each is a few
+percent; none is the checker.
