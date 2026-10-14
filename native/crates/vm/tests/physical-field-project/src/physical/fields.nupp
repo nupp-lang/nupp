@@ -1,0 +1,82 @@
+module physical.fields
+
+local fixture = {}
+
+local struct Position
+    x: number
+    y: number
+    narrow: float
+end
+
+local struct Counter
+    signed: int64
+    unsigned: uint64
+    small: uint16
+end
+
+local rows = carray(Position, 128)
+
+function fixture.scalar(): number
+    local point = new Position(0, 0, 0)
+    for _ = 1, 20000 do
+        point.x = point.x + 0.25
+        point.y = point.y - 0.5
+        point.narrow = point.narrow + 0.125
+    end
+    local result = point.x + point.y + point.narrow
+    assert(result == -2500)
+
+    return result
+end
+
+function fixture.wide(): boolean
+    local point = new Counter(9007199254740993LL, 9223372036854775808ULL, 0)
+    for _ = 1, 20000 do
+        point.signed = point.signed + 1LL
+        point.unsigned = point.unsigned + 1ULL
+        point.small = point.small + 1
+    end
+    local result = point.signed == 9007199254760993LL
+        and point.unsigned == 9223372036854795808ULL
+        and point.small == 20000
+    assert(result)
+
+    return result
+end
+
+function fixture.rows(): number
+    @unsafe do
+        for index = 0, 127 do
+            rows[index].x = 0
+            rows[index].y = 0
+        end
+        for _ = 1, 128 do
+            for index = 0, 127 do
+                local point = rows[index]
+                point.x = point.x + 0.25
+                point.y = point.y - 0.5
+            end
+        end
+        local total = 0
+        for index = 0, 127 do
+            total = total + rows[index].x + rows[index].y
+        end
+        assert(total == -4096)
+        return total
+    end
+end
+
+function fixture.dynamic(): number
+    local point: any = new Position(0, 0, 0)
+    for _ = 1, 20000 do
+        point.x = point.x + 0.25
+        point.y = point.y - 0.5
+        point.narrow = point.narrow + 0.125
+    end
+    local result = point.x + point.y + point.narrow
+    assert(result == -2500)
+
+    return result
+end
+
+export = fixture

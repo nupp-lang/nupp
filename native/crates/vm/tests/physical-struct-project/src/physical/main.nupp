@@ -57,6 +57,11 @@ end
 
 local struct Numeric
     narrow: int8
+    byte: uint8
+    short: int16
+    ushort: uint16
+    signed32: int32
+    unsigned32: uint32
     ordinary: integer
     fraction: float
     signed: int64
@@ -89,6 +94,18 @@ local function bump(value: Vector): nil
     value.x = value.x + 1
 end
 
+local function readX(value: Vector): number
+    return value.x
+end
+
+local function writeX(value: Vector, number: number): nil
+    value.x = number
+end
+
+local function incrementUnsigned(value: Numeric): uint64
+    return value.unsigned + 1ULL
+end
+
 function test.run(): number
     assert(abs(-42) == 42)
     assert(strlen("physical") == 8ULL)
@@ -113,6 +130,28 @@ function test.run(): number
     assert(type(Overlay) == "cdata" and type(overlay) == "cdata")
     local holder = new Holder(vector)
     assert(rawequal(holder.value, vector))
+    local holderWitness: any = Holder
+    holderWitness.__len = function(value: any): number
+        return value.value.x + value.value.y
+    end
+    holderWitness.__tostring = function(_): string
+        return "live Holder"
+    end
+    assert(#holder == 7 and tostring(holder) == "live Holder")
+    holderWitness.__len = function(_): number
+        return 9
+    end
+    assert(#holder == 9)
+    local restoredHolder = persist.load(persist.save(holder))
+    assert(#restoredHolder == 9 and tostring(restoredHolder) == "live Holder")
+    setmetatable(holder as any, {
+        __len = function(_): number
+            return 12
+        end
+    })
+    assert(#holder == 12)
+    setmetatable(holder as any, nil)
+    assert(#holder == 9)
     assert(vector:total() == 7)
     assert(#vector == 7 and tostring(vector) == "physical Vector")
     local dynamicWitness: any = Vector
@@ -126,18 +165,72 @@ function test.run(): number
     assert(sum.x == 5 and sum.y == 7)
     bump(vector)
     assert(vector.x == 4)
+    local fake: any = {x = 40, y = 2}
+    bump(fake as Vector)
+    assert(fake.x == 41 and readX(fake as Vector) == 41)
+    local redirected: any = setmetatable({}, {
+        __index = function(_, name: string): any
+            return fake[name]
+        end,
+        __newindex = function(_, name: string, value: any): nil
+            fake[name] = value
+        end
+    })
+    bump(redirected as Vector)
+    assert(fake.x == 42 and readX(redirected as Vector) == 42)
+    writeX(redirected as Vector, "unchanged value" as any)
+    assert(fake.x == "unchanged value")
+    local other = new Other(10, 20)
+    bump((other as any) as Vector)
+    assert(other.x == 11)
     local alias = vector
     alias.y = 5
     assert(vector.y == 5)
     local erased: any = vector
     assert(erased is Vector and not isOther(erased))
     assert(not (({x = 4, y = 5} as any) is Vector))
+    rawset(erased, "x", 77)
+    assert(readX(vector) == 77)
+    writeX(vector, 78)
+    assert(erased.x == 78)
+    rawset(erased, "x", nil)
+    assert(readX(vector) == 4)
     local descriptor = storage.descriptor(vector)
     assert(storage.sizeOf(vector) == 16)
     assert(storage.sizeOf(descriptor) == 16)
     assert(#storage.string(vector, 16) == 16)
     assert(rawequal(storage.layout(vector), storage.layout(Vector)))
     assert(layoutof(Vector).size == 16)
+    local originalOffset = descriptor.fields[1].offset
+    descriptor.fields[1].offset = descriptor.fields[2].offset
+    local typedOk, typedError = pcall(function()
+        return readX(vector)
+    end)
+    local dynamicOk, dynamicError = pcall(function()
+        return erased.x
+    end)
+    assert(not typedOk and not dynamicOk)
+    assert(tostring(typedError):find("aggregate field offset differs from host ABI", 1, true))
+    assert(tostring(dynamicError):find("aggregate field offset differs from host ABI", 1, true))
+    assert(
+        not pcall(function()
+            writeX(vector, 17)
+        end)
+    )
+    descriptor.fields[1].offset = originalOffset
+    local readonlyRows: any = storage.castElements(descriptor, storage.string(vector, 16))
+    local readonly = readonlyRows[0] as Vector
+    assert(readX(readonly) == 4)
+    assert(
+        not pcall(function()
+            writeX(readonly, 99)
+        end)
+    )
+    storage.copy(vector, "\001\000\000\000\000\000\254\127", 8)
+    local nan: any = vector.x
+    assert(type(nan) == "number" and nan ~= nan)
+    assert(readX(vector) ~= readX(vector))
+    vector.x = 4
 
     local body = new Body()
     body.position = vector
@@ -193,16 +286,27 @@ function test.run(): number
     local numeric = new Numeric()
     local dynamicNumber: any = numeric
     dynamicNumber.narrow = 255
+    dynamicNumber.byte = -1
+    dynamicNumber.short = 65535
+    dynamicNumber.ushort = -1
+    dynamicNumber.signed32 = 4294967295
+    dynamicNumber.unsigned32 = -1
     dynamicNumber.ordinary = 4294967295
     numeric.fraction = 0.1
     numeric.signed = -9223372036854775807LL
     numeric.unsigned = 18446744073709551615ULL
     assert(numeric.narrow == -1 and numeric.ordinary == -1)
+    assert(numeric.byte == 255 and numeric.short == -1 and numeric.ushort == 65535)
+    assert(numeric.signed32 == -1 and numeric.unsigned32 == 4294967295)
     assert(numeric.fraction ~= 0.1)
     assert(numeric.signed == -9223372036854775807LL)
     assert(numeric.unsigned == 18446744073709551615ULL)
     numeric.unsigned = 0x7ffe000000000001ULL
     assert(numeric.unsigned == 0x7ffe000000000001ULL)
+    local fakeNumeric: any = {unsigned = -1LL}
+    assert(incrementUnsigned(fakeNumeric as Numeric) == 0ULL)
+    fakeNumeric.unsigned = 1.75
+    assert(incrementUnsigned(fakeNumeric as Numeric) == 2ULL)
     numeric.fraction = -0.0
     assert(1 / numeric.fraction == -math.huge)
     local constructed = new Constructed(1.5)

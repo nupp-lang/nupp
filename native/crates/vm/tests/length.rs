@@ -232,3 +232,42 @@ fn length_metamethods_preserve_values_numbers_errors_and_roots_in_each_tier() {
         }
     }
 }
+
+#[test]
+fn record_lengths_follow_live_declarations_with_explicit_override() {
+    for mode in [Mode::Rust, Mode::Threaded,
+        #[cfg(feature = "jit")] Mode::Typed,
+        #[cfg(feature = "jit")] Mode::Frame,
+    ] {
+        let mut vm = fixture(mode);
+        let declaration = vm.new_table();
+        let root = vm.register(declaration);
+        let key = vm.intern("\0nupp:recordType");
+        vm.heap.shapes[0].methods.insert(key, declaration);
+        let len = vm.intern("__len");
+        let len_root = vm.register(len);
+        let object = vm.new_record(0);
+        let object_root = vm.register(object);
+        vm.set_index(declaration, len, Value::func(2));
+        for fid in [0, 1] {
+            assert_eq!(call(&mut vm, mode, fid, object).unwrap(), Value::num(-3.5));
+        }
+        vm.set_index(declaration, len, Value::func(3));
+        let result = call(&mut vm, mode, 0, object).unwrap();
+        assert_eq!(vm.bytes_of(result), b"custom length");
+        hook(&mut vm, object, 2);
+        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(-3.5));
+        // An explicitly empty metatable suppresses the declaration fallback.
+        let empty = vm.new_table();
+        vm.set_metatable(object, empty);
+        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(0.0));
+        vm.set_metatable(object, Value::NIL);
+        vm.set_index(declaration, len, Value::func(6));
+        assert_eq!(call(&mut vm, mode, 9, object).unwrap(), Value::num(99.0));
+        vm.set_index(declaration, len, Value::NIL);
+        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(0.0));
+        vm.release(object_root);
+        vm.release(len_root);
+        vm.release(root);
+    }
+}

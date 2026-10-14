@@ -1,0 +1,781 @@
+--- a/tests/tecs/ffistoragetest.nupp
++++ b/tests/tecs/ffistoragetest.nupp
+@@ -1,328 +1,59 @@
+-const ecs = require("tecs.ecs")
+-const {type Archetype} = require("tecs.ecs")
+-const serde = require("nupp.serde")
+-const serdejson = require("nupp.serde.json")
+-const json = require("nupp.codec.json")
+-const {type Component} = require("tecs.ecs")
+-const gfx = require("tecs.gfx")
+-const animation = require("tecs.gfx.animation")
+-const audio = require("tecs.audio")
+-const physics = require("tecs.physics")
+-const ui = require("tecs.ui")
+-
++module tecs.tests.ffistorage
++
++--[[
++Direct storage tests adapted from tests/tecs/ffistoragetest.nupp at
++87bd7da2873f7b7267752e5af3a8dfb8648785bb. Copyright (c) 2026 Michael Dowling;
++see the project LICENSE-MIT. The original world and engine tests remain separate.
++]]
+ local test = require("nupp.test")
+-local ffi = require("ffi")
+-local buffer = require("string.buffer")
+-local archetype = require("tecs.internal.archetype")
++local native: any = assert(require("nupp.mem.representation").storage)
++local buffer = require("nupp.text")
+ local ffistorage = require("tecs.internal.ffistorage")
++local persist = require("nupp.vm.persist")
+ local suite = {}
+-
+-@derive(nupp.derive.Debug)
+ local struct Point
+     x: number
+     y: number
+ end
+-
+-const point = ecs.newComponent(Point, {
+-    name = "test.FFI.Point",
+-    construct = function(x: number, y: number): Point
+-        return new Point(x, y)
+-    end,
+-    default = function(): Point
+-        return new Point(3, 7)
+-    end,
+-    save = function(value: Point): any
+-        return {x = value.x, y = value.y}
+-    end,
+-    load = function(value: any): Point
+-        return new Point(value.x as number, value.y as number)
+-    end
+-})
+-
+-function suite.nativeColumnsAreContiguousAndCopyInputValues(): nil
+-    const world = ecs.newWorld()
+-    const shared = point(10, 20)
+-    const first = world:spawn(shared)
+-    const second = world:spawn(shared)
+-    world:commit()
+-    assert(world:getMut(first, point)).x = 33
+-    test.equal(assert(world:get(second, point)).x, 10)
+-    test.equal(shared.value.x, 10)
+-    for candidate, count in world:newQuery({include = {point}}):iter() do
+-        const column: Point[?] = assert(candidate:get(point))
+-        test.equal(type(column), "cdata")
+-        test.equal(count, 2)
+-        @unsafe do
+-            const firstAddress = tonumber(ffi.cast("uintptr_t", ffi.cast("void *", column[1]))) as number
+-            const secondAddress = tonumber(ffi.cast("uintptr_t", ffi.cast("void *", column[2]))) as number
+-            test.equal(secondAddress - firstAddress, ffi.sizeof(Point))
+-        end
+-    end
+-end
+-
+-function suite.growthPreservesRowsAndBatchWritersUseNativeMemory(): nil
+-    const world = ecs.newWorld()
+-    const firstId = assert(
+-        world:batchSpawn(5000, {point}, function(candidate: Archetype, first: integer, last: integer): nil
+-            const column = assert(candidate:getMut(point))
+-            @unsafe do
+-                for row = first, last do
+-                    test.equal(column[row].x, 3)
+-                    column[row].x = row
+-                end
+-            end
+-        end)
+-    )
+-    world:commit()
+-    for index = 1, 5000 do
+-        test.equal(assert(world:get((firstId + index - 1), point)).x, index)
+-    end
+-    world:spawn(point(5001, 0))
+-    world:commit()
+-    test.equal(assert(world:get((firstId + 5000 - 1), point)).x, 5000)
+-end
+-
+-function suite.movesCopyBeforeSwapRemovalOverwritesTheSource(): nil
+-    const world = ecs.newWorld()
+-    const tag = ecs.newTagComponent({name = "test.FFI.Move"})
+-    const first = world:spawn(point(11, 12))
+-    const second = world:spawn(point(21, 22))
+-    world:commit()
+-    world:set(first, tag)
+-    world:commit()
+-    test.equal(assert(world:get(first, point)).x, 11)
+-    test.equal(assert(world:get(second, point)).x, 21)
+-    world:remove(first, tag)
+-    world:commit()
+-    test.equal(assert(world:get(first, point)).y, 12)
+-    world:set(first, point(31, 32))
+-    world:commit()
+-    test.equal(assert(world:get(first, point)).x, 31)
+-    world:despawn(second)
+-    world:commit()
+-    test.equal(assert(world:get(first, point)).y, 32)
+-end
+-
+-function suite.stagedRowInputsOutliveSourceRelocation(): nil
+-    const world = ecs.newWorld()
+-    const tag = ecs.newTagComponent({name = "test.FFI.CapturedRow"})
+-    const first = world:spawn(point(11, 12))
+-    const second = world:spawn(point(21, 22))
+-    world:spawn(point(31, 32))
+-    world:commit()
+-    world:set(first, tag)
+-    world:set(second, point, assert(world:get(first, point)))
+-    world:commit()
+-    test.equal(assert(world:get(second, point)).x, 11)
+-end
+-
+-function suite.sharedStructLayoutsKeepDistinctComponentIdentity(): nil
+-    const twin = ecs.newComponent(Point, {
+-        name = "test.FFI.Twin",
+-        construct = function(x: number): Point
+-            return new Point(x, 0)
+-        end,
+-        default = function(): Point
+-            return new Point()
+-        end
+-    })
+-    const world = ecs.newWorld()
+-    const input = point(13, 17)
+-    const id = world:spawn(input, twin(19))
+-    world:commit()
+-    test.equal(assert(world:get(id, input.componentType)).x, 13)
+-    test.equal(assert(world:get(id, twin)).x, 19)
+-    for candidate in world:newQuery({include = {point}}):iter() do
+-        const typed: Point[?] = assert(candidate:get(input.componentType))
+-        @unsafe do
+-            test.equal(typed[1].y, 17)
+-        end
+-    end
+-end
+-
+-local record Label
+-    text: string
+-end
+-
+-function suite.mixedColumnsAndRequiredTransientDefaultsSurviveMoves(): nil
+-    const label = ecs.newComponent(Label, {
+-        name = "test.FFI.Label",
+-        construct = function(text: string): Label
+-            return new Label(text = text)
+-        end,
+-        default = function(): Label
+-            return new Label(text = "default")
+-        end
+-    })
+-    const transient = ecs.newComponent(Point, {
+-        name = "test.FFI.Transient",
+-        transient = true,
+-        construct = function(): Point
+-            return new Point(5, 9)
+-        end,
+-        default = function(): Point
+-            return new Point(5, 9)
+-        end
+-    })
+-    const required = ecs.newTagComponent({name = "test.FFI.NativeRequirements", requires = {transient, point(7, 11)}})
+-    const world = ecs.newWorld()
+-    const first = world:spawn(required, label("first"))
+-    const second = world:spawn(required, label("second"))
+-    world:commit()
+-    assert(world:getMut(first, point)).x = 17
+-    assert(world:getMut(first, transient)).x = 19
+-    test.equal(assert(world:get(second, point)).x, 7)
+-    world:remove(first, label)
+-    world:commit()
+-    test.equal(assert(world:get(first, point)).x, 17)
+-    test.equal(assert(world:get(second, label)).text, "second")
+-    const snapshot = world:saveSnapshot()
+-    world:loadSnapshot(snapshot)
+-    test.equal(assert(world:get(first, transient)).x, 5)
+-    test.equal(assert(world:get(first, point)).x, 17)
+-end
+-
+-function suite.compactionAndClearRetainNativeStorage(): nil
+-    const world = ecs.newWorld()
+-    const firstId = assert(world:batchSpawn(200, {point}))
+-    world:commit()
+-    for index = 1, 199 do
+-        world:despawn((firstId + index - 1))
+-    end
+-    world:commit()
+-    world:compact()
+-    for candidate in world:newQuery({include = {point}}):iter() do
+-        test.equal(type(assert(candidate:get(point))), "cdata")
+-        test.equal(assert(world:get((firstId + 200 - 1), point)).y, 7)
+-        archetype.clear(assert(candidate))
+-        test.equal(type(assert(candidate:get(point))), "cdata")
+-        archetype.append(assert(candidate), 999, {})
+-        @unsafe do
+-            const points = assert(candidate:get(point))
+-            test.equal(points[1].x, 3)
+-        end
+-    end
+-end
+-
+-function suite.snapshotCodecsRestoreDetachedNativeValues(): nil
+-    const world = ecs.newWorld()
+-    const id = world:spawn(point(4, 8))
+-    const snapshot = world:saveSnapshot()
+-    assert(world:getMut(id, point)).x = 77
+-    world:loadSnapshot(snapshot)
+-    test.equal(assert(world:get(id, point)).x, 4)
+-    for candidate in world:newQuery({include = {point}}):iter() do
+-        test.equal(type(assert(candidate:get(point))), "cdata")
+-    end
+-end
+-
+-function suite.invalidFactoriesFailBeforeRegistration(): nil
+-    test.raises(
+-        function(): nil
+-            ecs.newComponent(0 as any, {
+-                name = "test.FFI.Invalid",
+-                construct = function(): any
+-                    return 0
+-                end,
+-                default = function(): any
+-                    return 0
+-                end,
+-                save = function(value: any): any
+-                    return value
+-                end,
+-                load = function(value: any): any
+-                    return value
+-                end
+-            })
+-        end,
+-        "record or struct"
+-    )
+-    test.raises(
+-        function(): nil
+-            ecs.newComponent(Point, {
+-                name = "test.FFI.NoCodec",
+-                construct = function(): Point
+-                    return new Point()
+-                end,
+-                default = function(): Point
+-                    return new Point()
+-                end,
+-                save = function(value: Point): any
+-                    return {value.x, value.y}
+-                end
+-            })
+-        end,
+-        "save and load"
+-    )
+-end
+-
+-function suite.rawStorageRelocatesWithABulkCopy(): nil
+-    const storage = assert(ffistorage.find(point.componentId))
+-    const source = ffistorage.allocate(storage, 2) as Point[?]
+-    @unsafe do
+-        source[1] = new Point(13, 17)
+-        source[2] = new Point(19, 23)
+-    end
+-    const target = ffistorage.resize(storage, source, 2, 100) as Point[?]
+-    @unsafe do
+-        test.equal(target[1].x, 13)
+-        test.equal(target[2].y, 23)
+-        test.equal(target[100].x, 0)
+-    end
+-end
+-
+ local struct ArrayValue
+     values: float[3]
+     serial: uint64
+     enabled: boolean
+ end
+-
+-const arrays = ecs.newComponent(ArrayValue, {
+-    name = "test.FFI.Arrays",
+-    construct = function(): ArrayValue
+-        return new ArrayValue()
+-    end,
+-    default = function(): ArrayValue
+-        return new ArrayValue()
+-    end
+-})
+-
+-function suite.automaticCodecsPreserveArraysAndExactIntegers(): nil
+-    const world = ecs.newWorld()
+-    const instance = arrays()
+-    instance.value.values[0] = 1
+-    instance.value.values[1] = 2
+-    instance.value.values[2] = 3
+-    instance.value.serial = ffi.cast<uint64>(-1)
+-    instance.value.enabled = true
+-    const id = world:spawn(instance)
+-    const snapshot = world:saveSnapshot()
+-    world:loadSnapshot(snapshot)
+-    const restored = assert(world:get(id, arrays))
+-    test.equal(restored.values[0], 1)
+-    test.equal(restored.values[1], 2)
+-    test.equal(restored.values[2], 3)
+-    test.assert(restored.serial == ffi.cast<uint64>(-1))
+-    test.assert(restored.enabled)
+-    const storage = assert(ffistorage.find(arrays.componentId))
+-    const fromOne = ffistorage.deserialize(storage, {values = {4, 5, 6}}) as ArrayValue
+-    const fromZero = ffistorage.deserialize(storage, {values = {[0] = 7, [1] = 8, [2] = 9}}) as ArrayValue
+-    test.equal(fromOne.values[2], 6)
+-    test.equal(fromZero.values[0], 7)
+-    test.equal(fromZero.values[2], 9)
+-    test.assert(storage.rawCodec)
+-    test.assert(not assert(ffistorage.find(point.componentId)).rawCodec)
++local struct NestedValue
++    point: Point
++end
++local struct SignedValue
++    serial: int64
++end
++const pointStorage = ffistorage.new(new Point(), true)
++const arrayStorage = ffistorage.new(new ArrayValue())
++const pointLayout: any = native.layout(new Point())
++
++function suite.rawStorageRelocatesWithABulkCopy(): nil
++    const storage = pointStorage
++    const source = ffistorage.allocate(storage, 2) as Point[?]
++    @unsafe do
++        source[1] = new Point(13, 17)
++        source[2] = new Point(19, 23)
++    end
++    const target = ffistorage.resize(storage, source, 2, 100) as Point[?]
++    @unsafe do
++        test.equal(target[1].x, 13)
++        test.equal(target[2].y, 23)
++        test.equal(target[100].x, 0)
++    end
+ end
+
+ function suite.rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero(): nil
+-    const storage = assert(ffistorage.find(arrays.componentId))
++    const storage = arrayStorage
+     const source = ffistorage.allocate(storage, 3) as ArrayValue[?]
+     const target = ffistorage.allocate(storage, 3) as ArrayValue[?]
+     @unsafe do
+         source[1].values[1] = 9
+         source[2].values[2] = 11
+     end
+-    const bytes = buffer.new()
++    const bytes = buffer.newBuffer()
+     ffistorage.writeRows(storage, source, 1, 2, bytes)
+     test.equal(#bytes, storage.width * 2)
+     ffistorage.readRows(storage, target, 2, 2, bytes)
+@@ -352,30 +83,8 @@
+     )
+ end
+
+-local struct PointerValue
+-    pointer: uint8*?
+-end
+-local struct NestedValue
+-    point: Point
+-end
+-
+-function suite.registrationRejectsPointerAndNestedLayouts(): nil
+-    test.raises(
+-        function(): nil
+-            ffistorage.new(new PointerValue())
+-        end,
+-        "require paired snapshot codecs"
+-    )
+-    test.raises(
+-        function(): nil
+-            ffistorage.new(new NestedValue())
+-        end,
+-        "require paired snapshot codecs"
+-    )
+-end
+-
+ function suite.rawResizeAndIntegerDecodingRejectOverflow(): nil
+-    const storage = assert(ffistorage.find(arrays.componentId))
++    const storage = arrayStorage
+     const source = ffistorage.allocate(storage, 3)
+     test.raises(
+         function(): nil
+@@ -408,9 +117,9 @@
+     local allocations: integer = 0
+     ffistorage.setAllocator(storage, function(bytes: integer, alignment: integer): (any, any)
+         allocations = allocations + 1
+-        test.equal(alignment, ffi.alignof(Point))
+-        const owner = ffi.new<uint8[?]>(bytes)
+-        return ffi.cast<voidptr>(owner), owner
++        test.equal(alignment, pointLayout.alignment)
++        const owner = native.allocateBytes(bytes)
++        return owner, owner
+     end)
+     const source = ffistorage.allocate(storage, 10) as Point[?]
+     @unsafe do
+@@ -429,295 +138,77 @@
+     test.assert(ffistorage.owner(ffistorage.allocate(storage, 10)) == nil)
+ end
+
+-local struct Edge
+-    target: number
+-    weight: number
+-end
+-
+-function suite.nativeRelationshipsKeepWildcardAndTargetViewsAliased(): nil
+-    const relationship = ecs.newRelationship(Edge, {
+-        name = "test.FFI.DenseEdge",
+-        construct = function(target: integer, weight: number): Edge
+-            return new Edge(target, weight)
+-        end,
+-        reverseIndex = true
+-    })
+-    const world = ecs.newWorld()
+-    const a, b = world:spawn(), world:spawn()
+-    const first = world:spawn(relationship(a, 11), relationship(b, 22))
+-    const second = world:spawn(relationship(a, 33), relationship(b, 44))
+-    world:commit()
+-    assert(world:getMut(first, relationship)).weight = 17
+-    test.equal(assert(world:get(first, relationship:targeting(a))).weight, 17)
+-    assert(world:getMut(first, relationship:targeting(a))).weight = 19
+-    test.equal(assert(world:get(first, relationship)).weight, 19)
+-    world:despawn(first)
+-    world:commit()
+-    test.equal(assert(world:get(second, relationship)).weight, 33)
+-    assert(world:getMut(second, relationship)).weight = 35
+-    test.equal(assert(world:get(second, relationship:targeting(a))).weight, 35)
+-    for index = 1, 100 do
+-        world:spawn(relationship(a, index), relationship(b, index))
+-    end
+-    world:commit()
+-    assert(world:getMut(second, relationship)).weight = 37
+-    test.equal(assert(world:get(second, relationship:targeting(a))).weight, 37)
+-    world:remove(second, relationship(a, 0))
+-    world:commit()
+-    test.equal(assert(world:get(second, relationship)).weight, 44)
+-    const snapshot = world:saveSnapshot()
+-    world:loadSnapshot(snapshot)
+-    test.equal(assert(world:get(second, relationship)).weight, 44)
+-end
+-
+-function suite.stagedNativeEdgesOutliveTheirSourceRow(): nil
+-    const relationship = ecs.newRelationship(Edge, {
+-        name = "test.FFI.CapturedEdges",
+-        construct = function(target: integer, weight: number): Edge
+-            return new Edge(target, weight)
+-        end
+-    })
+-    const tag = ecs.newTagComponent({name = "test.FFI.CapturedEdgesTag"})
+-    const world = ecs.newWorld()
+-    const a, b = world:spawn(), world:spawn()
+-    const first = world:spawn(relationship(a, 11), relationship(b, 12))
+-    const second = world:spawn(relationship(a, 21), relationship(b, 22))
+-    const incoming = world:spawn(tag, relationship(a, 31), relationship(b, 32))
+-    world:commit()
+-    world:set(first, tag)
+-    world:remove(incoming, tag)
+-    world:remove(second, relationship(b, 0))
+-    world:commit()
+-    test.equal(assert(world:get(second, relationship)).weight, 21)
+-    test.equal(assert(world:get(incoming, relationship)).weight, 31)
+-    test.equal(assert(world:get(first, relationship)).weight, 11)
+-end
+-
+-function suite.sparseNativeEdgesAndRequirementsSurviveRestore(): nil
+-    const required = ecs.newTagComponent({name = "test.FFI.Required"})
+-    const relationship = ecs.newRelationship(Edge, {
+-        name = "test.FFI.SparseEdge",
+-        sparse = true,
+-        construct = function(target: integer, weight: number): Edge
+-            return new Edge(target, weight)
+-        end,
+-        requires = {required},
+-        reverseIndex = true
+-    })
+-    const world = ecs.newWorld()
+-    const target = world:spawn()
+-    const id = world:spawn(relationship(target, 5))
+-    world:commit()
+-    assert(world:getMut(id, relationship)).weight = 7
+-    local weight: number = 0
+-    world:forEachRelationship(id, relationship, function(edge: Edge): nil
+-        weight = edge.weight
+-    end)
+-    test.equal(weight, 7)
+-    test.assert(world:has(id, required))
+-    const snapshot = world:saveSnapshot()
+-    world:loadSnapshot(snapshot)
+-    test.equal(assert(world:get(id, relationship)).weight, 7)
+-end
+-
+-function suite.derivesSurviveNativeStorageRelocationAndRestore(): nil
+-    const world = ecs.newWorld()
+-    const id = world:spawn(point(11, 23))
+-    world:commit()
+-    const points = serde.binding(Point)
+-    for _ = 1, 3 do
+-        const value = assert(world:get(id, point))
+-        test.equal(value:debug(), "Point { x = 11, y = 23 }")
+-        const encoded = json.decode(serdejson.encode(points, value)) as {[string]: number}
+-        test.equal(encoded.x, 11)
+-        test.equal(encoded.y, 23)
+-        const decoded = serdejson.decode(points, serdejson.encode(points, value))
+-        test.equal(decoded:debug(), value:debug())
+-        world:batchSpawn(500, {point})
+-        world:commit()
+-        world:loadSnapshot(world:saveSnapshot())
+-    end
+-end
+-
+-function suite.numericBuiltinsUseNativeColumnsAndPreserveSavedValues(): nil
+-    const definitions: {
+-        Component
+-    } = {
+-        ecs.Transform2D,
+-        ecs.PreviousTransform2D,
+-        ecs.RelativeTransform2D,
+-        ecs.TTL,
+-        gfx.Tint,
+-        gfx.Sprite,
+-        gfx.Camera2D,
+-        gfx.PointLight2D,
+-        gfx.Occluder2D,
+-        gfx.DropShadow2D,
+-        gfx.Clip,
+-        gfx.Material,
+-        animation.AnimationComponent,
+-        audio.SoundComponent,
+-        physics.Body,
+-        physics.Collider,
+-        physics.Motion,
+-        physics.RigidBody,
+-        physics.ColliderShape,
+-        physics.JointLink,
+-        physics.Joint,
+-        ui.Layout,
+-        ui.Paint,
+-        ui.Scroll,
+-        ui.InteractionState,
+-        ui.Interaction,
+-    }
+-    const world = ecs.newWorld()
+-    for _, definition in ipairs(definitions) do
+-        test.equal(definition.storageType, "ffi", definition.componentName)
+-        const id = world:spawn(definition)
+-        world:commit()
+-        test.equal(type(world:get(id, definition)), "cdata", definition.componentName)
+-        const native = assert(ffistorage.find(definition.componentId))
+-        test.assert(native.width > 0)
+-    end
+-    const id = world:spawn(ecs.Transform2D(17, 29, 3, 2, 0.25, 4, 5), physics.Collider())
+-    world:commit()
+-    const before = ecs.Transform2D.snapshotSave(assert(world:get(id, ecs.Transform2D)))
+-    test.equal(before.layer, 2)
+-    test.equal(type(before.layer), "number")
+-    test.equal(before.scaleX, 4)
+-    test.equal(assert(world:get(id, physics.Collider)).maskBits, 4294967295)
+-    const handle = world:spawn(physics.RigidBody(2147483647, 65535, 4294967295))
+-    world:commit()
+-    test.equal(assert(world:get(handle, physics.RigidBody)).generation, 4294967295)
+-    world:loadSnapshot(world:saveSnapshot())
+-    const after = assert(world:get(id, ecs.Transform2D))
+-    test.equal(after.x, 17)
+-    test.equal(after.layer, 2)
+-    test.equal(after.scaleY, 5)
+-    test.equal(assert(world:get(id, physics.Collider)).maskBits, 4294967295)
+-    test.assert(after:debug():find("Transform2D", 1, true) ~= nil)
+-end
+-
+-function suite.compactionInvalidatesCachedNativeRowsWithoutMarkingValuesDirty(): nil
+-    const world = ecs.newWorld()
+-    const first = assert(world:batchSpawn(100, {point}))
+-    world:commit()
+-    for index = 1, 99 do
+-        world:despawn(first + index)
+-    end
+-    world:commit()
+-    for candidate in world:newQuery({include = {point}}):iter() do
+-        const version = candidate:structuralCount()
+-        const writes = candidate:writeCount(point)
+-        world:compact()
+-        test.assert(candidate:structuralCount() > version)
+-        test.equal(candidate:writeCount(point), writes)
+-        test.equal(assert(world:get(first, point)).x, 3)
+-    end
+-end
+-
+-function suite.bulkMovesExchangeNativeBuffersAndPublishOneRange(): nil
+-    const world = ecs.newWorld()
+-    const tag = ecs.newTagComponent({name = "test.FFI.BulkSwap"})
+-    const first = assert(world:batchSpawn(300, {point(11, 12)}))
+-    world:commit()
+-    const selection = world:newQuery({include = {point}})
+-    local before: any = nil
+-    for candidate in selection:iter() do
+-        before = candidate:get(point)
+-    end
+-    local notices = 0
+-    world:newQuery({
+-        include = {tag},
+-        onEntitiesAdded = function(candidate: Archetype, firstRow: integer, lastRow: integer, count: integer): nil
+-            notices += 1
+-            test.equal(count, 300)
+-            test.equal(firstRow, 1)
+-            test.equal(lastRow, 300)
+-            test.equal(candidate:get(point) as any, before)
+-        end
+-    })
+-    world:batchSet(selection, tag)
+-    world:commit()
+-    test.equal(notices, 1)
+-    world:batchRemove(selection, tag)
+-    world:commit()
+-    for candidate in selection:iter() do
+-        if #assert(candidate).entities > 0 then
+-            test.equal(candidate:get(point) as any, before)
+-        end
+-    end
+-    test.equal(assert(world:get(first + 299, point)).y, 12)
+-end
+-
+-function suite.bulkMovesCopyIntoPopulatedNativeColumnsWithoutLosingRows(): nil
+-    const world = ecs.newWorld()
+-    const tag = ecs.newTagComponent({name = "test.FFI.BulkCopy"})
+-    const existing = assert(world:batchSpawn(80, {point(19, 20), tag}))
+-    const moving = assert(world:batchSpawn(200, {point(31, 32)}))
+-    world:commit()
+-    world:batchSet(world:newQuery({include = {point}, exclude = {tag}}), tag)
+-    world:commit()
+-    for id = existing, existing + 79 do
+-        test.equal(assert(world:get(id, point)).x, 19)
+-    end
+-    for id = moving, moving + 199 do
+-        test.equal(assert(world:get(id, point)).x, 31)
+-    end
+-    world:batchRemove(world:newQuery({include = {tag}}), tag)
+-    world:commit()
+-    world:batchSpawn(500, {point(55, 56)})
+-    world:commit()
+-    test.equal(assert(world:get(existing, point)).y, 20)
+-    test.equal(assert(world:get(moving, point)).y, 32)
+-end
+-
+-function suite.rawBatchRestoreUsesZeroBasedIdsAndRegistersInitializedKeys(): nil
+-    const ids = ffi.new("double[?]", 3) as number[?]
+-    @unsafe do
+-        ids[0] = 11
+-        ids[1] = 5
+-        ids[2] = 7
+-    end
+-    const world = ecs.newWorld({maxEntities = 20})
+-    world:batchSpawnAtRaw(
+-        ids,
+-        3,
+-        {
+-            point,
+-            ecs.EntityKey
+-        },
+-        function(candidate: Archetype, first: integer, last: integer): nil
+-            const keys = assert(candidate:getMut(ecs.EntityKey))
+-            for row = first, last do
+-                keys[row] = "restored-" .. tostring(candidate.entities[row])
+-            end
+-        end
+-    )
+-    world:commit()
+-    test.equal(world:get(11, ecs.EntityKey), "restored-11")
+-    test.equal(assert(world:get(5, point)).x, 3)
+-    test.equal(world:getStats().entities, 3)
+-    test.raises(
+-        function(): nil
+-            world:batchSpawnAtRaw(ids, 4, {})
+-        end,
+-        "native identity array"
+-    )
+-    const duplicate = ffi.new("double[?]", 2) as number[?]
+-    @unsafe do
+-        duplicate[0] = 3
+-        duplicate[1] = 3
+-    end
+-    test.raises(
+-        function(): nil
+-            world:batchSpawnAtRaw(duplicate, 2, {})
+-        end,
+-        "duplicate or occupied"
+-    )
+-    world:spawnAt(3)
+-    world:commit()
+-    test.assert(world:isAlive(3))
+-end
+-
+-return suite
++function suite.codecsAndStagingPreserveValues(): nil
++    const original = new ArrayValue()
++    original.values[0] = 1
++    original.values[1] = 2
++    original.values[2] = 3
++    original.serial = 18446744073709551615ULL
++    original.enabled = true
++    const encoded = ffistorage.serialize(arrayStorage, original)
++    test.equal(encoded.serial, "18446744073709551615")
++    const restored = ffistorage.deserialize(arrayStorage, encoded) as ArrayValue
++    test.equal(restored.values[0], 1)
++    test.equal(restored.values[1], 2)
++    test.equal(restored.values[2], 3)
++    test.assert(restored.serial == 18446744073709551615ULL)
++    test.assert(restored.enabled)
++    const fromOne = ffistorage.deserialize(arrayStorage, {values = {4, 5, 6}}) as ArrayValue
++    const fromZero = ffistorage.deserialize(arrayStorage, {values = {[0] = 7, [1] = 8, [2] = 9}}) as ArrayValue
++    test.equal(fromOne.values[2], 6)
++    test.equal(fromZero.values[0], 7)
++    test.equal(fromZero.values[2], 9)
++    test.assert(arrayStorage.rawCodec)
++    test.assert(not pointStorage.rawCodec)
++    test.equal(pointStorage.fingerprint, "x:double,y:double|16")
++    const signed = ffistorage.new(new SignedValue())
++    const minimum = ffistorage.deserialize(signed, {serial = "-9223372036854775808"}) as SignedValue
++    test.assert(minimum.serial == -9223372036854775808LL)
++    test.equal(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
++    test.raises(
++        function(): nil
++            ffistorage.new(new NestedValue())
++        end,
++        "require paired snapshot codecs"
++    )
++    const owned = new Point(19, 23)
++    test.assert(rawequal(ffistorage.capture(pointStorage, owned), owned))
++    const rows: any = ffistorage.allocate(pointStorage, 2)
++    rows[1] = owned
++    const row: any = rows[1]
++    const detached: any = ffistorage.capture(pointStorage, row)
++    test.assert(not rawequal(row, detached))
++    rows[1].x = 42
++    test.equal(detached.x, 19)
++    test.equal(owned.x, 19)
++    const reloaded: any = persist.load(persist.save({rows = rows, row = row, detached = detached}))
++    reloaded.row.x = 47
++    test.equal(reloaded.rows[1].x, 47)
++    test.equal(reloaded.detached.x, 19)
++    test.assert(native.isBorrowed(reloaded.row))
++    test.assert(not native.isBorrowed(reloaded.detached))
++end
++
++function suite.run(): number
++    suite.publicBufferLengthTracksBytes()
++    suite.rawStorageRelocatesWithABulkCopy()
++    suite.rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero()
++    suite.rawResizeAndIntegerDecodingRejectOverflow()
++    suite.customBackingIsRootedAndUsedAgainOnGrowth()
++    suite.codecsAndStagingPreserveValues()
++
++    return 42
++end
++
++function suite.publicBufferLengthTracksBytes(): nil
++    const bytes = buffer.newBuffer()
++    bytes:put("hello")
++    test.equal(#bytes, 5)
++    test.equal(bytes:tostring(), "hello")
++    test.equal(bytes:get(2), "he")
++    test.equal(#bytes, 3)
++    test.equal(bytes:get(), "llo")
++    test.equal(#bytes, 0)
++end
++
++export = suite

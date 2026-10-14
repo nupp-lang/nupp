@@ -1,0 +1,3 @@
+module nupp.spi.index
+
+export = {["nupp.text.spi.Provider"] = {"nupp.runtime.provider.tablebuffer"}}

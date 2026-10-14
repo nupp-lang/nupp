@@ -40,6 +40,7 @@ pub const NAMES: &[&str] = &[
     "storage.layout",
     "storage.structDefine", "storage.arrayType", "storage.valueNew", "storage.valueOf", "storage.valueCopy", "storage.valueIsa", "storage.structIs",
     "foreign.bind", "foreign.call", "foreign.close", "foreign.errno", "foreign.callback", "foreign.setCallback",
+    "storage.castWritableElements", "storage.isBorrowed",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }

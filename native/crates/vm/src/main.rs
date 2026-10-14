@@ -19,6 +19,8 @@ use sha2::Digest;
 
 #[cfg(feature = "aot-linked")]
 mod aot_link { include!(concat!(env!("OUT_DIR"), "/aot_entries.rs")); }
+#[cfg(feature = "aot-linked")]
+const _: () = assert!(aot_link::ABI_VERSION == nupp_vm::compiled::AOT_ABI);
 
 #[cfg(feature = "aot")]
 fn emit_object(image_path: &str, output_path: &str, frames: bool) {
@@ -37,7 +39,7 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
         if fid != 0 && fid % 250 == 0 { eprintln!("aot: lowered {fid}/{} functions", it.funcs.len()); }
     }
     let hash: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
-    let mut linked = format!("unsafe extern \"C\" {{\n");
+    let mut linked = format!("pub const ABI_VERSION: u32 = {};\nunsafe extern \"C\" {{\n", nupp_vm::compiled::AOT_ABI);
     for fid in &compiled {
         linked.push_str(&format!("    fn nupp_aot_{fid}();\n"));
         let f = &it.funcs[*fid];
@@ -83,7 +85,8 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
         format!("{fid}\tnupp_aot_{fid}{suffix}")
     }).collect();
     let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-    let manifest = format!("image-sha256\t{hex}\nfunctions\t{}\n{}\n", it.funcs.len(), symbols.join("\n"));
+    let abi = nupp_vm::compiled::AOT_ABI;
+    let manifest = format!("runtime-abi\t{abi}\nimage-sha256\t{hex}\nfunctions\t{}\n{}\n", it.funcs.len(), symbols.join("\n"));
     std::fs::write(format!("{output_path}.manifest"), manifest).unwrap();
     eprintln!("aot: emitted {} functions ({} bytes), refused {}", compiled.len(), bytes.len(), refused.len());
     for r in refused { eprintln!("aot: refused {r}"); }

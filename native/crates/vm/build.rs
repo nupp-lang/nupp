@@ -26,7 +26,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=nupp-vm={object}");
         std::fs::copy(format!("{object}.rs"), &generated).unwrap();
     } else {
-        std::fs::write(&generated, "pub fn image_hash() -> [u8; 32] { [0; 32] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\npub fn frame_entries() -> Vec<(usize, u64)> { vec![] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> { vec![] }\n").unwrap();
+        std::fs::write(&generated, "pub const ABI_VERSION: u32 = 4;\npub fn image_hash() -> [u8; 32] { [0; 32] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\npub fn frame_entries() -> Vec<(usize, u64)> { vec![] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> { vec![] }\n").unwrap();
     }
     println!("cargo:rerun-if-changed=csrc/dispatch.c");
     println!("cargo:rerun-if-env-changed=NUPP_VM_NO_THREADED");

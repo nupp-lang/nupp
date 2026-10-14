@@ -148,8 +148,8 @@ impl Compiler<ObjectModule> {
         let isa = cranelift_native::builder().unwrap().finish(settings::Flags::new(fb)).unwrap();
         let builder = ObjectBuilder::new(isa, "nupp-vm", cranelift_module::default_libcall_names()).unwrap();
         let module = ObjectModule::new(builder);
-        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime_v3"));
-        // Object code reads the actual addresses through nupp_vm_runtime_v3.
+        let mut compiler = Compiler::with_module(module, Some("nupp_vm_runtime_v4"));
+        // Object code reads the actual addresses through nupp_vm_runtime_v4.
         // Nonzero placeholders only select the same lowering paths as the JIT.
         compiler.extra_addr = 1;
         compiler.last_nres_addr = 1;
@@ -365,7 +365,7 @@ impl<M: Module> Compiler<M> {
         let typed_native = f.code.iter().any(|o| crate::native_simd::required(o) && !matches!(o,Op::Simd(..)));
         let native_proofs = crate::native_simd::proofs(f);
         let deferred_nan = if typed_native { crate::native_simd::deferred_nan(f) } else { vec![false;f.code.len()] };
-        let native_dump = typed_native.then(|| std::env::var("NUPP_NATIVE_DUMP").ok()).flatten();
+        let native_dump = std::env::var("NUPP_NATIVE_DUMP").ok();
         self.ctx.want_disasm = native_dump.is_some();
         let frame_live = frame.then(|| crate::verify::liveness(f));
         let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
@@ -845,7 +845,10 @@ impl<M: Module> Compiler<M> {
                         let idx0 = b.ins().iadd_imm(ki, -1);
                         let in_range = b.ins().icmp(IntCC::UnsignedLessThan, idx0, len);
                         let vm = b.ins().band_imm(v, QNAN); let v_num = b.ins().icmp_imm(IntCC::NotEqual, vm, QNAN);
-                        let c1 = b.ins().band(is_table, in_range); let fast = b.ins().band(c1, v_num);
+                        let object_flags = b.ins().load(types::I8, flags, o, 3);
+                        let schema = b.ins().band_imm(object_flags, crate::heap::F_STORAGE_SCHEMA as i64);
+                        let plain = b.ins().icmp_imm(IntCC::Equal, schema, 0);
+                        let c1 = b.ins().band(is_table, in_range); let c2 = b.ins().band(c1, v_num); let fast = b.ins().band(c2, plain);
                         b.ins().brif(fast, fast_b, &[], slow_b, &[]);
                         b.switch_to_block(fast_b); b.seal_block(fast_b);
                         let arr = b.ins().load(types::I64, flags, o, OFF_AUX_PTR);
@@ -1129,6 +1132,75 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(join); b.seal_block(join);
                         let r = b.block_params(join)[0];
                         setr!(d, r);
+                    }
+                    Op::GetPhys(d,t,p)|Op::GetPhysF(d,t,p)|Op::GetPhysI(d,t,p)|Op::GetPhysU(d,t,p) => {
+                        let (object,identity,name)=(rv!(t),kval!(p.identity),kval!(p.name));
+                        let descriptor=b.ins().iconst(types::I64,p.packed(false) as i64);
+                        let call=b.ins().call(helper_refs["j_phys_guard"],&[object,identity,name,descriptor]);
+                        let address=b.inst_results(call)[0];
+                        let hit=b.ins().icmp_imm(IntCC::NotEqual,address,0);
+                        let fast=b.create_block(); let slow=b.create_block(); let join=b.create_block();
+                        b.set_cold_block(slow); b.append_block_param(join,types::I64);
+                        b.ins().brif(hit,fast,&[],slow,&[]);
+                        b.switch_to_block(fast); b.seal_block(fast);
+                        let carrier=match op {Op::GetPhysF(..)=>1,Op::GetPhysI(..)=>2,Op::GetPhysU(..)=>3,_=>0};
+                        let result=if p.kind>=9 {
+                            let value=if p.kind==9 {let x=b.ins().load(types::F32,flags,address,0);b.ins().fpromote(types::F64,x)}else{b.ins().load(types::F64,flags,address,0)};
+                            box_f64!(value)
+                        } else {
+                            let ty=match p.kind {0..=2=>types::I8,3..=4=>types::I16,5..=6=>types::I32,_=>types::I64};
+                            let value=b.ins().load(ty,flags,address,0);
+                            if p.kind==0 { let flag=b.ins().icmp_imm(IntCC::NotEqual,value,0); bool_word!(flag) }
+                            else if p.kind>=7 {
+                                if carrier==0 {let call=hcall!(if p.kind==7 {"j_ibox"}else{"j_ubox"},&[value]);b.inst_results(call)[0]}else{value}
+                            } else {
+                                let value=if matches!(p.kind,1|3|5) {b.ins().sextend(types::I64,value)}else{b.ins().uextend(types::I64,value)};
+                                let value=b.ins().fcvt_from_sint(types::F64,value); box_f64!(value)
+                            }
+                        };
+                        b.ins().jump(join,&[result.into()]);
+                        b.switch_to_block(slow); b.seal_block(slow);
+                        let result=if carrier==0 {let call=hcall!("j_get_field",&[object,name]);b.inst_results(call)[0]}
+                        else {
+                            let slot=b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot,8,3));
+                            let address=b.ins().stack_addr(types::I64,slot,0);
+                            let carrier=b.ins().iconst(types::I64,carrier);
+                            hcall!("j_phys_read_slow",&[object,name,carrier,address]);
+                            b.ins().stack_load(types::I64,types::I64,slot,0)
+                        };
+                        b.ins().jump(join,&[result.into()]);
+                        b.switch_to_block(join); b.seal_block(join);
+                        let result=b.block_params(join)[0];
+                        match op {Op::GetPhysF(..)=>{setf!(d,b.ins().bitcast(types::F64,cast,result));},Op::GetPhysI(..)|Op::GetPhysU(..)=>{seti!(d,result);},_=>{setr!(d,result);}}
+                    }
+                    Op::SetPhys(t,p,v) => {
+                        let (object,identity,name,value)=(rv!(t),kval!(p.identity),kval!(p.name),rv!(v));
+                        let descriptor=b.ins().iconst(types::I64,p.packed(true) as i64);
+                        if p.kind>=9 {
+                            let call=b.ins().call(helper_refs["j_phys_guard"],&[object,identity,name,descriptor]);
+                            let address=b.inst_results(call)[0]; let valid=b.ins().icmp_imm(IntCC::NotEqual,address,0);
+                            let tag=b.ins().band_imm(value,QNAN);let number=b.ins().icmp_imm(IntCC::NotEqual,tag,QNAN);let hit=b.ins().band(valid,number);
+                            let fast=b.create_block();let slow=b.create_block();let join=b.create_block();b.set_cold_block(slow);
+                            b.ins().brif(hit,fast,&[],slow,&[]);b.switch_to_block(fast);b.seal_block(fast);
+                            let f=b.ins().bitcast(types::F64,cast,value);let stored=if p.kind==9 {b.ins().fdemote(types::F32,f)}else{f};
+                            b.ins().store(flags,stored,address,0);b.ins().jump(join,&[]);
+                            b.switch_to_block(slow);b.seal_block(slow);hcall!("j_phys_set",&[object,identity,name,descriptor,value]);b.ins().jump(join,&[]);
+                            b.switch_to_block(join);b.seal_block(join);
+                        } else { hcall!("j_phys_set",&[object,identity,name,descriptor,value]); }
+                    }
+                    Op::SetPhysF(t,p,v)|Op::SetPhysI(t,p,v) => {
+                        let (object,identity,name)=(rv!(t),kval!(p.identity),kval!(p.name));
+                        let value=if p.kind>=9 {let f=fv!(v);box_f64!(f)}else{iv!(v)};
+                        let descriptor=b.ins().iconst(types::I64,p.packed(true) as i64);
+                        let call=b.ins().call(helper_refs["j_phys_guard"],&[object,identity,name,descriptor]);
+                        let address=b.inst_results(call)[0]; let hit=b.ins().icmp_imm(IntCC::NotEqual,address,0);
+                        let fast=b.create_block();let slow=b.create_block();let join=b.create_block(); b.set_cold_block(slow);
+                        b.ins().brif(hit,fast,&[],slow,&[]); b.switch_to_block(fast);b.seal_block(fast);
+                        let stored=if p.kind>=9 {let f=b.ins().bitcast(types::F64,cast,value);if p.kind==9 {b.ins().fdemote(types::F32,f)}else{f}}else{value};
+                        b.ins().store(flags,stored,address,0); b.ins().jump(join,&[]);
+                        b.switch_to_block(slow);b.seal_block(slow);let kind=b.ins().iconst(types::I64,p.kind as i64);
+                        hcall!("j_phys_write_slow",&[object,name,value,kind]);b.ins().jump(join,&[]);
+                        b.switch_to_block(join);b.seal_block(join);
                     }
                     Op::GetField(d, t, k) => {
                         // A field read by name: a per-site cache of (shape, slot) reads

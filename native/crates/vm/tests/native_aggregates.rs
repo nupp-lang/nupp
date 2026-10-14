@@ -723,3 +723,430 @@ end
         }
     }
 }
+
+#[test]
+fn physical_field_opcodes_match_dynamic_access_and_mutable_guards() {
+    for mode in 0..3 {
+        #[cfg(not(feature = "jit"))]
+        if mode == 2 {
+            continue;
+        }
+        let (mut vm, _, _, _) = fixture();
+        let mut cases = Vec::new();
+        let mut program = String::new();
+        for (kind, name) in [
+            "boolean", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+            "float", "number",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let ty = scalar(&mut vm, name);
+            let width = match kind {
+                0..=2 => 1,
+                3..=4 => 2,
+                5..=6 | 9 => 4,
+                _ => 8,
+            };
+            let identity = format!("field.{name}");
+            let (ty, _) = definition(&mut vm, &identity, width, width, &[("x", 0, ty)]);
+            let value = call(&mut vm, "valueNew", &[ty]);
+            let input = match kind {
+                0 => Value::TRUE,
+                7 => vm.box_integer(numeric::Integer {
+                    bits: i64::MIN as u64,
+                    unsigned: false,
+                }),
+                8 => vm.box_integer(numeric::Integer {
+                    bits: u64::MAX,
+                    unsigned: true,
+                }),
+                9 | 10 => Value::num(1.0 / 3.0),
+                _ => Value::num(-12345.75),
+            };
+            vm.register(input);
+            write(&mut vm, value, "x", input);
+            let expected = field(&mut vm, value, "x");
+            let fid = kind * 4;
+            let constants = format!("const 0 str \"{identity}\"\nconst 1 str \"x\"\n");
+            program.push_str(&format!("function read{kind} {fid} 1 4 2 v:v\n{constants}GetPhys 2 1 0 1 0 0 {kind}\nRet 2\nend\n"));
+            let (read, box_op) = match kind {
+                0 => ("GetPhys", "Move"),
+                7 => ("GetPhysI", "IBox"),
+                8 => ("GetPhysU", "UBox"),
+                _ => ("GetPhysF", "FBox"),
+            };
+            let typed = if kind == 0 {
+                format!("GetPhys 2 1 0 1 0 0 {kind}")
+            } else {
+                format!("{read} 0 1 0 1 0 0 {kind}\n{box_op} 2 0")
+            };
+            program.push_str(&format!(
+                "function typed{kind} {} 1 4 2 v:v\n{constants}{typed}\nRet 2\nend\n",
+                fid + 1
+            ));
+            program.push_str(&format!("function write{kind} {} 2 4 2 vv:v\n{constants}SetPhys 1 0 1 0 0 {kind} 2\nRet 1\nend\n",fid+2));
+            let typed = match kind {
+                7 => format!("IUnbox 0 2\nSetPhysI 1 0 1 0 0 {kind} 0"),
+                8 => format!("UUnbox 0 2\nSetPhysI 1 0 1 0 0 {kind} 0"),
+                9 | 10 => format!("FUnbox 0 2\nSetPhysF 1 0 1 0 0 {kind} 0"),
+                _ => format!("SetPhys 1 0 1 0 0 {kind} 2"),
+            };
+            program.push_str(&format!(
+                "function typedwrite{kind} {} 2 4 2 vv:v\n{constants}{typed}\nRet 1\nend\n",
+                fid + 3
+            ));
+            cases.push((value, input, expected));
+        }
+        program.push_str("entry 0\n");
+        let entry = image::load(&mut vm, &program).unwrap();
+        if mode == 1 {
+            vm.prepare_threaded();
+        }
+        #[cfg(feature = "jit")]
+        if mode == 2 {
+            use nupp_vm::{compiled, jit::Jit};
+            vm.entries.resize(vm.funcs.len(), 0);
+            let mut jit = Jit::new();
+            jit.extra_addr = vm.extra.as_ptr() as i64;
+            jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+            jit.entries_addr = vm.entries.as_ptr() as i64;
+            compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+            for fid in entry..entry + 44 {
+                vm.entries[fid as usize] =
+                    jit.try_compile(&vm.funcs[fid as usize], fid).unwrap() as u64;
+            }
+            vm.jit = Some(Box::new(jit));
+        }
+        for (kind, &(value, input, expected)) in cases.iter().enumerate() {
+            let base = entry + kind as u32 * 4;
+            for fid in [base, base + 1] {
+                let got = vm.call_value(Value::func(fid), &[value])[0];
+                assert!(vm.values_equal(got, expected), "mode {mode} kind {kind}");
+            }
+            for fid in [base + 2, base + 3] {
+                vm.call_value(Value::func(fid), &[value, input]);
+                let actual = field(&mut vm, value, "x");
+                assert!(vm.values_equal(actual, expected));
+            }
+            // A nominal cast can be an ordinary table; exact fallback value is retained.
+            let fake = table(&mut vm);
+            set(&mut vm, fake, "x", input);
+            assert_eq!(vm.call_value(Value::func(base), &[fake])[0], input);
+            let text = string(&mut vm, "not numeric");
+            vm.call_value(Value::func(base + 2), &[fake, text]);
+            assert_eq!(field(&mut vm, fake, "x"), text);
+            // Raw fields shadow the physical metatable exactly as generic access does.
+            set(&mut vm, value, "x", text);
+            assert_eq!(vm.call_value(Value::func(base), &[value])[0], text);
+            vm.call_value(Value::func(base + 2), &[value, input]);
+            assert_eq!(field(&mut vm, value, "x"), input);
+            set(&mut vm, value, "x", Value::NIL);
+            let actual = field(&mut vm, value, "x");
+            assert!(vm.values_equal(actual, expected));
+            // The live field name is mutable: the stale compiled name must miss.
+            let ty = call(&mut vm, "descriptor", &[value]);
+            let fields = field(&mut vm, ty, "fields");
+            let member = vm.array_get(fields, 0);
+            let renamed = string(&mut vm, "renamed");
+            set(&mut vm, member, "name", renamed);
+            fails(&mut vm, |vm| {
+                vm.call_value(Value::func(base), &[value]);
+            });
+            let original = string(&mut vm, "x");
+            set(&mut vm, member, "name", original);
+            let element = scalar(&mut vm, "uint8");
+            set(&mut vm, ty, "element", element);
+            fails(&mut vm, |vm| {
+                vm.call_value(Value::func(base), &[value]);
+            });
+            set(&mut vm, ty, "element", Value::NIL);
+            set(&mut vm, value, "\0nupp:storage:readonly", Value::NIL);
+            set(&mut vm, value, "readonly", Value::TRUE);
+            fails(&mut vm, |vm| {
+                vm.call_value(Value::func(base + 2), &[value, input]);
+            });
+            set(&mut vm, value, "\0nupp:storage:readonly", Value::FALSE);
+            set(&mut vm, value, "readonly", Value::NIL);
+        }
+    }
+}
+
+#[test]
+fn physical_field_images_reject_bad_operands_and_carriers() {
+    for operation in [
+        "GetPhys 2 1 0 1 0 0", // missing kind
+        "GetPhys 2 1 0 1 0 -1 9",
+        "GetPhys 2 1 0 1 0 4294967296 9",
+        "GetPhys 2 1 0 1 0 0 11",
+        "GetPhys 2 1 0 2 0 0 9",  // constant outside pool
+        "GetPhysF 0 1 0 1 0 0 8", // exact uint64 cannot use float carrier
+        "GetPhysU 0 1 0 1 0 0 7",
+        "SetPhysF 1 0 1 0 0 5 0",
+        "SetPhysI 1 0 1 0 0 9 0",
+    ] {
+        let mut vm = Interp::new();
+        let text=format!("function bad 0 1 3 1 v:v\nconst 0 str \"field.X\"\nconst 1 str \"x\"\n{operation}\nRet 1\nend\nentry 0\n");
+        assert!(image::load(&mut vm, &text).is_err(), "{operation}");
+    }
+    let mut vm = Interp::new();
+    assert!(image::load(&mut vm,"function bad 0 1 3 1 v:v\nconst 0 num 1\nconst 1 str \"x\"\nGetPhys 2 1 0 1 0 0 5\nRet 2\nend\nentry 0\n").is_err());
+}
+
+#[test]
+fn physical_layout_cache_observes_native_stores_restore_and_reclamation() {
+    const PROGRAM: &str = r#"
+shape 0 Metadata name:any offset:num type:any
+function read 0 1 3 1 v:v
+const 0 str "cache.Probe"
+const 1 str "x"
+GetPhys 2 1 0 1 0 0 10
+Ret 2
+end
+function replace 1 2 4 1 vv:v
+IK 0 1
+SetIdxI 1 0 2
+Ret 1
+end
+function offset 2 2 3 1 vv:v
+SetSlot 1 1 2 0
+Ret 1
+end
+function offsetf 3 2 3 1 vv:v
+FUnbox 0 2
+SetSlotF 1 1 0 0
+Ret 1
+end
+entry 0
+"#;
+    for mode in 0..3 {
+        #[cfg(not(feature = "jit"))]
+        if mode == 2 {
+            continue;
+        }
+        let (mut vm, _, _, _) = fixture();
+        let number = scalar(&mut vm, "number");
+        let (ty, _) = definition(&mut vm, "cache.Probe", 8, 8, &[("x", 0, number)]);
+        let value = call(&mut vm, "valueNew", &[ty]);
+        write(&mut vm, value, "x", Value::num(42.0));
+        let ty = call(&mut vm, "descriptor", &[value]);
+        let fields = field(&mut vm, ty, "fields");
+        let shape = vm.heap.shapes.len() as u32;
+        let entry = image::load(&mut vm, PROGRAM).unwrap();
+        let member = vm.new_record(shape);
+        vm.register(member);
+        let name = string(&mut vm, "x");
+        set(&mut vm, member, "name", name);
+        set(&mut vm, member, "offset", Value::num(0.0));
+        set(&mut vm, member, "type", number);
+        vm.set_index(fields, Value::num(1.0), member);
+        if mode == 1 {
+            vm.prepare_threaded();
+        }
+        #[cfg(feature = "jit")]
+        if mode == 2 {
+            use nupp_vm::{compiled, jit::Jit};
+            vm.entries.resize(vm.funcs.len(), 0);
+            let mut jit = Jit::new();
+            jit.extra_addr = vm.extra.as_ptr() as i64;
+            jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+            jit.entries_addr = vm.entries.as_ptr() as i64;
+            compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+            for fid in entry..entry + 4 {
+                vm.entries[fid as usize] =
+                    jit.try_compile(&vm.funcs[fid as usize], fid).unwrap() as u64;
+            }
+            vm.jit = Some(Box::new(jit));
+        }
+        let read = Value::func(entry);
+        for mutation in [entry + 1, entry + 2, entry + 3] {
+            assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+            let version = vm.heap.storage_version;
+            let target = if mutation == entry + 1 {
+                fields
+            } else {
+                member
+            };
+            vm.call_value(Value::func(mutation), &[target, Value::num(1.0)]);
+            assert!(
+                vm.heap.storage_version > version,
+                "mode {mode}, mutation {mutation}"
+            );
+            fails(&mut vm, |vm| {
+                vm.call_value(read, &[value]);
+            });
+            vm.set_index(fields, Value::num(1.0), member);
+            set(&mut vm, member, "offset", Value::num(0.0));
+        }
+        // A replacement subtree must be marked on its first validation too.
+        let replacement = table(&mut vm);
+        set(&mut vm, replacement, "name", name);
+        set(&mut vm, replacement, "offset", Value::num(0.0));
+        set(&mut vm, replacement, "type", number);
+        vm.set_index(fields, Value::num(1.0), replacement);
+        assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+        let version = vm.heap.storage_version;
+        set(&mut vm, replacement, "offset", Value::num(1.0));
+        assert!(vm.heap.storage_version > version);
+        fails(&mut vm, |vm| {
+            vm.call_value(read, &[value]);
+        });
+        vm.set_index(fields, Value::num(1.0), member);
+        assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+        // In-place persistence writes record slots without ordinary assignment.
+        set(&mut vm, member, "offset", Value::num(1.0));
+        let bytes = persist::save_graph(&mut vm, &[member], &Policies::default()).unwrap();
+        set(&mut vm, member, "offset", Value::num(0.0));
+        assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+        let version = vm.heap.storage_version;
+        persist::load_into(&mut vm, &bytes, member, &Policies::default()).unwrap();
+        assert!(vm.heap.storage_version > version);
+        fails(&mut vm, |vm| {
+            vm.call_value(read, &[value]);
+        });
+        set(&mut vm, member, "offset", Value::num(0.0));
+        // Reclaiming a weak schema dependency invalidates even within a cycle.
+        vm.registered.retain(|v| *v != replacement);
+        let version = vm.heap.storage_version;
+        vm.full_cycle();
+        assert!(vm.heap.storage_version > version);
+        assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+        // Saturation permanently disables reuse rather than wrapping to an old key.
+        vm.heap.storage_version = u64::MAX;
+        assert_eq!(vm.call_value(read, &[value])[0], Value::num(42.0));
+        set(&mut vm, member, "offset", Value::num(1.0));
+        fails(&mut vm, |vm| {
+            vm.call_value(read, &[value]);
+        });
+    }
+}
+
+#[test]
+fn physical_and_generic_field_stores_enforce_erased_record_slots_in_all_tiers() {
+    const PROGRAM: &str = r#"
+shape 0 NumberSlot x:num
+shape 1 StringSlot x:str
+function physical 0 2 3 1 vv:v
+const 0 str "erased.Physical"
+const 1 str "x"
+SetPhys 1 0 1 0 0 10 2
+Ret 1
+end
+function generic 1 2 3 1 vv:v
+const 0 str "x"
+SetField 1 0 2
+Ret 1
+end
+function float 2 2 3 1 vv:v
+const 0 str "erased.Physical"
+const 1 str "x"
+FUnbox 0 2
+SetPhysF 1 0 1 0 0 10 0
+Ret 1
+end
+function wide 3 2 3 1 vv:v
+const 0 str "erased.Physical"
+const 1 str "x"
+UUnbox 0 2
+SetPhysI 1 0 1 0 0 8 0
+Ret 1
+end
+entry 0
+"#;
+    for mode in 0..4 {
+        #[cfg(not(feature = "jit"))]
+        if mode >= 2 {
+            continue;
+        }
+        let mut vm = Box::new(Interp::new());
+        image::load(&mut vm, PROGRAM).unwrap();
+        vm.install_globals();
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        if mode == 1 {
+            vm.prepare_threaded();
+        }
+        #[cfg(feature = "jit")]
+        if mode >= 2 {
+            use nupp_vm::{compiled, jit::Jit};
+            vm.entries.resize(vm.funcs.len(), 0);
+            let mut jit = Jit::new();
+            jit.extra_addr = vm.extra.as_ptr() as i64;
+            jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+            jit.entries_addr = vm.entries.as_ptr() as i64;
+            compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+            if mode == 2 {
+                for fid in 0..4 {
+                    vm.entries[fid] = jit.try_compile(&vm.funcs[fid], fid as u32).unwrap() as u64;
+                }
+            } else {
+                vm.enable_scheduler().unwrap();
+            }
+            vm.jit = Some(Box::new(jit));
+        }
+        let invoke = |vm: &mut Interp, fid: u32, receiver: Value, input: Value| {
+            if mode == 3 {
+                use nupp_vm::scheduler::Status;
+                vm.schedule(Value::func(fid), &[receiver, input], None)
+                    .unwrap();
+                let events = vm.run_ready(1).unwrap();
+                match &events[0].status {
+                    Status::Completed => None,
+                    Status::Failed(error) => Some(error.clone()),
+                    other => panic!("unexpected task status {other:?}"),
+                }
+            } else {
+                let result =
+                    vm.guarded(|vm| vm.call_value(Value::func(fid), &[receiver, input])[0]);
+                if result == Value::ERROR {
+                    let error = vm.pending_error.take().unwrap();
+                    Some(String::from_utf8_lossy(vm.bytes_of(error)).into_owned())
+                } else {
+                    None
+                }
+            }
+        };
+        let number = vm.new_record(0);
+        vm.register(number);
+        let text_record = vm.new_record(1);
+        vm.register(text_record);
+        let text = string(&mut vm, "unchanged text");
+        set(&mut vm, number, "x", Value::num(17.0));
+        set(&mut vm, text_record, "x", text);
+        let wide = vm.box_integer(numeric::Integer {
+            bits: u64::MAX,
+            unsigned: true,
+        });
+        vm.register(wide);
+        for (fid, receiver, input, prior) in [
+            (0, number, text, Value::num(17.0)),
+            (1, number, text, Value::num(17.0)),
+            (2, text_record, Value::num(42.0), text),
+            (3, number, wide, Value::num(17.0)),
+        ] {
+            let error = invoke(&mut vm, fid, receiver, input)
+                .expect("record slot must reject incompatible value");
+            assert!(
+                error.contains("declared type of field"),
+                "mode {mode}: {error}"
+            );
+            assert_eq!(field(&mut vm, receiver, "x"), prior);
+            let fake = table(&mut vm);
+            assert!(invoke(&mut vm, fid, fake, input).is_none());
+            let actual = field(&mut vm, fake, "x");
+            assert!(
+                vm.values_equal(actual, input),
+                "mode {mode}, function {fid}"
+            );
+        }
+        for fid in [0, 1] {
+            assert!(invoke(&mut vm, fid, number, Value::num(42.0)).is_none());
+            assert_eq!(field(&mut vm, number, "x"), Value::num(42.0));
+        }
+        if mode == 3 {
+            assert!(vm.compiled_frame_entries > 0);
+        }
+    }
+}

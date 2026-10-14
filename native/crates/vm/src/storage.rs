@@ -49,6 +49,8 @@ pub const METHODS: &[&str] = &[
     "allocateArray",
     "boundedCount",
     "layout",
+    "castWritableElements",
+    "isBorrowed",
 ];
 
 /// Native storage identity is an object flag, never inferred from user fields.
@@ -73,6 +75,387 @@ pub(crate) fn metamethod(vm: &Interp, value: Value, meta: Value, name: &str) -> 
 fn mark_native(value: Value) {
     unsafe {
         (*value.as_obj().unwrap().as_ptr()).flags |= crate::heap::F_NATIVE_STORAGE;
+    }
+}
+
+// Weak entries contain validated sizes, never native addresses. Schema mutation
+// and reclamation invalidate them before any dependent object can be reused.
+#[derive(Clone, Copy, Default)]
+struct PhysicalCacheEntry {
+    descriptor: u64,
+    identity: u64,
+    name: u64,
+    plan: u64,
+    version: u64,
+    size: usize,
+    valid: bool,
+}
+pub(crate) struct PhysicalCache(std::cell::RefCell<[PhysicalCacheEntry; 64]>);
+impl Default for PhysicalCache {
+    fn default() -> Self {
+        Self(std::cell::RefCell::new([PhysicalCacheEntry::default(); 64]))
+    }
+}
+fn mark_schema(value: Value) {
+    if let Some(p) = value.as_obj() {
+        unsafe {
+            (*p.as_ptr()).flags |= crate::heap::F_STORAGE_SCHEMA;
+        }
+    }
+}
+// Called only after physical_measure establishes a finite, valid layout graph.
+fn mark_schema_graph(vm: &Interp, ty: Value, depth: usize) {
+    if depth > 32 {
+        return;
+    }
+    mark_schema(ty);
+    let tag = physical_raw(vm, ty, "kind");
+    if !vm.is_stringish(tag) {
+        return;
+    }
+    match vm.bytes_of(tag) {
+        b"array" => mark_schema_graph(vm, physical_raw(vm, ty, "element"), depth + 1),
+        b"struct" | b"union" => {
+            let fields = physical_raw(vm, ty, "fields");
+            mark_schema(fields);
+            for i in 0..vm.array_len(fields) {
+                let field = vm.array_get(fields, i);
+                mark_schema(field);
+                let nested = physical_raw(vm, field, "type");
+                mark_schema_graph(
+                    vm,
+                    if nested == Value::NIL { field } else { nested },
+                    depth + 1,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Immutable scalar-field facts carried by bytecode, rechecked against each receiver.
+#[derive(Clone, Copy, Debug)]
+pub struct PhysicalField {
+    pub identity: u16,
+    pub name: u16,
+    pub ordinal: u16,
+    pub offset: u32,
+    pub kind: u8,
+}
+impl PhysicalField {
+    pub fn packed(self, write: bool) -> u64 {
+        self.offset as u64
+            | ((self.ordinal as u64) << 32)
+            | ((self.kind as u64) << 48)
+            | ((write as u64) << 56)
+    }
+}
+pub(crate) const PHYSICAL_KINDS: [&str; 11] = [
+    "boolean", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float",
+    "number",
+];
+pub(crate) fn physical_width(kind: u8) -> Option<usize> {
+    Some(match kind {
+        0..=2 => 1,
+        3..=4 => 2,
+        5..=6 | 9 => 4,
+        7..=8 | 10 => 8,
+        _ => return None,
+    })
+}
+fn physical_kind(vm: &Interp, value: Value) -> Option<u8> {
+    if !vm.is_stringish(value) {
+        return None;
+    }
+    Some(match vm.bytes_of(value) {
+        b"boolean" => 0,
+        b"int8" => 1,
+        b"uint8" => 2,
+        b"int16" => 3,
+        b"uint16" => 4,
+        b"integer" | b"int32" => 5,
+        b"uint32" => 6,
+        b"int64" => 7,
+        b"uint64" => 8,
+        b"float" => 9,
+        b"number" => 10,
+        _ => return None,
+    })
+}
+fn physical_raw(vm: &Interp, value: Value, key: &str) -> Value {
+    if !matches!(vm.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) {
+        return Value::NIL;
+    }
+    vm.heap
+        .interned_key(key)
+        .map(|key| vm.get_index(value, key))
+        .unwrap_or(Value::NIL)
+}
+fn physical_count(value: Value) -> Option<usize> {
+    if value.is_num() {
+        let n = value.as_num();
+        return (n >= 0.0 && n <= LIMIT as f64 && n.fract() == 0.0).then_some(n as usize);
+    }
+    let n = numeric::integer(value)?;
+    (n.bits <= LIMIT as u64).then_some(n.bits as usize)
+}
+// Validate mutable layout metadata without allocating or invoking language code.
+// This deliberately keeps the metadata guard cost visible for measurement.
+fn physical_measure(vm: &Interp, ty: Value, depth: usize) -> Option<(usize, usize)> {
+    if depth > 32 {
+        return None;
+    }
+    let g = |name| physical_raw(vm, ty, name);
+    if g("supported") == Value::FALSE {
+        return None;
+    }
+    for name in ["bitWidth", "bitPos", "pack", "packed", "explicitAlignment"] {
+        let v = g(name);
+        if v != Value::NIL && v != Value::FALSE {
+            return None;
+        }
+    }
+    let tag = g("kind");
+    let result = if let Some(kind) = physical_kind(vm, tag) {
+        (
+            physical_width(kind)?,
+            scalar_alignment(PHYSICAL_KINDS[kind as usize])?,
+        )
+    } else {
+        if !vm.is_stringish(tag) {
+            return None;
+        }
+        match vm.bytes_of(tag) {
+            b"array" => {
+                let (size, align) = physical_measure(vm, g("element"), depth + 1)?;
+                (size.checked_mul(physical_count(g("count"))?)?, align)
+            }
+            b"struct" | b"union" => {
+                let union = vm.bytes_of(tag) == b"union";
+                let fields = g("fields");
+                if vm.kind_of(fields) != Some(KIND_TABLE) {
+                    return None;
+                }
+                let mut size = 0usize;
+                let mut alignment = 1usize;
+                for i in 0..vm.array_len(fields) {
+                    let field = vm.array_get(fields, i);
+                    let name = physical_raw(vm, field, "name");
+                    if !vm.is_stringish(name) {
+                        return None;
+                    }
+                    for j in 0..i {
+                        if vm.values_equal(name, physical_raw(vm, vm.array_get(fields, j), "name"))
+                        {
+                            return None;
+                        }
+                    }
+                    for key in ["bitWidth", "bitPos", "pack", "packed", "explicitAlignment"] {
+                        let v = physical_raw(vm, field, key);
+                        if v != Value::NIL && v != Value::FALSE {
+                            return None;
+                        }
+                    }
+                    let nested = physical_raw(vm, field, "type");
+                    let (width, align) = physical_measure(
+                        vm,
+                        if nested == Value::NIL { field } else { nested },
+                        depth + 1,
+                    )?;
+                    let offset = if union {
+                        0
+                    } else {
+                        size.checked_add(align - 1)? & !(align - 1)
+                    };
+                    if physical_count(physical_raw(vm, field, "offset"))? != offset {
+                        return None;
+                    }
+                    size = if union {
+                        size.max(width)
+                    } else {
+                        offset.checked_add(width)?
+                    };
+                    alignment = alignment.max(align);
+                }
+                (
+                    size.checked_add(alignment - 1)? & !(alignment - 1),
+                    alignment,
+                )
+            }
+            _ => return None,
+        }
+    };
+    if result.0 > LIMIT {
+        return None;
+    }
+    for (name, expected) in [("size", result.0), ("alignment", result.1)] {
+        let value = g(name);
+        if value != Value::NIL && physical_count(value)? != expected {
+            return None;
+        }
+    }
+    Some(result)
+}
+/// The returned address is consumed immediately, before any safepoint or callback.
+/// A miss preserves the dynamic field operation, including its errors/metamethods.
+pub(crate) fn physical_address(
+    vm: &Interp,
+    value: Value,
+    identity: Value,
+    name: Value,
+    packed: u64,
+) -> Option<*mut u8> {
+    if !is_native(value) || vm.get_index(value, name) != Value::NIL {
+        return None;
+    }
+    let kind = ((packed >> 48) & 255) as u8;
+    let write = packed >> 56 != 0;
+    let width = physical_width(kind)?;
+    let g = |key| physical_raw(vm, value, key);
+    let owner = g("\0nupp:storage:owner");
+    if !matches!(
+        vm.kind_of(owner),
+        Some(KIND_BYTES | crate::heap::KIND_STR | crate::heap::KIND_SLICE)
+    ) {
+        return None;
+    }
+    let readonly_value = g("\0nupp:storage:readonly");
+    // A removed private key activates the legacy public-key fallback in view().
+    if readonly_value == Value::NIL {
+        return None;
+    }
+    let readonly = readonly_value.truthy() || vm.kind_of(owner) != Some(KIND_BYTES);
+    if write && readonly {
+        return None;
+    }
+    let meta = vm.metatable_of(value);
+    static INDEX_BUILTINS: std::sync::LazyLock<(u32, u32)> = std::sync::LazyLock::new(|| {
+        (
+            builtins::id_of("storage.index").unwrap(),
+            builtins::id_of("storage.write").unwrap(),
+        )
+    });
+    let expected = if write {
+        INDEX_BUILTINS.1
+    } else {
+        INDEX_BUILTINS.0
+    };
+    if physical_raw(vm, meta, if write { "__newindex" } else { "__index" })
+        != Value::builtin(expected)
+    {
+        return None;
+    }
+    let ty = g("\0nupp:storage:descriptor");
+    let field_offset = packed as u32 as usize;
+    let plan = packed & 0x00ff_ffff_ffff_ffff;
+    let version = vm.heap.storage_version;
+    let slot = ((ty.0 >> 4) ^ (name.0 >> 4) ^ plan.rotate_left(17)) as usize & 63;
+    let entry = vm.physical_fields.0.borrow()[slot];
+    let size = if version != u64::MAX
+        && entry.valid
+        && entry.version == version
+        && entry.descriptor == ty.0
+        && entry.identity == identity.0
+        && entry.name == name.0
+        && entry.plan == plan
+    {
+        entry.size
+    } else {
+        if physical_raw(vm, ty, "element") != Value::NIL {
+            return None;
+        }
+        let tag = physical_raw(vm, ty, "kind");
+        if !vm.is_stringish(tag) || !matches!(vm.bytes_of(tag), b"struct" | b"union") {
+            return None;
+        }
+        if !vm.values_equal(physical_raw(vm, ty, "identity"), identity) {
+            return None;
+        }
+        let (size, _) = physical_measure(vm, ty, 0)?;
+        let fields = physical_raw(vm, ty, "fields");
+        let ordinal = ((packed >> 32) & 65535) as usize;
+        if ordinal >= vm.array_len(fields) {
+            return None;
+        }
+        let member = vm.array_get(fields, ordinal);
+        if !vm.values_equal(physical_raw(vm, member, "name"), name) {
+            return None;
+        }
+        if physical_count(physical_raw(vm, member, "offset"))? != field_offset {
+            return None;
+        }
+        let member_ty = physical_raw(vm, member, "type");
+        let member_ty = if member_ty == Value::NIL {
+            member
+        } else {
+            member_ty
+        };
+        if physical_kind(vm, physical_raw(vm, member_ty, "kind"))? != kind {
+            return None;
+        }
+        if version != u64::MAX {
+            mark_schema_graph(vm, ty, 0);
+            // Constants are weak too: reclamation must invalidate their keys.
+            mark_schema(identity);
+            mark_schema(name);
+            vm.physical_fields.0.borrow_mut()[slot] = PhysicalCacheEntry {
+                descriptor: ty.0,
+                identity: identity.0,
+                name: name.0,
+                plan,
+                version,
+                size,
+                valid: true,
+            };
+        }
+        size
+    };
+    let offset = physical_count(g("\0nupp:storage:offset"))?;
+    let end = physical_count(g("\0nupp:storage:end"))?;
+    let bytes = vm.bytes_of(owner);
+    if end > bytes.len() || offset.checked_add(size)? > end {
+        return None;
+    }
+    let address = offset.checked_add(field_offset)?;
+    if address.checked_add(width)? > end {
+        return None;
+    }
+    Some(unsafe { bytes.as_ptr().add(address).cast_mut() })
+}
+pub(crate) fn physical_get(
+    vm: &mut Interp,
+    value: Value,
+    identity: Value,
+    name: Value,
+    plan: PhysicalField,
+) -> Value {
+    if let Some(pointer) = physical_address(vm, value, identity, name, plan.packed(false)) {
+        let mut bytes = [0; 8];
+        let width = physical_width(plan.kind).unwrap();
+        unsafe {
+            std::ptr::copy_nonoverlapping(pointer, bytes.as_mut_ptr(), width);
+        }
+        decode(vm, PHYSICAL_KINDS[plan.kind as usize], &bytes[..width])
+    } else {
+        vm.index(value, name)
+    }
+}
+pub(crate) fn physical_set(
+    vm: &mut Interp,
+    object: Value,
+    identity: Value,
+    name: Value,
+    plan: PhysicalField,
+    value: Value,
+) {
+    if let Some(pointer) = physical_address(vm, object, identity, name, plan.packed(true)) {
+        let bytes = encode(vm, PHYSICAL_KINDS[plan.kind as usize], value);
+        // Scalar conversion does not allocate VM objects or invoke callbacks.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len());
+        }
+    } else {
+        vm.store_field(object, name, value);
     }
 }
 
@@ -551,7 +934,7 @@ fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
         vm.err("nupp: cannot allocate a raw native pointer");
     }
     let owner = vm.heap_new_aligned_bytes(size, alignment);
-    make_view(
+    let result = make_view(
         vm,
         View {
             owner,
@@ -561,7 +944,11 @@ fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
             element: get(vm, ty, "element"),
             readonly: false,
         },
-    )
+    );
+    unsafe {
+        (*result.as_obj().unwrap().as_ptr()).flags |= crate::heap::F_NATIVE_OWNED;
+    }
+    result
 }
 fn read_value(vm: &mut Interp, v: View, ty: Value, offset: usize) -> Value {
     let width = layout_width(vm, ty, 0);
@@ -1100,7 +1487,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                 let ty = descriptor(vm, "array", element, n);
                 let (size, alignment) = measure(vm, ty, 0);
                 let owner = vm.heap_new_aligned_bytes(size, alignment);
-                make_view(
+                let result = make_view(
                     vm,
                     View {
                         owner,
@@ -1109,6 +1496,43 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                         ty,
                         element,
                         readonly: false,
+                    },
+                );
+                unsafe {
+                    (*result.as_obj().unwrap().as_ptr()).flags |= crate::heap::F_NATIVE_OWNED;
+                }
+                result
+            }
+            "isBorrowed" => {
+                let value = arg(0);
+                if !is_native(value) || !is_view(vm, value) {
+                    vm.err("nupp: isBorrowed expects a native storage value");
+                }
+                view(vm, value);
+                Value::boolean(unsafe {
+                    value.as_obj().unwrap().as_ref().flags & crate::heap::F_NATIVE_OWNED == 0
+                })
+            }
+            "castWritableElements" => {
+                let source = arg(1);
+                let native = native_view(vm, source, true);
+                let source = view(vm, source);
+                let element = arg(0);
+                let (width, alignment) = measure(vm, element, 0);
+                if width == 0
+                    || (native.length != 0 && native.length < width)
+                    || (native.pointer as usize) % alignment != 0
+                {
+                    vm.err("nupp: writable element cast has invalid alignment or extent");
+                }
+                let ty = descriptor(vm, "pointer", element, 0);
+                make_view(
+                    vm,
+                    View {
+                        ty,
+                        element,
+                        readonly: false,
+                        ..source
                     },
                 )
             }

@@ -1,0 +1,34 @@
+--- a/src/tecs/internal/archetype.nupp
++++ b/src/tecs/internal/archetype.nupp
+@@ -12,6 +12,12 @@
+ local derived = require("tecs.internal.derived")
+ local ffistorage = require("tecs.internal.ffistorage")
+ local entitycolumn = require("tecs.internal.entitycolumn")
++
++-- Validate dynamic row targets before entering table.sort's callback boundary.
++local record TargetEdge
++    target: integer
++    value: any
++end
+
+ --- Receives publication changes for one archetype, for its remaining lifetime.
+ export interface EntityObserver
+@@ -1159,9 +1165,16 @@
+             result[#result + 1] = assert(value.columns[component.componentId])[row + 1]
+         end
+     end
+-    table.sort(result, function(left: any, right: any): boolean
+-        return components.edgeTarget(left) < components.edgeTarget(right)
++    const ordered: {TargetEdge} = {}
++    for index = 1, #result do
++        ordered[index] = new TargetEdge(target = components.edgeTarget(result[index]), value = result[index])
++    end
++    table.sort(ordered, function(left: TargetEdge, right: TargetEdge): boolean
++        return left.target < right.target
+     end)
++    for index = 1, #ordered do
++        result[index] = ordered[index].value
++    end
+
+     return result
+ end

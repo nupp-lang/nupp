@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("seed", type=Path)
 parser.add_argument("--binary", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--require-direct-fields", action="store_true")
 args = parser.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
 root = Path.cwd()
@@ -25,6 +26,16 @@ result = subprocess.run([binary, "run", str(args.seed.resolve()), "nupp.tools.vm
 assert result.returncode == 0, result.stderr[-16000:]
 image = args.output / "physical.image"
 image.write_text(json.loads(result.stdout))
+direct_ops = {}
+direct_kinds = set()
+for line in image.read_text().splitlines():
+    words = line.split()
+    if words and words[0] in ("GetPhys", "GetPhysF", "GetPhysI", "GetPhysU", "SetPhys", "SetPhysF", "SetPhysI"):
+        direct_ops[words[0]] = direct_ops.get(words[0], 0) + 1
+        direct_kinds.add(int(words[7] if words[0].startswith("Get") else words[6]))
+if args.require_direct_fields:
+    assert all(direct_ops.get(name, 0) for name in ("GetPhys", "GetPhysF", "SetPhys")), direct_ops
+    assert direct_kinds == set(range(11)), direct_kinds
 rejected = subprocess.run([binary, "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit", str(project), "physical.rejectunion"],
                           env=dict(env, NO_JIT="1"), capture_output=True, text=True, timeout=600)
 (args.output / "reject-union.log").write_text(rejected.stderr)
@@ -50,5 +61,6 @@ for engine in ("rust", "threaded", "jit", "frames"):
 digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 report = dict(seedSha256=digest(args.seed), imageSha256=digest(image), binarySha256=digest(binary),
               sourceSha256=digest(project / "src/physical/main.nupp"), rejectedUnionSha256=digest(project / "src/physical/rejectunion.nupp"),
-              multipleUnionInitializersRejected=True, results=records)
+              multipleUnionInitializersRejected=True, directFieldOpcodes=direct_ops,
+              directFieldKinds=sorted(direct_kinds), directFieldsRequired=args.require_direct_fields, results=records)
 (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")

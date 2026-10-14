@@ -194,6 +194,12 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         Disarm(v) => r(&[(V, v)]),
         DisarmAt(_) | Unwind(_) => r(&[]),
         RetNil | Checkpoint | LoopFact(..) => r(&[]),
+        GetPhys(d,t,_) => r(&[(V,d),(V,t)]),
+        GetPhysF(d,t,_) => r(&[(F,d),(V,t)]),
+        GetPhysI(d,t,_)|GetPhysU(d,t,_) => r(&[(I,d),(V,t)]),
+        SetPhys(t,_,v) => r(&[(V,t),(V,v)]),
+        SetPhysF(t,_,v) => r(&[(V,t),(F,v)]),
+        SetPhysI(t,_,v) => r(&[(V,t),(I,v)]),
         GetField(d, t, _) => r(&[(V, d), (V, t)]),
         SetField(t, _, v) => r(&[(V, t), (V, v)]),
         NewRecord(d, _) => r(&[(V, d)]),
@@ -273,6 +279,11 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
             if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
         }
         match *op {
+            Op::GetPhys(_,_,p)|Op::GetPhysF(_,_,p)|Op::GetPhysI(_,_,p)|Op::GetPhysU(_,_,p)|Op::SetPhys(_,p,_)|Op::SetPhysF(_,p,_)|Op::SetPhysI(_,p,_) => {
+                if p.identity as usize>=f.consts.len() || p.name as usize>=f.consts.len() || p.kind>10 || p.offset.checked_add(crate::storage::physical_width(p.kind).unwrap_or(0) as u32).is_none() { return Err(format!("pc {pc}: invalid physical field plan")); }
+                let carrier=match *op {Op::GetPhysF(..)=>matches!(p.kind,1..=6|9|10),Op::GetPhysI(..)=>p.kind==7,Op::GetPhysU(..)=>p.kind==8,Op::SetPhysF(..)=>matches!(p.kind,9|10),Op::SetPhysI(..)=>matches!(p.kind,7|8),_=>true};
+                if !carrier { return Err(format!("pc {pc}: physical scalar kind does not match register carrier")); }
+            }
             Op::Simd(op, kind, source, base, argc) => {
                 if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base.checked_add(argc).is_none() {
                     return Err(format!("pc {pc}: invalid SIMD descriptor or argument window"));
@@ -323,7 +334,7 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
         PadResults(..) => none_def(&all), // Only the missing results are overwritten.
         VarargN(..) => (all.clone(), Vec::new()),
         // Every register named is read.
-        SpanBounds(..) | SpanStore(..) | Raise(..) | SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
+        SetPhys(..)|SetPhysF(..)|SetPhysI(..)|SpanBounds(..) | SpanStore(..) | Raise(..) | SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
         | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
         // Read and written.
         BufAppend(b, s) | AffineMark(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),

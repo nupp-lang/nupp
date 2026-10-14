@@ -18,6 +18,7 @@ const MAGIC: &[u8; 8] = b"NUPPSAV1";
 const RECORD_WITH_METATABLE: u8 = 11;
 const ALIGNED_BYTES: u8 = 13;
 const NATIVE_TABLE: u8 = 14;
+const OWNED_NATIVE_TABLE: u8 = 15;
 const LIMIT: usize = 256 * 1024 * 1024;
 const ITEMS: usize = 4_000_000;
 
@@ -568,7 +569,7 @@ fn schema_read(r: &mut Reader) -> Result<Vec<Schema>> {
 enum Node<'a> {
     Integer(crate::numeric::Integer),
     String(bool, &'a [u8]),
-    Table(Vec<Ref>, Vec<Ref>, Ref, bool),
+    Table(Vec<Ref>, Vec<Ref>, Ref, u8),
     Record(usize, Vec<Ref>, Vec<Ref>, Vec<Ref>, Ref),
     Storage(&'a [u8]),
     Closure(usize, Vec<Ref>),
@@ -595,8 +596,9 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
             let b = r.bytes()?;
             Node::String(interned, b)
         }
-        KIND_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, false),
-        NATIVE_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, true),
+        KIND_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, 0),
+        NATIVE_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, F_NATIVE_STORAGE),
+        OWNED_NATIVE_TABLE => Node::Table(refs_read(r)?, refs_read(r)?, Ref::read(r)?, F_NATIVE_STORAGE | F_NATIVE_OWNED),
         KIND_RECORD => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::Bits(Value::NIL.0)),
         RECORD_WITH_METATABLE => Node::Record(r.u32()?, refs_read(r)?, refs_read(r)?, refs_read(r)?, Ref::read(r)?),
         KIND_STORAGE => {
@@ -764,7 +766,7 @@ fn save_graph_mode(
                 }
             }
             let h = unsafe { p.as_ref() };
-            payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else if !plain && h.kind == KIND_TABLE && h.flags & F_NATIVE_STORAGE != 0 { NATIVE_TABLE } else if h.kind == KIND_BYTES && unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { ALIGNED_BYTES } else { h.kind });
+            payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else if !plain && h.kind == KIND_TABLE && h.flags & F_NATIVE_STORAGE != 0 { if h.flags & F_NATIVE_OWNED != 0 { OWNED_NATIVE_TABLE } else { NATIVE_TABLE } } else if h.kind == KIND_BYTES && unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { ALIGNED_BYTES } else { h.kind });
             // Use the collector's edge enumeration to discover every ordinary
             // reference. Transient records use their filtered edge list below.
             if kind != KIND_RECORD && !(plain && kind == KIND_TABLE) {
@@ -1162,7 +1164,7 @@ fn plain_graph(data: &[u8]) -> Result<()> {
     for node in &graph.nodes {
         match node {
             Node::Integer(_) | Node::String(..) | Node::Slice(..) => (),
-            Node::Table(_, _, meta, false) | Node::Record(_, _, _, _, meta)
+            Node::Table(_, _, meta, 0) | Node::Record(_, _, _, _, meta)
                 if matches!(meta, Ref::Bits(bits) if *bits == Value::NIL.0) => (),
             _ => return Err("plain data cannot contain resources, closures, or metatables".into()),
         }
@@ -1377,12 +1379,13 @@ pub(crate) fn load_graph_with(
         for (i, n) in g.nodes.iter().enumerate() {
             let v = objects[i];
             let p = v.as_obj().unwrap();
+            vm.heap.schema_write(p);
             let h = unsafe { &mut *p.as_ptr() };
             let before = h.external_bytes();
             match n {
                 Node::Table(array, pairs, meta, native) => {
-                    h.flags &= !F_NATIVE_STORAGE;
-                    if *native { h.flags |= F_NATIVE_STORAGE; }
+                    h.flags &= !(F_NATIVE_STORAGE | F_NATIVE_OWNED);
+                    h.flags |= *native;
                     let t = h.table();
                     t.array.extend(resolve_all(array, &objects)?);
                     t.meta = resolve(meta, &objects)?;

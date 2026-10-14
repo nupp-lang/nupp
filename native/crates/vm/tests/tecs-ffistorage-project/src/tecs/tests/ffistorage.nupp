@@ -1,0 +1,214 @@
+module tecs.tests.ffistorage
+
+--[[
+Direct storage tests adapted from tests/tecs/ffistoragetest.nupp at
+87bd7da2873f7b7267752e5af3a8dfb8648785bb. Copyright (c) 2026 Michael Dowling;
+see the project LICENSE-MIT. The original world and engine tests remain separate.
+]]
+local test = require("nupp.test")
+local native: any = assert(require("nupp.mem.representation").storage)
+local buffer = require("nupp.text")
+local ffistorage = require("tecs.internal.ffistorage")
+local persist = require("nupp.vm.persist")
+local suite = {}
+local struct Point
+    x: number
+    y: number
+end
+local struct ArrayValue
+    values: float[3]
+    serial: uint64
+    enabled: boolean
+end
+local struct NestedValue
+    point: Point
+end
+local struct SignedValue
+    serial: int64
+end
+const pointStorage = ffistorage.new(new Point(), true)
+const arrayStorage = ffistorage.new(new ArrayValue())
+const pointLayout: any = native.layout(new Point())
+
+function suite.rawStorageRelocatesWithABulkCopy(): nil
+    const storage = pointStorage
+    const source = ffistorage.allocate(storage, 2) as Point[?]
+    @unsafe do
+        source[1] = new Point(13, 17)
+        source[2] = new Point(19, 23)
+    end
+    const target = ffistorage.resize(storage, source, 2, 100) as Point[?]
+    @unsafe do
+        test.equal(target[1].x, 13)
+        test.equal(target[2].y, 23)
+        test.equal(target[100].x, 0)
+    end
+end
+
+function suite.rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero(): nil
+    const storage = arrayStorage
+    const source = ffistorage.allocate(storage, 3) as ArrayValue[?]
+    const target = ffistorage.allocate(storage, 3) as ArrayValue[?]
+    @unsafe do
+        source[1].values[1] = 9
+        source[2].values[2] = 11
+    end
+    const bytes = buffer.newBuffer()
+    ffistorage.writeRows(storage, source, 1, 2, bytes)
+    test.equal(#bytes, storage.width * 2)
+    ffistorage.readRows(storage, target, 2, 2, bytes)
+    test.equal(#bytes, 0)
+    @unsafe do
+        test.equal(target[0].values[1], 0)
+        test.equal(target[2].values[1], 9)
+        test.equal(target[3].values[2], 11)
+    end
+    test.raises(
+        function(): nil
+            ffistorage.readRows(storage, target, 1, 1, bytes)
+        end,
+        "truncated"
+    )
+    test.raises(
+        function(): nil
+            ffistorage.writeRows(storage, source, 0, 1, bytes)
+        end,
+        "bounds"
+    )
+    test.raises(
+        function(): nil
+            ffistorage.writeRows(storage, source, 3, 2, bytes)
+        end,
+        "bounds"
+    )
+end
+
+function suite.rawResizeAndIntegerDecodingRejectOverflow(): nil
+    const storage = arrayStorage
+    const source = ffistorage.allocate(storage, 3)
+    test.raises(
+        function(): nil
+            ffistorage.resize(storage, source, 4, 10)
+        end,
+        "bounds"
+    )
+    test.raises(
+        function(): nil
+            ffistorage.resize(storage, source, 3, 2)
+        end,
+        "bounds"
+    )
+    test.raises(
+        function(): nil
+            ffistorage.clear(storage, source, 4)
+        end,
+        "bounds"
+    )
+    test.raises(
+        function(): nil
+            ffistorage.deserialize(storage, {serial = "18446744073709551616"})
+        end,
+        "out of range"
+    )
+end
+
+function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
+    const storage = ffistorage.new(new Point())
+    local allocations: integer = 0
+    ffistorage.setAllocator(storage, function(bytes: integer, alignment: integer): (any, any)
+        allocations = allocations + 1
+        test.equal(alignment, pointLayout.alignment)
+        const owner = native.allocateBytes(bytes)
+        return owner, owner
+    end)
+    const source = ffistorage.allocate(storage, 10) as Point[?]
+    @unsafe do
+        source[1].x = 91
+    end
+    collectgarbage("collect")
+    test.assert(ffistorage.owner(source) ~= nil)
+    const target = ffistorage.resize(storage, source, 10, 100) as Point[?]
+    collectgarbage("collect")
+    test.equal(allocations, 2)
+    test.equal(ffistorage.capacity(target), 100)
+    @unsafe do
+        test.equal(target[1].x, 91)
+    end
+    ffistorage.setAllocator(storage, nil)
+    test.assert(ffistorage.owner(ffistorage.allocate(storage, 10)) == nil)
+end
+
+function suite.codecsAndStagingPreserveValues(): nil
+    const original = new ArrayValue()
+    original.values[0] = 1
+    original.values[1] = 2
+    original.values[2] = 3
+    original.serial = 18446744073709551615ULL
+    original.enabled = true
+    const encoded = ffistorage.serialize(arrayStorage, original)
+    test.equal(encoded.serial, "18446744073709551615")
+    const restored = ffistorage.deserialize(arrayStorage, encoded) as ArrayValue
+    test.equal(restored.values[0], 1)
+    test.equal(restored.values[1], 2)
+    test.equal(restored.values[2], 3)
+    test.assert(restored.serial == 18446744073709551615ULL)
+    test.assert(restored.enabled)
+    const fromOne = ffistorage.deserialize(arrayStorage, {values = {4, 5, 6}}) as ArrayValue
+    const fromZero = ffistorage.deserialize(arrayStorage, {values = {[0] = 7, [1] = 8, [2] = 9}}) as ArrayValue
+    test.equal(fromOne.values[2], 6)
+    test.equal(fromZero.values[0], 7)
+    test.equal(fromZero.values[2], 9)
+    test.assert(arrayStorage.rawCodec)
+    test.assert(not pointStorage.rawCodec)
+    test.equal(pointStorage.fingerprint, "x:double,y:double|16")
+    const signed = ffistorage.new(new SignedValue())
+    const minimum = ffistorage.deserialize(signed, {serial = "-9223372036854775808"}) as SignedValue
+    test.assert(minimum.serial == -9223372036854775808LL)
+    test.equal(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
+    test.raises(
+        function(): nil
+            ffistorage.new(new NestedValue())
+        end,
+        "require paired snapshot codecs"
+    )
+    const owned = new Point(19, 23)
+    test.assert(rawequal(ffistorage.capture(pointStorage, owned), owned))
+    const rows: any = ffistorage.allocate(pointStorage, 2)
+    rows[1] = owned
+    const row: any = rows[1]
+    const detached: any = ffistorage.capture(pointStorage, row)
+    test.assert(not rawequal(row, detached))
+    rows[1].x = 42
+    test.equal(detached.x, 19)
+    test.equal(owned.x, 19)
+    const reloaded: any = persist.load(persist.save({rows = rows, row = row, detached = detached}))
+    reloaded.row.x = 47
+    test.equal(reloaded.rows[1].x, 47)
+    test.equal(reloaded.detached.x, 19)
+    test.assert(native.isBorrowed(reloaded.row))
+    test.assert(not native.isBorrowed(reloaded.detached))
+end
+
+function suite.run(): number
+    suite.publicBufferLengthTracksBytes()
+    suite.rawStorageRelocatesWithABulkCopy()
+    suite.rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero()
+    suite.rawResizeAndIntegerDecodingRejectOverflow()
+    suite.customBackingIsRootedAndUsedAgainOnGrowth()
+    suite.codecsAndStagingPreserveValues()
+
+    return 42
+end
+
+function suite.publicBufferLengthTracksBytes(): nil
+    const bytes = buffer.newBuffer()
+    bytes:put("hello")
+    test.equal(#bytes, 5)
+    test.equal(bytes:tostring(), "hello")
+    test.equal(bytes:get(2), "he")
+    test.equal(#bytes, 3)
+    test.equal(bytes:get(), "llo")
+    test.equal(#bytes, 0)
+end
+
+export = suite

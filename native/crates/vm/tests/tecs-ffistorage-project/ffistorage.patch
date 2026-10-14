@@ -1,0 +1,322 @@
+--- a/src/tecs/internal/ffistorage.nupp
++++ b/src/tecs/internal/ffistorage.nupp
+@@ -1,14 +1,16 @@
+ module tecs.internal.ffistorage
+
+ --[[
++Adapted from Tecs ffistorage.nupp at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
++Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
+ Native struct columns. Layout comes from the Nupp struct declaration, not a
+ second runtime schema. Rows are one-based with unused row zero, geometric
+-reserve and memcpy relocation. Archetypes own capacity; no
+-weak-key lookup or allocation occurs on an indexed read or write.
++reserve and bulk relocation. Archetypes own capacity; indexing uses the
++runtime's physical row views. Portable buffer I/O currently copies strings.
+ ]]
+
+-local ffi = require("ffi")
+-local buffer = require("string.buffer")
++local native: any = assert(require("nupp.mem.representation").storage)
++local buffer = require("nupp.text")
+
+ export record Field
+     name: string
+@@ -19,7 +21,6 @@
+
+ export record Storage
+     element: any
+-    arrayType: any
+     width: integer
+     alignment: integer
+     fields: {Field}
+@@ -37,88 +38,55 @@
+ end
+ const backing: {[any]: Backing} = setmetatable({}, {__mode = "k"}) as {[any]: Backing}
+
+--- LuaJIT's declared CType graph, read once at registration. No cdefs or
+--- metatypes are created here: Nupp owns both, including instance methods.
+-local function typeKind(info: any): integer
+-    return math.floor((info.info as integer) / 268435456) % 16
+-end
+-
+-local function childId(info: any): integer
+-    return (info.info as integer) % 65536
+-end
+-
+-local function unqualified(id: integer): any
+-    local info = assert(ffi.typeinfo(id))
+-    while typeKind(info) == 7 or typeKind(info) == 8 do
+-        info = assert(ffi.typeinfo(childId(info)))
+-    end
+-
+-    return info
+-end
+-
+-local function scalarSpelling(info: any): string
+-    if typeKind(info) ~= 0 then
+-        error(
+-            "FFI components support numeric and boolean fields and fixed scalar arrays, not pointers or nested objects",
+-            3
+-        )
+-    end
+-    const flags = info.info as integer
+-    if math.floor(flags / 134217728) % 2 == 1 then
++-- Canonical descriptors replace LuaJIT's private CType graph. C scalar labels
++-- remain unchanged because existing snapshot fingerprints include these names.
++local function scalarSpelling(kind: string): string?
++    if kind == "boolean" then
+         return "bool"
+     end
+-    if math.floor(flags / 67108864) % 2 == 1 then
+-        if info.size == 4 then
+-            return "float"
+-        end
+-        if info.size == 8 then
+-            return "double"
+-        end
+-        error("FFI component floating-point width is unsupported", 3)
+-    end
+-    const prefix = math.floor(flags / 8388608) % 2 == 1 and "uint" or "int"
+-
+-    return prefix .. tostring((info.size as integer) * 8) .. "_t"
++    if kind == "float" then
++        return "float"
++    end
++    if kind == "number" then
++        return "double"
++    end
++    if kind == "integer" then
++        return "int32_t"
++    end
++    if kind:match("^u?int%d+$") then
++        return kind .. "_t"
++    end
++
++    return nil
+ end
+
+ local function fieldsOf(element: any, opaque: boolean): {Field}
+-    const info = unqualified(assert(tonumber(element)) as integer)
+-    if typeKind(info) ~= 1 or math.floor((info.info as integer) / 8388608) % 2 == 1 then
++    if element.kind ~= "struct" then
+         error("FFI component requires a struct, not a union", 3)
+     end
+     const result: {Field} = {}
+-    local id = info.sib as integer?
+-    while id ~= nil do
+-        const field = assert(ffi.typeinfo(id))
+-        if typeKind(field) == 9 then
+-            local kind = unqualified(childId(field))
+-            local count: integer = 0
+-            if typeKind(kind) == 3 then
+-                const member = unqualified(childId(kind))
+-                if kind.size == nil or (kind.size as integer) <= 0 then
+-                    error("FFI component arrays must have a positive fixed extent", 3)
+-                end
+-                count = (kind.size as integer) // (member.size as integer)
+-                kind = member
+-            end
+-            local scalar: string
+-            if typeKind(kind) == 0 then
+-                scalar = scalarSpelling(kind)
+-            elseif opaque and (typeKind(kind) == 1 or typeKind(kind) == 2) then
+-                -- Custom codecs own the representation of nested values and pointers.
+-                -- These spellings deliberately cannot enter the automatic raw codec.
+-                scalar = "opaque" .. tostring(childId(field))
++    for _, field in ipairs(element.fields) do
++        local kind: any = field.type
++        local count: integer = 0
++        if kind.kind == "array" then
++            count = kind.count as integer
++            if count <= 0 then
++                error("FFI component arrays must have a positive fixed extent", 3)
++            end
++            kind = kind.element
++        end
++        local scalar = scalarSpelling(kind.kind as string)
++        if scalar == nil then
++            if opaque and (kind.kind == "struct" or kind.kind == "pointer") then
++                scalar = "opaque" .. tostring(kind.identity)
+             else
+                 error("nested or pointer-bearing FFI components require paired snapshot codecs or transient = true", 3)
+             end
+-            const spelling = scalar .. (count > 0 and "[" .. tostring(count) .. "]" or "")
+-            result[
+-                #result + 1
+-            ] = new Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
+-        elseif typeKind(field) ~= 8 then
+-            error("FFI component bitfields and anonymous fields are unsupported", 3)
+-        end
+-        id = field.sib as integer?
++        end
++        const spelling = scalar .. (count > 0 and "[" .. tostring(count) .. "]" or "")
++        result[
++            #result + 1
++        ] = new Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
+     end
+     if #result == 0 then
+         error("FFI component struct has no stored fields", 3)
+@@ -131,15 +99,14 @@
+     if type(sample) ~= "cdata" then
+         error("newFFIComponent: default must return a Nupp struct", 2)
+     end
+-    const element = ffi.typeof(sample)
+-    if not tostring(element):match("^ctype<struct ") then
++    const element = native.descriptor(sample)
++    if element.kind ~= "struct" then
+         error("newFFIComponent: default must return a Nupp struct", 2)
+     end
+-    const width = assert(ffi.sizeof(element))
++    const width = native.sizeOf(element) as integer
+     if width <= 0 then
+         error("newFFIComponent: struct must have a nonempty fixed layout", 2)
+     end
+-    local spelling = "$[?]"
+     const fields = fieldsOf(element, opaque == true)
+     const parts: {string} = {}
+     for index = 1, #fields do
+@@ -148,9 +115,8 @@
+
+     return new Storage(
+         element = element,
+-        arrayType = ffi.typeof(spelling, element),
+         width = width,
+-        alignment = ffi.alignof(element),
++        alignment = element.alignment as integer,
+         fields = fields,
+         fingerprint = table.concat(parts, ",") .. "|" .. tostring(width),
+         rawCodec = opaque ~= true
+@@ -167,11 +133,11 @@
+
+ --- Detaches a borrowed native row at a staging boundary; owned structs need no copy.
+ export function capture(storage: Storage, value: any): any
+-    if not ffi.istype(storage.element, value) then
++    if not storage.element:isa(value) then
+         error("FFI component value has the wrong struct type", 2)
+     end
+-    if ffi.typeof(value) ~= storage.element then
+-        return ffi.new(storage.element, value)
++    if native.isBorrowed(value) then
++        return storage.element:copy(value)
+     end
+
+     return value
+@@ -190,15 +156,11 @@
+         if pointer == nil or owner == nil then
+             error("FFI column allocator must return a pointer and its owning backing", 2)
+         end
+-        const address = tonumber(ffi.cast("uintptr_t", pointer)) as number
+-        if address == 0 or address % storage.alignment ~= 0 then
+-            error("FFI column allocator returned a null or misaligned pointer", 2)
+-        end
+-        local spelling = "$ *"
+-        column = ffi.cast(ffi.typeof(spelling, storage.element), pointer)
+-        ffi.fill(column, bytes, 0)
++        column = native.castWritableElements(storage.element, pointer)
++        native.boundedCount(column, capacity + 1)
++        native.fill(column, bytes, 0)
+     else
+-        column = ffi.new(storage.arrayType, capacity + 1)
++        column = native.allocateArray(storage.element, capacity + 1)
+     end
+     backing[column] = new Backing(owner = owner, capacity = capacity, storage = storage)
+
+@@ -212,7 +174,7 @@
+     end
+     const result = allocate(storage, capacity)
+     if count > 0 then
+-        ffi.copy(result, source, (count + 1) * storage.width)
++        native.copy(result, source, (count + 1) * storage.width)
+     end
+
+     return result
+@@ -223,7 +185,7 @@
+     if metadata.storage ~= storage or count < 0 or count % 1 ~= 0 or count > metadata.capacity then
+         error("FFI clear range is out of bounds", 2)
+     end
+-    ffi.fill(column, (count + 1) * storage.width, 0)
++    native.fill(column, (count + 1) * storage.width, 0)
+ end
+
+ --- Pins custom backing for exactly as long as its column view remains alive.
+@@ -286,19 +248,26 @@
+     if (negative and spelling == "uint64_t") or #digits > #limit or (#digits == #limit and digits > limit) then
+         error("64-bit snapshot integer is out of range", 3)
+     end
+-    local result: any = ffi.new(spelling, 0)
++    local result: uint64 = 0ULL
+     for index = negative and 2 or 1, #value do
+-        result = result * 10 + (string.byte(value, index) - 48)
+-    end
+-
+-    return negative and -result or result
++        result = result * 10ULL + ((string.byte(value, index) - 48) as uint64)
++    end
++    if spelling == "uint64_t" then
++        return result
++    end
++    if negative and result == 9223372036854775808ULL then
++        return -9223372036854775808LL
++    end
++    const signed = result as int64
++
++    return negative and -signed or signed
+ end
+
+ export function deserialize(storage: Storage, value: any): any
+     if type(value) ~= "table" then
+         error("FFI snapshot value must be a field table", 2)
+     end
+-    const result: any = ffi.new(storage.element)
++    const result: any = storage.element:new()
+     for index = 1, #storage.fields do
+         const field = storage.fields[index]
+         const input = value[field.name]
+@@ -332,10 +301,8 @@
+     then
+         error("FFI column range is out of bounds", 3)
+     end
+-    local spelling = "uint8_t *"
+-    const pointer: any = ffi.cast(spelling, column)
+-
+-    return pointer + first * storage.width, count * storage.width
++
++    return column + first, count * storage.width
+ end
+
+ --- Copies disjoint native row ranges after validating both bounds.
+@@ -349,19 +316,19 @@
+ ): nil
+     const target, bytes = rowBytes(storage, destination, first, count)
+     const origin = rowBytes(storage, source, sourceFirst, count)
+-    ffi.copy(target, origin, bytes)
++    native.copy(target, origin, bytes)
+ end
+
+ --- Zeroes a bounded native row range before initializing reused storage.
+ export function clearRows(storage: Storage, column: any, first: integer, count: integer): nil
+     const pointer, bytes = rowBytes(storage, column, first, count)
+-    ffi.fill(pointer, bytes, 0)
+-end
+-
+---- Appends live rows directly to the buffer without intermediate strings.
++    native.fill(pointer, bytes, 0)
++end
++
++--- Appends live rows to the portable buffer through a bounded byte copy.
+ export function writeRows(storage: Storage, column: any, first: integer, count: integer, output: buffer.Buffer): nil
+     const pointer, bytes = rowBytes(storage, column, first, count)
+-    output:putcdata(pointer as voidptr, bytes)
++    output:put(native.string(pointer, bytes))
+ end
+
+ --- Validates the entire range before consuming bytes or touching the destination.
+@@ -370,6 +337,5 @@
+     if #input < bytes then
+         error("truncated FFI component column", 2)
+     end
+-    ffi.copy(pointer, input:ref(), bytes)
+-    input:skip(bytes)
+-end
++    native.copy(pointer, input:get(bytes), bytes)
++end

@@ -45,6 +45,60 @@ fn fails(vm: &mut Interp, method: &str, args: &[Value]) {
 }
 
 #[test]
+fn writable_casts_preserve_bounds_roots_and_const_views() {
+    let mut vm = vm();
+    let u32t = kind(&mut vm, "uint32");
+    let bytes = keep(&mut vm, "allocateBytes", &[Value::num(8.0)]);
+    let words = keep(&mut vm, "castWritableElements", &[u32t, bytes]);
+    call(&mut vm, "write", &[words, Value::num(1.0), Value::num(42.0)]);
+    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::num(42.0));
+    assert_eq!(call(&mut vm, "boundedCount", &[words, Value::num(2.0)]), Value::num(2.0));
+    fails(&mut vm, "index", &[words, Value::num(2.0)]);
+    let readonly = keep(&mut vm, "castElements", &[u32t, bytes]);
+    fails(&mut vm, "write", &[readonly, Value::num(0.0), Value::num(1.0)]);
+    fails(&mut vm, "castWritableElements", &[u32t, readonly]);
+    let text = string(&mut vm, &[0; 8]);
+    fails(&mut vm, "castWritableElements", &[u32t, text]);
+    let unaligned = keep(&mut vm, "add", &[bytes, Value::num(1.0)]);
+    fails(&mut vm, "castWritableElements", &[u32t, unaligned]);
+    let short = keep(&mut vm, "allocateBytes", &[Value::num(2.0)]);
+    fails(&mut vm, "castWritableElements", &[u32t, short]);
+    let empty = keep(&mut vm, "allocateBytes", &[Value::num(0.0)]);
+    let empty_words = keep(&mut vm, "castWritableElements", &[u32t, empty]);
+    assert_eq!(call(&mut vm, "boundedCount", &[empty_words, Value::num(0.0)]), Value::num(0.0));
+    fails(&mut vm, "index", &[empty_words, Value::num(0.0)]);
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::num(42.0));
+}
+
+#[test]
+fn owned_and_borrowed_native_values_keep_their_class_after_restore() {
+    let mut vm = vm();
+    let u32t = kind(&mut vm, "uint32");
+    let pair = keep(&mut vm, "arrayType", &[u32t, Value::num(2.0)]);
+    let pairs = keep(&mut vm, "arrayType", &[pair, Value::num(2.0)]);
+    let owned = keep(&mut vm, "valueNew", &[pairs]);
+    let borrowed = keep(&mut vm, "index", &[owned, Value::num(0.0)]);
+    let copied = keep(&mut vm, "valueCopy", &[pair, borrowed]);
+    for (value, expected) in [(owned, Value::FALSE), (borrowed, Value::TRUE), (copied, Value::FALSE)] {
+        assert_eq!(call(&mut vm, "isBorrowed", &[value]), expected);
+    }
+    let bytes = persist::save_graph(&mut vm, &[owned, borrowed, copied], &Policies::default()).unwrap();
+    let restored = persist::load_graph(&mut vm, &bytes, &Policies::default(), None).unwrap();
+    for &value in &restored { vm.register(value); }
+    vm.full_cycle();
+    for (value, expected) in restored.iter().zip([Value::FALSE, Value::TRUE, Value::FALSE]) {
+        assert_eq!(call(&mut vm, "isBorrowed", &[*value]), expected);
+    }
+    call(&mut vm, "write", &[restored[1], Value::num(0.0), Value::num(7.0)]);
+    let row = keep(&mut vm, "index", &[restored[0], Value::num(0.0)]);
+    assert_eq!(call(&mut vm, "index", &[row, Value::num(0.0)]), Value::num(7.0));
+    assert_eq!(call(&mut vm, "index", &[restored[2], Value::num(0.0)]), Value::num(0.0));
+    fails(&mut vm, "isBorrowed", &[Value::num(1.0)]);
+}
+
+#[test]
 fn declaration_layout_queries_survive_vm_restore_without_claiming_native_rows() {
     let mut vm = vm();
     let key = string(&mut vm, b"\0nupp:structLayout");

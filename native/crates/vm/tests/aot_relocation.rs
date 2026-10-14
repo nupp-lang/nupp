@@ -38,8 +38,8 @@ impl Object {
         let mut source = String::from("#include <stdint.h>\n");
         let mut helpers = compiled::helper_table();
         helpers.push((
-            "nupp_vm_runtime_v3",
-            compiled::nupp_vm_runtime_v3 as *const u8,
+            "nupp_vm_runtime_v4",
+            compiled::nupp_vm_runtime_v4 as *const u8,
             0,
         ));
         for (name, pointer, count) in helpers {
@@ -59,6 +59,48 @@ impl Object {
             source.push_str(&format!("uint64_t {name}({params}) {{ return ((uint64_t (*)({types}))(uintptr_t){}ULL)({args}); }}\n", pointer as usize));
         }
         std::fs::write(result.path.join("runtime.c"), source).unwrap();
+        // An older object must not bind to a runtime whose schema cache relies
+        // on the new inline-store barriers. Model the old required ABI symbol.
+        let mut stale = std::fs::read(result.path.join("read.o")).unwrap();
+        let symbol = b"nupp_vm_runtime_v4";
+        let mut replaced = 0;
+        for i in 0..=stale.len() - symbol.len() {
+            if &stale[i..i + symbol.len()] == symbol {
+                stale[i + symbol.len() - 1] = b'3';
+                replaced += 1;
+            }
+        }
+        assert!(
+            replaced > 0,
+            "object must require the versioned binding ABI"
+        );
+        std::fs::write(result.path.join("stale.o"), stale).unwrap();
+        let stale_link = Command::new("cc")
+            .arg(if cfg!(target_os = "macos") {
+                "-dynamiclib"
+            } else {
+                "-shared"
+            })
+            .arg("-fPIC")
+            .arg(result.path.join("runtime.c"))
+            .arg(result.path.join("stale.o"))
+            .arg("-o")
+            .arg(result.path.join("stale.so"))
+            .output()
+            .unwrap();
+        if stale_link.status.success() {
+            let path = CString::new(result.path.join("stale.so").to_str().unwrap()).unwrap();
+            let library = unsafe { libc::dlopen(path.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+            assert!(library.is_null(), "stale object unexpectedly loaded");
+            let error = unsafe { CStr::from_ptr(libc::dlerror()) }.to_string_lossy();
+            assert!(error.contains("nupp_vm_runtime_v3"), "{error}");
+        } else {
+            assert!(
+                String::from_utf8_lossy(&stale_link.stderr).contains("nupp_vm_runtime_v3"),
+                "unexpected stale-object link failure: {}",
+                String::from_utf8_lossy(&stale_link.stderr)
+            );
+        }
         let output = Command::new("cc")
             .arg(if cfg!(target_os = "macos") {
                 "-dynamiclib"

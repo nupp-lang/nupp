@@ -46,6 +46,10 @@ pub const F_TOMBSTONE: u8 = 2;
 pub const F_METATABLE: u8 = 4;
 /// A validated native storage descriptor, value, or declaration witness.
 pub const F_NATIVE_STORAGE: u8 = 8;
+/// A top-level native value allocation, as opposed to a borrowed subview.
+pub const F_NATIVE_OWNED: u8 = 16;
+/// Mutable tables participating in a validated physical layout.
+pub const F_STORAGE_SCHEMA: u8 = 32;
 
 /// The size class byte of an object allocated on its own.
 pub const CLASS_LARGE: u8 = 0xff;
@@ -351,6 +355,9 @@ pub struct Heap {
     interned: HashMap<Box<[u8]>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
     integers: HashMap<(bool, u64), NonNull<Header>>,
     pub stats: Stats,
+    /// Invalidates physical layout facts after schema writes or reclamation.
+    /// Saturation disables the cache instead of allowing version reuse.
+    pub storage_version: u64,
     pub alloc_kinds: [u64; 13],
     /// 1 while marking: the threaded core reads it to decide whether a store
     /// needs the barrier's slow path.
@@ -365,7 +372,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), alloc_kinds: [0; 13], marking: 0,
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0,
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -642,10 +649,18 @@ impl Heap {
 
     // ---- the collector ---------------------------------------------------
 
+    #[inline]
+    pub fn schema_write(&mut self, object: NonNull<Header>) {
+        if unsafe { object.as_ref().flags & F_STORAGE_SCHEMA != 0 } {
+            self.storage_version = self.storage_version.saturating_add(1);
+        }
+    }
+
     /// The insertion barrier (4.2): storing a white child into a black parent
     /// while marking greys the child. Every heap store goes through here.
     #[inline]
     pub fn barrier(&mut self, parent: NonNull<Header>, child: Value) {
+        self.schema_write(parent);
         if self.phase != Phase::Marking { return; }
         if let Some(c) = child.as_obj() {
             unsafe {
@@ -823,6 +838,7 @@ impl Heap {
     /// Drops an object's owned buffers and returns its memory: to the class's
     /// free list, or, under stress and quarantine, keeps it as a tombstone.
     fn free(&mut self, p: NonNull<Header>) {
+        self.schema_write(p);
         unsafe {
             let h = &mut *p.as_ptr();
             self.live_bytes -= h.size as usize + h.external_bytes();

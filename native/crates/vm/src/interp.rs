@@ -124,6 +124,14 @@ pub enum Op {
     SetIdx(u8, u8, u8),
     /// Field by name (constant index), the untyped path with the enforced write.
     GetField(u8, u8, u16),
+    /// Checked physical field accesses; a guard miss preserves generic field semantics.
+    GetPhys(u8, u8, crate::storage::PhysicalField),
+    GetPhysF(u8, u8, crate::storage::PhysicalField),
+    GetPhysI(u8, u8, crate::storage::PhysicalField),
+    GetPhysU(u8, u8, crate::storage::PhysicalField),
+    SetPhys(u8, crate::storage::PhysicalField, u8),
+    SetPhysF(u8, crate::storage::PhysicalField, u8),
+    SetPhysI(u8, crate::storage::PhysicalField, u8),
     SetField(u8, u16, u8),
     NewRecord(u8, u32),
     /// Slot by offset, the typed path: no check on read or write.
@@ -373,6 +381,7 @@ pub struct Interp {
     pub(crate) processes: crate::process::State,
     pub(crate) temporary_paths: std::collections::HashMap<Value, crate::temporary::Owner>,
     pub(crate) foreign: crate::foreign::State,
+    pub(crate) physical_fields: crate::storage::PhysicalCache,
     pub native_files: std::collections::HashMap<Value, std::fs::File>,
     pub heap: Heap,
     /// The host services, once started.
@@ -533,7 +542,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), foreign: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1319,7 +1328,22 @@ impl Interp {
         }
         self.heap.account_resize(before, h.external_bytes());
     }
-    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value { let m = self.metatable_of(t); if m == Value::NIL { return Value::NIL; } if let Some(value) = crate::storage::metamethod(self, t, m, name) { return value; } match self.heap.intern_lookup(name) { Some(k) => self.get_index(m, k), None => Value::NIL } }
+    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value {
+        let mut meta = self.metatable_of(t);
+        if meta == Value::NIL {
+            if let Some(object) = t.as_obj() {
+                let header = unsafe { object.as_ref() };
+                if header.kind == KIND_RECORD {
+                    if let Some(key) = self.heap.interned_key("\0nupp:recordType") {
+                        meta = self.heap.shapes[header.shape() as usize].methods.get(&key).copied().unwrap_or(Value::NIL);
+                    }
+                }
+            }
+        }
+        if meta == Value::NIL { return Value::NIL; }
+        if let Some(value) = crate::storage::metamethod(self, t, meta, name) { return value; }
+        match self.heap.intern_lookup(name) { Some(key) => self.get_index(meta, key), None => Value::NIL }
+    }
     /// A read that follows `__index` (a function or a table) when a table
     /// lacks the key, including tables represented by record shapes.
     pub fn index(&mut self, t: Value, key: Value) -> Value {
@@ -1383,15 +1407,35 @@ impl Interp {
     pub fn call_handler(&mut self, t: Value) -> Value { self.meta_field(t, "__call") }
     pub fn get_field(&self, t: Value, name: Value) -> Value { self.get_index(t, name) }
     pub fn set_field(&mut self, t: Value, name: Value, v: Value) { self.set_index(t, name, v) }
+    /// Named bytecode writes preserve record slot contracts; rawset stays raw.
+    pub(crate) fn store_field(&mut self, tv: Value, name: Value, v: Value) {
+        let p = tv.as_obj().unwrap_or_else(|| self.err("field of a non-object"));
+        if self.metatable_of(tv) != Value::NIL { self.newindex(tv, name, v); return; }
+        let h = unsafe { p.as_ref() };
+        match h.kind {
+            KIND_TABLE => (),
+            KIND_RECORD => {
+                // Enforce the declared slot before the common raw write path.
+                let sh = &self.heap.shapes[h.shape() as usize];
+                if let Some(i) = sh.slot_of(name) {
+                    if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
+                }
+            }
+            _ => self.err("field of a non-object"),
+        }
+        // Includes key/value barriers, schema invalidation, and resize accounting.
+        self.set_index(tv, name, v);
+    }
+
     pub fn get_slot(&self, rec: Value, i: usize) -> Value { hdr!(self, rec, "not a record").slots()[i] }
     pub fn set_slot(&mut self, rec: Value, i: usize, v: Value) { let p = rec.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { (*p.as_ptr()).slots_mut()[i] = v; } }
     pub fn set_cell(&mut self, c: Value, v: Value) { let p = c.as_obj().unwrap_or_else(|| self.err("not a cell")); self.heap.barrier(p, v); unsafe { if (*p.as_ptr()).kind != KIND_CELL { self.err("not a cell") } (*p.as_ptr()).slots_mut()[0] = v; } }
     pub fn is_rec(&self, v: Value, shape: u32) -> bool { v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false) }
     pub fn tagcheck_rec(&self, v: Value, shape: u32) { let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } }
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
-    pub fn array_get(&self, t: Value, i: usize) -> Value { hdr!(self, t, "not a table").table_ref().array[i] }
+    pub fn array_get(&self, t: Value, i: usize) -> Value { let h = hdr!(self, t, "not a table"); match h.kind { KIND_TABLE => h.table_ref().array[i], KIND_RECORD => h.record_array_ref()[i], _ => self.err("not a table") } }
     pub fn push_array(&mut self, t: Value, v: Value) { self.set_index(t, Value::num((self.array_len(t) + 1) as f64), v); }
-    pub fn pop_array(&mut self, t: Value) { let h = hdr!(self, t, "not a table"); let a = if h.kind == KIND_RECORD { h.record_array() } else { &mut h.table().array }; while a.last() == Some(&Value::NIL) { a.pop(); } h.refresh(); }
+    pub fn pop_array(&mut self, t: Value) { if let Some(p) = t.as_obj() { self.heap.schema_write(p); } let h = hdr!(self, t, "not a table"); let a = if h.kind == KIND_RECORD { h.record_array() } else { &mut h.table().array }; while a.last() == Some(&Value::NIL) { a.pop(); } h.refresh(); }
     /// Every key of a table, array part first, for `pairs` and `next`.
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
         let h = hdr!(self, t, "pairs of a non-table");
@@ -1665,6 +1709,16 @@ impl Interp {
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
                     Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); if self.metatable_of(tv) != Value::NIL { let iv = self.key_for_store(iv); self.newindex(tv, iv, v); } else { self.set_index(tv, iv, v); } }
                     Op::GetField(d, t, k) => self.op_get_field(&win, d, t, k),
+                    Op::GetPhys(d,t,p)|Op::GetPhysF(d,t,p)|Op::GetPhysI(d,t,p)|Op::GetPhysU(d,t,p) => {
+                        let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
+                        let value=crate::storage::physical_get(self,object,id,name,p);
+                        match op { Op::GetPhys(..)=>r!(d)=value,Op::GetPhysF(..)=>fr!(d)=crate::numeric::double(self,value),Op::GetPhysI(..)=>ir!(d)=crate::numeric::bits(self,value,false) as i64,_=>ir!(d)=crate::numeric::bits(self,value,true) as i64 }
+                    }
+                    Op::SetPhys(t,p,v)|Op::SetPhysF(t,p,v)|Op::SetPhysI(t,p,v) => {
+                        let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
+                        let value=match op {Op::SetPhys(..)=>r!(v),Op::SetPhysF(..)=>Value::num(fr!(v)),_=>self.box_integer(crate::numeric::Integer {bits:ir!(v) as u64,unsigned:p.kind==8})};
+                        crate::storage::physical_set(self,object,id,name,p,value);
+                    }
                     Op::SetField(t, k, s) => self.op_set_field(&win, t, k, s),
                     Op::NewTable(d) => { let v = self.new_table(); r!(d) = v; }
                     Op::NewTableN(d, n, m) => { let v = self.new_table_sized(n as usize, m as usize); r!(d) = v; }
@@ -1672,7 +1726,7 @@ impl Interp {
                     Op::GetSlot(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; r!(d) = h.slots()[i as usize]; } else { let v = self.slot_get_slow(r!(t), sh, i); r!(d) = v; } }
                     Op::SetSlot(t, i, s, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let v = r!(s); let tv = r!(t); let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
                     Op::GetSlotF(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); let v = if let Some(p) = exact { unsafe { (&*p.as_ptr()).slots()[i as usize] } } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
-                    Op::SetSlotF(t, i, a, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
+                    Op::SetSlotF(t, i, a, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { self.heap.schema_write(p); let h = unsafe { &mut *p.as_ptr() }; h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
                     Op::Len(d, a) => { let value = self.length(r!(a)); r!(d) = value; }
                     Op::LenF(d, a) => { let value = self.length(r!(a)); fr!(d) = crate::numeric::double(self, value); }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
@@ -2015,22 +2069,7 @@ impl Interp {
         let name = unsafe { *consts.add(k as usize) };
         let v = r!(s);
         let tv = r!(t);
-        let p = tv.as_obj().unwrap_or_else(|| self.err("field of a non-object"));
-        if self.metatable_of(tv) != Value::NIL { self.newindex(tv, name, v); return; }
-        self.heap.barrier(p, v);
-        let h = unsafe { &mut *p.as_ptr() };
-        match h.kind {
-            KIND_TABLE => { h.table().hash.insert(name, v); }
-            KIND_RECORD => {
-                // The enforced write (2.5): an untyped store into a record checks
-                // the slot's declared type, so typed reads never check.
-                let sh = &self.heap.shapes[h.shape() as usize];
-                let i = match sh.slot_of(name) { Some(i) => i, None => { let before = h.external_bytes(); h.record_extra().get_or_insert_with(Default::default).insert(name, v); self.heap.account_resize(before, h.external_bytes()); return; } };
-                if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
-                h.slots_mut()[i] = v;
-            }
-            _ => self.err("field of a non-object"),
-        }
+        self.store_field(tv, name, v);
     }
 }
 
@@ -2099,6 +2138,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::NewTable(..) => "NewTable",
         Op::GetIdx(..) => "GetIdx",
         Op::SetIdx(..) => "SetIdx",
+        Op::GetPhys(..)=>"GetPhys", Op::GetPhysF(..)=>"GetPhysF", Op::GetPhysI(..)=>"GetPhysI", Op::GetPhysU(..)=>"GetPhysU", Op::SetPhys(..)=>"SetPhys", Op::SetPhysF(..)=>"SetPhysF", Op::SetPhysI(..)=>"SetPhysI",
         Op::GetField(..) => "GetField",
         Op::SetField(..) => "SetField",
         Op::NewRecord(..) => "NewRecord",

@@ -22,6 +22,16 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def read_manifest(manifest, image):
+    lines = manifest.read_text().splitlines()
+    assert lines[0] == "runtime-abi\t4", "expected current AOT runtime ABI 4"
+    assert lines[1] == "image-sha256\t" + digest(image), "object manifest belongs to another image"
+    total = int(lines[2].split("\t")[1])
+    entries = [line.split("\t") for line in lines[3:] if line]
+    assert entries and len({row[0] for row in entries}) == len(entries), "invalid linked entry manifest"
+    return total, entries
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
@@ -45,14 +55,10 @@ def main():
         env.pop(name, None)
     records = []
     manifest = args.manifest.resolve()
-    lines = manifest.read_text().splitlines()
-    assert lines[0] == "image-sha256\t" + digest(image), "object manifest belongs to another image"
-    total = int(lines[1].split("\t")[1])
-    entries = [line.split("\t") for line in lines[2:] if line]
-    assert entries and len({row[0] for row in entries}) == len(entries), "invalid linked entry manifest"
+    total, entries = read_manifest(manifest, image)
     if args.frames:
         assert len(entries) == total, "frame object did not compile every compiler function"
-    report = dict(binarySha256=digest(binary), imageSha256=digest(image),
+    report = dict(runtimeAbi=4, binarySha256=digest(binary), imageSha256=digest(image),
                   manifestSha256=digest(manifest), compiledFunctions=len(entries), imageFunctions=total,
                   platform=platform.platform(), freshProcesses=args.runs, results=records,
                   scope="Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.")
@@ -90,7 +96,7 @@ def main():
     # Validate the actual binary, independent of the caller's Cargo arguments.
     symbols, _ = run("symbols", ["nm", binary])
     assert "cranelift" not in symbols.lower(), "linked runtime contains Cranelift symbols"
-    assert "nupp_vm_runtime_v3" in symbols, "linked runtime lacks the relocatable binding ABI"
+    assert "nupp_vm_runtime_v4" in symbols, "linked runtime lacks the relocatable binding ABI"
     for _, symbol in entries:
         assert re.search(r"\b_?" + re.escape(symbol) + r"\b", symbols), f"runtime lacks linked entry {symbol}"
     interposer = output / "deny-exec.dylib"

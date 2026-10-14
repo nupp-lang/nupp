@@ -63,11 +63,15 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
     }
 }
 
+/// Native code must honor schema write invalidation introduced in ABI 4.
+/// Old native stores can bypass it, so no v3 compatibility alias is exported.
+pub const AOT_ABI: u32 = 4;
+
 // Object code binds addresses through one versioned symbol. Refresh the view
 // on every access: a helper can append an image and grow its runtime tables.
 // Mutable data stays with the executing VM, including on worker threads.
 #[unsafe(no_mangle)]
-pub extern "C" fn nupp_vm_runtime_v3() -> u64 {
+pub extern "C" fn nupp_vm_runtime_v4() -> u64 {
     let it = ctx();
     it.entries.resize(it.funcs.len(), 0);
     for f in &it.funcs[it.calltab.len()..] {
@@ -107,6 +111,7 @@ pub extern "C" fn j_field_caches(fid: u64, count: u64) -> u64 {
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     vec![
+        ("j_phys_guard",j_phys_guard as *const u8,4), ("j_phys_set",j_phys_set as *const u8,5), ("j_phys_read_slow",j_phys_read_slow as *const u8,4), ("j_phys_write_slow",j_phys_write_slow as *const u8,4),
         ("j_field_caches", j_field_caches as *const u8, 2),
         ("j_simd_prepare", j_simd_prepare as *const u8, 5), ("j_simd_prepare_locals", j_simd_prepare_locals as *const u8, 6), ("j_simd_finish", j_simd_finish as *const u8, 3), ("j_simd_store", j_simd_store as *const u8, 4),
         ("j_native_budget", j_native_budget as *const u8, 0),
@@ -274,6 +279,34 @@ impl Drop for HelperFrame {
 }
 macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; HelperFrame(HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed)) }} }
 macro_rules! leave_helper { ($prev:expr) => { drop($prev) } }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_phys_guard(object:u64, identity:u64, name:u64, packed:u64)->u64 {
+    crate::storage::physical_address(ctx(),V(object),V(identity),V(name),packed).map(|p|p as u64).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_phys_set(object:u64, identity:u64, name:u64, packed:u64, value:u64)->u64 {
+    ctx().guarded(|it| { let _hp=enter_helper!();
+        let plan=crate::storage::PhysicalField {identity:0,name:0,ordinal:(packed>>32) as u16,offset:packed as u32,kind:(packed>>48) as u8};
+        crate::storage::physical_set(it,V(object),V(identity),V(name),plan,V(value)); V::NIL
+    }).0
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_phys_read_slow(object:u64,name:u64,carrier:u64,out:*mut u64)->u64 {
+    ctx().guarded(|it| { let _hp=enter_helper!(); let value=it.index(V(object),V(name));
+        let bits=match carrier {1=>crate::numeric::double(it,value).to_bits(),2=>crate::numeric::bits(it,value,false),3=>crate::numeric::bits(it,value,true),_=>unreachable!()};
+        unsafe{out.write(bits);} V::NIL
+    }).0
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn j_phys_write_slow(object:u64,name:u64,bits:u64,kind:u64)->u64 {
+    ctx().guarded(|it| { let _hp=enter_helper!();
+        let value=if kind>=9 {V::num(f64::from_bits(bits))}else{it.box_integer(crate::numeric::Integer {bits,unsigned:kind==8})};
+        let scope=it.open_scope(); it.handles.extend_from_slice(&[V(object),value]);
+        let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||it.store_field(V(object),V(name),value)));
+        it.close_scope(scope); if let Err(error)=result {std::panic::resume_unwind(error);} V::NIL
+    }).0
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn j_simd_prepare(op: u64, kind: u64, argv: *const V, n: u64, packet: *mut crate::simd::Packet) -> u64 {
@@ -472,7 +505,7 @@ fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
     }
     it.index(tv, V(name)).0
 }
-fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = V(t); if it.metatable_of(t) != V::NIL { it.newindex(t, V(name), V(v)); } else { it.set_field(t, V(name), V(v)); } leave_helper!(_hp); 0 }
+fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().store_field(V(t), V(name), V(v)); leave_helper!(_hp); 0 }
 fn j_new_cell_impl(v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let scope = it.open_scope(); it.handles.push(V(v)); let c = it.new_cell(V(v)); it.close_scope(scope); leave_helper!(_hp); c.0 }
 fn j_set_cell_impl(c: u64, v: u64) -> u64 { ctx().set_cell(V(c), V(v)); 0 }
 fn j_new_closure_impl(fid: u64, argv: *const u64, n: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let caps: Vec<V> = (0..n as usize).map(|i| V(unsafe { *argv.add(i) })).collect(); let scope = it.open_scope(); for &c in &caps { it.handles.push(c); } let v = it.new_closure(fid as u32, &caps); it.close_scope(scope); leave_helper!(_hp); v.0 }

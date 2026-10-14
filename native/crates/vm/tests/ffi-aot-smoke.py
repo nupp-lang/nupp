@@ -18,7 +18,9 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("image", type=Path)
 parser.add_argument("--binary", type=Path, required=True)
-parser.add_argument("--library", type=Path, required=True)
+parser.add_argument("--library", type=Path)
+parser.add_argument("--module", default="nupp.tests.foreign")
+parser.add_argument("--function", default="run")
 parser.add_argument("--manifest", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
@@ -33,7 +35,13 @@ digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 report = {"status": "running", "scope": "Host native scalar/pointer/promoted-vararg/natural-aggregate calls; callbacks excluded",
           "host": platform.platform(), "phases": [],
           "sha256": {name: digest(path) for name, path in
-                     (("image", args.image), ("runtime", args.binary), ("library", args.library), ("manifest", args.manifest))}}
+                     (("image", args.image), ("runtime", args.binary), ("manifest", args.manifest))}}
+if args.library:
+    report["sha256"]["library"] = digest(args.library)
+report["module"] = args.module
+report["function"] = args.function
+if args.module != "nupp.tests.foreign":
+    report["scope"] = "Linked image execution with executable memory denied: " + args.module
 
 def save():
     (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -56,9 +64,11 @@ def run(name, command, expected=0, extra=None):
 
 try:
     manifest = args.manifest.read_text().splitlines()
-    assert manifest[0] == "image-sha256\t" + digest(args.image)
-    entries = [line.split("\t") for line in manifest[2:] if line]
-    report["imageFunctions"] = int(manifest[1].split("\t")[1])
+    assert manifest[0] == "runtime-abi\t4", "expected current AOT runtime ABI 4"
+    report["runtimeAbi"] = 4
+    assert manifest[1] == "image-sha256\t" + digest(args.image)
+    entries = [line.split("\t") for line in manifest[3:] if line]
+    report["imageFunctions"] = int(manifest[2].split("\t")[1])
     report["compiledFunctions"] = len(entries)
     assert len(entries) == report["imageFunctions"] and entries
     symbols, _ = run("symbols", ["nm", args.binary.resolve()])
@@ -85,7 +95,7 @@ int main(int argc, char **argv) {
         _, stderr = run("deny-" + name, [output / "probe", *flags], expected=86)
         assert "no-JIT gate: executable memory requested" in stderr
     report["executableMemoryDenied"] = True
-    command = [args.binary.resolve(), "run", args.image.resolve(), "nupp.tests.foreign", "run", args.library.resolve(), "--tasks"]
+    command = [args.binary.resolve(), "run", args.image.resolve(), args.module, args.function, *([args.library.resolve()] if args.library else []), "--tasks"]
     oracle, _ = run("interpreted", command, extra={"NO_AOT": "1"})
     assert oracle.strip() == "42"
     for index in range(3):
@@ -100,4 +110,4 @@ except BaseException as error:
     raise
 finally:
     save()
-print("Foreign scalar, pointer, vararg and aggregate AOT calls passed with executable memory denied")
+print(f"{args.module}.{args.function} passed with executable memory denied")

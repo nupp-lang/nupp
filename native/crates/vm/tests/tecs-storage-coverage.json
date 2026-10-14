@@ -1,6 +1,6 @@
 {
   "date": "2026-10-14",
-  "scope": "Actual Tecs snapshot graph admission and a bounded native entity-column migration; not full Tecs persistence acceptance",
+  "scope": "Actual Tecs snapshot graph admission and licensed VM-native entitycolumn/ffistorage adapter ports; not full Tecs persistence acceptance",
   "tecs": {
     "commit": "87bd7da2873f7b7267752e5af3a8dfb8648785bb",
     "benchmark": "bench/nupp/tecs/bench/programs/snapshot.nupp",
@@ -10,22 +10,24 @@
   },
   "actualSnapshot": {
     "status": "blocked",
+    "sha256": {
+      "seed": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4",
+      "runtime": "a4924ab196a7a7a469ab4872a9374491fb8fc7b6c3b15cc60c5005a91487e071"
+    },
+    "runtimePersistenceAccepted": false,
     "command": [
-      "/private/tmp/nupp-relocatable-aot/emitter",
+      "/private/tmp/nupp-physical-struct/runtime-v5",
       "run",
-      "/private/tmp/nupp-unsigned-registers/compiler.image",
+      "/private/tmp/nupp-physical-structs/compiler3/generation1.image",
       "nupp.tools.vm.project",
       "emit",
-      "/private/tmp/nupp-tecs-snapshot-admission/project",
+      "/private/tmp/nupp-tecs-snapshot-physical-admission/project",
       "tecs.bench.programs.snapshot"
     ],
-    "sha256": {
-      "seed": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
-      "runtime": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e"
-    },
-    "error": "error: \"statement kind cdefFunc in module:tecs.internal.assetnative\"\n  lower.emit.fn2888 at pc 3222\n  lower.emit.fn2890 at pc 12\n  lower.emit.fn2891 at pc 97\n  compileModule at pc 511\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1146\n  project.emit at pc 247\n\n",
-    "report": "/private/tmp/nupp-tecs-snapshot-admission/results.json",
-    "runtimePersistenceAccepted": false
+    "error": "error: \"tecs.internal.archetype:1163:16: NUPP2702 `edgeTarget` reaches code with unknown effects, and `table.sort` cannot yield across the C call that reaches it\"\n  project.emit.fn3098 at pc 145\n  compileModule at pc 86\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1182\n  project.emit at pc 249\n\n",
+    "report": "/private/tmp/nupp-tecs-snapshot-physical-admission/results.json",
+    "layoutTarget": "aarch64-apple-darwin",
+    "sourceAdapted": false
   },
   "entityColumn": {
     "status": "passed",
@@ -55,10 +57,143 @@
     "runtime": "/private/tmp/nupp-capture-perf/final-runtime-v2"
   },
   "remaining": [
-    "Lower or isolate the actual tecs.internal.assetnative C declaration graph reached by tecs.ecs.",
-    "Supply physical native struct construction, field access, bounded row views, and copy/isa with canonical compiler layout metadata.",
-    "Migrate ffistorage registration away from LuaJIT CType introspection; avoid treating VM managed records as native struct columns.",
-    "Replace direct FFI and bespoke binary graph framing in snapshotcodec/world with runtime persistence while preserving publication, entity identity, selection and hooks.",
-    "Run unchanged real three-archetype 10000-entity snapshot workload after migration; no Tecs timing or full acceptance claimed here."
-  ]
+    "Finish integration of the accepted VM-native ffistorage adapter with original components/world/snapshotcodec; original Tecs checkout remains unchanged.",
+    "Apply validated target decoration to remaining dynamic edge sorts in actual world graph; next admission failure is world.nupp:1158 NUPP2702. Preserve original effects and ownership semantics.",
+    "Port remaining direct FFI and string.buffer uses in components, snapshotcodec and world; native asset library loading also remains an independent dependency.",
+    "Reconstruct storage registration and weak backing metadata for restored world graphs; isolated owner/view graph checks do not establish this.",
+    "Replace bespoke binary graph framing with runtime persistence while preserving publication, entity identity, selection and hooks.",
+    "Run actual three-archetype 10000-entity snapshot workload after migration; no Tecs timing or full acceptance claimed here."
+  ],
+  "actualSnapshotHistory": [
+    {
+      "status": "blocked",
+      "command": [
+        "/private/tmp/nupp-relocatable-aot/emitter",
+        "run",
+        "/private/tmp/nupp-unsigned-registers/compiler.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-tecs-snapshot-admission/project",
+        "tecs.bench.programs.snapshot"
+      ],
+      "sha256": {
+        "seed": "243df773927d3dbe93869a4f73f65e72c89dfd18335b9eeb837d2441b468ce7f",
+        "runtime": "eec8ed0f79ae5dab303bef946113f8df3e02f68fb68a7925c96574cf4851bd9e"
+      },
+      "error": "error: \"statement kind cdefFunc in module:tecs.internal.assetnative\"\n  lower.emit.fn2888 at pc 3222\n  lower.emit.fn2890 at pc 12\n  lower.emit.fn2891 at pc 97\n  compileModule at pc 511\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1146\n  project.emit at pc 247\n\n",
+      "report": "/private/tmp/nupp-tecs-snapshot-admission/results.json",
+      "runtimePersistenceAccepted": false
+    }
+  ],
+  "ffiStorage": {
+    "status": "passed",
+    "sourceProvenance": "tecs-ffistorage-project/provenance.json",
+    "fixture": "tecs-ffistorage-project/src/tecs/tests/ffistorage.nupp",
+    "driver": "tecs-ffistorage-smoke.py",
+    "scope": "Four actual direct storage tests plus supplemental codecs, staging and physical graph persistence; not complete original ffistoragetest suite",
+    "report": "/private/tmp/nupp-tecs-ffistorage-final-v4/results.json",
+    "sha256": {
+      "seed": "7b34e6f314a775e009ce534abecbf8ef7d60feab53015bd879501934022d142f",
+      "runtime": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce",
+      "image": "c33d3b2fc68bb93180858217d6fc441a05b785e0bb9d743ec50d6e57904ba0ab"
+    },
+    "modes": [
+      "rust",
+      "threaded",
+      "jit",
+      "frames"
+    ],
+    "gc": "Full collection each allocation, oracle and quarantine",
+    "checks": [
+      "Four original Tecs direct storage tests: relocation, bounded raw IO excluding row zero, range rejection, custom allocator ownership/growth.",
+      "Public nupp.text Buffer provider selection, dynamic ordinary-record length and FIFO partial consumption.",
+      "Exact unsigned maximum and signed minimum decimal codecs, fixed float arrays and boolean fields.",
+      "Owned capture identity, borrowed row detachment, native graph owner aliases and persisted borrowed/owned flags."
+    ],
+    "runtime": "/private/tmp/nupp-physical-direct/runtime-v4",
+    "compiledFunctions": 97,
+    "compiledFrameEntries": 274,
+    "firstFailuresFixed": [
+      "VM lowering omitted semantic spiInterface identity, selecting the default nativebuffer rather than the configured portable tablebuffer.",
+      "Portable Buffer __len after late witness mutation now dispatches in all tiers; final test includes partial FIFO consumption.",
+      "Signed-min decimal codec avoids an out-of-range intermediate signed conversion."
+    ],
+    "sourceSha256": {
+      "tecs-ffistorage-project/LICENSE-MIT": "6f9b7025519926aecee140b00f74a51550f17d5e15acc7d8a1cd530b0f446b35",
+      "tecs-ffistorage-project/ffistorage.patch": "475e5854e33e6612bd936a2c49e20184f8e408c2283a0208de2ca28fb1e21678",
+      "tecs-ffistorage-project/ffistoragetest.patch": "6a16fb769183cc744cf51ee6acce2f980fd87d75291c08093ef0405367379311",
+      "tecs-ffistorage-project/nupp.lua": "c84ca2ae9fd8f2e15b129166d59816de2d2db558c0e77dc492ca58529ba288d5",
+      "tecs-ffistorage-project/provenance.json": "dbbddb1710367e9e29c1a8dedf3eb02d9b0ef602b81c7e5d3e12850ba71e9e37",
+      "tecs-ffistorage-project/src/nupp/spi/index.nupp": "8405216ab8b177278eb9a1e4ee7135f9b8f24392e8a419ff4ca55c66313e7d9a",
+      "tecs-ffistorage-project/src/tecs/internal/ffistorage.nupp": "cd5bd142fba6292461930dea325430557e2c90df5b81997cf03c9ee5223eed42",
+      "tecs-ffistorage-project/src/tecs/tests/ffistorage.nupp": "7944c9f4dcac6c8d478a84425611b3e26474b54d64fd17f10874645debf6e2b1"
+    }
+  },
+  "adaptedSnapshotAdmission": {
+    "status": "blocked",
+    "sha256": {
+      "seed": "7b34e6f314a775e009ce534abecbf8ef7d60feab53015bd879501934022d142f",
+      "runtime": "91d721a0c1a1e18b49d62cdd1eacd4164c72e8f6b4d2be346688e31f531a1bb1"
+    },
+    "runtimePersistenceAccepted": false,
+    "layoutTarget": "aarch64-apple-darwin",
+    "adaptations": [
+      {
+        "patch": "/private/tmp/nupp-codegen-experiment/native/crates/vm/tests/tecs-snapshot-sort.patch",
+        "sha256": "73fea2eec3e0ae3d2f87ddf791be6881cb46d3730b18897fd17d9d4009e77d9f",
+        "exitCode": 0
+      }
+    ],
+    "error": "error: \"tecs.internal.world:1158:16: NUPP2702 `edgeTarget` reaches code with unknown effects, and `table.sort` cannot yield across the C call that reaches it\"\n  project.emit.fn3100 at pc 145\n  compileModule at pc 86\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1224\n  project.emit at pc 249\n\n",
+    "report": "/private/tmp/nupp-tecs-snapshot-scope-admission/results.json",
+    "command": [
+      "/private/tmp/nupp-physical-direct/runtime-v3",
+      "run",
+      "/private/tmp/nupp-physical-fields/final-host.image",
+      "nupp.tools.vm.project",
+      "emit",
+      "/private/tmp/nupp-tecs-snapshot-scope-admission/project",
+      "tecs.bench.programs.snapshot"
+    ],
+    "interpretation": "VM Tasks.Scope type alias restores the original public ownership annotation. Next boundary is a second dynamic edgeTarget comparator, in world.nupp:1158, still forbidden from crossing the non-yielding table.sort boundary.",
+    "taskScopeDeclaration": {
+      "file": "native/crates/vm/decls/nupp/tasks.d.nupp",
+      "sha256": "88ce19f6b258726f22ebf7cbbc8cd79496f63a75c52e51b650222e09a02cd95f",
+      "exportedType": "Tasks.Scope = Scope"
+    }
+  },
+  "adaptedSnapshotAdmissionHistory": [
+    {
+      "status": "blocked",
+      "sha256": {
+        "seed": "b12374a43594fbeb319beca509bd2f4965b50d4f506226f5af4312e78120a4aa",
+        "runtime": "ecf5b91e31ed90b33da84ea6d0739a2afc59228575bba648ab4a6bfdf3618169"
+      },
+      "runtimePersistenceAccepted": false,
+      "layoutTarget": "aarch64-apple-darwin",
+      "adaptations": [
+        {
+          "patch": "/private/tmp/nupp-codegen-experiment/native/crates/vm/tests/tecs-snapshot-sort.patch",
+          "sha256": "73fea2eec3e0ae3d2f87ddf791be6881cb46d3730b18897fd17d9d4009e77d9f",
+          "exitCode": 0
+        }
+      ],
+      "error": "error: \"tecs.internal.world:46:82: NUPP2101 unknown exported type \\\"Scope\\\" in module \\\"nupp.tasks\\\"\"\n  project.emit.fn3100 at pc 145\n  compileModule at pc 86\n  compileModule at pc 150\n  compileModule at pc 150\n  compileModule at pc 150\n  lower.emit at pc 1224\n  project.emit at pc 249\n\n",
+      "report": "/private/tmp/nupp-tecs-snapshot-sorted-admission/results.json",
+      "command": [
+        "/private/tmp/nupp-physical-direct/runtime-v1",
+        "run",
+        "/private/tmp/nupp-physical-fields/compiler2/generation1.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/private/tmp/nupp-tecs-snapshot-sorted-admission/project",
+        "tecs.bench.programs.snapshot"
+      ],
+      "interpretation": "Typed edge-target sort crosses the former effect boundary safely; next missing seam is exported Scope identity in VM nupp.tasks declarations."
+    }
+  ],
+  "patchNormalization": {
+    "description": "Empty context lines omit the optional space prefix to satisfy diff whitespace checks. All three normalized patches replay with git apply to byte-identical accepted source. Admission history retains the original tested patch hashes.",
+    "snapshotPatchSha256": "966f752c5da48441a04599f3792afb360a4dd340a76a59e9393548d196e85f59"
+  }
 }

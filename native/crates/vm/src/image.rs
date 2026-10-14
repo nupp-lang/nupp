@@ -86,6 +86,14 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                     it.handles.push(name);
                     f.consts[key] = name;
                 }
+                for op in &f.code {
+                    let p=match *op { Op::GetPhys(_,_,p)|Op::GetPhysF(_,_,p)|Op::GetPhysI(_,_,p)|Op::GetPhysU(_,_,p)|Op::SetPhys(_,p,_)|Op::SetPhysF(_,p,_)|Op::SetPhysI(_,p,_)=>p,_=>continue };
+                    for key in [p.identity,p.name] {
+                        let v=*f.consts.get(key as usize).ok_or_else(||format!("line {ln}: physical constant outside pool"))?;
+                        if !it.is_stringish(v) { return Err(format!("line {ln}: physical identity/name must be strings")); }
+                        let v=it.key_for_store(v); it.handles.push(v); f.consts[key as usize]=v;
+                    }
+                }
                 funcs.push(f);
             }
             "entry" => { entry = base + parts[1].parse::<u32>().unwrap(); }
@@ -115,7 +123,26 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                         if value>max { return Err(format!("line {ln}: {name} operand out of range")); }
                     }
                 }
+                if name.starts_with("GetPhys") || name.starts_with("SetPhys") {
+                    if parts.len()!=8 { return Err(format!("line {ln}: physical field operand count")); }
+                    let store=name.starts_with("Set");
+                    for i in 1..8 {
+                        let max=if (!store && i<=2) || (store && (i==1 || i==7)) {255u64}
+                            else if i==if store {5}else{6} {u32::MAX as u64}
+                            else if i==if store {6}else{7} {10} else {65535};
+                        let v=parts[i].parse::<u64>().map_err(|_|format!("line {ln}: invalid physical operand"))?;
+                        if v>max { return Err(format!("line {ln}: physical operand out of range")); }
+                    }
+                }
+                let physical=|start:usize|crate::storage::PhysicalField { identity:a(start) as u16,name:a(start+1) as u16,ordinal:a(start+2) as u16,offset:a(start+3) as u32,kind:a(start+4) as u8 };
                 let op = match name {
+                    "GetPhys"=>Op::GetPhys(a(1) as u8,a(2) as u8,physical(3)),
+                    "GetPhysF"=>Op::GetPhysF(a(1) as u8,a(2) as u8,physical(3)),
+                    "GetPhysI"=>Op::GetPhysI(a(1) as u8,a(2) as u8,physical(3)),
+                    "GetPhysU"=>Op::GetPhysU(a(1) as u8,a(2) as u8,physical(3)),
+                    "SetPhys"=>Op::SetPhys(a(1) as u8,physical(2),a(7) as u8),
+                    "SetPhysF"=>Op::SetPhysF(a(1) as u8,physical(2),a(7) as u8),
+                    "SetPhysI"=>Op::SetPhysI(a(1) as u8,physical(2),a(7) as u8),
                     "DeferMethod" => Op::DeferMethod(a(1) as u8, a(2) as u16), "Defer" => Op::Defer(a(1) as u8, a(2) as u8), "CleanupLive" => Op::CleanupLive(a(1) as u8, a(2) as u16),
                 "AffineMark" => Op::AffineMark(a(1) as u8, a(2) as u8),
                 "AffineEnter" => Op::AffineEnter,

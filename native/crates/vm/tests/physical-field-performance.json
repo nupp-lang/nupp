@@ -1,0 +1,3433 @@
+{
+  "date": "2026-10-14",
+  "status": "passed",
+  "disposition": "Retain guarded direct scalar fields with the invalidated descriptor cache.",
+  "scope": "Authored physical-field microbenchmarks on aarch64 macOS with Cranelift JIT; not a whole-program or Tecs snapshot speedup.",
+  "baseCommit": "6ac7c1050807ed7e1b8558a6788d79cbdc5da02e",
+  "method": {
+    "harness": "native/crates/vm/tests/physical-field-perf.py",
+    "pairs": 7,
+    "repeatPerProcess": 7,
+    "ordering": "Alternating baseline/candidate order, serial fresh process pairs for each workload. All results and source assertions checked.",
+    "primaryMetric": "Per-process median warm-call monotonic wall milliseconds; runner cpu_now uses std::time::Instant, not CPU time.",
+    "interval": "95 percent paired bootstrap interval of geometric-mean baseline/candidate ratios across seven process pairs; 10000 deterministic resamples.",
+    "practicalMargin": 0.05,
+    "secondaryMetric": "Peak RSS from per-child wait4; unchanged within 5 percent for all four cases in both comparisons.",
+    "hostActivity": "No concurrent task compiler, build, or test jobs during final runs. macOS background activity remained uncontrolled: fseventsd around one core, WindowServer and other system processes active. Results are local measurements, not an idle-host guarantee.",
+    "metricCorrection": "Earlier pilot labels said CPU time. Only their labels were corrected after inspecting runner cpu_now; raw timing samples were not changed."
+  },
+  "source": {
+    "path": "native/crates/vm/tests/physical-field-project/src/physical/fields.nupp",
+    "sha256": "46f6d6b47246b29a2d6068b18b43014933ba9a3efaa6a7b87f242743d4ac4132",
+    "preservedBaseline": "/private/tmp/nupp-physical-fields/baseline-source.nupp",
+    "identicalSource": true
+  },
+  "baselineCompilerSeed": {
+    "path": "/private/tmp/nupp-physical-structs/compiler3/generation1.image",
+    "sha256": "6605af8cf6c479fd6292378de03670c021d0179fab03eff89279699062e34dc4"
+  },
+  "finalCompilerSeed": {
+    "path": "/private/tmp/nupp-physical-fields/final-host.image",
+    "sha256": "7b34e6f314a775e009ce534abecbf8ef7d60feab53015bd879501934022d142f",
+    "finalReemissionByteIdenticalToTimedCandidate": true
+  },
+  "deterministicEvidence": {
+    "bytecodeCounts": {
+      "baseline": {
+        "GetField": 26,
+        "SetField": 32
+      },
+      "candidate": {
+        "GetField": 10,
+        "SetField": 13,
+        "GetPhys": 8,
+        "GetPhysF": 8,
+        "SetPhys": 19
+      }
+    },
+    "native": "Candidate scalar assembly contains direct AArch64 ldr/str of d/s registers after the nonallocating guard; miss edges retain generic helpers. Layout facts come from checked semantic types.",
+    "artifacts": {
+      "baseline": {
+        "command": [
+          "/private/tmp/nupp-physical-direct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-fields/baseline.image",
+          "physical.fields",
+          "scalar"
+        ],
+        "directory": "/private/tmp/nupp-physical-fields/baseline-native-v4",
+        "files": {
+          "1.asm": {
+            "bytes": 25220,
+            "sha256": "982a38f4aa6ee141d4b3cc36676ad5cc599cde322bd45e2db7772d0f9cd6b522"
+          },
+          "1.clif": {
+            "bytes": 44423,
+            "sha256": "e58821df7ee856e0d6c2a5f937ea65eb992fd1e014b514d4cadd6b87732162f3"
+          },
+          "2.asm": {
+            "bytes": 39604,
+            "sha256": "80554317c39d2799b9013c9e0fc8df6402ddd81de7b264fda4d6f17f36f8cf88"
+          },
+          "2.clif": {
+            "bytes": 73525,
+            "sha256": "e0109e0a7b413a13748714323d64c8b876cdb155793e7095cc3a957dac53f1aa"
+          },
+          "3.asm": {
+            "bytes": 24376,
+            "sha256": "87d99df4a99dd02a6866dad9373c7485d2d1a64c827e6ec97413e80a1020d0bd"
+          },
+          "3.clif": {
+            "bytes": 44607,
+            "sha256": "9faef4402bf8a6cb911af269847af301ceef76da4671dfc69573f44d295753a0"
+          },
+          "4.asm": {
+            "bytes": 25240,
+            "sha256": "e80c9c63efb57f6724e638da6778c78d84a0df3558526733f30ae364d2e02b34"
+          },
+          "4.clif": {
+            "bytes": 44868,
+            "sha256": "9baa37c8355b7864302db90d95d448c2a7f41baa5736233a85094635525e8187"
+          }
+        }
+      },
+      "candidate": {
+        "command": [
+          "/private/tmp/nupp-physical-direct/runtime-v4",
+          "run",
+          "/private/tmp/nupp-physical-fields/candidate.image",
+          "physical.fields",
+          "scalar"
+        ],
+        "directory": "/private/tmp/nupp-physical-fields/candidate-native-v4",
+        "files": {
+          "1.asm": {
+            "bytes": 25942,
+            "sha256": "fa8fa277b62350bce1c2b995cc0f21ce3924eadbb112b37577b175cd05e0015b"
+          },
+          "1.clif": {
+            "bytes": 44750,
+            "sha256": "4375e840c6a036e832720fe1596759a375171e16704b704af311822f45038d9b"
+          },
+          "2.asm": {
+            "bytes": 38286,
+            "sha256": "a74445cfc78cb92ecbaa63cfc38d3c1c2f4dc685a7387a6fdd2ad98bc357f64c"
+          },
+          "2.clif": {
+            "bytes": 68465,
+            "sha256": "9a59251befe661757502948906cc54e69c77f9770df481324f81d5bacf7166a6"
+          },
+          "3.asm": {
+            "bytes": 23871,
+            "sha256": "9f995030d859a6126a89e03880751a27345706ac1ee72891386394d3a41c39ec"
+          },
+          "3.clif": {
+            "bytes": 43720,
+            "sha256": "147c178c51b291bd73088cb3fbe93f98a5eaeb91a4bbd28a3953de4917aa104f"
+          },
+          "4.asm": {
+            "bytes": 27888,
+            "sha256": "2a3bcfca5d5d0ad2c2a0108665d33c031fa9bcbc0d58a03f0df3581413a8488c"
+          },
+          "4.clif": {
+            "bytes": 48406,
+            "sha256": "5c6842b50d0ed9364ca5a4d47be8c27eb8ef93050b485fefd623e145c05a5b8f"
+          }
+        }
+      }
+    },
+    "loadAndFirstCallAllocations": {
+      "scalar": {
+        "baseline": 455,
+        "candidate": 455
+      },
+      "wide": {
+        "baseline": 30444,
+        "candidate": 30444
+      },
+      "rows": {
+        "baseline": 17349,
+        "candidate": 17349
+      },
+      "dynamic": {
+        "baseline": 455,
+        "candidate": 455
+      }
+    },
+    "allocationInterpretation": "Image-only comparison leaves object counts unchanged. Whole-change comparison adds two setup objects per case. No removal of wide boxes or row-view materialization is claimed."
+  },
+  "candidateHistory": [
+    {
+      "version": "v1",
+      "runtimeSha256": "ecf5b91e31ed90b33da84ea6d0739a2afc59228575bba648ab4a6bfdf3618169",
+      "report": "/private/tmp/nupp-physical-fields/pilot-v1/results.json",
+      "pairs": 2,
+      "repeat": 3,
+      "warm": {
+        "scalar": {
+          "baselineMedian": 72.092646,
+          "candidateMedian": 80.2605835,
+          "baselineOverCandidate": 0.8982373361346881,
+          "pairedBootstrap95": [
+            0.8968964245901868,
+            0.899580252418779
+          ],
+          "verdict": "regressed"
+        },
+        "wide": {
+          "baselineMedian": 77.744729,
+          "candidateMedian": 89.3858955,
+          "baselineOverCandidate": 0.869763210421167,
+          "pairedBootstrap95": [
+            0.8644850852758486,
+            0.8750735612295121
+          ],
+          "verdict": "regressed"
+        },
+        "rows": {
+          "baselineMedian": 65.417084,
+          "candidateMedian": 71.4092085,
+          "baselineOverCandidate": 0.9160879476165203,
+          "pairedBootstrap95": [
+            0.9148095994180475,
+            0.9173680821693533
+          ],
+          "verdict": "regressed"
+        },
+        "dynamic": {
+          "baselineMedian": 71.3372705,
+          "candidateMedian": 71.34425,
+          "baselineOverCandidate": 0.9999923184109222,
+          "pairedBootstrap95": [
+            0.9909309780243315,
+            1.0091365181403154
+          ],
+          "verdict": "unchanged"
+        }
+      },
+      "disposition": "Rejected: uncached descriptor validation offset the direct-load savings.",
+      "qualification": "Diagnostic pilot during concurrent compiler work; final verdict uses the seven-pair runs below."
+    },
+    {
+      "version": "v2",
+      "runtimeSha256": {
+        "baseline": "861695f64cf6f409e00e4045c805686fa16ee09b61187ab6a22998909b4c1908",
+        "candidate": "861695f64cf6f409e00e4045c805686fa16ee09b61187ab6a22998909b4c1908"
+      },
+      "report": "/private/tmp/nupp-physical-fields/pilot-v2/results.json",
+      "pairs": 2,
+      "repeat": 3,
+      "warm": {
+        "scalar": {
+          "baselineMedian": 74.321958,
+          "candidateMedian": 14.525353500000001,
+          "baselineOverCandidate": 5.116195968941366,
+          "pairedBootstrap95": [
+            5.042842411800489,
+            5.190616532327097
+          ],
+          "verdict": "improved"
+        },
+        "wide": {
+          "baselineMedian": 80.109208,
+          "candidateMedian": 19.091937,
+          "baselineOverCandidate": 4.1959692653176806,
+          "pairedBootstrap95": [
+            4.170194353365303,
+            4.22190348545329
+          ],
+          "verdict": "improved"
+        },
+        "rows": {
+          "baselineMedian": 67.52393749999999,
+          "candidateMedian": 34.706042,
+          "baselineOverCandidate": 1.9455982223733705,
+          "pairedBootstrap95": [
+            1.9419367367194578,
+            1.9492666116904875
+          ],
+          "verdict": "improved"
+        },
+        "dynamic": {
+          "baselineMedian": 73.20679150000001,
+          "candidateMedian": 71.79641649999999,
+          "baselineOverCandidate": 1.0196324421494933,
+          "pairedBootstrap95": [
+            1.0172467129406337,
+            1.022023766563317
+          ],
+          "verdict": "unchanged"
+        }
+      },
+      "disposition": "Retained for final validation: versioned weak descriptor cache removed repeated layout traversal.",
+      "qualification": "Diagnostic pilot during concurrent compiler work; final verdict uses the seven-pair runs below."
+    }
+  ],
+  "comparisons": {
+    "same-runtime": {
+      "scope": "Physical scalar field access; identical authored source, two images; one runtime",
+      "host": "macOS-26.6-arm64-arm-64bit",
+      "pairs": 7,
+      "repeat": 7,
+      "practicalMargin": 0.05,
+      "metric": "warmMs (monotonic wall time; runner cpu_now uses Instant)",
+      "binarySha256": {
+        "baseline": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce",
+        "candidate": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce"
+      },
+      "imageSha256": {
+        "baseline": "e191d2a7edaf99da9d40e20c1ff6b53d94f8e9fd531ae86f601cd86a0fb8490b",
+        "candidate": "585b8cb1dc335dd6c147aecd769781c6b7055799a1ad29ed971aac8d9b1acc3a"
+      },
+      "cases": [
+        {
+          "name": "scalar",
+          "expected": "-2500",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-0-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 601.830875,
+                "peakRssBytes": 10551296,
+                "warmMs": 73.365083,
+                "firstMs": 74.103,
+                "loadMs": 0.55,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "e53a9b740e6ec07caf295ada5d5f5037a01aea5ad95d512790a666efc522002e",
+                "stderrSha256": "582e78a4222859d03adce2df582e1e61a047890324557b07a1aec1a6d7bd5766"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-0-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 125.08441600000009,
+                "peakRssBytes": 10469376,
+                "warmMs": 14.650541,
+                "firstMs": 14.973,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "03b59aae95be323e22b34205b962408888483a11a81d4ed66f51ee907c3c304c",
+                "stderrSha256": "8a9dff3a0fa29064aab1adc5713178ece2e68ca5be63914f70747e9a4bf46f4b"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-1-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.58120900000003,
+                "peakRssBytes": 10485760,
+                "warmMs": 14.550959,
+                "firstMs": 14.528,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "b0ffc2a0ddd0e8a7d75fa59694b3bde2b8b90da586a98cbee0b64ad493bcea31",
+                "stderrSha256": "b7f2186172dad21347158e6b1ee1d78cf42521970b73be19c73f9ba7f1cd076d"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-1-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 597.466291,
+                "peakRssBytes": 10584064,
+                "warmMs": 73.499751,
+                "firstMs": 74.598,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "a58e058096f448d12079931e7174ea3777bf3153bba6e5bd47079b3e63d50337",
+                "stderrSha256": "9776c78f3942e6956ee311c8cbf7a82698b220e77f52a469b40f8ffe10f37cb7"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-2-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 597.6841249999998,
+                "peakRssBytes": 10567680,
+                "warmMs": 73.569708,
+                "firstMs": 74.311,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "7cf519335522164c8b079c455b6929ebf9bcdb546dabbbf6e20832577beadc66",
+                "stderrSha256": "10d21d89c9dd294cc8f06218fc148b948cdb8ba112fd66b4f7eb3aefd34b111b"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-2-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 125.25666700000038,
+                "peakRssBytes": 10485760,
+                "warmMs": 14.659624,
+                "firstMs": 14.888,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "3ec6c2cdfefab9732a9f6be8b5a74f1b17139fb45336bce14c75227ae731b1c3",
+                "stderrSha256": "fda0cb1a77e94be924530f31174e3551cc4c1a1cb0af5632802922fe2ef5f20b"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-3-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 126.12295799999984,
+                "peakRssBytes": 10485760,
+                "warmMs": 14.799333,
+                "firstMs": 14.93,
+                "loadMs": 0.27,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "23165440b40f5f5f5f90721c5d577a8e66a66bdd53c55a7a40c3dcd64215a550",
+                "stderrSha256": "aea983a970a758fafbb2f56ab46d213fe6b8a0a59824525e84b5689b4c017bb9"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-3-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 599.3943330000002,
+                "peakRssBytes": 10436608,
+                "warmMs": 73.616542,
+                "firstMs": 73.969,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "dcd644a1a7c548e2d5d668c6143266de4a9b76be5eb93f37a939346c2e83682c",
+                "stderrSha256": "756bb3bfb120bd32d208859257d345548f020f7119cc415445109d10721f71ae"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-4-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 607.2225840000001,
+                "peakRssBytes": 10551296,
+                "warmMs": 74.922501,
+                "firstMs": 75.274,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "26da79a7eb1739d1c347863c549568558de65ff84a7c5f25877fe6aeaae34c32",
+                "stderrSha256": "b56a4381d1f2f0497783d4966a147354f8378bbd726270a90dfb5fd16ebc2f09"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-4-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.647167,
+                "peakRssBytes": 10452992,
+                "warmMs": 14.625666,
+                "firstMs": 14.492,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "2755a35f912e34d7583c69d69f8e02ab5372224b79306896e31537cc3fd7b07d",
+                "stderrSha256": "9f0727203c89b7b9ef97e94abc02e24f6490128d643feb1fd4b9602a48ae1b78"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-5-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 123.16916599999983,
+                "peakRssBytes": 10502144,
+                "warmMs": 14.400666,
+                "firstMs": 14.679,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "e651c8aa063f00891d02e88b6c6bc3f75b89a0ca87a4f7d8b60162398065efa2",
+                "stderrSha256": "13335241439d81915d11d63bde38e9dc9d24d444208db230921500b936d7ebc5"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-5-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 596.4677499999996,
+                "peakRssBytes": 10584064,
+                "warmMs": 73.799125,
+                "firstMs": 73.403,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "c64a54df82af51aca062e1e34104b5db8d3dc89ca09169de2c933d285903ab26",
+                "stderrSha256": "30f442b391877ba4c63968dda99336d8dcc4e48d688e500bfe5b5aa932d70233"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-6-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 592.9361249999996,
+                "peakRssBytes": 10436608,
+                "warmMs": 72.914333,
+                "firstMs": 73.733,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "df9f679f17ea9c7789ec21e7a2bdbfdf5e0d317388c13fc3486f3bb9f64ce126",
+                "stderrSha256": "1751f08c7fd39e5e3790b2a5721e3d2375eecd12a417fec8aceff9bef26b64c1"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/scalar-6-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.66104199999961,
+                "peakRssBytes": 10469376,
+                "warmMs": 14.640874,
+                "firstMs": 14.668,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "4e42a4fa55e01ee9d330999b7aa59f864905064ec818bc0847fe7f10b2105da6",
+                "stderrSha256": "8b9947ced7b1441678670063e845d6e240faccc28330d510caa390a9041129e6"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 73.569708,
+            "candidateMedian": 14.640874,
+            "baselineOverCandidate": 5.03956379023981,
+            "pairedBootstrap95": [
+              4.997984859788331,
+              5.0827795967255405
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 10551296,
+            "candidateMedian": 10485760,
+            "baselineOverCandidate": 1.0048983736600872,
+            "pairedBootstrap95": [
+              1.0008723755263713,
+              1.0087075135809107
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "wide",
+          "expected": "true",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-0-baseline.stderr",
+                "output": "true",
+                "wallMs": 645.838833,
+                "peakRssBytes": 14286848,
+                "warmMs": 79.335418,
+                "firstMs": 81.456,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "69587a0bd17412a9412333638b05d0e81463145eac2529b815b479d6e97f1e56",
+                "stderrSha256": "e526fc947c5ec59caaed4281ec81194b76e6fc7acbc1b6b12f75dd1c6e6c948d"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-0-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.08404199999993,
+                "peakRssBytes": 13975552,
+                "warmMs": 18.789917,
+                "firstMs": 20.224,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "ce9126c7950e99c0b34baf7f938c5e86809e1efac4ec58c592e02957840470a3",
+                "stderrSha256": "8b1389207fb529bac24ee9209de275fc745689c9baa5ee3c044cfc386e08e51c"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-1-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.9710829999994,
+                "peakRssBytes": 14106624,
+                "warmMs": 18.757958,
+                "firstMs": 20.532,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "a8c389b5bb21899a0de3736086567e27915f4c479415aee7cf2bb9aaa142246c",
+                "stderrSha256": "7bcfd5d19de08895c0436cad0d8732baf93f48f0e0888adaed091114c7878e2e"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-1-baseline.stderr",
+                "output": "true",
+                "wallMs": 646.3495839999994,
+                "peakRssBytes": 14303232,
+                "warmMs": 79.471834,
+                "firstMs": 81.638,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "ca7669ab9e90e99859dfd409f668b6bcd2cef39cfdd1dcf044a202c44ba5d68d",
+                "stderrSha256": "bf7a06cd05bf2210dda0a8e7a60659e5d8d8f3d8c791f83ac76deacaa2a23e99"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-2-baseline.stderr",
+                "output": "true",
+                "wallMs": 650.3502079999998,
+                "peakRssBytes": 14254080,
+                "warmMs": 79.885957,
+                "firstMs": 81.537,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "26fd007dd360d65dd941774d608f3e20e215d06824fd7bb3e69582027143e19f",
+                "stderrSha256": "57598534a39e6edf5179affb292466bdce4ae8bc239dc987d3f45d4b0a162bca"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-2-candidate.stderr",
+                "output": "true",
+                "wallMs": 161.70612500000027,
+                "peakRssBytes": 14237696,
+                "warmMs": 18.935166,
+                "firstMs": 20.502,
+                "loadMs": 0.27,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "bd47b84fbfe85369ddf2f1623483fc33c721a4c7af320cf6b673c51ae01f311c",
+                "stderrSha256": "9c23d2dd9c92de944c712b0198620750efa63a9f0678ccca57bf853a8aa5dff0"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-3-candidate.stderr",
+                "output": "true",
+                "wallMs": 160.28379200000043,
+                "peakRssBytes": 14155776,
+                "warmMs": 18.834166,
+                "firstMs": 20.16,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "3b8f96d8d1373c39b28a61c5a75e65e7e712d81bdf2e4c57a8a95a384ebb8dd1",
+                "stderrSha256": "7b71440cc368e962c6a61f005f7bbedb0d3ce2285570c0d22bbf4ca535c65cff"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-3-baseline.stderr",
+                "output": "true",
+                "wallMs": 659.8805830000006,
+                "peakRssBytes": 14139392,
+                "warmMs": 81.203167,
+                "firstMs": 82.302,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "7d07781c0c4af09f3a8d5b62ffe0a74b5538c5bc82b672d44c8fc08c051153e3",
+                "stderrSha256": "1cfe476c85fda01cf76a7ade716bed798854500a0f02aae3c3420857de0e26bb"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-4-baseline.stderr",
+                "output": "true",
+                "wallMs": 645.9912089999999,
+                "peakRssBytes": 14286848,
+                "warmMs": 79.429708,
+                "firstMs": 81.339,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "c2032d54af77bf12595df69152918de6cc4e06e7a49bc0686683de254319477d",
+                "stderrSha256": "f40af0dc9b0e418077cfe9da238c7e80abb779e471c3b6ac5a1f8bda32879b2c"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-4-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.67670799999922,
+                "peakRssBytes": 14024704,
+                "warmMs": 18.672125,
+                "firstMs": 20.572,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "d861919b32ab9b7a4e00cf682d4bcad56f19fb22cbb075b3f01640e2e4f23b53",
+                "stderrSha256": "674783920149f6be61038e361bfcb2669e460c9343df3f89d5b4618bdd0116d4"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-5-candidate.stderr",
+                "output": "true",
+                "wallMs": 161.2522090000006,
+                "peakRssBytes": 14139392,
+                "warmMs": 19.101042,
+                "firstMs": 20.454,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "47960c48471241fb6534ba0d1111b61c9c308d213f3dba37cda258213ee15a8e",
+                "stderrSha256": "d8a6f5f4453174f393fb2ef1d539464cf8b923a8a31acafa6ee0da27ef0fb25a"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-5-baseline.stderr",
+                "output": "true",
+                "wallMs": 646.9823750000003,
+                "peakRssBytes": 14237696,
+                "warmMs": 79.6565,
+                "firstMs": 81.414,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "1d23eeb1731f71b5e3958627565e9105e3838881cba3552c0dff28612d9ffde9",
+                "stderrSha256": "ba598b4c84a60c8733fa3988fc12352d53f73e32b10819e1d2d8ac05c6d39fec"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-6-baseline.stderr",
+                "output": "true",
+                "wallMs": 646.6015000000009,
+                "peakRssBytes": 14254080,
+                "warmMs": 79.331751,
+                "firstMs": 82.186,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "3d7e50c0f771c11f124c1f167b08d8efdec999edf823ba5bb0a7689feaceae2a",
+                "stderrSha256": "64e7b06e88876edcfb6c7f8fae3625ae848e3b194e0a40cbef3917ce17f0dc35"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/wide-6-candidate.stderr",
+                "output": "true",
+                "wallMs": 158.25258299999945,
+                "peakRssBytes": 14188544,
+                "warmMs": 18.6135,
+                "firstMs": 20.099,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "19c9f0dd5e5cad9533cfe71d2778628d06247c991d5d4c4dc6fce85f1fa7129b",
+                "stderrSha256": "e6420c62770a6e4d585da612347a9173014caa5ad783bc57fe4ff1c7ded16603"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 79.471834,
+            "candidateMedian": 18.789917,
+            "baselineOverCandidate": 4.239176098467261,
+            "pairedBootstrap95": [
+              4.20936158314132,
+              4.269530721750609
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 14254080,
+            "candidateMedian": 14139392,
+            "baselineOverCandidate": 1.0094614392976498,
+            "pairedBootstrap95": [
+              1.0034670730952913,
+              1.015836440302488
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "rows",
+          "expected": "-4096",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-0-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 546.6548749999997,
+                "peakRssBytes": 11304960,
+                "warmMs": 67.178042,
+                "firstMs": 67.706,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "bb979ba5de79d03332f451c1ae219260f506874cbdd72565a6f8ee323ad5a6ce",
+                "stderrSha256": "6585cc40773410bee1dfcbb9facdb0ac7297ac6d3c3cd6c6450d47166bdecb57"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-0-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 290.4501659999994,
+                "peakRssBytes": 11370496,
+                "warmMs": 35.359708,
+                "firstMs": 35.638,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "2e8d2f13c35f76f268c17196d57bce25db8f31705b5cfd7e320891aeaff796d0",
+                "stderrSha256": "d3d04ec77283d74ddf508b9ddefdf7dc5af97179d70ba25f0b40b582a46cb0bf"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-1-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 294.09024999999997,
+                "peakRssBytes": 11386880,
+                "warmMs": 35.790916,
+                "firstMs": 35.878,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "fa9b229461b6d585190ffddca0b11fa75f93e106b4da586abc29efd2919f78e9",
+                "stderrSha256": "bb1115a7eaf68c68521d6b7a3e21bfc71d1c1654d8703adc77c749c65c348b81"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-1-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 549.5132500000004,
+                "peakRssBytes": 11452416,
+                "warmMs": 67.52746,
+                "firstMs": 68.631,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "96ebe5380ae34749d64811316f685dd6761561ef767478b241ed0e4dbc67746a",
+                "stderrSha256": "2d1ec4fd8dd5095e74fced1a0a2bcbb16a597843fb82aceadc4e4450bfb9d5ee"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-2-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 551.5072920000001,
+                "peakRssBytes": 11288576,
+                "warmMs": 67.787334,
+                "firstMs": 68.833,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "33160af95273192572e65cb0445e1180e5a57623e98daac1c25caf2b796ea1d4",
+                "stderrSha256": "f34f0c7c0d6159f2bb197ac2a4d3d07fee09cfbae8e404e506dc0358894a2d9c"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-2-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 295.8977909999998,
+                "peakRssBytes": 11337728,
+                "warmMs": 35.932126,
+                "firstMs": 36.215,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "0ca3d8be461bfecb95a3f9c537a8bc0124cb28d900df805669b89fc0ea680f8c",
+                "stderrSha256": "77d8cf468da94e85b9d00057ab38bb3c6bee78e8463fddf2c43d2a7b4ac41597"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-3-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 291.79133299999904,
+                "peakRssBytes": 11403264,
+                "warmMs": 35.52125,
+                "firstMs": 35.664,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "3cfbaa2a36593a0d689e5916415a719fbcf0a4f898c5388354b9de0690bdd524",
+                "stderrSha256": "a8411a360cc12ba0098cfb966d6eeca9afe1105baeb4b461be5225db5a125420"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-3-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 557.2329580000002,
+                "peakRssBytes": 11337728,
+                "warmMs": 68.487958,
+                "firstMs": 69.107,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "4141ec75d728348bb2f0e8e71911a5efef8915eb9cd42516739e1c96d9856096",
+                "stderrSha256": "edadfe3abba2ec38f36fdce6ba45a96ada62c669b4b532e2792b90b61a1096ea"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-4-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 544.1682920000002,
+                "peakRssBytes": 11419648,
+                "warmMs": 66.9695,
+                "firstMs": 67.659,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "2ae3d824553bf838f94428a49b5b2e14630f0abc10661ee7253e13c26a154aa1",
+                "stderrSha256": "1ce662b99b9a675a8e2b1088c5dfdc950c931561651bd764f890f1a53681fbf6"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-4-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 291.1705419999997,
+                "peakRssBytes": 11370496,
+                "warmMs": 35.33775,
+                "firstMs": 35.717,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "9492ba843e3cf39069fc265993ad3da516c661eb0bfb4e68ff9558ba3983561b",
+                "stderrSha256": "68fb1ca1b8470ca64eb893a4200b23ace62e50f24b5bb62b51dea1842190b0d4"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-5-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 293.50312500000086,
+                "peakRssBytes": 11370496,
+                "warmMs": 35.694459,
+                "firstMs": 35.797,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "469597186d827accf9b120ad6893ab291a9d57a543557112077fc73be8e21a09",
+                "stderrSha256": "174b8bcc9a4ac472e572232b0e7930776760f0fa6afdfd2451b4571f512f0961"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-5-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 546.1731249999992,
+                "peakRssBytes": 11485184,
+                "warmMs": 67.206582,
+                "firstMs": 67.843,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "549dab0200aae60dfb056920c14edaa954ece53ce9ae6d90f0bcbfb67a48437b",
+                "stderrSha256": "351cdfd458bcdece15c8d7faf4ed89e14a0d9ab81f808c8c3e3a5c3c5a2cd115"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-6-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 556.5223750000001,
+                "peakRssBytes": 11452416,
+                "warmMs": 68.415292,
+                "firstMs": 69.693,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "a567373369be644b70d6c84052797f5aa9da2d0afd3539ded5d5ed7ce36d93af",
+                "stderrSha256": "6c7da8b859dccd2273a7896dbec247da3871b1d702c86c18bacb5915a6215300"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/rows-6-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 290.14825000000144,
+                "peakRssBytes": 11337728,
+                "warmMs": 35.165874,
+                "firstMs": 35.615,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "7e12203b00847413ad215c6e451455afed5279eec802fb324db84174df831c8f",
+                "stderrSha256": "f30f80bb5041dee02f906691588be73271cafdef23a0a45e2f508f6c9b2338b2"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 67.52746,
+            "candidateMedian": 35.52125,
+            "baselineOverCandidate": 1.903392719254801,
+            "pairedBootstrap95": [
+              1.888646720511701,
+              1.920743572579801
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 11419648,
+            "candidateMedian": 11370496,
+            "baselineOverCandidate": 1.0020398359018556,
+            "pairedBootstrap95": [
+              0.9971098443721104,
+              1.0069956848829378
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "dynamic",
+          "expected": "-2500",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-0-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 593.9626249999997,
+                "peakRssBytes": 10584064,
+                "warmMs": 73.136709,
+                "firstMs": 73.844,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "3fa25a5347642f9d0613f8f479a102b33ac0451769b697132b8bc615cb1c14c4",
+                "stderrSha256": "8581ba46095de7cb0d9184c0787440c7005ae1dc45f8f8a09087381f589ab805"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-0-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 600.2189999999991,
+                "peakRssBytes": 10305536,
+                "warmMs": 73.750708,
+                "firstMs": 75.197,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "1a0dd71d6046c5b291de7eb37e9b9a5e53095fdc345312e3acf89ac919ea9904",
+                "stderrSha256": "d9502d52b0e36ae83ec315480419c5ccf8e24c961567449c8ae93d5fb4d81337"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-1-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 600.862166999999,
+                "peakRssBytes": 10485760,
+                "warmMs": 73.975083,
+                "firstMs": 74.134,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "5f15f7240c66a5194755a57cde7d93b41c80f6296ff36421fbab0ddb598a2c48",
+                "stderrSha256": "6fc58b6b836c8bbf121ba2113d26a92440fc3d1fe0805603ffa268ee0b2de8ba"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-1-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 595.8507920000002,
+                "peakRssBytes": 10567680,
+                "warmMs": 73.312833,
+                "firstMs": 74.138,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "0028a5eca4e5cbcba23e2ca9f2848448f987f9eec339a6624fee1c76e846ac40",
+                "stderrSha256": "1dd43639f2606dbc060637765599fcda6538c6115bcbf18d730a62e852a7d03e"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-2-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 594.9046660000015,
+                "peakRssBytes": 10584064,
+                "warmMs": 73.266249,
+                "firstMs": 73.644,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "cf05fbcee1e17a93106fd9cdc72be05bb5c96a4ab9bd079321d451d4b63dcfdc",
+                "stderrSha256": "3dbb33e51ff846f7ead45c69b179f117603425c4d435e618257117253bad592e"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-2-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 599.0405829999972,
+                "peakRssBytes": 10469376,
+                "warmMs": 73.694208,
+                "firstMs": 74.261,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "a1195b1b69c245e184d6f9db4578b482603d19ddb5af5b0dfda374fcd907ca20",
+                "stderrSha256": "b57bdda641fa40a311db5821bcfe4f5569b55a31618aacc77bb98cc656ac090a"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-3-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 602.9908749999997,
+                "peakRssBytes": 10485760,
+                "warmMs": 74.073208,
+                "firstMs": 75.447,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "5d864e73e710ab0558af34c1253d60ad01aacc2b25da91216f12d3aab9421125",
+                "stderrSha256": "e84b6a1ca4a00e525d0470c9fb2180b6876161af7951555ff07e7eed4cbfd36c"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-3-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 593.7570000000001,
+                "peakRssBytes": 10551296,
+                "warmMs": 72.892542,
+                "firstMs": 74.29,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "c9aef5c9534b5cc3f85cfe3218c9355033bd2ee3df82ad08aecf98a352362d21",
+                "stderrSha256": "1b305dda8b255749f51d1e094482f66a2c370c1d27c9dad35de1d064bac408e1"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-4-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 594.6450419999998,
+                "peakRssBytes": 10371072,
+                "warmMs": 73.164791,
+                "firstMs": 74.148,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "0587eed537db85b34ad2c69bccc3564785ac937f23b7f6ed3dc7f030a1cab99d",
+                "stderrSha256": "992b5517f809614c61e0aa193d9e21e4c188d590321d396e2632806666a4f1e0"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-4-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 597.044541999999,
+                "peakRssBytes": 10518528,
+                "warmMs": 73.48175,
+                "firstMs": 74.87,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "47cae69e05aa3984a2f3ec9a8188b2c14d3f803f4d56f46609e9594c537d3ef4",
+                "stderrSha256": "2fa746a4463be035abaacc23a77863a00d883bc4fa89e824a47e15b55771120d"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-5-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 599.4889169999987,
+                "peakRssBytes": 10485760,
+                "warmMs": 73.816875,
+                "firstMs": 74.495,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "93c2253ca831dd9535dc3f0ff9598e11faa9ba14cd225fd89e5cedb9d35c6ecd",
+                "stderrSha256": "c225a357a00a5254ba0feaf65266caea54766586e0bb71e1f81c48c473f322e0"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-5-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 593.4225420000025,
+                "peakRssBytes": 10387456,
+                "warmMs": 72.924624,
+                "firstMs": 73.958,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "2b91194b071b676c3fdb2e28885da141a4a36c8fffb91622ff8a4c057b2cac17",
+                "stderrSha256": "2124671a6e1420105f0c5504162b10c125794e5b6adef772ee40163c72956c8c"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-6-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 599.113667000001,
+                "peakRssBytes": 10551296,
+                "warmMs": 73.791875,
+                "firstMs": 74.209,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "f80d0ce9a16f522bf3c5e14afc05081065e53b4538edde6de23579a0875046f5",
+                "stderrSha256": "22c32a870607cf58a48412cb4ad1a05ff3aec6384c93960b518cc283a9e33095"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-same-runtime/dynamic-6-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 594.2890829999997,
+                "peakRssBytes": 10485760,
+                "warmMs": 72.891291,
+                "firstMs": 73.606,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "ee840964b15df9ac541d9883f0eeafd3b1e18adcf3dd29db94d2bec333b8daa4",
+                "stderrSha256": "27febbf00ea9ff0a0839ce4dfd0cc1d2a444dcac9fa976a3c3444c71a93a6dcd"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 73.164791,
+            "candidateMedian": 73.750708,
+            "baselineOverCandidate": 0.9938122426063232,
+            "pairedBootstrap95": [
+              0.988673224800659,
+              1.0006672080174106
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRss": {
+            "baselineMedian": 10551296,
+            "candidateMedian": 10485760,
+            "baselineOverCandidate": 1.0049076364735434,
+            "pairedBootstrap95": [
+              0.9959486976651128,
+              1.0139422163108085
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      ],
+      "status": "passed"
+    },
+    "total-change": {
+      "scope": "Physical scalar field access; identical authored source, two images; two runtimes",
+      "host": "macOS-26.6-arm64-arm-64bit",
+      "pairs": 7,
+      "repeat": 7,
+      "practicalMargin": 0.05,
+      "metric": "warmMs (monotonic wall time; runner cpu_now uses Instant)",
+      "binarySha256": {
+        "baseline": "a4924ab196a7a7a469ab4872a9374491fb8fc7b6c3b15cc60c5005a91487e071",
+        "candidate": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce"
+      },
+      "imageSha256": {
+        "baseline": "e191d2a7edaf99da9d40e20c1ff6b53d94f8e9fd531ae86f601cd86a0fb8490b",
+        "candidate": "585b8cb1dc335dd6c147aecd769781c6b7055799a1ad29ed971aac8d9b1acc3a"
+      },
+      "cases": [
+        {
+          "name": "scalar",
+          "expected": "-2500",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-0-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 575.025667,
+                "peakRssBytes": 10616832,
+                "warmMs": 70.228042,
+                "firstMs": 70.543,
+                "loadMs": 0.61,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "f313b6b332bce331718fa413e20d2c3a8901d5fe5226246b8e2439dfbd50a6c3",
+                "stderrSha256": "7374093e8280cca4e7f1f9b2662825f472c407f6ab8729756e6b094f770795e2"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-0-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.51454199999989,
+                "peakRssBytes": 10452992,
+                "warmMs": 14.5755,
+                "firstMs": 14.74,
+                "loadMs": 0.28,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "23832364513966713e7aeee88c70268834126c25d64119c6d453566c726ba4cb",
+                "stderrSha256": "06773fa8344906f68f0f2f3aa03ef936b6bfd39afb64b2aee0706d9cb922bd4c"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-1-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.82300000000002,
+                "peakRssBytes": 10289152,
+                "warmMs": 14.636666,
+                "firstMs": 14.747,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "77cbbe1f17c4bc52afbb76b50d8849eb4c67fdf28167fbdd74b3836fdb52f6d7",
+                "stderrSha256": "1284c46e497f62b2ef0fee3ce0474a45a0cfb9a3f700c3f08781cab35ddb3d00"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-1-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 574.119916,
+                "peakRssBytes": 10354688,
+                "warmMs": 70.59025,
+                "firstMs": 71.433,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "2ea18b25e32dcaa0f6fb5c002a44a73c433d6f55659c0f37e3a4d546602fe643",
+                "stderrSha256": "feeb2b64baae56185a83aa2a4baddee1377aa253caf10071e4e375f18a9eae2c"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-2-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 588.299417,
+                "peakRssBytes": 10436608,
+                "warmMs": 71.966916,
+                "firstMs": 75.514,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "1b33f298787726b6c4119b66a179a05c2d6ff99e7d44225ff1fd17b153d85137",
+                "stderrSha256": "466112051b74a22063270f05ca6be7177aaa7485c8eb9a509dccac2c07609a7c"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-2-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 123.92816600000023,
+                "peakRssBytes": 10485760,
+                "warmMs": 14.505417,
+                "firstMs": 14.6,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "3da4611d2f4eb7d72bc4a697d1c8a24a2d855d11a7e48d2c328406f3722351e8",
+                "stderrSha256": "5f9ce8b22392ee475cca9eb889d1273a43077911f16a1d3de77b3d0297e621b4"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-3-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.99474999999993,
+                "peakRssBytes": 10534912,
+                "warmMs": 14.547751,
+                "firstMs": 14.737,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "bf4b1ac00fa100726523ef5b7031a188afcb755b739f7244b29ca6d452ad30e0",
+                "stderrSha256": "8933bee2c2e77765b6132b9ca9a689c764d53c9fd88a49e2bc52e4724ff038fe"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-3-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 581.792541,
+                "peakRssBytes": 10469376,
+                "warmMs": 71.897666,
+                "firstMs": 71.941,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "bc24158f48710e8e1f1f9b33ebffe0b01e32858093b44c4ef56ef840cd712c52",
+                "stderrSha256": "4e9afa893c6aca2f47552d1001cd8c85b70b16b7c08e801e788153d3543cda66"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-4-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 578.7012090000001,
+                "peakRssBytes": 10534912,
+                "warmMs": 70.879166,
+                "firstMs": 72.976,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "89aa5ee491c87d753c0da94570570840a2c21d1ba87353ca44515931d0b21f4b",
+                "stderrSha256": "729f725e349da744d18b3023f55f1b4e54baef6c56df97558f2cbfebd49d7976"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-4-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 123.38358399999993,
+                "peakRssBytes": 10436608,
+                "warmMs": 14.357042,
+                "firstMs": 15.041,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "67ae6f3141eaaf25d8c03e797b578cf85330ac91461b32da3dffdb7cde820fac",
+                "stderrSha256": "051f5ed4d5aa6f467b5626b82c1583823fcbf047c124ac8cab81e7f71acdc0e0"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-5-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 122.12970799999967,
+                "peakRssBytes": 10502144,
+                "warmMs": 14.314625,
+                "firstMs": 14.536,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "fe346dbedc7152edbba65f84ce08ce52eb4efc00eabec758459311c0cac725d1",
+                "stderrSha256": "3d21487bfc2411e71604b4b5c4f9852fd828c85747d125cfdc130837ada7c765"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-5-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 595.684833,
+                "peakRssBytes": 10436608,
+                "warmMs": 73.046916,
+                "firstMs": 74.427,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "51764462b1a5f3107201128b2f841dda6eb20c64c5fff6094b698010b98d20e3",
+                "stderrSha256": "f77a4890d7a8c0b24543f93dcf6b5a67c79f19397d317faa6e7303f9446a34a3"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-6-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 596.2757500000002,
+                "peakRssBytes": 10534912,
+                "warmMs": 73.330792,
+                "firstMs": 75.433,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "fc174a98baa317cc4af65a05b5f7e506bf1faee6ed285bda26b3a8a8216d0903",
+                "stderrSha256": "c8ca7de124eb4d4622c6bc8fe5550e87785f6876787ab287437495550654e7c2"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "scalar",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/scalar-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/scalar-6-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 124.95066700000024,
+                "peakRssBytes": 10502144,
+                "warmMs": 14.657041,
+                "firstMs": 14.493,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "ae03ec7e7710c607dd21d4ef2ee273fb5705c8497d3c987f6e925e3947dac32d",
+                "stderrSha256": "f3746cf9cc89599982b68e074834a0fc3f537eb02d134219068db535f57a72e1"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 71.897666,
+            "candidateMedian": 14.547751,
+            "baselineOverCandidate": 4.9402246256650955,
+            "pairedBootstrap95": [
+              4.874249910240859,
+              5.007858765861562
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 10469376,
+            "candidateMedian": 10485760,
+            "baselineOverCandidate": 1.0024592167362307,
+            "pairedBootstrap95": [
+              0.9968753422222061,
+              1.0085049954612804
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "wide",
+          "expected": "true",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-0-baseline.stderr",
+                "output": "true",
+                "wallMs": 646.7392499999995,
+                "peakRssBytes": 14139392,
+                "warmMs": 79.428792,
+                "firstMs": 81.277,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "98ce91ab7163d98b803c86246666ddda315500eb3f1f4606a890ee3e04860abf",
+                "stderrSha256": "ed701da1f6182cc3762d371d8e37dc6b1b140fdbf965275b561aa63ebc12e0aa"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-0-candidate.stderr",
+                "output": "true",
+                "wallMs": 160.54154099999974,
+                "peakRssBytes": 14172160,
+                "warmMs": 18.909708,
+                "firstMs": 20.359,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "77b1103b1c5b3f56a26895c0aa39f86754e768e7f40bf5e3e38db7dabbe28f9c",
+                "stderrSha256": "1b00157fe0158d080d61b4b7e6d55e0f7d428cf43387f73d03f1e09d12ac7700"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-1-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.7057089999998,
+                "peakRssBytes": 14254080,
+                "warmMs": 18.688416,
+                "firstMs": 20.351,
+                "loadMs": 0.28,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "df54099931c78961898d15ab5fe02e1b11531a5f3c1ad2be6fd45516bcbf5f6c",
+                "stderrSha256": "df5add2c42d82ca7d80a379c6d1b80c5442bc7ad523195899ff55161a85add35"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-1-baseline.stderr",
+                "output": "true",
+                "wallMs": 640.7617080000003,
+                "peakRssBytes": 14155776,
+                "warmMs": 78.795001,
+                "firstMs": 81.035,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "3d33e797c2930d6fb24fe99cd63cda8557658c019bfe6a0bec2dd894398dd181",
+                "stderrSha256": "8761d61948c5c538c5173fc3a5d6c3d33cb476a63182d067442b9c490f27d58a"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-2-baseline.stderr",
+                "output": "true",
+                "wallMs": 624.7284999999998,
+                "peakRssBytes": 14139392,
+                "warmMs": 76.574625,
+                "firstMs": 78.362,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "7fdafee7794ce0e48d6776e186787f458fee3a9ebbcb04fb947ab096bd010adb",
+                "stderrSha256": "dc459d4593a86e22f88627b61e8ac8698ee62b3540ce66d8e088ad711d7e1860"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-2-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.93216700000002,
+                "peakRssBytes": 14139392,
+                "warmMs": 18.765917,
+                "firstMs": 20.361,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "aa192d22becb823593d520306b561037711d23cd0e023fe2f2c16783b484d2c7",
+                "stderrSha256": "f1c82642469ace1f8454ee92c0849ee84c381e17b125a1e5289e4e0267be4edb"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-3-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.68704199999985,
+                "peakRssBytes": 14139392,
+                "warmMs": 18.809958,
+                "firstMs": 20.141,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "8cb1af86c887dc4722265bbaeacf26a862464025d1c49b049f0c92cef0a02561",
+                "stderrSha256": "ef34a8bc4fadb8d7918d268020311dbe94fdc652a20d4efeda32d44c53fb199c"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-3-baseline.stderr",
+                "output": "true",
+                "wallMs": 623.9047089999996,
+                "peakRssBytes": 14041088,
+                "warmMs": 76.687458,
+                "firstMs": 77.861,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "36793f628ca274fbf88b91a8e70a0e7bbc952fc26af720a9e554949a236579fd",
+                "stderrSha256": "a5d071ba9a2867ba9391a4989a91c30f7558e97c25983d72796bd5b66f368ef2"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-4-baseline.stderr",
+                "output": "true",
+                "wallMs": 627.1524579999995,
+                "peakRssBytes": 14139392,
+                "warmMs": 77.16379,
+                "firstMs": 78.288,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "b515a7c0af1d640c5b79002599822cb438ce4ff9e06e68ca84684425380a5d6c",
+                "stderrSha256": "63aad1faaa50302b18fe2e50e4a9da4a7996668e20403c2dda20db03d172f722"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-4-candidate.stderr",
+                "output": "true",
+                "wallMs": 158.97241699999933,
+                "peakRssBytes": 14155776,
+                "warmMs": 18.552918,
+                "firstMs": 20.111,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "14137314f34011e2bbab6d5bafc2f94a965b179327ac13c9672e5115eeb2197e",
+                "stderrSha256": "dd98fe6df2c90a5e2aa21b39a6eb6884a738baa1bee9c29624c2e0c68480d754"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-5-candidate.stderr",
+                "output": "true",
+                "wallMs": 159.67620800000049,
+                "peakRssBytes": 14237696,
+                "warmMs": 18.730417,
+                "firstMs": 20.198,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "5120a2b53473f2377c03c65b90b0e3b7ece21f3b92afa996c62abc1ee21012ce",
+                "stderrSha256": "7befeb00625a2d75f0b1959cacb9bff4049148d9429e4570d5b2b910396484cd"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-5-baseline.stderr",
+                "output": "true",
+                "wallMs": 629.0251250000001,
+                "peakRssBytes": 14221312,
+                "warmMs": 77.263666,
+                "firstMs": 78.194,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "84c31351d8bdc8bfe42dc2167ad37b6481fd501af774ac4b61da255a22d3b6ca",
+                "stderrSha256": "fae207e922a2e7edd7b53f252702472705a22e775e1c5cb254dfc25cdb2d428b"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-6-baseline.stderr",
+                "output": "true",
+                "wallMs": 626.9365829999991,
+                "peakRssBytes": 14303232,
+                "warmMs": 76.918,
+                "firstMs": 79.401,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30442,
+                "loadAndFirstCallAllocatedObjects": 30442,
+                "stdoutSha256": "32a9fe5cc74566265f87cee0815345e393592de7fa33a7c6982cb2778cef018e",
+                "stderrSha256": "2d4abb05895011bac57b014654617bbf5b693d69142f2b4fb6c8d31a17c752dc"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "wide",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/wide-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/wide-6-candidate.stderr",
+                "output": "true",
+                "wallMs": 160.6741669999998,
+                "peakRssBytes": 14041088,
+                "warmMs": 18.9885,
+                "firstMs": 20.15,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 30444,
+                "loadAndFirstCallAllocatedObjects": 30444,
+                "stdoutSha256": "8fc36042a71b99e091a71cfb7be7e98701000238de2b58a6cbabf8282c45bb52",
+                "stderrSha256": "5345abc6098bc0aa4cfa1bbd357faaee0b80338ad241e81d2196045b0590740b"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 77.16379,
+            "candidateMedian": 18.765917,
+            "baselineOverCandidate": 4.129439054045094,
+            "pairedBootstrap95": [
+              4.086158973824097,
+              4.173527993325348
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 14139392,
+            "candidateMedian": 14155776,
+            "baselineOverCandidate": 0.9999965882540314,
+            "pairedBootstrap95": [
+              0.9953804079030937,
+              1.0066301187151514
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "rows",
+          "expected": "-4096",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-0-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 540.5242500000007,
+                "peakRssBytes": 11288576,
+                "warmMs": 66.42229,
+                "firstMs": 67.098,
+                "loadMs": 0.28,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "37853c11fe0590b77011bca02a1e600eb86fd229edc1e59f5ad4d75c28b64b65",
+                "stderrSha256": "8c660930e9c736cbf71d6a55687d443decddf876d442973c06cfb06ca03465a6"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-0-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 300.19170799999984,
+                "peakRssBytes": 11304960,
+                "warmMs": 36.642291,
+                "firstMs": 35.727,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "d5ec2a0d95e072f124321a408954765668423f5460d2b0ffaa8159ff32e58ae0",
+                "stderrSha256": "3281f79e3c1a0875a007367faef24a6558b8c8b893754f62b14f17de7d259e02"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-1-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 291.71454199999937,
+                "peakRssBytes": 11190272,
+                "warmMs": 35.395958,
+                "firstMs": 35.746,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "40ad84df57c3c7e6078113915a1361b81667e05c48576cff166385f9e5af146a",
+                "stderrSha256": "448bb25cc66d6c1e47b2f4ea3760f6c12f11964009edb33444525b056c2fbceb"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-1-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 530.7044160000007,
+                "peakRssBytes": 11386880,
+                "warmMs": 65.118124,
+                "firstMs": 66.33,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "a9d87d929ebb111fb89918707b086561914b46295912aff46c5bae81297471d1",
+                "stderrSha256": "cfa7d191d909efee7c525a5b74539fca3d467d674283354f487fff0983ba27a9"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-2-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 546.3717499999987,
+                "peakRssBytes": 11337728,
+                "warmMs": 67.148084,
+                "firstMs": 68.069,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "1457ea289b12ceb02662cc5623970b258cf122d1a2d9f713727ce033eef6163f",
+                "stderrSha256": "5ea4aba9b0dd43765a053e40200d9eb9ca4ded0e1ce3fb42f77610dcdc657bad"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-2-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 290.28966699999967,
+                "peakRssBytes": 11223040,
+                "warmMs": 35.225374,
+                "firstMs": 35.575,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "234a6281c9e341029540054b7853f068155b86838a997031a964140417c7bccc",
+                "stderrSha256": "93c78e745cbc153d44defabfa5917986ee35a78e9131e450ec28ca74bace5c7d"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-3-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 288.73512500000055,
+                "peakRssBytes": 11370496,
+                "warmMs": 35.04275,
+                "firstMs": 35.18,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "cc7da16a4ef58ab01bb442cad3b5c406ccd42661b8b0684090ce5cb4e738aeac",
+                "stderrSha256": "53b54191d6ccb3e6cfd54d852ee1b35625e2b1a8c709aba1c208f2a7c0b3a2cb"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-3-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 536.8686250000003,
+                "peakRssBytes": 11223040,
+                "warmMs": 66.04325,
+                "firstMs": 66.595,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "f27a7e75099d1ed2012f9e18d4887a4a0cca042fc89934a307ebd51b10071f9d",
+                "stderrSha256": "2dc6fed44f66e6d2baff4b1ef38a5c47660af51271526d1cbd7a3b8c5c86af4d"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-4-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 531.5180829999999,
+                "peakRssBytes": 11337728,
+                "warmMs": 65.275085,
+                "firstMs": 65.962,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "0ee366ce9b0bc07867485061d7ab90de542420a4e2771cc08445f987d5bbd568",
+                "stderrSha256": "dc922058c38d46c456e550bb5ced052e8ce47ddda501727616378dafb4380e3e"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-4-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 295.20079200000106,
+                "peakRssBytes": 11337728,
+                "warmMs": 35.76571,
+                "firstMs": 36.515,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "1e431029b258911674ea39e1094e0b459f4bd21458a6d1136dd6c2943f660657",
+                "stderrSha256": "77264c8f7a7f5e9f4176d3a1dae860411b94c746ed1e3ddd8e212e857cb39561"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-5-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 289.8345409999994,
+                "peakRssBytes": 11403264,
+                "warmMs": 35.152583,
+                "firstMs": 35.898,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "614334b67777fbb65ac0f627d7be8f5ceab1dd2334c4966bee3cd407a6e69a8a",
+                "stderrSha256": "0ee293244419b002b9fcec35e784307a9f3d9fe39031f84f2fea34565ab1191c"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-5-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 535.9077079999998,
+                "peakRssBytes": 11403264,
+                "warmMs": 65.890665,
+                "firstMs": 66.717,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "70c183cee61c6dbd9ca299d417a779b9b43f9cb872ee17d6bf6faf973e0e3a8b",
+                "stderrSha256": "7d37251a2e9e0313bb59f667731d0203aa0af2b64c9368fddf6307c2ac39df5f"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-6-baseline.stderr",
+                "output": "-4096",
+                "wallMs": 540.7281249999976,
+                "peakRssBytes": 11354112,
+                "warmMs": 66.420374,
+                "firstMs": 67.685,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 3514,
+                "loadAndFirstCallAllocatedObjects": 17347,
+                "stdoutSha256": "b32c79cb2d88d7e833c0215c7bc621f2b06cc3010c9983e5eed38c5ea0e2bae3",
+                "stderrSha256": "37cf2198ffbea845e4651ef3d62d7f041883605fd969101964733fdf5a28851a"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "rows",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/rows-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/rows-6-candidate.stderr",
+                "output": "-4096",
+                "wallMs": 294.1832499999997,
+                "peakRssBytes": 11370496,
+                "warmMs": 35.676207,
+                "firstMs": 36.481,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 3519,
+                "loadAndFirstCallAllocatedObjects": 17349,
+                "stdoutSha256": "8b6f0478393f333c35d370aa7f468ceeff403160b5ec76ab72f4b7cc43f85f21",
+                "stderrSha256": "51b0e833a3c3aad8a08e3175df7fb64d579738c82bdd53391ee6e6741f86c390"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 66.04325,
+            "candidateMedian": 35.395958,
+            "baselineOverCandidate": 1.8575341134987957,
+            "pairedBootstrap95": [
+              1.83444693704001,
+              1.8808573240669533
+            ],
+            "verdict": "improved"
+          },
+          "peakRss": {
+            "baselineMedian": 11337728,
+            "candidateMedian": 11337728,
+            "baselineOverCandidate": 1.0016640534615304,
+            "pairedBootstrap95": [
+              0.9954545305899591,
+              1.0085399429460808
+            ],
+            "verdict": "unchanged"
+          }
+        },
+        {
+          "name": "dynamic",
+          "expected": "-2500",
+          "pairs": [
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-0-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-0-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 588.4901250000034,
+                "peakRssBytes": 10436608,
+                "warmMs": 72.417583,
+                "firstMs": 72.937,
+                "loadMs": 0.26,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "37fb26babad3a78256dca2e856130b93ca31f53a744867ffa617b21f4bf3e403",
+                "stderrSha256": "c8e0fbd60da24a0a8accc872b23e9f8e5cc0abbfce3a1b9e5ceaea685e3e7973"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-0-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-0-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 591.8684170000006,
+                "peakRssBytes": 10452992,
+                "warmMs": 72.959958,
+                "firstMs": 73.007,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "95bd1aa27b103b0ba27bf1f78d58415a8a5d67da7623475772f203857020a129",
+                "stderrSha256": "d583793c8865fe8b951c81bb28af3b1cb71a3d8d5f98467c46f93417b40e4e34"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-1-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-1-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 580.8226249999997,
+                "peakRssBytes": 10371072,
+                "warmMs": 71.522625,
+                "firstMs": 72.45,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "18a5e2e7a148cb7ca110f100c11d9f2ca9f4f9d525d0f23260e22b1bf2b8546f",
+                "stderrSha256": "6bee18be1b7bcd801ba2bf157f3b41a1fd532e0c9910b685037a09c0013da6d0"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-1-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-1-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 581.1433749999999,
+                "peakRssBytes": 10403840,
+                "warmMs": 71.574626,
+                "firstMs": 71.981,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "026da808e86afe588ee803e7ba3603cac449e9a226afd27a7bd87120c3eb2d90",
+                "stderrSha256": "ba347734355ad3ab67636293f03c4f0edf4d6ea5a78ba3052d667a56e640c4ff"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-2-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-2-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 575.0152499999999,
+                "peakRssBytes": 10354688,
+                "warmMs": 70.716458,
+                "firstMs": 71.376,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "93174057454ba3fb29bb02d118c5f2cf1a9b4de663e5018e37b320e3c682c1d1",
+                "stderrSha256": "b79ccf2e29c30bc918fa19ea7795a6d22d90f32cb65ccf29acb0be8cfab3a8eb"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-2-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-2-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 588.682459000001,
+                "peakRssBytes": 10485760,
+                "warmMs": 72.298624,
+                "firstMs": 73.39,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "2bcd77308bd07bb52e8f3727a7c70313bf2f153879381dbff215aea9f5964e7d",
+                "stderrSha256": "9e637e562068c0e6c0bc1bb932af943b892f97c8d5850554296d83239067867c"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-3-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-3-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 602.6182499999991,
+                "peakRssBytes": 10452992,
+                "warmMs": 74.281083,
+                "firstMs": 75.296,
+                "loadMs": 0.25,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "b15eaf78c0f5fae188b05ebce3b75966b2fa6ea7cbbaaf9eb54c88cd02a82eb3",
+                "stderrSha256": "6842dae6a2db08abc39a8241448aac26e09fb2c775e45879da0b7f66039619f2"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-3-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-3-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 585.9813749999994,
+                "peakRssBytes": 10371072,
+                "warmMs": 71.703542,
+                "firstMs": 72.767,
+                "loadMs": 0.23,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "adf3a0ebb667fd930d1a571ca90b5eb612a22d8e0d1d2956e120421ef71d82ef",
+                "stderrSha256": "8e75ecdfedd2d18a1e7ccff4a97115422e48c0371d15709b5c63c28347d36f4e"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-4-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-4-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 588.434999999997,
+                "peakRssBytes": 10452992,
+                "warmMs": 72.358874,
+                "firstMs": 73.217,
+                "loadMs": 0.27,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "17071001ba11f877ef2d9bc2fde58703c2bd8e865d3cf35e91e41bf3ff62e104",
+                "stderrSha256": "7245d3cbdfd89e95040123c1f8726c862e678b678b07dbf8da20cba502b24fc6"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-4-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-4-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 594.762541999998,
+                "peakRssBytes": 10485760,
+                "warmMs": 73.12475,
+                "firstMs": 74.033,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "bd60294fa885e3e2961af36d3d44a6ba47304a92e8f689da62f805f913e71f3d",
+                "stderrSha256": "8e0af57b96caeffd8d68316e48b342a4c15730ecac1b0796bea5b026e9c41a4d"
+              }
+            },
+            {
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-5-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-5-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 598.7226250000006,
+                "peakRssBytes": 10502144,
+                "warmMs": 73.67875,
+                "firstMs": 75.023,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "1178e5ba491bb45f9c7679303dd67a561c9273c8c2a59803c003ac59b4b4edea",
+                "stderrSha256": "d58e142a2c5532c4d70a13d50f6fc72b148470367b4d431ff7be15d785538e98"
+              },
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-5-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-5-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 573.8673749999989,
+                "peakRssBytes": 10387456,
+                "warmMs": 70.653125,
+                "firstMs": 71.625,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "de12211c4e3cacf0d7b47d0b18a8d7de4b6da3f12164c54100b7b278237189da",
+                "stderrSha256": "7788e71f230db28fdbfd43ab80fe5cd15b283000a87b8863261f117c9cc52cf6"
+              }
+            },
+            {
+              "baseline": {
+                "command": [
+                  "/private/tmp/nupp-physical-struct/runtime-v5",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/baseline.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-6-baseline.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-6-baseline.stderr",
+                "output": "-2500",
+                "wallMs": 592.1660409999987,
+                "peakRssBytes": 10387456,
+                "warmMs": 72.727375,
+                "firstMs": 74.423,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 453,
+                "loadAndFirstCallAllocatedObjects": 453,
+                "stdoutSha256": "676a440bd5248e68b87e66e496d780b10882114010b8422fe3bf767426fd2d32",
+                "stderrSha256": "ad0e2d337d2dd04c4aad7444c540e9d8037a120a12ad14d344a2aad857a26f98"
+              },
+              "candidate": {
+                "command": [
+                  "/private/tmp/nupp-physical-direct/runtime-v4",
+                  "run",
+                  "/private/tmp/nupp-physical-fields/candidate.image",
+                  "physical.fields",
+                  "dynamic",
+                  "--repeat",
+                  "7"
+                ],
+                "exitStatus": 0,
+                "timedOut": false,
+                "stdout": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-6-candidate.stdout",
+                "stderr": "/private/tmp/nupp-physical-fields/final-total-change/dynamic-6-candidate.stderr",
+                "output": "-2500",
+                "wallMs": 589.3937079999994,
+                "peakRssBytes": 10469376,
+                "warmMs": 72.55675,
+                "firstMs": 73.017,
+                "loadMs": 0.24,
+                "firstCallLiveObjects": 455,
+                "loadAndFirstCallAllocatedObjects": 455,
+                "stdoutSha256": "cc6ffbd69bf81791df868118d96926671dc382fb85612931871c32b623311aa3",
+                "stderrSha256": "53152714d13e427f5421364389b73a0a257a3203f0b22933a60c28afc3630ea6"
+              }
+            }
+          ],
+          "warm": {
+            "baselineMedian": 71.703542,
+            "candidateMedian": 72.959958,
+            "baselineOverCandidate": 0.9838054491790837,
+            "pairedBootstrap95": [
+              0.9718863722225648,
+              0.9949289060324609
+            ],
+            "verdict": "unchanged"
+          },
+          "peakRss": {
+            "baselineMedian": 10387456,
+            "candidateMedian": 10469376,
+            "baselineOverCandidate": 0.9941846052711694,
+            "pairedBootstrap95": [
+              0.9906144764558208,
+              0.9979901432980602
+            ],
+            "verdict": "unchanged"
+          }
+        }
+      ],
+      "status": "passed"
+    }
+  },
+  "correctnessEvidence": "native/crates/vm/tests/physical-field-coverage.json",
+  "remaining": [
+    "Guards remain per access; no loop-hoisting claim.",
+    "Wide arithmetic still uses boxed helpers; row indexing still allocates view objects.",
+    "Full Tecs snapshot and whole-program performance remain separate gates.",
+    "These local aarch64 results do not establish other host ABIs or cross-platform performance."
+  ]
+}

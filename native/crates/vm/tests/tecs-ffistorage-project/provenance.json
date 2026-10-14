@@ -1,0 +1,47 @@
+{
+  "repository": "/Users/dowling/projects/tecs",
+  "commit": "87bd7da2873f7b7267752e5af3a8dfb8648785bb",
+  "originalCheckoutModified": false,
+  "license": "MIT, Copyright (c) 2026 Michael Dowling",
+  "scope": "Experimental VM-native adapter port of actual ffistorage and direct source-backed tests; not an upstream Tecs change, full original ECS suite, or actual snapshot benchmark acceptance",
+  "files": [
+    {
+      "original": "src/tecs/internal/ffistorage.nupp",
+      "sourceSha256": "b0ad89eb2fc6b78482589d3a21c48a41028fa078ec14b2e9b3fbaee4941082b2",
+      "adapted": "src/tecs/internal/ffistorage.nupp",
+      "adaptedSha256": "cd5bd142fba6292461930dea325430557e2c90df5b81997cf03c9ee5223eed42",
+      "patch": "ffistorage.patch"
+    },
+    {
+      "original": "tests/tecs/ffistoragetest.nupp",
+      "sourceSha256": "6bb5e0ff53e30b99374f1f06412be9c9c79f959319bfb4a1fdff8de59eee7026",
+      "adapted": "src/tecs/tests/ffistorage.nupp",
+      "adaptedSha256": "7944c9f4dcac6c8d478a84425611b3e26474b54d64fd17f10874645debf6e2b1",
+      "patch": "ffistoragetest.patch"
+    }
+  ],
+  "adaptations": [
+    "Replace LuaJIT CType bitfield decoding with canonical normalized native descriptor fields; retain original C scalar fingerprint labels, widths and declaration order.",
+    "Replace ffi allocations, bulk copy/fill and pointer arithmetic with physical managed NativeStorage arrays and bounded views; retain unused row zero, one-based live rows, overflow checks, resize, clearing, and custom allocation contract.",
+    "Use experimental VM-only castWritableElements and isBorrowed APIs through the dynamic storage boundary; owned captures retain identity and borrowed row captures detach.",
+    "Parse decimal 64-bit snapshot fields using explicitly typed uint64 arithmetic instead of FFI boxed arithmetic; retain original validation limits and signed conversion.",
+    "Replace string.buffer with public nupp.text Buffer selected through real nupp.spi.index and portable tablebuffer. Raw I/O currently copies bounded strings, unlike original putcdata/ref zero-copy path.",
+    "Retain original weak backing registry and component storage registry; isolated graph restore tests cover native owners/views and borrowed tags, not reconstruction of those external registries.",
+    "Extract four original direct storage test bodies; replace ECS registration setup with direct ffistorage.new, and native allocator/Buffer setup with VM APIs. Keep original assertions and bounds cases.",
+    "Supplement with exact unsigned/signed codec extrema, array codec indexing, nested raw-codec rejection, capture identity/detachment, and runtime graph alias preservation.",
+    "Exercise public Buffer FIFO length separately, including partial consumption, to guard ordinary-record metamethod dispatch used by raw row I/O."
+  ],
+  "originalTests": [
+    "rawStorageRelocatesWithABulkCopy",
+    "rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero",
+    "rawResizeAndIntegerDecodingRejectOverflow",
+    "customBackingIsRootedAndUsedAgainOnGrowth"
+  ],
+  "notYetCovered": [
+    "All original world/archetype/relationship/rendering/serde tests in ffistoragetest.nupp",
+    "Pointer-bearing/bitfield aggregate admission, external raw allocator pointers, and ABI targets other than aarch64 macOS",
+    "Restoration/rebinding of global storage registration and weak backing metadata from isolated world graph snapshots",
+    "Original zero-copy raw FIFO path and actual three-archetype snapshot benchmark timing"
+  ],
+  "patchReplay": "In a copy of the original Tecs checkout, git apply each patch; each result exactly matches its adapted fixture file after remapping the test destination path."
+}

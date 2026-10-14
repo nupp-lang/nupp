@@ -237,6 +237,55 @@ function lower.emit(
         end
     end
 
+    local PHYSICAL_SCALARS = {
+        boolean = 0,
+        int8 = 1,
+        uint8 = 2,
+        int16 = 3,
+        uint16 = 4,
+        integer = 5,
+        int32 = 5,
+        uint32 = 6,
+        int64 = 7,
+        uint64 = 8,
+        float = 9,
+        number = 10
+    }
+
+    local function physicalField(shape, name)
+        local layout = shape and shape.physical and shape.layout
+        if not layout or not layout.supported then
+            return nil
+        end
+        for ordinal, field in ipairs(layout.fields) do
+            local kind = PHYSICAL_SCALARS[field.kind]
+            if field.name == name and kind ~= nil then
+                return {
+                    identity = layout.identity,
+                    name = name,
+                    ordinal = ordinal - 1,
+                    offset = field.offset,
+                    kind = kind
+                }
+            end
+        end
+
+        return nil
+    end
+
+    local function physicalSet(f, object, field, value)
+        f:op(
+            "SetPhys",
+            object,
+            f:const("str", field.identity),
+            f:const("str", field.name),
+            field.ordinal,
+            field.offset,
+            field.kind,
+            value
+        )
+    end
+
     -- Functions --------------------------------------------------------------------
     local functions = {}
     local Fn = {}
@@ -982,6 +1031,16 @@ function lower.emit(
     callInto = function(f, node, dst, extraSelf)
         local base = dst
         local nargs = 0
+        if node.spiInterface then
+            -- An interface has no runtime witness. The checker resolves the
+            -- exported declaration to the provider index's canonical key.
+            assert(not extraSelf, "SPI loading has no implicit receiver")
+            while f.nregs < base + 2 do
+                f:reg()
+            end
+            f:op("K", base + 1, f:const("str", node.spiInterface))
+            return base, 1
+        end
         local args = node.args and node.args.exprs or {}
         if node.args and node.args.loweredArgs then
             local lowered = node.args.loweredArgs
@@ -1630,6 +1689,38 @@ function lower.emit(
             local receiver = exprAs(f, node.operand, "v")
             f:op("GetField", d, receiver, f:const("str", "count"))
             return d, "v"
+        end
+        if k == "dotIndex" then
+            local field = physicalField(shapeOf(node.obj.inferredType), node.overloadMember or tokText(node.name))
+            if field then
+                local object = exprAs(f, node.obj, "v")
+                local class = "v"
+                if want == "f" and (field.kind >= 1 and field.kind <= 6 or field.kind >= 9) then
+                    class = "f"
+                elseif want == "i" and field.kind == 7 then
+                    class = "i"
+                elseif want == "u" and field.kind == 8 then
+                    class = "u"
+                end
+                local destination = class == "v" and (dst or f:reg()) or f:freg()
+                local opcode = class == "f" and "GetPhysF"
+                    or class == "i" and "GetPhysI"
+                    or class == "u" and "GetPhysU"
+                    or "GetPhys"
+                -- The runtime guards the live receiver and layout. Erased casts
+                -- retain ordinary field access and conversion on the slow path.
+                f:op(
+                    opcode,
+                    destination,
+                    object,
+                    f:const("str", field.identity),
+                    f:const("str", field.name),
+                    field.ordinal,
+                    field.offset,
+                    field.kind
+                )
+                return destination, class
+            end
         end
         if node.simdIntrinsic then
             local operands = k == "binop" and {node.lhs, node.rhs} or {node.operand}
@@ -2352,7 +2443,12 @@ function lower.emit(
                     or field.node
                 if shape.physical then
                     local v = exprAs(f, value, "v")
-                    f:op("SetField", dst, f:const("str", field.name), v)
+                    local physical = physicalField(shape, field.name)
+                    if physical then
+                        physicalSet(f, dst, physical, v)
+                    else
+                        f:op("SetField", dst, f:const("str", field.name), v)
+                    end
                 elseif shape.slots[slot + 1].ty == "num" then
                     local v = exprAs(f, value, "f");
                     f:op("SetSlotF", dst, slot, v, shape.id)
@@ -2756,7 +2852,10 @@ function lower.emit(
             local shape = shapeOf(target.obj.inferredType)
             local o = exprAs(f, target.obj, "v")
             local fname = tokText(target.name)
-            if shape and not shape.physical and shape.slotIndex[fname] then
+            local field = physicalField(shape, fname)
+            if field then
+                physicalSet(f, o, field, valueReg)
+            elseif shape and not shape.physical and shape.slotIndex[fname] then
                 local slot = shape.slotIndex[fname]
                 if shape.slots[slot + 1].ty == "num" then
                     local fv = f:freg();
@@ -3543,6 +3642,9 @@ function lower.emit(
                 identity = exprAs(f, {kind = "name", token = node.name}, "v")
             end
             f:op("SetField", identity, f:const("str", "__index"), identity)
+            if not shape.physical then
+                f:op("SetMethod", shape.id, f:const("str", "\0nupp:recordType"), identity)
+            end
             if node.declKind == "struct" or node.kind == "cdefStruct" then
                 local metadata = require("nupp.compiler.vm.metadata")
                 local descriptor = exprAs(f, metadata.literal(shape.layout), "v")

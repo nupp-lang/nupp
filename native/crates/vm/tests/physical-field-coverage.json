@@ -1,0 +1,434 @@
+{
+  "status": "passed",
+  "scope": "Checked direct native scalar field operations from semantic struct/union layout facts, plus SPI interface-key and live record metamethod lowering needed by the Tecs storage path.",
+  "baseCommit": "6ac7c1050807ed7e1b8558a6788d79cbdc5da02e",
+  "target": "aarch64-apple-darwin",
+  "dispatch": {
+    "sourceEmits": [
+      "GetPhys (boxed V)",
+      "GetPhysF (existing floating-register consumers)",
+      "SetPhys (original boxed V RHS)"
+    ],
+    "plan": [
+      "canonical nominal identity",
+      "field name",
+      "zero-based field ordinal",
+      "constant byte offset",
+      "scalar kind"
+    ],
+    "runtimeGuard": "Live native receiver, schema/member and raw-shadow state, bounds, readonly writes and metatable checks; mismatches preserve ordinary field access and original value conversion.",
+    "typedWideSupport": "Runtime I/U loads and typed stores are separately covered by runtime tests. This source fixture emits V/F loads and V stores; it does not establish elimination of boxed-wide arithmetic.",
+    "floatingStores": "The JIT directly stores binary64 numeric values into guarded native float/number fields, with generic fallback retaining the original V value."
+  },
+  "compatibility": [
+    "All 11 scalar kinds; exact signed/unsigned wide values including the ERROR-tag bit pattern; float32 rounding and negative zero",
+    "Fake tables, __index/__newindex tables, wrong nominal receivers, and erased string RHS values preserve dynamic fallback",
+    "Raw field shadows, changed descriptor offsets, readonly bounded rows, alias mutation and nested aggregate views",
+    "Raw noncanonical NaN payload bytes remain numeric values rather than tagged pointers or control values",
+    "Negative signed-box and fractional erased uint64 operands preserve existing wide-helper coercion",
+    "Graph persistence, live struct methods, late record __len/__tostring updates, and explicit instance metatable precedence"
+  ],
+  "sourceAcceptance": {
+    "seedSha256": "7b34e6f314a775e009ce534abecbf8ef7d60feab53015bd879501934022d142f",
+    "imageSha256": "65cbb2f3bca79f2c3cd8128016d853106171df82c7d76bf6e3b94256e07380e2",
+    "binarySha256": "91d721a0c1a1e18b49d62cdd1eacd4164c72e8f6b4d2be346688e31f531a1bb1",
+    "sourceSha256": "4d032b49ef354e3931370959b50be18564a3afe251c3fafae946d102c2ee1e9c",
+    "rejectedUnionSha256": "0a762b4d6e80d8be99279d3de3902ee1181d84c4ddd887e22eda62b269d294aa",
+    "multipleUnionInitializersRejected": true,
+    "directFieldOpcodes": {
+      "GetPhysF": 9,
+      "SetPhys": 37,
+      "GetPhys": 43
+    },
+    "directFieldKinds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "directFieldsRequired": true,
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "sourceAcceptanceLogDirectory": "/private/tmp/nupp-physical-fields/final-acceptance",
+  "finalRuntimeExecution": {
+    "binary": "/private/tmp/nupp-physical-direct/runtime-v4",
+    "binarySha256": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce",
+    "imageSha256": "65cbb2f3bca79f2c3cd8128016d853106171df82c7d76bf6e3b94256e07380e2",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  },
+  "runtimeChecks": {
+    "gcInterleave": true,
+    "gcOracle": true,
+    "gcQuarantine": true,
+    "jitVerify": true,
+    "ordinaryCompiledFunctions": 47,
+    "compiledFrameEntries": 79
+  },
+  "linkedAot": {
+    "status": "passed",
+    "scope": "Linked image execution with executable memory denied: physical.main",
+    "host": "macOS-26.6-arm64-arm-64bit",
+    "phases": [
+      {
+        "name": "symbols",
+        "command": [
+          "nm",
+          "/private/tmp/nupp-physical-linked-final/runtime"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "build-denial",
+        "command": [
+          "cc",
+          "-dynamiclib",
+          "native/crates/vm/tests/deny-exec.c",
+          "-o",
+          "/private/tmp/nupp-physical-linked-final/acceptance/deny-exec.dylib"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "build-probe",
+        "command": [
+          "cc",
+          "/private/tmp/nupp-physical-linked-final/acceptance/probe.c",
+          "-o",
+          "/private/tmp/nupp-physical-linked-final/acceptance/probe"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "deny-mapping",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/acceptance/probe"
+        ],
+        "exitCode": 86
+      },
+      {
+        "name": "deny-protection",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/acceptance/probe",
+          "protect"
+        ],
+        "exitCode": 86
+      },
+      {
+        "name": "interpreted",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/runtime",
+          "run",
+          "/private/tmp/nupp-physical-fields/final-acceptance/physical.image",
+          "physical.main",
+          "run",
+          "--tasks"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "aot-0",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/runtime",
+          "run",
+          "/private/tmp/nupp-physical-fields/final-acceptance/physical.image",
+          "physical.main",
+          "run",
+          "--tasks"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "aot-1",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/runtime",
+          "run",
+          "/private/tmp/nupp-physical-fields/final-acceptance/physical.image",
+          "physical.main",
+          "run",
+          "--tasks"
+        ],
+        "exitCode": 0
+      },
+      {
+        "name": "aot-2",
+        "command": [
+          "/private/tmp/nupp-physical-linked-final/runtime",
+          "run",
+          "/private/tmp/nupp-physical-fields/final-acceptance/physical.image",
+          "physical.main",
+          "run",
+          "--tasks"
+        ],
+        "exitCode": 0
+      }
+    ],
+    "sha256": {
+      "image": "65cbb2f3bca79f2c3cd8128016d853106171df82c7d76bf6e3b94256e07380e2",
+      "runtime": "33b9cc375880b8e5cf7802965bedf45979e058d99a69f2703f651e975d0f352f",
+      "manifest": "eb9e9fd22dba1f402b1e776d0cee891bed41c803c773e196881831b6a40aaff1"
+    },
+    "module": "physical.main",
+    "function": "run",
+    "runtimeAbi": 4,
+    "imageFunctions": 63,
+    "compiledFunctions": 63,
+    "executableMemoryDenied": true
+  },
+  "runtimeValidation": {
+    "head": "6ac7c1050807ed7e1b8558a6788d79cbdc5da02e",
+    "worktree": "/private/tmp/nupp-codegen-experiment",
+    "runtime": "/private/tmp/nupp-physical-direct/runtime-v4",
+    "runtimeSha256": "64b31336f51be871be79b6dd3c62062fbf74c7d123cbdeb42097a0438a8decce",
+    "nativeAbi": 4,
+    "sourceSha256": {
+      "native/crates/vm/build.rs": "e40a4a5ed32c6abdd6ad66335ed5718d7e1d7fa4318e8b556646a0f326a91d8c",
+      "native/crates/vm/csrc/dispatch.c": "0da1ddedbae788f2c0f410878d1578da3b20c728a50ec363e4c0c6f6cbf10e03",
+      "native/crates/vm/src/builtins.rs": "096ff6e26a680c51b437bc97d410ff241dd2e6edca6890866b9bef33aa00dc8d",
+      "native/crates/vm/src/compiled.rs": "2ef5931a56ff6d0df8096436744d819705973d5367099eb2141aac9ce2986064",
+      "native/crates/vm/src/heap.rs": "8cc7c7a0f36b2ca8f65d480cddafd6a0d01693fc72ba199900244890d2cc390b",
+      "native/crates/vm/src/image.rs": "4171d7ab46f3f41b3ffb7b514537ea1a770f9e2e0646f3b563362129a80a0c03",
+      "native/crates/vm/src/interp.rs": "80d9e349ac5891ed8f08be8f4a480f8f9fac43a83f494dc288c2e29a1ea930e4",
+      "native/crates/vm/src/jit.rs": "44d35c669ab63e032c3ce8105c9d1305462dedd704770165df368388f46933db",
+      "native/crates/vm/src/main.rs": "24ce00c9d70d97cb4c3f7cdacfe7f6cae33241e4fb586989f300c2ef4a59d700",
+      "native/crates/vm/src/persist.rs": "fd1e795ababa988e0ad36d240815eea8c5299ed83afac641e1b383ebb5684ecf",
+      "native/crates/vm/src/storage.rs": "7ba1f79dc0f09a67f041cd80b09887fe888f21a5abbce2e7d09ce7a32ae3ab67",
+      "native/crates/vm/src/verify.rs": "b85f62b00cf445fdf3946142cd3b49cdceb3a74921012e03bbfe61a8ec0a83d9",
+      "native/crates/vm/tests/native_aggregates.rs": "640ee8ec04ed0649d7b24c6dd94fe29e35e73ac2cc353685d9314b396d9cadf5",
+      "native/crates/vm/tests/aot_relocation.rs": "d4d4ff72232396ed3b552cd4f4288af7875ee0bc916462f2dda0ee57740532d3",
+      "native/crates/vm/tests/length.rs": "489581d0b91528918f49dd9f2a5a7141b707a3ccff7467d6caa43c661949db11",
+      "native/crates/vm/tests/storage.rs": "05ed18f929662bf2afc82f91865c7eb536f31195f053a2d9fe982d571d7e5124"
+    },
+    "checks": [
+      {
+        "command": "cargo test -p nupp-vm --features aot --offline",
+        "log": "/private/tmp/nupp-physical-direct/cache-full-suite.log",
+        "status": "passed before symbol-only ABI invalidation"
+      },
+      {
+        "command": "cargo check -p nupp-vm --no-default-features --offline",
+        "log": "/private/tmp/nupp-physical-direct/cache-portable.log",
+        "status": "passed before symbol-only ABI invalidation"
+      },
+      {
+        "command": "cargo test -p nupp-vm --features aot --offline --test aot_relocation",
+        "log": "/private/tmp/nupp-physical-direct/cache-aot-abi.log",
+        "status": "passed final ABI, including stale v3 rejection"
+      },
+      {
+        "command": "cargo build -p nupp-vm --release --features aot --offline",
+        "log": "/private/tmp/nupp-physical-direct/cache-v3-build.log",
+        "status": "passed final ABI"
+      },
+      {
+        "command": "cargo test -p nupp-vm --features aot --offline --test native_aggregates --test record_tables --test storage --test aot_relocation",
+        "log": "/private/tmp/nupp-physical-direct/store-fallback-focused.log",
+        "status": "passed final checked-field boundary; 13+7+8+1 tests, erased record rejection and fake-table preservation across Rust/threaded/JIT/frames"
+      },
+      {
+        "command": "cargo build -p nupp-vm --release --features aot --offline",
+        "log": "/private/tmp/nupp-physical-direct/store-v4-build.log",
+        "status": "passed final checked-field boundary"
+      }
+    ],
+    "priorRuntime": "/private/tmp/nupp-physical-direct/runtime-v3",
+    "priorRuntimeSha256": "91d721a0c1a1e18b49d62cdd1eacd4164c72e8f6b4d2be346688e31f531a1bb1"
+  },
+  "compilerByteIdentity": {
+    "hostSeed": "/private/tmp/nupp-physical-fields/final-host.image",
+    "hostSeedMethod": "Fresh pinned-fixpoint Lua compiler, direct provisioned LuaJIT with build/?.lua, existing native/crates/vm/emit/project.lua driver (hostBootstrap=true)",
+    "vmRebuild": "/private/tmp/nupp-physical-fields/final-vm-generation/generation1.image",
+    "vmRuntime": "/private/tmp/nupp-physical-direct/runtime-v4",
+    "bytes": 8922439,
+    "sha256": "7b34e6f314a775e009ce534abecbf8ef7d60feab53015bd879501934022d142f",
+    "byteIdentical": true,
+    "report": "/private/tmp/nupp-physical-fields/final-vm-generation/results.json"
+  },
+  "pinnedFixpoint": {
+    "result": {
+      "diagnostics": [],
+      "kind": "compiler",
+      "ok": true,
+      "stage0": "/private/tmp/nupp-codegen-experiment/build/stage0/ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881/nupp-3b32b9b1f556b169ba358bbf9df9d6cd7de100ad33b07c1bd3d64bb874c2c567.lua",
+      "target": "compiler"
+    },
+    "log": "/private/tmp/nupp-physical-fields/final-fixpoint.stderr",
+    "runnerImage": "/private/tmp/nupp-cli-complete/root-owner.image",
+    "runtime": "/private/tmp/nupp-physical-direct/runtime-v1"
+  },
+  "coldRepositoryCheck": {
+    "ok": true,
+    "errors": 0,
+    "diagnostics": 13,
+    "checker": "Fresh Lua checker produced by the final pinned fixpoint, build/nupp/tools/main.lua",
+    "runner": "/private/tmp/nupp-current-checker-host/bin/nupp check --json",
+    "cache": "Deleted only the nonsymlink worktree build/cache before checking",
+    "launcherWorkaround": "Temporary compiler-root wrapper runs the current built checker for parent and worker processes, bypassing the default launcher native-provider freshness rebuild and its comptime-worker timeout. This does not close default CLI packaging or launcher migration.",
+    "timing": {
+      "compiledModules": 552,
+      "optimizerFacts": {
+        "consumed": 8334,
+        "families": {
+          "callableEffects": 1794,
+          "callableRelations": 1794,
+          "identity": 89,
+          "traceFindings": 89,
+          "traceProfileId": 372
+        },
+        "produced": 4138,
+        "selectionChangedModules": 0,
+        "selectorMs": 0,
+        "unique": 4138
+      },
+      "parallel": {
+        "batches": 370,
+        "mode": "serial-fallback",
+        "reason": "parallel worker recursively checked src/nupp/serde/init.nupp [paths src/nupp/serde/internal/documentcodec.nupp; worker said ]",
+        "retries": 0,
+        "workers": 6
+      },
+      "phases": [
+        {
+          "durationMs": 73002.87646484375,
+          "name": "check"
+        },
+        {
+          "durationMs": 11860.242919921875,
+          "name": "parallel check"
+        },
+        {
+          "durationMs": 1103.489013671875,
+          "name": "generate"
+        },
+        {
+          "durationMs": 471.911865234375,
+          "name": "other"
+        },
+        {
+          "durationMs": 377.888427734375,
+          "name": "scan"
+        },
+        {
+          "durationMs": 13.2119140625,
+          "name": "persist"
+        },
+        {
+          "durationMs": 2.0791015625,
+          "name": "resolve"
+        }
+      ],
+      "reusedModules": 0,
+      "slowest": [
+        {
+          "durationMs": 15557.77587890625,
+          "module": "nupp.serde.native"
+        },
+        {
+          "durationMs": 15085.016845703125,
+          "module": "nupp.serde.internal.json.extensions"
+        },
+        {
+          "durationMs": 12367.991943359375,
+          "module": "nupp.serde.debug"
+        },
+        {
+          "durationMs": 1916.496826171875,
+          "module": "nupp.compiler.lua.gen"
+        },
+        {
+          "durationMs": 1589.580078125,
+          "module": "nupp.serde.internal.documentcodec"
+        }
+      ],
+      "specializedBodies": 0,
+      "totalMs": 86831.92700195312
+    },
+    "log": "/private/tmp/nupp-physical-fields/final-check-current.json",
+    "stderr": "/private/tmp/nupp-physical-fields/final-check-current.stderr"
+  },
+  "benchmarkCandidate": {
+    "sha256": "585b8cb1dc335dd6c147aecd769781c6b7055799a1ad29ed971aac8d9b1acc3a",
+    "sameAsCompiler1": true,
+    "image": "/private/tmp/nupp-physical-fields/candidate-final.image",
+    "sourceSha256": "46f6d6b47246b29a2d6068b18b43014933ba9a3efaa6a7b87f242743d4ac4132"
+  },
+  "performanceEvidence": "native/crates/vm/tests/physical-field-performance.json",
+  "performanceMetric": "Paired monotonic wall time; performance verdict and background-load qualifications belong to the performance evidence.",
+  "formatting": {
+    "files": [
+      "native/crates/vm/decls/nupp/tasks.d.nupp",
+      "native/crates/vm/tests/physical-field-project/nupp.lua",
+      "native/crates/vm/tests/physical-field-project/src/physical/fields.nupp",
+      "native/crates/vm/tests/physical-struct-project/src/physical/main.nupp",
+      "native/crates/vm/tests/tecs-ffistorage-project/nupp.lua",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/nupp/spi/index.nupp",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/tecs/internal/ffistorage.nupp",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/tecs/tests/ffistorage.nupp",
+      "src/nupp/compiler/vm/lower.nupp"
+    ],
+    "changed": [],
+    "sha256": {
+      "native/crates/vm/decls/nupp/tasks.d.nupp": "88ce19f6b258726f22ebf7cbbc8cd79496f63a75c52e51b650222e09a02cd95f",
+      "native/crates/vm/tests/physical-field-project/nupp.lua": "c84ca2ae9fd8f2e15b129166d59816de2d2db558c0e77dc492ca58529ba288d5",
+      "native/crates/vm/tests/physical-field-project/src/physical/fields.nupp": "46f6d6b47246b29a2d6068b18b43014933ba9a3efaa6a7b87f242743d4ac4132",
+      "native/crates/vm/tests/physical-struct-project/src/physical/main.nupp": "4d032b49ef354e3931370959b50be18564a3afe251c3fafae946d102c2ee1e9c",
+      "native/crates/vm/tests/tecs-ffistorage-project/nupp.lua": "c84ca2ae9fd8f2e15b129166d59816de2d2db558c0e77dc492ca58529ba288d5",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/nupp/spi/index.nupp": "8405216ab8b177278eb9a1e4ee7135f9b8f24392e8a419ff4ca55c66313e7d9a",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/tecs/internal/ffistorage.nupp": "cd5bd142fba6292461930dea325430557e2c90df5b81997cf03c9ee5223eed42",
+      "native/crates/vm/tests/tecs-ffistorage-project/src/tecs/tests/ffistorage.nupp": "7944c9f4dcac6c8d478a84425611b3e26474b54d64fd17f10874645debf6e2b1",
+      "src/nupp/compiler/vm/lower.nupp": "5380ac7f1a252cbc2e29f0d6e6f44084c25c00580c2e8140493aee7b0b1c83bc"
+    }
+  },
+  "additionalSourceSha256": {
+    "native/crates/vm/tests/physical-struct-smoke.py": "75f7ef7f7217ee5f1f0ad2c6dce5b4fac7b84814c0cbdcae6a0f685b83790d9f"
+  },
+  "diffCheckPassed": true,
+  "remaining": [
+    "Wide arithmetic still uses existing boxed helpers; fixed-width/float arithmetic retains Scalar narrowing semantics",
+    "Repeated guard checks are cached but not hoisted; aggregate field materialization remains on the generic path",
+    "Record declarations executed repeatedly within a function share shape-level prototype storage; per-declaration-execution prototype identity is not established",
+    "Live record witness support does not establish implicit record __newindex or full record metatable parity",
+    "Full Tecs world/snapshot graph acceptance and complete LuaJIT FFI compatibility remain separate work",
+    "Default CLI launcher packaging and parallel repository-check acceptance remain open; see exact cold-check fallback mode and reason"
+  ]
+}
