@@ -291,19 +291,61 @@ function M.positionsPastTheBoundAreRefused()
     set:set(100)
     local before = set:wordCount()
     for _, bad in ipairs({TWO32 - 1, TWO32, TWO32 + 5, LIMIT + 1, nan, 2.5}) do
-        check.raises(function() set:set(bad) end, "nupp: bitset index", "set " .. tostring(bad))
-        check.raises(function() set:setOnly(bad) end, "bitset index", "setOnly " .. tostring(bad))
+        check.raises(
+            function()
+                set:set(bad)
+            end,
+            "nupp: bitset index",
+            "set " .. tostring(bad)
+        )
+        check.raises(
+            function()
+                set:setOnly(bad)
+            end,
+            "bitset index",
+            "setOnly " .. tostring(bad)
+        )
         set:set(0)
         set:set(100)
         check.equal(set:get(bad), false, "get " .. tostring(bad))
         set:clear(bad)
         check.assert(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
     end
-    check.raises(function() set:setRange(TWO32 - 40, TWO32 - 1) end, "bitset range", "range near 2^32")
-    check.raises(function() set:setRange(nan, 4) end, "bitset range", "NaN range start")
-    check.raises(function() set:setRange(4, nan) end, "bitset range", "NaN range end")
-    check.raises(function() set:reserve(TWO32) end, "bitset", "reserve 2^32")
-    check.raises(function() set:reserve(nan) end, "bitset", "reserve NaN")
+    check.raises(
+        function()
+            set:setRange(TWO32 - 40, TWO32 - 1)
+        end,
+        "bitset range",
+        "range near 2^32"
+    )
+    check.raises(
+        function()
+            set:setRange(nan, 4)
+        end,
+        "bitset range",
+        "NaN range start"
+    )
+    check.raises(
+        function()
+            set:setRange(4, nan)
+        end,
+        "bitset range",
+        "NaN range end"
+    )
+    check.raises(
+        function()
+            set:reserve(TWO32)
+        end,
+        "bitset",
+        "reserve 2^32"
+    )
+    check.raises(
+        function()
+            set:reserve(nan)
+        end,
+        "bitset",
+        "reserve NaN"
+    )
     check.equal(set:wordCount(), before, "storage bound unchanged")
     check.equal(set:count(), 2, "population unchanged")
     check.equal(set:nextSetBit(TWO32), -1, "a walk from past the bound finds nothing")
@@ -588,7 +630,7 @@ function M.wordCountBoundsEverySetBit()
 end
 
 function M.positionsIntoMatchesTheWalk()
-    local ffi = require("ffi")
+    local storage = require("nupp.runtime.storage")
     for _, bits in ipairs({1, 32, 33, 200, 4096}) do
         local set = bitset.Bitset.__nuppCtor1(8)
         local want = oracle()
@@ -599,7 +641,7 @@ function M.positionsIntoMatchesTheWalk()
         end
 
         local expected = want:positions()
-        local target = ffi.new("int32_t[?]", math.max(1, #expected))
+        local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
         local written, resume = set:positionsInto(target, #expected, 0)
         check.equal(written, #expected, "written at width " .. bits)
         check.equal(resume, -1, "exhausted at width " .. bits)
@@ -610,7 +652,7 @@ function M.positionsIntoMatchesTheWalk()
 end
 
 function M.positionsIntoResumesWhenTargetFills()
-    local ffi = require("ffi")
+    local storage = require("nupp.runtime.storage")
     local set = bitset.Bitset.__nuppCtor1(64)
     local want = oracle()
     for position = 0, 300, 3 do
@@ -621,7 +663,7 @@ function M.positionsIntoResumesWhenTargetFills()
 
     -- A target smaller than the population, drained in chunks. The chained calls
     -- have to produce exactly the walk's sequence with nothing lost or repeated.
-    local target = ffi.new("int32_t[?]", 7)
+    local target = storage.allocateArray(storage.scalar("int32"), 7)
     local collected, from = {}, 0
     while from >= 0 do
         local written, resume = set:positionsInto(target, 7, from)
@@ -639,8 +681,8 @@ function M.positionsIntoResumesWhenTargetFills()
 end
 
 function M.positionsIntoEdges()
-    local ffi = require("ffi")
-    local target = ffi.new("int32_t[?]", 4)
+    local storage = require("nupp.runtime.storage")
+    local target = storage.allocateArray(storage.scalar("int32"), 4)
 
     local empty = bitset.Bitset.__nuppCtor1(64)
     local written, resume = empty:positionsInto(target, 4, 0)
@@ -683,7 +725,7 @@ end
 function M.positionsIntoAfterSetAlgebra()
     -- The used bound is an upper bound after intersection, so the extraction has
     -- to tolerate trailing zero words rather than trusting the bound is tight.
-    local ffi = require("ffi")
+    local storage = require("nupp.runtime.storage")
     local set = bitset.Bitset.__nuppCtor1(4096)
     local other = bitset.Bitset.__nuppCtor1(4096)
     local want, otherWant = oracle(), oracle()
@@ -700,7 +742,7 @@ function M.positionsIntoAfterSetAlgebra()
     want:andWith(otherWant)
     local expected = want:positions()
 
-    local target = ffi.new("int32_t[?]", math.max(1, #expected))
+    local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
     local written, resume = set:positionsInto(target, #expected, 0)
     check.equal(written, #expected, "written after intersection")
     check.equal(resume, -1, "exhausted after intersection")

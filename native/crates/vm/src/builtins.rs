@@ -30,6 +30,7 @@ pub const NAMES: &[&str] = &[
     "storage.allocateBytes", "storage.borrowString", "storage.copy", "storage.fill", "storage.sizeOf", "storage.string", "storage.decodeUint8", "storage.encodeUint8", "storage.decodeInt8", "storage.encodeInt8", "storage.decodeUint16", "storage.encodeUint16", "storage.decodeInt16", "storage.encodeInt16", "storage.decodeUint32", "storage.encodeUint32", "storage.decodeInt32", "storage.encodeInt32", "storage.decodeUint64", "storage.encodeUint64", "storage.decodeInt64", "storage.encodeInt64", "storage.decodeFloat32", "storage.encodeFloat32", "storage.decodeFloat64", "storage.encodeFloat64", "storage.castBytes", "storage.castElements", "storage.scalar", "storage.descriptor", "storage.allocateArray", "storage.boundedCount", "storage.index", "storage.write", "storage.add", "storage.sub",
     "simd.reducer.orderedSum", "simd.reducer.pairwiseSum", "simd.reducer.compensatedSum", "simd.reducer.algebraicSum", "simd.reducer.orderedProduct", "simd.reducer.pairwiseProduct", "simd.reducer.algebraicProduct", "simd.reducer.orderedDot", "simd.reducer.pairwiseDot", "simd.reducer.algebraicDot", "simd.reducer.wrappingSum", "simd.reducer.wrappingProduct", "simd.reducer.andBits", "simd.reducer.orBits", "simd.reducer.xorBits", "simd.reducer.any", "simd.reducer.all", "simd.reducer.count", "simd.reducer.integerMin", "simd.reducer.integerMax", "simd.reducer.integerArgMin", "simd.reducer.integerArgMax", "simd.reducer.propagatingMin", "simd.reducer.propagatingMax", "simd.reducer.propagatingArgMin", "simd.reducer.propagatingArgMax", "simd.reducer.numberMin", "simd.reducer.numberMax", "simd.reducer.numberArgMin", "simd.reducer.numberArgMax",
     "simd.reducerAdd", "simd.reducerValue", "simd.indirect",
+    "uuid.uuid4", "uuid.uuid7", "crc.update",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -450,6 +451,23 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     }
     if NAMES.get(id as usize) == Some(&"vm.cacheDigest") { let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)]; }
     if NAMES.get(id as usize) == Some(&"vm.processId") { return outs![Value::num(std::process::id() as f64)]; }
+    if let Some(name @ ("uuid.uuid4" | "uuid.uuid7")) = NAMES.get(id as usize).copied() {
+        let value = if name == "uuid.uuid4" { nupp_native_platform::uuid4() } else { nupp_native_platform::uuid7() };
+        return outs![it.heap_new_string(&value.unwrap_or_else(|e| it.err(&e)))];
+    }
+    if NAMES.get(id as usize) == Some(&"crc.update") {
+        let id = crate::numeric::double(it, arg(args, 0));
+        if !(1.0..=4.0).contains(&id) || id.fract() != 0.0 { it.err("unknown CRC algorithm"); }
+        let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::bits(it, arg(args, 1), true)) };
+        let bytes = crate::storage::borrowed_bytes(it, arg(args, 2), arg(args, 3));
+        let [state, snapshot] = nupp_crc::update(id as u32, state, bytes).unwrap_or_else(|e| it.err(e));
+        let scope = it.open_scope();
+        let state = it.box_integer(crate::numeric::Integer { bits: state, unsigned: true }); it.handles.push(state);
+        let snapshot = it.box_integer(crate::numeric::Integer { bits: snapshot, unsigned: true });
+        let result = outs![state, snapshot];
+        it.close_scope(scope);
+        return result;
+    }
     if NAMES.get(id as usize) == Some(&"clock.now") {
         let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default().as_secs_f64() * 1000.0;

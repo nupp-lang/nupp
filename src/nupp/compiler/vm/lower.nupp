@@ -2057,7 +2057,7 @@ function lower.emit(
             exprAs(f, node.ifFalse, "v", dst)
             f:patch(skip, "Jmp", f:offset(skip, f:here()))
         elseif k == "dotIndex" then
-            local fname = tokText(node.name)
+            local fname = node.overloadMember or tokText(node.name)
             if node.obj.kind == "name" and LIBS[tokText(node.obj.token)] and not f:binding(tokText(node.obj.token)) then
                 local full = tokText(node.obj.token) .. "." .. fname
                 -- Library members that are values rather than functions.
@@ -3271,12 +3271,13 @@ function lower.emit(
             f:op("SetField", identity, f:const("str", "__index"), identity)
             for _, entry in ipairs(node.entries) do
                 if entry.kind == "inlineMethod" then
+                    local member = entry.overloadMember or tokText(entry.name)
                     local c = f:reg();
-                    emitClosure(f, entry.body, c, shape.name .. ":" .. tokText(entry.name))
+                    emitClosure(f, entry.body, c, shape.name .. ":" .. member)
                     if not entry.inlineStatic then
-                        f:op("SetMethod", shape.id, f:const("str", tokText(entry.name)), c)
+                        f:op("SetMethod", shape.id, f:const("str", member), c)
                     end
-                    f:op("SetField", identity, f:const("str", tokText(entry.name)), c)
+                    f:op("SetField", identity, f:const("str", member), c)
                     registerCleanups(f, entry.name.cleanupRegistrations, c)
                 end
             end

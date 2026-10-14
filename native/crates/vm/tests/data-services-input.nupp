@@ -1,0 +1,80 @@
+module nupp.tests.vmdata
+
+local uuid = require("nupp.tests.providers.uuid")
+local nativeUuid = require("nupp.runtime.provider.nativeuuid")
+local checksum = require("nupp.checksum")
+local digest = require("nupp.digest")
+local span = require("nupp.mem.span")
+local tasks = require("nupp.tasks")
+local tests = {}
+
+local record Overloads
+    function choose(self, value: integer): integer
+        return value + 1
+    end
+
+    function choose(self, value: string): integer
+        return #value
+    end
+
+    function convert(value: integer): integer
+        return value + 2
+    end
+
+    function convert(value: string): integer
+        return #value + 3
+    end
+end
+
+function tests.run(): integer
+    local methods = new Overloads()
+    assert(methods:choose(41) == 42 and methods:choose("test") == 4)
+    assert(Overloads.convert(40) == 42 and Overloads.convert("test") == 7)
+    local ok, problem = uuid.test(nativeUuid)
+    assert(ok, problem)
+    local names = {"adler32", "crc32", "crc32c", "crc64-ecma", "crc64nvme"}
+    local expected: {
+        uint64
+    } = {0x091e01deULL, 0xcbf43926ULL, 0xe3069283ULL, 0x6c40df5f0b497347ULL, 0xae8b14860a799888ULL}
+    local input = "prefix123456789suffix"
+    local bytes = span.fromString(input)
+    local part = bytes:slice(7, 15)
+    for index, name in ipairs(names) do
+        assert(checksum.value(name, "123456789") == expected[index])
+        with first = checksum.newChecksum(name), second = checksum.newChecksum(name) do
+            first:write("1234")
+            second:writeSpan(part)
+            first:write("56789")
+            assert(first:value() == expected[index] and second:value() == expected[index])
+            first:write("")
+            assert(first:value() == expected[index])
+        end
+    end
+    assert(digest.hexDigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
+    assert(digest.hexDigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+    assert(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    assert(
+        digest.hexDigest(
+            "sha512",
+            "abc"
+        ) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+    )
+
+    return 42
+end
+
+function tests.worker(): integer
+    with scope = tasks.open() do
+        local child = scope:fork(function(): uint64
+            local sums = require("nupp.checksum")
+            local ids = require("nupp.runtime.provider.nativeuuid")
+            assert(#ids.uuid4() == 36 and #ids.uuid7() == 36)
+            return sums.value("crc64nvme", "123456789")
+        end)
+        assert(child:await() == 0xae8b14860a799888ULL)
+    end
+
+    return 42
+end
+
+export = tests

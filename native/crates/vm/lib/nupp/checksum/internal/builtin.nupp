@@ -1,0 +1,77 @@
+@!internal
+module nupp.checksum.internal.builtin
+
+local provider = require("nupp.checksum.spi")
+local span = require("nupp.mem.span")
+local crc = require("nupp.vm.crc")
+
+local record AdlerState is provider.State
+    @private high: integer
+    @private low: integer
+
+    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+        for index = 1, #bytes do
+            self.low = (self.low + bytes[index]) % 65521
+            self.high = (self.high + self.low) % 65521
+        end
+    end
+
+    function value(self): uint64
+        return 0ULL + self.high * 65536 + self.low
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local record CrcState is provider.State
+    @private id: integer
+    @private state: uint64
+    @private snapshot: uint64
+
+    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+        self.state, self.snapshot = crc.update(self.id, self.state, bytes:ref(), #bytes)
+    end
+
+    function value(self): uint64
+        return self.snapshot
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local record Algorithm is provider.Algorithm
+    @readonly name: string
+    @readonly width: integer
+    @private id: integer
+
+    function create(self): provider.State
+        if self.id == 0 then
+            return new AdlerState(high = 0, low = 1)
+        end
+        const empty = ""
+        local bytes = span.fromString(empty)
+        local state, snapshot = crc.update(self.id, nil, bytes:ref(), 0)
+
+        return new CrcState(id = self.id, state = state, snapshot = snapshot)
+    end
+end
+
+const ALGORITHMS: {
+    [string]: provider.Algorithm
+} = {
+    adler32 = new Algorithm(name = "adler32", width = 32, id = 0),
+    crc32 = new Algorithm(name = "crc32", width = 32, id = 1),
+    crc32c = new Algorithm(name = "crc32c", width = 32, id = 2),
+    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64, id = 3),
+    crc64nvme = new Algorithm(name = "crc64nvme", width = 64, id = 4),
+}
+
+export function lookup(name: string): provider.Algorithm?
+    return ALGORITHMS[name]
+end
+
+export function names(): {string}
+    return {"adler32", "crc32", "crc32c", "crc64-ecma", "crc64nvme"}
+end

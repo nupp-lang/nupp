@@ -69,6 +69,7 @@ fn record_table_iteration_omits_absent_and_deleted_values() {
 
 const META_PROGRAM: &str = r#"
 shape 0 struct:answer answer:any
+shape 1 MethodOwner other:any
 function readslot 0 1 4 1 v:v
 GetSlot 2 1 0 0
 Ret 2
@@ -84,6 +85,60 @@ Ret 1
 end
 entry 0
 "#;
+
+#[test]
+fn sparse_numeric_keys_move_into_the_array_once() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let table = vm.new_table();
+    vm.register(table);
+    for key in [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39] {
+        vm.set_index(table, Value::num(key as f64), Value::TRUE);
+    }
+    for key in 0..32 {
+        vm.set_index(table, Value::num(key as f64), Value::TRUE);
+    }
+    assert_eq!(vm.table_keys(table).len(), 35);
+    assert_eq!(vm.array_len(table), 31);
+    vm.push_array(table, Value::num(42.0));
+    assert_eq!(vm.array_len(table), 33);
+    assert_eq!(vm.get_index(table, Value::num(32.0)), Value::num(42.0));
+    vm.set_index(table, Value::num(33.0), Value::NIL);
+    assert_eq!(vm.array_len(table), 32);
+    assert_eq!(vm.get_index(table, Value::num(33.0)), Value::NIL);
+    assert_eq!(vm.table_keys(table).len(), 35);
+    vm.full_cycle();
+    vm.check_oracle();
+}
+
+#[test]
+fn record_methods_are_values_but_are_not_raw_instance_fields() {
+    use nupp_vm::image;
+    let program = META_PROGRAM.replace("answer:any", "other:any");
+    for threaded in [false, true] {
+        let mut vm = Interp::new();
+        image::load(&mut vm, &program).unwrap();
+        vm.install_globals();
+        if threaded {
+            vm.prepare_threaded();
+        }
+        let name = vm.intern("answer");
+        let method = Value::builtin(id_of("assert").unwrap());
+        vm.heap.shapes[0].methods.insert(name, method);
+        let object = vm.new_record(0);
+        vm.register(object);
+        assert_eq!(vm.get_index(object, name), Value::NIL);
+        assert_eq!(vm.index(object, name), method);
+        assert_eq!(vm.call_value(Value::func(1), &[object]), vec![method]);
+        vm.set_index(object, name, Value::FALSE);
+        assert_eq!(vm.call_value(Value::func(1), &[object]), vec![Value::FALSE]);
+        vm.set_index(object, name, Value::NIL);
+        assert_eq!(vm.call_value(Value::func(1), &[object]), vec![method]);
+    }
+}
 
 #[test]
 fn long_named_fields_agree_with_dynamic_lookup_across_functions() {
@@ -275,6 +330,23 @@ fn compiled_slot_guards_and_field_caches_observe_metatable_changes() {
         assert_eq!(
             vm.call_outs(Value::func(fid), &[object]).as_slice(),
             &[Value::NIL]
+        );
+    }
+    let method = Value::builtin(id_of("assert").unwrap());
+    vm.heap.shapes[1].methods.insert(answer, method);
+    let owner = vm.new_record(1);
+    vm.register(owner);
+    for override_value in [None, Some(Value::FALSE), Some(Value::NIL)] {
+        if let Some(value) = override_value {
+            vm.set_index(owner, answer, value);
+        }
+        assert_eq!(
+            vm.call_outs(Value::func(1), &[owner]).as_slice(),
+            &[if override_value == Some(Value::FALSE) {
+                Value::FALSE
+            } else {
+                method
+            }]
         );
     }
     compiled::CTX.store(std::ptr::null_mut(), Ordering::Relaxed);

@@ -16,6 +16,18 @@ fn algorithm(id: u32) -> Option<CrcAlgorithm> {
     })
 }
 
+/// Updates a resumable checksum without retaining the input or owning state.
+/// `None` starts a new checksum; the result contains state and a snapshot.
+pub fn update(id: u32, state: Option<u64>, input: &[u8]) -> Result<[u64; 2], &'static str> {
+    let algorithm = algorithm(id).ok_or("unknown CRC algorithm")?;
+    let mut digest = match state {
+        Some(state) => Digest::new_with_init_state(algorithm, state),
+        None => Digest::new(algorithm),
+    };
+    digest.update(input);
+    Ok([digest.get_state(), digest.finalize()])
+}
+
 /// Updates two caller-owned words: the resumable state and its checksum.
 /// No pointer is retained, and an empty reset initializes both words.
 ///
@@ -32,10 +44,10 @@ pub unsafe extern "C" fn nuppCrcUpdate(
     length: usize,
 ) -> i32 {
     boundary(|| {
-        let Some(algorithm) = algorithm(id) else {
+        if algorithm(id).is_none() {
             set_last_error("unknown CRC algorithm");
             return Status::InvalidArgument.code();
-        };
+        }
         if words.is_null()
             || (reset != 0 && reset != 1)
             || length > isize::MAX as usize
@@ -44,11 +56,11 @@ pub unsafe extern "C" fn nuppCrcUpdate(
             set_last_error("invalid CRC input or state");
             return Status::InvalidArgument.code();
         }
-        let mut digest = if reset == 1 {
-            Digest::new(algorithm)
+        let state = if reset == 1 {
+            None
         } else {
             // SAFETY: the ABI caller owns two initialized writable words.
-            Digest::new_with_init_state(algorithm, unsafe { words.read() })
+            Some(unsafe { words.read() })
         };
         let input = if length == 0 {
             &[]
@@ -56,11 +68,11 @@ pub unsafe extern "C" fn nuppCrcUpdate(
             // SAFETY: the ABI caller borrows this range for the call.
             unsafe { std::slice::from_raw_parts(data, length) }
         };
-        digest.update(input);
+        let [state, snapshot] = update(id, state, input).expect("validated algorithm");
         // SAFETY: words was checked and the caller owns both output words.
         unsafe {
-            words.write(digest.get_state());
-            words.add(1).write(digest.finalize());
+            words.write(state);
+            words.add(1).write(snapshot);
         }
         Status::Ok.code()
     })

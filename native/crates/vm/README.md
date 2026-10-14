@@ -1131,7 +1131,7 @@ the lexer timeout retained 19 passing cases. The baseline also contains three
 portable helper modules, 117 suites requiring ports, 32 retired entries, and
 three harness entries.
 
-To reproduce this coverage slice:
+To reproduce this historical coverage slice:
 
 ```sh
 python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-corpus \
@@ -1142,7 +1142,8 @@ python3 native/crates/vm/tests/corpus-smoke.py compiler.image --output /tmp/vm-c
   --unavailable-module nupp.codec.json.internal.decoder.fused
 ```
 
-Those modules stay unresolved; affected suites fail. The complete gate requires
+Those flags leave modules unresolved, so affected suites fail. The math and
+checksum ports below supersede their flags in this baseline. The complete gate requires
 removing these flags, porting surviving tests, and running under collector
 stress. That baseline includes failures in wide numeric operations, subprocess-based CLI
 tests, old storage/time/suspension/worker providers, LuaJIT and documentation
@@ -1289,9 +1290,51 @@ both interpreters, leaf JIT, and compiled frames with incremental collection,
 the root oracle, and quarantine. Native AOT compiles all 87 fixture functions
 and passes with executable memory denied, full collector stress, and checkpoint
 restore. The compiler image rebuilds byte-identically at 7,578,636 bytes.
-`tests/storage-coverage.json` records these results. The fresh `utilstoretest`
-image now loads storage and stops at the missing
-`nupp.runtime.provider.nativeuuid`; the suite has not run any cases.
+`tests/storage-coverage.json` records these results. At that milestone,
+`utilstoretest` stopped at the missing `nupp.runtime.provider.nativeuuid`.
+The data services below close that dependency.
+
+## UUIDs and checksums
+
+The VM supplies UUID generation and resumable CRC checksums through shared Rust
+implementations. Public checksum and digest APIs run with managed storage and
+require no FFI provider in their image.
+
+```sh
+python3 native/crates/vm/tests/data-services-smoke.py compiler.image --output /tmp/vm-data
+FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh \
+  /tmp/vm-data/data.image nupp.tests.vmdata run
+cargo build -p nupp-vm --release
+python3 native/crates/vm/tests/corpus-smoke.py compiler.image \
+  --suite digesttest --suite utilbitsettest --suite utilstoretest \
+  --engine threaded --gc-interleave --output /tmp/vm-data-corpus
+```
+
+UUID v4 and v7 retain the existing provider contract. CRC32, CRC32C, CRC64-ECMA,
+and CRC64-NVME keep resumable state and snapshots as exact `uint64` values;
+Adler32 uses Nupp. Calls borrow bounded byte views without retaining pointers.
+Worker calls, graph transfer, collection, and checkpoint restore preserve these
+contracts. The bit module also exports its existing rotate, byte-swap, and hex
+operations for public MD5, SHA1, SHA256, and SHA512 implementations.
+
+Integration exposed three semantic gaps. Ordinary record reads now find methods
+without adding them to raw fields or iteration. Sparse numeric table keys move
+into the array once as it grows. Overloaded instance and static methods use the
+checker's selected member name for both definitions and references.
+
+The 2026-10-13 acceptance run passes all 48 digest, bitset, and store cases on
+both interpreters under collector verification. The bitset suite now allocates
+through public storage; the other two suites are unchanged. Another 13 unchanged
+hash-stream and digest-boundary cases pass both interpreters, on-demand JIT, and
+compiled frames. UUID, checksum, overload, and worker fixtures pass those four
+modes with an empty `PATH`. Native AOT compiles all 651 fixture functions and
+passes the focused service fixture with executable memory denied, full collector
+stress, and checkpoint restore.
+
+The on-demand JIT passes the 33 digest and bitset cases, but store-suite
+compilation exceeds 600 seconds before cases run. Full CLI integration and the
+complete classified corpus remain open. `tests/data-services-coverage.json`
+records the results and separates this limit from interpreter coverage.
 
 ## SIMD on the VM (2026-10-13)
 

@@ -1419,6 +1419,7 @@ dependencies = [
  "crc32fast",
  "libc",
  "libloading",
+ "nupp-native-checksum",
  "nupp-native-platform",
  "serde_json",
  "sha2",

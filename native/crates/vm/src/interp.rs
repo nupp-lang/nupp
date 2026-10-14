@@ -960,7 +960,7 @@ impl Interp {
         let err_id = crate::builtins::id_of("error").unwrap();
         self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
-        let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit"]);
+        let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn"]);
         let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
@@ -987,6 +987,10 @@ impl Interp {
             self.set_index(clock, key, Value::builtin(crate::builtins::id_of(builtin).unwrap()));
         }
         self.loaded.insert("nupp.vm.clock".into(), clock);
+        let uuid = table_of(self, &["uuid.uuid4", "uuid.uuid7"]);
+        self.loaded.insert("nupp.runtime.provider.nativeuuid".into(), uuid);
+        let crc = table_of(self, &["crc.update"]);
+        self.loaded.insert("nupp.vm.crc".into(), crc);
         let pid = self.new_table(); self.registered.push(pid);
         let get = self.intern("get"); self.set_index(pid, get, Value::builtin(crate::builtins::id_of("vm.processId").unwrap()));
         self.loaded.insert("nupp.compiler.hostpid".into(), pid);
@@ -1154,7 +1158,32 @@ impl Interp {
         let before = h.external_bytes();
         match h.kind {
             // `t[#t] = nil` shrinks the array part, as Lua's border rule reads it.
-            KIND_TABLE => { let t = h.table(); if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 { let k = iv.as_num() as usize; if k == t.array.len() + 1 { if v != Value::NIL { t.array.push(v) } } else { t.array[k - 1] = v; if v == Value::NIL && k == t.array.len() { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } } } } else { t.hash.insert(iv, v); } h.refresh(); }
+            KIND_TABLE => {
+                let t = h.table();
+                if iv.is_num() && iv.as_num() >= 1.0 && iv.as_num().fract() == 0.0 && (iv.as_num() as usize) <= t.array.len() + 1 {
+                    let k = iv.as_num() as usize;
+                    if k == t.array.len() + 1 {
+                        // A sparse key may already live in the hash part. Move
+                        // each newly contiguous key rather than keeping two copies.
+                        t.hash.insert(iv, Value::NIL);
+                        if v != Value::NIL {
+                            t.array.push(v);
+                            loop {
+                                let next = Value::num((t.array.len() + 1) as f64);
+                                let Some(value) = t.hash.get(&next).copied() else { break; };
+                                t.hash.insert(next, Value::NIL);
+                                t.array.push(value);
+                            }
+                        }
+                    } else {
+                        t.array[k - 1] = v;
+                        if v == Value::NIL && k == t.array.len() {
+                            while t.array.last() == Some(&Value::NIL) { t.array.pop(); }
+                        }
+                    }
+                } else { t.hash.insert(iv, v); }
+                h.refresh();
+            }
             // A record written by name: the shape is closed, so an unknown name is an error.
             KIND_RECORD => {
                 if iv.is_num() { let n = iv.as_num(); let a = h.record_array(); if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= a.len() + 1 { let k = n as usize; if k == a.len() + 1 { if v != Value::NIL { a.push(v) } } else { a[k - 1] = v; if v == Value::NIL && k == a.len() { while a.last() == Some(&Value::NIL) { a.pop(); } } } self.heap.account_resize(before, h.external_bytes()); return; } self.err("record index outside its children") }
@@ -1194,6 +1223,12 @@ impl Interp {
         for _ in 0..100 {
             let v = self.get_index(t, key);
             if v != Value::NIL { return v; }
+            if let Some(p) = t.as_obj() {
+                let h = unsafe { &*p.as_ptr() };
+                if h.kind == KIND_RECORD {
+                    if let Some(method) = self.heap.shapes[h.shape() as usize].methods.get(&key) { return *method; }
+                }
+            }
             let h = self.meta_field(t, "__index");
             if h == Value::NIL { return Value::NIL; }
             if h.as_obj().map(|p| matches!(unsafe { (*p.as_ptr()).kind }, KIND_TABLE | KIND_RECORD)).unwrap_or(false) { t = h; continue; }
@@ -1226,7 +1261,7 @@ impl Interp {
     pub fn tagcheck_rec(&self, v: Value, shape: u32) { let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { self.err("value is not an instance of the expected record") } }
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
     pub fn array_get(&self, t: Value, i: usize) -> Value { hdr!(self, t, "not a table").table_ref().array[i] }
-    pub fn push_array(&mut self, t: Value, v: Value) { let p = t.as_obj().unwrap(); self.heap.barrier(p, v); unsafe { let h = &mut *p.as_ptr(); let before = h.external_bytes(); h.table().array.push(v); h.refresh(); self.heap.account_resize(before, h.external_bytes()); } }
+    pub fn push_array(&mut self, t: Value, v: Value) { self.set_index(t, Value::num((self.array_len(t) + 1) as f64), v); }
     pub fn pop_array(&mut self, t: Value) { let h = hdr!(self, t, "not a table"); let a = if h.kind == KIND_RECORD { h.record_array() } else { &mut h.table().array }; while a.last() == Some(&Value::NIL) { a.pop(); } h.refresh(); }
     /// Every key of a table, array part first, for `pairs` and `next`.
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
@@ -1820,9 +1855,8 @@ impl Interp {
         let h = hdr!(self, r!(t), &format!("field {} of a non-object", String::from_utf8_lossy(self.bytes_of(name))));
         let v = match h.kind {
             KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
-            // An untyped read of a field the shape lacks is nil, as the
-            // compiler's own `x.trivia ~= nil` tests on `any` expect (2.4 amended).
-            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&name).copied()).unwrap_or(Value::NIL) } }
+            // Stored fields keep the shape probe; absent fields may be methods.
+            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) => h.slots()[i], None => self.index(r!(t), name) } }
             _ => self.err(&format!("field {} of a non-object ({})", String::from_utf8_lossy(self.bytes_of(name)), Heap::describe(h))),
         };
         r!(d) = v;

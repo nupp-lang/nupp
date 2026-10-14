@@ -1,0 +1,21 @@
+module nupp.tests.vmdatalibraries
+
+local hashes = require("hashstreamtest")
+local boundaries = require("digestboundarytest")
+local tests = {}
+
+function tests.run(): integer
+    local count = 0
+    for _, suite in ipairs({hashes as any, boundaries as any}) do
+        for name, body in pairs(suite) do
+            local ok, problem = pcall(body)
+            assert(ok, name .. ": " .. tostring(problem))
+            count = count + 1
+        end
+    end
+    assert(count == 13)
+
+    return 42
+end
+
+export = tests

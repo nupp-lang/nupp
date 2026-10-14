@@ -243,6 +243,11 @@ fn range(vm: &Interp, value: Value, n: usize, write: bool) -> (Value, usize) {
     }
     (v.owner, v.offset)
 }
+pub(crate) fn borrowed_bytes(vm: &Interp, value: Value, length: Value) -> &[u8] {
+    let n = count(vm, length);
+    let (owner, offset) = range(vm, value, n, false);
+    &vm.bytes_of(owner)[offset..offset + n]
+}
 pub(crate) fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
     let width = scalar_width(kind).unwrap();
     if bytes.len() < width {

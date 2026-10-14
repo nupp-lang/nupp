@@ -247,7 +247,8 @@ impl<M: Module> Compiler<M> {
             // absent from the shape: the overflow part, the same table
             b.switch_to_block(absent); b.seal_block(absent);
             let nslots = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let so8 = b.ins().ishl_imm(nslots, 3); let ea = b.ins().iadd(o, so8); let extra = b.ins().load(types::I64, flags, ea, HEADER as i32 + 24);
-            let nilr = b.ins().iconst(types::I64, NIL); let none = b.ins().icmp_imm(IntCC::Equal, extra, 0);
+            // An absent instance field may name a method held by the shape.
+            let nilr = b.ins().iconst(types::I64, MISS); let none = b.ins().icmp_imm(IntCC::Equal, extra, 0);
             let ov = b.create_block(); let ov1 = b.create_block(); let ov2 = b.create_block();
             b.ins().brif(none, out, &[nilr.into()], ov, &[]);
             b.switch_to_block(ov); b.seal_block(ov);
@@ -255,10 +256,12 @@ impl<M: Module> Compiler<M> {
             b.ins().brif(xnull, out, &[nilr.into()], ov1, &[]);
             b.switch_to_block(ov1); b.seal_block(ov1);
             let xk0 = b.ins().band(hash, xmask); let xe0 = b.ins().ishl_imm(xk0, 4); let xe0 = b.ins().iadd(xp, xe0); let xb0 = b.ins().load(types::I64, flags, xe0, 0); let xv0 = b.ins().load(types::I64, flags, xe0, 8);
+            let xv0_nil = b.ins().icmp_imm(IntCC::Equal, xv0, NIL); let xv0 = b.ins().select(xv0_nil, nilr, xv0);
             let xm0 = b.ins().icmp(IntCC::Equal, xb0, name); b.ins().brif(xm0, out, &[xv0.into()], ov2, &[]);
             b.switch_to_block(ov2); b.seal_block(ov2);
             let xe0_empty = b.ins().icmp_imm(IntCC::Equal, xb0, VT_EMPTY as i64);
             let xk1 = b.ins().iadd_imm(xk0, 1); let xk1 = b.ins().band(xk1, xmask); let xe1 = b.ins().ishl_imm(xk1, 4); let xe1 = b.ins().iadd(xp, xe1); let xb1 = b.ins().load(types::I64, flags, xe1, 0); let xv1 = b.ins().load(types::I64, flags, xe1, 8);
+            let xv1_nil = b.ins().icmp_imm(IntCC::Equal, xv1, NIL); let xv1 = b.ins().select(xv1_nil, nilr, xv1);
             let xm1 = b.ins().icmp(IntCC::Equal, xb1, name); let xe1_empty = b.ins().icmp_imm(IntCC::Equal, xb1, VT_EMPTY as i64);
             let xpick = b.ins().select(xm1, xv1, nilr); let settled = b.ins().bor(xe0_empty, xm1); let settled = b.ins().bor(settled, xe1_empty);
             b.ins().brif(settled, out, &[xpick.into()], miss, &[]);

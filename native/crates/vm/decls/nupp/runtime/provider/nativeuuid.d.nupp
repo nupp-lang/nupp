@@ -1,0 +1,5 @@
+local record UuidProvider
+    uuid4: function(): string
+    uuid7: function(): string
+end
+return UuidProvider

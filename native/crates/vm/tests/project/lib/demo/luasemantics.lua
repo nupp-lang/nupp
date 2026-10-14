@@ -17,13 +17,15 @@ function M.run()
         return math.cos(value)
     end
 
-    assert(io.popen == nil and math.cos == nil)
     local dynamicMath = _G["math"]
+    local originalCos = dynamicMath.cos
+    dynamicMath.cos = nil
+    assert(io.popen == nil and math.cos == nil)
     dynamicMath.cos = function(value)
         return value + 1
     end
     assert(invokeOptional(41) == 42)
-    dynamicMath.cos = nil
+    dynamicMath.cos = originalCos
 
     local keys = {}
     for key in pairs({[false] = "no", [true] = "yes"}) do

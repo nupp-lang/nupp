@@ -1,0 +1,371 @@
+{
+  "date": "2026-10-13",
+  "baseCommit": "a3b41c93c756f46d949c6b691f81ba0031de8797",
+  "scope": "UUID and checksum services, public hash APIs, and their corpus dependencies. Full CLI and classified corpus acceptance remain open.",
+  "dataFixture": {
+    "seedSha256": "2ffacbbd139bb435b6d6e39cb7f20333e62d20b28126aca0c190eaf8825f894c",
+    "imageSha256": "222b4e36f3abdad83dc30c99277bae1e87f101dfd0e332ea0f757a3ed9b5047c",
+    "binarySha256": "63e54cb4647eedc925b308039dc6abbbf344e88e204f626a916134316d3d9a2f",
+    "contractSha256": "554841ca2037258bc1b0cbb7a47f5f86e1111d47026e3c7a30896496f7226dde",
+    "results": [
+      {
+        "engine": "rust",
+        "module": "nupp.tests.vmdata",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "rust",
+        "module": "nupp.tests.vmdata",
+        "function": "worker",
+        "passed": true
+      },
+      {
+        "engine": "rust",
+        "module": "nupp.tests.vmdatalibraries",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "module": "nupp.tests.vmdata",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "module": "nupp.tests.vmdata",
+        "function": "worker",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "module": "nupp.tests.vmdatalibraries",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "module": "nupp.tests.vmdata",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "module": "nupp.tests.vmdata",
+        "function": "worker",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "module": "nupp.tests.vmdatalibraries",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "module": "nupp.tests.vmdata",
+        "function": "run",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "module": "nupp.tests.vmdata",
+        "function": "worker",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "module": "nupp.tests.vmdatalibraries",
+        "function": "run",
+        "passed": true
+      }
+    ],
+    "gc": "incremental every allocation, root oracle, quarantine",
+    "path": "",
+    "unchangedLibraryCases": {
+      "hashstreamtest": 12,
+      "digestboundarytest": 1
+    },
+    "checks": [
+      "unchanged UUID provider contract",
+      "instance and static overload definitions and calls",
+      "all five checksum algorithms, offset spans, independent contexts, empty updates",
+      "MD5, SHA1, SHA256, SHA512, HMAC, overloaded digest output and bounds",
+      "worker UUID calls and exact CRC64-NVME result transfer"
+    ]
+  },
+  "nativeAOT": {
+    "compiledFunctions": 651,
+    "refusedFunctions": 0,
+    "objectBytes": 3806176,
+    "compiledFrames": true,
+    "entry": "nupp.tests.vmdata.run",
+    "imageSha256": "222b4e36f3abdad83dc30c99277bae1e87f101dfd0e332ea0f757a3ed9b5047c",
+    "executableMemoryDenied": true,
+    "craneliftAbsent": true,
+    "checkpointRestorePassed": true,
+    "gc": "full collection every allocation and root oracle"
+  },
+  "vmCompilerFixpoint": {
+    "bytes": 8668696,
+    "sha256": "2ffacbbd139bb435b6d6e39cb7f20333e62d20b28126aca0c190eaf8825f894c",
+    "consecutiveRebuildsByteIdentical": true
+  },
+  "corpus": {
+    "threaded": {
+      "run": {
+        "seed": "/private/tmp/nupp-corpus-services/compiler.image",
+        "binary": "/private/tmp/nupp-codegen-experiment/build/rust/target/release/nupp-vm",
+        "seedSha256": "1c265d770e728ea50ef623d6bf35f3fcb16e049f81785412661c822609b67b1b",
+        "binarySha256": "1ee3162de83312b54c7045f800ac5e1c351aaf502cf729dbeecf225cce64821e",
+        "engine": "threaded",
+        "gcStress": false,
+        "gcInterleave": true,
+        "compilation": "none",
+        "path": "",
+        "timeoutSeconds": 600,
+        "unavailableModules": [],
+        "image": "/private/tmp/nupp-corpus-services/corpus/corpus.image",
+        "imageSha256": "fbce615cf443cb0fbeeface479f3274eb61984ed5c2c75898c7ec40764315874",
+        "selectedSuites": 3
+      },
+      "results": [
+        {
+          "suite": "digesttest",
+          "class": "portable",
+          "facilities": "-",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 7,
+          "failed": 0,
+          "total": 7,
+          "completed": true,
+          "durationSeconds": 0.163
+        },
+        {
+          "suite": "utilbitsettest",
+          "class": "port-required",
+          "facilities": "ffi",
+          "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 26,
+          "failed": 0,
+          "total": 26,
+          "completed": true,
+          "durationSeconds": 0.331
+        },
+        {
+          "suite": "utilstoretest",
+          "class": "portable",
+          "facilities": "getinfo",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 15,
+          "failed": 0,
+          "total": 15,
+          "completed": true,
+          "durationSeconds": 40.639
+        }
+      ]
+    },
+    "rust": {
+      "run": {
+        "seed": "/private/tmp/nupp-corpus-services/compiler.image",
+        "binary": "/private/tmp/nupp-corpus-services/nupp-vm",
+        "seedSha256": "1c265d770e728ea50ef623d6bf35f3fcb16e049f81785412661c822609b67b1b",
+        "binarySha256": "1ee3162de83312b54c7045f800ac5e1c351aaf502cf729dbeecf225cce64821e",
+        "engine": "rust",
+        "gcStress": false,
+        "gcInterleave": true,
+        "compilation": "none",
+        "path": "",
+        "timeoutSeconds": 600,
+        "unavailableModules": [],
+        "image": "/private/tmp/nupp-corpus-services/corpus/corpus.image",
+        "imageSha256": "fbce615cf443cb0fbeeface479f3274eb61984ed5c2c75898c7ec40764315874",
+        "selectedSuites": 3
+      },
+      "results": [
+        {
+          "suite": "digesttest",
+          "class": "portable",
+          "facilities": "-",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 7,
+          "failed": 0,
+          "total": 7,
+          "completed": true,
+          "durationSeconds": 0.144
+        },
+        {
+          "suite": "utilbitsettest",
+          "class": "port-required",
+          "facilities": "ffi",
+          "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 26,
+          "failed": 0,
+          "total": 26,
+          "completed": true,
+          "durationSeconds": 0.295
+        },
+        {
+          "suite": "utilstoretest",
+          "class": "portable",
+          "facilities": "getinfo",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 15,
+          "failed": 0,
+          "total": 15,
+          "completed": true,
+          "durationSeconds": 45.699
+        }
+      ]
+    },
+    "jit": {
+      "run": {
+        "seed": "/private/tmp/nupp-corpus-services/compiler.image",
+        "binary": "/private/tmp/nupp-corpus-services/nupp-vm-final",
+        "seedSha256": "1c265d770e728ea50ef623d6bf35f3fcb16e049f81785412661c822609b67b1b",
+        "binarySha256": "63e54cb4647eedc925b308039dc6abbbf344e88e204f626a916134316d3d9a2f",
+        "engine": "jit",
+        "gcStress": false,
+        "gcInterleave": true,
+        "compilation": "on-demand frames",
+        "path": "",
+        "timeoutSeconds": 600,
+        "unavailableModules": [],
+        "image": "/private/tmp/nupp-corpus-services/corpus/corpus.image",
+        "imageSha256": "fbce615cf443cb0fbeeface479f3274eb61984ed5c2c75898c7ec40764315874",
+        "selectedSuites": 3
+      },
+      "results": [
+        {
+          "suite": "digesttest",
+          "class": "portable",
+          "facilities": "-",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 7,
+          "failed": 0,
+          "total": 7,
+          "completed": true,
+          "durationSeconds": 2.41
+        },
+        {
+          "suite": "utilbitsettest",
+          "class": "port-required",
+          "facilities": "ffi",
+          "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services",
+          "status": "passed",
+          "exitStatus": 0,
+          "passed": 26,
+          "failed": 0,
+          "total": 26,
+          "completed": true,
+          "durationSeconds": 2.878
+        },
+        {
+          "suite": "utilstoretest",
+          "class": "portable",
+          "facilities": "getinfo",
+          "reason": "pure Lua against compiler modules within the subset",
+          "status": "timeout",
+          "exitStatus": null,
+          "passed": 0,
+          "failed": 0,
+          "total": 0,
+          "completed": false,
+          "durationSeconds": 600.167,
+          "error": "",
+          "failureSamples": []
+        }
+      ]
+    },
+    "notes": [
+      "Historical classification is preserved; utilbitsettest allocation now uses public storage instead of ffi.new.",
+      "The corpus image predates the overload fix, which the separate data fixture covers.",
+      "Store-suite compilation in on-demand JIT exceeded 600 seconds before any cases ran. Both interpreters passed all 15 store cases."
+    ]
+  },
+  "rustTests": {
+    "releaseDefault": "passed",
+    "releaseNoDefaultFeatures": "passed",
+    "dataServiceCases": 3,
+    "recordTableCases": 7,
+    "checks": [
+      "UUID format and fresh randomness after checkpoint restore",
+      "CRC resumable state and snapshots transferred as a binary graph under collector verification",
+      "invalid IDs, states and byte ranges without retained roots",
+      "record methods in ordinary reads, raw fields and compiled field probes",
+      "sparse numeric key growth, deletion, iteration and collector verification"
+    ]
+  },
+  "hostShared": {
+    "command": "./bin/nupp test --lane=shared",
+    "passed": 2177,
+    "failed": 0
+  },
+  "hostFocused": {
+    "command": "./bin/nupp test digesttest hashstreamtest digestboundarytest utilbitsettest utilstoretest",
+    "passed": 61,
+    "failed": 0
+  },
+  "remaining": [
+    "Full CLI, release packaging, remaining providers and adapters, and complete classified corpus acceptance.",
+    "Large compiler functions can still exceed the 600-second on-demand JIT startup budget.",
+    "Typed slot widths, native struct layouts, actual Tecs integration, and legacy-toolchain deletion remain separate gates."
+  ],
+  "reproduce": [
+    "python3 native/crates/vm/tests/data-services-smoke.py SEED --output OUTPUT",
+    "FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh IMAGE nupp.tests.vmdata run",
+    "cargo test -p nupp-vm -p nupp-native-checksum -p nupp-native-platform --release --offline -- --test-threads=1",
+    "cargo test -p nupp-vm --release --no-default-features --offline -- --test-threads=1",
+    "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite digesttest --suite utilbitsettest --suite utilstoretest --engine threaded --gc-interleave --output OUTPUT",
+    "python3 native/crates/vm/tests/project-smoke.py SEED",
+    "./bin/nupp check --json",
+    "./bin/nupp fixpoint"
+  ],
+  "hostCheck": {
+    "command": "./bin/nupp check --json",
+    "ok": true,
+    "compiledModules": 550,
+    "reusedModules": 0,
+    "milliseconds": 106609.873046875
+  },
+  "luaSemanticsRegression": {
+    "engines": [
+      "rust",
+      "threaded",
+      "jit"
+    ],
+    "passed": true,
+    "gc": "incremental every allocation, root oracle, quarantine",
+    "change": "Save, remove and restore math.cos explicitly so optional runtime lookup is tested independently of available numeric functions."
+  },
+  "projectFixtures": {
+    "passed": [
+      "Manifest-driven project: both interpreters and GC agree; output returns 42 on all tiers",
+      "Derived CLI command: defaults, options, errors, and initializer scope passed",
+      "Lua binding kinds, missing globals, and empty return values passed",
+      "Managed group installs its runtime without another managed operation",
+      "Switch arms, guards, captures, and yield cleanup passed on all tiers"
+    ],
+    "note": "Stopped the repeated rebuild after fixture and invalid-manifest checks; vmCompilerFixpoint separately records three completed byte-identical rebuilds of the same compiler source."
+  },
+  "hostCompilerFixpoint": {
+    "command": "./bin/nupp fixpoint",
+    "exitCode": 0,
+    "byteIdentical": true
+  }
+}

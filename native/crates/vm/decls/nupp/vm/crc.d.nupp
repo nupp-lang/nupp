@@ -1,0 +1,4 @@
+local record Crc
+    update: function(id: integer, state: uint64?, borrows bytes: const uint8[?], count: integer): (uint64, uint64)
+end
+return Crc
