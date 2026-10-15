@@ -2266,3 +2266,12 @@ than rereading the file `NUPP_VM_CLI_IMAGE` names.
 `bench/serde-spike/contracts/structure.nupp` on the linked CLI: 237 s cold,
 1.2 s warm. Images are byte-identical whether a module is compiled after its
 dependencies were checked or alone among cache hits.
+
+In the corpus (`--engine threaded --gc-interleave`, linked CLI),
+`serdecontracttest` passes all 33 cases in 97 s once the cache is warm. Cold
+it still times out at 600 s after two cases: the contracts compile 88
+modules the image does not carry (36 standard, 52 their own), and filling the
+cache takes most of an hour,
+so a run that should pass needs the cache kept between runs (`NUPP_CACHE_DIR`,
+or the checkout's `build/cache`). `examplestest` is unchanged: it checks the
+documentation's examples in its own process and compiles no image.
