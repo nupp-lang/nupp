@@ -21,82 +21,6 @@ permissions:
   actions: read
 
 jobs:
-  build-luajit-browser-runtime:
-    name: LuaJIT browser runtime
-    uses: ./.github/workflows/browser-guest.yml
-
-  cold-browser-checkout:
-    name: Cold browser checkout
-    needs: build-luajit-browser-runtime
-    runs-on: ubuntu-24.04
-    # A cold LLVM cache means building LLVM before anything else.
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-      # The checkout's @aot project is compiled by the LLVM code generator; without
-      # it the build refuses, which is how the first dry run after the backend
-      # moved to LLVM found this job had none.
-      - name: Fetch or build the pinned LLVM
-        uses: ./.github/actions/pinned-llvm
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/cache/restore@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'native/crates/**', 'scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
-      - name: Install browser engines
-        # apt behind this has hung on an unreachable mirror for the whole job
-        # timeout; a stalled install fails in minutes instead.
-        timeout-minutes: 20
-        run: |
-          npm ci --prefix editors/playground
-          npx --prefix editors/playground playwright install --with-deps chromium firefox webkit
-      - uses: actions/download-artifact@v4
-        with:
-          name: nupp-luajit-browser-runtime
-          path: release
-      - name: Build from source-only export and test the packaged playground
-        run: |
-          mkdir -p "$RUNNER_TEMP/cold-browser-guest"
-          tar -xzf release/nupp-luajit-browser-runtime.tar.gz -C "$RUNNER_TEMP/cold-browser-guest"
-          python3 .github/scripts/test-cold-browser-checkout.py \
-            --guest "$RUNNER_TEMP/cold-browser-guest" \
-            --toolchain-dir "$GITHUB_WORKSPACE/.nupp-cache/toolchain" \
-            "$RUNNER_TEMP/cold-browser"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: cold-browser-validation
-          path: |
-            ${{ runner.temp }}/cold-browser/*.json
-            ${{ runner.temp }}/cold-browser/*.log
-            ${{ runner.temp }}/cold-browser/*.png
-          if-no-files-found: error
-
-  build-browser-runtime:
-    name: Browser runtime compatibility artifact
-    needs: build-luajit-browser-runtime
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: nupp-luajit-browser-runtime
-          path: release
-      - name: Verify and retain the established artifact name
-        run: |
-          tar -tzf release/nupp-luajit-browser-runtime.tar.gz > /dev/null
-          cp release/nupp-luajit-browser-runtime.tar.gz release/nupp-browser-runtime.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nupp-browser-runtime
-          path: release/nupp-browser-runtime.tar.gz
-          if-no-files-found: error
-
   build-unix:
     name: ${{ matrix.name }}
     strategy:
@@ -673,9 +597,6 @@ jobs:
     name: Add binaries to the release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs:
-      - build-browser-runtime
-      - build-luajit-browser-runtime
-      - cold-browser-checkout
       - build-unix
       - build-windows
       - stage-zero

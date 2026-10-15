@@ -8,7 +8,7 @@ An [interface](interfaces.md) may state a type it does not name. Whatever takes
 the contract names it, and the name is reached through the value that answered
 it.
 
-```nupp:playground
+```nupp
 local interface Reader
     associated type Item
 

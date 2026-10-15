@@ -9,7 +9,7 @@ Inside a parenthesized call, `name = value` fills that parameter by name, and
 Both erase to ordinary positional Lua arguments, so neither costs anything at
 run time.
 
-```nupp:playground
+```nupp
 local record Vec3
     x: number
     y: number

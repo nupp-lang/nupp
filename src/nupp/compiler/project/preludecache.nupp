@@ -15,12 +15,9 @@ So it is computed once and kept. What `nupp.compiler.project.env` restores from 
 is eight roots, and this turns those roots into a value `nupp.compiler.project.store`
 can hold and back again.
 
-This is not `nupp.compiler.project.preludeimage`, and the two are not interchangeable.
-That one reads a resource generated ahead of time for a host that cannot run the
-checker at all, in a text format written by a tool outside the compiler. This one
-is a cache: written by the checker that would otherwise be run, read only by a
-process that agrees about the compiler and the sources it came from, and thrown
-away rather than migrated whenever it might not.
+It is a cache: written by the checker that would otherwise be run, read only by
+a process that agrees about the compiler and the sources it came from, and
+thrown away rather than migrated whenever it might not.
 
 ## Flattened graph
 

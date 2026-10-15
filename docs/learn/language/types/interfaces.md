@@ -8,7 +8,7 @@ An interface names a set of members that any type carrying them satisfies. The
 declaration emits nothing at run time unless it supplies a default
 implementation.
 
-```nupp:playground
+```nupp
 local interface Named
     name: string
 end

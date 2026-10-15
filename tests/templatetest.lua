@@ -67,8 +67,7 @@ end
 -- scaffolds': what a generated project compiles is the compiler's own modules,
 -- and a store is keyed by their content rather than by which project asked for
 -- them. An empty store per scaffold made each of them pay for that surface
--- again, which on the browser templates -- a rock dependency and a `lua51`
--- target between them -- measured about a fifth of a build.
+-- again, which measured about a fifth of a build.
 --
 -- Private to this process rather than inherited from the shard: no result here
 -- depends on the unrelated temporary projects the runner packed beside it, and
@@ -608,11 +607,10 @@ end
 
 function M.theBuiltInsAreTheTemplatesThatAreThere()
     local names = template.builtins()
-    testAssert.equal(#names, 4, "four built-ins ship")
+    testAssert.equal(#names, 3, "three built-ins ship")
     testAssert.equal(names[1], "app", "app is one")
-    testAssert.equal(names[2], "browser", "browser is one")
-    testAssert.equal(names[3], "lib", "lib is one")
-    testAssert.equal(names[4], "love", "and love is the other")
+    testAssert.equal(names[2], "lib", "lib is one")
+    testAssert.equal(names[3], "love", "and love is the other")
     assert(#template.builtinDescription("app") > 0, "each says what it is for")
 end
 
@@ -826,27 +824,6 @@ end
 function M.theLibTemplateChecksBuildsAndTests()
     -- No `run`: a library has no entry point, and its test is what exercises it.
     scaffoldAndVerify("lib", "sample-lib", nil)
-end
-
-local function withDevelopmentRocks(into)
-    local path = into .. "/nupp.lua"
-    local file = assert(io.open(path, "rb"))
-    local text = file:read("*a")
-    file:close()
-    local changed, count = text:gsub(
-        'kind = "luarocks",',
-        'kind = "luarocks",\n         tree = ' .. string.format("%q", ROOT .. "/.rocks") .. ",",
-        1
-    )
-    testAssert.equal(count, 1, "the generated project has one rock dependency")
-    write(path, changed)
-end
-
-function M.theBrowserTemplateChecksBuildsAndTests()
-    -- The application itself is exercised in the Wasm browser acceptance lane.
-    -- Here the built-in promise is that a generated project reaches its checked,
-    -- dependency-backed Lua 5.1 bundle without needing Emscripten.
-    scaffoldAndVerify("browser", "sample-browser", nil, withDevelopmentRocks)
 end
 
 function M.theLoveTemplateChecksBuildsAndTests()

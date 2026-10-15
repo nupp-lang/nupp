@@ -8,7 +8,7 @@ A primitive is a builtin type name that resolves without a declaration. They
 cover Lua's own values, the dynamic and sound ends of the lattice, and the C
 numeric tower.
 
-```nupp:playground
+```nupp
 local name: string = "ada"
 local count: integer = 1
 local ratio: number = count / 2

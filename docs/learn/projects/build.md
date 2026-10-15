@@ -107,8 +107,9 @@ preserves module paths beneath `outDir`, so `app.main` becomes
 ### Browser host
 
 A target's `host = "browser"` selects browser services; `nupp build --host
-browser` overrides the manifest for one invocation. Browser LuaJIT uses i686 Linux layouts and native
-guest storage.
+browser` overrides the manifest for one invocation. The output is a Lua module
+tree carrying the browser providers; nothing in this repository runs it in a
+browser yet.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:

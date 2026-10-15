@@ -6,7 +6,7 @@ title: Declaration derives
 `nupp.derive.Debug` adds a checked `debug` method to a record or struct.
 Packages publish additional providers through the same recipe API.
 
-```nupp:playground
+```nupp
 @derive(nupp.derive.Debug)
 local record User
     id: integer

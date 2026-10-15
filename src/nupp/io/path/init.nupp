@@ -6,7 +6,7 @@ splitting follow the platform's own rules. Reach for it when a program builds a
 filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
 
-```nupp:playground
+```nupp
 const path = nupp.io.path
 
 local source = path.newPath("src", "app", "..", "main.nupp"):normalize()

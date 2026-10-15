@@ -8,7 +8,7 @@ A type pack describes a sequence of Lua values. Function parameters and
 results, expanded call arguments, assignments, returns, varargs, and coroutine
 transfers all use one representation for it.
 
-```nupp:playground
+```nupp
 local function apply<A..., R...>(callback: function(A...): R..., ...: A...): R...
     return callback(...)
 end

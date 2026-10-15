@@ -122,7 +122,7 @@ end
 
 --- Numeric-loop entry follows the LuaJIT runtime provisioned for the target.
 --- The pinned LuaJIT defaults to dual numbers on ARM64 and single numbers
---- on x86. Independent browser Wasm kernels are called by the i686 LuaJIT
+--- on x86. A wasm32 target reads as single numbers.
 function target.numericForRuntime(selected: target.Target): string
     if selected.architecture == "wasm32" then
         return "luajit-single"

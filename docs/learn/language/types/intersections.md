@@ -8,7 +8,7 @@ order: 300
 structural and erased at run time, so it composes capabilities at a boundary
 without a declaration that names the combination.
 
-```nupp:playground
+```nupp
 local type Identified = {
     @readonly id: integer
 }

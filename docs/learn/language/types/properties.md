@@ -8,7 +8,7 @@ Properties and indexers grant read and write access independently. A type then
 describes the authority an API needs instead of turning every member into a
 read-write slot.
 
-```nupp:playground
+```nupp
 local interface Snapshot
     @readonly value: string
 end

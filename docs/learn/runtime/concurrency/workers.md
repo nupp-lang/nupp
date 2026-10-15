@@ -39,7 +39,7 @@ end
 in the current Lua state; passing it to `scope:fork` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
-::: note Workers need a compiler-owned binary, or a browser package
+::: note Workers need a compiler-owned binary, or a browser provider
 Natively, workers run only in a `binary` target whose `stub` is `"nupp"`. The
 host supplies the pinned LuaJIT, stamped payload, native scheduler primitives,
 and early machine-code address-space reservation. Builds refuse workers in
@@ -554,11 +554,10 @@ across process failure, and jobs that outlive the caller belong to a broker or
 
 ## Browser lanes
 
-The [browser implementation](../../performance/ahead-of-time/wasm.md#browser-platform-services)
-satisfies `nupp.workers.spi.Provider`, so everything above is written the same way there.
-A lane is a module Web Worker holding its own LuaJIT guest, booted from the
-same verified application package the page loaded; the packaging step ships the
-lane entry point beside the content-addressed runtime. A lane checks that the
+The browser implementation satisfies `nupp.workers.spi.Provider`, so
+everything above is written the same way there. A lane is a module Web Worker
+holding its own Lua state, booted from the same verified application package
+the page loaded. A lane checks that the
 manifest it fetches has the digest of the one the page verified, so a deploy
 between page load and a lane's start fails that lane's tasks with "the
 application manifest changed after the page loaded it" rather than pairing two
@@ -584,7 +583,7 @@ synchronous channel:
 
 One thing the native scheduler offers is not there. A [moved owned
 buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
-another guest, so every ownership mode keeps the copy refusal.
+another lane, so every ownership mode keeps the copy refusal.
 
 Everything else is the same: a scope is fail-fast, a scope deadline reaches a
 lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its

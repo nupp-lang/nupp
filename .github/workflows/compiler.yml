@@ -32,8 +32,6 @@ on:
 
 permissions:
   contents: read
-  # The browser guest it calls fetches the pinned LLVM artifact.
-  actions: read
 
 # Grouped per ref, so a newer push to the same ref cancels the older run.
 #
@@ -77,8 +75,6 @@ jobs:
       linux-integration: ${{ steps.classify.outputs.linux-integration }}
       macos-integration: ${{ steps.classify.outputs.macos-integration }}
       windows-integration: ${{ steps.classify.outputs.windows-integration }}
-      portable-compiler: ${{ steps.classify.outputs.portable-compiler }}
-      browser-wasm: ${{ steps.classify.outputs.browser-wasm }}
       gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
@@ -745,61 +741,6 @@ jobs:
       - name: Verify the self-hosting fixpoint
         run: ./bin/nupp fixpoint
 
-  portable-compiler:
-    name: LuaJIT browser compiler
-    needs: [classify, fast-checks]
-    if: >-
-      !cancelled() && needs.classify.result == 'success'
-      && needs.fast-checks.result == 'success'
-      && needs.classify.outputs.portable-compiler == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v5
-
-      - name: Restore the pinned build tools
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
-          key: >-
-            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
-
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      - name: Bootstrap the compiler
-        shell: bash
-        run: ./bin/nupp build
-
-      # A checker or optimizer change anywhere in the compiler can invalidate
-      # source shown on the homepage. Compile it under the Worker's default
-      # LuaJIT settings here as well as in the browser compiler request corpus.
-      - name: Compile every homepage example in LuaJIT mode
-        shell: bash
-        run: >-
-          ./bin/nupp build -O1
-          -o build/ci-playground-examples
-          editors/playground/src/examples/*.nupp
-
-      - name: Validate the LuaJIT browser compiler bundle
-        shell: bash
-        run: .github/scripts/test-portable-compiler.sh
-
   # Documentation generation, its links, and the generated assets a site build
   # produces. This is the whole obligation of a documentation-only change: it
   # provisions no platform matrix, no native toolchain and no GPU adapter.
@@ -846,20 +787,6 @@ jobs:
 
       - name: Regenerate and verify the documentation
         run: ./bin/nupp test --group=docs
-
-  # The full LuaJIT browser guest, application packages, browser templates, and
-  # generated Pages artifact. Called rather than
-  # path-filtered: the sixty-line list of paths that used to bring it into a
-  # pull request was maintained by hand, and a new source file reaching the
-  # playground was simply not on it.
-  browser-wasm:
-    name: Browser and Wasm
-    needs: [classify, fast-checks]
-    if: >-
-      !cancelled() && needs.classify.result == 'success'
-      && needs.fast-checks.result == 'success'
-      && needs.classify.outputs.browser-wasm == 'true'
-    uses: ./.github/workflows/wasm-playground.yml
 
   gpu-conformance:
     name: GPU conformance / CI Lavapipe Vulkan
@@ -997,8 +924,6 @@ jobs:
       - fast-checks
       - integration
       - fixpoint
-      - portable-compiler
-      - browser-wasm
       - docs-site
       - gpu-conformance
       - gpu-conformance-windows

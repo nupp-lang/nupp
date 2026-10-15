@@ -8,7 +8,7 @@ Reflection asks what a declared type means without making an instance carry the
 answer. `Record.reflect()` returns at runtime, and `nupp.reflect(T)` returns
 while the program is compiled.
 
-```nupp:playground
+```nupp
 local record User
     id: integer
     name: string = "anonymous"

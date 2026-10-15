@@ -39,7 +39,6 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --prefix
 
 Components: luajit luarocks lpeg lpeg-source stage0
-            browser-sources browser-emulator browser-guest
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -161,7 +160,7 @@ sha256() { sha256_stdin < "$1"; }
 # found, which changes no artifact either.
 pins_digest() {
     grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
-        | grep -v -e '^STAGE0_' -e '^BROWSER_' -e '^[A-Z0-9_]*_MIRRORS=' \
+        | grep -v -e '^STAGE0_' -e '^[A-Z0-9_]*_MIRRORS=' \
         | sha256_stdin
 }
 
@@ -1330,10 +1329,8 @@ build_lua_module() {
 }
 
 # The pinned, verified LPeg source tree. A caller that compiles LPeg with a
-# compiler of its own -- the playground's Emscripten host links it into the
-# application VM, where a loadable C module is not a thing that exists -- wants
-# the sources rather than this machine's build of them, and wants them fetched
-# through the same pin and the same notice check.
+# compiler of its own wants the sources rather than this machine's build of
+# them, and wants them fetched through the same pin and the same notice check.
 lpeg_source() {
     directory=$(expand_pin "$LPEG_DIRECTORY")
     url=$(expand_pin "$LPEG_URL")
@@ -1610,11 +1607,6 @@ case "$1" in
         deterministic_archive "$2" "$output" || die "cannot archive $2"
         native_path "$output"
         exit 0
-        ;;
-    browser-sources|browser-emulator|browser-guest)
-        browser_component=$1
-        shift
-        exec "${NUPP_PYTHON:-python3}" "$ROOT/scripts/browser-toolchain.py" "$browser_component" "$CACHE" "$@"
         ;;
     -h|--help) usage ;;
 esac

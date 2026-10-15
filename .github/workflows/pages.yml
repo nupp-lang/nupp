@@ -28,8 +28,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: editors/playground/package-lock.json
 
       # The docs build loads the native host. Install its exact toolchain before
       # `cargo --version` is captured by scripts/toolchain: rustup's first-run
@@ -39,17 +37,11 @@ jobs:
         shell: bash
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "$channel" --profile minimal --target i686-unknown-linux-musl
-
-      - name: Install the guest build tools
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+          rustup toolchain install "$channel" --profile minimal
 
       - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
-
-      - name: Install playground dependencies
-        run: npm ci --prefix editors/playground
 
       # The rocks come from the rockspecs in rocks/, each pinned to one archive
       # and its digest. Installing one by name first, from a rock server, would

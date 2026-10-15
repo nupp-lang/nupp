@@ -14,20 +14,10 @@ and a complete project toolchain while keeping ordinary Lua modules and control
 flow.
 
 [Get started](getting-started/index.md)
-[Playground](/playground/)
 
 ![A nuppeppo in a moonlit forest](images/nupp.png)
 
 <!-- /nupp:hero -->
-
----
-
-```playground
-```
-
-<p style="text-align: right;"><small><em>
-These examples run on LuaJIT in your browser.
-</em></small></p>
 
 ---
 
@@ -150,8 +140,7 @@ and
 
 ## Portable targets and packaging
 
-Projects can produce module trees, bundles, binaries, embedded components, and
-browser packages.
+Projects can produce module trees, bundles, binaries, and embedded components.
 
 ```lua [nupp.lua]
 return {

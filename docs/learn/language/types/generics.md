@@ -9,7 +9,7 @@ angle brackets after the name it belongs to, and it goes on functions, function
 types, and declarations. Builtin type names keep their primitive meaning and
 cannot be used as type parameter names.
 
-```nupp:playground
+```nupp
 local function firstOr<T>(items: {T}, fallback: T): T
     if #items > 0 then
         return items[1]

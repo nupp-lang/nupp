@@ -113,22 +113,6 @@
         }
       ]
     },
-    "portable-compiler": {
-      "platforms": ["linux"],
-      "selectedBy": "portable-compiler",
-      "steps": [
-        {
-          "name": "Compile every homepage example in LuaJIT mode",
-          "compilerModes": ["luajit", "strict", "O1"],
-          "guarantees": ["every homepage example compiles under the browser Worker's default settings"]
-        },
-        {
-          "name": "Validate the LuaJIT browser compiler bundle",
-          "compilerModes": ["luajit"],
-          "guarantees": ["the browser compiler answers the checked request corpus and fits its startup budget"]
-        }
-      ]
-    },
     "docs-site": {
       "platforms": ["linux"],
       "selectedBy": "docs-site",
@@ -142,19 +126,6 @@
             "every documented Nupp example checks, or is marked a fragment or a refused program"
           ]
         }
-      ]
-    },
-    "browser-wasm": {
-      "platforms": ["linux"],
-      "selectedBy": "browser-wasm",
-      "callsWorkflow": ".github/workflows/wasm-playground.yml",
-      "steps": [],
-      "guarantees": [
-        "the LuaJIT playground checks and runs programs in Chromium, Firefox and WebKit",
-        "real changing-source editor latency is recorded for both browser backends",
-        "the LuaJIT compiler and application runtime execute in the browser guest",
-        "browser applications and templates run in Chromium",
-        "the generated Pages artifact builds"
       ]
     },
     "gpu-conformance": {

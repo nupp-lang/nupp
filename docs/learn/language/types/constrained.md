@@ -8,7 +8,7 @@ A constrained type is a scalar narrowed to some of the values its base admits.
 `nupp.types.range` narrows a number by value and `nupp.types.length` narrows a
 string by byte length. Both bounds are inclusive.
 
-```nupp:playground
+```nupp
 local type Percent = nupp.types.range(integer, 0, 100)
 local type Identifier = nupp.types.length(string, 1, 64)
 
@@ -33,7 +33,7 @@ A constrained type goes wherever its base goes, and a narrower one goes where a
 wider one is wanted. Containment decides that, so nothing has to declare a
 relationship between two constraints.
 
-```nupp:playground
+```nupp
 local type Percent = nupp.types.range(integer, 0, 100)
 local type Digit = nupp.types.range(Percent, 0, 9)
 
@@ -61,7 +61,7 @@ being passed. That is admission, and it is written.
 A value the compiler can prove needs nothing. A value it cannot prove is
 refused, and `nupp.admit` is how the program says it meant it.
 
-```nupp:playground
+```nupp
 local type ShiftCount = nupp.types.range(integer, 0, 31)
 
 local function shift(bits: integer, by: integer): integer
@@ -87,7 +87,7 @@ type without either a proof or a written admission.
 `value is Type` asks the same question and returns a boolean, which is the route
 from a value that may not qualify.
 
-```nupp:playground
+```nupp
 local type Identifier = nupp.types.length(string, 1, 64)
 
 local function named(text: string): Identifier?

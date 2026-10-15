@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {createInterface} from "node:readline";
-import {createTransfers} from "../../runtime/luajit/transfers.mjs";
+import {createTransfers} from "../../runtime/wasm/transfers.mjs";
 import {closeHostChannel, handleBrowserEffects} from "../../runtime/wasm/app-runtime.mjs";
 
 const ROOT = process.env.NUPP_ROOT || new URL("../..", import.meta.url).pathname;

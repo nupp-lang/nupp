@@ -43,14 +43,13 @@ manifest, tests, and the tasks needed for its host.
 
 - `app` creates a command-line application.
 - `lib` creates a typed LuaRocks library.
-- `browser` creates a portable Lua application hosted in a browser Worker.
 - `love` creates a checked LÖVE project with pinned API definitions.
 
 ## Continue learning
 
 Read the [tour](tour.md) for the core language. Use the
 [feature map](features.md) to find comptime, ownership, workers, AOT, GPU
-compute, portable targets, embedding, and the standard library. The
+compute, embedding, and the standard library. The
 [tooling guide](../learn/tooling/index.md) covers the daily commands in more depth.
 
 [Install a release](installation.md) to get `nupp` on `PATH`. Building Nupp

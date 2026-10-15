@@ -6,7 +6,7 @@ them. Reach for it when a program needs a growable buffer, an immutable
 snapshot of one, or a parser that works the same over a buffer, a file and an
 HTTP response body.
 
-```nupp:playground
+```nupp
 local bytes = nupp.io.newBuffer("hello")
 local reader = bytes:newReader()
 assert(reader:read(5) == "hello")

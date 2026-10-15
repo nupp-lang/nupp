@@ -51,7 +51,7 @@ nupp task start
 ```
 
 See [Getting started](docs/getting-started/index.md) for the daily loop
-and the browser, library, SIMD, and LÖVE templates. Building Nupp itself from a
+and the library and LÖVE templates. Building Nupp itself from a
 source checkout is documented separately in
 [Contributing to Nupp](CONTRIBUTING.md).
 
@@ -76,13 +76,12 @@ page that owns its rules. The complete checking model is under
 
 ## Compilation and deployment
 
-Configured targets can lower for native LuaJIT or the portable Lua 5.1 surface,
-which runs on Lua 5.1 through 5.4 and LuaJIT. Builds can produce module trees,
-bundles, standalone binaries, embedded components, and browser packages.
+Builds can produce module trees, bundles, self-contained binaries, and embedded
+components.
 
-`@aot` lowers admitted CPU functions to C or Wasm, including automatic or
-explicit SIMD. `@aot(target = "gpu")` produces checked resident-buffer kernels,
-structured workgroups, and native or WebGPU artifacts. See
+`@aot` marks CPU functions, including explicit SIMD, that the VM compiles
+natively. `@aot(target = "gpu")` produces checked resident-buffer kernels and
+structured workgroups. See
 [Ahead-of-time compilation](docs/learn/performance/ahead-of-time/index.md) and
 [GPU compute](docs/learn/performance/ahead-of-time/gpu.md).
 
@@ -93,6 +92,5 @@ services, documentation, profiling, coverage, migration, C import and export,
 ownership audits, and compiler inspection. Diagnostics carry stable codes,
 source spans, related locations, repair help, and structured fixes.
 
-See [Tooling](docs/learn/tooling/index.md) for the guided command map,
-[CLI reference](docs/reference/cli.md) for exact options, and the
-[playground](https://nupp.dev/playground/) for browser-compatible examples.
+See [Tooling](docs/learn/tooling/index.md) for the guided command map and the
+[CLI reference](docs/reference/cli.md) for exact options.

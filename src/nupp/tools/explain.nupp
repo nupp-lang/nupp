@@ -1430,7 +1430,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP3006",
         summary = "The compiler or host cannot provide a required language capability",
-        rule = "The compiler building an artifact and the host it targets fix the language representations and runtime modules it may use: the in-memory browser compiler has no native layout provider, and a browser host has no native runtime modules. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation.",
+        rule = "The compiler building an artifact and the host it targets fix the language representations and runtime modules it may use: an in-memory compiler has no native layout provider, and a browser host has no native runtime modules. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation.",
         related = {"NUPP3005"},
         docs = "docs/reference/diagnostics.md#nupp3006",
     },

@@ -19,8 +19,7 @@ Platform names include `macos`, `linux`, `windows`, and `browser`.
 Architecture uses names such as `x86_64`, `aarch64`, `x86`, and `wasm32`.
 Endianness is `little` or `big`; pointer width is 32 or 64 bits.
 Under emulation these describe the executing ABI, not the underlying hardware.
-Browser builds report the guest instruction set, while the browser ABI remains
-32-bit and little-endian.
+The browser ABI is 32-bit and little-endian.
 
 `availableParallelism()` returns an integer of at least one. Native hosts use
 the operating-system estimate exposed by Rust's available_parallelism. A browser

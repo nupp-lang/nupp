@@ -65,7 +65,7 @@ local STRICT = {
     exported = HERE .. "/fixtures/deriveexported_main.nupp",
     witness = HERE .. "/fixtures/witnessexported_main.nupp",
     annotationWitness = HERE .. "/fixtures/derivewitness_consumer.nupp",
-    custom = HERE .. "/../editors/playground/src/examples/custom-derive.nupp",
+    custom = HERE .. "/fixtures/customderive.nupp",
 }
 
 local REFUSED = {
@@ -215,8 +215,8 @@ function M.forwardsAReflectedAnnotationTypeAsARuntimeWitness()
 end
 
 function M.runsAProviderThatDeclaresItsOwnMember()
-    checksStrictly(STRICT.custom, "the playground custom-derive example checks strictly")
-    local output = ran(STRICT.custom, "the playground custom-derive example runs")
+    checksStrictly(STRICT.custom, "the custom-derive example checks strictly")
+    local output = ran(STRICT.custom, "the custom-derive example runs")
     assert(output == "<User>\n", output)
 end
 

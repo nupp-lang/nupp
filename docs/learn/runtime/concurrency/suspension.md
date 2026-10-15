@@ -8,7 +8,7 @@ A suspension-aware function waits without changing its call syntax or return
 type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
-```nupp:playground
+```nupp
 local process = nupp.io.process
 
 local child = assert(process.spawn({args = {"cc", "--version"}}))

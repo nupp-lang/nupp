@@ -8,7 +8,7 @@ Narrowing is how a [union](unions.md) becomes one of its members inside a
 branch. A test proves a fact about a name or a dotted path, and that fact holds
 for the rest of the branch that proved it.
 
-```nupp:playground
+```nupp
 local function widthOf(s: string?): integer
     if s then
         return #s -- s is string here

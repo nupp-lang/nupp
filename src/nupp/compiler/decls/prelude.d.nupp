@@ -106,7 +106,7 @@ local nupp: {
     --- from Lua's built-in `math` table. It is pure generated Lua and adds no native
     --- dependency.
     ---
-    --- ```nupp:playground
+    --- ```nupp
     --- assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
     --- local turn = nupp.math.deltaAngle(math.rad(350), math.rad(10))
     --- assert(math.abs(math.deg(turn) - 20) < 0.000001)
@@ -1293,7 +1293,7 @@ end
 --- matchers. The same grammar language works inside
 --- [`comptime`](docs/learn/language/comptime.md) and at runtime.
 ---
---- ```nupp:playground
+--- ```nupp
 --- const Identifier = comptime do
 ---     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 --- end

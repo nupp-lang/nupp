@@ -47,7 +47,6 @@
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
   --nuppdoc-nav-heading: var(--nuppdoc-text-muted);
-  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   /* Drop the sidebar onto the same paper the content sits on, rather than
    * the base theme's separate panel tone, so the left nav reads as part of
    * the page instead of a distinct surface. */
@@ -71,26 +70,14 @@
 /* Darken just the line-number gutters, not every use of --nuppdoc-text-faint
  * (breadcrumbs, sidebar-section chevrons, page-nav labels) — those looked
  * too dark once a global --nuppdoc-text-faint override was reached for
- * line numbers specifically. .nuppdoc-line-numbers covers the static
- * labeled-code examples directly; .nuppdoc-playground re-scopes the same
- * custom property for the live editor, since its CodeMirror gutter lives in
- * a shadow root that only sees --nuppdoc-text-faint through the property's
- * normal inheritance (see editors/playground/src/doc-app.js's --pg-faint). */
+ * line numbers specifically. */
 .nuppdoc-line-numbers {
   color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
-}
-
-.nuppdoc-playground {
-  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
   .nuppdoc-line-numbers {
     color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-  }
-
-  .nuppdoc-playground {
-    --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
   }
 }
 
@@ -98,16 +85,8 @@
   color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
 }
 
-:root[data-theme="dark"] .nuppdoc-playground {
-  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-}
-
 :root[data-theme="light"] .nuppdoc-line-numbers {
   color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
-}
-
-:root[data-theme="light"] .nuppdoc-playground {
-  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
@@ -195,8 +174,8 @@
   font-size: 1.05rem;
 }
 
-/* The playground follows the hero directly, so it does not need the regular
- * section rule or the large gap used by lower-priority homepage sections. */
+/* The features follow the hero directly, so it does not need the large gap
+ * used by lower-priority homepage sections. */
 .nuppdoc-home-hero {
   margin-bottom: 3.5rem;
 }
@@ -212,8 +191,6 @@
 }
 
 .nuppdoc-home-hero + h2 {
-  /* The playground toolbar sits 2rem above its editor. Include that offset
-   * so the heading keeps a visible 1rem gap instead of touching the toolbar. */
   margin: 0 0 3rem;
   padding: 0;
   border: 0;
@@ -475,7 +452,6 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-    --nuppdoc-playground-border: #38312d;
     --nuppdoc-syntax-boolean: #f9cd5f;
     --nuppdoc-syntax-comment: #747673;
     --nuppdoc-syntax-function: #93aab7;
@@ -493,7 +469,6 @@
 
 :root[data-theme="dark"] {
   --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-  --nuppdoc-playground-border: #38312d;
   --nuppdoc-syntax-boolean: #f9cd5f;
   --nuppdoc-syntax-comment: #747673;
   --nuppdoc-syntax-function: #93aab7;
@@ -510,7 +485,6 @@
 
 :root[data-theme="light"] {
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   --nuppdoc-syntax-boolean: #836620;
   --nuppdoc-syntax-comment: #474c44;
   --nuppdoc-syntax-function: #376076;

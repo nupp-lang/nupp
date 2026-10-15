@@ -8,7 +8,7 @@ order: 180
 file. Reach for it when a program needs bytes, text, digests, logging, math, or
 a parser and does not want a dependency for them.
 
-```nupp:playground
+```nupp
 local digest = nupp.digest.hexDigest("sha256", "payload")
 print(#digest, nupp.math.lerp(10, 20, 0.25))
 ```

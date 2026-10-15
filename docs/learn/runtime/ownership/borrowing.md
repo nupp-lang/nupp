@@ -9,7 +9,7 @@ obligation is discharged. An affine value may be consumed exactly once, moved
 into another affine location, or destroyed by the terminal function carried in
 its type.
 
-```nupp:playground
+```nupp
 local record Mutex
     locked: boolean
 end

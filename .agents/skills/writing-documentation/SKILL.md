@@ -321,16 +321,6 @@ the prose around it:
   `-- file borrows its source here`.
 - Show the error too. A page that teaches a rule shows one program that breaks
   it and the code that reports it.
-- A `nupp` fence is highlighted text. Add `:playground` to make one editable and
-  checked in the reader's browser, and keep that example a small, self-contained
-  program so its diagnostics teach the intended rule.
-- One playground per page is the usual number: the example a reader would try
-  first, near the top, before the page starts building on itself. A fragment, a
-  step in a sequence, the same program shown again, an example inside a code
-  group or admonition: none of those earns an editor, and a line-numbered fence
-  stays text whatever else it asks for.
-- Use ` ```playground ` explicitly for an empty playground that should open on
-  the example menu rather than a particular program.
 
 ## Cross-linking
 

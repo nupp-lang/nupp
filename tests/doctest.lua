@@ -2921,7 +2921,7 @@ function M.siteMatchesTheNuppdocPageModel()
                 "local point: Point",
                 "```",
                 "",
-                "```nupp:playground",
+                "```nupp",
                 "local record Resource end",
                 "do",
                 "   local resource = openResource()",
@@ -3095,15 +3095,9 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('<div class="nuppdoc-code-block" data-lang="glsl">', 1, true), guide)
     assert(guide:find(">Nupp</label>", 1, true), guide)
     assert(guide:find(">Generated Lua</label>", 1, true), guide)
-    -- the one fence that asked for an editor got one, and the plain Nupp fences
-    -- around it -- including the tab inside the code group -- stayed text
-    assert(guide:find('class="nuppdoc-playground"', 1, true), guide)
-    assert(select(2, guide:gsub("<nupp%-playground", "")) == 1, guide)
+    -- every Nupp fence, including the tab inside the code group, is text
     assert(guide:find('<div class="nuppdoc-code-block" data-lang="nupp"><pre>', 1, true), guide)
-    assert(guide:find("<nupp-playground", 1, true), guide)
     assert(not guide:find("<iframe", 1, true), guide)
-    assert(guide:find('data-source="local%20record%20Resource%20end', 1, true), guide)
-    assert(guide:find('<script type="module" src="/playground/doc-app.js"></script>', 1, true), guide)
     assert(guide:find("keyword-local", 1, true), guide)
     assert(
         guide:find('href="../modules/math/index.html#math.Point"', 1, true),
@@ -3461,8 +3455,8 @@ function M.markdownIsRenderedByLunamark()
     assert(html.markdownHtml("one\n\ntwo", {}):find("<p>two</p>", 1, true))
     -- A Windows checkout presents Markdown with CRLF endings. Fences and the
     -- following block must survive the same parser path as an LF-only page.
-    local windows = html.markdownHtml("## Try Nupp\r\n\r\n```playground\r\n```\r\n\r\nafter", {})
-    assert(windows:find("nuppdoc-playground", 1, true), windows)
+    local windows = html.markdownHtml("## Try Nupp\r\n\r\n```lua\r\nprint(1)\r\n```\r\n\r\nafter", {})
+    assert(windows:find('data-lang="lua"', 1, true), windows)
     assert(windows:find("<p>after</p>", 1, true), windows)
     -- A summary is a sentence, so the one paragraph around it goes.
     assert(html.inlineHtml("a **bold** one") == "a <strong>bold</strong> one")
@@ -3526,8 +3520,6 @@ function M.fencedBlocksKeepTheirOptions()
     assert(not missingStart:find("has-line-numbers", 1, true), missingStart)
     local invalidStart = html.markdownHtml("```lua :line-numbers=first\nprint(1)\n```", {})
     assert(not invalidStart:find("has-line-numbers", 1, true), invalidStart)
-    local playgroundValue = html.markdownHtml("```nupp:playground=true\nprint(1)\n```", {})
-    assert(not playgroundValue:find("nuppdoc-playground", 1, true), playgroundValue)
     local laterOption = html.markdownHtml("```lua [] [good.lua] :line-numbers-extra :line-numbers=9\nprint(1)\n```", {})
     assert(laterOption:find("<figcaption>good.lua</figcaption>", 1, true), laterOption)
     assert(laterOption:find("<span>9</span>", 1, true), laterOption)
@@ -3596,35 +3588,6 @@ function M.collectionFrontmatterSurvivesWindowsLineEndings()
     assert(page.status == "Draft", tostring(page.status))
     assert(page.title == "ADR 1: Example", page.title)
     os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A Nupp example is highlighted text until it asks for an editor, and a request to
--- number an excerpt's lines outranks that ask.
-function M.nuppFencesBecomeInlinePlaygroundsOnRequest()
-    local html = require("nupp.tools.doc.html")
-    local editable = html.markdownHtml("```nupp:playground\nlocal answer: integer = 42\n```", {})
-    assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
-    assert(editable:find("<nupp-playground", 1, true), editable)
-    assert(not editable:find("<iframe", 1, true), editable)
-    assert(editable:find('data-source="local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
-    assert(
-        editable:find(
-            '<div class="nuppdoc-code-block" data-lang="nupp" data-reader-source' .. ' slot="reader-source">',
-            1,
-            true
-        ),
-        editable
-    )
-    assert(editable:find('<code class="language-nupp">local answer: integer = 42</code>', 1, true), editable)
-    local plain = html.markdownHtml("```nupp\nlocal answer: integer\n```", {})
-    assert(plain:find('class="nuppdoc-code-block"', 1, true), plain)
-    assert(plain:find('class="language-nupp"', 1, true), plain)
-    assert(not plain:find('nuppdoc-playground', 1, true), plain)
-
-    local numbered = html.markdownHtml("```nupp:playground:line-numbers=41\nlocal answer = 42\n```", {})
-    assert(numbered:find('class="nuppdoc-code-block has-line-numbers"', 1, true), numbered)
-    assert(numbered:find("<span>41</span>", 1, true), numbered)
-    assert(not numbered:find('nuppdoc-playground', 1, true), numbered)
 end
 
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,
@@ -3739,10 +3702,8 @@ function M.diagnosticSectionsShowBothProgramsAsText()
     local reported = assert(body:find("```nupp [Reported]", 1, true))
     local accepted = assert(body:find("```nupp [Accepted]", 1, true))
     assert(reported < accepted)
-    assert(not body:find(":playground", 1, true), "an index section embedded an editor")
     assert(body:find("`exhaustiveness` lint", 1, true), body)
     assert(body:find("](docs/reference/lints.md#exhaustiveness)", 1, true), body)
-    assert(body:find("/playground/#source=", 1, true), body)
 end
 
 -- Every link the page writes has somewhere to land: a related code that has no
@@ -3805,16 +3766,6 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
     assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
     assert(page.symbols and page.symbols.LuaFile == "LuaFile", "LuaFile has no generated-page symbol")
-end
-
--- The page is an index, and an index is searched. An editor frame holds text the
--- browser's own find cannot reach, so every fence on it is a plain code block.
-function M.stdlibIndexIsStaticThroughout()
-    local stdlib = require("nupp.tools.doc.stdlib")
-    local page = assert(stdlib.page({path = "luajit"}))
-
-    assert(page.markdown:find("```nupp\n", 1, true), "no Nupp fence at all")
-    assert(not page.markdown:find(":playground", 1, true), "a fence would open as an editor")
 end
 
 -- Layout is reached by asking about a reified type rather than by calling a library,
@@ -4261,7 +4212,6 @@ local VERSION_SOURCES = {
     ["Embedding ABI"] = {"native/crates/host/src/embed.rs", "const EMBED_ABI_VERSION: u32 = (%d+);"},
     ["Compiler host ABI"] = {"src/nupp/tools/build/platform.nupp", "platform%.hostAbiVersion = (%d+)"},
     ["Payload trailer"] = {"native/crates/host/src/payload.rs", "const FORMAT_VERSION: u32 = (%d+);"},
-    ["Browser application manifest"] = {"runtime/luajit/app-runtime.mjs", "manifest%.schema !== (%d+)"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},

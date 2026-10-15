@@ -9,7 +9,7 @@ and returns a structural type or value pack is a type generator. Calling one in
 type position runs it while the program is checked and emits no runtime
 function or data.
 
-```nupp:playground
+```nupp
 @comptime
 local function Optional(T: type): type
     return nupp.types.optional(T)

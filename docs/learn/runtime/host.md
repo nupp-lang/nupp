@@ -126,54 +126,6 @@ host applies an inbound route's policy before the messages cross, so what a
 route would drop never costs the program anything. An inbound message carries
 scalars and strings, which is what an event's fields hold.
 
-## Answering in a browser
-
-A packaged application's page answers through the `host` option of `run`:
-
-```js
-import {run, push} from "./nupp-browser-app.mjs";
-
-const result = await run({
-  host: {
-    handlers: {
-      "app.image.decode": async ([url], {signal}) => {
-        const image = await createImageBitmap(await (await fetch(url, {signal})).blob());
-        return [registerTexture(image), image.width, image.height];
-      },
-      "app.image.release": ([id]) => releaseTexture(id),
-    },
-    module: new URL("./host-worker.mjs", import.meta.url),
-    end: () => console.log("the application finished"),
-  },
-});
-
-addEventListener("pointermove", (event) => push("app.pointer.move", event.x, event.y));
-```
-
-A handler receives the request's values as an array and answers with an array
-of results, or one value, or nothing. Bytes arrive and leave as `Uint8Array`. Its
-`signal` aborts when the caller stops waiting. A handler may be an object with
-`call` and `release`; `release(results)` runs for results the program never came
-to own. `handlers` run on the page, where the DOM and audio are. `module` names
-a module loaded into the application's Worker, whose exported `handlers` answer
-there without a hop to the page and whose `start({push})` receives a push
-function of its own. `push` on the entry module queues an inbound message from
-anywhere on the page.
-
-`nupp-audio.mjs` answers an outbound stream of interleaved 32-bit float samples
-with an AudioWorklet:
-
-```js
-import {audioStream} from "./nupp-audio.mjs";
-
-const audio = await audioStream({kind: "app.audio", channels: 2, bufferAheadMs: 50});
-await run({host: {handlers: {...audio.handlers}}});
-```
-
-The buffer-ahead is the latency, and what a slow frame may spend before playback
-runs dry. In the browser guest, 50 ms played twenty seconds without an underrun;
-less did not. No SharedArrayBuffer or cross-origin isolation is needed.
-
 ## Answering natively
 
 An application embedding the runtime registers a C handler per kind and answers
@@ -188,15 +140,6 @@ is one: it runs an operation until it finishes or parks, and the application
 polls it from its loop.
 
 ## What a frame costs
-
-In the browser the program runs in an emulated machine, and every frame it
-takes crosses to the page and back. A frame's host traffic, however many calls,
-posts, sends and inbound messages, travels as one request carrying binary
-records, and the page answers into the same buffer. Make the channel the
-frame's boundary, a call that waits for the page's next frame, rather than
-waiting on a timer beside it: a frame that took its input on a route, sent a
-small packet and called the host now and then cost the guest no more than an
-empty frame did.
 
 A call that waits alone for its answer takes one frame each way. Many calls made
 together share their frames, so issue independent calls from separate tasks in

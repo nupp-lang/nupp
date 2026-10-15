@@ -1,5 +1,0 @@
-local total: integer = 0
-for value = 1, 100 do
-    total = total + value
-end
-assert(total == 5050)

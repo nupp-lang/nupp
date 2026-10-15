@@ -411,7 +411,6 @@ built by another release is refused by exact version rather than adapted.
 | Embedding ABI | 2 | exact, config `size` at least the struct | `native/crates/host/src/embed.rs` `EMBED_ABI_VERSION` |
 | Compiler host ABI | 1 | exact | `src/nupp/tools/build/platform.nupp` `hostAbiVersion` |
 | Payload trailer | 1 | exact | `native/crates/host/src/payload.rs` `FORMAT_VERSION` |
-| Browser application manifest | 1 | exact | `runtime/luajit/app-runtime.mjs` `schema` |
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |

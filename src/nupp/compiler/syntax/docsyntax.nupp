@@ -95,19 +95,6 @@ syntax.lineNumber = matcher(function(line: string): string?
         from = first + 1
     end
 end)
-syntax.playground = matcher(function(line: string): integer?
-    local from = 1
-    while true do
-        local first, last = line:find(":playground", from, true)
-        if not first or not last then
-            return nil
-        end
-        if line:sub(last + 1, last + 1) ~= "=" and boundary(line, last + 1) then
-            return last + 1
-        end
-        from = first + 1
-    end
-end)
 syntax.lines = matcher(function(value: string): {string}
     local lines, from = {}, 1
     while true do

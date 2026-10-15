@@ -8,7 +8,7 @@ Nupp's grammar has two layers: LuaJIT's Lua dialect, and a typed layer written
 on top of it. Both are implemented, and
 [the ABNF grammar](../../reference/grammar.md) is the normative definition.
 
-```nupp:playground
+```nupp
 local prices = {10, 20, 30}
 local total = 0
 for _, price in ipairs(prices) do

@@ -1,4 +1,4 @@
-//! CRC adapter shared by the native provider and the LuaJIT browser guest.
+//! CRC adapter shared by the native provider and the browser provider.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 

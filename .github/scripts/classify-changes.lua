@@ -32,10 +32,7 @@ local rules = {
     {"^src/nupp/compiler/scalarintrinsics%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/targetlayout%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/targetprofile%.nupp$", {"compiler"}},
-    {"^src/nupp/tools/browserluajit%.nupp$", {"compiler", "browser"}},
-    {"^src/nupp/tools/browser%.nupp$", {"compiler", "browser"}},
     {"^src/nupp/compiler/capabilities%.nupp$", {"compiler", "browser", "aot"}},
-    {"^src/nupp/compiler/project/preludeimage", {"compiler", "browser"}},
     {"^src/nupp/tools/benchrunner%.nupp$", {"compiler", "measurement"}},
     {"^src/nupp/tools/cli/bench%.nupp$", {"compiler", "cli", "measurement"}},
     {"^src/nupp/tools/cli/", {"compiler", "cli"}},
@@ -60,14 +57,11 @@ local rules = {
 
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
-    {"^runtime/luajit/", {"browser"}},
     {"^runtime/", {"native"}},
     {"^host/", {"native"}},
 
-    {"^templates/browser", {"browser", "packaging"}},
     {"^templates/", {"packaging"}},
     {"^rocks/", {"packaging"}},
-    {"^editors/playground/", {"browser"}},
     {"^editors/", {"editors"}},
 
     -- The budget suite compiles these and holds what they compile to: an edit to
@@ -78,15 +72,7 @@ local rules = {
 
     {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
     {"^tests/jsonfuseddifferentialtest%.lua$", {"tests", "aot"}},
-    -- The fixtures below are run by nothing but the Wasm job, so classifying
-    -- them as ordinary tests means a change to one is never compiled: one
-    -- fixture's queue kept calling a `nupp.text` constructor that had been
-    -- renamed, and stayed broken until an unrelated change to `scripts/`
-    -- selected every job.
-    {"^tests/browser%-templates/", {"tests", "browser"}},
     {"^tests/simd[^/]*%.lua$", {"tests", "aot"}},
-    {"^tests/wasm%-aot/", {"tests", "browser"}},
-    {"^tests/luajit%-browser/", {"tests", "browser"}},
     {"^tests/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},
 
@@ -112,8 +98,6 @@ classifier.jobs = {
     "linux-integration",
     "macos-integration",
     "windows-integration",
-    "portable-compiler",
-    "browser-wasm",
     "gpu-linux",
     "gpu-windows",
     "fixpoint",
@@ -208,17 +192,6 @@ function classifier.classify(paths)
 
     if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
         select(jobs, "fixpoint", "the compiler's own inputs changed", reasons)
-    end
-    if surfaces.compiler or surfaces.browser or surfaces.library then
-        select(jobs, "portable-compiler", "the browser compiler's inputs changed", reasons)
-    end
-    -- Emscripten, a Chromium run and a page build: half an hour, and the only
-    -- job here whose cost makes narrowing it worth the risk. The browser
-    -- surface selects it; a compiler change anywhere is covered more cheaply by
-    -- `portable-compiler` job, which compiles every homepage example under the
-    -- Worker's default settings, and by the nightly backstop.
-    if surfaces.browser then
-        select(jobs, "browser-wasm", "browser or Wasm delivery changed", reasons)
     end
     if surfaces.gpu or surfaces.compiler or surfaces.native then
         local why = "GPU sources or a stage beneath them changed"

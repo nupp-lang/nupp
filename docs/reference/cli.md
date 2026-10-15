@@ -221,7 +221,6 @@ and no checkout:
 ```text [nupp init --list]
   built-in template  what it writes
   app                A runnable program, with a test and a task to start it
-  browser            A browser application using crypto and timers
   lib                A typed library with public declarations
   love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```

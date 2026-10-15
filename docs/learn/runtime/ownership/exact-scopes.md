@@ -9,7 +9,7 @@ lexical boundary, but they may also be moved, returned, or dropped early. `with`
 gives an affine value a stricter contract: one exact extent whose visible name
 is a borrow.
 
-```nupp:playground
+```nupp
 local soa = nupp.mem.soa
 
 local struct Position

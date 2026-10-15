@@ -8,7 +8,7 @@ order: 120
 compiled and written into the generated Lua as a literal. The block is ordinary
 Nupp, and none of the work survives into the program.
 
-```nupp:playground
+```nupp
 @comptime
 local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1

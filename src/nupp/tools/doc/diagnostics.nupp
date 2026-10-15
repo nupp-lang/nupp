@@ -15,8 +15,8 @@ learning the format and a reader holding a code are the same reader a minute
 apart. One page rather than one page per code, because an index is a thing a
 reader searches: the browser's own find reaches every code, rule and program at
 once, and the whole set stays open in one tab. That is also why the programs are
-highlighted text rather than embedded editors. Text inside an editor frame is
-not findable, so each carries a link that opens it in the playground instead.
+highlighted text rather than embedded editors: text inside an editor frame is
+not findable.
 
 Codes that resolve only through their family are left out. The family answers
 for all of them at once, and a section under a number that adds nothing to it
@@ -24,7 +24,6 @@ would be padding.
 ]]
 
 local explainMod = require("nupp.tools.explain")
-local htmlMod = require("nupp.tools.doc.html")
 local lintsMod = require("nupp.compiler.lints")
 
 local diagnostics = {}
@@ -126,13 +125,6 @@ local function section(
         trail[#trail + 1] = "Reference: [" .. entry.docs .. "](" .. entry.docs .. ")."
     else
         trail[#trail + 1] = "Reference: `" .. entry.docs .. "` in the repository."
-    end
-    if entry.wrong then
-        trail[
-            #trail + 1
-        ] = "[Open the reported program in the playground](/playground/#source=" .. htmlMod.urlFragmentEscape(
-            (entry.wrong:gsub("%s+$", ""))
-        ) .. ")."
     end
     out[#out + 1] = table.concat(trail, " ")
     out[#out + 1] = ""

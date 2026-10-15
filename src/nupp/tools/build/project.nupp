@@ -308,13 +308,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    if target.host == "browser" then
-        if target.layoutTarget ~= nil and target.layoutTarget ~= "i686-unknown-linux-gnu" then
-            say(opts, "NUPP0002", "nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")
-            return 1
-        end
-        target.layoutTarget = "i686-unknown-linux-gnu"
-    end
 
     local selectedPlatform = opts.platform
     if target.platforms then
@@ -638,9 +631,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- Bounded by what this target bundles rather than by the include roots.
         -- The roots are where `@aot` code is found; the deliverable decides
         -- which of it is this target's to compile. A project whose targets sit
-        -- at different CPU feature tiers -- the browser template builds one
-        -- scalar and one SIMD128 package out of one source tree -- otherwise
-        -- fails the scalar build over the SIMD module it never bundles.
+        -- at different feature tiers otherwise fails one build over a module
+        -- it never bundles.
         -- Walking dependencies checks their interfaces through the shared graph.
         local aotErr: string? = nil
         local aotDiagnostic = nil

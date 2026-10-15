@@ -6,7 +6,7 @@ SIMD-accelerated through `@aot`; compiler and browser targets select a
 pure-Lua provider behind the same API. It parses, pulls selected fields,
 serializes, and streams.
 
-```nupp:playground
+```nupp
 local encoded = nupp.codec.json.encode({name = "Nupp", ready = true})
 local decoded = assert(nupp.codec.json.decode(encoded))
 assert(decoded.name == "Nupp")

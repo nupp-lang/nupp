@@ -1,8 +1,8 @@
 -- The page-side browser host, which is JavaScript, under Node's test runner.
 --
--- `tests/wasm-aot/runtime.test.mjs` exercises `runtime/wasm/app-runtime.mjs` and
--- `worker-pool.mjs`: effect frames and their wake modes, leases, the WebGPU checks,
--- application budgets and the worker pool's stale and malformed replies. It needs
+-- `tests/pagehost.test.mjs` exercises `runtime/wasm/app-runtime.mjs`,
+-- `browser-entry.mjs` and `worker-pool.mjs`: effect frames and their wake modes,
+-- leases, the WebGPU checks and the worker pool's stale and malformed replies. It needs
 -- nothing but Node, and without a suite nothing ran it.
 
 local check = require("assert")
@@ -49,7 +49,7 @@ local function passesNodeSuite(label, files)
 end
 
 function M.thePageHostPassesItsNodeSuite()
-    passesNodeSuite("the page host's Node suite", {"wasm-aot/runtime.test.mjs"})
+    passesNodeSuite("the page host's Node suite", {"pagehost.test.mjs"})
 end
 
 return M

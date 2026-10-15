@@ -426,48 +426,6 @@ type-check, and a project that does not check would document nothing.
 :::
 ````
 
-### Playgrounds
-
-A playground is the editor rather than a picture of one. A Nupp fence asks for
-one with `:playground`:
-
-````markdown
-```nupp:playground
-local type Priority = "low" | "high"
-local p: Priority = "urgent"
-```
-````
-
-The program is checked in the reader's browser, as they type, by the real
-compiler. A caption becomes the editor's accessible label, and `:line-numbers`
-outranks the ask, so a numbered excerpt keeps the starting line it requested
-and stays text. ` ```playground ` is the explicit form, and an empty block of it
-opens on the playground's own example menu instead of a program:
-
-````markdown
-```playground
-```
-````
-
-The block is an inline `<nupp-playground>` custom element, not an iframe. A
-site using it serves the playground's `dist/` at `/playground/`, the way
-`nupp task docs-serve` does, so the page can load `doc-app.js`, its shared
-compiler worker, and the browser-safe compiler. Editors size from their
-content; long programs scroll after 28rem. A fence with authored source also
-carries it as ordinary fallback markup, and an upgraded example menu keeps that
-markup in sync with its current program, so Reader Mode and a browser without
-scripting both see source rather than an editor. See
-[`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
-for how the editor works and what it cannot do.
-
-::: deepdive
-Asking is how a page gets an editor, because most examples on one should not be
-editors. A fragment does not check on its own, a step in a sequence checks as
-an error the prose has already explained, and a program the page has shown
-before teaches nothing a second time. Opting in keeps the editor on the example
-a reader would actually try, which is usually the first one on the page.
-:::
-
 ### Home page
 
 A page whose entry or frontmatter says `layout = "home"` renders a hero above
@@ -482,7 +440,6 @@ comment markers rather than configuring them beside the page.
 One line under the title.
 
 [Get started](getting-started/installation)
-[Playground](/playground/)
 
 ![A project logo](images/project.png)
 
@@ -527,9 +484,8 @@ so it cannot drift from the file it documents.
 
 Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
 own parser and lexer, which agree about tokens and contextual syntax and can
-turn a name into a link into the API reference. A `:playground` fence is
-checked instead, by the compiler itself, once the reader engages with the
-frame. Every other language goes to Scintillua.
+turn a name into a link into the API reference. Every other language goes to
+Scintillua.
 
 ### Links between pages
 
@@ -620,9 +576,7 @@ does not build never becomes a dead link.
 
 ::: deepdive
 One page rather than one per code, because an index is searched: the browser's
-find reaches every code, rule and program at once. That is also why no program
-there asks for an editor, since text inside an editor frame is not findable.
-Each reported program instead carries a link that opens it in the playground.
+find reaches every code, rule and program at once.
 :::
 
 ### LuaJIT standard library
@@ -683,8 +637,8 @@ A target that reads as a URL or has a slash is left alone, so ordinary links are
 never captured. A name nothing documents is left alone too, except that empty
 link text still renders the name, so a reference to something that has moved
 reads as the name it used to have rather than as an invisible link. References
-inside a code block are code. A highlighted Nupp block can link names into the
-API reference; a `:playground` block treats them only as program text.
+inside a code block are code, though a highlighted Nupp block can link names
+into the API reference.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a

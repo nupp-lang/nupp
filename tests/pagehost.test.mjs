@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import test from "node:test";
 
-import { handleBrowserEffects } from "../../runtime/wasm/app-runtime.mjs";
-import { packagedEffectHandlers, runNuppLuaJITApp, runPackagedNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
-import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
+import { handleBrowserEffects } from "../runtime/wasm/app-runtime.mjs";
+import { createWorkerPool } from "../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
 
@@ -357,128 +356,6 @@ test("a frame without a wake mode answers every request it carries", async () =>
   assert.deepEqual(result.responses.map((item) => item.id), [1, 2]);
 });
 
-// A guest that asks for `frames` effect frames of one request each, then finishes.
-function scriptedGuest(frames, request = {kind: "time", operation: "now"}) {
-  return ({onProgress}) => {
-    let sent = 0;
-    queueMicrotask(() => onProgress({type: "ready"}));
-    return {
-      async receive() {
-        if (sent === frames) return {type: "done", result: {ok: true, value: JSON.stringify("finished")}};
-        sent += 1;
-        return {type: "effect", result: {kind: "effects", wake: "any", requests: [{id: sent, ...request}]}};
-      },
-      respond() {},
-      close() {},
-    };
-  };
-}
-
-test("a page application's budgets start over with every turn", async () => {
-  // A frame loop: far more effects than one turn allows, one frame at a time.
-  const result = await runNuppLuaJITApp({app: new Uint8Array(), createGuest: scriptedGuest(300)});
-  assert.equal(result, "finished");
-});
-
-test("a page application refuses a turn that carries more than its limit", async () => {
-  const guest = ({onProgress}) => {
-    queueMicrotask(() => onProgress({type: "ready"}));
-    return {
-      async receive() {
-        return {type: "effect", result: {kind: "effects", requests: [1, 2, 3].map((id) => ({id, kind: "time", operation: "now"}))}};
-      },
-      respond() {},
-      close() {},
-    };
-  };
-  await assert.rejects(
-    runNuppLuaJITApp({app: new Uint8Array(), limits: {perTurn: {maxEffects: 2}}, createGuest: guest}),
-    /exceeded limits\.perTurn\.maxEffects \(2\)/,
-  );
-});
-
-test("a page application enforces the run limits it is given", async () => {
-  await assert.rejects(
-    runNuppLuaJITApp({app: new Uint8Array(), limits: {perRun: {maxEffects: 5}}, createGuest: scriptedGuest(10)}),
-    /exceeded limits\.perRun\.maxEffects \(5\)/,
-  );
-  await assert.rejects(
-    runNuppLuaJITApp({
-      app: new Uint8Array(),
-      limits: {perRun: {deadlineMs: 60}},
-      createGuest: scriptedGuest(10, {kind: "time", operation: "sleep", milliseconds: 20}),
-    }),
-    /exceeded limits\.perRun\.deadlineMs \(60 ms\)/,
-    "no frame starts the run deadline over",
-  );
-});
-
-test("a page application refuses limits outside the perTurn and perRun tables", async () => {
-  const run = (limits) => runNuppLuaJITApp({app: new Uint8Array(), limits, createGuest: scriptedGuest(0)});
-  await assert.rejects(run({maxEffects: 10}), /Unknown application limit maxEffects/);
-  await assert.rejects(run({perTurn: {deadlineMs: 10}}), /Unknown application limit perTurn\.deadlineMs/);
-  await assert.rejects(run({perRun: {computeMs: 10}}), /Unknown application limit perRun\.computeMs/);
-  await assert.rejects(run({perRun: {maxEffects: 0}}), /Invalid application limit perRun\.maxEffects/);
-});
-
-test("a page application with no run limit continues past thirty seconds", async (t) => {
-  t.mock.timers.enable({apis: ["setTimeout"]});
-  let answer;
-  const running = runNuppLuaJITApp({
-    app: new Uint8Array(),
-    createGuest: scriptedGuest(1),
-    effects: () => new Promise((resolve) => { answer = resolve; }),
-  });
-  while (!answer) await new Promise(setImmediate);
-  t.mock.timers.tick(120_000);
-  answer({kind: "responses", responses: []});
-  assert.equal(await running, "finished");
-});
-
-// A module Worker standing in for the guest VM: it boots, asks for one effect, and
-// then computes forever instead of yielding the next frame.
-class SpinningGuestWorker {
-  static opened = [];
-
-  constructor(url) {
-    this.url = url;
-    this.terminated = false;
-    SpinningGuestWorker.opened.push(this);
-  }
-
-  postMessage(message) {
-    if (message.type !== "boot") return;
-    queueMicrotask(() => {
-      this.onmessage({data: {type: "ready"}});
-      this.onmessage({data: {
-        type: "effect", sequence: 1,
-        result: {kind: "effects", requests: [{id: 1, kind: "time", operation: "now"}]},
-      }});
-    });
-  }
-
-  terminate() {
-    this.terminated = true;
-  }
-}
-
-test("a spinning guest trips the per-turn compute limit", async (t) => {
-  const saved = globalThis.Worker;
-  globalThis.Worker = SpinningGuestWorker;
-  t.after(() => { globalThis.Worker = saved; });
-  SpinningGuestWorker.opened = [];
-  await assert.rejects(
-    runNuppLuaJITApp({
-      manifestUrl: "https://example.test/guest/guest-manifest.json",
-      app: new Uint8Array(),
-      limits: {perTurn: {computeMs: 40}},
-    }),
-    /exceeded limits\.perTurn\.computeMs \(40 ms\)/,
-  );
-  assert.equal(SpinningGuestWorker.opened.length, 1);
-  assert.equal(SpinningGuestWorker.opened[0].terminated, true, "the spinning VM is terminated, not awaited");
-});
-
 // The page's Worker behind `nupp-browser-app.mjs`, recording what the entry module
 // asks of it.
 class FakePageWorker {
@@ -519,7 +396,7 @@ async function importEntry(t) {
   t.after(() => { globalThis.Worker = saved; });
   FakePageWorker.opened = [];
   entryInstances += 1;
-  return import(`../../runtime/wasm/browser-entry.mjs?instance=${entryInstances}`);
+  return import(`../runtime/wasm/browser-entry.mjs?instance=${entryInstances}`);
 }
 
 test("importing the entry module launches nothing until the page calls run", async (t) => {
@@ -935,39 +812,6 @@ test("a worker pool boots at most its lane bound and reuses idle lanes", async (
 
 test("a worker pool needs the digest of the manifest its page verified", () => {
   assert.throws(() => pool({manifestDigest: undefined}), /manifest digest/);
-});
-
-test("a worker lane refuses a manifest other than the one its page verified", async (t) => {
-  // A deploy between page load and lane start: the lane's fetch of the same URL
-  // answers with the next build's manifest.
-  const deployed = new TextEncoder().encode(JSON.stringify({
-    schema: 1, runtime: "luajit-v86", app: "app-next.lua", guest: "guest/next/guest-manifest.json",
-    assets: {"app-next.lua": {bytes: 1, sha256: "b".repeat(64)}},
-  }));
-  const fetched = [];
-  const saved = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    fetched.push(String(url));
-    return String(url).endsWith("/nupp-browser-app.json")
-      ? new Response(deployed)
-      : new Response("missing", {status: 404});
-  };
-  t.after(() => { globalThis.fetch = saved; });
-  await assert.rejects(
-    runPackagedNuppLuaJITApp("https://example.test/nupp-browser-app.json", {manifestDigest: "a".repeat(64)}),
-    /manifest changed after the page loaded it/,
-  );
-  assert.deepEqual(fetched, ["https://example.test/nupp-browser-app.json"], "no asset of the other build is fetched");
-});
-
-test("a packaged application answers parallelism with its worker pool's lanes", () => {
-  const workers = pool({maxLanes: 3});
-  assert.ok(workers.lanes >= 1 && workers.lanes <= 3, "the pool is bounded by its lane limit");
-  assert.deepEqual(packagedEffectHandlers({}, {}, workers).system(), {availableParallelism: workers.lanes});
-  const supplied = packagedEffectHandlers({system: () => ({availableParallelism: 7})}, {}, workers);
-  assert.equal(supplied.system().availableParallelism, 7, "a caller's own answer wins");
-  assert.equal(packagedEffectHandlers({}, {}, undefined).system, undefined, "without a pool the browser answers");
-  workers.close();
 });
 
 test("a worker pool carries results, failures and cancellations back unchanged", async () => {

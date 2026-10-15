@@ -3,8 +3,8 @@
 -- `nupp.tools` holds the command line, the build system, the language server, the
 -- formatter and the rest of what `nupp` does beyond compiling. Each of them uses the
 -- compiler; none of them is something the compiler can use back, because the
--- compiler is also what the browser playground and the portable bootstrap carry, and
--- neither carries the tools. The move that separated the two found the edges that had
+-- compiler is also what the portable bootstrap carries, and that does not carry the
+-- tools. The move that separated the two found the edges that had
 -- crept in through a computed name -- `require("nupp.compiler.build." .. name)` --
 -- which no reading of the literal requires shows, so this reads the computed ones too.
 --

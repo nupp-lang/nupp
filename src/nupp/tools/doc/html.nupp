@@ -11,15 +11,8 @@ What is not lunamark's is the fenced blocks and `:::` containers. A fence here
 carries more than a language, taking an optional `[caption]` and `:line-numbers`
 with an optional start, and a `::: code-group` gathers several fences into one tabbed
 widget. Note, info, tip, warning, danger, see-also, and deep-dive containers
-become admonitions whose bodies are still rendered by lunamark. A Nupp fence is highlighted text like
-every other language until it asks for an editor: `:playground` embeds one, so
-that block checks as the reader types, and `playground` remains the explicit
-spelling for an empty editor or example picker. Editing is what a fence opts
-into rather than what it gets, because most examples on a page are a fragment,
-one step of a sequence, or a program shown again, since an editor around any of
-those is a check that fails for a reason the prose already gave. Rather than
-teach a
-markdown grammar about any of that, every custom region is lifted out before
+become admonitions whose bodies are still rendered by lunamark. Rather than
+teach a markdown grammar about any of that, every custom region is lifted out before
 lunamark sees the document and an HTML comment is left in its place; markdown
 does not touch a comment, so the rendered block goes back exactly where it came
 from afterwards.
@@ -172,55 +165,6 @@ local function codeBlockHtml(source, language, links, firstLine)
     ) .. '">' .. codeHtml(source, language, links) .. "</code></pre></div>"
 end
 
--- A ```playground fence: the inline editor from editors/playground, checking with the
--- real compiler as the reader types. An empty fence opens on the editor's own example
--- menu; a fence with a body opens on that program instead, which is what makes a
--- snippet on a page runnable rather than only readable.
---
--- Keep authored source out of HTML syntax while preserving it byte for byte. The
--- custom element decodes this attribute before creating its CodeMirror document.
-local function urlFragmentEscape(text: string): string
-    return (text:gsub("[^%w%-%._~]", function(c: string): string
-        return ("%%%02X"):format(c:byte())
-    end))
-end
-
-local function playgroundHtml(source: string, caption: string?): string
-    local trimmed = trim(source)
-    local title = caption or "Nupp playground: an editor that checks as you type"
-    local fallback = ""
-    if trimmed ~= "" then
-        fallback = '<div class="nuppdoc-code-block" data-lang="nupp"'
-            .. ' data-reader-source slot="reader-source"><pre><code class="language-nupp">'
-            .. htmlEscape(
-                trimmed
-            ) .. "</code></pre></div>"
-    end
-
-    return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape(
-        title
-    ) .. '"' .. (
-        trimmed ~= "" and ' data-source="' .. urlFragmentEscape(trimmed) .. '"' or ""
-    ) .. ">" .. fallback .. "</nupp-playground>"
-end
-
--- `:line-numbers` outranks `:playground` rather than conflicting with it: the editor
--- brings its own gutter starting at one, so a fence that asked to start at line 41
--- keeps the numbering it asked for and stays text.
-local function isPlayground(block): boolean
-    if block.language == "playground" then
-        return true
-    end
-    return block.language == "nupp" and block.playground == true and not block.firstLine
-end
-
-local function renderedCodeBlockHtml(block, links)
-    if isPlayground(block) then
-        return playgroundHtml(block.source, block.caption)
-    end
-    return codeBlockHtml(block.source, block.language, links, block.firstLine)
-end
-
 local function codeGroupHtml(blocks, links)
     local captioned = false
     for _, block in ipairs(blocks) do
@@ -229,7 +173,7 @@ local function codeGroupHtml(blocks, links)
     if not captioned then
         local out = {'<div class="nuppdoc-code-group" role="group">'}
         for _, block in ipairs(blocks) do
-            out[#out + 1] = renderedCodeBlockHtml(block, links)
+            out[#out + 1] = codeBlockHtml(block.source, block.language, links, block.firstLine)
         end
         out[#out + 1] = "</div>"
         return table.concat(out)
@@ -256,7 +200,14 @@ local function codeGroupHtml(blocks, links)
     end
     out[#out + 1] = "</div>"
     for _, block in ipairs(blocks) do
-        out[#out + 1] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. "</figure>"
+        out[
+            #out + 1
+        ] = '<figure class="nuppdoc-code-panel">' .. codeBlockHtml(
+            block.source,
+            block.language,
+            links,
+            block.firstLine
+        ) .. "</figure>"
     end
     out[#out + 1] = "</div>"
 
@@ -309,7 +260,6 @@ local function readFence(lines: {string}, index: integer): (any?, integer)
         language = language ~= "" and language or "text",
         caption = syntax.caption:match(options),
         firstLine = lineNumberStart(options),
-        playground = syntax.playground:match(options) ~= nil,
         source = table.concat(code, "\n"),
     }, index + 1
 end
@@ -412,17 +362,13 @@ local function extractBlocks(text, links, rendered)
         elseif syntax.markdownFence:match(lines[index]) then
             local block, after = readFence(lines, index)
             index = after - 1
-            if isPlayground(block) then
-                placeholder(renderedCodeBlockHtml(block, links))
-            else
-                local markup = renderedCodeBlockHtml(block, links)
-                if block.caption then
-                    markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
-                        block.caption
-                    ) .. '</figcaption>' .. markup .. '</figure>'
-                end
-                placeholder(markup)
+            local markup = codeBlockHtml(block.source, block.language, links, block.firstLine)
+            if block.caption then
+                markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
+                    block.caption
+                ) .. '</figcaption>' .. markup .. '</figure>'
             end
+            placeholder(markup)
         else
             out[#out + 1] = line
         end
@@ -590,10 +536,6 @@ local function inlineHtml(text: string?, links: Links?): string
 
     return out
 end
-
---- Percent-encodes text for a URL fragment. What a link carrying a program to the
---- playground needs, so a page that shows one can offer to open it there.
-html.urlFragmentEscape = urlFragmentEscape
 
 html.tableHtml = tableHtml
 

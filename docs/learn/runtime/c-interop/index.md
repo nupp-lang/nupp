@@ -8,7 +8,7 @@ Nupp turns C declarations into checked LuaJIT FFI calls, with no foreign-call
 runtime of its own. Reach for it to call a C library, and add ownership
 contracts where a C signature cannot describe lifetime behavior.
 
-```nupp:playground
+```nupp
 cdef function abs(value: int32): int32
 
 print(abs(-3))

@@ -6,7 +6,7 @@ module nupp.runtime.provider.nativefiles
 resolves, what it refers to, what a directory contains, and where the platform
 keeps a user's folders. It also moves and removes names.
 
-```nupp:playground
+```nupp
 local files = nupp.io.files
 for _, entry in ipairs(assert(files.list("src"))) do
     print(entry.kind, entry.name)

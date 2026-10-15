@@ -1,8 +1,7 @@
--- A browser application's guest without the emulator around it.
+-- A browser application's side of the host channel, run as a plain process.
 --
--- `runtime/luajit/bridge.lua` runs inside v86, which only a Linux build makes.
--- This runs the same application coroutine under the LuaJIT the tests use and
--- reproduces what the bridge does to every frame: the application's text is
+-- This runs the application coroutine under the LuaJIT the tests use and
+-- reproduces what a browser bridge does to every frame: the application's text is
 -- decoded and re-encoded by the bridge's own lunajson, leased guest memory is
 -- copied out beside the frame, and the host's answer is decoded, its writable
 -- leases copied back, and encoded again before the application sees it. The

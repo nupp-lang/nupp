@@ -8,7 +8,7 @@ order: 170
 contiguous column. Reach for it when a loop walks one or two fields of many
 rows and the ordinary array-of-structures layout brings the rest along.
 
-```nupp:playground
+```nupp
 local soa = nupp.mem.soa
 
 local struct Position

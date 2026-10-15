@@ -33,7 +33,7 @@ type are errors. An annotation never becomes a silently erased comment.
 Apply the built-in `@annotation` annotation to a record or struct. Its `targets`
 value is a non-empty array of [semantic target names](#attachment-targets):
 
-```nupp:playground
+```nupp
 @annotation(targets = {"record", "struct"})
 record serializable
     format: string

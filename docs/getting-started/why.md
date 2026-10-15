@@ -11,7 +11,7 @@ one binary holding every tool. Every valid LuaJIT program is already a valid
 Nupp program, and each addition below is opted into on the declaration that
 wants it.
 
-```nupp:playground
+```nupp
 local record Point
     x: number
     y: number

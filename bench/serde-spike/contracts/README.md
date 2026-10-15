@@ -199,5 +199,3 @@ source context, observe mutations, and snapshot into independent nested values.
 Serialization traverses the original adapter directly. `document_cache_scope.lua`
 checks lazy reconstruction selection, bounded eviction, failure caching,
 reentrant initialization refusal, and release without invalidating held decoders.
-
-The browser conformance record comes from the real i386 LuaJIT guest in Chrome.

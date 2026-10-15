@@ -89,16 +89,6 @@ local TEMPLATE_FILES = {
     "app/src/main.nupp",
     "app/template.lua",
     "app/tests/greetingtest.nupp",
-    "browser/.gitignore",
-    "browser/README.md",
-    "browser/nupp.lua",
-    "browser/scripts/package.sh",
-    "browser/scripts/serve.mjs",
-    "browser/src/main.nupp",
-    "browser/template.lua",
-    "browser/tests/build.test.mjs",
-    "browser/web/app.mjs",
-    "browser/web/index.html",
     "love/.gitignore",
     "love/README.md",
     "love/nupp.lua",
@@ -491,13 +481,6 @@ for _, resource in ipairs({
 }) do
     RESOURCES[#RESOURCES + 1] = {source = resource, output = resource:gsub("^src/", "nupp/compiler/"),}
 end
-local LUAJIT_BROWSER_RESOURCES = {}
-for index, resource in ipairs(RESOURCES) do
-    LUAJIT_BROWSER_RESOURCES[index] = resource
-end
-LUAJIT_BROWSER_RESOURCES[
-    #LUAJIT_BROWSER_RESOURCES + 1
-] = {source = "build/browser-luajit/preludeimage.bin", output = "nupp/compiler/preludeimage.bin",}
 for _, relative in ipairs(TEMPLATE_FILES) do
     RESOURCES[#RESOURCES + 1] = {source = "templates/" .. relative, output = "nupp/compiler/templates/" .. relative,}
 end
@@ -591,32 +574,6 @@ return {
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
             },
-            browserLuaJITCompiler = {
-                kind = "bundle",
-                description = "Build the LuaJIT browser compiler candidate",
-                outDir = "build/browser-luajit/compiler",
-                output = "build/browser-luajit/nupp-compiler.lua",
-                entries = {"nupp.tools.browserluajit"},
-                sources = {"src/nupp/tools/browserluajit.nupp"},
-                resources = LUAJIT_BROWSER_RESOURCES,
-            },
-            browserLuaJITCompilerWithoutPrelude = {
-                kind = "bundle",
-                description = "Build the LuaJIT browser prelude generator",
-                outDir = "build/browser-luajit/bootstrap",
-                output = "build/browser-luajit/bootstrap/nupp-compiler.lua",
-                entries = {"nupp.tools.browserluajit"},
-                sources = {"src/nupp/tools/browserluajit.nupp"},
-                resources = RESOURCES,
-            },
-            browserLuaJITApplicationRuntime = {
-                kind = "bundle",
-                description = "Build the LuaJIT browser application runtime",
-                outDir = "build/browser-luajit/app",
-                output = "build/browser-luajit/nupp-app-runtime.lua",
-                entries = {"nupp.runtime.browser.playground"},
-                sources = {"src/nupp/runtime/browser/playground.nupp"},
-            },
             -- Nupp stamped into a feature-matched host as one self-contained
             -- executable. It is the first payload the format ever carries, on
             -- purpose: a packager that cannot package itself has no business
@@ -692,7 +649,7 @@ return {
         [
             "docs-serve"
         ] = {
-            description = "Build the docs site and playground, serve both " .. "until stopped",
+            description = "Build the docs site and serve it until stopped",
             argv = {"node", "scripts/docs-serve.mjs"},
         },
         [

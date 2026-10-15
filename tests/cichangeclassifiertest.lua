@@ -45,7 +45,6 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
         "macos-integration",
         "windows-integration",
         "fixpoint",
-        "portable-compiler",
         "gpu-linux",
         "gpu-windows",
     })
@@ -73,31 +72,11 @@ function M.aotChangeSelectsAotAndFixpoint()
 end
 
 function M.runtimeChangeSelectsBrowserAndNativeCoverage()
-    selects("src/nupp/runtime/tasks.nupp", {"fast-checks", "linux-integration", "portable-compiler", "fixpoint"})
+    selects("src/nupp/runtime/tasks.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
-function M.browserChangeSelectsThePortableCompilerAndTheWasmJob()
-    selects("runtime/wasm/loader.js", {"fast-checks", "linux-integration", "portable-compiler", "browser-wasm"})
-    selects("editors/playground/src/worker.ts", {"browser-wasm"})
-    selects("templates/browser/nupp.lua", {"browser-wasm"})
-end
-
--- Nothing but the Wasm job runs these fixtures, so classifying them as ordinary
--- tests left a change to one uncompiled until something else selected the job.
-function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
-    selects("tests/wasm-aot/project/src/main.nupp", {"browser-wasm"})
-    selects("tests/wasm-aot/simd-project/src/main.nupp", {"browser-wasm"})
-    selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
-    selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
-    selects("src/nupp/tools/build/aot.nupp", {"browser-wasm"})
-    selects("src/nupp/simd.nupp", {"browser-wasm"})
-end
-
--- The one job narrow enough to be worth narrowing, so the boundary is worth an
--- assertion: a compiler change is covered by `portable-compiler` compiling every
--- homepage example under the Worker's default settings, and by the nightly backstop.
-function M.anOrdinaryCompilerChangeDoesNotPayForEmscripten()
-    doesNotSelect("src/nupp/compiler/check/callexpr.nupp", {"browser-wasm"})
+function M.thePageHostSelectsTheInProcessSuites()
+    selects("runtime/wasm/app-runtime.mjs", {"fast-checks", "linux-integration"})
 end
 
 function M.gpuChangeSelectsBothAdapters()
@@ -167,8 +146,6 @@ function M.documentationOnlyChangesProvisionNoPlatform()
             "gpu-linux",
             "gpu-windows",
             "fixpoint",
-            "portable-compiler",
-            "browser-wasm",
         })
     end
 end

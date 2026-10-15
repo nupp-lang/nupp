@@ -22,7 +22,7 @@ end
 Declare a metamethod inside a record or interface with `metamethod`, its Lua
 name, and a function type:
 
-```nupp:playground
+```nupp
 local interface Component
     componentName: string
     metamethod __call: function(self, ...: any): self
