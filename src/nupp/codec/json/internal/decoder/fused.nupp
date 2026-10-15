@@ -212,10 +212,13 @@ local function decodeFused<const Variant: integer>(
                     -- The vector before this one, read again rather than
                     -- carried: a vector cannot cross an iteration of this
                     -- loop, because the loop is only inside the species where
-                    -- there is one. Before the first vector the load is out of
-                    -- range and answers zeros, which is what a scan that has
-                    -- seen nothing yet needs it to be.
-                    local previous = species:load(bytes, scanCursor - species.lanes + 1)
+                    -- there is one. Before the first vector there is nothing
+                    -- to read, and zeros are what a scan that has seen nothing
+                    -- yet needs it to be.
+                    local previous = species:splat(0)
+                    if scanCursor >= species.lanes then
+                        previous = species:load(bytes, scanCursor - species.lanes + 1)
+                    end
                     local previous1 = block:align(previous, 1)
                     local previous2 = block:align(previous, 2)
                     local previous3 = block:align(previous, 3)
