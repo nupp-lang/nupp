@@ -14,6 +14,11 @@ local ROOT = HERE .. "/.."
 
 local M = {}
 
+-- What these cases watch is the launcher choosing between the compilers a tree
+-- has. A VM compiler selected for the whole run -- the environment a VM-hosted
+-- suite inherits -- would answer every command before that choice is made.
+local NO_VM_CLI = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY="
+
 local function readFile(path)
     local file = io.open(path, "rb")
     if not file then
@@ -112,8 +117,8 @@ function M.launcherFallsBackToTheFetchedStageZero()
 
     local out = capture(
         (
-            "NUPP_TOOLCHAIN_DIR='%s' NUPP_RUST_BUILD_DIR='%s/build/rust' " .. "'%s/bin/nupp' --help 2>&1"
-        ):format(cache, ROOT, dir)
+            "%s NUPP_TOOLCHAIN_DIR='%s' NUPP_RUST_BUILD_DIR='%s/build/rust' " .. "'%s/bin/nupp' --help 2>&1"
+        ):format(NO_VM_CLI, cache, ROOT, dir)
     )
     assert(out:find("Usage:\n  nupp", 1, true), "launcher did not start the stage-zero compiler: " .. out)
 
@@ -183,8 +188,8 @@ local function plantedTree(stage0Body)
     end
 
     local env = (
-        "NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 NUPP_HOST_SOURCE_DIR='%s/supplied'"
-    ):format(dir, dir)
+        "%s NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 NUPP_HOST_SOURCE_DIR='%s/supplied'"
+    ):format(NO_VM_CLI, dir, dir)
 
     local prefix = capture(("%s '%s/scripts/toolchain' --prefix"):format(env, dir)):match("([^\n]+)%s*$")
     assert(prefix)
