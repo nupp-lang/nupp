@@ -5426,13 +5426,10 @@ function lower.emit(
             else
                 chunk:op("NewTableN", chunk.exportsReg, 0, 0)
             end
-            -- A module that requires itself gets the exports it is still
-            -- filling, as Lua code publishing its table early would.
-            local selfRequired = false
-            for _, entry in ipairs(deps) do
-                selfRequired = selfRequired or entry == name
-            end
-            if selfRequired then
+            -- A module required again while it loads, by itself or through a
+            -- cycle, gets the exports it is still filling, as the Lua backend's
+            -- early publication gave it. A body that raises unpublishes them.
+            do
                 local package, loaded, key = chunk:reg(), chunk:reg(), chunk:reg()
                 chunk:op("Require", package, chunk:const("str", "package"))
                 chunk:op("GetField", loaded, package, chunk:const("str", "loaded"))

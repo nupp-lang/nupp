@@ -1004,7 +1004,9 @@ impl Interp {
         if !self.loading_modules.insert(name.to_string()) { self.err(&format!("loop or previous error loading module '{name}'")); }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(loader, &[key])));
         self.loading_modules.remove(name);
-        let outs = match result { Ok(outs) => outs, Err(error) => { self.close_scope(scope); std::panic::resume_unwind(error) } };
+        // A module that published its exports early and then raised is not left
+        // half-built in `package.loaded`.
+        let outs = match result { Ok(outs) => outs, Err(error) => { if self.loaded_table != Value::NIL { self.set_index(self.loaded_table, key, Value::NIL); } self.close_scope(scope); std::panic::resume_unwind(error) } };
         let mut value = outs.first().copied().unwrap_or(Value::NIL);
         if value == Value::NIL { value = self.get_index(self.loaded_table, key); if value == Value::NIL { value = Value::TRUE; } }
         self.handles.push(value);
