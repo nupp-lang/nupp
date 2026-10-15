@@ -65,14 +65,18 @@ local function run(options: any): integer
     local loadImage: (function(image: string): (any, string?))? = rawget(_G, "__nupp_load_image")
     local chunk, err
     local watch: Session? = nil
-    if watching then
+    if watching and not loadImage then
+        -- Hot reload patches function bodies in the VM's code; there is no other
+        -- target.
+        return usageError("--watch runs on the VM; install a VM CLI with scripts/vm-cli")
+    elseif watching then
         local session, diagnostics = require("nupp.tools.cli.watch").open(path)
         if not session then
             require("nupp.compiler.diagnostics").report(diagnostics or {})
             return 1
         end
         watch = session
-        chunk, err = loadstring(session.entryCode, "@" .. path)
+        chunk, err = (loadImage as function(image: string): (any, string?))(session.entryCode)
     elseif path:find("%.nupp$") and loadImage then
         -- The VM runs what its own lowering compiled, never generated Lua.
         local image = compile.image(path, projectEnv, nil)

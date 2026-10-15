@@ -76,7 +76,8 @@ function lower.emit(
     listing: table?,
     layoutTarget: string?,
     coverage: lower.CoverageRequest?,
-    reuse: table?
+    reuse: table?,
+    functionsOut: table?
 ): string
     local out = {}
     local assignedNames = {}
@@ -5771,6 +5772,17 @@ function lower.emit(
         end
         local inspected = nil
         local firstOut = #out + 1
+        if functionsOut then
+            -- What hot reload matches a function by across two lowerings: its
+            -- lexical parent and its captured names in upvalue order.
+            local captures = {}
+            for captured, index in pairs(f.upvalIndex) do
+                captures[index + 1] = captured
+            end
+            functionsOut[
+                #functionsOut + 1
+            ] = {id = f.id, name = f.name, parent = f.parent and f.parent.id, captures = captures}
+        end
         if listing and f.module == entryName then
             inspected = {name = f.name, what = f.parent and "function" or "chunk", instructions = {}}
             listing[#listing + 1] = inspected

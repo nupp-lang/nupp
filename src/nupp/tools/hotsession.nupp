@@ -6,6 +6,13 @@ Persistent compiler-side state for development hot reload.
 The session deliberately owns the incremental query graph and advances its
 baseline only after the host acknowledges a runtime commit. Modules join that
 baseline lazily after their initial chunk has completed successfully.
+
+What it compiles is a VM image per module. A reload lowers a changed module
+again and matches its functions to the running ones by identity: lexical
+parent, name, and position among same-named siblings. The patch it prepares is
+that image behind a map the runtime's `vm.hotPatch` reads, so a matched
+function keeps its id and every closure, method and direct call takes the new
+body on its next call (`native/crates/vm/src/hotpatch.rs`).
 ]]
 
 local incremental = require("nupp.compiler.project.incremental")
@@ -14,7 +21,7 @@ local buildModules = require("nupp.tools.build.modules")
 local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.syntax.cst")
 local envMod = require("nupp.compiler.project.env")
-local gen = require("nupp.compiler.lua.gen")
+local lower = require("nupp.compiler.vm.lower")
 local fs = require("nupp.compiler.fs")
 local cheader = require("nupp.compiler.cinterop.cheader")
 
@@ -30,8 +37,8 @@ Session.__index = Session
 record hotSession.Prepared
     kind: "prepared"
 
-    --- The patch chunk, ready to hand to `hotreload.stage`.
-    patch: string
+    --- One patch per changed module, ready for the runtime's `vm.hotPatch`.
+    patches: {string}
 
     --- The generation this was prepared against, and the one committing it produces.
     --- A host that has moved on since must prepare again.
@@ -64,15 +71,17 @@ end
 --- What `prepare` returns, discriminated by `kind`.
 type hotSession.Result = hotSession.Prepared | hotSession.Rejected | hotSession.Restart | hotSession.Unchanged
 
---- The entry watch artifact and the manifest describing what it registered.
+--- The entry's image and the manifest describing what it holds.
 record hotSession.InitialBuild
     kind: "initial"
     generation: integer
+
+    --- The entry module's VM image, for `__nupp_load_image`.
     entryCode: string
 
-    --- Plain data written by generation and read back by `loaded`. It is not the
+    --- Plain data built from the image and read back by `loaded`. It is not the
     --- compiler's own structures, and typing it here would be claiming a shape the
-    --- generator alone decides.
+    --- lowering alone decides.
     entryManifest: any
 end
 
@@ -148,37 +157,119 @@ local function fatalIn(values)
     return false
 end
 
-local function copyManifest(metadata, path, abi)
-    local functions = {}
-    for _, fn in ipairs(metadata.functions or {}) do
-        local captures = {}
-        for index, capture in ipairs(fn.captures or {}) do
-            captures[index] = capture
+-- Operands that name a function of the same image, by opcode: the position of
+-- the function id among the line's words.
+local functionOperands = {Call = 2, CallT = 2, CallK = 2, NewClosure = 3}
+
+--- Each function's text in an image, in the image's order, which is the order
+--- the lowering numbered them and the runtime loaded them.
+local function functionBlocks(image: string): {{string}}
+    local blocks: {{string}} = {}
+    local current: {string}? = nil
+    for line in image:gmatch("[^\n]+") do
+        if line:sub(1, 9) == "function " then
+            local block: {string} = {line}
+            blocks[#blocks + 1] = block
+            current = block
+        elseif current then
+            if line == "end" then
+                current = nil
+            else
+                current[#current + 1] = line
+            end
         end
-        functions[
-            #functions + 1
-        ] = {
-            id = fn.id,
-            slot = fn.slot,
-            name = fn.name,
-            signature = fn.signature,
-            selfName = fn.selfName,
+    end
+
+    return blocks
+end
+
+local function words(line: string): {string}
+    local out: {string} = {}
+    for word in line:gmatch("%S+") do
+        out[#out + 1] = word
+    end
+
+    return out
+end
+
+--- A body as the runtime would compare it, with every reference to a function
+--- of the same image spelled by identity rather than by id: adding a closure
+--- renumbers the functions after it without changing what they do. Source lines
+--- are left out; a body that only moved is not a change.
+local function implementation(block: {string}, keys: {string}): string
+    local parts: {string} = {}
+    for index = 2, #block do
+        local line = block[index]:gsub("^%s+", "")
+        local op = line:match("^%S+")
+        if op ~= "lines" and op ~= "source" then
+            local position = functionOperands[op]
+            if op == "const" and line:match("^const %d+ func ") then
+                position = 4
+            end
+            if position then
+                local split = words(line)
+                local number = tonumber(split[position])
+                local id = number and math.floor(number) or nil
+                split[position] = id and keys[id + 1] or split[position]
+                line = table.concat(split, " ")
+            end
+            parts[#parts + 1] = line
+        end
+    end
+
+    return hash.digest(table.concat(parts, "\n"))
+end
+
+--- The manifest of a module's image: every function by identity, with what a
+--- live replacement has to keep (signature, captures) and what it may change
+--- (implementation), the record layouts it uses, and its top-level chunk.
+local function imageManifest(image: string, functions: {any}, module: string, path: string, abi: any): any
+    local blocks = functionBlocks(image)
+    local keys: {string} = {}
+    local seen: {[string]: integer} = {}
+    for index, fn in ipairs(functions) do
+        local anonymous = tostring(fn.name):match("%.fn%d+$") ~= nil
+        local parent: integer? = fn.parent
+        local parentKey = parent and keys[parent + 1] or ""
+        local prefix = parentKey .. "/" .. (anonymous and "fn" or tostring(fn.name))
+        local ordinal = (seen[prefix] or 0) + 1
+        seen[prefix] = ordinal
+        keys[index] = prefix .. "#" .. ordinal
+    end
+    local chunk = tonumber(image:match("\nmodule %S+ (%d+)")) or 0
+    local entries = {}
+    for index, fn in ipairs(functions) do
+        local header = words(blocks[index] and blocks[index][1] or "")
+        local captures = {}
+        for position, name in pairs(fn.captures or {}) do
+            captures[position] = name
+        end
+        entries[index] = {
+            index = index - 1,
+            key = keys[index],
+            name = tostring(fn.name),
+            chunk = index - 1 == chunk,
+            -- A function declared by the module's top level, as opposed to one a body
+            -- declares: adding or removing one of these changes the module's shape.
+            declaration = index - 1 == chunk or fn.parent == nil or fn.parent == chunk,
+            signature = table.concat({header[4] or "", header[7] or "", header[8] or ""}, " "),
             captures = captures,
-            implementation = fn.implementation,
-            patchable = fn.patchable,
-            affineCapture = fn.affineCapture,
-            cUses = fn.cUses or {},
-            cUnknown = fn.cUnknown == true,
+            implementation = blocks[index] and implementation(blocks[index], keys) or "",
         }
+    end
+    local shapes = {}
+    for line in image:gmatch("[^\n]+") do
+        if line:sub(1, 6) == "shape " then
+            shapes[#shapes + 1] = line
+        end
     end
 
     return {
-        schema = 1,
-        module = metadata.module,
+        schema = 2,
+        module = module,
         path = path,
-        optimization = 0,
-        structure = metadata.structure,
-        functions = functions,
+        functions = entries,
+        shapes = table.concat(shapes, "\n"),
         abi = abi,
         unverifiedLibraries = abi.unverifiedLibraries or {},
     }
@@ -198,12 +289,12 @@ local function sameCaptures(left, right)
 end
 
 local function indexed(manifest)
-    local byID = {}
+    local byKey = {}
     for _, fn in ipairs(manifest.functions or {}) do
-        byID[fn.id] = fn
+        byKey[fn.key] = fn
     end
 
-    return byID
+    return byKey
 end
 
 local function restart(path, message, reason)
@@ -330,25 +421,36 @@ local function interfaceFingerprint(moduleType, exports)
     return buildModules.interfaceHash(moduleType, exports, nil)
 end
 
-local function applyCMetadata(snapshot, metadata)
-    local module = metadata and snapshot.modules[metadata.module]
-    if not module then
+--- The C declarations a module's code refers to, keyed the way `cDeclarations`
+--- keys them. A foreign operation the checker could not join to one selects the
+--- module-wide comparison instead.
+local function applyCUses(snapshot, module: string, parsed: any): nil
+    local current = snapshot.modules[module]
+    if not current then
         return
     end
-    local uses, functions = {}, {}
+    local uses: {[string]: boolean} = {}
     local unknown = false
-    for _, fn in ipairs(metadata.functions or {}) do
-        local own = {}
-        for _, identity in ipairs(fn.cUses or {}) do
-            uses[identity] = true
-            own[identity] = true
+
+    local function walk(node)
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
         end
-        functions[fn.id] = own
-        unknown = unknown or fn.cUnknown == true
+        if node.cdefIdentity then
+            uses[node.cdefIdentity] = true
+        elseif node.kind == "name" and node.token and node.token.definition and node.token.definition.cdefIdentity then
+            uses[node.token.definition.cdefIdentity] = true
+        elseif node.cdefCall or node.cdefDeclarationBlock or node.cheaderCdef then
+            unknown = true
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
-    module.cUses = uses
-    module.cFunctionUses = functions
-    module.cUnknown = unknown
+
+    walk(parsed and parsed.root)
+    current.cUses = uses
+    current.cUnknown = unknown
 end
 
 local function carryCMetadata(previous, candidate)
@@ -356,7 +458,6 @@ local function carryCMetadata(previous, candidate)
         local old = previous.modules and previous.modules[identity]
         if old then
             current.cUses = current.cUses or old.cUses
-            current.cFunctionUses = current.cFunctionUses or old.cFunctionUses
             if current.cUnknown == nil then
                 current.cUnknown = old.cUnknown
             end
@@ -773,7 +874,9 @@ function Session:semanticSnapshot(path, checked, module)
     return snapshot
 end
 
-function Session:compile(path, mode, module, only)
+--- Checks and lowers one module to its VM image, with the manifest a later
+--- reload compares against.
+function Session:compile(path, module)
     local checked = self.inc.checkFile(path)
     if fatalIn(checked.diags) then
         return nil, diagnosticsFailure(checked.diags)
@@ -799,19 +902,74 @@ function Session:compile(path, mode, module, only)
     if not abi then
         return nil, abiFailure
     end
-    local code, generated, _, _, metadata = gen.generate(checked.result, path, nil, {
-        mode = mode,
-        module = module,
-        baseGeneration = mode == "patch" and self.generation or nil,
-        only = only,
-        libraries = self.libraryPaths,
-    })
-    if fatalIn(generated) then
-        return nil, diagnosticsFailure(generated)
-    end
-    applyCMetadata(abi, metadata)
+    applyCUses(abi, module, checked.result)
+    local tree = checked.result.root
+    -- A pinned loader name loads the exact file the session observes. The tree is
+    -- the query graph's, so the library operands are swapped for this lowering only.
+    local pinned: {any} = {}
 
-    return {code = code, manifest = copyManifest(metadata, path, abi)}
+    local function pin(node)
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.kind == "cdefFunc" or node.kind == "cdefStruct" then
+            local name = node.fromLib and stringLiteral(node.fromLib.text)
+            local path = name and self.libraryPaths[name]
+            if path then
+                pinned[#pinned + 1] = {node = node, token = node.fromLib}
+                local token = {}
+                for key, value in pairs(node.fromLib) do
+                    token[key] = value
+                end
+                token.value = path
+                node.fromLib = token
+            end
+        end
+        for _, child in ipairs(node) do
+            pin(child)
+        end
+    end
+
+    pin(tree)
+    -- What the module publishes decides which records its witnesses link.
+    tree.vmModuleExports = checked.result.moduleExports
+    local functions = {}
+    local lowered, image = pcall(
+        lower.emit,
+        module,
+        {},
+        function(candidate: string): string?
+            return candidate == module and path or nil
+        end,
+        function(_: string, _: string): table
+            return tree
+        end,
+        nil,
+        nil,
+        self.inc.env.layoutTarget or require("nupp.compiler.targetlayout").hostKey(),
+        nil,
+        nil,
+        functions
+    )
+    for _, swapped in ipairs(pinned) do
+        swapped.node.fromLib = swapped.token
+    end
+    if not lowered then
+        return nil, diagnosticsFailure({
+            {
+                filename = path,
+                line = 1,
+                col = 1,
+                offset = 0,
+                length = 0,
+                code = "NUPP0001",
+                msg = "cannot lower " .. module .. " for the VM: " .. tostring(image),
+                help = "this is a compiler defect; the running generation is unchanged",
+            }
+        })
+    end
+
+    return {code = image, manifest = imageManifest(image, functions, module, path, abi)}
 end
 
 function Session:initial(entries)
@@ -820,7 +978,7 @@ function Session:initial(entries)
         error("hot reload initial build needs one entry", 2)
     end
     local module = envMod.moduleNameForPath(self.inc.env, path) or path
-    local built, failure = self:compile(path, "initial", module)
+    local built, failure = self:compile(path, module)
     if not built then
         return failure
     end
@@ -835,7 +993,7 @@ function Session:loaded(module, generation, manifest)
     if self.running[module] then
         error("hot reload module " .. module .. " was acknowledged twice", 2)
     end
-    if type(manifest) ~= "table" or manifest.schema ~= 1 or manifest.module ~= module then
+    if type(manifest) ~= "table" or manifest.schema ~= 2 or manifest.module ~= module then
         error("hot reload loaded acknowledgement has a mismatched manifest", 2)
     end
     self.running[module] = manifest
@@ -910,7 +1068,7 @@ function Session:prepare(paths)
         loaded[#loaded + 1] = module
     end
     table.sort(loaded)
-    -- A changed declaration cannot safely be fed back into LuaJIT's process-global C
+    -- A changed declaration cannot safely be fed back into the process-global C
     -- registry merely to discover that it differs. Fingerprint retained headers first;
     -- comments fall through to the checker, while ABI drift stops before redeclaration.
     for _, module in ipairs(loaded) do
@@ -963,7 +1121,7 @@ function Session:prepare(paths)
         local module = envMod.moduleNameForPath(self.inc.env, path) or path
         local live = self.running[module]
         if live then
-            local compiled, failure = self:compile(path, "patch", module)
+            local compiled, failure = self:compile(path, module)
             if not compiled then
                 return failure
             end
@@ -974,80 +1132,53 @@ function Session:prepare(paths)
                 abiChange.consumerPath = path
                 return restart(path, dependencyChangeMessage(abiChange, module, path), abiChange)
             end
-            if live.structure ~= nextManifest.structure then
-                return restart(path, "top-level structure changed in " .. module, {
-                    kind = "source-structure",
-                    dependency = module,
-                    path = path,
-                    consumer = module,
-                })
+
+            local function refuse(message: string, kind: string, dependency: string): hotSession.Restart
+                return restart(path, message, {kind = kind, dependency = dependency, path = path, consumer = module})
             end
-            local oldByID, nextByID = indexed(live), indexed(nextManifest)
-            local only = {}
-            for id, old in pairs(oldByID) do
-                local nextFn = nextByID[id]
-                if not nextFn or nextFn.slot ~= old.slot then
-                    return restart(path, "reloadable declaration changed: " .. id, {
-                        kind = "reloadable-declaration",
-                        dependency = id,
-                        path = path,
-                        consumer = module,
-                    })
-                end
-                if nextFn.signature ~= old.signature then
-                    return restart(path, "callable signature changed: " .. id, {
-                        kind = "callable-abi",
-                        dependency = id,
-                        path = path,
-                        consumer = module,
-                    })
-                end
-                if not sameCaptures(old.captures, nextFn.captures) then
-                    return restart(path, "captured bindings changed: " .. id, {
-                        kind = "capture-set",
-                        dependency = id,
-                        path = path,
-                        consumer = module,
-                    })
-                end
-                if nextFn.implementation ~= old.implementation then
-                    if not old.patchable then
-                        return restart(
-                            path,
-                            "capture " .. tostring(
-                                old.affineCapture
-                            ) .. " owns a cleanup, so replacing " .. old.id .. " requires restart",
-                            {
-                                kind = "affine-capture",
-                                dependency = old.id,
-                                path = path,
-                                consumer = module,
-                                capture = old.affineCapture,
-                            }
+
+            if live.shapes ~= nextManifest.shapes then
+                return refuse("record layout changed in " .. module, "record-layout", module)
+            end
+            local oldByKey, nextByKey = indexed(live), indexed(nextManifest)
+            -- The runtime's map: each new function's position in the running list.
+            local map: {string} = {}
+            local changed = 0
+            for index, fn in ipairs(nextManifest.functions) do
+                local old = oldByKey[fn.key]
+                map[index] = old and tostring(old.index) or "-"
+                if not old then
+                    if fn.declaration then
+                        return refuse(
+                            "reloadable declaration was added: " .. fn.name,
+                            "reloadable-declaration",
+                            fn.name
                         )
                     end
-                    only[id] = true
-                    changedCount = changedCount + 1
+                elseif fn.chunk ~= old.chunk or old.chunk and fn.implementation ~= old.implementation then
+                    return refuse("top-level structure changed in " .. module, "source-structure", module)
+                elseif fn.signature ~= old.signature then
+                    return refuse("callable signature changed: " .. fn.name, "callable-abi", fn.name)
+                elseif not sameCaptures(old.captures, fn.captures) then
+                    return refuse("captured bindings changed: " .. fn.name, "capture-set", fn.name)
+                elseif fn.implementation ~= old.implementation then
+                    changed = changed + 1
                 end
             end
-            for id in pairs(nextByID) do
-                if not oldByID[id] then
-                    return restart(path, "reloadable declaration was added: " .. id, {
-                        kind = "reloadable-declaration",
-                        dependency = id,
-                        path = path,
-                        consumer = module,
-                    })
+            for _, old in ipairs(live.functions or {}) do
+                if old.declaration and not nextByKey[old.key] then
+                    return refuse("reloadable declaration changed: " .. old.name, "reloadable-declaration", old.name)
                 end
             end
-            if next(only) then
-                local selected, selectedFailure = self:compile(path, "patch", module, only)
-                if not selected then
-                    return selectedFailure
-                end
-                patches[#patches + 1] = selected.code
+            if changed > 0 then
+                patches[
+                    #patches + 1
+                ] = "patch " .. module .. "\nmap " .. table.concat(map, " ") .. "\n" .. compiled.code
+                changedCount = changedCount + changed
             end
-            candidate[module] = nextManifest
+            if changed > 0 then
+                candidate[module] = nextManifest
+            end
         end
     end
     if changedCount == 0 then
@@ -1060,7 +1191,7 @@ function Session:prepare(paths)
     local generation = (self.generation + 1) as integer
     local result = new hotSession.Prepared(
         kind = "prepared",
-        patch = table.concat(patches, "\n"),
+        patches = patches,
         baseGeneration = self.generation,
         generation = generation
     )

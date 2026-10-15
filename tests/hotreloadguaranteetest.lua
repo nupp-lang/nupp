@@ -6,36 +6,42 @@
 local suites = {
    cheadertest = require("cheadertest"),
    hotreloadtest = require("hotreloadtest"),
-   runtimetest = require("runtimetest"),
 }
 
 local guarantees = {
    {
       claim = "watch mode is O0-only",
-      cases = {{"runtimetest", "cliWatchRejectsOptimizedGeneration"}},
+      cases = {{"hotreloadtest", "cliWatchRejectsOptimizedGeneration"}},
    },
    {
       claim = "poll commits compatible edits and preserves the last good generation",
-      cases = {{"runtimetest", "cliWatchCommitsAndKeepsTheLastGoodGeneration"}},
+      cases = {
+         {"hotreloadtest", "cliWatchCommitsAndKeepsTheLastGoodGeneration"},
+         {"hotreloadtest", "cliWatchPatchesUnderARunningLoop"},
+      },
    },
    {
       claim = "function identity, module state, and captured cells survive commit",
       cases = {{"hotreloadtest", "retainedFunctionUsesPatchedBodyAndCapturedCell"}},
    },
    {
-      claim = "unloaded modules create no patch slots",
+      claim = "unloaded modules are not patched",
       cases = {{"hotreloadtest", "sessionSkipsUnloadedChangedModules"}},
    },
    {
-      claim = "named functions and record and struct methods retain identity",
+      claim = "named and anonymous functions and record methods retain identity",
       cases = {
          {"hotreloadtest", "retainedFunctionUsesPatchedBodyAndCapturedCell"},
+         {"hotreloadtest", "anonymousClosuresArePatchIdentities"},
          {"hotreloadtest", "inlineRecordMethodKeepsItsPublicIdentity"},
-         {"hotreloadtest", "structMethodDispatchesThroughAStableSlot"},
       },
    },
    {
-      claim = "self recursion is generation-private and mutual recursion uses slots",
+      claim = "a changed body may add closures",
+      cases = {{"hotreloadtest", "aChangedBodyMayAddAClosure"}},
+   },
+   {
+      claim = "every call after a commit enters the newest body",
       cases = {
          {"hotreloadtest", "selfRecursionUsesNewPrivateImplementation"},
          {"hotreloadtest", "mutualRecursionUsesTheNewestPartnerSlot"},
@@ -45,12 +51,15 @@ local guarantees = {
       claim = "type errors reject a candidate without replacing the old generation",
       cases = {
          {"hotreloadtest", "sessionRechecksLoadedModulesAfterDeclarationChanges"},
-         {"runtimetest", "cliWatchCommitsAndKeepsTheLastGoodGeneration"},
+         {"hotreloadtest", "cliWatchCommitsAndKeepsTheLastGoodGeneration"},
       },
    },
    {
-      claim = "patch staging is atomic",
-      cases = {{"hotreloadtest", "failedMultiFunctionStagePublishesNothing"}},
+      claim = "a patch lands whole or not at all",
+      cases = {
+         {"hotreloadtest", "failedMultiFunctionStagePublishesNothing"},
+         {"hotreloadtest", "theRuntimeRefusesWhatTheSessionMissed"},
+      },
    },
    {
       claim = "loaded semantic dependencies are rechecked at their dependency boundary",
@@ -67,15 +76,14 @@ local guarantees = {
          {"cheadertest", "preprocessorProvenanceIncludesNestedHeaders"},
          {"hotreloadtest", "sessionObservesHeaderSemanticsAndIgnoresComments"},
          {"hotreloadtest", "sessionTracksPreprocessedHeaderClosure"},
-         {"runtimetest", "cliWatchObservesHeaderOnlyEdits"},
+         {"hotreloadtest", "cliWatchObservesHeaderOnlyEdits"},
       },
    },
    {
       claim = "mapped native artifacts load exactly and require restart when replaced",
       cases = {
          {"hotreloadtest", "sessionPinsAndObservesMappedNativeArtifacts"},
-         {"hotreloadtest", "mappedFfiLoadChangesOnlyWatchGeneration"},
-         {"runtimetest", "cliWatchRequiresRestartForMappedNativeReplacement"},
+         {"hotreloadtest", "cliWatchRequiresRestartForMappedNativeReplacement"},
       },
    },
    {
@@ -83,12 +91,12 @@ local guarantees = {
       cases = { {"hotreloadtest", "sessionReportsUnmappedNativeIdentityOnce"} },
    },
    {
-      claim = "structural, C, capture, and affine changes name why restart is required",
+      claim = "structural, C, capture, signature and layout changes name why restart is required",
       cases = {
          {"hotreloadtest", "sessionReportsStructuralChangesAsRestartRequired"},
          {"hotreloadtest", "sessionRejectsChangedCLayoutsBeforePatching"},
          {"hotreloadtest", "rejectedCaptureChangeLeavesOldGenerationRunning"},
-         {"hotreloadtest", "sessionNamesTheAffineCaptureThatRequiresRestart"},
+         {"hotreloadtest", "sessionRefusesSignatureDeclarationAndLayoutChanges"},
       },
    },
    {
@@ -114,11 +122,8 @@ local guarantees = {
       cases = {{"hotreloadtest", "activeCallFinishesOnTheImplementationItEntered"}},
    },
    {
-      claim = "ordinary generation contains no hot-reload machinery",
-      cases = {
-         {"hotreloadtest", "normalGenerationRemainsByteIdentical"},
-         {"hotreloadtest", "normalOptimizationLevelsContainNoHotReloadMetadata"},
-      },
+      claim = "a body that only moved is no change",
+      cases = {{"hotreloadtest", "movedLinesAreNoChange"}},
    },
 }
 

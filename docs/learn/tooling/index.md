@@ -159,12 +159,11 @@ caching, and native dependencies.
 nupp run --watch app.nupp
 ```
 
-At a safe loop boundary, call `nupp.hotreload.poll()`. Compatible named-function
-body edits commit without recreating application state; broken or structural
-edits leave the last good generation running. Watch is an `-O0` development
-target, not a release-performance build. See [hot
-reload](../projects/hot-reload.md#accepted-edits) for which edits commit and which
-need a restart.
+At a safe loop boundary, call `nupp.hotreload.poll()`. Function body edits
+commit without recreating application state, closures included; broken or
+structural edits leave the last good generation running. Watch mode runs on the
+VM CLI. See [hot reload](../projects/hot-reload.md#accepted-edits) for which edits
+commit and which need a restart.
 
 ## Documentation
 

@@ -3584,3 +3584,51 @@ RUSTC_WRAPPER=sccache CARGO_TARGET_DIR=build/rust/target cargo test --release -p
 ```
 
 The Rust tests run plain and under GC stress, oracle and quarantine.
+
+
+## Hot reload: body patches by id (2026-10-15)
+
+`nupp run --watch` runs on the VM and no longer generates Lua. The runtime
+plan's hot-reload item 1 landed with item 2's "finish on the old version"
+policy; types and layouts still require a restart (item 3).
+
+- **The patch.** The watch session (`nupp.tools.hotsession`) lowers a changed
+  module again and matches its functions to the running ones by identity:
+  lexical parent, name, and ordinal among same-named siblings, with anonymous
+  closures keyed by position under their parent. The patch is the new image
+  behind `patch MODULE` and a `map` line naming each function's position in
+  the running module's list, or `-` for a new one. `vm.hotPatch(text,
+  validate)` (`hotpatch.rs`, global `__nupp_hot_patch`) checks it and, unless
+  validating, commits it.
+- **Identity is the id.** A matched function keeps its id; the body stored
+  there is replaced. Closures, method tables, `func` constants and direct
+  calls name ids, so every one takes the new body on its next call with no
+  rebinding. A new closure a changed body creates is appended. The module's
+  function list becomes the patch's, so the next patch maps against it.
+- **Refused before anything changes:** an unloaded module, a changed calling
+  convention (parameters, typed signature, result class, varargs), a capture
+  count that differs from the closures already made, a record layout the
+  running module did not have, a function with linked AOT code, and a VM
+  whose lazy typed tier calls compiled entries directly (the same rule as
+  `vm.loadImage`). The compiler side refuses the same and more first, with
+  the reasons the docs list (top-level statements, declarations added or
+  removed, captures by name and order, C and header ABI).
+- **Frames mid-change.** A frame running a changed body keeps running it: the
+  old `Function` moves to a fresh id and the frame header is retargeted. The
+  code `Vec` is moved, not reallocated, so a cached interpreter window or the
+  threaded core's `FuncInfo` stays valid; `Switch` reads its jump table
+  through the frame's own id for the same reason. Every later call, recursive
+  ones included, enters the new body.
+- **Caches** derived from a body (liveness maps, vector requirements, field
+  caches, compiled frame entries, threaded encodings) are dropped for a
+  patched id. JIT symbols carry a serial, since an id is compiled again.
+- **Checkpoints and workers.** A commit is `CodeEvent::Patch` in the code
+  recipe, with the ids whose old bodies were retired, so a restore or a
+  worker replays the same ids and the code digest names the generation.
+  Workers already running keep the code they started with.
+
+Tests: `tests/hot_patch.rs` (under `GC_STRESS=1`, both engines: cell and
+closure identity, line-only moves, every refusal, appended closures, a
+self-patching activation, a parked task across a checkpoint), and
+`tests/hotreloadtest.lua` on the VM, including `nupp run --watch` processes
+that edit a required module and the loop that polls.

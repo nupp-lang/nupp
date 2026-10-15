@@ -4,10 +4,12 @@ order: 560
 
 # Hot reload
 
-`nupp run --watch app.nupp` builds a development-only version of a program in
-which named functions and methods keep their public identity while their bodies
-change. Reload is cooperative, so the host calls `nupp.hotreload.poll()` at a
-point where changing future dispatch is safe:
+`nupp run --watch app.nupp` runs a program on the VM and replaces the bodies of
+functions you edit while it keeps running. Every function in the VM is an id, and
+a commit replaces the body stored at that id, so closures already made, methods
+and direct calls all enter the new body on their next call. Reload is
+cooperative, so the program calls `nupp.hotreload.poll()` at a point where
+changing future calls is safe:
 
 ```nupp:fragment
 while running do
@@ -18,11 +20,10 @@ end
 
 Call `poll` between units of work, when no update or request is partially
 applied. Application state, registered callback values and module tables stay in
-place; only future calls through named function slots enter new bodies.
+place; only future calls enter new bodies.
 
-Watch mode is always an `-O0` build. Run the ordinary optimized build before
-release: optimizer passes can change control flow, allocation and JIT behavior
-that watch mode does not exercise.
+Watch mode takes no optimization level other than `-O0`, and it runs on the VM
+CLI only: a launcher still running the LuaJIT compiler refuses `--watch`.
 
 ## Start, edit, reload
 
@@ -70,40 +71,22 @@ Lazily required modules join the running generation only after their top level
 returns successfully. Editing an unloaded module emits no patch; its current
 source is compiled when it is first required.
 
-## From a host
-
-`nupp run --watch` owns the process. A C or C++ program embedding Nupp owns its
-own loop instead, and drives the same session through the embedding ABI:
-`nupp_reload_attach` over a component built with `reload = true`,
-`nupp_reload_prepare` wherever it likes, and `nupp_reload_apply` where it knows
-no frame, request or transaction is half applied. The verdicts are the ones on
-this page.
-
-```c
-nupp_reload_prepare(runtime, reload, &verdict, &generation, &error);
-if (verdict == NUPP_RELOAD_PREPARED) {
-    nupp_reload_apply(runtime, reload, &verdict, &generation, &error);
-}
-```
-
-Everything below holds there too: a callable the host retained returns the new
-body after a commit, application state stays where it is, and the same edits
-report a restart. See [embedding.md](embedding.md#hot-reload) for the whole
-surface and [build.md](build.md#reload-components) for the component it attaches
-to.
-
 ## Accepted edits
 
-A generation may change bodies of existing named local functions, qualified
-functions, and record or struct methods. Mutable captured locals retain the same
-lexical cells, and existing function values compare equal before and after a
-commit. Direct self-recursion stays inside the implementation generation that
-the call entered; mutual and cross-module calls go through the newest committed
-slot.
+A generation may change the bodies of existing named local functions, qualified
+functions, record and struct methods, and the closures written inside them.
+Captured locals keep the same cells, and existing function values compare equal
+before and after a commit. Every call that starts after the commit enters the
+newest body, recursive calls and calls from other modules alike.
+
+A changed body may create closures the running code never had; they are added
+with it. A closure a body no longer creates stays as it was for the values
+already made from it.
 
 A syntax or type error rejects the candidate and leaves the last good generation
-running. A compatible multi-function patch is staged completely before any slot
-changes.
+running. The runtime checks every module's patch against the code it is running
+before it replaces any body, so a multi-module change lands whole or not at
+all.
 
 Before staging, Nupp rechecks every loaded module through the incremental
 semantic dependency graph, so a changed global declaration, imported module
@@ -112,9 +95,13 @@ signature did not change. Unrelated declarations stop at their dependency
 boundary and do not force a restart.
 
 ::: deepdive
-Staging proves a whole patch compatible before commit touches any slot, because
-a partly-applied patch is what makes reload untrustworthy: the reported behavior
-is then the behavior of no version of the source. The host owns the commit
+A function's identity is its lexical parent, its name, and its position among
+same-named siblings, so a module lowered again after an edit matches the running
+one function for function even when adding a closure renumbers everything after
+it. The patch is the module's new image with that match beside it; the runtime
+checks the calling convention, captures and record layouts again against the
+code it actually loaded before it replaces anything, because a partly-applied
+patch is the behavior of no version of the source. The program owns the commit
 boundary because there is no generally safe moment to swap an implementation,
 and only the program knows which one it is in.
 
@@ -168,12 +155,12 @@ return {
 }
 ```
 
-The mapping applies to `cdef ... from "mini"`, `cheader(..., "mini")`, and a
-statically known `ffi.load("mini")`. Only watch generation consults it. The
-generated watch chunk loads the exact resolved file, and the session observes
-that path, its symlink target, and its bytes. Ordinary builds continue to emit
-the authored loader name and are byte-identical to builds made without this
-configuration.
+The mapping applies to `cdef ... from "mini"`, and only watch mode consults it:
+a watched module loads the exact resolved file, and the session observes that
+path, its symlink target, and its bytes. Ordinary builds continue to name the
+authored loader and are byte-identical to builds made without this
+configuration. A `cheader(..., "mini")` or `ffi.load("mini")` that names the
+same loader is observed the same way.
 
 A bare loader name remains legal, but watch mode reports once that its binary
 identity is unverified. A dynamically computed `ffi.load` argument is likewise
@@ -219,10 +206,7 @@ adding, removing, renaming or moving a named declaration, changing a callable
 signature or capture set, or changing a record, struct, native or component
 layout. Changes to C declarations, imported header declarations, and configured
 native artifacts also require a restart: the old FFI declarations, loaded
-library, and any values created from them already exist in the VM. A function
-that takes [ownership](../runtime/ownership/index.md) of a cleanup-bearing capture is
-also not patchable, and the diagnostic names the capture that selected the
-affine lowering.
+library, and any values created from them already exist in the VM.
 
 A changed derive-provider file also requires restart. Nupp observes and rechecks
 it, but does not migrate values or generated declaration state that the old
@@ -232,49 +216,43 @@ A restart result identifies the changed semantic dependency, its source path,
 and the loaded module that requires it. Structural reasons likewise identify the
 callable, capture, or module boundary that made the candidate incompatible.
 
-### Named callbacks
+### Callbacks and running calls
 
-Anonymous escaping closures are not yet patch identities. Give a long-lived
-callback a name:
+A callback registered with a library is reloaded like any other function,
+anonymous or named, because the value the library holds names the function's
+id:
 
 ```nupp:fragment
-local function receive(message: string): nil
+server:onMessage(function(message: string): nil
     -- body may be reloaded
-end
-
-server:onMessage(receive)
+end)
 ```
 
 Code that never reaches `poll` cannot reload. A call already executing finishes
-on its old closure, and a later call enters the replacement. These
-development-mode stack and dispatch semantics add no branch, registry, watcher,
-runtime dependency or generated byte to an ordinary non-watch artifact.
+on the body it entered, and that includes a task parked inside a changed
+function: it resumes on its old body, while every later call enters the
+replacement. The old body stays alive as long as a frame runs it.
 
-### Persistent managed cells
+A cleanup a scope or an owner registered is a function value too, so an edited
+cleanup body runs for cells that are still live. A change to what such a cell
+holds is a record or struct layout change, and requires restart.
 
-A managed cell that survives a patch belongs to the watch host, not to a
-reloadable module capture. Generated watch modules include their stable cleanup
-policy keys in staging.
-
-A cleanup-body edit under the same cleanup declaration keeps the key, and live
-cells call the patched function slot. A representation or cleanup-policy change
-is rejected while a matching cell is live; closing or taking those cells permits
-the next stage. Rejection leaves cells, their aliases, and the published hot
-generation unchanged.
+Watch mode runs the images `nupp run` runs. Nothing is added to a program to
+make it reloadable, so a watched program behaves as an ordinary run of the same
+source does.
 
 The guarantees on this page are indexed to executable compiler-session, runtime,
-and standalone-command cases in `tests/hotreloadguaranteetest.lua`. The
-standalone cases edit a required module, a header, and a temporary native
-library inside `nupp run --watch` processes.
+and standalone-command cases in `tests/hotreloadguaranteetest.lua`, and the
+runtime's half to `native/crates/vm/tests/hot_patch.rs`. The standalone cases
+edit a required module inside `nupp run --watch` processes.
 
 ## FAQ
 
 ### Does watch mode change what an ordinary build produces?
 
-No. The reload machinery exists only in the watch generation, so an ordinary
-build is byte-identical to one made without it. Watch mode is also always `-O0`,
-so measure and ship the optimized build instead. See
-[performance.md](../performance/index.md) for what the optimization levels change.
+No. A watched program is lowered exactly as an ordinary one is; what watch mode
+adds is a compiler session beside it and the runtime's body patch, neither of
+which reaches a build.
 
 ### Why did an edit to one function body still require a restart?
 
@@ -285,9 +263,7 @@ changed and the module that requires it.
 
 ### Can a callback registered with a library be reloaded?
 
-Only when it was registered by name. An anonymous closure has no patch identity,
-so declare the function and pass the name, as
-[Named callbacks](#named-callbacks) shows.
+Yes, named or anonymous: see [Callbacks and running calls](#callbacks-and-running-calls).
 
 ::: seealso
 - [build.md](build.md) for the ordinary optimized build that ships

@@ -540,6 +540,11 @@ place. Freeing a runtime twice remains invalid C.
 
 ## Hot reload
 
+Hot reload has moved to the VM, where `nupp run --watch` patches function bodies
+by id ([hot-reload.md](hot-reload.md)). The session functions below remain in
+this ABI only until the LuaJIT host is removed: the compiler module behind them
+is gone, so a session no longer opens. What follows describes them as they were.
+
 A development host can keep its program's function bodies current without
 restarting the process. There are two ways in, and both end at the same session:
 
