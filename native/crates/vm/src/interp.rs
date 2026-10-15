@@ -1783,6 +1783,9 @@ impl Interp {
         if t.stack.is_empty() { return None; }
         let mut s = t.cur;
         for _ in 0..skip {
+            // A function `pcall` called was called by `pcall`, a builtin, which has
+            // no position to name: Lua's `error(msg, 2)` then adds none.
+            if t.protected.iter().any(|h| h.frame == s && h.caller != s) { return None; }
             let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
             if caller == NONE { return None; }
             s = caller as usize;
