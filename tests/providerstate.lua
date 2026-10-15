@@ -16,6 +16,9 @@ local function vmModule(name)
     if compiled then
         return compiled
     end
+    -- What an instance requires and the running image does not carry compiles
+    -- from source, as a fragment's requires do.
+    require("program").installSourceModules()
     local envMod = require("nupp.compiler.project.env")
     local root = envMod.compilerRoot() or "."
     if not checkEnv then

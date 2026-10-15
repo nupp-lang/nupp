@@ -43,6 +43,14 @@ local function installSourceModules(loadImage)
     end)
 end
 
+--- Installs that loader on the VM, for a helper that loads modules itself.
+function program.installSourceModules()
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if loadImage then
+        installSourceModules(loadImage)
+    end
+end
+
 --- Whether fragments run on the VM.
 function program.onVm()
     return rawget(_G, "__nupp_load_image") ~= nil
