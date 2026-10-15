@@ -5,6 +5,9 @@ function runner.main(argv)
     require("nupp.vm.math")
     require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
     require("nupp.compiler.vm.chunks").install()
+    package.preload["nupp.embedded"] = function()
+        return require("nupp.vm.cliResources")
+    end
     local suite = require(argv[1])
     local fixtures = require("corpus-fixtures").new()
     local hooks = {beforeAll = true, afterAll = true, beforeEach = true, afterEach = true}

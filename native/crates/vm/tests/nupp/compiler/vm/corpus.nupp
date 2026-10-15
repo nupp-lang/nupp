@@ -34,6 +34,13 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     -- the root image carries it only because `nupp build` requires it.
     extras[#extras + 1] = "nupp.compiler.aot.compile"
     extras[#extras + 1] = "nupp.compiler.aot.target"
+    -- The compiler's carried files, as the root CLI image carries them: a suite
+    -- reads them through `nupp.compiler.bundled` where the LuaJIT runner reads
+    -- the copies its build staged.
+    local manifest, problem = assert(rawget(_G, "loadfile"), "source loader unavailable")(root .. "/nupp.lua")
+    assert(manifest, problem)
+    local carried = require("nupp.compiler.vm.resources").source(root, manifest())
+    extras[#extras + 1] = "nupp.vm.cliResources"
 
     return lower.emit(
         "corpus-runner",
@@ -42,10 +49,16 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
             if missing[name] then
                 return nil
             end
+            if name == "nupp.vm.cliResources" and not soft then
+                return "=(nupp.vm.cliResources)"
+            end
 
             return require("nupp.tools.vm.project").resolve(env, root, name, soft)
         end,
-        function(_: string, path: string): table
+        function(name: string, path: string): table
+            if name == "nupp.vm.cliResources" then
+                return parser.parse(carried, path).root
+            end
             local parsed = parser.parse(assert(fs.readFile(path)), path)
             assert(#parsed.errors == 0, "parse failed: " .. path)
             if not path:match("%.lua$") then
