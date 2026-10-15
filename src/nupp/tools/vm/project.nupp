@@ -310,6 +310,12 @@ function project.inspect(root: string, path: string, text: string?): ({any}, str
     return functions, table.concat(image, "\n") .. (#image > 0 and "\n" or "")
 end
 
+--- What the root CLI image carries beside what its entry requires: modules
+--- the compiler reaches by computed name.
+project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
+    .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
+    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
 function project.rebuild(root: string, hostBootstrap: boolean?): string

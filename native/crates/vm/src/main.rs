@@ -165,9 +165,12 @@ fn main() {
         println!("verified {} functions", it.funcs.len());
         return;
     }
-    if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE] [--tasks]"); std::process::exit(2); }
+    if args.len() < 5 || (args[1] != "run" && args[1] != "restore") { eprintln!("usage: nupp-vm (run IMAGE | restore CHECKPOINT) MODULE FUNCTION [ARG...] [--repeat N] [--host] [--setup FN] [--load IMAGE] [--checkpoint FILE] [--output FILE] [--tasks]"); std::process::exit(2); }
     let restoring = args[1] == "restore";
     let mut checkpoint: Option<String> = None;
+    // `--output FILE`: the first result, a string, written there byte for byte
+    // rather than shown quoted, which is lossy for bytes that are not UTF-8.
+    let mut output: Option<String> = None;
     let mut scheduled = executable;
     let mut repeat = 0usize; let mut host = false; let mut setup: Option<String> = None; let mut call_args_text: Vec<String> = Vec::new(); let mut additional_images: Vec<String> = Vec::new();
     let mut i = 5;
@@ -176,6 +179,7 @@ fn main() {
         match args[i].as_str() {
             "--tasks" => { scheduled = true; i += 1; }
             "--checkpoint" if i + 1 < args.len() => { checkpoint = Some(args[i + 1].clone()); i += 2; }
+            "--output" if i + 1 < args.len() => { output = Some(args[i + 1].clone()); i += 2; }
             "--load" if i + 1 < args.len() => { additional_images.push(args[i + 1].clone()); i += 2; } "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 2; } "--host" => { host = true; i += 1; } "--setup" => { setup = Some(args[i + 1].clone()); i += 2; } a => { call_args_text.push(a.to_string()); i += 1; } }
     }
     if restoring && (host || !additional_images.is_empty()) { eprintln!("restore cannot replace the saved host or load extra images before native binding"); std::process::exit(2); }
@@ -367,6 +371,12 @@ fn main() {
         it.heap.emit_allocation_metrics("cli-exit");
         emit_allocator_metrics("cli-exit-before-drop");
         std::process::exit(status.as_num() as i32);
+    }
+    if let Some(path) = &output {
+        let first = outs.first().copied().unwrap_or(Value::NIL);
+        if !it.is_stringish(first) { eprintln!("--output: {} returned {}, not a string", args[4], show(&it, first)); std::process::exit(1); }
+        std::fs::write(path, it.bytes_of(first)).unwrap_or_else(|e| { eprintln!("--output {path}: {e}"); std::process::exit(1) });
+        std::process::exit(0);
     }
     let shown: Vec<String> = outs.iter().map(|&v| show(&it, v)).collect();
     println!("{}", shown.join("\t"));

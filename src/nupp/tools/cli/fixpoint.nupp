@@ -52,6 +52,31 @@ local function run(options: any): integer
     local code: integer
     if values.binary then
         code = project.binaryFixpoint(".", {result = asJson and result or nil, diagnostics = collected})
+    elseif rawget(_G, "__nupp_load_image") and not values.emitStage0 then
+        -- A VM-hosted compiler's claim is about its root image, which it emits
+        -- itself; the LuaJIT one starts from the pinned stage zero below.
+        local found = require("nupp.tools.vm.fixpoint").run(
+            require("nupp.compiler.fs").absolute("."),
+            "build/vm-fixpoint",
+            function(line: string): nil
+                if not asJson then
+                    io.stderr:write(line, "\n")
+                end
+            end
+        )
+        code = found.ok and 0 or 1
+        if asJson then
+            result.target = "vm"
+            result.reason = found.reason
+        elseif found.ok then
+            io.write(
+                (
+                    "fixpoint ok: the VM compiler image emits itself byte-identically (%s, %s)\n"
+                ):format(tostring(found.image), tostring(found.digest))
+            )
+        else
+            io.stderr:write("nupp: VM fixpoint failed: ", tostring(found.reason), "\n")
+        end
     else
         code = project.fixpoint(".", {
             emitStage0 = values.emitStage0,
