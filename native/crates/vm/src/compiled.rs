@@ -552,7 +552,7 @@ fn j_pow_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); crate::numeric
 pub extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }
 fn j_eq_slow_impl(a: u64, b: u64) -> u64 { ctx().values_equal(V(a), V(b)) as u64 }
 fn j_require_impl(name: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let text = String::from_utf8_lossy(it.bytes_of(V(name))).into_owned(); let v = it.require(&text); leave_helper!(_hp); v.0 }
-fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().heap.shapes[shape as usize].methods.insert(V(name), V(f)); 0 }
+fn j_set_method_impl(shape: u64, name: u64, f: u64) -> u64 { ctx().set_method(shape as u32, V(name), V(f)); 0 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn j_native_span(span: u64, kind: u64, write: u64, out: *mut usize) -> u64 {

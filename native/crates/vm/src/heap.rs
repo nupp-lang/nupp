@@ -53,6 +53,9 @@ pub const F_NATIVE_STORAGE: u8 = 8;
 pub const F_NATIVE_OWNED: u8 = 16;
 /// Mutable tables participating in a validated physical layout.
 pub const F_STORAGE_SCHEMA: u8 = 32;
+/// A table some record shape names as its declaration: a store to it may
+/// replace a method the shape dispatches (`Heap::declarations`).
+pub const F_DECLARATION: u8 = 64;
 
 /// The size class byte of an object allocated on its own.
 pub const CLASS_LARGE: u8 = 0xff;
@@ -439,6 +442,9 @@ pub struct Heap {
     /// (`WEAK_KEYS`, `WEAK_VALUES`); their dead entries are cleared when
     /// marking ends, before the sweep frees the referents.
     weak: Vec<(NonNull<Header>, u8)>,
+    /// The shapes each declaration table (`F_DECLARATION`) declares, by the
+    /// table's bits. Shapes keep their declarations alive, so the bits hold.
+    pub declarations: HashMap<u64, Vec<u32>>,
     /// The interned `"__mode"` key's bits for this cycle, or nil's bits when
     /// no such string exists (so no metatable can name a mode).
     mode_key: u64,
@@ -455,7 +461,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY,
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }

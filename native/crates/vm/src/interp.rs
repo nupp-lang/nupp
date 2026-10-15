@@ -326,6 +326,9 @@ pub enum State { Runnable, Parked(u64), Done }
 #[derive(Clone, Copy)]
 pub struct Cleanup { pub frame: usize, pub value: Value, pub callback: Value }
 
+/// The `loaded` key of the metatable all strings share.
+pub(crate) const STRING_META: &str = "nupp.vm.stringMeta";
+
 /// The operations whose operand types Lua checks, for `Interp::op_error`.
 #[derive(Clone, Copy)]
 pub(crate) enum OpErr { Index, Call, Arith, Concat, Len }
@@ -936,9 +939,9 @@ impl Interp {
         let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
         let h = unsafe { &*p.as_ptr() };
         if h.is_stringish() {
-            let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
-            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.op_error(OpErr::Call, Value::NIL));
-            return crate::builtins::call(self, id, args).to_vec();
+            let method = self.string_field(recv, name);
+            if method == Value::NIL { self.op_error(OpErr::Call, Value::NIL); }
+            return self.call_value(method, args);
         }
         let method = self.resolve_method(recv, name);
         self.call_value(method, args)
@@ -1176,6 +1179,11 @@ impl Interp {
         let nupp = self.new_table(); self.registered.push(nupp); let k = self.intern("nupp"); self.set_index(g, k, nupp);
         let co=self.loaded["coroutine"];let k=self.intern("coroutine");self.set_index(g,k,co);
         for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug)] { let k = self.intern(name); self.set_index(g, k, t); }
+        // The metatable every string shares, as LuaJIT's: `__index` is the
+        // string library, so a function a program adds there is a method.
+        let meta = self.new_table(); self.registered.push(meta);
+        let k = self.intern("__index"); self.set_index(meta, k, string);
+        self.loaded.insert(STRING_META.into(), meta);
         for name in ["xpcall", "collectgarbage", "pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall", "require", "loadstring", "unpack", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
         let crypto = self.new_table(); self.registered.push(crypto);
         let key = self.intern("randomBytes"); self.set_index(crypto, key, Value::builtin(crate::builtins::id_of("crypto.randomBytes").unwrap()));
@@ -1405,6 +1413,7 @@ impl Interp {
                     }
                 } else { t.hash.insert(iv, v); }
                 h.refresh();
+                if h.flags & heap::F_DECLARATION != 0 { self.redeclare(tv, iv, v); }
             }
             // Shaped tables retain ordinary table keys beyond their fixed slots.
             KIND_RECORD => {
@@ -1447,12 +1456,46 @@ impl Interp {
     pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.newindex(o, name, v) }
     /// An ordinary or shaped table's metatable, or nil.
     pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else if h.kind == KIND_RECORD { h.record_extra_ref().as_ref().map(|extra| extra.meta).unwrap_or(Value::NIL) } else if h.kind == KIND_USERDATA { h.userdata().meta } else { Value::NIL } } None => Value::NIL } }
+    /// Registers a method a record shape dispatches. Its declaration (the
+    /// `\0nupp:recordType` entry) is marked so that replacing one of its
+    /// methods, as a program patching a class does, reaches the shape too.
+    pub(crate) fn set_method(&mut self, shape: u32, name: Value, f: Value) {
+        self.heap.shapes[shape as usize].methods.insert(name, f);
+        if self.heap.interned_key("\0nupp:recordType") == Some(name) && self.kind_of(f) == Some(KIND_TABLE) {
+            unsafe { (*f.as_obj().unwrap().as_ptr()).flags |= heap::F_DECLARATION; }
+            let shapes = self.heap.declarations.entry(f.0).or_default();
+            if !shapes.contains(&shape) { shapes.push(shape); }
+        }
+    }
+    /// A store to a declaration table: a method its shapes dispatch follows it.
+    fn redeclare(&mut self, decl: Value, key: Value, v: Value) {
+        let Some(shapes) = self.heap.declarations.get(&decl.0).cloned() else { return };
+        for shape in shapes {
+            let methods = &mut self.heap.shapes[shape as usize].methods;
+            if methods.contains_key(&key) {
+                if v == Value::NIL { methods.remove(&key); } else { methods.insert(key, v); }
+            }
+        }
+    }
+    /// A field of a string: what the string metatable's `__index` answers,
+    /// the string library as installed, or whatever a program put there.
+    pub(crate) fn string_field(&mut self, s: Value, name: Value) -> Value {
+        let Some(&meta) = self.loaded.get(STRING_META) else { return Value::NIL };
+        let Some(key) = self.heap.interned_key("__index") else { return Value::NIL };
+        let index = self.get_index(meta, key);
+        match self.kind_of(index) {
+            Some(KIND_TABLE | KIND_RECORD) => self.index(index, name),
+            _ if index == Value::NIL => Value::NIL,
+            _ => { let scope = self.open_scope(); self.handles.extend_from_slice(&[s, name, index]); let v = self.call_value(index, &[s, name]).first().copied().unwrap_or(Value::NIL); self.close_scope(scope); v }
+        }
+    }
     /// What `getmetatable` answers, as on LuaJIT: the metatable, or its
     /// `__metatable` field when it has one. A record carries no metatable of
     /// its own unless one was set; it answers its declaration, which LuaJIT
     /// stamps on a record as its metatable and the VM keeps on its shape.
     pub fn getmetatable_value(&mut self, v: Value) -> Value {
         let mut meta = self.metatable_of(v);
+        if meta == Value::NIL && self.is_stringish(v) { meta = self.loaded.get(STRING_META).copied().unwrap_or(Value::NIL); }
         if meta == Value::NIL {
             if let Some(p) = v.as_obj() {
                 let h = unsafe { p.as_ref() };
@@ -1993,7 +2036,7 @@ impl Interp {
                     Op::FRet(f) => { let v = Value::num(fr!(f)); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
                     Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
                     Op::RequireV(d, rg) => { let text = self.bytes_of(r!(rg)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
-                    Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.heap.shapes[shape as usize].methods.insert(name, f); }
+                    Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.set_method(shape, name, f); }
                     Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
@@ -2304,13 +2347,12 @@ impl Interp {
         let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
         let h = unsafe { &*p.as_ptr() };
         if h.is_stringish() {
-            // A string's methods are the string library; `nargs` counts the receiver.
-            let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
-            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.op_error(OpErr::Call, Value::NIL));
-            let args = self.call_args(tid, base + b as usize + 1, nargs);
-            let outs = crate::builtins::call(self, id, args.as_slice());
-            self.deliver(regs, b as usize, outs.as_slice());
-            return Flow::Next;
+            // A string's methods are its metatable's `__index`, the string
+            // library unless a program replaced it; `nargs` counts the receiver.
+            let method = self.string_field(recv, name);
+            if method == Value::NIL { self.op_error(OpErr::Call, Value::NIL); }
+            r!(b) = method;
+            return self.op_call_dyn(tid, w, pc, b, b, nargs);
         }
         let method = self.resolve_method(recv, name);
         if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
@@ -2447,7 +2489,7 @@ impl Interp {
         let name = unsafe { *consts.add(k as usize) };
         if self.metatable_of(r!(t)) != Value::NIL { let v = self.index(r!(t), name); r!(d) = v; return; }
         // A string's fields are the string library's, as Lua's string metatable has them.
-        if self.is_stringish(r!(t)) { let lib = self.loaded.get("string").copied().unwrap_or(Value::NIL); r!(d) = if lib == Value::NIL { Value::NIL } else { self.get_index(lib, name) }; return; }
+        if self.is_stringish(r!(t)) { let v = self.string_field(r!(t), name); r!(d) = v; return; }
         let Some(p) = r!(t).as_obj() else { self.op_error(OpErr::Index, r!(t)) };
         let h = unsafe { &*p.as_ptr() };
         let v = match h.kind {
