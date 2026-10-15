@@ -205,11 +205,6 @@ end
 -- `scripts/toolchain` decides what every job is built with, and general CI
 -- orchestration decides what every job is. The four self-contained SIMD
 -- workflow inputs above are the deliberate exception.
-function M.compatibilityCorpusSelectsItsStockInterpreterJob()
-    selects("tests/lua51-compat/src/main.nupp", {"linux-integration", "portable-compiler"})
-    selects("scripts/lua51-compat-corpus.sh", {"linux-integration", "portable-compiler"})
-end
-
 function M.toolchainAndWorkflowChangesSelectEverything()
     for _, path in ipairs({
         "scripts/toolchain",

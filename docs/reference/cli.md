@@ -656,18 +656,16 @@ Arguments:
   FILE  Source files to check.
 
 Options:
-  --compat PROFILE  Enforce the stock Lua 5.1 source subset without
-                    compatibility lowering.
-  --target NAME     Check a named manifest target.
-  --platform NAME   Check one configured binary platform, or all.
+  --target NAME    Check a named manifest target.
+  --platform NAME  Check one configured binary platform, or all.
   --progress[=WHEN], -q, --quiet
-                    When to report progress and timing.
+                   When to report progress and timing.
   --format FORMAT, --json, --text
-                    Select the report representation.
-  --schema          Print the JSON Schema of JSON output and exit.
-  -h, --help        Show this help
-  --color[=WHEN]    When to color output: always, never, or auto
-  --no-color        Never color output
+                   Select the report representation.
+  --schema         Print the JSON Schema of JSON output and exit.
+  -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 In a `.nupp` file unknown variables are errors and module exports need
@@ -932,8 +930,6 @@ Options:
   --standalone          Link native FFI and AOT code into the binary host.
   --output DIR, -o DIR  Output directory, overriding the target's.
   --host HOST           Runtime host services.
-  --compat PROFILE      Enforce the stock Lua 5.1 source subset without
-                        compatibility lowering.
   -O0, -O1, -O2         Optimization level.
   --remarks             Report what the optimizer did and what it declined to
                         do.

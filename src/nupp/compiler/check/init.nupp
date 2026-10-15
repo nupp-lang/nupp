@@ -1064,12 +1064,6 @@ function checkMod.check(
     checkpoint.restore(checkedState)
     checkedState.optimizationSyntax = nil
     opts = opts or {} as state.Options
-    local selectedCompat, compatError = require("nupp.compiler.compat").resolve(opts.compat, env and env.compat)
-    if compatError then
-        error(compatError, 2)
-    end
-    opts.compat = selectedCompat
-    result.compat = selectedCompat
     if filename and filename:match("%.lua$") then
         require("nupp.compiler.annotatedlua").decorate(result, filename)
     end
@@ -3844,8 +3838,6 @@ function checkMod.check(
             end
         end
     end
-    require("nupp.compiler.compat").checkSyntax(c)
-    require("nupp.compiler.compat").dependencies(c, checkMod.check)
     local comptimeNames: {string} = {}
     local comptimeIdentities = {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do
@@ -3864,20 +3856,6 @@ function checkMod.check(
     result.moduleExports = c.moduleExports
     result.cNamespaceType = c.cNamespaceType()
     reflection.bindRuntimeDeclarations(result.root, result.moduleName or result.declaredModuleName or "<chunk>")
-
-    if opts.compat == "lua51" and not c.declarationFile then
-        local failed = false
-        for _, diagnostic in ipairs(c.diags) do
-            failed = failed or diagnostic.severity == "error"
-        end
-        if not failed then
-            local _, generated = require("nupp.compiler.lua.gen").generate(result as any, filename)
-            for _, diagnostic in ipairs(generated) do
-                diagnostic.severity = diagnostic.severity or "error"
-                c.diags[#c.diags + 1] = diagnostic
-            end
-        end
-    end
 
     return c.diags, c.moduleType, c.moduleExports
 end

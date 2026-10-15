@@ -45,7 +45,6 @@ type project.BuildOptions = {
     --- Relink a compiler-owned binary host with its static native closure.
     standalone: boolean?,
 
-    compat: string?,
     host: string?,
 
     --- Where to write, instead of the target's own directory.
@@ -338,16 +337,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    local compatibility, compatError = require("nupp.compiler.compat").resolve(opts.compat, config.compat)
-    if compatError then
-        say(opts, "NUPP0002", "nupp: " .. compatError .. "\n")
-        return 1
-    end
-    config.compat = compatibility
-    config._compatVersion = compatibility and require("nupp.compiler.compat").VERSION or nil
-    if opts.produced then
-        opts.produced.compat = compatibility
-    end
+
     local selectedPlatform = opts.platform
     if target.platforms then
         if selectedPlatform == nil then

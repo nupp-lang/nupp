@@ -16,8 +16,7 @@ prioritize portability over native instruction throughput.
 
 Nothing in the tree selects it: [](nupp.runtime.bitops) is LuaJIT's `bit` on
 every target. It stays as the second implementation the shared contract vectors
-in `tests/provider-contracts/bitops.nupp` are run against, and as the source
-`lua51compattest` holds to the stock Lua 5.1 surface.
+in `tests/provider-contracts/bitops.nupp` are run against.
 ]]
 
 local MODULUS = 4294967296

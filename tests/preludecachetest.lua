@@ -185,7 +185,6 @@ function M.theNextCommandReadsWhatThisOneWrote()
     local second = json.decode(run())
     test.equal(second.ok, first.ok, "and the second answers the same")
     test.equal(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
-    test.equal(second.compat, first.compat, "under the same profile")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

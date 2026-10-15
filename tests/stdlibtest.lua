@@ -256,10 +256,6 @@ return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negat
     testAssert.equal(tostring(forms), "1017ULL", "integral literal notation materializes at its width")
     testAssert.equal(tostring(grouped), "4294967296ULL", "parentheses preserve width")
     testAssert.equal(tostring(negative), "-4294967296LL", "negative literals preserve width")
-
-    local compatible = parser.parse(source, "compatible-int64.nupp")
-    local diagnostics = check.check(compatible, "compatible-int64.nupp", sharedEnv, {compat = "lua51"})
-    assert(diagnostics[1] and diagnostics[1].code == "NUPP3013", "compatibility checking rejects wide literals")
 end
 
 function M.portableStructsUseTheTargetRepresentation()
@@ -276,14 +272,6 @@ return p
     local nativeCode = gen.generate(nativeTree, "native-struct.nupp")
     assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
     assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no provider access")
-
-    local compatible = parser.parse(source, "compatible-struct.nupp")
-    local diagnostics = check.check(compatible, "compatible-struct.nupp", sharedEnv, {compat = "lua51"})
-    local rejected = false
-    for _, diagnostic in ipairs(diagnostics) do
-        rejected = rejected or diagnostic.code == "NUPP3013"
-    end
-    assert(rejected, "compatibility checking rejects structs")
 end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
@@ -332,7 +320,6 @@ function M.poolIsOrdinaryTablesOnEveryHost()
         "\n"
     )
     assertClean(source)
-    testAssert.equal(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the LuaJIT-backed pool is not compatible")
 end
 
 function M.arenaLowersThroughTheStorageContract()
@@ -428,7 +415,6 @@ function M.oneShotHmacUsesOrdinaryCode()
         "\n"
     )
     assertClean(source)
-    testAssert.equal(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the runtime provider is not compatible")
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
@@ -1716,7 +1702,6 @@ end
 
 function M.stringLibrary()
     assertClean("local s: string = string.format('%d', 3)")
-    assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {compat = "lua51"})
     testAssert.equal((diagsOf("local n: number = string.format('%d', 3)")), "NUPP2001:1")
     testAssert.equal((diagsOf("string.formt('%d', 3)")), "NUPP2004:1")
     assertClean("local a, b = string.find('abc', 'b')\nlocal x: integer? = a")

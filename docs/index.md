@@ -150,14 +150,11 @@ and
 
 ## Portable targets and packaging
 
-Nupp runs on LuaJIT natively and in the browser. For stock Lua 5.1 exports, a
-project-wide compatibility setting rejects unsupported source and dependencies.
 Projects can produce module trees, bundles, standalone binaries, embedded
 components, independent Wasm kernels, and browser packages.
 
 ```lua [nupp.lua]
 return {
-   compat = "lua51",
    include = {"src"},
 }
 ```

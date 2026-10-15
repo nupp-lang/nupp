@@ -73,8 +73,8 @@ print(pending.name)
 
 - [Project builds](../learn/projects/build.md) covers targets, dependencies, caches,
   standalone binaries, and static components.
-- [Portable libraries](../learn/projects/portability/libraries.md) lower one checked
-  source tree for LuaJIT or the portable Lua 5.1 surface.
+- [Portable libraries](../learn/projects/portability/libraries.md) choose
+  host-specific implementations at require time.
 - [Embedding](../learn/projects/embedding.md) loads checked components into a C or C++
   application through the Rust-owned SDK.
 - [Hot reload](../learn/projects/hot-reload.md) replaces compatible function bodies

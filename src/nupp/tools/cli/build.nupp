@@ -24,7 +24,6 @@ local REPORT_SCHEMA = {
             .. "build of explicitly named source files."
         },
         platform = {type = "string", description = "The selected binary platform for a one-platform build."},
-        compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
         distributionReady = {
             type = "boolean",
             description = "Whether the selected platform output is ready for public distribution."
@@ -267,10 +266,6 @@ end
 local function run(options: any): integer
     local positional: {string} = options.paths
     local values = options
-    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil)
-    if compatError then
-        return usageError(compatError)
-    end
     local paths: {string} = positional
     -- `--output` names the directory the build writes into in either shape: the
     -- manifest target's output directory, or where explicit source files land.
@@ -320,7 +315,6 @@ local function run(options: any): integer
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 target = produced.target,
-                compat = produced.compat or settings.compat,
                 platform = produced.platform,
                 platforms = produced.platforms,
                 distributionReady = produced.distributionReady,
@@ -346,7 +340,6 @@ local function run(options: any): integer
             target = target,
             platform = values.platform,
             standalone = values.standalone,
-            compat = values.compat,
             host = values.host,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -376,8 +369,7 @@ local function run(options: any): integer
         return finish(1, {})
     end
     local envMod = require("nupp.compiler.project.env")
-    local env = envMod.new(".", {compat = values.compat})
-    settings.compat = env.compat
+    local env = envMod.new(".")
     settings.materializations = materializations
     settings.derives = derives
     settings.specializedBodies = 0
@@ -559,10 +551,6 @@ local record Build
     --- Runtime host services.
     @cli(value = "HOST", choices = {"native", "browser"})
     host: string?
-
-    --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
-    @cli(value = "PROFILE", choices = {"lua51"})
-    compat: string?
 
     --- Optimization level.
     @cli(

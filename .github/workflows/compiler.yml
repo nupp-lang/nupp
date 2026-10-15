@@ -444,31 +444,6 @@ jobs:
         shell: bash
         run: ./bin/nupp build
 
-      - name: Install the portable Lua matrix
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.1 lua5.2 lua5.3 lua5.4
-
-      - name: Run compat-checked output across Lua runtimes
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          luajit=$(./scripts/toolchain luajit)
-          scripts/portable-lua-corpus.sh \
-            lua5.1 lua5.2 lua5.3 lua5.4 "$luajit/bin/luajit"
-
-      - name: Run the Lua 5.1 compatibility corpus
-        if: runner.os == 'Linux'
-        shell: bash
-        run: scripts/lua51-compat-corpus.sh lua5.1
-
-      - name: Compare ordinary and compat-checked generation
-        if: runner.os == 'Linux'
-        shell: bash
-        run: scripts/dual-dialect-library.sh lua5.1
-
       - name: Diagnose a Windows native-library load failure
         if: failure() && runner.os == 'Windows'
         shell: pwsh

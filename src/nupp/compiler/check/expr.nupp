@@ -36,7 +36,6 @@ local materializeIR = require("nupp.compiler.comptime.materialize.ir") as {
 }
 local stable = require("nupp.compiler.stable")
 local fixedWidth = require("nupp.compiler.types.fixedwidth")
-local runtimeSurface = require("nupp.compiler.runtimesurface")
 local predicate = require("nupp.compiler.types.predicate")
 
 local expr = {}
@@ -1359,10 +1358,7 @@ function expr.install(c: state.Checker): nil
                 entry and entry.t or T.any,
                 entry and entry.definition and entry.definition.kind or "variable"
             )
-            local runtimeRoot = runtimeSurface.resolvedRoot(c, nameTok) or entry and entry.runtimeSurfaceRoot
-            local runtimeNode = node as any
-            runtimeNode.runtimeSurfaceRoot = runtimeRoot
-            runtimeSurface.requireIdentity(c, runtimeRoot, nil, nameTok)
+
             if not entry then
                 -- An unknown name is `any` and says nothing, which is right for a name
                 -- nobody has heard of. When a project file is named after it, the
@@ -1371,7 +1367,7 @@ function expr.install(c: state.Checker): nil
                 local advice, isModule, fixes = c.missingRequire(nameText)
                 if advice then
                     c.diag("missing-require", node, advice, fixes)
-                elseif not isModule and c.opts and c.opts.strict and not runtimeNode.newTypeOperand then
+                elseif not isModule and c.opts and c.opts.strict and not (node as any).newTypeOperand then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
                     c.diag("NUPP2105", nameTok, ("unknown variable %q"):format(nameText), fixes, {
                         help = fixes and "use the suggested visible name"

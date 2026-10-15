@@ -968,13 +968,6 @@ function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
     testAssert.equal(signedMul(65536, 65536), 0, "int32 multiplication wraps")
     testAssert.equal(signedMul(-2147483648, -1), -2147483648, "and keeps the sign convention")
     testAssert.equal(plain(4294967295, 1), 4294967296, "integer arithmetic does not")
-
-    local compatible = parser.parse(source, "fixed-arithmetic-compatible.nupp")
-    local diagnostics = check.check(compatible, "fixed-arithmetic-compatible.nupp", sharedEnv, {compat = "lua51"})
-    assert(
-        diagnostics[1] and diagnostics[1].code == "NUPP3015",
-        "compatibility checking rejects generated bit operations"
-    )
 end
 
 function M.unsignedBitOperatorsKeepTheirCanonicalRange()
@@ -998,9 +991,6 @@ return bits
     testAssert.equal(d, 2)
     testAssert.equal(e, 0x40000000)
     testAssert.equal(f, 0x7ffffffe)
-    local compatible = parser.parse(source, "unsigned-bits-compatible.nupp")
-    local diagnostics = check.check(compatible, "unsigned-bits-compatible.nupp", sharedEnv, {compat = "lua51"})
-    assert(diagnostics[1] and diagnostics[1].code == "NUPP3013", "compatibility checking rejects bit operators")
 end
 
 -- A byte read is typed `uint32` but holds an `int32` as surely, so inside an

@@ -19,10 +19,7 @@ local T = require("nupp.compiler.types")
 local capabilities = require("nupp.compiler.capabilities")
 local preludeImage = require("nupp.compiler.project.preludeimage")
 
-local type BrowserOptions = {
-    optimize: boolean?,
-    compat: 'lua51'?
-}
+local type BrowserOptions = {optimize: boolean?}
 
 local type CheckResponse = {diagnostics: {any}}
 local type CompileResponse = {
@@ -84,8 +81,8 @@ end
 local Session = {}
 Session.__index = Session
 
-function Session:environment(compatibility: string?): any
-    local key = (compatibility or "") .. ":" .. require("nupp.compiler.compat").VERSION
+function Session:environment(): any
+    local key = ""
     local current = self.environments[key]
     if current then
         return current
@@ -93,7 +90,6 @@ function Session:environment(compatibility: string?): any
     current = envMod.new(".", {
         cache = false,
         memoryOnly = true,
-        compat = compatibility,
         capabilityResolution = capabilityResolution(self.settings.compilerServices),
         nativeCompilerServices = false,
         compilerServices = self.settings.compilerServices,
@@ -109,18 +105,13 @@ function Session:environment(compatibility: string?): any
 end
 
 function Session:checked(source: string, filename: string, options: BrowserOptions?): (any, {any})
-    local compatibility, compatError = require("nupp.compiler.compat").resolve(options and options.compat, nil)
-    if compatError then
-        error(compatError, 2)
-    end
-    local key = compatibility or ""
+    local key = ""
     self.lastProfile = key
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return result, result.errors
     end
-    local diags = check.check(result, filename, self:environment(compatibility), {
-        compat = compatibility,
+    local diags = check.check(result, filename, self:environment(), {
         _capabilityResolution = capabilityResolution(self.settings.compilerServices),
     })
     if not hasErrors(diags) then
@@ -191,7 +182,8 @@ function Session:request(requestText: string): string
     elseif request.kind == "compile" then
         return json.encode(self:compile(request.source or "", filename, options), json.NULL)
     elseif request.kind == "hover" then
-        self.lastProfile = options.compat or ""
+        self.lastProfile = ""
+
         return json.encode(self:hover(request.offset or 1), json.NULL)
     end
     error("unknown browser compiler request kind " .. tostring(request.kind), 2)

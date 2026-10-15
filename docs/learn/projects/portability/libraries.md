@@ -1,73 +1,18 @@
 # Portable Lua libraries
 
-Nupp libraries normally use LuaJIT on both native and browser hosts. Stock Lua
-5.1 exports use the checked compatibility profile below.
-
-## Lua 5.1 source compatibility
-
-`compat = "lua51"` checks a project against a stock Lua 5.1 source and runtime
-subset while retaining ordinary LuaJIT emission. Set it at the manifest root:
-
-```lua
-return {
-   compat = "lua51",
-   include = {"src"},
-}
-```
-
-For a one-off check or build, use `nupp check --compat lua51` or
-`nupp build --compat lua51`. Targets and individual files cannot disable an
-inherited requirement. JSON check/build reports include the resolved `compat` value.
-
-Types, generics and other erased declarations remain available. Ordinary
-functions, tables, module exports, varargs, coroutines and non-suspending cleanup
-can qualify. Checks run before optimization, including unreachable source, and
-also validate generated Lua. Imports need checked runtime source; declaration
-files do not certify unseen implementations. Literal `loadstring` source is
-checked without execution. Dynamic module names and opaque code loading fail.
-
-Compatibility keeps provenance through local aliases and casts. Passing runtime
-namespace tables or code loaders through containers or unchecked callbacks is
-rejected because their use can no longer be verified. Registry, upvalue and
-local-variable reflection likewise cannot certify runtime dependencies.
-
-Runtime `const`, compound assignment,
-bit operators, `continue`, jumps, short functions, safe navigation, extended
-literals, FFI, native `bit`, `string.buffer`, exact-width representations and VM
-table helpers are rejected. There are no automatic bit, integer or struct
-provider substitutions. An explicit pure-Lua bit or integer library can qualify
-through the same checks as other source dependencies. A provider's internal
-repository API does not become a public dependency API through this flag.
-
-Stock Lua 5.1 cannot yield through protected calls. Cleanup whose expanded
-runtime dependencies reach `runtime.suspension` fails even if that particular
-body does not yield. Variadic cleanup and extra `xpcall` arguments also fail.
-The ordinary closure cleanup implementation is used when the optimization
-requiring LuaJIT's extra `xpcall` arguments is unavailable.
-
-The guarantee concerns emitted syntax and checked runtime requirements, not
-identical behavior across every VM or operating system. Platform services still
-need their own supported host. Nupp emits LuaJIT code only; compatibility is a
-source contract, not a second lowering backend.
-
-Unsupported source operations still fail during checking. Foreign C calls need a
-LuaJIT target and a compatible library. Browser calls execute against the i386
-guest's libraries; registering a provider cannot change that requirement.
+Nupp libraries are ordinary Nupp modules. What varies by host is chosen at
+require time through SPI providers rather than by building a library twice.
 
 ## LuaJIT modules
 
 `require("ffi")`, `require("string.buffer")`, `require("table.new")`, `bit`, and
-the `jit.*` modules are LuaJIT facilities, so the compatibility profile rejects
-them. Use an ordinary pure-Lua dependency when stock Lua 5.1 support is required.
+the `jit.*` modules are LuaJIT facilities.
 
 ```nupp
 const bit = require("bit")
 
 print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
 ```
-
-The compatibility profile rejects bit operators as well. A checked pure-Lua
-library can expose equivalent operations explicitly.
 
 ## Require-time selection
 

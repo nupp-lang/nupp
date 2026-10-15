@@ -58,7 +58,7 @@ return {
 }
 ```
 
-A `lua51` bundle with a compatible `nupp.workers.spi.Provider` provider runs them too.
+A bundle with a compatible `nupp.workers.spi.Provider` provider runs them too.
 That is [the browser backend](#browser-lanes) today, where a lane is a Web
 Worker rather than a thread.
 :::

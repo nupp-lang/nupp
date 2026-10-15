@@ -66,15 +66,13 @@ return {
 
     ["aot"] = {"aot*test"},
 
-    -- Browser delivery: the worker seam, checked compatibility and generated
-    -- browser templates.
+    -- Browser delivery: the worker seam and generated browser templates.
     [
         "browser"
     ] = {
         "browserhosttest",
         "browserprovidertest",
         "browserworkerstest",
-        "lua51compattest",
         "portableiocontractstest",
         "targetprofiletest",
         "templatetest",

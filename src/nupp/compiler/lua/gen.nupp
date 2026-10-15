@@ -432,7 +432,6 @@ type gen.Checked = {
     @readonly declaredModuleName: string?,
     @readonly sendableLiterals: {any}?,
     @readonly host: string?,
-    @readonly compat: string?,
     @readonly effects: {[string]: any}?,
     @readonly preludeRuntime: string?
 }
@@ -2135,7 +2134,6 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
-        compat = result.compat,
         witnessPlan = require("nupp.compiler.lua.typewitness").collect(result.root, result.moduleExports),
         witnessDescriptions = {},
         plans = {},
@@ -8229,8 +8227,7 @@ function gen.generate(
                     inStateRegion = true
                 end
             end
-            local shared = pluck.compat ~= "lua51"
-                and not emitDepth.constructorReturnName
+            local shared = not emitDepth.constructorReturnName
                 and not inStateRegion
                 and cacheName ~= nil
                 and #(x.bindings or {}) == 1
@@ -8287,8 +8284,7 @@ function gen.generate(
                     immutableCaptures = false
                 end
             end
-            local stateFrame = pluck.compat ~= "lua51"
-                and not shared
+            local stateFrame = not shared
                 and #(x.bindings or {}) > 1
                 and x.automaticSequence
                 and not x.repeatCondition
@@ -8336,16 +8332,6 @@ function gen.generate(
                 cleanupCacheSites = cleanupCacheSites + 1
                 stateSlot = cleanupCacheSites
                 stateRegion = nextTemp()
-            end
-            -- Cached regions pass their frame through LuaJIT's xpcall arguments.
-            -- The ordinary closure path works without that optimization on 5.1.
-            if pluck.compat == "lua51" and variadic then
-                emitDepth.diag(
-                    cst.firstToken(x),
-                    "NUPP3015",
-                    "variadic cleanup needs the LuaJIT xpcall argument contract",
-                    "bind the needed values before entering cleanup"
-                )
             end
             if shared then
                 if cacheName ~= cleanupCacheName then
@@ -10542,22 +10528,6 @@ function gen.generate(
                 reached = reached + 1
             end
             diag({line = line, col = 1, offset = offset, text = ""}, "NUPP3005", message, help)
-        end
-    end
-
-    if result.compat == "lua51" then
-        for _, diagnostic in ipairs(require("nupp.compiler.compat").generated(code, filename, result.tokens)) do
-            diags[#diags + 1] = diagnostic
-        end
-        if needsCleanupRegions and canSuspend then
-            diag(
-                result.tokens and result.tokens[1],
-                "NUPP3015",
-                "Lua 5.1 cleanup cannot cross the effect closure: " .. require(
-                    "nupp.compiler.compat"
-                ).suspensionPath(runtimeEffects),
-                "use a non-suspending cleanup dependency closure or remove the compatibility requirement"
-            )
         end
     end
 

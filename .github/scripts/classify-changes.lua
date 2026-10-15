@@ -119,8 +119,6 @@ local rules = {
     -- renamed, and stayed broken until an unrelated change to `scripts/`
     -- selected every job.
     {"^tests/browser%-templates/", {"tests", "browser"}},
-    {"^tests/lua51%-compat/", {"tests", "compiler"}},
-    {"^scripts/lua51%-compat%-corpus%.sh$", {"tests", "compiler"}},
     {"^tests/simd/", {"tests", "aot", "browser", "simd"}},
     {"^tests/simd[^/]*%.lua$", {"tests", "aot", "simd"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},

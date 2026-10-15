@@ -11,14 +11,10 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function compile(src, level, compat)
+local function compile(src, level)
     local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local checkDiags = check.check(result, "test.nupp", env, compat and {compat = compat} or nil)
-    if compat then
-        testAssert.equal(#checkDiags, 0, "source compatibility diagnostics")
-        testAssert.equal(result.compat, compat, "resolved source compatibility")
-    end
+    check.check(result, "test.nupp", env)
     local remarks = optimize.run(result, {level = level, filename = "test.nupp"})
     local code, diags = gen.generate(result, "test")
     testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
@@ -270,21 +266,6 @@ return out
     for _, entry in ipairs(remarks) do
         testAssert.equal(entry.code ~= "OPT-5", true, "-O0 performs no rewrites")
     end
-end
-
-function M.lua51CompatSkipsThePass()
-    local source = [[
-local out = ""
-for i = 1, 3 do
-    out = out .. i
-end
-return out
-]]
-    local code, remarks = compile(source, 1, "lua51")
-    for _, entry in ipairs(remarks) do
-        testAssert.equal(entry.code ~= "OPT-5", true, "Lua 5.1 cannot use string.buffer")
-    end
-    testAssert.equal(code:find("__nuppBuffer", 1, true), nil, "Lua 5.1 output does not require LuaJIT's string.buffer")
 end
 
 function M.disablingThePassLeavesItAlone()

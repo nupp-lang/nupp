@@ -33,7 +33,6 @@ local REPORT_SCHEMA = {
             .. "checking, such as one whose manifest could not be used (NUPP0002).",
         },
         diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
-        compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
         platform = {type = "string"},
         platforms = {type = "array", items = {type = "object"}},
         timing = {
@@ -83,10 +82,6 @@ local function run(options: any): integer
     local positional: {string} = options.files
     local paths: {string} = positional
     local values = options
-    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil)
-    if compatError then
-        return usageError(compatError)
-    end
     local target = values.target
     if (target or values.platform) and #paths > 0 then
         return usageError("--target and --platform cannot be combined with source files")
@@ -103,25 +98,17 @@ local function run(options: any): integer
     local started = progress.now()
     local timing = {compiledModules = 0, reusedModules = 0, specializedBodies = 0, phases = {}, slowest = {}}
 
-    local effectiveCompat = values.compat
-
     local function writeJson(ok: boolean): nil
         local total = progress.now() - started
         timing.totalMs = total
         timing.phases = {{name = "check", durationMs = total}}
-        reportMod.write({
-            ok = ok,
-            diagnostics = reportMod.diagnosticValues(diagnostics),
-            compat = effectiveCompat,
-            timing = timing
-        })
+        reportMod.write({ok = ok, diagnostics = reportMod.diagnosticValues(diagnostics), timing = timing})
     end
 
     if #paths == 0 then
         local project = require("nupp.tools.build.project")
         local produced: {[string]: any} = {}
         local code = project.check(".", {
-            compat = values.compat,
             target = target,
             platform = values.platform,
             diagnostics = asJson and diagnostics or nil,
@@ -134,12 +121,10 @@ local function run(options: any): integer
             timing.phases = {{name = "check", durationMs = total}}
             produced.timing = timing
         end
-        effectiveCompat = produced.compat or effectiveCompat
         if asJson then
             reportMod.write({
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
-                compat = effectiveCompat,
                 platform = produced.platform,
                 platforms = produced.platforms,
                 timing = produced.timing,
@@ -227,7 +212,6 @@ local function run(options: any): integer
             local unchecked: {string} = {}
             local produced: {[string]: any} = {}
             local code = project.check(".", {
-                compat = values.compat,
                 paths = mine,
                 unchecked = unchecked,
                 diagnostics = asJson and diagnostics or nil,
@@ -237,7 +221,6 @@ local function run(options: any): integer
             if produced.timing then
                 timing = produced.timing
             end
-            effectiveCompat = produced.compat or effectiveCompat
             if code ~= 0 then
                 failed = true
             end
@@ -264,8 +247,7 @@ local function run(options: any): integer
         return failed and 1 or 0
     end
 
-    local env = require("nupp.compiler.project.env").new(".", {compat = values.compat})
-    effectiveCompat = env.compat or effectiveCompat
+    local env = require("nupp.compiler.project.env").new(".")
     for _, path in ipairs(remaining) do
         timing.compiledModules = timing.compiledModules + 1
         local fileStarted = progress.now()
@@ -280,7 +262,7 @@ local function run(options: any): integer
             end
             failed = true
         else
-            local diags = check.check(result, path, env as {[string]: any}, {compat = values.compat})
+            local diags = check.check(result, path, env as {[string]: any})
             if asJson then
                 for _, diagnostic in ipairs(diags) do
                     diagnostics[#diagnostics + 1] = diagnostic
@@ -325,9 +307,6 @@ end
 @cli("check")
 @derive(cliModule.Command)
 local record Check
-    --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
-    @cli(value = "PROFILE", choices = {"lua51"})
-    compat: string?
 
     --- Check a named manifest target.
     @cli(value = "NAME")

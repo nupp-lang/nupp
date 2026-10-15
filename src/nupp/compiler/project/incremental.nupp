@@ -708,29 +708,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
                     return interface and interface.type or nil
                 end,
-                compatibilityModule = function(_, name)
-                    local target = modulePath(self, name)
-                    if not target or activeModules[target] then
-                        return nil
-                    end
-                    local imported = self:get("importedModule", name)
-                    if imported then
-                        return {
-                            path = target,
-                            compatDiagnostics = imported.diags or {},
-                            source = imported.source,
-                            declarationOnly = target:match("%.d%.nupp$") ~= nil,
-                        }
-                    end
-                    local checked = self:get("checkModule", target)
-
-                    return {
-                        path = target,
-                        compatDiagnostics = checked.diags,
-                        source = checked.result and checked.result.source,
-                        declarationOnly = target:match("%.d%.nupp$") ~= nil
-                    }
-                end,
                 resolveModuleExports = function(_, name)
                     local exports = self:get("moduleExports", name)
                     local target = modulePath(self, name)

@@ -235,11 +235,6 @@ JSON uses a portable provider on native and browser LuaJIT hosts. Native AOT
 can select checked decoding operations for supported carriers; custom adapters
 retain the visitor path. Native persistence requires a native LuaJIT host.
 
-The stock Lua 5.1 source profile rejects these standard-library dependencies.
-That profile checks source compatibility and does not supply another lowering
-backend. See [Portable Lua libraries](../../projects/portability/libraries.md)
-for the supported runtime and source boundaries.
-
 ## Migration
 
 Use `serde.binding(T)` in place of `serde.of(T)` and pass the binding to a

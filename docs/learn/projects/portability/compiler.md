@@ -26,13 +26,6 @@ archives, and the pinned guest identity. Snapshots restore fresh entropy and
 wall time; invalid snapshots fall back to normal boot of the same guest. See
 the [LuaJIT browser host](../../performance/ahead-of-time/wasm.md).
 
-## Source compatibility
-
-The browser compiler emits LuaJIT source. A request may set
-`compat = "lua51"` to enforce the checked stock-Lua source subset; this rejects
-unsupported syntax and runtime dependencies rather than invoking another
-lowerer. See [portable libraries](libraries.md).
-
 ## Limits
 
 An in-memory browser request accepts one source file. It does not read imported

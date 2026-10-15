@@ -1,3 +1,0 @@
-local codec = require("codec")
-
-print(codec.digest("nupp"))

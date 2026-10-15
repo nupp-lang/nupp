@@ -298,17 +298,4 @@ function M.typedViewsRetainBindingsAndSnapshotWithoutAliasing()
     assert(status ~= 0 and output:find("Copyable", 1, true), output)
 end
 
-function M.portableSourceProfileRejectsUnsupportedRuntimeDependencies()
-    local status, output = call({"check", "--compat", "lua51", "--json", "negative/portable-profile.nupp"})
-    assert(status ~= 0, output)
-    local checked = json.decode(output)
-    local rejected = false
-    for _, diagnostic in ipairs(checked.diagnostics) do
-        rejected = rejected
-            or diagnostic.code == "NUPP3015"
-            and diagnostic.message:find('module "nupp.serde" violates compatibility', 1, true)
-    end
-    assert(rejected, output)
-end
-
 return M
