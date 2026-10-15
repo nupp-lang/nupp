@@ -422,7 +422,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
     --- in an `@aot` body, where a `uint32`-typed operand established at
     --- `int32` too (a byte read, which holds either) beside an `int32` takes
     --- the signed reading, so an `int32` carry accumulates bytes as the
-    --- wrapping signed add `nupp.math.i32.add` would be.
+    --- wrapping signed add would.
     local function fixedArithmeticTarget(lt: Type, rt: Type, lhs: any, rhs: any): Type?
         local left = T.unwrapOwnership(lt)
         local right = T.unwrapOwnership(rt)
@@ -692,8 +692,8 @@ function operators.install(c: state.Checker): state.ExprHandlers
             if fixedTarget ~= nil and fixedOperation ~= nil then
                 -- Both operands are established at one thirty-two bit width and
                 -- one of them is typed with it, so the result is that width
-                -- wrapped: what `nupp.math.u32.add` and its siblings answer,
-                -- reached by the operator. `+ - *` only; division leaves the
+                -- wrapped: the `u32.add` identity and its siblings, which the
+                -- backends lower as one operation. `+ - *` only; division leaves the
                 -- width, and a literal beside a literal stays an integer.
                 c.fixedWidth.mark(node, fixedTarget as Type)
                 local family = (fixedTarget as Type).tag == "uint32" and "u32." or "i32."

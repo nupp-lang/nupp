@@ -10,21 +10,21 @@ local function scores(
     scale: float
 ): nil
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, tokens)
         local column = nupp.math.u32.mod(offset, tokens)
         local inner: uint32 = 0
         local value: float = 0.0
         while inner < width do
-            local qi = nupp.math.u32.add(nupp.math.u32.mul(row, width), inner)
-            local ki = nupp.math.u32.add(nupp.math.u32.mul(column, width), inner)
+            local qi = row * width + inner
+            local ki = column * width + inner
             if qi < #query then
                 local q = nupp.math.f32.narrow(query[qi + 1])
                 if ki < #key then
                     value = nupp.math.f32.fma(q, nupp.math.f32.narrow(key[ki + 1]), value)
                 end
             end
-            inner = nupp.math.u32.add(inner, 1)
+            inner = inner + 1
         end
         output[i] = nupp.math.f32.mul(value, scale)
     end
@@ -39,21 +39,21 @@ local function scoresCpu(
     scale: float
 ): nil
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, tokens)
         local column = nupp.math.u32.mod(offset, tokens)
         local inner: uint32 = 0
         local value: float = 0.0
         while inner < width do
-            local qi = nupp.math.u32.add(nupp.math.u32.mul(row, width), inner)
-            local ki = nupp.math.u32.add(nupp.math.u32.mul(column, width), inner)
+            local qi = row * width + inner
+            local ki = column * width + inner
             if qi < #query then
                 local q = nupp.math.f32.narrow(query[qi + 1])
                 if ki < #key then
                     value = nupp.math.f32.fma(q, nupp.math.f32.narrow(key[ki + 1]), value)
                 end
             end
-            inner = nupp.math.u32.add(inner, 1)
+            inner = inner + 1
         end
         output[i] = nupp.math.f32.mul(value, scale)
     end
@@ -65,35 +65,35 @@ local function softmax(exclusive output: span.WriteSpan<float>, borrows input: s
         error("length mismatch", 2)
     end
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, tokens)
-        local base = nupp.math.u32.mul(row, tokens)
+        local base = row * tokens
         local maximum = nupp.math.f32.narrow(input[i])
         local column: uint32 = 0
         while column < tokens do
-            local cursor = nupp.math.u32.add(base, column)
+            local cursor = base + column
             if cursor < #input then
                 maximum = nupp.math.f32.max(maximum, nupp.math.f32.narrow(input[cursor + 1]))
             end
-            column = nupp.math.u32.add(column, 1)
+            column = column + 1
         end
         local total: float = 0.0
         column = 0
         while column < tokens do
-            local cursor = nupp.math.u32.add(base, column)
+            local cursor = base + column
             if cursor < #input then
                 total = nupp.math.f32.add(
                     total,
                     nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum))
                 )
             end
-            column = nupp.math.u32.add(column, 1)
+            column = column + 1
         end
         local reciprocal: float = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
             reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
-            refinement = nupp.math.u32.add(refinement, 1)
+            refinement = refinement + 1
         end
         output[
             i
@@ -106,35 +106,35 @@ local function softmaxCpu(exclusive output: span.WriteSpan<float>, borrows input
         error("length mismatch", 2)
     end
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, tokens)
-        local base = nupp.math.u32.mul(row, tokens)
+        local base = row * tokens
         local maximum = nupp.math.f32.narrow(input[i])
         local column: uint32 = 0
         while column < tokens do
-            local cursor = nupp.math.u32.add(base, column)
+            local cursor = base + column
             if cursor < #input then
                 maximum = nupp.math.f32.max(maximum, nupp.math.f32.narrow(input[cursor + 1]))
             end
-            column = nupp.math.u32.add(column, 1)
+            column = column + 1
         end
         local total: float = 0.0
         column = 0
         while column < tokens do
-            local cursor = nupp.math.u32.add(base, column)
+            local cursor = base + column
             if cursor < #input then
                 total = nupp.math.f32.add(
                     total,
                     nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum))
                 )
             end
-            column = nupp.math.u32.add(column, 1)
+            column = column + 1
         end
         local reciprocal: float = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
             reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
-            refinement = nupp.math.u32.add(refinement, 1)
+            refinement = refinement + 1
         end
         output[
             i
@@ -151,21 +151,21 @@ local function mix(
     width: uint32
 ): nil
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, width)
         local column = nupp.math.u32.mod(offset, width)
         local keyIndex: uint32 = 0
         local total: float = 0.0
         while keyIndex < tokens do
-            local pi = nupp.math.u32.add(nupp.math.u32.mul(row, tokens), keyIndex)
-            local vi = nupp.math.u32.add(nupp.math.u32.mul(keyIndex, width), column)
+            local pi = row * tokens + keyIndex
+            local vi = keyIndex * width + column
             if pi < #probabilities then
                 local probability = nupp.math.f32.narrow(probabilities[pi + 1])
                 if vi < #value then
                     total = nupp.math.f32.fma(probability, nupp.math.f32.narrow(value[vi + 1]), total)
                 end
             end
-            keyIndex = nupp.math.u32.add(keyIndex, 1)
+            keyIndex = keyIndex + 1
         end
         output[i] = total
     end
@@ -179,21 +179,21 @@ local function mixCpu(
     width: uint32
 ): nil
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, width)
         local column = nupp.math.u32.mod(offset, width)
         local keyIndex: uint32 = 0
         local total: float = 0.0
         while keyIndex < tokens do
-            local pi = nupp.math.u32.add(nupp.math.u32.mul(row, tokens), keyIndex)
-            local vi = nupp.math.u32.add(nupp.math.u32.mul(keyIndex, width), column)
+            local pi = row * tokens + keyIndex
+            local vi = keyIndex * width + column
             if pi < #probabilities then
                 local probability = nupp.math.f32.narrow(probabilities[pi + 1])
                 if vi < #value then
                     total = nupp.math.f32.fma(probability, nupp.math.f32.narrow(value[vi + 1]), total)
                 end
             end
-            keyIndex = nupp.math.u32.add(keyIndex, 1)
+            keyIndex = keyIndex + 1
         end
         output[i] = total
     end

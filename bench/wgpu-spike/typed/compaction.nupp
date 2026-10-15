@@ -19,7 +19,7 @@ local function compactBlocks(
         local prefix = phases:scratch(nupp.math.u32.wrap(0), 256)
         local temporary = phases:scratch(nupp.math.u32.wrap(0), 256)
         phases:run(function(localIndex: uint32)
-            local source = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)), localIndex)
+            local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
             if source < #selected then
                 if selected[source + 1] ~= nupp.math.u32.wrap(0) then
                     prefix[localIndex] = nupp.math.u32.wrap(1)
@@ -38,16 +38,15 @@ local function compactBlocks(
             end
         end)
         phases:run(function(localIndex: uint32)
-            local source = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)), localIndex)
+            local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
             local selectedCursor = source
             local inputCursor = source
             if selectedCursor < #selected then
                 if selected[selectedCursor + 1] ~= nupp.math.u32.wrap(0) then
                     if inputCursor < #input then
-                        local destination = nupp.math.u32.add(
-                            nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)),
-                            nupp.math.u32.sub(nupp.math.u32.wrap(prefix[localIndex] as integer), nupp.math.u32.wrap(1))
-                        )
+                        local destination = groupIndex * nupp.math.u32.wrap(
+                            BLOCK
+                        ) + (nupp.math.u32.wrap(prefix[localIndex] as integer) - nupp.math.u32.wrap(1))
                         local blockedCursor = destination
                         if blockedCursor < #blocked then
                             blocked[blockedCursor + 1] = input[inputCursor + 1]
@@ -82,10 +81,9 @@ local function exclusiveOffsets(exclusive offsets: span.WriteSpan<uint32>, borro
                 if countCursor < #counts then
                     offsets[
                         offsetCursor + 1
-                    ] = nupp.math.u32.sub(
-                        nupp.math.u32.wrap(values[localIndex] as integer),
-                        nupp.math.u32.wrap(counts[countCursor + 1] as integer)
-                    )
+                    ] = nupp.math.u32.wrap(
+                        values[localIndex] as integer
+                    ) - nupp.math.u32.wrap(counts[countCursor + 1] as integer)
                 else
                     offsets[offsetCursor + 1] = values[localIndex]
                 end
@@ -110,14 +108,8 @@ local function scatter(
             if countGroup < #counts then
                 if localIndex < counts[countGroup + 1] then
                     if offsetGroup < #offsets then
-                        local source = nupp.math.u32.add(
-                            nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)),
-                            localIndex
-                        )
-                        local destination = nupp.math.u32.add(
-                            nupp.math.u32.wrap(offsets[offsetGroup + 1] as integer),
-                            localIndex
-                        )
+                        local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
+                        local destination = nupp.math.u32.wrap(offsets[offsetGroup + 1] as integer) + localIndex
                         local blockedCursor = source
                         local outputCursor = destination
                         if blockedCursor < #blocked then

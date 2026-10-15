@@ -101,7 +101,7 @@ function M.normalOptimizationLevelsContainNoHotReloadMetadata()
     local source = table.concat(
         {
             "cdef function hot_plain(value: int32): int32",
-            "local function f(n: int32): int32 return nupp.math.i32.add(hot_plain(n), 1) end",
+            "local function f(n: int32): int32 return hot_plain(n) + 1 end",
             "return f",
         },
         "\n"

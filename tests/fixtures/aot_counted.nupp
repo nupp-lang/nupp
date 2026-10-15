@@ -8,11 +8,11 @@ local function signed(first: int32, last: int32): (number, number)
     local visits = 0
     local total = 0
     for cursor = do
-        evaluated = nupp.math.i32.add(evaluated, 1)
+        evaluated = evaluated + 1
         yield low
     end, do
         low = 1000
-        evaluated = nupp.math.i32.add(evaluated, 10)
+        evaluated = evaluated + 10
         yield stop
     end do
         visits = visits + 1
@@ -94,7 +94,7 @@ local function vector(
             end
             local inner: int32 = 0
             while do
-                inner = nupp.math.i32.add(inner, 1)
+                inner = inner + 1
                 yield inner < 3
             end do
                 if inner == 2 then
@@ -140,7 +140,7 @@ local function scalarVector(
             end
             local inner: int32 = 0
             while do
-                inner = nupp.math.i32.add(inner, 1)
+                inner = inner + 1
                 yield inner < 3
             end do
                 if inner == 2 then
@@ -241,7 +241,7 @@ local function unsignedVector(
     for index = 1, #output do
         local visits: uint32 = 0
         for cursor = starts[index], stops[index] do
-            visits = nupp.math.u32.add(visits, 1)
+            visits = visits + 1
         end
         output[index] = visits
     end
@@ -257,7 +257,7 @@ local function signedVector(
     for index = 1, #output do
         local visits: uint32 = 0
         for cursor = starts[index], stops[index] do
-            visits = nupp.math.u32.add(visits, 1)
+            visits = visits + 1
             if visits == 5 then
                 break
             end
@@ -284,7 +284,7 @@ local function regions(exclusive output: span.WriteSpan<uint32>, repeats: int32)
     for index = 1, #output do
         local count: uint32 = 0
         for cursor = output[index], 3 do
-            count = nupp.math.u32.add(count, 1)
+            count = count + 1
             if count == 2 then
                 break
             end
@@ -295,7 +295,7 @@ local function regions(exclusive output: span.WriteSpan<uint32>, repeats: int32)
         for index = 1, #output do
             local count = output[index]
             for cursor = output[index], 3 do
-                count = nupp.math.u32.add(count, 1)
+                count = count + 1
                 if cursor == 2 then
                     break
                 end

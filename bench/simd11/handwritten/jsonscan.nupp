@@ -279,7 +279,7 @@ local function scan(borrows source: span.Span<uint8>, exclusive tape: span.Write
                     if byte == 34 and not escaped then
                         local word: uint32 = position
                         if inString and stringEscaped then
-                            word = nupp.math.u32.orBits(position, 0x80000000)
+                            word = position | 0x80000000
                         end
                         if tapeCount < #tape then
                             tape[tapeCount + 1] = word

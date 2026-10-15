@@ -280,7 +280,7 @@ checks and erase to ordinary `do` blocks, with no guard and no protected call.
 
 ```nupp
 local function quiet(value: uint32): uint32
-    return nupp.math.u32.add(value, 1)
+    return value + 1
 end
 
 local result: uint32 = 0

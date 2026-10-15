@@ -26,12 +26,9 @@ because the compiler answers most of it directly. What the bootstrap installs is
 local bitops: any = require("nupp.runtime.bitops")
 
 const band = bitops.band
-const bnot = bitops.bnot
 const bor = bitops.bor
-const bxor = bitops.bxor
 const lshift = bitops.lshift
 const rshift = bitops.rshift
-const arshift = bitops.arshift
 
 --- Rotations and signed conversion use the required bit operations.
 const tobit: function(number): number = bitops.tobit or function(value: number): number
@@ -304,47 +301,19 @@ local function rounddd(hi: number, lo: number): number
     return value
 end
 
---- Signed 32-bit integer arithmetic.
+--- Signed 32-bit conversions and rotations.
+---
+--- `mul` is not part of the declared namespace. It is what generated Lua calls
+--- for `*` between two established `int32` values, the one wrapping operator
+--- whose product does not fit an expression; the rest inline as BitOp.
 local i32 = {}
 
 function i32.wrap(a: number): number
     return tobit(a)
 end
 
-function i32.add(a: number, c: number): number
-    return tobit(a + c)
-end
-
-function i32.sub(a: number, c: number): number
-    return tobit(a - c)
-end
-
 function i32.mul(a: number, c: number): number
     return mul32(ui32(a), ui32(c))
-end
-
-function i32.andBits(a: number, c: number): number
-    return band(a, c)
-end
-
-function i32.orBits(a: number, c: number): number
-    return bor(a, c)
-end
-
-function i32.xorBits(a: number, c: number): number
-    return bxor(a, c)
-end
-
-function i32.notBits(a: number): number
-    return bnot(a)
-end
-
-function i32.shiftLeft(a: number, c: number): number
-    return lshift(a, band(c, 31))
-end
-
-function i32.shiftRightArithmetic(a: number, c: number): number
-    return arshift(a, band(c, 31))
 end
 
 function i32.rotateLeft(a: number, c: number): number
@@ -355,14 +324,6 @@ function i32.rotateRight(a: number, c: number): number
     return ror(a, band(c, 31))
 end
 
-function i32.lessThan(a: number, c: number): boolean
-    return tobit(a) < tobit(c)
-end
-
-function i32.lessOrEqual(a: number, c: number): boolean
-    return tobit(a) <= tobit(c)
-end
-
 function i32.fromU32(a: number): number
     return tobit(a)
 end
@@ -371,19 +332,14 @@ function i32.toU32(a: number): number
     return ui32(a)
 end
 
---- Unsigned 32-bit integer arithmetic.
+--- Unsigned 32-bit conversions, rotations, bit counts and division.
+---
+--- `mul` is here for `*` between two established `uint32` values, as `i32.mul`
+--- is for `int32`.
 local u32 = {}
 
 function u32.wrap(a: number): number
     return ui32(a)
-end
-
-function u32.add(a: number, c: number): number
-    return ui32(a + c)
-end
-
-function u32.sub(a: number, c: number): number
-    return ui32(a - c)
 end
 
 function u32.mul(a: number, c: number): number
@@ -402,44 +358,12 @@ function u32.mod(a: number, c: number): number
     return divisor == 0 and 0 or ui32(a) % divisor
 end
 
-function u32.andBits(a: number, c: number): number
-    return ui32(band(a, c))
-end
-
-function u32.orBits(a: number, c: number): number
-    return ui32(bor(a, c))
-end
-
-function u32.xorBits(a: number, c: number): number
-    return ui32(bxor(a, c))
-end
-
-function u32.notBits(a: number): number
-    return ui32(bnot(a))
-end
-
-function u32.shiftLeft(a: number, c: number): number
-    return ui32(lshift(a, band(c, 31)))
-end
-
-function u32.shiftRightLogical(a: number, c: number): number
-    return ui32(rshift(a, band(c, 31)))
-end
-
 function u32.rotateLeft(a: number, c: number): number
     return ui32(rol(a, band(c, 31)))
 end
 
 function u32.rotateRight(a: number, c: number): number
     return ui32(ror(a, band(c, 31)))
-end
-
-function u32.lessThan(a: number, c: number): boolean
-    return ui32(a) < ui32(c)
-end
-
-function u32.lessOrEqual(a: number, c: number): boolean
-    return ui32(a) <= ui32(c)
 end
 
 function u32.fromI32(a: number): number
@@ -492,14 +416,6 @@ end
 
 --- Unsigned 64-bit bit operations.
 local u64 = {}
-
-function u64.andBits(a: uint64, b: uint64): uint64
-    return a & b
-end
-
-function u64.sub(a: uint64, b: uint64): uint64
-    return a - b
-end
 
 function u64.rotateLeft(a: uint64, count: integer): uint64
     local amount = band(count, 63)

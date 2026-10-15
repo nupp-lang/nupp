@@ -50,12 +50,12 @@ end
 
 function M.surfaceHasFixedStaticResults()
     local source = [[
-local si: int32 = nupp.math.i32.mul(0x7fffffff, 2)
-local ui: uint32 = nupp.math.u32.add(0xffffffff, 1)
+local si: int32 = nupp.math.i32.wrap(0x7fffffff) * 2
+local ui: uint32 = nupp.math.u32.wrap(0xffffffff) + 1
 local quotient: uint32 = nupp.math.u32.div(17, 5)
 local remainder: uint32 = nupp.math.u32.mod(17, 5)
-local shifted: uint32 = nupp.math.u32.shiftRightLogical(0x80000000, 31)
-local compared: boolean = nupp.math.u32.lessThan(0xffffffff, 0)
+local shifted: uint32 = nupp.math.u32.wrap(0x80000000) >> 31
+local compared: boolean = nupp.math.u32.wrap(0xffffffff) < 0
 local rounded: float = nupp.math.f32.fma(1.0, 2.0, 3.0)
 local exponential: float = nupp.math.f32.exp(-1.0)
 local floatBits: uint32 = nupp.math.f32.toBits(rounded)
@@ -331,7 +331,7 @@ local function step(v: number): (float, int32)
     x = nupp.math.f32.mul(x, x)
     local n: int32 = 0
     while n < 4 do
-        n = nupp.math.i32.add(n, 1)
+        n = n + 1
         x = nupp.math.f32.add(x, x)
     end
     return x, n
@@ -584,34 +584,34 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
     local result = checkedTree(
         table.concat(
             {
-                "local add = nupp.math.u32.add",
-                "local a = add(0xffffffff, 1)",
-                "local nupp = {math = {u32 = {add = function(x: number, y: number): number return x + y end}}}",
-                "local b = nupp.math.u32.add(1, 2)",
+                "local rotate = nupp.math.u32.rotateLeft",
+                "local a = rotate(0xffffffff, 1)",
+                "local nupp = {math = {u32 = {rotateLeft = function(x: number, y: number): number return x + y end}}}",
+                "local b = nupp.math.u32.rotateLeft(1, 2)",
                 "return a, b",
             },
             "\n"
         )
     )
     local calls = callsIn(result)
-    testAssert.equal(calls[1].scalarIntrinsic, "u32.add", "an exact alias keeps identity")
+    testAssert.equal(calls[1].scalarIntrinsic, "u32.rotateLeft", "an exact alias keeps identity")
     assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
 end
 
 function M.integerIntrinsicsConstantFoldByCanonicalIdentity()
-    local result = checkedTree("local value = nupp.math.u32.mul(0xffffffff, 3)\nreturn value")
+    local result = checkedTree("local value = nupp.math.u32.rotateLeft(0x80000001, 1)\nreturn value")
     require("nupp.compiler.lua.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
     local call = callsIn(result)[1]
-    testAssert.equal(call.scalarIntrinsic, "u32.mul", "canonical operation")
-    testAssert.equal(call.folded, "4294967293", "fold uses wrapping multiplication")
+    testAssert.equal(call.scalarIntrinsic, "u32.rotateLeft", "canonical operation")
+    testAssert.equal(call.folded, "3", "fold carries the high bit round")
 end
 
 function M.wrapsAndNormalizesAsLuaNumbers()
     local m = library()
-    testAssert.equal(m.i32.add(2147483647, 1), -2147483648)
-    testAssert.equal(m.i32.sub(-2147483648, 1), 2147483647)
-    testAssert.equal(m.u32.add(4294967295, 1), 0)
-    testAssert.equal(m.u32.sub(0, 1), 4294967295)
+    testAssert.equal(m.i32.mul(2147483647, 2), -2)
+    testAssert.equal(m.u32.mul(4294967295, 2), 4294967294)
+    testAssert.equal(m.i32.wrap(4294967295), -1)
+    testAssert.equal(m.u32.wrap(-1), 4294967295)
     testAssert.equal(type(m.i32.mul(3, 7)), "number", "i32 runtime representation")
     testAssert.equal(type(m.u32.mul(3, 7)), "number", "u32 runtime representation")
 end
@@ -718,20 +718,15 @@ function M.multiplicationKeepsEveryLowProductBit()
     end
 end
 
-function M.shiftCountsAreMaskedAndSignednessIsExplicit()
+function M.rotationCountsAreMaskedAndSignednessIsExplicit()
     local m = library()
-    testAssert.equal(m.u32.shiftLeft(1, 32), 1)
-    testAssert.equal(m.u32.shiftLeft(1, 33), 2)
-    testAssert.equal(m.u32.shiftRightLogical(0x80000000, 31), 1)
-    testAssert.equal(m.i32.shiftRightArithmetic(0x80000000, 31), -1)
+    testAssert.equal(m.u32.rotateLeft(0x80000001, 33), 3)
     testAssert.equal(m.u32.rotateLeft(0x80000001, 1), 3)
     testAssert.equal(m.i32.rotateRight(1, 1), -2147483648)
 end
 
-function M.comparisonsAndConversionsUseTheNamedWidth()
+function M.conversionsUseTheNamedWidth()
     local m = library()
-    assert(m.i32.lessThan(0xffffffff, 0), "signed -1 is below zero")
-    assert(not m.u32.lessThan(0xffffffff, 0), "unsigned max is above zero")
     testAssert.equal(m.i32.fromU32(4294967295), -1)
     testAssert.equal(m.i32.toU32(-1), 4294967295)
     testAssert.equal(m.u32.fromI32(-2147483648), 2147483648)
@@ -755,9 +750,6 @@ function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
     local u64 = library().u64
     local zero = ffi.new("uint64_t", 0)
     local wide = 0x8000000000000005ULL
-    testAssert.equal(tostring(u64.andBits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
-    testAssert.equal(tostring(u64.sub(zero, 1ULL)), "18446744073709551615ULL")
-    testAssert.equal(tostring(u64.sub(wide, wide)), "0ULL")
     testAssert.equal(u64.popcount(zero), 0)
     testAssert.equal(u64.popcount(wide), 3)
     testAssert.equal(u64.trailingZeros(zero), 64)
@@ -994,8 +986,8 @@ return bits
 end
 
 -- A byte read is typed `uint32` but holds an `int32` as surely, so inside an
--- `@aot` body an `int32` accumulator takes it as the wrapping signed add,
--- exactly as `nupp.math.i32.add` would. Outside one the mixed widths still
+-- `@aot` body an `int32` accumulator takes it as the wrapping signed add of
+-- two `int32` values. Outside one the mixed widths still
 -- answer `integer`, which the accumulator then refuses.
 function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     local body = table.concat(

@@ -139,10 +139,22 @@ local nupp: {
     --- ### Establishing a fixed-width value
     ---
     --- The establishing conversions are `nupp.math.f32.narrow(number)`,
-    --- `nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. Ordinary
-    --- arithmetic keeps LuaJIT's numeric meaning, so no refinement survives it. Use the
-    --- `f32`, `i32`, or `u32` namespace when the operation's width is part of its
-    --- contract:
+    --- `nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. Once
+    --- established, the operators carry the width: `+`, `-` and `*` between
+    --- two `uint32` values, or a `uint32` and an exact literal, wrap modulo 2^32
+    --- and answer a `uint32`, and the same holds for `int32`. The bit operators
+    --- `&`, `|`, `~`, `<<`, `>>` and unary `~` answer a `uint32` over `uint32`
+    --- operands and an `int32` over any other established ones, with shift
+    --- counts masked by 31; `>>` shifts in zeros and `~>>` copies the sign.
+    ---
+    --- ```nupp
+    --- local flags: uint32 = 0x12
+    --- local mixed = ((flags << 4) | (flags >> 1)) + 1
+    --- assert(mixed == 0x12a)
+    --- ```
+    ---
+    --- `float` arithmetic through the operators answers a `number`. Use the
+    --- `f32` namespace when binary32 rounding is part of the contract:
     ---
     --- ```nupp
     --- local distance = nupp.math.f32.narrow(10 / 3)
@@ -151,8 +163,8 @@ local nupp: {
     --- ```
     ---
     --- What does survive is being whole. `int32` and `uint32` widen to `integer`, so
-    --- ordinary arithmetic over them gives an `integer`. That is what lets a `uint32`
-    --- cursor index a view as `cursor + 1`. `float` widens to `number` and its
+    --- arithmetic mixing them with an `integer` gives an `integer`. That is what lets a
+    --- `uint32` cursor index a view as `cursor + 1`. `float` widens to `number` and its
     --- arithmetic gives one.
     ---
     --- Aliasing a standard member preserves its intrinsic identity. A local that
@@ -161,18 +173,20 @@ local nupp: {
     ---
     --- ### Integer namespaces
     ---
-    --- `i32` and `u32` wrap modulo 2^32. Shift counts are masked by 31, and each
-    --- operation states whether its interpretation is signed or unsigned, as
-    --- `shiftRightArithmetic` against `shiftRightLogical`. Calls use Lua numbers in
-    --- canonical ranges rather than allocating scalar cdata.
+    --- The `i32` and `u32` namespaces hold what no operator spells: the
+    --- establishing `wrap`, the bit reinterpretations `i32.fromU32`,
+    --- `i32.toU32`, `u32.fromI32` and `u32.toI32`, and the rotations. `u32`
+    --- adds `popcount`, `trailingZeros`, `leadingZeros`, and `div` and `mod`,
+    --- which answer zero for a zero divisor. Calls use Lua numbers in canonical
+    --- ranges rather than allocating scalar cdata.
     ---
     --- ```nupp
-    --- assert(nupp.math.u32.shiftRightLogical(nupp.math.u32.wrap(-1), 24) == 255)
+    --- assert(nupp.math.u32.rotateLeft(nupp.math.u32.wrap(-1) >> 24, 8) == 0xff00)
     --- ```
     ---
-    --- `u32` and `u64` also carry rotations, `popcount`, `trailingZeros` and
-    --- `leadingZeros`. `u64.prefixXor` computes inclusive prefix parity over all
-    --- sixty-four bits.
+    --- `u64` carries the 64-bit rotations, `popcount`, `trailingZeros` and
+    --- `leadingZeros`, and `prefixXor`, which computes inclusive prefix parity
+    --- over all sixty-four bits.
     ---
     --- ### Binary32 namespace
     ---
@@ -2752,34 +2766,25 @@ end
 
 --- Scalar angle helpers and two-dimensional vector operations.
 --- @internal
---- Explicit wrapping signed 32-bit arithmetic and bit operations.
+--- The signed 32-bit conversions and rotations no operator spells.
 --- @internal
 record nupp.I32MathLibrary
     wrap: @nosuspend function(value: integer): int32
-    add: @nosuspend function(a: int32, b: int32): int32
-    sub: @nosuspend function(a: int32, b: int32): int32
-    mul: @nosuspend function(a: int32, b: int32): int32
-    andBits: @nosuspend function(a: int32, b: int32): int32
-    orBits: @nosuspend function(a: int32, b: int32): int32
-    xorBits: @nosuspend function(a: int32, b: int32): int32
-    notBits: @nosuspend function(a: int32): int32
-    shiftLeft: @nosuspend function(a: int32, count: integer): int32
-    shiftRightArithmetic: @nosuspend function(a: int32, count: integer): int32
     rotateLeft: @nosuspend function(a: int32, count: integer): int32
     rotateRight: @nosuspend function(a: int32, count: integer): int32
-    lessThan: @nosuspend function(a: int32, b: int32): boolean
-    lessOrEqual: @nosuspend function(a: int32, b: int32): boolean
+
+    --- Reinterprets the thirty-two bits of a `uint32` as an `int32`.
     fromU32: @nosuspend function(a: uint32): int32
+
+    --- Reinterprets the thirty-two bits of an `int32` as a `uint32`.
     toU32: @nosuspend function(a: int32): uint32
 end
 
---- Explicit wrapping unsigned 32-bit arithmetic and bit operations.
+--- The unsigned 32-bit conversions, rotations, bit counts and zero-safe
+--- division no operator spells.
 --- @internal
 record nupp.U32MathLibrary
     wrap: @nosuspend function(value: integer): uint32
-    add: @nosuspend function(a: uint32, b: uint32): uint32
-    sub: @nosuspend function(a: uint32, b: uint32): uint32
-    mul: @nosuspend function(a: uint32, b: uint32): uint32
 
     --- Unsigned quotient, or zero when the divisor is zero.
     div: @nosuspend function(a: uint32, b: uint32): uint32
@@ -2787,18 +2792,15 @@ record nupp.U32MathLibrary
     --- Unsigned remainder, or zero when the divisor is zero.
     mod: @nosuspend function(a: uint32, b: uint32): uint32
 
-    andBits: @nosuspend function(a: uint32, b: uint32): uint32
-    orBits: @nosuspend function(a: uint32, b: uint32): uint32
-    xorBits: @nosuspend function(a: uint32, b: uint32): uint32
-    notBits: @nosuspend function(a: uint32): uint32
-    shiftLeft: @nosuspend function(a: uint32, count: integer): uint32
-    shiftRightLogical: @nosuspend function(a: uint32, count: integer): uint32
     rotateLeft: @nosuspend function(a: uint32, count: integer): uint32
     rotateRight: @nosuspend function(a: uint32, count: integer): uint32
-    lessThan: @nosuspend function(a: uint32, b: uint32): boolean
-    lessOrEqual: @nosuspend function(a: uint32, b: uint32): boolean
+
+    --- Reinterprets the thirty-two bits of an `int32` as a `uint32`.
     fromI32: @nosuspend function(a: int32): uint32
+
+    --- Reinterprets the thirty-two bits of a `uint32` as an `int32`.
     toI32: @nosuspend function(a: uint32): int32
+
     popcount: @nosuspend function(a: uint32): uint32
     trailingZeros: @nosuspend function(a: uint32): uint32
     leadingZeros: @nosuspend function(a: uint32): uint32
@@ -2807,8 +2809,6 @@ end
 --- Unsigned 64-bit rotations, bit counts and prefix parity.
 --- @internal
 record nupp.U64MathLibrary
-    andBits: @nosuspend function(a: uint64, b: uint64): uint64
-    sub: @nosuspend function(a: uint64, b: uint64): uint64
     rotateLeft: @nosuspend function(a: uint64, count: integer): uint64
     rotateRight: @nosuspend function(a: uint64, count: integer): uint64
     popcount: @nosuspend function(a: uint64): uint32
@@ -2862,15 +2862,15 @@ record nupp.MathLibrary
     --- @namespace
     quat: nupp.QuatLibrary
 
-    --- Signed 32-bit wrapping arithmetic.
+    --- Signed 32-bit conversions and rotations.
     --- @namespace
     i32: nupp.I32MathLibrary
 
-    --- Unsigned 32-bit wrapping arithmetic.
+    --- Unsigned 32-bit conversions, rotations, bit counts and division.
     --- @namespace
     u32: nupp.U32MathLibrary
 
-    --- Unsigned 64-bit bit counts and prefix parity.
+    --- Unsigned 64-bit rotations, bit counts and prefix parity.
     --- @namespace
     u64: nupp.U64MathLibrary
 

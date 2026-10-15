@@ -26,10 +26,7 @@ local function generatedMandelbrot(
     local groups = nupp.math.u32.div(nupp.math.u32.wrap(#escapes), nupp.math.u32.wrap(WORKGROUP_SIZE))
     gpu.workgroups(groups, 64, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local index = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(WORKGROUP_SIZE)),
-                localIndex
-            )
+            local index = groupIndex * nupp.math.u32.wrap(WORKGROUP_SIZE) + localIndex
             local pointCursor = index
             local escapeCursor = index
             if pointCursor < #points then
@@ -73,7 +70,7 @@ local function generatedMandelbrot(
                         zx = nupp.math.f32.add(nupp.math.f32.sub(zxSquared, zySquared), cx)
                         zxSquared = nupp.math.f32.mul(zx, zx)
                         zySquared = nupp.math.f32.mul(zy, zy)
-                        iteration = nupp.math.i32.add(iteration, 1)
+                        iteration = iteration + 1
                     end
                     if iteration < maxIterations then
                         escaped = 1

@@ -2755,10 +2755,10 @@ local INLINE_MAX_DUPLICATED_OPS = 1
 -- rather than a second one.
 --
 -- The call becomes the helper's expression as a tree rather than as text. Text was
--- tried and is wrong here: a helper body is Nupp and a generated line is Lua, so a
--- cast erases, `new T(...)` is not a call, and `nupp.math.i32.add(a, b)` generates as
--- `__nuppBitTobit((a)+(b))`. Splicing nodes lets `gen` decide all of that exactly as
--- it would have at the helper's own site.
+-- tried and is wrong here: a helper body is Nupp and a generated line is Lua, so a cast
+-- erases, `new T(...)` is not a call, and `a + b` over two `int32` values generates as
+-- `__nuppBitTobit((a)+(b))`. Splicing nodes lets `gen` decide all of that exactly as it
+-- would have at the helper's own site.
 --
 -- What makes the substitution sound is checked rather than assumed: exact arity,
 -- arguments that are names or literals so duplicating or dropping one cannot be

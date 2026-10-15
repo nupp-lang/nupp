@@ -53,7 +53,7 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
     local found = refusals(
         table.concat(
             {
-                "@noalloc do local x = nupp.math.u32.mul(0xffffffff, 3) end",
+                "@noalloc do local x = nupp.math.u32.rotateLeft(0xffffffff, 3) end",
                 "@noraise do local y = nupp.math.f32.fma(1.0, 2.0, 3.0) end",
             },
             "\n"

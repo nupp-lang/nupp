@@ -2156,7 +2156,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
         "local i32 = nupp.math.i32",
         "local math32 = nupp.math",
         "local function mask(a: int32, b: int32): (int32, int32, int32)",
-        "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
+        "    return i32.rotateLeft(a, b), nupp.math.i32.rotateLeft(a, b), math32.i32.rotateLeft(a, b)",
         "end",
         "return mask",
     }, "\n")
@@ -2176,7 +2176,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
         end
     end
     walk(result.root)
-    testAssert.equal(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
+    testAssert.equal(table.concat(identities, " "), "i32.rotateLeft i32.rotateLeft i32.rotateLeft")
 end
 
 -- A union of functions is called member-wise: every member has to accept the

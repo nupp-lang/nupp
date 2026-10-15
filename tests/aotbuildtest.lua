@@ -460,7 +460,7 @@ local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: s
         for cursor = ]]
                 .. bounds
                 .. [[ do
-            value = nupp.math.u32.add(value, 1)
+            value = value + 1
         end
         output[index] = value
     end
@@ -531,7 +531,7 @@ local gpu = require("nupp.gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     assert(#output == #input)
     for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], 1)
+        output[index] = input[index] + 1
     end
 end
 
@@ -540,10 +540,10 @@ local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: sp
     local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(256))
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            local cursor = groupIndex * nupp.math.u32.wrap(256) + localIndex
             if cursor < #input then
                 if cursor < #output then
-                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 2)
+                    output[cursor + 1] = input[cursor + 1] + 2
                 end
             end
         end)
@@ -651,10 +651,10 @@ function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
     local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)), localIndex)
+            local cursor = groupIndex * nupp.math.u32.wrap(4) + localIndex
             if cursor < #input then
                 if cursor < #output then
-                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 1)
+                    output[cursor + 1] = input[cursor + 1] + 1
                 end
             end
         end)

@@ -5769,7 +5769,7 @@ function M.artifactDiscoveryNamesAotKernel()
 local i32 = require("nupp.math.i32")
 @aot
 local function double(value: int32): int32
-    return i32.add(value, value)
+    return i32.rotateLeft(value, 1)
 end
 return double
 ]],

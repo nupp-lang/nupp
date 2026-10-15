@@ -22,10 +22,8 @@ end
 | a `float` field write | binary32 | the physical store narrows |
 | `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
 | `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
-| `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
-| `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
-| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `nupp.math.i32.add` and its siblings return, see below |
-| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `nupp.math.u32.add` and its siblings return |
+| `int32` `+`, `-`, `*` on established operands | wrapping int32 | wraps in unsigned, comes back; see below |
+| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | native unsigned modular arithmetic |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
 | 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
@@ -74,9 +72,9 @@ overflowing `int32` or `int64` result is defined rather than undefined.
 `+`, `-` and `*` between two operands established at one fixed width mean the
 wrapping operation of that width, in an `@aot` body and in the ordinary code
 around it alike: an `int32` accumulator plus an `int32` field read is the
-`nupp.math.i32.add` of the two, a `uint32` cursor times a literal is the
-`nupp.math.u32.mul`, and the checker annotates the operator so the retained Lua
-body and the native lowering compute the same bits. One operand has to be typed
+wrapping signed add of the two, a `uint32` cursor times a literal is the
+wrapping unsigned product, and the checker annotates the operator so the
+retained Lua body and the native lowering compute the same bits. One operand has to be typed
 at the width and both established at it, so an erased `as int32` or a plain
 `integer` beside one still returns `integer`, which an assignment to the width
 then refuses. A `uint8` or `uint16` element read is typed `uint32` but is

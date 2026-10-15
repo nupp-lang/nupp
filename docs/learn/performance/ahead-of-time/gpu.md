@@ -125,10 +125,7 @@ local function reduce(
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         local shared = phases:scratch(nupp.math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
-                localIndex
-            )
+            local cursor = groupIndex * 4 + localIndex
             if cursor < #input then
                 shared[localIndex] = input[cursor + 1]
             end

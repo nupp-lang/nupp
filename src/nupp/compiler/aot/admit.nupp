@@ -105,18 +105,7 @@ record admit.Fixed
     identity: string
 
     --- The IR operation it lowers to.
-    op: scalarIR.FixedOp
-        | scalarIR.FixedUnaryOp
-        | scalarIR.ConvertOp
-        | scalarIR.CorrectedOp
-        | scalarIR.BinaryOp
-        | scalarIR.UnaryOp
-
-    --- Set where `op` is an ordinary operator rather than a fixed-width one:
-    --- `binary` or `unary`. The signed bit operations are the `int32` bitwise
-    --- operators by another name, and `lessThan` is `<` between two values of
-    --- one width.
-    form: string?
+    op: scalarIR.FixedOp | scalarIR.FixedUnaryOp | scalarIR.ConvertOp | scalarIR.CorrectedOp
 
     --- How many operands it takes.
     arity: integer
@@ -170,116 +159,22 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
         new admit.Fixed(identity = "f32.fromBF16Bits", op = "bf16_to_f32", arity = 1, operand = "u32", result = "f32"),
         new admit.Fixed(identity = "f32.toBF16Bits", op = "f32_to_bf16", arity = 1, operand = "f32", result = "u32"),
         new admit.Fixed(identity = "i32.wrap", op = "numeric_cast", arity = 1, operand = "f64", result = "i32"),
-        new admit.Fixed(identity = "i32.add", op = "i32_add", arity = 2, operand = "i32", result = "i32"),
-        new admit.Fixed(identity = "i32.sub", op = "i32_sub", arity = 2, operand = "i32", result = "i32"),
-        new admit.Fixed(identity = "i32.mul", op = "i32_mul", arity = 2, operand = "i32", result = "i32"),
-        new admit.Fixed(
-            identity = "i32.andBits",
-            op = "band",
-            arity = 2,
-            operand = "i32",
-            result = "i32",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "i32.orBits",
-            op = "bor",
-            arity = 2,
-            operand = "i32",
-            result = "i32",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "i32.xorBits",
-            op = "bxor",
-            arity = 2,
-            operand = "i32",
-            result = "i32",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "i32.notBits",
-            op = "bnot",
-            arity = 1,
-            operand = "i32",
-            result = "i32",
-            form = "unary"
-        ),
-        new admit.Fixed(
-            identity = "i32.shiftLeft",
-            op = "lshift",
-            arity = 2,
-            operand = "i32",
-            result = "i32",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "i32.shiftRightArithmetic",
-            op = "arshift",
-            arity = 2,
-            operand = "i32",
-            result = "i32",
-            form = "binary"
-        ),
         new admit.Fixed(identity = "i32.rotateLeft", op = "i32_rotl", arity = 2, operand = "i32", result = "i32"),
         new admit.Fixed(identity = "i32.rotateRight", op = "i32_rotr", arity = 2, operand = "i32", result = "i32"),
-        new admit.Fixed(
-            identity = "i32.lessThan",
-            op = "lt",
-            arity = 2,
-            operand = "i32",
-            result = "bool",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "i32.lessOrEqual",
-            op = "le",
-            arity = 2,
-            operand = "i32",
-            result = "bool",
-            form = "binary"
-        ),
         new admit.Fixed(identity = "i32.toU32", op = "numeric_cast", arity = 1, operand = "i32", result = "u32"),
         new admit.Fixed(identity = "u32.wrap", op = "numeric_cast", arity = 1, operand = "f64", result = "u32"),
         new admit.Fixed(identity = "u32.fromI32", op = "numeric_cast", arity = 1, operand = "i32", result = "u32"),
         new admit.Fixed(identity = "i32.fromU32", op = "numeric_cast", arity = 1, operand = "u32", result = "i32"),
         new admit.Fixed(identity = "u32.toI32", op = "numeric_cast", arity = 1, operand = "u32", result = "i32"),
-        new admit.Fixed(identity = "u32.add", op = "u32_add", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.sub", op = "u32_sub", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.mul", op = "u32_mul", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.div", op = "u32_div", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.mod", op = "u32_mod", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.andBits", op = "u32_and", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.orBits", op = "u32_or", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.xorBits", op = "u32_xor", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.notBits", op = "u32_not", arity = 1, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.shiftLeft", op = "u32_shl", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(identity = "u32.shiftRightLogical", op = "u32_shr", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.popcount", op = "u32_popcount", arity = 1, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.trailingZeros", op = "u32_ctz", arity = 1, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.leadingZeros", op = "u32_clz", arity = 1, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.rotateLeft", op = "u32_rotl", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.rotateRight", op = "u32_rotr", arity = 2, operand = "u32", result = "u32"),
-        new admit.Fixed(
-            identity = "u32.lessThan",
-            op = "lt",
-            arity = 2,
-            operand = "u32",
-            result = "bool",
-            form = "binary"
-        ),
-        new admit.Fixed(
-            identity = "u32.lessOrEqual",
-            op = "le",
-            arity = 2,
-            operand = "u32",
-            result = "bool",
-            form = "binary"
-        ),
         new admit.Fixed(identity = "f32.fromBits", op = "f32_from_bits", arity = 1, operand = "u32", result = "f32"),
         new admit.Fixed(identity = "f32.toBits", op = "f32_to_bits", arity = 1, operand = "f32", result = "u32"),
-        new admit.Fixed(identity = "u64.andBits", op = "u64_and", arity = 2, operand = "u64", result = "u64"),
-        new admit.Fixed(identity = "u64.sub", op = "u64_sub", arity = 2, operand = "u64", result = "u64"),
         new admit.Fixed(
             identity = "u64.rotateLeft",
             op = "u64_rotl",

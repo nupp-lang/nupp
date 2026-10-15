@@ -2155,7 +2155,7 @@ record cst.Binop is cst.Hints
     wideArithmetic: boolean?
 
     --- Set when both sides are established at one thirty-two bit width, to the
-    --- `nupp.math` intrinsic the operator is then: `u32.add`, `i32.mul`. The
+    --- fixed-width identity the operator is then: `u32.add`, `i32.mul`. The
     --- generator emits that arithmetic rather than Lua's, so the result wraps
     --- where the type says it does.
     fixedArithmetic: string?

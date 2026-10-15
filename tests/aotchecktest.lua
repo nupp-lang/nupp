@@ -130,7 +130,7 @@ local u32 = nupp.math.u32
 
 @aot
 local function shifted(a: uint32, b: integer): uint32
-    return u32.shiftRightLogical(a, b)
+    return u32.rotateLeft(a, b)
 end
 
 return {shifted = shifted}

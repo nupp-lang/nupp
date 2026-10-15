@@ -38,7 +38,7 @@ local function abiProbe(
     inner: uint32
 ): nil
     for i = 1, #output do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local value: float = 0.0
         if offset < #a then
             local left = nupp.math.f32.narrow(a[offset + 1])
@@ -67,7 +67,7 @@ local function loopProbe(
         local cursor: uint32 = 0
         while cursor < iterations do
             value = nupp.math.f32.add(value, 1.0)
-            cursor = nupp.math.u32.add(cursor, 1)
+            cursor = cursor + 1
         end
         output[i] = input[i] * 0.0 + value
     end
@@ -109,7 +109,7 @@ local function fixedLoopProbe(exclusive output: span.WriteSpan<float>, borrows i
         local cursor: uint32 = 0
         while cursor < 7 do
             value = nupp.math.f32.add(value, 1.0)
-            cursor = nupp.math.u32.add(cursor, 1)
+            cursor = cursor + 1
         end
         output[i] = input[i] * 0.0 + value
     end
@@ -124,20 +124,20 @@ local function gemmNaive(
     inner: uint32
 ): nil
     for i = 1, #c do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, columns)
         local col = nupp.math.u32.mod(offset, columns)
         local acc: float = 0.0
         local j = nupp.math.u32.wrap(0)
         while j < inner do
-            local ai = nupp.math.u32.add(nupp.math.u32.mul(row, inner), j)
-            local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
+            local ai = row * inner + j
+            local bi = j * columns + col
             if ai < #a then
                 if bi < #b then
                     acc = nupp.math.f32.fma(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]), acc)
                 end
             end
-            j = nupp.math.u32.add(j, 1)
+            j = j + 1
         end
         c[i] = acc
     end
@@ -153,20 +153,20 @@ local function gemmCpu(
     inner: uint32
 ): nil
     for i = 1, #c do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, columns)
         local col = nupp.math.u32.mod(offset, columns)
         local acc: float = 0.0
         local j = nupp.math.u32.wrap(0)
         while j < inner do
-            local ai = nupp.math.u32.add(nupp.math.u32.mul(row, inner), j)
-            local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
+            local ai = row * inner + j
+            local bi = j * columns + col
             if ai < #a then
                 if bi < #b then
                     acc = nupp.math.f32.fma(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]), acc)
                 end
             end
-            j = nupp.math.u32.add(j, 1)
+            j = j + 1
         end
         c[i] = acc
     end
@@ -193,20 +193,20 @@ local function gemmTiled(
         end)
 
         local tile: uint32 = 0
-        while nupp.math.u32.mul(tile, nupp.math.u32.wrap(16)) < inner do
+        while tile * nupp.math.u32.wrap(16) < inner do
             phases:run(function(localIndex: uint32)
                 local laneRow = nupp.math.u32.div(localIndex, nupp.math.u32.wrap(16))
                 local laneColumn = nupp.math.u32.mod(localIndex, nupp.math.u32.wrap(16))
                 local tilesPerRow = nupp.math.u32.div(columns, nupp.math.u32.wrap(16))
                 local tileRow = nupp.math.u32.div(groupIndex, tilesPerRow)
                 local tileColumn = nupp.math.u32.mod(groupIndex, tilesPerRow)
-                local row = nupp.math.u32.add(nupp.math.u32.mul(tileRow, nupp.math.u32.wrap(16)), laneRow)
-                local column = nupp.math.u32.add(nupp.math.u32.mul(tileColumn, nupp.math.u32.wrap(16)), laneColumn)
-                local base = nupp.math.u32.mul(tile, nupp.math.u32.wrap(16))
-                local aColumn = nupp.math.u32.add(base, laneColumn)
-                local bRow = nupp.math.u32.add(base, laneRow)
-                local ai = nupp.math.u32.add(nupp.math.u32.mul(row, inner), aColumn)
-                local bi = nupp.math.u32.add(nupp.math.u32.mul(bRow, columns), column)
+                local row = tileRow * nupp.math.u32.wrap(16) + laneRow
+                local column = tileColumn * nupp.math.u32.wrap(16) + laneColumn
+                local base = tile * nupp.math.u32.wrap(16)
+                local aColumn = base + laneColumn
+                local bRow = base + laneRow
+                local ai = row * inner + aColumn
+                local bi = bRow * columns + column
                 if aColumn < inner then
                     if ai < #a then
                         aTile[localIndex] = nupp.math.f32.narrow(a[ai + 1])
@@ -229,118 +229,88 @@ local function gemmTiled(
             phases:run(function(localIndex: uint32)
                 local value = nupp.math.f32.narrow(accumulators[localIndex])
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(aTile[nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16)]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16]),
                     nupp.math.f32.narrow(bTile[nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 1)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(16, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 1]),
+                    nupp.math.f32.narrow(bTile[16 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 2)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(32, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 2]),
+                    nupp.math.f32.narrow(bTile[32 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 3)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(48, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 3]),
+                    nupp.math.f32.narrow(bTile[48 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 4)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(64, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 4]),
+                    nupp.math.f32.narrow(bTile[64 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 5)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(80, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 5]),
+                    nupp.math.f32.narrow(bTile[80 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 6)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(96, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 6]),
+                    nupp.math.f32.narrow(bTile[96 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 7)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(112, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 7]),
+                    nupp.math.f32.narrow(bTile[112 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 8)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(128, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 8]),
+                    nupp.math.f32.narrow(bTile[128 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 9)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(144, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 9]),
+                    nupp.math.f32.narrow(bTile[144 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 10)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(160, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 10]),
+                    nupp.math.f32.narrow(bTile[160 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 11)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(176, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 11]),
+                    nupp.math.f32.narrow(bTile[176 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 12)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(192, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 12]),
+                    nupp.math.f32.narrow(bTile[192 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 13)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(208, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 13]),
+                    nupp.math.f32.narrow(bTile[208 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 14)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(224, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 14]),
+                    nupp.math.f32.narrow(bTile[224 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 value = nupp.math.f32.fma(
-                    nupp.math.f32.narrow(
-                        aTile[nupp.math.u32.add(nupp.math.u32.mul(nupp.math.u32.div(localIndex, 16), 16), 15)]
-                    ),
-                    nupp.math.f32.narrow(bTile[nupp.math.u32.add(240, nupp.math.u32.mod(localIndex, 16))]),
+                    nupp.math.f32.narrow(aTile[nupp.math.u32.div(localIndex, 16) * 16 + 15]),
+                    nupp.math.f32.narrow(bTile[240 + nupp.math.u32.mod(localIndex, 16)]),
                     value
                 )
                 accumulators[localIndex] = value
             end)
-            tile = nupp.math.u32.add(tile, 1)
+            tile = tile + 1
         end
         phases:run(function(localIndex: uint32)
             local laneRow = nupp.math.u32.div(localIndex, nupp.math.u32.wrap(16))
@@ -348,9 +318,9 @@ local function gemmTiled(
             local tilesPerRow = nupp.math.u32.div(columns, nupp.math.u32.wrap(16))
             local tileRow = nupp.math.u32.div(groupIndex, tilesPerRow)
             local tileColumn = nupp.math.u32.mod(groupIndex, tilesPerRow)
-            local row = nupp.math.u32.add(nupp.math.u32.mul(tileRow, nupp.math.u32.wrap(16)), laneRow)
-            local column = nupp.math.u32.add(nupp.math.u32.mul(tileColumn, nupp.math.u32.wrap(16)), laneColumn)
-            local output = nupp.math.u32.add(nupp.math.u32.mul(row, columns), column)
+            local row = tileRow * nupp.math.u32.wrap(16) + laneRow
+            local column = tileColumn * nupp.math.u32.wrap(16) + laneColumn
+            local output = row * columns + column
             if output < #c then
                 c[output + 1] = nupp.math.f32.narrow(accumulators[localIndex])
             end
@@ -377,8 +347,8 @@ local function gemmBatched(
     bColumnStride: uint32
 ): nil
     for i = 1, #c do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
-        local plane = nupp.math.u32.mul(rows, columns)
+        local offset = nupp.math.u32.wrap(i) - 1
+        local plane = rows * columns
         local batch = nupp.math.u32.div(offset, plane)
         local within = nupp.math.u32.mod(offset, plane)
         local row = nupp.math.u32.div(within, columns)
@@ -386,21 +356,15 @@ local function gemmBatched(
         local value: float = 0.0
         local cursor: uint32 = 0
         while cursor < inner do
-            local ai = nupp.math.u32.add(
-                nupp.math.u32.add(nupp.math.u32.mul(batch, aBatchStride), nupp.math.u32.mul(row, aRowStride)),
-                nupp.math.u32.mul(cursor, aInnerStride)
-            )
-            local bi = nupp.math.u32.add(
-                nupp.math.u32.add(nupp.math.u32.mul(batch, bBatchStride), nupp.math.u32.mul(cursor, bInnerStride)),
-                nupp.math.u32.mul(column, bColumnStride)
-            )
+            local ai = batch * aBatchStride + row * aRowStride + cursor * aInnerStride
+            local bi = batch * bBatchStride + cursor * bInnerStride + column * bColumnStride
             if ai < #a then
                 local left = nupp.math.f32.narrow(a[ai + 1])
                 if bi < #b then
                     value = nupp.math.f32.fma(left, nupp.math.f32.narrow(b[bi + 1]), value)
                 end
             end
-            cursor = nupp.math.u32.add(cursor, 1)
+            cursor = cursor + 1
         end
         c[i] = value
     end

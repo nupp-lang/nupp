@@ -2499,22 +2499,6 @@ local function fixedCall(
         args[2] = lower.convert(args[2], "i64", args[2].source, context)
     end
 
-    if fixed.form == "binary" then
-        return new scalarIR.Binary(
-            op = fixed.op as scalarIR.BinaryOp,
-            left = args[1],
-            right = args[2],
-            type = fixed.result as scalarIR.Type,
-            source = source
-        )
-    elseif fixed.form == "unary" then
-        return new scalarIR.Unary(
-            op = fixed.op as scalarIR.UnaryOp,
-            value = args[1],
-            type = fixed.result as scalarIR.Type,
-            source = source
-        )
-    end
     if fixed.arity == 1 then
         if FIXED_UNARY[tostring(fixed.op)] == true then
             return new scalarIR.FixedUnary(
@@ -3466,7 +3450,7 @@ local function call(
     -- The checker follows definitions through local aliases and publishes the
     -- canonical fixed-width identity on the call. A spelling lookup remains
     -- only for the standalone parser harness; production lowering must not
-    -- turn `local add = nupp.math.u32.add` into an unrelated helper call.
+    -- turn `local rotate = nupp.math.u32.rotateLeft` into an unrelated helper call.
     local fixedIdentity = (node as any).scalarIntrinsic
     local fixed = fixedIdentity ~= nil and admit.FIXED[fixedIdentity as string]
         or not context.checked and path ~= nil and admit.fixed(path as string)

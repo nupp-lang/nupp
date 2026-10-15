@@ -9,7 +9,7 @@ local function expSum(exclusive output: span.WriteSpan<float>, borrows input: sp
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
         local values = phases:scratch(nupp.math.f32.narrow(0.0), 256)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            local cursor = groupIndex * nupp.math.u32.wrap(256) + localIndex
             if cursor < #input then
                 values[localIndex] = nupp.math.f32.exp(nupp.math.f32.narrow(input[cursor + 1]))
             else
@@ -31,7 +31,7 @@ local function sum(exclusive output: span.WriteSpan<float>, borrows input: span.
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
         local values = phases:scratch(nupp.math.f32.narrow(0.0), 256)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            local cursor = groupIndex * nupp.math.u32.wrap(256) + localIndex
             if cursor < #input then
                 values[localIndex] = nupp.math.f32.narrow(input[cursor + 1])
             else
