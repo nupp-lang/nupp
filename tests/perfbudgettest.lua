@@ -384,4 +384,62 @@ function M.aStampedHelloWorldStaysSmall()
     )
 end
 
+-- A function with vector instructions runs only compiled, so a program holding
+-- one is linked with the code generator; the runtime a hello world gets has none.
+function M.aVectorProgramRunsFromItsBinary()
+    local dir = temporary()
+    writeFile(
+        dir .. "/nupp.lua",
+        'return {include = {"src"}, build = {default = "app", targets = {app = {\n'
+            .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
+    )
+    writeFile(
+        dir .. "/src/main.nupp",
+        [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local function count(borrows text: span.Span<uint8>, needle: uint32): uint32
+    local found: uint32 = 0
+    local cursor: uint32 = 0
+    if species = simd.vectors(array.uint8) then
+        while cursor + species.lanes <= #text do
+            found = found + (species:load(text, cursor + 1) == needle):count()
+            cursor = cursor + species.lanes
+        end
+    end
+    while cursor < #text do
+        if text[cursor + 1] == needle then
+            found = found + 1
+        end
+        cursor = cursor + 1
+    end
+    return found
+end
+
+const bytes = array.bytes(70)
+const w = bytes:write()
+for i = 1, 70 do
+    w[i] = i % 2 == 0 and 7 or 1
+end
+nupp.drop(w)
+print(count(bytes:read(), 7))
+]]
+    )
+    local out = run(dir, "build")
+    local windows = package.config:sub(1, 1) == "\\"
+    local binary = dir .. (windows and "/build/app.exe" or "/build/app")
+    local built = readFile(binary) ~= nil
+    local printed = ""
+    if built then
+        local pipe = assert(io.popen("'" .. binary .. "' 2>&1"))
+        printed = pipe:read("*a")
+        pipe:close()
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(built, "the vector program was not built: " .. out)
+    assert(printed:match("^35%s*$"), "the vector program counted its needles: " .. printed)
+end
+
 return M

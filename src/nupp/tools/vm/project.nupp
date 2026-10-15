@@ -231,6 +231,22 @@ local function programPath(root: string, compilerRoot: string, path: string): st
     return path
 end
 
+--- The image instructions only compiled code runs, as the runtime's
+--- `native_simd::required` lists them.
+const NATIVE_OPS = {
+    "Simd",
+    "SpanLen",
+    "SpanBounds",
+    "SpanLoad",
+    "SpanStore",
+    "VOp",
+    "VSplatN",
+    "VExtractN",
+    "VAny",
+    "VPrefix",
+    "Raise",
+}
+
 --- The image of a program: `entry` and every module it reaches under the
 --- project's manifest `config`, and the runtime facilities that image needs
 --- linked, sorted. `embedded` is the source of the program's `nupp.embedded`
@@ -248,6 +264,15 @@ function project.program(root: string, config: table, entry: string, embedded: s
         embedded and {["nupp.embedded"] = embedded} or nil,
         reached
     )
+    -- A function with vector instructions runs only compiled (`native_simd`'s
+    -- `required`), so a program holding one is linked with the code generator,
+    -- which compiles it on first call. The rest stay interpreter-only.
+    for _, op in ipairs(NATIVE_OPS) do
+        if image:find("\n  " .. op .. " ", 1, true) then
+            reached["jit"] = true
+            break
+        end
+    end
     local facilities: {string} = {}
     for facility in pairs(reached) do
         facilities[#facilities + 1] = facility
