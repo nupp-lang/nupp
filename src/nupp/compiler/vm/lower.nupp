@@ -817,6 +817,8 @@ function lower.emit(
     end
     local LIBS = {string = true, table = true, math = true, bit = true, os = true, io = true}
     local BITOPS = {["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor", ["<<"] = "IShl", [">>"] = "IShrU"}
+    -- The customary spellings the language accepts beside Lua's own.
+    local OPERATOR_SPELLINGS = {["&&"] = "and", ["||"] = "or", ["!="] = "~=", ["!"] = "not"}
     -- Global tables the runtime provides as modules.
     local GLOBAL_MODULES = {
         _G = true,
@@ -2859,7 +2861,20 @@ function lower.emit(
             else
                 local a = exprAs(f, node.lhs, "v");
                 local b = exprAs(f, node.rhs, "v")
+                -- Bitwise operators on values the checker did not type as
+                -- integers are LuaJIT's 32-bit `bit` library, as the Lua backend
+                -- spelled them.
+                local bitwise = {
+                    ["&"] = "bit.band",
+                    ["|"] = "bit.bor",
+                    ["~"] = "bit.bxor",
+                    ["<<"] = "bit.lshift",
+                    [">>"] = "bit.rshift",
+                    ["~>>"] = "bit.arshift"
+                }
                 local map = {
+                    ["^"] = "Pow",
+                    ["//"] = "IDiv",
                     ["+"] = "Add",
                     ["-"] = "Sub",
                     ["*"] = "Mul",
@@ -2873,8 +2888,10 @@ function lower.emit(
                     [">"] = "Gt",
                     [">="] = "Ge"
                 }
-                local name = assert(map[op], "operator " .. op)
-                if name == "Gt" then
+                local name = bitwise[op] or assert(map[op], "operator " .. op)
+                if bitwise[op] then
+                    builtinRegisters(f, name, {a, b}, dst)
+                elseif name == "Gt" then
                     f:op("Lt", dst, b, a)
                 elseif name == "Ge" then
                     f:op("Le", dst, b, a)
@@ -3507,7 +3524,7 @@ function lower.emit(
 
     -- An assignment evaluates its targets' tables and keys left to right before
     -- any value, as Lua does: `t()[k()] = v()` calls t, k, then v.
-    local function prepareTarget(f, target)
+    local function prepareTarget(f, target, plainKey)
         -- A struct-of-arrays row is addressed through its view and index,
         -- which the store evaluates.
         if soaField(target) or target.kind == "bracketIndex" and target.soaRow then
@@ -3519,7 +3536,9 @@ function lower.emit(
             and not (target.indexedAccess and target.indexedAccess.adapter == "span")
         then
             local o = exprAs(f, target.obj, "v")
-            if isIntegerish(target.expr) then
+            if plainKey then
+                return {o = o, i = exprAs(f, target.expr, "v"), class = "v"}
+            elseif isIntegerish(target.expr) then
                 return {o = o, i = exprAs(f, target.expr, "i"), class = "i"}
             elseif isNumeric(target.expr.inferredType) then
                 return {o = o, i = exprAs(f, target.expr, "f"), class = "f"}
@@ -3966,14 +3985,35 @@ function lower.emit(
             -- `x op= e` is `x = x op e`; the target's own subexpressions are
             -- evaluated twice, as they are side-effect free in practice.
             local opText = tokText(node.op):sub(1, -2)
+            opText = OPERATOR_SPELLINGS[opText] or opText
+            local target = node.target
+            -- The target's table and key are evaluated once, before the value,
+            -- and read back from those registers.
+            local prepared = prepareTarget(f, target, true)
+            local current = target
+            if prepared and target.kind == "dotIndex" then
+                current = {
+                    kind = "dotIndex",
+                    obj = {kind = "vmRegister", reg = prepared.o, inferredType = target.obj.inferredType},
+                    name = target.name,
+                    overloadMember = target.overloadMember,
+                    inferredType = target.inferredType,
+                }
+            elseif prepared then
+                current = {
+                    kind = "bracketIndex",
+                    obj = {kind = "vmRegister", reg = prepared.o, inferredType = target.obj.inferredType},
+                    expr = {kind = "vmRegister", reg = prepared.i, inferredType = target.expr.inferredType},
+                    inferredType = target.inferredType,
+                }
+            end
             local bin = {
                 kind = "binop",
-                lhs = node.target,
+                lhs = current,
                 rhs = node.value,
                 op = {text = opText},
                 inferredType = node.target.inferredType
             }
-            local target = node.target
             if target.kind == "name" then
                 local r, c, cell = f:lookup(tokText(target.token))
                 if r and not cell then
@@ -3982,7 +4022,7 @@ function lower.emit(
                 end
             end
             local v = exprAs(f, bin, "v")
-            assignTo(f, target, v)
+            assignTo(f, target, v, prepared)
         elseif k == "withStmt" then
             local depth = f.cleanupDepth or 0
             f:push()
@@ -5289,6 +5329,13 @@ function lower.emit(
         -- Lua's string and table call forms are single arguments too. Keep the
         -- parser's nodes so source positions and checked identities survive.
         walkSyntax(rootNode, {}, function(node)
+            -- `&&`, `||`, `!=` and `!` lower as the operators they spell.
+            local spelled = (node.kind == "binop" or node.kind == "unop")
+                and node.op
+                and OPERATOR_SPELLINGS[tokText(node.op)]
+            if spelled then
+                node.op = {text = spelled, line = node.op.line, col = node.op.col}
+            end
             if node.kind == "args" and not node.exprs then
                 if node.table then
                     node.exprs = {node.table}
