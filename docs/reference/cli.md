@@ -39,7 +39,6 @@ The commands, in the order `nupp help` lists them:
 - [`import-c`](#import-c): generate typed Nupp bindings from a C header
 - [`migrate`](#migrate): migrate typed foreign source into Nupp
 - [`export-c`](#export-c): export canonical C declarations for Nupp structs
-- [`rock`](#rock): create and package typed LuaRocks libraries
 - [`lsp`](#lsp): language-server and semantic source operations
 - [`version`](#version): print the compiler version
 - [`help`](#help): show general or command-specific help
@@ -69,7 +68,7 @@ A given `--color` decides on its own. With none, `NO_COLOR` refuses escapes,
 terminal that understands them, which `TERM=dumb` says it is not. JSON output is
 never colored.
 
-[`test`](#test), [`task`](#task), [`rock`](#rock) and the [`lsp`](#lsp) group
+[`test`](#test), [`task`](#task) and the [`lsp`](#lsp) group
 hand their arguments to another program or parse them per operation, so the
 universal options are not appended to them. Each takes `-h`, and `lsp` declares
 a grammar of its own.
@@ -92,7 +91,7 @@ formats `markdown`, `skill` and `json` instead. `bench`, `test` and `run` take
 the JSON each writes is one particular artifact rather than a rendering of the
 whole result. [`ast`](#ast) has no `--format` either: a lossless syntax tree has
 only the one form, so it takes `--schema` and prints JSON whatever else is asked.
-`completions` and `rock` produce no structured result and take neither.
+`completions` produces no structured result and takes neither.
 
 A test runs each command for real and validates its output against that
 command's own `--schema`, so a schema cannot drift from what the command emits.
@@ -225,7 +224,7 @@ and no checkout:
   app                A runnable program, with a test and a task to start it
   browser            A browser application using crypto and timers
   browser-simd       A browser application with scalar and SIMD128 AOT kernels
-  lib                A typed library packaged as a LuaRocks rock
+  lib                A typed library with public declarations
   love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```
 
@@ -331,8 +330,6 @@ decoration.
 - [tour.md](../getting-started/tour.md) for a walk through the scaffolded
   project
 - [build.md](../learn/projects/build.md) for the `nupp.lua` a template writes
-- [LuaRocks](../learn/projects/integrations/luarocks.md) for the layout the `lib` template
-  scaffolds
 :::
 
 ### `ast`
@@ -2130,63 +2127,6 @@ names, layout assertions, and the typed declarations used by native wrappers.
 See [c-interop.md](../learn/runtime/c-interop/index.md#export-ordinary-structs-to-c) for
 what a struct has to be for a header to be exportable from it.
 
-### `rock`
-
-```text [nupp rock --help]
-Package and check typed LuaRocks libraries.
-
-A Nupp rock installs runtime Lua normally and carries matching public
-declarations in its versioned `nupp/` directory. `pack` validates and
-builds that layout; `test` installs the result into a fresh tree and checks
-a fresh consumer. `nupp init lib <name>` writes a project in that shape.
-
-Examples:
-
-    nupp rock pack
-    nupp rock test
-
-Usage:
-  nupp rock
-
-Commands:
-  pack  Build and pack the current Nupp library.
-  test  Install and check the rock from a clean consumer.
-
-Options:
-  -h, --help      Show this help
-  --color[=WHEN]  When to color output: always, never, or auto
-  --no-color      Never color output
-```
-
-Starting one is [`init`](#init) with the built-in `lib` template:
-
-```text [nupp init lib string-tools]
-Created string-tools from built-in template lib
-
-Next:
-  cd string-tools
-  nupp check
-  nupp test
-```
-
-The rock keeps its hyphens and the module drops them, since the module name is
-what `require` is given:
-
-```text
- string-tools/
- ├── nupp.lua
- ├── string-tools-dev-1.rockspec
- ├── src/
- │   └── stringtools.nupp
- ├── nupp/
- │   └── stringtools.d.nupp
- └── tests/
-     └── run.lua
-```
-
-See [LuaRocks](../learn/projects/integrations/luarocks.md) for the declaration's contents and for
-publishing one.
-
 ### `lsp`
 
 ```text [nupp lsp --help]
@@ -2441,7 +2381,6 @@ Commands:
   import-c         Generate typed Nupp bindings from a C header.
   migrate          Migrates annotated Lua or retired serialization APIs.
   export-c         Export canonical C declarations for Nupp structs.
-  rock             Package and check typed LuaRocks libraries.
   lsp              Language-server and semantic source operations.
   version          Print the compiler version.
   help             Show general or command-specific help.

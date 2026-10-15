@@ -351,7 +351,7 @@ change visible in version control.
 
 A type dependency does not install a runtime package. If the host provides a
 global, the definition merely describes that global. If the program needs an
-ordinary Lua module at runtime, obtain it through the host, [LuaRocks](luarocks.md),
+ordinary Lua module at runtime, obtain it through the host, a `luarocks` dependency,
 or the project's own deployment process.
 
 The provider is intentionally generic: future readers can use the same

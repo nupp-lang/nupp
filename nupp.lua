@@ -117,7 +117,6 @@ local TEMPLATE_FILES = {
     "love/src/main.nupp",
     "love/template.lua",
     "love/tests/gametest.nupp",
-    "lib/${name}-dev-1.rockspec",
     "lib/nupp.lua",
     "lib/nupp/${moduleName}.d.nupp",
     "lib/src/${moduleName}.nupp",

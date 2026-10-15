@@ -60,7 +60,6 @@ function Root.subcommands(): {cliModule.CommandType}
         require("nupp.tools.cli.importc").commandType,
         require("nupp.tools.cli.migrate").commandType,
         require("nupp.tools.cli.exportc").commandType,
-        require("nupp.tools.cli.rock").commandType,
         require("nupp.tools.cli.lsp").commandType,
         require("nupp.tools.cli.version").commandType,
         Help,

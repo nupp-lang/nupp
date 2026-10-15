@@ -11,7 +11,6 @@ changing the host's execution model.
 
 | Integration | Status | What it covers |
 | --- | --- | --- |
-| [LuaRocks](luarocks.md) | Available | Typed libraries, dependencies, packing, and publication. |
 | [LuaCATS](luacats.md) | Available | Project annotations and pinned, checker-only API definitions. |
 | [LÖVE](love.md) | Available | A LuaJIT-compatible game project with the full LÖVE API surface. |
 | Neovim | Planned | A tested host guide and template are not available yet. |
