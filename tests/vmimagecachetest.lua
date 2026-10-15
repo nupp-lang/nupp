@@ -205,6 +205,23 @@ function M.aDependencysInterfaceChangeReachesItsRequirers()
     remove(dir)
 end
 
+-- The checker asks the carried modules about names a project file also provides:
+-- `nupp`, beside a project's own `nupp.lua`, is one. Such a name is still the same
+-- name in the next process, and an entry that recorded it must still be believed.
+function M.aCarriedLookupOfAProjectNameStillHits()
+    local dir = project()
+    local main = dir .. "/main.nupp"
+    local env = environment(dir)
+    assert(env.bundled["lib"] == false, "nothing carries lib")
+    assert(compile.image(main, env, nil), "the program compiled")
+    env = environment(dir)
+    assert(env.bundled["lib"] == false, "nothing carries lib")
+    local before = snapshot()
+    compile.image(main, env, nil)
+    assert(delta(before, "hits") == 1, "the same lookups in the next process must hit")
+    remove(dir)
+end
+
 function M.aFileThatNowShadowsADependencyMisses()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"src"}}\n',

@@ -47,7 +47,7 @@ local envMod = require("nupp.compiler.project.env")
 local imagecache = {}
 
 --- Bumped when an entry's shape or meaning changes.
-const FORMAT = "vm-image/1"
+const FORMAT = "vm-image/2"
 
 --- Where the entries live under a store directory.
 const DIRECTORY = "vm-images"
@@ -195,10 +195,15 @@ local function fileDigest(env: any, path: string, digest: function(string): stri
 end
 
 --- What the environment has loaded, as rows to compare against later: each module
---- read from a file as `{name, path, digest}`, and each name answered by the
---- compiler's carried modules, or by nothing, as `{name, resource, digest}` with empty
---- strings for nothing. Nil when something there is not a finished load this can
---- describe.
+--- read from a file as `{name, path, digest}`, and each name the carried modules were
+--- asked for as `{name, resource, digest, path}`, with empty strings where nothing
+--- was carried and where no file provides the name. Nil when something there is not a
+--- finished load this can describe.
+---
+--- The path is what the name resolves to now, not nil: a carried lookup is not only a
+--- module load's fallback, and the checker asks for names a project file also
+--- provides -- `nupp`, beside a project's `nupp.lua`. What has to hold later is that
+--- the name means what it meant.
 local function loadedRows(env: any, digest: function(string): string): ({{string}}?, {{string}}?)
     local modules: {{string}} = {}
     for name, record in pairs(env.loaded as {[string]: any}) do
@@ -210,14 +215,15 @@ local function loadedRows(env: any, digest: function(string): string): ({{string
     end
     local carried: {{string}} = {}
     for name, record in pairs(env.bundled as {[string]: any}) do
+        local resolved = envMod.resolvedModulePath(env, name) or ""
         if record == false then
-            carried[#carried + 1] = {name, "", ""}
+            carried[#carried + 1] = {name, "", "", resolved}
         elseif type(record) == "table"
             and not record.inProgress
             and type(record.resource) == "string"
             and type(record.source) == "string"
         then
-            carried[#carried + 1] = {name, record.resource, digest(record.source)}
+            carried[#carried + 1] = {name, record.resource, digest(record.source), resolved}
         else
             return nil, nil
         end
@@ -258,7 +264,7 @@ local function wellFormed(value: any): boolean
         and type(value.image) == "string"
         and type(value.project) == "string"
         and rows(value.modules, 3)
-        and rows(value.carried, 3)
+        and rows(value.carried, 4)
 end
 
 --- Whether everything an entry recorded reading still reads the same.
@@ -274,9 +280,10 @@ local function current(env: any, value: any, digest: function(string): string): 
     end
     local bundled: any = nil
     for _, row in ipairs(value.carried as {{string}}) do
-        local name, resource, recorded = row[1], row[2], row[3]
-        -- A project file now providing the name would be loaded instead.
-        if envMod.resolvedModulePath(env, name) ~= nil then
+        local name, resource, recorded, resolved = row[1], row[2], row[3], row[4]
+        -- A file now providing the name, or no longer providing it, changes what
+        -- a load of it answers.
+        if (envMod.resolvedModulePath(env, name) or "") ~= resolved then
             return false
         end
         if resource ~= "" then

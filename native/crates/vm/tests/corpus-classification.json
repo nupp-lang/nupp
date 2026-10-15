@@ -1502,6 +1502,12 @@
       "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
     },
     {
+      "suite": "vmimagecachetest",
+      "class": "port-required",
+      "facilities": "load,getinfo,spawn",
+      "reason": "loads the built Lua tree's fingerprint module under a source chunk name to stand in for an image"
+    },
+    {
       "suite": "withsuspensiontest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
