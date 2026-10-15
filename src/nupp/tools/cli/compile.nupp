@@ -350,7 +350,9 @@ end
 --- requires a large standard module from checking it again in every run.
 function compile.image(path: string, env: table, moduleName: string?, collected: {any}?): string?
     local source = fs.readFile(path)
-    local cached = source and require("nupp.compiler.vm.imagecache").open(env, path, moduleName, source) or nil
+    local cached = source and require("nupp.compiler.vm.imagecache").open(env, path, moduleName, source, {
+        "nupp.tools.cli.compile"
+    }) or nil
     if cached then
         local image = cached.lookup()
         if image then

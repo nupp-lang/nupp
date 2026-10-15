@@ -82,23 +82,24 @@ local function storeDirectory(env: any): string
     return (env.cacheDir or (envMod.outDir(env) .. "/cache")) .. "/" .. DIRECTORY
 end
 
--- Per store directory: the stamp reads the compiler's own tree once a process.
+-- Per store directory and producer: the stamp reads the compiler's own tree once a
+-- process.
 local stampMemo: {[string]: string} = {}
 
-local function stampFor(env: any, digest: function(string): string): string
+local function stampFor(env: any, producers: {string}, digest: function(string): string): string
     local directory = env.cacheDir or (envMod.outDir(env) .. "/cache")
-    local remembered = stampMemo[directory]
+    local roots: {string} = {"nupp.compiler.check", "nupp.compiler.vm.lower", "nupp.compiler.vm.imagecache"}
+    for _, producer in ipairs(producers) do
+        roots[#roots + 1] = producer
+    end
+    local memoKey = directory .. "\0" .. table.concat(roots, "\0")
+    local remembered = stampMemo[memoKey]
     if remembered then
         return remembered
     end
-    local code = fingerprint.subsystemFingerprint(
-        {"nupp.compiler.check", "nupp.compiler.vm.lower", "nupp.compiler.vm.imagecache", "nupp.tools.cli.compile"},
-        directory,
-        digest,
-        env.cacheReadOnly
-    )
+    local code = fingerprint.subsystemFingerprint(roots, directory, digest, env.cacheReadOnly)
     local stamp = digest(FORMAT .. "\0" .. code .. "\0" .. fingerprint.declarationFingerprint(digest))
-    stampMemo[directory] = stamp
+    stampMemo[memoKey] = stamp
 
     return stamp
 end
@@ -301,7 +302,11 @@ end
 --- The cache entry for compiling `path`, read as `source`, into `env` as module
 --- `name` (nil for a program's entry), or nil when this environment keeps nothing
 --- between commands.
-function imagecache.open(env: any, path: string, name: string?, source: string): imagecache.Entry?
+---
+--- @param producers the modules outside the compiler that decide the image beside
+---   the checker and the lowering -- the caller that drives them -- named here
+---   because the compiler may not name the tools built on it
+function imagecache.open(env: any, path: string, name: string?, source: string, producers: {string}?): imagecache.Entry?
     if env.cacheDisabled or env.memoryOnly then
         return nil
     end
@@ -312,7 +317,7 @@ function imagecache.open(env: any, path: string, name: string?, source: string):
     end
     local digest = contentDigest(env)
     local file = storeDirectory(env) .. "/" .. keyFor(env, path, name, source, digest) .. ".buf"
-    local stamp = stampFor(env, digest)
+    local stamp = stampFor(env, producers or {}, digest)
     local stats = imagecache.stats
 
     local function lookup(): string?
