@@ -14,6 +14,26 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
 # Pin the selected immutable generation in the environment before any child can
 # start, so replacing `current` cannot mix compiler generations in one command.
+# A checkout with no VM CLI yet builds one when a VM stage-zero image is pinned:
+# the image lowers these sources on a runtime built from them, once more by
+# themselves, and the result is installed (`scripts/vm-cli build --seed-image`).
+# Concurrent commands wait for the one building. Without an image pin this
+# falls through to the LuaJIT path below, as it always has.
+if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] \
+    && [ ! -e "$ROOT/.nupp/vm-cli/current" ] \
+    && grep -q '^STAGE0_IMAGE_SHA256=..*' "$ROOT/scripts/toolchain.pins" 2>/dev/null; then
+    mkdir -p "$ROOT/.nupp"
+    if mkdir "$ROOT/.nupp/vm-cli-bootstrap.lock" 2>/dev/null; then
+        echo "nupp: no VM compiler in this checkout; building one from the pinned stage zero" >&2
+        seed=$("$ROOT/scripts/toolchain" stage0-image) \
+            && python3 "$ROOT/scripts/vm-cli" build --seed-image "$seed" >&2
+        bootstrap_status=$?
+        rm -rf "$ROOT/.nupp/vm-cli-bootstrap.lock"
+        [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"
+    else
+        while [ -d "$ROOT/.nupp/vm-cli-bootstrap.lock" ]; do sleep 2; done
+    fi
+fi
 # NUPP_ENGINE=luajit skips it, which is how `scripts/vm-cli build --seed luajit`
 # reaches the LuaJIT-built compiler in a checkout that has both.
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
