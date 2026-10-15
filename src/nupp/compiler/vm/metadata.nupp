@@ -797,11 +797,13 @@ local function storageDescriptor(call)
     })
 end
 
-function metadata.expand(root)
+function metadata.expand(root, moduleName: string?)
     local seen = {}
     local managed = false
     local reflects = false
     local effects = {}
+    local qualified: {[string]: boolean} = {}
+    local qualifiedOrder: {string} = {}
     local links = witnesses(root)
 
     local function replaceCall(current, replacement)
@@ -841,6 +843,11 @@ function metadata.expand(root)
         end
         seen[current] = true
         managed = managed or current.requiresManagedRuntime == true
+        local namespace = (current.kind == "name" or current.kind == "dotIndex") and current.qualifiedModule
+        if namespace and namespace ~= moduleName and not qualified[namespace] then
+            qualified[namespace] = true
+            qualifiedOrder[#qualifiedOrder + 1] = namespace
+        end
         if current.compilerFeatureEffect then
             effects[current.compilerFeatureEffect] = true
         end
@@ -952,6 +959,16 @@ function metadata.expand(root)
         table.insert(block.stats, 1, install)
         block[#block + 1] = install
         root.vmManagedRuntime = true
+    end
+    -- A module a qualified namespace reaches loads with this one, as the Lua
+    -- backend's hoisted require loaded it, rather than at its first use.
+    if not root.vmQualifiedRequires then
+        local block = root.blocks[1]
+        for index, namespace in ipairs(qualifiedOrder) do
+            local statement: any = node("callStmt", {expr = required(namespace)})
+            table.insert(block.stats as {any}, index, statement)
+        end
+        root.vmQualifiedRequires = true
     end
     -- The PEG runtime, `re` and the field codec are installed as the Lua
     -- backend's bootstrap installed them, as module-level statements whose

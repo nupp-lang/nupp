@@ -5682,7 +5682,7 @@ function lower.emit(
             moduleCoverage = require("nupp.compiler.coverage").enumerate(rootNode, reportPath)
             request.manifests[name] = moduleCoverage.manifest
         end
-        require("nupp.compiler.vm.metadata").expand(rootNode)
+        require("nupp.compiler.vm.metadata").expand(rootNode, name)
         -- Lua's string and table call forms are single arguments too. Keep the
         -- parser's nodes so source positions and checked identities survive.
         walkSyntax(rootNode, {}, function(node)
