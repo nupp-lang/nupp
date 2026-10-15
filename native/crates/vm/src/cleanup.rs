@@ -253,7 +253,9 @@ impl Interp {
                     _ => {}
                 }
                 self.tasks[tid].cleanups.pop();
-            } else if c.callback.as_builtin().is_some() {
+            } else if c.callback.as_func().is_none() && self.kind_of(c.callback) != Some(crate::heap::KIND_CLOSURE) {
+                // A builtin, a bound C function or any other callable that is not a
+                // bytecode function cannot be a task entry: it runs in place.
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.call_value(c.callback, &[c.value])
                 }));
@@ -307,6 +309,11 @@ impl Interp {
             self.handles.push(v);
             put(self, v, "primary", primary);
             put(self, v, "suppressed", suppressed);
+            // It prints as the primary failure followed by each suppressed one.
+            let meta = self.new_table();
+            self.handles.push(meta);
+            put(self, meta, "__tostring", Value::builtin(crate::builtins::id_of("cleanup.describe").unwrap()));
+            self.set_metatable(v, meta);
             v
         };
         self.close_scope(roots);

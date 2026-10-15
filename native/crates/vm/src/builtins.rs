@@ -80,7 +80,7 @@ pub const NAMES: &[&str] = &[
     "vm.imageModules",
     "foreign.load", "foreign.invokeCallback", "foreign.string",
     "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
-    "table.new",
+    "table.new", "cleanup.describe",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -637,7 +637,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
-        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new")
+        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
@@ -1047,6 +1047,20 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 return outs![Value::num(v)];
             }
             if *name == "math.random" || *name == "math.randomseed" { return random(it, name, args); }
+            // A body failure and the cleanup failures it suppressed, as one message.
+            if *name == "cleanup.describe" {
+                let failure = arg(args, 0);
+                let key = it.intern("primary"); let primary = it.get_index(failure, key);
+                let mut text = tostring(it, primary);
+                let key = it.intern("suppressed"); let suppressed = it.get_index(failure, key);
+                for i in 1.. {
+                    let v = it.get_index(suppressed, Value::num(i as f64));
+                    if v == Value::NIL { break; }
+                    text.extend_from_slice(b"\ncleanup: ");
+                    text.extend(tostring(it, v));
+                }
+                return outs![it.string_of(&text)];
+            }
             // LuaJIT's `table.new(narray, nhash)`: an empty table sized for both parts.
             if *name == "table.new" {
                 let count = |v: Value| if v.is_num() && v.as_num() > 0.0 { v.as_num().min(16777216.0) as usize } else { 0 };
@@ -1352,7 +1366,16 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         55 => { let x = arg(args, 0).as_num() as i64 as u32; let n = (arg(args, 1).as_num() as i64 & 31) as u32; outs![Value::num(x.rotate_left(n) as i32 as f64)] }
         56 => { let x = arg(args, 0).as_num() as i64 as u32; let n = (arg(args, 1).as_num() as i64 & 31) as u32; outs![Value::num(x.rotate_right(n) as i32 as f64)] }
         57 => { let x = arg(args, 0).as_num() as i64 as u32; outs![Value::num(x.swap_bytes() as i32 as f64)] }
-        58 => { let x = arg(args, 0).as_num() as i64 as u32; let n = int(args, 1, 8); let s = if n < 0 { format!("{:0width$X}", x, width = (-n) as usize) } else { format!("{:0width$x}", x, width = n as usize) }; let s = &s[s.len().saturating_sub(n.unsigned_abs() as usize)..]; outs![str_of(it, s.as_bytes())] }
+        // bit.tohex as LuaJIT's: a negative width asks for uppercase, and the
+        // width is clipped to 254 digits.
+        58 => {
+            let x = tobit(arg(args, 0).as_num()) as u32;
+            let n = if args.len() > 1 && arg(args, 1) != Value::NIL { tobit(arg(args, 1).as_num()) as i64 } else { 8 };
+            let width = n.unsigned_abs().min(254) as usize;
+            let s = if n < 0 { format!("{:0width$X}", x, width = width) } else { format!("{:0width$x}", x, width = width) };
+            let s = &s[s.len().saturating_sub(width)..];
+            outs![str_of(it, s.as_bytes())]
+        }
         59 => outs![Value::num(arg(args, 0).as_num().ceil())],
         60 => outs![Value::num(arg(args, 0).as_num().sqrt())],
         61 => { let x = arg(args, 0).as_num(); if args.len() > 1 { outs![Value::num(x.ln() / arg(args, 1).as_num().ln())] } else { outs![Value::num(x.ln())] } }
