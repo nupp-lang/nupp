@@ -1,4 +1,4 @@
-module nupp.compiler.lua.methodslots
+module nupp.compiler.check.methodslots
 
 --[[
 Stable runtime names for statically selected method overloads.

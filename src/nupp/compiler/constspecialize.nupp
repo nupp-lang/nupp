@@ -1,4 +1,4 @@
-module nupp.compiler.lua.constspecialize
+module nupp.compiler.constspecialize
 
 --[[
 Finds closed applications of scalar const-generic runtime functions.

@@ -21,7 +21,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local operators = require("nupp.compiler.check.operators")
 local predicate = require("nupp.compiler.types.predicate")
-local methodslots = require("nupp.compiler.lua.methodslots")
+local methodslots = require("nupp.compiler.check.methodslots")
 local state = require("nupp.compiler.check.state")
 
 local declare = {}

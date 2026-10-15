@@ -41,7 +41,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
 local predicate = require("nupp.compiler.types.predicate")
-local switchplan = require("nupp.compiler.lua.switchplan")
+local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local native = require("nupp.compiler.native")
 local capabilities = require("nupp.compiler.capabilities")
@@ -2131,7 +2131,7 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
-        witnessPlan = require("nupp.compiler.lua.typewitness").collect(result.root, result.moduleExports),
+        witnessPlan = require("nupp.compiler.typewitness").collect(result.root, result.moduleExports),
         witnessDescriptions = {},
         plans = {},
         loweredPlans = {},

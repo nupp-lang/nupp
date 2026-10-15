@@ -61,7 +61,7 @@ local getenv = hostOs and hostOs.getenv or function(): nil
 end
 
 local generics = require("nupp.compiler.types.generics")
-local methodslots = require("nupp.compiler.lua.methodslots")
+local methodslots = require("nupp.compiler.check.methodslots")
 local comptime = require("nupp.compiler.comptime")
 local typeblueprint = require("nupp.compiler.types.typeblueprint")
 local reflection = require("nupp.compiler.reflection")

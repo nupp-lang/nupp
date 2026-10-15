@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local switchplan = require("nupp.compiler.lua.switchplan")
+local switchplan = require("nupp.compiler.switchplan")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

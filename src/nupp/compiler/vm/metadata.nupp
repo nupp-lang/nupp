@@ -562,7 +562,7 @@ end
 -- and every record a witness reaches is linked to the declarations its fields
 -- name so `nupp.reflect.runtimeType` can find them.
 local function witnesses(root)
-    local plan = require("nupp.compiler.lua.typewitness").collect(root, root.vmModuleExports)
+    local plan = require("nupp.compiler.typewitness").collect(root, root.vmModuleExports)
     if next(plan.values) == nil and #plan.ordered == 0 then
         return {}
     end

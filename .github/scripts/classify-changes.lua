@@ -28,7 +28,7 @@ local rules = {
     {"^src/nupp/compiler/compilerpacks%.nupp$", {"compiler"}},
     {"^src/nupp/tools/build/project%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/check/aot%.nupp$", {"compiler", "aot"}},
-    {"^src/nupp/compiler/lua/constspecialize%.nupp$", {"compiler"}},
+    {"^src/nupp/compiler/constspecialize%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/scalarintrinsics%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/targetlayout%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/targetprofile%.nupp$", {"compiler"}},

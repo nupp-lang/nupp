@@ -1,4 +1,4 @@
-module nupp.compiler.lua.typewitness
+module nupp.compiler.typewitness
 
 local cst = require("nupp.compiler.syntax.cst")
 local types = require("nupp.compiler.types")

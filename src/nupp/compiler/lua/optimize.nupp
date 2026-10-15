@@ -24,7 +24,7 @@ local inlinefacts = require("nupp.compiler.inlinefacts")
 local viewfacts = require("nupp.compiler.viewfacts")
 local cst = require("nupp.compiler.syntax.cst")
 local checkpoint = require("nupp.compiler.syntax.checkpoint")
-local constspecialize = require("nupp.compiler.lua.constspecialize")
+local constspecialize = require("nupp.compiler.constspecialize")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 
 local optimize = {}

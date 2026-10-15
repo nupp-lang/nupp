@@ -34,7 +34,7 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local deps = require("nupp.tools.build.deps")
 local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progress = require("nupp.tools.build.progress")
-local constspecialize = require("nupp.compiler.lua.constspecialize")
+local constspecialize = require("nupp.compiler.constspecialize")
 local native = require("nupp.compiler.native")
 local moduleTargets = require("nupp.compiler.standardsurface")
 

@@ -1,4 +1,4 @@
-module nupp.compiler.lua.luaformat
+module nupp.compiler.check.luaformat
 
 -- Compiler lowering for the fixed `string.format` directive grammar and Nupp's
 -- `%?` extension. This scanner is compiler-private and needs no PEG runtime.

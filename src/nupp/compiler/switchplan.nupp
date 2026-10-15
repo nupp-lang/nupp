@@ -1,4 +1,4 @@
-module nupp.compiler.lua.switchplan
+module nupp.compiler.switchplan
 
 --[[
 Backend-aware planning for a checked switch expression.

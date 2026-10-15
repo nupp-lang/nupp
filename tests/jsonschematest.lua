@@ -375,7 +375,7 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
         "lsp rename nosuch.nupp 1 1 other",
         "lsp actions nosuch.nupp 1 1",
         "lsp artifacts nosuch.nupp 1 1",
-        "lsp artifact --kind lua nosuch.nupp",
+        "lsp artifact --kind bytecode nosuch.nupp",
         "lsp symbols --file nosuch.nupp",
     }) do
         holdsTheContract(good, argv, {code = "NUPP0001", where = "a project"})

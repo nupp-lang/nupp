@@ -27,7 +27,7 @@ local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local simdbounds = require("nupp.compiler.aot.simdbounds")
 local visit = require("nupp.compiler.aot.visit")
-local switchplan = require("nupp.compiler.lua.switchplan")
+local switchplan = require("nupp.compiler.switchplan")
 local T = require("nupp.compiler.types")
 
 local lower = {}
