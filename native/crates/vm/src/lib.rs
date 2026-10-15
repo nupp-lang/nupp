@@ -33,6 +33,7 @@ mod process;
 mod stdio;
 pub mod verify;
 pub mod image;
+pub mod payload;
 pub mod host;
 pub mod threaded;
 #[cfg(feature = "jit")]

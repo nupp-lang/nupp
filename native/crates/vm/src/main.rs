@@ -135,6 +135,19 @@ fn main() {
     // print each one. The runner reports the one that reaches it.
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
     let mut args: Vec<String> = std::env::args().collect();
+    // A runtime with a program appended is that program. Every argument is the
+    // program's; none is read as a runner control.
+    let mut program = match std::env::current_exe().ok().map(|exe| nupp_vm::payload::read(&exe)) {
+        Some(Ok(found)) => found,
+        Some(Err(problem)) => { eprintln!("{}: {problem}", args.first().map(String::as_str).unwrap_or("nupp")); std::process::exit(1) }
+        None => None,
+    };
+    let stamped = program.is_some();
+    if let Some(found) = &program {
+        let forwarded = args.split_off(1);
+        args.extend(["exec".to_string(), "<appended>".to_string(), found.entry.clone()]);
+        args.extend(forwarded);
+    }
     // An executable entry receives argv as strings and returns the process
     // status. Runner controls never consume the application's arguments.
     let executable = args.get(1).map(String::as_str) == Some("exec");
@@ -173,7 +186,7 @@ fn main() {
         let data = std::fs::read(&args[2]).unwrap_or_else(|e| { eprintln!("checkpoint {}: {e}", args[2]); std::process::exit(1) });
         nupp_vm::persist::load_vm(&data, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("restore: {e}"); std::process::exit(1) })
     } else {
-        let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
+        let text = match program.take() { Some(found) => found.image, None => std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) }) };
         let mut vm = Interp::new();
         image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
         for path in additional_images {
@@ -262,11 +275,14 @@ fn main() {
             let value = it.heap_new_string(argument);
             it.set_index(argv, Value::num((index + 1) as f64), value);
         }
+        // A program's `arg[0]` is the executable, as a script's is its file.
+        if stamped { let value = it.heap_new_string(&args[0]); it.set_index(argv, Value::num(0.0), value); }
         let global = it.require("_G"); let key = it.intern("arg"); it.set_index(global, key, argv);
         Some(argv)
     } else { None };
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
-    let module = if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else {
+    // A program is its entry module's body, run on a task so it may suspend.
+    let module = if stamped { Value::NIL } else if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.require(&args[3]))) {
             Ok(module) => module,
             Err(payload) => {
@@ -278,10 +294,14 @@ fn main() {
         }
     };
     if let Some(name) = &setup { let k = it.intern(name); let sf = it.get_index(module, k); let t = it.spawn_closure(sf, &[]); drive(&mut it, &[t]); it.tasks.truncate(t); }
-    let k = it.intern(&args[4]); let f = it.get_index(module, k);
+    let f = if stamped {
+        match it.modules.get(&args[3]) { Some(&fid) => Value::func(fid), None => { eprintln!("the program image has no module {}", args[3]); std::process::exit(1) } }
+    } else { let k = it.intern(&args[4]); it.get_index(module, k) };
     if f == Value::NIL { eprintln!("{}.{} is nil", args[3], args[4]); std::process::exit(1); }
     let mut call_args: Vec<Value> = Vec::new();
-    if let Some(argv) = argv { call_args.push(argv); }
+    if stamped {
+        for argument in &call_args_text { let value = it.heap_new_string(argument); it.registered.push(value); call_args.push(value); }
+    } else if let Some(argv) = argv { call_args.push(argv); }
     for a in call_args_text.iter().filter(|_| !executable) {
         let v = if let Some(p) = a.strip_prefix('@') { let s = std::fs::read_to_string(p).unwrap_or_else(|e| { eprintln!("{p}: {e}"); std::process::exit(1) }); it.heap_new_string(&s) }
             else if let Ok(n) = a.parse::<f64>() { Value::num(n) } else { it.heap_new_string(a) };
@@ -299,6 +319,7 @@ fn main() {
                 match it.scheduler.as_ref().unwrap().status(task).unwrap() {
                     nupp_vm::scheduler::Status::Completed => break,
                     nupp_vm::scheduler::Status::Active => {},
+                    nupp_vm::scheduler::Status::Failed(message) if stamped => { eprintln!("{message}"); std::process::exit(1); }
                     status => { eprintln!("task: {status:?}"); std::process::exit(1); }
                 }
                 if it.tasks.iter().any(|t| t.state == State::Runnable) { continue; }
@@ -335,7 +356,8 @@ fn main() {
     let outs = run_once(&mut it);
     let first_s = cpu_now() - t1;
     if executable {
-        let status = outs.first().copied().unwrap_or(Value::NIL);
+        // A program that returns from its body has succeeded; `os.exit` is how one says otherwise.
+        let status = if stamped { Value::num(0.0) } else { outs.first().copied().unwrap_or(Value::NIL) };
         if !status.is_num() || !status.as_num().is_finite() || status.as_num().fract() != 0.0 || !(0.0..=255.0).contains(&status.as_num()) {
             eprintln!("{}.main must return an exit status from 0 to 255", args[3]);
             it.heap.emit_allocation_metrics("cli-invalid-status");
