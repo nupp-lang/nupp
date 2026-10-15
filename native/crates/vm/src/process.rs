@@ -49,7 +49,8 @@ fn options(vm: &mut Interp, value: Value) -> native::SpawnOptions {
             .collect()
     };
     let cwd = field(vm, value, "cwd");
-    let cwd = (cwd != Value::NIL).then(|| OsString::from(text(vm, cwd)));
+    // A working directory may be a path value, which names itself through tostring.
+    let cwd = (cwd != Value::NIL).then(|| if vm.is_stringish(cwd) { OsString::from(text(vm, cwd)) } else { OsString::from(String::from_utf8_lossy(&crate::builtins::tostring(vm, cwd)).into_owned()) });
     let clear_env = field(vm, value, "clearEnv").truthy();
     let modes = ["stdin", "stdout", "stderr"].map(|name| {
         let mode = field(vm, value, name);
