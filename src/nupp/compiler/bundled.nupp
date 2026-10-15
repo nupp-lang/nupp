@@ -168,9 +168,14 @@ function bundled.source(relative: string): string?
     carried = readFile(moduleDir() .. relative)
     if carried ~= nil then
         noteStale(relative, carried)
+        return carried
     end
+    -- A compiler running from `src` itself, as an image lowered from the
+    -- checkout does, finds what a build would have carried where the build
+    -- copies it from.
+    local checkout = moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")
 
-    return carried
+    return checkout and readFile(sourcePath(checkout, relative)) or nil
 end
 
 --- The directory the compiled compiler modules were loaded from.

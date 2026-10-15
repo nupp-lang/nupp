@@ -1437,9 +1437,9 @@
     },
     {
       "suite": "tlstest",
-      "class": "portable",
-      "facilities": "getinfo,spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "port-required",
+      "facilities": "load,getinfo,spawn",
+      "reason": "loads generated Lua to run a program; runs the image instead"
     },
     {
       "suite": "toolchaintest",
