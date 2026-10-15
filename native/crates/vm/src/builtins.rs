@@ -92,6 +92,13 @@ fn literal_chunk(src: &[u8]) -> Option<Lit> {
     if neg { return None; }
     lua_string(rest).map(Lit::Str)
 }
+/// A numeric string as Lua's arithmetic reads it, or None.
+pub(crate) fn coerce_number(it: &Interp, v: Value) -> Option<f64> {
+    if !it.is_stringish(v) { return None; }
+    let s = String::from_utf8_lossy(it.bytes_of(v)).trim().to_string();
+    let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) };
+    lua_number(body).map(|x| if negative { -x } else { x })
+}
 fn lua_number(s: &str) -> Option<f64> {
     if s.is_empty() { return None; }
     if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {

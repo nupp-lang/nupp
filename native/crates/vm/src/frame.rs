@@ -87,9 +87,11 @@ impl Interp {
         self.compiled_frame_entries += 1;
         let previous_task = std::mem::replace(&mut self.native_task, tid);
         let previous_exit = self.native_exit.take();
+        self.native_frame_depth += 1;
         let next = unsafe {
             std::mem::transmute::<u64, extern "C" fn(*mut u64, usize) -> u64>(entry)(header, pc)
         };
+        self.native_frame_depth -= 1;
         self.native_task = previous_task;
         let exit = std::mem::replace(&mut self.native_exit, previous_exit);
         if next == u64::MAX {

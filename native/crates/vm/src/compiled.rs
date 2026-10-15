@@ -149,7 +149,10 @@ pub extern "C" fn j_frame_poll() -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn j_frame_step(pc: u64) -> u64 {
     let it = ctx();
-    it.guarded(|it| {
+    // A boundary operation steps interpreted, its frame's pc and registers
+    // current, so positions and operand names are exact while it runs.
+    let depth = std::mem::replace(&mut it.native_frame_depth, 0);
+    let status = it.guarded(|it| {
         let tid = it.native_task;
         let pc = pc as usize;
         if let Some(left) = it.instruction_budget.as_mut() {
@@ -166,7 +169,9 @@ pub extern "C" fn j_frame_step(pc: u64) -> u64 {
             crate::interp::Step::Next(next) => { assert_eq!(next, pc + 1); V(0) }
             exit => { it.native_exit = Some(exit); V(1) }
         }
-    }).0
+    }).0;
+    it.native_frame_depth = depth;
+    status
 }
 
 // ---- runtime helpers --------------------------------------------------------

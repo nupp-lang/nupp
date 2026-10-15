@@ -326,6 +326,10 @@ pub enum State { Runnable, Parked(u64), Done }
 #[derive(Clone, Copy)]
 pub struct Cleanup { pub frame: usize, pub value: Value, pub callback: Value }
 
+/// The operations whose operand types Lua checks, for `Interp::op_error`.
+#[derive(Clone, Copy)]
+pub(crate) enum OpErr { Index, Call, Arith, Concat, Len }
+
 /// A protected call that spans frames: `frame` is the callee's (or the
 /// caller's, while it waits on a host request), `result` the caller register
 /// that takes the status and then the results. `handler` is xpcall's message
@@ -471,6 +475,10 @@ pub struct Interp {
     pub(crate) native_task: usize,
     pub(crate) native_exit: Option<Step>,
     pub compiled_frame_entries: u64,
+    /// Compiled frame activations running natively: their frame's pc and
+    /// registers are current only at boundary operations, which step with
+    /// this lowered again.
+    pub(crate) native_frame_depth: usize,
     pub worker_compiled_entries: u64,
     pub worker_compile_micros: u128,
     pub(crate) supervised: crate::supervision::Registry,
@@ -568,7 +576,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -870,7 +878,8 @@ impl Interp {
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
-            let h = hdr!(self, callee, &format!("call_value of a non-function {:#x}", callee.0));
+            let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
+            let h = unsafe { &*p.as_ptr() };
             match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE | KIND_RECORD => { let f = self.call_handler(callee); if f == Value::NIL { self.err("call of a table without __call") } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
         let entry = self.entry_of(fid);
@@ -916,17 +925,19 @@ impl Interp {
     pub fn resolve_method(&mut self, recv: Value, name: Value) -> Value {
         if let Some(method) = crate::simd_reduce::method(self, recv, name) { return method; }
         if self.kind_of(recv)==Some(KIND_CLOSURE) && self.bytes_of(name)==b"__nuppRelease" { return Value::builtin(crate::builtins::id_of("affine.release").unwrap()); }
-        let h = hdr!(self, recv, "method call on a non-object");
+        let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
+        let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
         if h.kind == KIND_RECORD || h.kind == KIND_TABLE || h.kind == KIND_USERDATA { let v = self.index(recv, name); if v != Value::NIL { return v; } }
-        self.err(&format!("no such method {}", String::from_utf8_lossy(self.bytes_of(name))))
+        self.op_error(OpErr::Call, Value::NIL)
     }
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
         let recv = args[0];
-        let h = hdr!(self, recv, "method call on a non-object");
+        let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
+        let h = unsafe { &*p.as_ptr() };
         if h.is_stringish() {
             let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
-            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
+            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.op_error(OpErr::Call, Value::NIL));
             return crate::builtins::call(self, id, args).to_vec();
         }
         let method = self.resolve_method(recv, name);
@@ -1343,14 +1354,15 @@ impl Interp {
                 match self.heap.integer_key(i.bits) { Some(k) => k, None => return Value::NIL }
             } else { key }
         } else { key };
-        let h = hdr!(self, tv, "index of a non-table");
+        let Some(p) = tv.as_obj() else { self.op_error(OpErr::Index, tv) };
+        let h = unsafe { &*p.as_ptr() };
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { let i = match h.kind { KIND_TABLE => if key.is_num() { 0 } else { 1 }, KIND_RECORD => if key.is_num() { 2 } else { 3 }, _ => 4 }; TABLE_COUNTS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if h.kind == KIND_TABLE && !key.is_num() { let n = h.table_ref().hash.len(); let b = if n == 0 { 5 } else if n <= 4 { 6 } else if n <= 16 { 7 } else if n <= 64 { 8 } else { 9 }; TABLE_COUNTS[b].fetch_add(1, std::sync::atomic::Ordering::Relaxed); } }
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= t.array.len() && n.fract() == 0.0 { return t.array[n as usize - 1]; } } *t.hash.get(&key).unwrap_or(&Value::NIL) }
             KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { return a[n as usize - 1]; } } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
             // A userdata has no fields of its own: reads go to `__index`.
             KIND_USERDATA => Value::NIL,
-            _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
+            _ => self.op_error(OpErr::Index, tv),
         }
     }
     /// An index read whose key may be a slice: by content, then as `get_index`.
@@ -1359,7 +1371,9 @@ impl Interp {
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { TABLE_COUNTS[if iv.is_num() { 10 } else { 11 }].fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         let scope = self.open_scope(); self.handles.extend_from_slice(&[tv, iv, v]);
         let iv = self.key_for_store(iv); self.close_scope(scope);
-        let p = tv.as_obj().unwrap_or_else(|| self.err("index of a non-table"));
+        let Some(p) = tv.as_obj() else { self.op_error(OpErr::Index, tv) };
+        if iv == Value::NIL { self.lua_error("table index is nil"); }
+        if iv.is_num() && iv.as_num().is_nan() { self.lua_error("table index is NaN"); }
         self.heap.barrier(p, iv);
         self.heap.barrier(p, v);
         let h = unsafe { &mut *p.as_ptr() };
@@ -1530,7 +1544,7 @@ impl Interp {
             Some(kind @ (KIND_TABLE | KIND_RECORD | KIND_USERDATA)) => {
                 let handler = self.meta_field(value, "__len");
                 if handler == Value::NIL {
-                    if kind == KIND_USERDATA { self.err("attempt to get length of a userdata value"); }
+                    if kind == KIND_USERDATA { self.op_error(OpErr::Len, value); }
                     return Value::num(self.array_len(value) as f64);
                 }
                 let scope = self.open_scope();
@@ -1548,7 +1562,7 @@ impl Interp {
                 match result { Ok(value) => value, Err(error) => std::panic::resume_unwind(error) }
             }
             Some(KIND_STR | KIND_SLICE) => Value::num(self.bytes_of(value).len() as f64),
-            _ => self.err("length of a non-object"),
+            _ => self.op_error(OpErr::Len, value),
         }
     }
     /// The function behind a callable table (`__call`), or nil.
@@ -1557,7 +1571,7 @@ impl Interp {
     pub fn set_field(&mut self, t: Value, name: Value, v: Value) { self.set_index(t, name, v) }
     /// Named bytecode writes preserve record slot contracts; rawset stays raw.
     pub(crate) fn store_field(&mut self, tv: Value, name: Value, v: Value) {
-        let p = tv.as_obj().unwrap_or_else(|| self.err("field of a non-object"));
+        let Some(p) = tv.as_obj() else { self.op_error(OpErr::Index, tv) };
         if self.metatable_of(tv) != Value::NIL { self.newindex(tv, name, v); return; }
         let h = unsafe { p.as_ref() };
         match h.kind {
@@ -1569,7 +1583,7 @@ impl Interp {
                     if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
                 }
             }
-            _ => self.err("field of a non-object"),
+            _ => self.op_error(OpErr::Index, tv),
         }
         // Includes key/value barriers, schema invalidation, and resize accounting.
         self.set_index(tv, name, v);
@@ -1641,7 +1655,7 @@ impl Interp {
             }
         }
         let mut joined: Vec<u8> = Vec::new();
-        for v in [x, y] { if let Some(i) = crate::numeric::integer(v) { joined.extend_from_slice(i.magnitude().to_string().as_bytes()); } else if v.is_num() { joined.extend_from_slice(crate::builtins::num_text(v.as_num()).as_bytes()); } else if self.is_stringish(v) { joined.extend_from_slice(self.bytes_of(v)); } else { self.err("concatenate a non-string") } }
+        for v in [x, y] { if let Some(i) = crate::numeric::integer(v) { joined.extend_from_slice(i.magnitude().to_string().as_bytes()); } else if v.is_num() { joined.extend_from_slice(crate::builtins::num_text(v.as_num()).as_bytes()); } else if self.is_stringish(v) { joined.extend_from_slice(self.bytes_of(v)); } else { self.op_error(OpErr::Concat, v) } }
         self.string_of(&joined)
     }
 
@@ -1697,6 +1711,89 @@ impl Interp {
         let line = self.funcs.get(fid)?.debug.get(pc.saturating_sub(1))?.0;
         Some((fid, line))
     }
+    /// Raises a runtime error as Lua words it: the innermost interpreted
+    /// frame's `chunk:line:` before the message. A frame running compiled
+    /// code has no exact pc, and a compiled caller no frame; neither prefixes.
+    pub(crate) fn lua_error(&self, msg: &str) -> ! {
+        if std::env::var_os("TRACE_ERRORS").is_some() {
+            eprintln!("raising: {msg}");
+            if let Some(tid) = self.caller_task() { eprint!("{}", self.backtrace(tid)); }
+        }
+        let site = if self.native_frame_depth == 0 { self.caller_line(0) } else { None };
+        let text = match site { Some((fid, line)) if line != 0 => format!("{}:{}: {}", self.chunk_id(fid), line, msg), _ => msg.to_string() };
+        std::panic::panic_any(text)
+    }
+    /// An operation on a value of the wrong type, worded as LuaJIT words it:
+    /// `attempt to index field 'a' (a nil value)`, naming the operand where
+    /// the instruction that loaded it says what it was.
+    pub(crate) fn op_error(&self, kind: OpErr, culprit: Value) -> ! {
+        let ty = crate::builtins::type_name(self, culprit);
+        let verb = match kind { OpErr::Index => "index", OpErr::Call => "call", OpErr::Arith => "perform arithmetic on", OpErr::Concat => "concatenate", OpErr::Len => "get length of" };
+        let msg = match self.culprit_name(kind, culprit) {
+            Some(name) => format!("attempt to {verb} {name} (a {ty} value)"),
+            None => format!("attempt to {verb} a {ty} value"),
+        };
+        self.lua_error(&msg)
+    }
+    /// What the failing instruction's operand holding `culprit` was loaded
+    /// as: a global, a field or a method, as LuaJIT's slot naming answers.
+    /// Locals and upvalues have no names in an image, so they go unnamed.
+    fn culprit_name(&self, kind: OpErr, culprit: Value) -> Option<String> {
+        if self.native_frame_depth != 0 { return None; }
+        let tid = self.caller_task()?;
+        let t = &self.tasks[tid];
+        if t.stack.is_empty() { return None; }
+        let s = t.cur;
+        let h0 = t.stack[s];
+        let (fid, next) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
+        let f = self.funcs.get(fid)?;
+        let pc = next.checked_sub(1)?;
+        let op = *f.code.get(pc)?;
+        if let (OpErr::Call, Op::CallMethod(k, _, _)) = (kind, op) {
+            return self.const_text(f, k as usize).map(|name| format!("method '{name}'"));
+        }
+        let (_, uses) = crate::verify::defs_uses(&op);
+        let window = t.stack.get(s + HDR..s + HDR + f.nregs as usize + 1)?;
+        let reg = uses.iter().find(|(c, r)| matches!(c, crate::verify::C::V) && window.get(*r as usize) == Some(&culprit.0))?.1;
+        self.register_name(f, pc, reg)
+    }
+    fn const_text(&self, f: &Function, k: usize) -> Option<String> {
+        let v = *f.consts.get(k)?;
+        self.is_stringish(v).then(|| String::from_utf8_lossy(self.bytes_of(v)).into_owned())
+    }
+    /// The instruction before `pc` on the same source line that wrote `reg`.
+    fn register_writer(f: &Function, pc: usize, reg: u8) -> Option<usize> {
+        let line = f.debug.get(pc).map(|d| d.0);
+        for i in (pc.saturating_sub(64)..pc).rev() {
+            if f.debug.get(i).map(|d| d.0) != line { return None; }
+            let (defs, _) = crate::verify::defs_uses(&f.code[i]);
+            if defs.iter().any(|(c, r)| matches!(c, crate::verify::C::V) && *r == reg) { return Some(i); }
+        }
+        None
+    }
+    fn register_name(&self, f: &Function, pc: usize, reg: u8) -> Option<String> {
+        let mut at = Self::register_writer(f, pc, reg)?;
+        // Temporaries a statement moves between registers keep their name.
+        while let Op::Move(_, from) = f.code[at] { at = Self::register_writer(f, at, from)?; }
+        match f.code[at] {
+            Op::GetField(_, o, k) => {
+                let name = self.const_text(f, k as usize)?;
+                // The globals table: `_G` as the lowering requires it, or a
+                // source chunk's environment cell's value.
+                let global = Self::register_writer(f, at, o).is_some_and(|w| match f.code[w] {
+                    Op::Require(_, k) => self.const_text(f, k as usize).as_deref() == Some("_G"),
+                    Op::GetField(_, c, k) => self.const_text(f, k as usize).as_deref() == Some("value") && Self::register_writer(f, w, c).is_some_and(|g| matches!(f.code[g], Op::GetCell(..))),
+                    _ => false,
+                });
+                Some(if global { format!("global '{name}'") } else { format!("field '{name}'") })
+            }
+            Op::GetSlot(_, _, slot, shape) | Op::GetSlotF(_, _, slot, shape) => {
+                let name = *self.heap.shapes.get(shape as usize)?.names.get(slot as usize)?;
+                self.is_stringish(name).then(|| format!("field '{}'", String::from_utf8_lossy(self.bytes_of(name))))
+            }
+            _ => None,
+        }
+    }
     /// `x < y` (or `x <= y`) past the number fast path: strings by their
     /// bytes, then the shared `__lt`/`__le` handler as Lua 5.1 finds it, with
     /// `a <= b` falling back to `not (b < a)`.
@@ -1714,7 +1811,7 @@ impl Interp {
             if swapped != Value::NIL { return Value::boolean(!self.call_value(swapped, &[y, x]).first().is_some_and(|v| v.truthy())); }
         }
         let (a, b) = (crate::builtins::type_name(self, x), crate::builtins::type_name(self, y));
-        if a == b { self.err(&format!("attempt to compare two {a} values")) } else { self.err(&format!("attempt to compare {a} with {b}")) }
+        if a == b { self.lua_error(&format!("attempt to compare two {a} values")) } else { self.lua_error(&format!("attempt to compare {a} with {b}")) }
     }
     /// The task a builtin was called from, when an interpreted task called it.
     pub(crate) fn caller_task(&self) -> Option<usize> {
@@ -2122,7 +2219,7 @@ impl Interp {
     }
     #[inline(never)]
     fn op_call_dyn(&mut self, tid: usize, w: &Win, pc: usize, fr: u8, b: u8, nargs: u8) -> Flow {
-        let (regs, base, fid) = (w.regs, w.base, w.fid);
+        let (regs, base) = (w.regs, w.base);
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let callee = r!(fr);
         if let Some(f) = callee.as_func() {
@@ -2168,13 +2265,14 @@ impl Interp {
             self.deliver(regs, b as usize, outs.as_slice());
             return Flow::Next;
         }
-        let h = hdr!(self, callee, &format!("call of a non-function ({:#x}) in {} at pc {} register {}", callee.0, self.funcs[fid as usize].name, pc, fr));
+        let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
+        let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         if matches!(h.kind, KIND_TABLE | KIND_RECORD) {
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             let outs = self.call_value(callee, args.as_slice()); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
         }
-        if h.kind != KIND_CLOSURE { self.err(&format!("call of a non-function object ({}) in {} at pc {} register {}", Heap::describe(h), self.funcs[fid as usize].name, pc, fr)) }
+        if h.kind != KIND_CLOSURE { self.op_error(OpErr::Call, callee) }
         let f = h.fid();
         let e = self.entry_of(f);
         if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
@@ -2203,11 +2301,12 @@ impl Interp {
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let name = unsafe { *consts.add(k as usize) };
         let recv = r!(b + 1);
-        let h = hdr!(self, recv, "method call on a non-object");
+        let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
+        let h = unsafe { &*p.as_ptr() };
         if h.is_stringish() {
             // A string's methods are the string library; `nargs` counts the receiver.
             let mname = String::from_utf8_lossy(self.bytes_of(name)).to_string();
-            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.err(&format!("no string method {mname}")));
+            let id = crate::builtins::id_of(&format!("string.{mname}")).unwrap_or_else(|| self.op_error(OpErr::Call, Value::NIL));
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             let outs = crate::builtins::call(self, id, args.as_slice());
             self.deliver(regs, b as usize, outs.as_slice());
@@ -2349,13 +2448,14 @@ impl Interp {
         if self.metatable_of(r!(t)) != Value::NIL { let v = self.index(r!(t), name); r!(d) = v; return; }
         // A string's fields are the string library's, as Lua's string metatable has them.
         if self.is_stringish(r!(t)) { let lib = self.loaded.get("string").copied().unwrap_or(Value::NIL); r!(d) = if lib == Value::NIL { Value::NIL } else { self.get_index(lib, name) }; return; }
-        let h = hdr!(self, r!(t), &format!("field {} of a non-object", String::from_utf8_lossy(self.bytes_of(name))));
+        let Some(p) = r!(t).as_obj() else { self.op_error(OpErr::Index, r!(t)) };
+        let h = unsafe { &*p.as_ptr() };
         let v = match h.kind {
             KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
             // Stored fields keep the shape probe; absent fields may be methods.
             // An empty slot may still name a method the record assigns later.
             KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) if h.slots()[i] != Value::NIL => h.slots()[i], _ => self.index(r!(t), name) } }
-            _ => self.err(&format!("field {} of a non-object ({})", String::from_utf8_lossy(self.bytes_of(name)), Heap::describe(h))),
+            _ => self.op_error(OpErr::Index, r!(t)),
         };
         r!(d) = v;
     }

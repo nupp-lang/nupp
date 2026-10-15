@@ -127,6 +127,7 @@ pub fn negate(vm: &mut Interp, x: Value) -> Value {
     if !x.is_num() {
         let handler = vm.meta_field(x, "__unm");
         if handler != Value::NIL { return vm.call_value(handler, &[x, x]).first().copied().unwrap_or(Value::NIL); }
+        match crate::builtins::coerce_number(vm, x) { Some(n) => return Value::num(-n), None => vm.op_error(crate::interp::OpErr::Arith, x) }
     }
     Value::num(-double(vm, x))
 }
@@ -138,6 +139,14 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         if handler != Value::NIL {
             return vm.call_value(handler, &[x, y]).first().copied().unwrap_or(Value::NIL);
         }
+        // A numeric string converts, as Lua's arithmetic converts it; any
+        // other operand is the error Lua words.
+        let coerce = |vm: &mut Interp, v: Value| -> Value {
+            if is_numeric(v) { return v; }
+            match crate::builtins::coerce_number(vm, v) { Some(n) => Value::num(n), None => vm.op_error(crate::interp::OpErr::Arith, v) }
+        };
+        let (x, y) = (coerce(vm, x), coerce(vm, y));
+        return binary(vm, x, y, op, kind);
     }
     if matches!(op, "lt" | "le" | "eq" | "ne") {
         let order = compare(x, y);
