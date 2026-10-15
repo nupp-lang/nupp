@@ -83,15 +83,21 @@ end
 --- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
 --- boundary (notably Lua-style long comments), but a coverage report wraps each line in
 --- its own element, so the span must be closed and reopened at the boundary.
+-- A line is kept as its pieces until it ends: appending each token to the line
+-- so far copies the line again for every token, which a generated file whose
+-- first line is a whole prelude long made quadratic.
 local function lineWriter(source)
     if source == "" then
         return {
-            lines = {},
             append = function()
+            end,
+            finish = function()
+                return {}
             end
         }
     end
-    local lines = {""}
+    local lines = {}
+    local pieces = {}
 
     local function append(text, class, href)
         local start = 1
@@ -110,16 +116,25 @@ local function lineWriter(source)
                         ) .. '">' .. rendered .. "</a>"
                 end
             end
-            lines[#lines] = lines[#lines] .. rendered
+            pieces[#pieces + 1] = rendered
             if not finish then
                 break
             end
-            lines[#lines + 1] = ""
+            lines[#lines + 1] = table.concat(pieces)
+            pieces = {}
             start = finish + 1
         end
     end
 
-    return {lines = lines, append = append}
+    -- The lines written, the one still open included.
+    local function finish()
+        lines[#lines + 1] = table.concat(pieces)
+        pieces = {}
+
+        return lines
+    end
+
+    return {append = append, finish = finish}
 end
 
 -- A complete record or interface signature is parsed as one top-level declaration.
@@ -176,11 +191,12 @@ local function highlightNuppLines(source, links, memberLinks)
             out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
         end
     end
+    local lines = out.finish()
     if source:sub(-1) == "\n" then
-        out.lines[#out.lines] = nil
+        lines[#lines] = nil
     end
 
-    return out.lines
+    return lines
 end
 
 local function highlightNupp(source: string, links: Links?, memberLinks: Links?): string
@@ -417,11 +433,12 @@ local function highlightScintilluaLines(source, language)
     if start <= #source then
         out.append(source:sub(start))
     end
+    local lines = out.finish()
     if source:sub(-1) == "\n" then
-        out.lines[#out.lines] = nil
+        lines[#lines] = nil
     end
 
-    return out.lines
+    return lines
 end
 
 --- Highlights a source with Scintillua even when the language also has a native
@@ -442,11 +459,12 @@ local function codeLines(source: string, language: string?, links: Links?): {str
     end
     local out = lineWriter(source)
     out.append(source)
+    local lines = out.finish()
     if source:sub(-1) == "\n" then
-        out.lines[#out.lines] = nil
+        lines[#lines] = nil
     end
 
-    return out.lines
+    return lines
 end
 
 local function codeHtml(source: string, language: string?, links: Links?): string
