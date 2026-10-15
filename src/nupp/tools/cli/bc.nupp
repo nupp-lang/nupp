@@ -25,7 +25,6 @@ local REPORT_SCHEMA = {
         diagnostics = report.DIAGNOSTICS,
         file = {type = "string"},
         backend = {type = "string", enum = {"vm"}},
-        optLevel = {type = "integer"},
         functions = {
             type = "array",
             items = {
@@ -43,7 +42,6 @@ local REPORT_SCHEMA = {
                                 op = {type = "string"},
                                 text = {type = "string"},
                                 line = {type = "integer"},
-                                inLoop = {type = "boolean"},
                             },
                             required = {"pc", "op", "text"},
                         },
@@ -132,9 +130,6 @@ local function run(options: any): integer
     if not rawget(_G, "__nupp_load_image") then
         return fail(report.TOOL_FAILED, "bytecode inspection needs the VM-hosted compiler")
     end
-    if (require("nupp.tools.cli.compile").settings(options).optLevel or 0) ~= 0 then
-        return fail(report.TOOL_FAILED, "VM bytecode inspection does not use Lua optimization levels")
-    end
     local ok, functions = pcall(require("nupp.tools.vm.project").inspect, ".", path)
     if not ok then
         return fail(report.TOOL_FAILED, tostring(functions))
@@ -145,7 +140,6 @@ local function run(options: any): integer
                 ok = true,
                 file = path,
                 backend = "vm",
-                optLevel = 0,
                 diagnostics = {},
                 functions = functions
             }) .. "\n"
@@ -171,17 +165,6 @@ local record Bytecode
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
-
-    --- Optimization level, matching run and build (default -O0).
-    @cli(
-        name = "O",
-        long = false,
-        pattern = "^%-O([0-2])$",
-        choices = {"0", "1", "2"},
-        display = "-O0, -O1, -O2",
-        value = "LEVEL"
-    )
-    optLevel: string?
 
     --- Columns the listing may use. Defaults to the terminal's width.
     @cli(value = "COLUMNS")

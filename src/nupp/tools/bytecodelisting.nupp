@@ -276,4 +276,62 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
     return table.concat(out, "\n") .. "\n", mappings
 end
 
+--- The same instructions, laid out against the source rather than beside it.
+---
+--- `render` echoes each source line because a terminal has nothing else to show
+--- it against. An editor does: the source is in the pane next to this one, so
+--- repeating it wastes half the width and puts the reader's eye in two places.
+---
+--- Here the document *is* the source's shape. Line N holds what line N of the
+--- file compiled to, and a line that compiled to nothing is blank. A line that
+--- compiled to several instructions keeps the first on its own row and indents
+--- the rest beneath it, which is a folding region: collapsed, every source line
+--- occupies exactly one row again and the two panes scroll together.
+---
+--- @param functions the analysis' functions, outermost first
+--- @param source the `.nupp` source the image was lowered from
+--- @return the listing, and one mapping per line that stands for source
+--- @raises never
+function listing.aligned(functions: {any}, source: string): string, {listing.Mapping}
+    local sourceLines = split(source)
+    local byLine = listing.group(functions)
+
+    local out: {string} = {}
+    local mappings: {listing.Mapping} = {}
+
+    local function write(text: string, from: integer?): nil
+        out[#out + 1] = text
+        if from ~= nil then
+            mappings[#mappings + 1] = {generatedLine = #out, sourceLine = from, role = "exact"}
+        end
+    end
+
+    local last = #sourceLines
+    for at in pairs(byLine) do
+        if at > last then
+            last = at
+        end
+    end
+    while last > 1 and #(byLine[last] or {}) == 0 and not (sourceLines[last] or ""):match("%S") do
+        last = last - 1
+    end
+
+    for at = 1, last do
+        local bucket = byLine[at] or {}
+        table.sort(bucket, earlier)
+        if #bucket == 0 then
+            write("")
+        elseif #bucket == 1 then
+            write(bucket[1].ins.text, at)
+        else
+            write(bucket[1].ins.text .. ("   -- +%d more"):format(#bucket - 1), at)
+            for index = 2, #bucket do
+                write("  " .. bucket[index].ins.text, at)
+            end
+        end
+    end
+
+    return table.concat(out, "\n") .. "\n", mappings
+end
+
 export = listing

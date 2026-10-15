@@ -4833,6 +4833,7 @@ function lower.emit(
     end
     for _, f in ipairs(functions) do
         local inspected = nil
+        local firstOut = #out + 1
         if listing and f.module == entryName then
             inspected = {name = f.name, what = f.parent and "function" or "chunk", instructions = {}}
             listing[#listing + 1] = inspected
@@ -4901,6 +4902,11 @@ function lower.emit(
             end
         end
         emit("end")
+        if inspected then
+            -- The function's own image text, header to `end`, which is what an
+            -- inspector shows of the image without the rest of the graph.
+            inspected.image = table.concat(out, "\n", firstOut, #out)
+        end
     end
     -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
     -- and error positions. A chunk's own name (`=name` or `@path`) is kept.

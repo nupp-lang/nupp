@@ -1,5 +1,6 @@
 -- Command-line semantic operations, driven through the real launcher.
 local json = require("testjson")
+local test = require("nupp.test")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -342,6 +343,16 @@ local ARTIFACT_PROJECT = {
    }, "\n") .. "\n",
 }
 
+-- Both kinds are the VM image the file lowers to, which only the VM-hosted
+-- compiler produces; a LuaJIT-hosted launcher answers that it cannot.
+local function requireVmCli()
+   local selected = io.open(HERE .. "/../.nupp/vm-cli/current", "rb")
+   if selected then
+      selected:close()
+   end
+   test.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
+end
+
 function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
    local dir = tempProject(ARTIFACT_PROJECT)
    local decoded = json.decode(captureJson(dir, "lsp artifacts --json sample.nupp 4 9"))
@@ -350,79 +361,86 @@ function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
    for _, entry in ipairs(decoded.artifacts) do
       kinds[entry.kind] = entry
    end
-   assert(kinds.lua, "the generated Lua is listed")
-   assert(kinds.lua.scope == "module", "generated Lua is a whole-file artifact")
+   assert(kinds.bytecode and kinds.image, "the bytecode and the image are listed")
+   assert(kinds.bytecode.scope == "module", "the bytecode is a whole-file artifact")
+   assert(kinds.lua == nil, "the Lua generator's output is not an artifact")
    assert(decoded["function"].name == "scale", "the enclosing function is named")
    assert(decoded["function"].range.start.line == 1, "and positioned in source coordinates")
 end
 
-function M.artifactTakesTheOptimizationLevelEveryCommandSpells()
+function M.artifactTakesNoOptimizationLevel()
    local dir = tempProject(ARTIFACT_PROJECT)
-   local optimized = json.decode(captureJson(dir, "lsp artifact --kind lua -O2 --json sample.nupp"))
-   local spaced = capture(dir, "lsp artifact --kind lua -O 2 sample.nupp; echo \"__exit__:$?\"")
-   local long = capture(dir, "lsp artifact --kind lua --opt-level 2 sample.nupp; echo \"__exit__:$?\"")
+   local attached = capture(dir, "lsp artifact --kind bytecode -O2 sample.nupp; echo \"__exit__:$?\"")
+   local lua = capture(dir, "lsp artifact --kind lua sample.nupp; echo \"__exit__:$?\"")
    os.execute("rm -rf '" .. dir .. "'")
-   assert(optimized.available, "-O2 resolves an artifact")
-   contains(spaced, "__exit__:2", "-O takes its level attached, as build and run do")
-   contains(long, "__exit__:2", "--opt-level is not an option")
+   contains(attached, "__exit__:2", "the VM has one lowering, so -O is not an option")
+   contains(lua, "__exit__:2", "and generated Lua is not a kind")
 end
 
-function M.artifactPrintsGeneratedLuaLineForLine()
+function M.artifactLaysTheBytecodeOutAgainstTheSource()
+   requireVmCli()
    local dir = tempProject(ARTIFACT_PROJECT)
-   local text = captureJson(dir, "lsp artifact --kind lua sample.nupp")
-   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json sample.nupp"))
+   local text = captureJson(dir, "lsp artifact --kind bytecode sample.nupp")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind bytecode --json sample.nupp"))
    os.execute("rm -rf '" .. dir .. "'")
-   contains(text, "total = total + value * by", "the authored line is in the generated Lua")
-   assert(decoded.available, "the file lowers")
-   assert(decoded.mapping.kind == "line-identity", "generated Lua is line-identical to its source")
-   local generated, source = 0, 0
-   for _ in decoded.text:gmatch("\n") do
-      generated = generated + 1
+   assert(decoded.available, "the file lowers: " .. tostring(decoded.unavailable and decoded.unavailable.detail))
+   assert(decoded.text == text, "the terminal gets the artifact's text")
+   assert(decoded.mapping.kind == "lines-collapsible", "the listing folds to the source's shape")
+   -- Folding every indented run leaves one row per source line, so line N of
+   -- the folded listing is what line N of the file compiled to.
+   local rows = {}
+   for row in decoded.text:gmatch("([^\n]*)\n") do
+      if row:sub(1, 2) ~= "  " then
+         rows[#rows + 1] = row
+      end
    end
-   for _ in ARTIFACT_PROJECT["sample.nupp"]:gmatch("\n") do
-      source = source + 1
+   assert(#rows == 10, "one folded row per source line, got " .. #rows .. ":\n" .. decoded.text)
+   assert(rows[4]:match("^%d%d%d%d %u"), "the loop body's line holds an instruction: " .. rows[4])
+   assert(rows[6] == "", "a blank line compiled to nothing")
+   local fourth = false
+   for _, entry in ipairs(decoded.mapping.entries) do
+      fourth = fourth or entry.sourceLine == 4
+      assert(entry.sourceLine >= 1 and entry.sourceLine <= 10, "an entry names a line of the file")
    end
-   assert(generated == source, "the lowering did not change the line count")
+   assert(fourth, "the mapping names the loop body")
+end
+
+function M.artifactPrintsTheModulesImageWithItsLineTable()
+   requireVmCli()
+   local dir = tempProject(ARTIFACT_PROJECT)
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind image --json sample.nupp"))
+   os.execute("rm -rf '" .. dir .. "'")
+   assert(decoded.available, "the file lowers: " .. tostring(decoded.unavailable and decoded.unavailable.detail))
+   contains(decoded.text, "function scale ", "the image holds the function")
+   contains(decoded.text, "\n  lines ", "with its line table")
+   assert(decoded.mapping.kind == "lines", "the image maps lines it can name")
+   local rows = {}
+   for row in decoded.text:gmatch("([^\n]*)\n") do
+      rows[#rows + 1] = row
+   end
+   local fourth = false
+   for _, entry in ipairs(decoded.mapping.entries) do
+      local row = rows[entry.generatedLine]
+      if entry.role == "exact" then
+         assert(row and row:match("^  %u"), "an exact entry is an instruction row: " .. tostring(row))
+      end
+      fourth = fourth or (entry.sourceLine == 4 and entry.role == "exact")
+   end
+   assert(fourth, "an instruction is mapped to the loop body")
 end
 
 function M.artifactSaysWhyItCouldNotResolveOne()
+   requireVmCli()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
       ["broken.nupp"] = "local value: integer = \n",
    })
-   local text = capture(dir, "lsp artifact --kind lua broken.nupp; echo \"__exit__:$?\"")
-   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json broken.nupp"))
+   local text = capture(dir, "lsp artifact --kind bytecode broken.nupp; echo \"__exit__:$?\"")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind bytecode --json broken.nupp"))
    os.execute("rm -rf '" .. dir .. "'")
    contains(text, "__exit__:1", "an unresolvable artifact is a failure at the terminal")
    assert(decoded.available == false, "and says so in JSON")
    assert(decoded.unavailable.reason == "not-lowered", "with the reason it refused")
-end
-
--- Lua the generator wrote but a VM will not load is the one place the reason can
--- be read, so it is printed rather than withheld, with the problem beside it.
-function M.artifactPrintsGeneratedLuaThatDoesNotLoad()
-   local lines = {}
-   local names = {}
-   for index = 1, 61 do
-      lines[#lines + 1] = ("local v%d = %d"):format(index, index)
-      names[#names + 1] = "v" .. index
-   end
-   lines[#lines + 1] = "local function f(): number"
-   lines[#lines + 1] = "    return " .. table.concat(names, " + ")
-   lines[#lines + 1] = "end"
-   lines[#lines + 1] = "return f()"
-   local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["many.nupp"] = table.concat(lines, "\n") .. "\n",
-   })
-   local text = capture(dir, "lsp artifact --kind lua many.nupp 2>&1; echo \"__exit__:$?\"")
-   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json many.nupp"))
-   os.execute("rm -rf '" .. dir .. "'")
-   contains(text, "local function f", "the generated Lua is printed")
-   contains(text, "NUPP3005", "with the reason it does not load")
-   contains(text, "__exit__:0", "and the text is what was asked for")
-   assert(decoded.available and decoded.problem.reason == "not-loaded", "JSON carries the problem beside it")
-   assert(decoded.text:find("local function f", 1, true), "and the text")
 end
 
 -- A line or column that is not a positive integer is an argument the command

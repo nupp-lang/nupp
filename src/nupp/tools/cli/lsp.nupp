@@ -277,7 +277,7 @@ local OPERATION_SCHEMAS: {
                 items = {
                     type = "object",
                     properties = {
-                        kind = {type = "string", enum = {"lua"}},
+                        kind = {type = "string", enum = {"bytecode", "image"}},
                         label = {type = "string"},
                         languageId = {type = "string"},
                         scope = {
@@ -323,10 +323,9 @@ local OPERATION_SCHEMAS: {
                 properties = {
                     kind = {
                         type = "string",
-                        enum = {"line-identity", "lines", "lines-collapsible"},
-                        description = "`line-identity` means generated line N is source line N "
-                        .. "for every N, which is what the Lua emitter guarantees. `lines` "
-                        .. "carries one entry per generated line that stands for source. "
+                        enum = {"lines", "lines-collapsible"},
+                        description = "`lines` carries one entry per generated line that "
+                        .. "stands for source, read from the image's line table. "
                         .. "`lines-collapsible` is the same, laid out so that folding every "
                         .. "indented run leaves one row per source line.",
                     },
@@ -349,13 +348,6 @@ local OPERATION_SCHEMAS: {
             summary = {type = "object"},
             unavailable = {
                 type = "object",
-                properties = {reason = {type = "string"}, detail = {type = "string"}},
-                required = {"reason"},
-            },
-            problem = {
-                type = "object",
-                description = "Set when the artifact is available but is not a working program: "
-                .. "generated Lua that does not load, handed over so the reason can be read in it.",
                 properties = {reason = {type = "string"}, detail = {type = "string"}},
                 required = {"reason"},
             },
@@ -1076,7 +1068,7 @@ local function runArtifact(client, opts)
         return nil, usage("expected FILE")
     end
     if not opts.kind then
-        return nil, usage("--kind names the artifact to resolve: lua")
+        return nil, usage("--kind names the artifact to resolve: bytecode or image")
     end
     local path = resolvePath(opts.root, opts.positional[1])
     local _, readErr = client.open(path)
@@ -1086,7 +1078,6 @@ local function runArtifact(client, opts)
     local result, requestErr = client.request("nupp/artifact", {
         textDocument = {uri = pathToUri(path)},
         kind = opts.kind,
-        optLevel = tonumber(opts.artifactOptLevel) or 0,
     })
     if requestErr then
         return nil, requestErr
@@ -1099,9 +1090,6 @@ local function runArtifact(client, opts)
         return nil, (reason.detail or reason.reason or "the artifact is not available")
     else
         io.write(result.text)
-        if result.problem then
-            io.stderr:write("nupp: warning: " .. tostring(result.problem.detail or result.problem.reason) .. "\n")
-        end
     end
 
     return true
@@ -1132,7 +1120,6 @@ local function typedOperation(name: string, self: any, positional: {string}): in
     opts.write = self.write
     opts.only = self.only
     opts.kind = self.kind
-    opts.artifactOptLevel = self.optLevel
 
     -- A failure is a problem with a code, or a message the language service gave,
     -- which is its own failure. Under `--json` it is the one document the reader was
@@ -1187,7 +1174,7 @@ end
 ---
 --- Operation-only options: references only: `--include-declaration`;
 --- symbols only: `--file`; rename only: `--write`; actions only: `--only`;
---- artifact only: `--kind`, `-O0`, `-O1`, `-O2`.
+--- artifact only: `--kind`.
 --- Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 --- Source positions are one-based byte line and column numbers. Rename
 --- previews by default and changes files only with `--write`.
@@ -1197,7 +1184,7 @@ end
 ---     nupp lsp serve
 ---     nupp lsp inspect src/main.nupp 12 8
 ---     nupp lsp references --include-declaration src/main.nupp 12 8
----     nupp lsp artifact --kind lua -O2 src/main.nupp
+---     nupp lsp artifact --kind bytecode src/main.nupp
 @cli(name = "lsp", group = true)
 @derive(cliModule.Command)
 local record Lsp
@@ -1533,8 +1520,8 @@ end
 ---
 --- Examples:
 ---
----     nupp lsp artifact --kind lua -O2 src/main.nupp
----     nupp lsp artifact --kind lua --json src/main.nupp
+---     nupp lsp artifact --kind bytecode src/main.nupp
+---     nupp lsp artifact --kind image --json src/main.nupp
 @cli("artifact")
 @derive(cliModule.Command)
 local record Artifact
@@ -1547,19 +1534,8 @@ local record Artifact
     format: string?
 
     --- Which artifact to resolve.
-    @cli(value = "KIND", choices = {"lua"})
+    @cli(value = "KIND", choices = {"bytecode", "image"})
     kind: string
-
-    --- Optimization level to resolve the artifact at.
-    @cli(
-        name = "O",
-        long = false,
-        pattern = "^%-O([0-2])$",
-        choices = {"0", "1", "2"},
-        display = "-O0, -O1, -O2",
-        value = "LEVEL"
-    )
-    optLevel: string?
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false

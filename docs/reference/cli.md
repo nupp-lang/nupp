@@ -452,7 +452,6 @@ Arguments:
 Options:
   --format FORMAT, --json, --text
                    Select the report representation.
-  -O0, -O1, -O2    Optimization level, matching run and build (default -O0).
   --width COLUMNS  Columns the listing may use. Defaults to the terminal's
                    width.
   --schema         Print the JSON Schema of JSON output and exit.
@@ -1946,7 +1945,7 @@ Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 
 Operation-only options: references only: `--include-declaration`;
 symbols only: `--file`; rename only: `--write`; actions only: `--only`;
-artifact only: `--kind`, `-O0`, `-O1`, `-O2`.
+artifact only: `--kind`.
 Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 Source positions are one-based byte line and column numbers. Rename
 previews by default and changes files only with `--write`.
@@ -1956,7 +1955,7 @@ Examples:
     nupp lsp serve
     nupp lsp inspect src/main.nupp 12 8
     nupp lsp references --include-declaration src/main.nupp 12 8
-    nupp lsp artifact --kind lua -O2 src/main.nupp
+    nupp lsp artifact --kind bytecode src/main.nupp
 
 Usage:
   nupp lsp

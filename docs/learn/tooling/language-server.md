@@ -225,28 +225,29 @@ needs to know what any particular editor calls it.
 
 `nupp/artifacts` takes a document and an optional position and returns the kinds
 available and the innermost function the position is in. `nupp/artifact` takes a
-document, a `kind` and an optional `optLevel`, and returns the artifact or with
-why there is not one. The kinds the server can produce are advertised under
+document and a `kind`, and returns the artifact or why there is not one. The VM
+has one lowering, so the `optLevel` a client may still send selects nothing. The kinds the server can produce are advertised under
 `capabilities.experimental.nuppArtifacts`, so a client can tell what it may ask
 for without asking for it.
 
 | Kind | Language | Mapping |
 | --- | --- | --- |
-| `lua` | `lua` | `line-identity` |
+| `bytecode` | `nupp-bytecode` | `lines-collapsible` |
+| `image` | `nupp-image` | `lines` |
 
-Generated Lua carries no table of mappings, because it does not need one: the
-emitter holds the lowering to the source's own line numbering, which is what
-makes a stack trace correct with no sourcemap, and `line-identity` says exactly
-that. Generated line N is source line N, for every N.
+Both are the VM image the buffer lowers to, so only the VM-hosted compiler
+produces them; a LuaJIT-hosted session answers `unsupported-host`. `bytecode` is
+the instructions laid out against the source: line N holds the first instruction
+line N compiled to, a line that compiled to several indents the rest beneath it,
+and a line that compiled to nothing is blank, so folding every indented run puts
+the two panes back in step. `image` is the module's own text in the image the VM
+loads -- each function's header, constants, line table and code -- with every
+instruction row mapped to the source line its line table names. The mappings
+are read from that line table, which the lowering records for every instruction.
 
 An artifact that could not be produced returns `available: false` with an
 `unavailable` reason and detail, rather than with an empty document. A file that
 checks can still fail to lower, and which of those happened is the whole answer.
-
-Generated Lua that a VM will not load is the exception: it is still handed over,
-with `available: true` and a `problem` saying why it does not load, because the
-text is the only place the reason can be read. `nupp lsp artifact --kind lua`
-prints it and writes the problem to stderr.
 
 ## Command-line operations
 
@@ -262,7 +263,7 @@ nupp lsp symbols     --json [--file FILE] [PATTERN]
 nupp lsp rename            FILE LINE COLUMN NEW_NAME
 nupp lsp actions     --json [--only quickfix] FILE LINE COLUMN
 nupp lsp artifacts   --json FILE LINE COLUMN
-nupp lsp artifact    --json --kind lua [-O0|-O1|-O2] FILE
+nupp lsp artifact    --json --kind bytecode|image FILE
 ```
 
 Every operation takes `--root DIR` (default `.`), the format group, and
@@ -277,8 +278,8 @@ would change what the program means: one already bound where the declaration or
 a use stands, so that a use would resolve to a different declaration afterwards,
 or a member name the module already declares.
 
-`artifact` prints the artifact itself, so `nupp lsp artifact --kind lua FILE`
-pipes generated Lua like any other command, and `--json` adds the mapping and
+`artifact` prints the artifact itself, so `nupp lsp artifact --kind image FILE`
+pipes the module's image text like any other command, and `--json` adds the mapping and
 the metadata beside it. An artifact that could not be produced is a failure with
 the reason on stderr. It reads the language server's unsaved document overlay,
 so an editor and a terminal answer for the same bytes.

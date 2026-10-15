@@ -140,7 +140,7 @@ in-process session an editor gets, which is what makes them scriptable:
 
 ```bash
 nupp lsp inspect --json src/app/main.nupp 12 9
-nupp lsp artifact --kind lua src/app/main.nupp
+nupp lsp artifact --kind bytecode src/app/main.nupp
 ```
 
 ::: seealso

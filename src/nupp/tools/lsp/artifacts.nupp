@@ -3,10 +3,9 @@ module nupp.tools.lsp.artifacts
 --[[
 What a source file compiles to, answered for the buffer rather than the file.
 
-An `@aot` body is compiled somewhere a reader cannot see, and so, less
-obviously, is an ordinary one: the Lua a `.nupp` file erases to is already
-reachable from the command line, but only for a file that has been saved, and
-only into a terminal that cannot be clicked.
+Every `.nupp` file is lowered to a VM image, and the instructions in it are
+reachable from the command line through `nupp bc`, but only for a file that has
+been saved, and only into a terminal that cannot be clicked.
 
 Two requests, for the two costs. `nupp/artifacts` asks what is available at a
 position and is answered from the check the session has already done, so a
@@ -14,10 +13,14 @@ client may ask it per function on every viewport. `nupp/artifact` resolves one
 and lowers the buffer to do it, so a client asks it when somebody opened
 something.
 
-Generated Lua needs no mapping: `nupp.compiler.lua.gen` holds the lowering to the
-source's own line numbering so that stack traces need no sourcemap, and this
-module reports that as a mapping kind rather than a table of entries, which is
-both smaller and the only honest way to say "every line, exactly".
+Two kinds. `bytecode` is the instructions laid out against the source, line N
+holding what line N compiled to. `image` is the module's own text in the image
+the VM loads: every function's header, constants, line table and code. Both
+carry their correspondence to the source as entries, read from the line table
+the lowering records for every instruction.
+
+Only the VM-hosted compiler answers either: the image is what that compiler
+produces, so a LuaJIT-hosted session says so rather than guessing.
 ]]
 
 local text = require("nupp.tools.lsp.text")
@@ -49,14 +52,14 @@ type artifacts.Api = {
 
 --- The kinds this server can produce. Advertised through experimental capabilities
 --- so a client can tell what it may ask for without asking for it.
-artifacts.KINDS = {"lua"}
+artifacts.KINDS = {"bytecode", "image"}
 
-const LABELS: {[string]: string} = {lua = "Generated Lua",}
-const LANGUAGES: {[string]: string} = {lua = "lua",}
+const LABELS: {[string]: string} = {bytecode = "Bytecode", image = "VM image",}
+const LANGUAGES: {[string]: string} = {bytecode = "nupp-bytecode", image = "nupp-image",}
 
 --- A kind's scope: `module` artifacts are the whole file however the request was
 --- positioned, and `function` artifacts are a body.
-const SCOPES: {[string]: string} = {lua = "module",}
+const SCOPES: {[string]: string} = {bytecode = "module", image = "module",}
 
 --- An artifact that could not be produced, said the same way whatever refused it.
 ---
@@ -91,68 +94,104 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
         return uri, doc, offset
     end
 
-    --- Lowers the buffer to Lua, with the diagnostics that stopped it if it did not.
+    --- Lowers the buffer to a VM image: the entry module's functions, with each
+    --- instruction's source line, and the image text they occupy.
     ---
-    --- The compile is given the buffer's text rather than the path, so what opens
-    --- is what the editor shows. A fresh environment per resolution costs a prelude
-    --- the cache has already built, and is the only thing that stays correct when a
-    --- dependency changed under a session that has been open for a day.
-    local function lower(doc: any, path: string, optLevel: integer): (string?, {any}, string?)
-        local collected: {any} = {}
-        local compile = require("nupp.tools.cli.compile")
-        local env = require("nupp.compiler.project.env").new(s.currentRoot or ".")
-        local settings = compile.settings({optLevel = tostring(optLevel)}, collected)
-        local code, _, generated = compile.module(path, env, settings, nil, doc.text)
-
-        return code, collected, generated
-    end
-
-    --- The first diagnostic that stopped a lowering, as a sentence.
-    local function firstProblem(collected: {any}): string?
-        for _, diagnostic in ipairs(collected) do
-            -- The compiler's own records say `msg`; one built for the protocol says
-            -- `message`.
-            local message = diagnostic.message or diagnostic.msg
-            if message then
-                local where = diagnostic.line and (":" .. tostring(diagnostic.line)) or ""
-                return (diagnostic.code or "error") .. where .. ": " .. tostring(message)
-            end
+    --- The lowering is given the buffer's text rather than the path, so what opens
+    --- is what the editor shows. A fresh environment per resolution is the only
+    --- thing that stays correct when a dependency changed under a session that
+    --- has been open for a day.
+    local function inspect(kind: string, doc: any, path: string): ({any}?, string?, any?)
+        if not rawget(_G, "__nupp_load_image") then
+            return nil, nil, unavailable(kind, "unsupported-host", "the VM image needs the VM-hosted compiler")
+        end
+        local ok, functions, image = pcall(
+            require("nupp.tools.vm.project").inspect,
+            s.currentRoot or ".",
+            path,
+            doc.text
+        )
+        if not ok then
+            return nil, nil, unavailable(kind, "not-lowered", tostring(functions))
         end
 
-        return nil
+        return functions as {any}, image as string, nil
     end
 
-    local function luaArtifact(doc: any, path: string, optLevel: integer): any
-        local code, collected, generated = lower(doc, path, optLevel)
-        -- Lua that was written but does not load is still the thing to read: it is the
-        -- only place the reason it does not load can be seen. It is handed over with
-        -- the problem beside it rather than withheld.
-        local problem = nil
-        if not code and generated then
-            code = generated
-            problem = {reason = "not-loaded", detail = firstProblem(collected) or "the generated Lua does not load"}
+    local function bytecodeArtifact(doc: any, path: string): any
+        local functions, _, refused = inspect("bytecode", doc, path)
+        if refused ~= nil then
+            return refused
         end
-        if not code then
-            return unavailable("lua", "not-lowered", firstProblem(collected) or "the file does not compile")
+        local count = 0
+        for _, fn in ipairs(functions as {any}) do
+            count = count + #fn.instructions
+        end
+        -- Laid out against the source, not beside it: the editor already has the
+        -- file in the pane next to this one.
+        local rendered, mappings = require("nupp.tools.bytecodelisting").aligned(functions as {any}, doc.text)
+        local entries = wire.array({})
+        for _, mapping in ipairs(mappings) do
+            entries[#entries + 1] = mapping
         end
 
         return {
-            problem = problem,
-            kind = "lua",
+            kind = "bytecode",
             available = true,
-            label = LABELS.lua,
-            languageId = LANGUAGES.lua,
-            text = code,
-            -- Not a table of entries: the emitter's invariant is that generated
-            -- code never changes the line count, so line N here is line N there
-            -- for every N, and saying so is both exact and constant-sized.
-            mapping = {kind = "line-identity"},
-            metadata = {optLevel = optLevel,},
-            summary = {lines = select(2, code:gsub("\n", "\n")),},
+            label = LABELS.bytecode,
+            languageId = LANGUAGES.bytecode,
+            text = rendered,
+            -- Collapsible rather than plain lines: a source line that compiled
+            -- to several instructions keeps the first on its own row and indents
+            -- the rest, so the two panes line up once those rows are folded.
+            mapping = {kind = "lines-collapsible", entries = entries},
+            metadata = {backend = "vm"},
+            summary = {functions = #(functions as {any}), instructions = count},
         }
     end
 
-    const BUILDERS: {[string]: function(any, string, integer): any} = {lua = luaArtifact,}
+    local function imageArtifact(doc: any, path: string): any
+        local functions, image, refused = inspect("image", doc, path)
+        if refused ~= nil then
+            return refused
+        end
+        -- Each instruction row of a function's text stands for the line its
+        -- line table names; a header stands for where the function starts.
+        local entries = wire.array({})
+        local fnIndex: integer, pc: integer, generated: integer = 0, 0, 0
+        local current: any = nil
+        for row in (image as string):gmatch("([^\n]*)\n") do
+            generated = generated + 1
+            if row:sub(1, 9) == "function " then
+                fnIndex = fnIndex + 1
+                current = (functions as {any})[fnIndex]
+                pc = 0
+                local first = current and current.instructions[1]
+                if first and (first.line or 0) >= 1 then
+                    entries[#entries + 1] = {generatedLine = generated, sourceLine = first.line, role = "derived"}
+                end
+            elseif current and row:match("^  %u") then
+                pc = pc + 1
+                local ins = current.instructions[pc]
+                if ins and (ins.line or 0) >= 1 then
+                    entries[#entries + 1] = {generatedLine = generated, sourceLine = ins.line, role = "exact"}
+                end
+            end
+        end
+
+        return {
+            kind = "image",
+            available = true,
+            label = LABELS.image,
+            languageId = LANGUAGES.image,
+            text = image,
+            mapping = {kind = "lines", entries = entries},
+            metadata = {backend = "vm"},
+            summary = {functions = #(functions as {any}), lines = generated},
+        }
+    end
+
+    const BUILDERS: {[string]: function(any, string): any} = {bytecode = bytecodeArtifact, image = imageArtifact,}
 
     --- Cheap discovery: what a client may ask for here, and what it would be about.
     ---
@@ -200,24 +239,19 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
         local uri, doc = documentFor(params)
         local kind = params and params.kind
         if type(kind) ~= "string" or not BUILDERS[kind] then
-            return unavailable(tostring(kind), "unknown-kind", "this server produces lua")
+            return unavailable(tostring(kind), "unknown-kind", "this server produces bytecode and image")
         end
         if not doc then
             return unavailable(kind, "no-document", "the document is not open on this server")
         end
         local path = uriToPath(uri as string)
         s.useRoot(path)
-        local requested = params and params.optLevel
-        local optLevel: number? = requested == nil and 0 or type(requested) == "number" and requested or nil
-        if optLevel == nil or optLevel ~= math.floor(optLevel) or optLevel < 0 or optLevel > 2 then
-            return unavailable(kind, "unknown-opt-level", "optimization levels are 0, 1 and 2")
-        end
-        local built = assert(BUILDERS[kind])(doc, path, optLevel as integer)
+        -- The VM has one lowering, so a client's `optLevel`, which named the Lua
+        -- generator's passes, no longer selects anything and is not read.
+        local built = assert(BUILDERS[kind])(doc, path)
         built.uri = uri
         built.version = doc.version
-        -- What the client asked for, echoed so that two open artifacts of the same
-        -- kind at different levels are distinguishable without parsing the label.
-        built.id = ("%s|%s|O%d"):format(uri, kind, optLevel)
+        built.id = ("%s|%s"):format(uri, kind)
 
         return built
     end

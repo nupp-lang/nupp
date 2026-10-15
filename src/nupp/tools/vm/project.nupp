@@ -160,7 +160,9 @@ local function emitProject(
                 assert(#parsed.errors == 0, "carried module " .. name .. " did not parse")
                 return parsed.root
             end
-            local source = assert(fs.readFile(path), "cannot read " .. path)
+            -- An inspector lowers what an editor holds, which need not be saved.
+            local source = inspection and inspection.text and path == inspection.path and inspection.text
+            or assert(fs.readFile(path), "cannot read " .. path)
             local parsed = parser.parse(source, path)
             assert(#parsed.errors == 0, "parse failed: " .. path)
             local ok, diagnostics = pcall(checkMod.check, parsed, path, env as any, {})
@@ -291,12 +293,21 @@ function project.program(root: string, config: table, entry: string, embedded: s
     return named, facilities
 end
 
---- Inspect the VM instructions emitted for one checked source file.
+--- Inspect the VM instructions emitted for one checked source file: its
+--- functions with each instruction's source line, and the image text those
+--- functions occupy. `text`, when given, is lowered in place of the file's
+--- saved contents.
 --- @raises string when the source or its dependencies cannot be compiled.
-function project.inspect(root: string, path: string): {any}
+function project.inspect(root: string, path: string, text: string?): ({any}, string)
     local functions: {any} = {}
-    project.emit(root, "vm.inspection", nil, nil, nil, {path = path, functions = functions})
-    return functions
+    project.emit(root, "vm.inspection", nil, nil, nil, {path = path, functions = functions, text = text})
+    local image: {string} = {}
+    for _, fn in ipairs(functions) do
+        image[#image + 1] = fn.image
+        fn.image = nil
+    end
+
+    return functions, table.concat(image, "\n") .. (#image > 0 and "\n" or "")
 end
 
 --- Rebuild the compiler image, including its computed module dependencies.
