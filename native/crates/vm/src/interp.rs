@@ -5,7 +5,7 @@
 
 use std::ptr::NonNull;
 
-use crate::heap::{self, Header, Heap, Roots, SlotTy, KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_ITER, KIND_RECORD, KIND_SLICE, KIND_STORAGE, KIND_STR, KIND_TABLE};
+use crate::heap::{self, Header, Heap, Roots, SlotTy, KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_ITER, KIND_RECORD, KIND_SLICE, KIND_STORAGE, KIND_STR, KIND_TABLE, KIND_USERDATA};
 use crate::value::Value;
 
 // A builtin has no frame of its own. Track the executing caller explicitly:
@@ -480,6 +480,9 @@ pub struct Interp {
     /// `SIMD_INTERPRET=1` on a linked no-JIT host (the plan's refusal rule).
     pub simd_interpret: bool,
     pub extra_n: usize,
+    /// LPeg: the pattern metatable (registered) and the backtrack limit.
+    pub lpeg_meta: Value,
+    pub lpeg_maxstack: usize,
     /// The value of a raise that is propagating as `Value::ERROR` returns.
     pub pending_error: Option<Value>,
 }
@@ -547,7 +550,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -897,7 +900,7 @@ impl Interp {
         if self.kind_of(recv)==Some(KIND_CLOSURE) && self.bytes_of(name)==b"__nuppRelease" { return Value::builtin(crate::builtins::id_of("affine.release").unwrap()); }
         let h = hdr!(self, recv, "method call on a non-object");
         if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
-        if h.kind == KIND_RECORD || h.kind == KIND_TABLE { let v = self.index(recv, name); if v != Value::NIL { return v; } }
+        if h.kind == KIND_RECORD || h.kind == KIND_TABLE || h.kind == KIND_USERDATA { let v = self.index(recv, name); if v != Value::NIL { return v; } }
         self.err(&format!("no such method {}", String::from_utf8_lossy(self.bytes_of(name))))
     }
     pub fn call_method(&mut self, name: Value, args: &[Value]) -> Vec<Value> {
@@ -1116,6 +1119,7 @@ impl Interp {
         for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto"), ("saveData", "vm.saveData"), ("loadData", "vm.loadData")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         crate::supervision::install(self);
+        crate::lpeg::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); for name in ["path", "cpath"] { let k = self.intern(name); self.set_index(package, k, v); } self.release(vh); }
@@ -1190,6 +1194,19 @@ impl Interp {
     pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value) -> Value { self.heap.new_iter(kind, obj, pattern, Vec::new(), roots!(self)) }
     pub fn new_iter_keys(&mut self, kind: u8, obj: Value, keys: Vec<Value>) -> Value { self.heap.new_iter(kind, obj, Value::NIL, keys, roots!(self)) }
     pub fn heap_new_bytes(&mut self, n: usize) -> Value { self.heap.new_bytes(n, roots!(self)) }
+    /// A userdata over `data` with this metatable and user value, both kept
+    /// reachable across the allocation.
+    pub fn new_userdata(&mut self, data: Box<dyn std::any::Any>, meta: Value, uservalue: Value, external: usize) -> Value {
+        let scope = self.open_scope(); self.handles.extend_from_slice(&[meta, uservalue]);
+        let v = self.heap.new_userdata(data, meta, uservalue, external, roots!(self));
+        self.close_scope(scope); v
+    }
+    /// Replaces a userdata's user value.
+    pub fn set_uservalue(&mut self, object: Value, v: Value) {
+        let p = object.as_obj().filter(|p| unsafe { p.as_ref().kind } == KIND_USERDATA).unwrap_or_else(|| self.err("not a userdata"));
+        self.heap.barrier(p, v);
+        unsafe { (*p.as_ptr()).userdata_mut().uservalue = v; }
+    }
     pub fn heap_new_aligned_bytes(&mut self, n: usize, alignment: usize) -> Value { self.heap.new_aligned_bytes(n, alignment, roots!(self)) }
     pub fn heap_new_buffer(&mut self) -> Value { self.heap.new_buffer(roots!(self)) }
     /// A string that is not interned: long results, as Lua 5.4 treats them.
@@ -1265,6 +1282,8 @@ impl Interp {
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= t.array.len() && n.fract() == 0.0 { return t.array[n as usize - 1]; } } *t.hash.get(&key).unwrap_or(&Value::NIL) }
             KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { return a[n as usize - 1]; } } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
+            // A userdata has no fields of its own: reads go to `__index`.
+            KIND_USERDATA => Value::NIL,
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
     }
@@ -1347,7 +1366,7 @@ impl Interp {
     pub fn slot_get_slow(&mut self, o: Value, shape: u32, slot: u16) -> Value { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.index(o, name) }
     pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.newindex(o, name, v) }
     /// An ordinary or shaped table's metatable, or nil.
-    pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else if h.kind == KIND_RECORD { h.record_extra_ref().as_ref().map(|extra| extra.meta).unwrap_or(Value::NIL) } else { Value::NIL } } None => Value::NIL } }
+    pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else if h.kind == KIND_RECORD { h.record_extra_ref().as_ref().map(|extra| extra.meta).unwrap_or(Value::NIL) } else if h.kind == KIND_USERDATA { h.userdata().meta } else { Value::NIL } } None => Value::NIL } }
     pub fn set_metatable(&mut self, object: Value, meta: Value) {
         if meta != Value::NIL && !matches!(self.kind_of(meta), Some(KIND_TABLE | KIND_RECORD)) { self.err("metatable must be a table or nil"); }
         let p = object.as_obj().unwrap_or_else(|| self.err("setmetatable expects a table"));
@@ -1418,9 +1437,12 @@ impl Interp {
     // for numeric conversion; contracts can also return nonnumeric values.
     pub fn length(&mut self, value: Value) -> Value {
         match self.kind_of(value) {
-            Some(KIND_TABLE | KIND_RECORD) => {
+            Some(kind @ (KIND_TABLE | KIND_RECORD | KIND_USERDATA)) => {
                 let handler = self.meta_field(value, "__len");
-                if handler == Value::NIL { return Value::num(self.array_len(value) as f64); }
+                if handler == Value::NIL {
+                    if kind == KIND_USERDATA { self.err("attempt to get length of a userdata value"); }
+                    return Value::num(self.array_len(value) as f64);
+                }
                 let scope = self.open_scope();
                 let (last_nres, extra_n) = (self.last_nres, self.extra_n);
                 let extra = self.extra[..extra_n.min(MAX_RESULTS)].to_vec();
@@ -1752,7 +1774,7 @@ impl Interp {
                     Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.values_equal(x, y)) }
                     Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.values_equal(x, y)) }
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
-                    Op::Neg(d, a) => { let x = r!(a); r!(d) = if let Some(i) = crate::numeric::integer(x) { self.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { Value::num(-crate::numeric::double(self, x)) }; }
+                    Op::Neg(d, a) => { let x = r!(a); r!(d) = crate::numeric::negate(self, x); }
                     Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
                     Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
                     Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },

@@ -52,6 +52,10 @@ pub const NAMES: &[&str] = &[
     "files.readerRead", "files.readerClose",
     "error.site",
     "nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary",
+    // LPeg (`crate::lpeg::BUILTINS`, in that order).
+    "lpeg.ptree", "lpeg.pcode", "lpeg.match", "lpeg.B", "lpeg.V", "lpeg.C", "lpeg.Cc", "lpeg.Cmt", "lpeg.Cb", "lpeg.Carg", "lpeg.Cp", "lpeg.Cs", "lpeg.Ct", "lpeg.Cf", "lpeg.Cg",
+    "lpeg.P", "lpeg.S", "lpeg.R", "lpeg.utfR", "lpeg.locale", "lpeg.setmaxstack", "lpeg.type",
+    "lpeg.__mul", "lpeg.__add", "lpeg.__pow", "lpeg.__len", "lpeg.__div", "lpeg.__mod", "lpeg.__unm", "lpeg.__sub",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -489,6 +493,7 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Special {
     Plain,
+    Lpeg,
     OsExit,
     DebugTraceback,
     ErrorSite,
@@ -537,6 +542,7 @@ fn special_of(id: u32) -> Special {
 }
 fn classify(name: &str) -> Special {
     if name.starts_with("foreign.") { return Special::Foreign; }
+    if name.starts_with("lpeg.") { return Special::Lpeg; }
     if name.starts_with("tasks.vm") { return Special::TasksVm; }
     if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
     if name == "io.popen" { return Special::IoPopen; }
@@ -590,6 +596,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let name = NAMES[id as usize];
             return crate::foreign::call(it, name, args);
         }
+        Special::Lpeg => return crate::lpeg::call(it, NAMES[id as usize], args),
         Special::TasksVm => {
             let name = NAMES[id as usize];
             return match crate::task_api::call(it, 0, name, args) {

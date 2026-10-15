@@ -397,7 +397,7 @@ pub extern "C" fn j_numeric(v: u64, op: u64) -> u64 { ctx().guarded(|_| {
         1 | 6 => { crate::numeric::bits(it, v, op == 6); v },
         4 | 5 => crate::numeric::check_kind(it, v, op == 5),
         2 => { if !v.is_num() { it.err("value is not a number"); } v },
-        _ => if let Some(i) = crate::numeric::integer(v) { it.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { V::num(-crate::numeric::double(it, v)) },
+        _ => crate::numeric::negate(it, v),
     }
 }).0 }
 #[unsafe(no_mangle)]

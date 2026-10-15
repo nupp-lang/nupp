@@ -120,9 +120,19 @@ pub fn compare(x: Value, y: Value) -> Option<Ordering> {
         _ => None,
     }
 }
+/// Unary minus: integers wrap, a value with `__unm` calls it, anything else
+/// is read as a number.
+pub fn negate(vm: &mut Interp, x: Value) -> Value {
+    if let Some(i) = integer(x) { return vm.box_integer(Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }); }
+    if !x.is_num() {
+        let handler = vm.meta_field(x, "__unm");
+        if handler != Value::NIL { return vm.call_value(handler, &[x, x]).first().copied().unwrap_or(Value::NIL); }
+    }
+    Value::num(-double(vm, x))
+}
 pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>) -> Value {
-    if kind.is_none() && matches!(op, "add" | "sub") && !(is_numeric(x) && is_numeric(y)) {
-        let name = if op == "add" { "__add" } else { "__sub" };
+    if kind.is_none() && matches!(op, "add" | "sub" | "mul" | "div" | "mod" | "pow" | "idiv") && !(is_numeric(x) && is_numeric(y)) {
+        let name = match op { "add" => "__add", "sub" => "__sub", "mul" => "__mul", "div" => "__div", "mod" => "__mod", "pow" => "__pow", _ => "__idiv" };
         let mut handler = vm.meta_field(x, name);
         if handler == Value::NIL { handler = vm.meta_field(y, name); }
         if handler != Value::NIL {

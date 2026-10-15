@@ -30,8 +30,11 @@ pub const KIND_CELL: u8 = 6;
 pub const KIND_BYTES: u8 = 7;
 pub const KIND_ITER: u8 = 8;
 pub const KIND_SLICE: u8 = 9;
+/// A host object: a metatable, one Lua value, and Rust data the runtime
+/// owns and drops with it (LPeg's patterns).
+pub const KIND_USERDATA: u8 = 10;
 pub const KIND_INTEGER: u8 = 12;
-pub const KIND_NAMES: [&str; 13] = ["freed", "string", "table", "record", "storage", "closure", "cell", "bytes", "iterator", "slice", "reserved", "reserved", "integer"];
+pub const KIND_NAMES: [&str; 13] = ["freed", "string", "table", "record", "storage", "closure", "cell", "bytes", "iterator", "slice", "userdata", "reserved", "integer"];
 
 pub const COLOR_WHITE: u8 = 0;
 pub const COLOR_GRAY: u8 = 1;
@@ -236,6 +239,10 @@ pub struct BytesPayload { pub data: ByteBuffer }
 /// Iteration state for `pairs` (1, over a key snapshot), `ipairs` (2) and
 /// `gmatch` (3, `pattern` holds the pattern string).
 #[repr(C)]
+/// A userdata's payload: its metatable, its user value (traced) and the
+/// native data behind it (dropped when the object is freed). `external`
+/// is what the data owns outside the heap, fixed at creation.
+pub struct UserdataPayload { pub meta: Value, pub uservalue: Value, pub data: Box<dyn std::any::Any>, pub external: usize }
 pub struct IterPayload { pub obj: Value, pub pattern: Value, pub pos: usize, pub keys: Vec<Value> }
 
 impl Header {
@@ -263,6 +270,10 @@ impl Header {
     pub fn storage(&mut self) -> &mut StoragePayload { debug_assert!(self.kind == KIND_STORAGE); unsafe { &mut *(self.payload() as *mut StoragePayload) } }
     #[inline]
     pub fn byte_buffer(&mut self) -> &mut BytesPayload { debug_assert!(self.kind == KIND_BYTES); unsafe { &mut *(self.payload() as *mut BytesPayload) } }
+    #[inline]
+    pub fn userdata(&self) -> &UserdataPayload { debug_assert!(self.kind == KIND_USERDATA); unsafe { &*(self.payload() as *const UserdataPayload) } }
+    #[inline]
+    pub fn userdata_mut(&mut self) -> &mut UserdataPayload { debug_assert!(self.kind == KIND_USERDATA); unsafe { &mut *(self.payload() as *mut UserdataPayload) } }
     #[inline]
     pub fn iter(&mut self) -> &mut IterPayload { debug_assert!(self.kind == KIND_ITER); unsafe { &mut *(self.payload() as *mut IterPayload) } }
     #[inline]
@@ -299,6 +310,7 @@ impl Header {
             KIND_STORAGE => unsafe { 8 * (*(self.payload() as *const StoragePayload)).data.capacity() },
             KIND_BYTES => unsafe { (*(self.payload() as *const BytesPayload)).data.capacity() },
             KIND_ITER => unsafe { 8 * (*(self.payload() as *const IterPayload)).keys.capacity() },
+            KIND_USERDATA => self.userdata().external,
             _ => 0,
         }
     }
@@ -662,6 +674,19 @@ impl Heap {
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
     }
+    /// A userdata over `data`. The caller keeps `meta` and `uservalue`
+    /// reachable: the allocation is a safepoint.
+    pub fn new_userdata(&mut self, data: Box<dyn std::any::Any>, meta: Value, uservalue: Value, external: usize, roots: &dyn Roots) -> Value {
+        let p = self.alloc(KIND_USERDATA, std::mem::size_of::<UserdataPayload>(), roots);
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut UserdataPayload).write(UserdataPayload { meta, uservalue, data, external }); h.aux_len = 0; }
+        // Allocation is black during marking; initial references need the
+        // same insertion barrier as later stores.
+        if self.phase == Phase::Marking { self.scan(p); }
+        self.account_resize(0, external);
+        #[cfg(feature = "allocation-metrics")]
+        crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
+        Value::obj(p)
+    }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value {
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
         unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: ByteBuffer::Bytes(vec![0u8; n]) }); h.refresh(); }
@@ -806,6 +831,7 @@ impl Heap {
             KIND_CLOSURE | KIND_CELL => { for &v in h.slots() { f(v); } }
             KIND_SLICE => f(h.slice().source),
             KIND_ITER => { let i = unsafe { &*(h.payload() as *const IterPayload) }; f(i.obj); f(i.pattern); for &v in &i.keys { f(v); } }
+            KIND_USERDATA => { let u = h.userdata(); f(u.meta); f(u.uservalue); }
             _ => {}
         }
     }
@@ -907,6 +933,7 @@ impl Heap {
                 KIND_STORAGE => { let s = h.storage(); std::ptr::drop_in_place(s); }
                 KIND_BYTES => { let b = h.byte_buffer(); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),
+                KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()),
                 KIND_RECORD => { let a = h.record_array(); std::ptr::drop_in_place(a); std::ptr::drop_in_place(h.record_extra()); }
                 _ => {}
             }

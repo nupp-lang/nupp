@@ -54,5 +54,7 @@ mod channels;
 
 mod coroutines;
 
+mod lpeg;
+
 #[cfg(feature = "c-headers")]
 pub mod cdecl;

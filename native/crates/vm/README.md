@@ -1977,7 +1977,7 @@ What remains, by cause:
 | Cause | Suites |
 | --- | --- |
 | LuaJIT bytecode, trace and bootstrap assumptions | bctest, bootstraptest, lspclitest (bytecode artifact), jsonschematest (trace aborts) |
-| C modules the VM cannot load (`ffi`, LPeg, lunamark) | evalstest, preludecachetest, coveragetest, examplestest |
+| C modules the VM cannot load (`ffi`; LPeg was here until it went native, below) | evalstest, preludecachetest, coveragetest, examplestest |
 | Native providers not ported | jsonpolicytest, jsonfuseddifferentialtest, tlstest, workerstartuptest |
 | Stub catalog not carried by the VM CLI | perfbudgettest (hello world), releasetest |
 | Environment capabilities (wasm, node, Chromium) | three simdwasm suites |
@@ -2022,3 +2022,43 @@ Two gaps remain. Level 2 answers without a position when the caller is
 compiled (JIT or linked AOT keep no frame chain), and the VM's own runtime
 errors (`index of a non-table`) carry its function and pc rather than a
 source position and Lua's wording.
+
+## Native LPeg (2026-10-14)
+
+`require("lpeg")` answers LPeg 1.1.0 implemented in `src/lpeg.rs`, so the
+`peg` runtime, `re` and Scintillua run on the VM with no C module. It is a
+port of the reference sources (lptree.c, lpcode.c, lpvm.c, lpcap.c): the same
+trees, optimizations, instruction set, bounded backtrack stack
+(`setmaxstack`, "backtrack stack overflow"), capture semantics and error
+texts. Instructions take one slot with absolute jump targets and charsets
+are full 256-bit sets; neither changes a result. Matching runs on an
+explicit stack, so a deep subject never recurses in Rust; capture values
+live on the handle stack exactly where LPeg keeps them on the Lua stack, and
+are rooted there.
+
+A pattern is a userdata, the heap's new kind 10: a metatable, a user value
+(the pattern's ktable) and Rust data the collector drops with it.
+`type(p)` is `"userdata"`, its methods come through `__index`, and the
+arithmetic opcodes now dispatch `__mul`, `__div`, `__mod`, `__pow`, `__unm`
+and `__len` the way `__add` and `__sub` already did. Persisting a pattern
+is refused as an unsupported object kind.
+
+`lpeg` is installed in `package.loaded` by `install_globals`; `re` is the
+bundled `src/re.nupp`, which the CLI image carries and which requires
+`lpeg` like any module. Unlike LuaJIT's `luaopen_lpeg`, requiring it sets
+no global `lpeg` (Scintillua sets its own).
+
+`tests/lpeg.rs` runs representative test.lua cases through the builtins
+under every collector verification mode and the operators from bytecode on
+each tier. `tests/lpeg-differential.lua` prints 160 checks and a thousand
+random patterns against ten subjects; its output under LuaJIT with the C
+module and under the VM is identical. LPeg's own test.lua passes on the VM
+once five VM gaps unrelated to LPeg are worked around in a copy (seven
+edits): a call delivers at most 128 results, `string.char` and `math.sin` do
+not coerce numeric strings, and there are no weak tables and no
+`os.setlocale`.
+
+Measured on a linked AOT CLI against LuaJIT's C module: scanning 0.8 MB
+1.0 ms against 1.1, splitting it into a 120 000-entry table 6.8 ms against
+5.4, a `Cs` substitution over it 10.5 ms against 8.9, and a 1.7 MB JSON
+grammar with folds and table captures 34 ms against 33.
