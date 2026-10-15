@@ -15,6 +15,32 @@ local record reflection
     graph: function(any, any?): (integer?, {any}, {any})
     runtimeReferences: function(any): {[string]: string}
     bindRuntimeDeclarations: function(any, string): nil
+    portableKey: function(string?): string?
+end
+
+local compilerPrefix: string? = nil
+
+--- A declaration key as generated code carries it, independent of where the
+--- checkout sits. A declaration without a runtime key (an interface) is keyed by
+--- its declaration key, which begins with the absolute path of its source; one
+--- under the compiler's own checkout is spelled from the checkout root instead,
+--- so the same sources give the same image wherever they are built. Every site
+--- that emits a key goes through this, so a reference and the declaration it
+--- names always agree.
+function reflection.portableKey(key: string?): string?
+    if key == nil then
+        return nil
+    end
+    if compilerPrefix == nil then
+        local root = require("nupp.compiler.project.env").compilerRoot()
+        compilerPrefix = root and (require("nupp.compiler.fs").normalize(root) .. "/") or ""
+    end
+    local prefix = compilerPrefix as string
+    if prefix ~= "" and (key as string):sub(1, #prefix) == prefix then
+        return "@" .. (key as string):sub(#prefix + 1)
+    end
+
+    return key
 end
 
 reflection.SCHEMA = 6
@@ -577,7 +603,7 @@ function reflection.runtimeReferences(root: any): {[string]: string}
     for index, source in ipairs(sources) do
         if source.tag == "nominal" then
             local declaration = source.origin or source
-            local key = declaration.runtimeDeclarationKey or declaration.declarationKey
+            local key = reflection.portableKey(declaration.runtimeDeclarationKey or declaration.declarationKey)
             if key then
                 references[tostring(index)] = key
             end

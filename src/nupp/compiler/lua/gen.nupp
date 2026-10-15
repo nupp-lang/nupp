@@ -5182,7 +5182,11 @@ function gen.generate(
                 local child = target.localTarget
                 e(("%s[%d]"):format(child.group.name, child.slot))
             else
-                e(("_G.nupp.__reflect.reference(%q,%q)"):format(target.key, target.module))
+                e(
+                    (
+                        "_G.nupp.__reflect.reference(%q,%q)"
+                    ):format(require("nupp.compiler.reflection").portableKey(target.key), target.module)
+                )
             end
         end
         e("})")
@@ -5217,7 +5221,9 @@ function gen.generate(
                 if index > 1 then
                     e(",")
                 end
-                local declarationKey = item.type.runtimeDeclarationKey or item.type.declarationKey
+                local declarationKey = require(
+                    "nupp.compiler.reflection"
+                ).portableKey(item.type.runtimeDeclarationKey or item.type.declarationKey)
                 if item.top and declarationKey then
                     e(("_G.nupp.__reflect.declaration(%q)"):format(declarationKey))
                 else

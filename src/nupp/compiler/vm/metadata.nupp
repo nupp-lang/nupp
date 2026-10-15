@@ -4,6 +4,9 @@ module nupp.compiler.vm.metadata
 -- Recipes and descriptors come from semantic analysis, never generated Lua.
 local metadata = {}
 
+-- Declaration keys are spelled independently of the checkout's location.
+local portable = require("nupp.compiler.reflection").portableKey
+
 local function node(kind, fields)
     local result: table = fields or {}
     result.kind = kind
@@ -667,7 +670,7 @@ local function witnesses(root)
             group.vmName = "\0witness:" .. groups
             local cells = {}
             for index, member in ipairs(group.items) do
-                local key = member.type.runtimeDeclarationKey or member.type.declarationKey
+                local key = portable(member.type.runtimeDeclarationKey or member.type.declarationKey)
                 local cell
                 if member.top and key then
                     cell = call(field(reflect, "declaration"), {data(key)})
@@ -699,7 +702,7 @@ local function witnesses(root)
         local targets = {}
         for _, target in ipairs(item.targets) do
             local value = target.localTarget and cell(target.localTarget) or call(field(reflect, "reference"), {
-                data(target.key),
+                data(portable(target.key)),
                 data(target.module)
             })
             targets[#targets + 1] = node("fieldItem", {value = value})
