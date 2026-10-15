@@ -3396,8 +3396,14 @@ function lower.emit(
     local function comptimeExpression(node)
         local parsed = node.vmComptimeExpression
         if not parsed then
-            local result = require("nupp.compiler.syntax.parser").parse("return " .. node.comptimeValue, "=comptime")
-            assert(#result.errors == 0, "comptime value does not parse: " .. tostring(node.comptimeValue))
+            -- A materialized value is rendered to the same kind of expression text.
+            local text = node.comptimeValue
+            if not text then
+                local rendered, failure = require("nupp.compiler.comptime.materialize.ir").render(node.materializedIR)
+                text = rendered or error("checked materialization IR failed: " .. tostring(failure and failure.message))
+            end
+            local result = require("nupp.compiler.syntax.parser").parse("return " .. text, "=comptime")
+            assert(#result.errors == 0, "comptime value does not parse: " .. tostring(text))
             parsed = (result.root.blocks[1].stats[1] as any).exprs[1]
             node.vmComptimeExpression = parsed
         end
@@ -3406,7 +3412,7 @@ function lower.emit(
     end
 
     expr = function(f, node, dst, want)
-        if node.comptimeValue then
+        if node.comptimeValue or node.materializedIR then
             return plainExpr(f, comptimeExpression(node), dst, want)
         end
         local r, class = plainExpr(f, node, dst, want)
@@ -5074,6 +5080,12 @@ function lower.emit(
             return
         end
         seen[node] = true
+        -- A comptime or materialized value is lowered as the expression it
+        -- renders to, so that is what its captures are read from.
+        if node.comptimeValue or node.materializedIR then
+            analyzeExpr(comptimeExpression(node), chain, here, seen)
+            return
+        end
         noteCleanups(node, chain, here)
         if node.kind == "name" and node.token then
             noteUse(chain, tokText(node.token), here);

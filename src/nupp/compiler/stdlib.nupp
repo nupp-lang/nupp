@@ -116,4 +116,30 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installing
     return code:sub(-1) == ";" and code or code .. ";"
 end
 
+--- The installers for library features a VM image installs itself: the PEG
+--- runtime and its helper locals, LPeg's `re`, and the keyed field codec. The
+--- VM has its own math, managed runtime, reflection and derives, so the base
+--- and those pieces are left out; what remains binds the `__nupp` local the
+--- pieces address.
+function stdlib.vmInstallers(effects: {[string]: any}): string?
+    local out = {}
+    if effects["stdlib.peg"] or effects["stdlib.peg.compile"] then
+        out[#out + 1] = PEG_RUNTIME
+    end
+    if effects["stdlib.lpeg.re"] or effects["stdlib.peg.compile"] then
+        out[#out + 1] = 'require("re");'
+    end
+    if effects["stdlib.peg.compile"] then
+        out[#out + 1] = PEG_COMPILE
+    end
+    if effects["stdlib.fieldcodec"] then
+        out[#out + 1] = FIELDCODEC
+    end
+    if #out == 0 then
+        return nil
+    end
+
+    return "local __nupp=_G.nupp or {};_G.nupp=__nupp " .. table.concat(out, " ")
+end
+
 export = stdlib

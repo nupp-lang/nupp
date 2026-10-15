@@ -801,6 +801,7 @@ function metadata.expand(root)
     local seen = {}
     local managed = false
     local reflects = false
+    local effects = {}
     local links = witnesses(root)
 
     local function replaceCall(current, replacement)
@@ -840,6 +841,17 @@ function metadata.expand(root)
         end
         seen[current] = true
         managed = managed or current.requiresManagedRuntime == true
+        if current.compilerFeatureEffect then
+            effects[current.compilerFeatureEffect] = true
+        end
+        for _, effect in ipairs(current.compilerFeatureEffects or {}) do
+            effects[effect] = true
+        end
+        for _, effect in ipairs(
+            current.materializationObservation and current.materializationObservation.runtimeFeatures or {}
+        ) do
+            effects[effect] = true
+        end
         reflects = reflects
             or current.kind == "dotIndex"
             and current.obj
@@ -925,6 +937,19 @@ function metadata.expand(root)
         table.insert(block.stats, 1, install)
         block[#block + 1] = install
         root.vmManagedRuntime = true
+    end
+    -- The PEG runtime, `re` and the field codec are installed as the Lua
+    -- backend's bootstrap installed them, as module-level statements whose
+    -- locals the materialized grammars and codecs address.
+    local installers = not root.vmFeatureInstallers and require("nupp.compiler.stdlib").vmInstallers(effects) or nil
+    if installers then
+        local parsed = require("nupp.compiler.syntax.parser").parse(installers, "=stdlib")
+        assert(#parsed.errors == 0, "feature installers do not parse")
+        local block = root.blocks[1]
+        for index, statement in ipairs((parsed.root as any).blocks[1].stats) do
+            table.insert(block.stats, index, statement)
+        end
+        root.vmFeatureInstallers = true
     end
     -- `nupp.reflect` is installed by whatever chunk first needs it; on LuaJIT an
     -- earlier chunk always had, but a program image installs what it reads.
