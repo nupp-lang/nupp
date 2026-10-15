@@ -75,6 +75,8 @@ pub const NAMES: &[&str] = &[
     "sbuf.put", "sbuf.putf", "sbuf.get", "sbuf.tostring", "sbuf.reset", "sbuf.free", "sbuf.skip", "sbuf.set",
     "sbuf.bencode", "sbuf.bdecode", "sbuf.putcdata", "sbuf.ref", "sbuf.reserve", "sbuf.commit",
     "sbuf.__len", "sbuf.__tostring", "sbuf.__concat",
+    // Appended last so every earlier id, which linked objects carry, keeps its value.
+    "vm.imageIdentity",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -577,6 +579,7 @@ enum Special {
     PackagePreloadloader,
     PackageImageloader,
     VmLoadimage,
+    VmImageidentity,
     Tail,
 }
 static SPECIAL: std::sync::OnceLock<Vec<Special>> = std::sync::OnceLock::new();
@@ -626,6 +629,7 @@ fn classify(name: &str) -> Special {
     if name == "package.preloadLoader" { return Special::PackagePreloadloader; }
     if name == "package.imageLoader" { return Special::PackageImageloader; }
     if name == "vm.loadImage" { return Special::VmLoadimage; }
+    if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
@@ -827,6 +831,16 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::VmProcessid => {
             return outs![Value::num(std::process::id() as f64)];
+        }
+        Special::VmImageidentity => {
+            // The digest of the image this VM was started from, which is the code
+            // a cache stamp has to name: the sources it was lowered from may have
+            // moved on since. Images `vm.loadImage` adds later are not part of it.
+            let digest = match it.code_events.first() {
+                Some(crate::persist::CodeEvent::Image(text)) => Some(nupp_native_platform::cache_digest(text.as_bytes())),
+                _ => None,
+            };
+            return match digest { Some(digest) => outs![it.new_string_bytes(&digest)], None => outs![Value::NIL] };
         }
         Special::UuidUuid4 => {
             let name = NAMES[id as usize];

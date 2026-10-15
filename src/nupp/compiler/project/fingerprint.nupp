@@ -124,11 +124,51 @@ local function relativeTo(dir: string, path: string): string
     return path
 end
 
+--- The identity of the VM image the compiler is running from, or nil when it is
+--- not running from one.
+---
+--- An image is one artifact the way a bundle is, but its chunk names are the
+--- source files it was lowered from rather than itself, so hashing "the bundle"
+--- hashed this module's source and nothing else: every stamp on the VM named
+--- one file, and an image rebuilt from an edited checker went on believing what
+--- the old one had stored. Nor would the sources be the right answer -- an image
+--- is installed explicitly and may be older than the checkout beside it. What
+--- computed an answer is the image, so the stamp is the image's digest, which
+--- the runtime answers for the image it started from.
+---
+--- A runtime too old to answer gets a stamp no other process shares: every
+--- store misses, which costs time and never an answer.
+local function vmImageIdentity(): string?
+    if rawget(_G, "__nupp_load_image") == nil then
+        return nil
+    end
+    local identify: any = rawget(_G, "__nupp_image_identity")
+    local ok: boolean = false
+    local identity: any = nil
+    if identify ~= nil then
+        ok, identity = pcall(identify)
+    end
+    if ok and type(identity) == "string" and identity ~= "" then
+        return "image\0" .. identity
+    end
+
+    return table.concat(
+        {"unidentified", tostring(fs.processId() or 0), tostring(os.time()), tostring(os.clock()), tostring({})},
+        "\0"
+    )
+end
+
 local function toolFingerprint(contentDigest: (function(string): string)?): string
     if toolFingerprintMemo then
         return toolFingerprintMemo
     end
     local digest = contentDigest or hash.digest
+    local image = bundled() and vmImageIdentity() or nil
+    if image ~= nil then
+        toolFingerprintMemo = digest("nupp-vm\0" .. image)
+
+        return toolFingerprintMemo
+    end
     -- The toolchain is two trees, the compiler and the tools built on it, and both
     -- decide what a build writes: `nupp.tools.build` is where an artifact is put
     -- together. Named from the directory holding both.
