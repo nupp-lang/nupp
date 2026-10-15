@@ -141,6 +141,7 @@ pub(crate) fn boundary(op: &Op) -> bool {
             | Op::DeferMethod(..)
             | Op::Disarm(..)
             | Op::DisarmAt(..)
+            | Op::RearmAt(..)
             | Op::Unwind(..)
             | Op::VarargN(..)
             | Op::VarargTable(..)

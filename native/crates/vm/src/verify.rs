@@ -193,6 +193,7 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         Defer(v, c) => r(&[(V, v), (V, c)]),
         Disarm(v) => r(&[(V, v)]),
         DisarmAt(_) | Unwind(_) => r(&[]),
+        RearmAt(_, v, c) => r(&[(V, v), (V, c)]),
         RetNil | Checkpoint | LoopFact(..) => r(&[]),
         GetPhys(d,t,_) => r(&[(V,d),(V,t)]),
         GetPhysF(d,t,_) => r(&[(F,d),(V,t)]),
@@ -335,7 +336,7 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
         VarargN(..) => (all.clone(), Vec::new()),
         // Every register named is read.
         SetPhys(..)|SetPhysF(..)|SetPhysI(..)|SpanBounds(..) | SpanStore(..) | Raise(..) | SetIdx(..) | SetIdxI(..) | SetIdxF(..) | SetField(..) | SetSlot(..) | SetSlotF(..) | StoreU8(..) | StoreU32(..) | FStore(..) | VStore(..) | VStoreM(..) | SetCell(..) | BufAppendSub(..)
-        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
+        | JmpIf(..) | JmpIfNot(..) | JmpIfIZero(..) | IJmpIfUle(..) | IJmpIfUlt(..) | Switch(..) | GuardLenLe(..) | SetMethod(..) | Ret(..) | FRet(..) | Park(..) | Jmp(..) | RetNil | Checkpoint | LoopFact(..) | Defer(..) | DeferMethod(..) | Disarm(..) | DisarmAt(..) | RearmAt(..) | Unwind(..) | AffineEnter => none_def(&all),
         // Read and written.
         BufAppend(b, s) | AffineMark(b, s) => (vec![(V, b)], vec![(V, b), (V, s)]),
         RetN(start, n) => { let n = if n >= 128 { (n & 127).saturating_add(8) } else { n }; (Vec::new(), (0..n.max(1)).filter_map(|i| start.checked_add(i).map(|r| (V, r))).collect()) }

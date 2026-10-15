@@ -145,6 +145,9 @@ pub enum Op {
     /// Disarm the most recent cleanup for a transferred value.
     Disarm(u8),
     DisarmAt(u16),
+    /// Re-arm the cleanup slot at a depth with a new receiver: a reinitialized
+    /// owner. A string callback names the receiver's method, as `DeferMethod`.
+    RearmAt(u16, u8, u8),
     CleanupLive(u8,u16),
     AffineMark(u8,u8),
     AffineEnter,
@@ -2135,6 +2138,7 @@ impl Interp {
                     Op::DeferMethod(v, k) => { let value = r!(v); let name = unsafe { *consts.add(k as usize) }; let callback = if value == Value::NIL { Value::NIL } else { self.resolve_method(value, name) }; let frame = self.tasks[tid].cur; self.tasks[tid].cleanups.push(Cleanup { frame, value, callback }); }
                     Op::Defer(v, c) => { let cleanup = Cleanup { frame: self.tasks[tid].cur, value: r!(v), callback: r!(c) }; self.tasks[tid].cleanups.push(cleanup); }
                     Op::DisarmAt(depth) => { let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let c = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); c.value = Value::NIL; c.callback = Value::NIL; }
+                    Op::RearmAt(depth, v, c) => { let value = r!(v); let given = r!(c); let callback = if value == Value::NIL { Value::NIL } else if self.is_stringish(given) { self.resolve_method(value, given) } else { given }; let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let slot = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); slot.value = value; slot.callback = callback; }
                     Op::Disarm(v) => { let value = r!(v); if let Some(i) = self.tasks[tid].cleanups.iter().rposition(|c| c.value == value) { self.tasks[tid].cleanups[i].value = Value::NIL; self.tasks[tid].cleanups[i].callback = Value::NIL; } }
                     Op::Unwind(depth) => { let frame = self.tasks[tid].cur; let keep = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count() + depth as usize; self.unwind_cleanups(tid, keep); }
                     Op::Park(k) => { crate::scheduler::checkpoint(self); let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
@@ -2616,7 +2620,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::NewRecord(..) => "NewRecord",
         Op::GetSlot(..) => "GetSlot",
         Op::SetSlot(..) => "SetSlot",
-        Op::CleanupLive(..)=>"CleanupLive", Op::AffineMark(..)=>"AffineMark", Op::AffineEnter=>"AffineEnter", Op::Defer(..) => "Defer", Op::DeferMethod(..) => "DeferMethod", Op::Disarm(..) => "Disarm", Op::DisarmAt(..) => "DisarmAt", Op::Unwind(..) => "Unwind",
+        Op::CleanupLive(..)=>"CleanupLive", Op::AffineMark(..)=>"AffineMark", Op::AffineEnter=>"AffineEnter", Op::Defer(..) => "Defer", Op::DeferMethod(..) => "DeferMethod", Op::Disarm(..) => "Disarm", Op::DisarmAt(..) => "DisarmAt", Op::RearmAt(..) => "RearmAt", Op::Unwind(..) => "Unwind",
         Op::Park(..) => "Park",
         Op::Checkpoint => "Checkpoint",
         Op::Ne(..) => "Ne",

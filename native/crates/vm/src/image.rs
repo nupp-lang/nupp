@@ -170,7 +170,7 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                     "DeferMethod" => Op::DeferMethod(a(1) as u8, a(2) as u16), "Defer" => Op::Defer(a(1) as u8, a(2) as u8), "CleanupLive" => Op::CleanupLive(a(1) as u8, a(2) as u16),
                 "AffineMark" => Op::AffineMark(a(1) as u8, a(2) as u8),
                 "AffineEnter" => Op::AffineEnter,
-                "DisarmAt" => Op::DisarmAt(a(1) as u16), "Disarm" => Op::Disarm(a(1) as u8), "Unwind" => Op::Unwind(a(1) as u16),
+                "DisarmAt" => Op::DisarmAt(a(1) as u16), "RearmAt" => Op::RearmAt(a(1) as u16, a(2) as u8, a(3) as u8), "Disarm" => Op::Disarm(a(1) as u8), "Unwind" => Op::Unwind(a(1) as u16),
                     "Park" => Op::Park(a(1) as u8), "Checkpoint" => Op::Checkpoint,
                     "Simd" => {
                         if parts.len() != 5 && parts.len() != 6 { return Err(format!("line {ln}: SIMD operand count")); }
