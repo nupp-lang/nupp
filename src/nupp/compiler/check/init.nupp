@@ -3803,8 +3803,17 @@ function checkMod.check(
         ] = name .. "=" .. tostring(c.moduleExports.comptimeFunctions[name].identity)
     end
     c.moduleExports.comptimeFunctionFingerprint = table.concat(comptimeIdentities, "\0")
+    -- By position, and at one position in the order they were reported: a sort
+    -- that is not stable answered differently on LuaJIT and the VM.
+    local reported: {[any]: integer} = {}
+    for index, diagnostic in ipairs(c.diags) do
+        reported[diagnostic] = index
+    end
     table.sort(c.diags, function(a, b)
-        return a.offset < b.offset
+        if a.offset ~= b.offset then
+            return a.offset < b.offset
+        end
+        return reported[a] < reported[b]
     end)
     result.moduleExports = c.moduleExports
     result.cNamespaceType = c.cNamespaceType()
