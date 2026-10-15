@@ -840,7 +840,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if vmProgram then
             text, bundleErr, unreachable, facilities = loadBuildTool(
                 "nupp.tools.build.package"
-            ).programPayload(root, config, target, outDir)
+            ).programPayload(root, config, target, outDir, newState.modules)
         else
             text, bundleErr, unreachable = loadBuildTool(
                 "nupp.tools.build.package"

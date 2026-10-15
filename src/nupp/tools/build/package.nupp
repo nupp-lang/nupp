@@ -581,11 +581,49 @@ end
 --- @return why not
 --- @return the resources that had no key a running program could ask for
 --- @return the runtime facilities the program reaches
+--- What a VM program image is reused under: everything its emission reads that
+--- can differ between two builds of the same target. The modules' sources, the
+--- VM's own library and declarations that replace some of them, the resources
+--- carried as `nupp.embedded`, and the compiler image doing the lowering, since a
+--- new compiler may lower the same source differently. Nil when any of those
+--- cannot be named, which is a build that emits afresh.
+local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?): string?
+    local compilerImage = os.getenv("NUPP_VM_CLI_IMAGE")
+    local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
+    if modules == nil or compilerImage == nil or compilerRoot == nil then
+        return nil
+    end
+    local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
+    local image = fs.readFile(compilerImage)
+    if image == nil then
+        return nil
+    end
+    local parts: {string} = {"vm-program/1", mainName, digest(embedded or ""), digest(image)}
+    local names: {string} = {}
+    for name in pairs(modules) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        parts[#parts + 1] = name .. "=" .. tostring((modules[name] as any).sourceHash)
+    end
+    for _, directory in ipairs({"lib", "decls"}) do
+        local files = fs.listFiles(compilerRoot .. "/native/crates/vm/" .. directory)
+        table.sort(files)
+        for _, path in ipairs(files) do
+            parts[#parts + 1] = path .. "=" .. digest(fs.readFile(path) or "")
+        end
+    end
+
+    return digest(table.concat(parts, "\n"))
+end
+
 local function programPayload(
     root: string,
     config: Config,
     target: Target,
-    builtOutDir: string?
+    builtOutDir: string?,
+    modules: {[string]: any}?
 ): string?, string?, {string}?, {string}?
     local outDir = builtOutDir or target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
@@ -602,6 +640,24 @@ local function programPayload(
         fields[#fields + 1] = "}\n"
         embedded = table.concat(fields)
     end
+    -- Lowering a program is the expensive half of a VM binary build -- minutes for
+    -- one that carries the compiler -- and an unchanged target lowers to the same
+    -- image, so the last one is kept beside the output under the key it was
+    -- emitted for.
+    local key = programKey(mainName, embedded, modules)
+    local cached = join(root, join(outDir, ".nupp-vm-program"))
+    if key ~= nil and fs.readFile(cached .. ".key") == key then
+        local kept = fs.readFile(cached .. ".image")
+        local keptFacilities = fs.readFile(cached .. ".facilities")
+        if kept ~= nil and keptFacilities ~= nil then
+            local facilities: {string} = {}
+            for facility in keptFacilities:gmatch("[^\n]+") do
+                facilities[#facilities + 1] = facility
+            end
+
+            return kept, nil, unreachable, facilities
+        end
+    end
     local ok, image, facilities = pcall(
         require("nupp.tools.vm.project").program,
         root,
@@ -612,8 +668,16 @@ local function programPayload(
     if not ok then
         return nil, tostring(image)
     end
+    local payload = mainName .. "\n" .. (image as string)
+    if key ~= nil then
+        -- The key goes last, so an interrupted write is a miss rather than a
+        -- stale image served under a current key.
+        fs.writeFile(cached .. ".image", payload)
+        fs.writeFile(cached .. ".facilities", table.concat(facilities as {string}, "\n") .. "\n")
+        fs.writeFile(cached .. ".key", key as string)
+    end
 
-    return mainName .. "\n" .. (image as string), nil, unreachable, facilities as {string}
+    return payload, nil, unreachable, facilities as {string}
 end
 
 --- Where a `bundle` target writes its one file.

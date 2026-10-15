@@ -378,6 +378,17 @@ The run stays in one process for a single named suite, for `--jobs=1`, inside
 a shard, and while [coverage](#coverage) is collected, where the shards would
 race each other for the one counter file `NUPP_COVERAGE_FILE` names.
 
+Under a VM-hosted compiler the runner is a VM program: the build stamps it onto
+the VM runtime, Nupp suites lower to images with the VM's own lowering, and a
+module the runner's image does not carry is compiled from source when a suite
+first requires it. A VM worker shares no Lua state, so a parallel lane there is
+another process rather than a worker inside one. Each suite record in
+`--json` says which `engine` ran it, `vm` or `luajit`. The repository's suites
+that still drive the Lua generator, LuaJIT's `ffi` or its host are left to the
+LuaJIT runner, `tests/run`: a selection that includes one reports it as a
+single not-executed case with `engine` `luajit`, and naming the suite runs it
+on the VM regardless.
+
 ::: deepdive
 The default is one worker per processor. `--jobs=N` is explicit because the
 useful count depends on the machine and on whether the suites spend their time

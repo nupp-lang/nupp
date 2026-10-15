@@ -1265,6 +1265,10 @@ table.sort(suites, function(a, b)
     return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
 
+-- What runs the shared lane: Nupp worker states inside a LuaJIT host, or on
+-- the VM, where a worker shares no Lua state with the runner, processes.
+local sharedWorkers = workerHost and "Nupp workers" or engine == "vm" and "VM processes" or "Nupp workers"
+
 -- What the VM runner leaves to LuaJIT: the suites the corpus classification
 -- marks `port-required` (they still drive the Lua generator, `ffi`, `jit` or a
 -- LuaJIT host), `retired` (they test machinery the VM deletes) or `harness`
@@ -3007,7 +3011,7 @@ then
         if isolatedQueue then
             beginPhase(("%d isolated suites across %d process workers"):format(#alone, #isolatedQueue.lanes))
         elseif sharedQueue then
-            beginPhase(("%d suites across %d Nupp workers"):format(sharedQueue.count, #sharedQueue.lanes))
+            beginPhase(("%d suites across %d %s"):format(sharedQueue.count, #sharedQueue.lanes, sharedWorkers))
         elseif shellQueue then
             beginPhase(("%d shell suites across %d process workers"):format(#shelling, #shellQueue.lanes))
         end
@@ -3020,7 +3024,7 @@ then
             collectQueue(isolatedQueue, startFanOut(isolatedQueue.lanes, true, true, "isolated"))
         end
         if sharedQueue and isolatedQueue then
-            beginPhase(("%d suites across %d Nupp workers"):format(sharedQueue.count, #sharedQueue.lanes))
+            beginPhase(("%d suites across %d %s"):format(sharedQueue.count, #sharedQueue.lanes, sharedWorkers))
         end
         local collectShared = sharedQueue and startFanOut(sharedQueue.lanes, true, false, "shared") or nil
         local collectShell
