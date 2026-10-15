@@ -11,7 +11,7 @@ local lower = {}
 function lower.emit(
     entryName: string,
     extras: {string},
-    resolve: function(name: string): string?,
+    resolve: function(name: string, soft: boolean?): string?,
     check: function(name: string, path: string): table,
     environment: boolean?,
     listing: table?,
@@ -109,6 +109,8 @@ function lower.emit(
         return list[1]
     end
 
+    local foreignShape
+
     local function slotTy(t)
         local tag = tyTag(t)
         if tag == "number" or tag == "integer" then
@@ -120,8 +122,11 @@ function lower.emit(
         if tag == "boolean" then
             return "bool"
         end
-        if tag == "nominal" and shapeOfNominal(t) and not shapeOfNominal(t).physical then
-            return "rec:" .. shapeOfNominal(t).id
+        if tag == "nominal" then
+            local shape = shapeOfNominal(t) or foreignShape(t)
+            if shape and not shape.physical then
+                return "rec:" .. shape.id
+            end
         end
         if tag == "literal" then
             return slotTy(t.base)
@@ -224,6 +229,47 @@ function lower.emit(
         return shape
     end
 
+    -- A record another image declares: its shape is rebuilt from the checked
+    -- type in the order `declareShape` gives it, under the same identity, so
+    -- the loader resolves both images to one shape and one method table.
+    foreignShape = function(t)
+        if t.declKind ~= "record"
+            or type(t.fieldOrder) ~= "table"
+            or not t.moduleName
+            or t.moduleName == currentModule
+        then
+            return nil
+        end
+        local name = (t.name or ""):match("([%w_]+)$") or ""
+        local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}, module = t.moduleName}
+        shapes[name] = shapes[name] or {}
+        table.insert(shapes[name], shape)
+        shapesByNominal[t] = shape
+        if t.declarationKey then
+            shapesByNominal[t.declarationKey] = shape
+        end
+        shapeOrder[#shapeOrder + 1] = shape
+        local byname = type(t.byname) == "table" and t.byname or {}
+        local methods = type(t.methodEntries) == "table" and t.methodEntries or {}
+        for _, fname in ipairs(t.fieldOrder) do
+            shape.slotIndex[fname] = #shape.slots
+            shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(byname[fname])}
+        end
+        local inherited = {}
+        for fname in pairs(byname) do
+            if type(fname) == "string" and shape.slotIndex[fname] == nil and methods[fname] == nil then
+                inherited[#inherited + 1] = fname
+            end
+        end
+        table.sort(inherited)
+        for _, fname in ipairs(inherited) do
+            shape.slotIndex[fname] = #shape.slots
+            shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(byname[fname])}
+        end
+
+        return shape
+    end
+
     local function shapeOf(ty)
         -- An ownership qualifier wraps the type it qualifies.
         while type(ty) == "table" and (ty.tag == "borrowed" or ty.tag == "affine" or ty.tag == "owned") and ty.inner do
@@ -233,7 +279,7 @@ function lower.emit(
             if ty.declKind == "interface" then
                 return nil
             end
-            return shapeOfNominal(ty) or shapeByBareName((ty.name or ""):match("([%w_]+)$") or "")
+            return shapeOfNominal(ty) or shapeByBareName((ty.name or ""):match("([%w_]+)$") or "") or foreignShape(ty)
         end
     end
 
@@ -2283,6 +2329,9 @@ function lower.emit(
                 value = assert(loadstring("return " .. raw))()
             end
             f:op("K", dst, f:const("str", value))
+        elseif k == "dedentString" then
+            local lexer = require("nupp.compiler.syntax.lexer")
+            f:op("K", dst, f:const("str", lexer.dedentLongString(tokText(node.token))))
         elseif k == "trueExpr" then
             f:op("K", dst, f:const("true", ""))
         elseif k == "falseExpr" then
@@ -4413,15 +4462,19 @@ function lower.emit(
             if n.typeOnlyRequire then
                 return false
             end
-            if n.kind == "call"
-                and n.obj
-                and n.obj.kind == "name"
-                and tokText(n.obj.token) == "require"
-                and n.args
-                and n.args.exprs[1]
-                and n.args.exprs[1].kind == "string"
-            then
-                names[#names + 1] = (loadstring("return " .. tokText(n.args.exprs[1].token)))()
+            -- `require("m")`, and softly `_G.require("m")`, which a facade spells
+            -- to choose a provider at run time: the resolver decides whether the
+            -- image carries one.
+            local callee = n.kind == "call" and n.obj or nil
+            local plain = callee and callee.kind == "name" and tokText(callee.token) == "require"
+            local soft = callee
+                and callee.kind == "dotIndex"
+                and callee.obj.kind == "name"
+                and tokText(callee.obj.token) == "_G"
+                and tokText(callee.name) == "require"
+            if (plain or soft) and n.args and n.args.exprs[1] and n.args.exprs[1].kind == "string" then
+                local name = (loadstring("return " .. tokText(n.args.exprs[1].token)))()
+                names[#names + 1] = soft and {name = name, soft = true} or name
             end
         end)
 
@@ -4492,8 +4545,9 @@ function lower.emit(
         for _, dep in ipairs(declaredDynamically(path)) do
             deps[#deps + 1] = dep
         end
-        for _, dep in ipairs(deps) do
-            local depPath = modulePath(dep)
+        for _, entry in ipairs(deps) do
+            local dep = type(entry) == "table" and entry.name or entry
+            local depPath = modulePath(dep, type(entry) == "table")
             if depPath then
                 compileModule(dep, depPath)
             elseif os.getenv("EMIT_TRACE") then
@@ -4630,6 +4684,9 @@ function lower.emit(
 
     for _, shape in ipairs(shapeOrder) do
         local parts = {"shape", shape.id, shape.name}
+        if shape.module and not shape.physical and not shape.name:find("^struct:") then
+            parts[#parts + 1] = "identity=" .. shape.module .. ":" .. shape.name
+        end
         for _, slot in ipairs(shape.slots) do
             parts[#parts + 1] = slot.name .. ":" .. slot.ty
         end

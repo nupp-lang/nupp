@@ -24,6 +24,9 @@ bytes.
 
 local spi = require("nupp.spi")
 
+-- The default provider is loaded by name below, so image builders are told.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativebuffer"
+
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 local contracts = require("nupp.text.spi")
 local provider: contracts.Provider = do

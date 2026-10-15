@@ -16,15 +16,17 @@ local envMod = require("nupp.compiler.project.env")
 local runtime = {}
 
 -- Installs a loader backed by the project's checker environment. `compile` receives
--- (path, env) and returns generated Lua source or nil plus an error. The returned
--- function removes this exact loader, even if other loaders were added while the
--- program was running.
+-- (path, env, module name) and returns compiled code or nil plus an error: Lua
+-- source, or what `loadCompiled` turns into the module's chunk when it is given
+-- (a VM image on the VM). The returned function removes this exact loader, even
+-- if other loaders were added while the program was running.
 function runtime.install(
     env: envMod.Env,
-    compile: function(path: string, env: envMod.Env): (string?, string?),
+    compile: function(path: string, env: envMod.Env, name: string): (string?, string?),
     loaded: function(name: string, path: string, ok: boolean)?,
     checkPlain: function(path: string, env: envMod.Env): boolean?,
-    preparing: (function(active: boolean): nil)?
+    preparing: (function(active: boolean): nil)?,
+    loadCompiled: (function(code: string, path: string): (any, string?))?
 ): function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
@@ -48,7 +50,7 @@ function runtime.install(
         local chunk, loadErr
         if path:match("%.nupp$") then
             compiling = true
-            local ok, code, compileErr = pcall(compile, path, env)
+            local ok, code, compileErr = pcall(compile, path, env, name)
             compiling = false
             if not ok then
                 error(code, 0)
@@ -61,7 +63,11 @@ function runtime.install(
                     0
                 )
             end
-            chunk, loadErr = loadstring(code, "@" .. path)
+            if loadCompiled then
+                chunk, loadErr = loadCompiled(code, path)
+            else
+                chunk, loadErr = loadstring(code, "@" .. path)
+            end
         else
             -- A plain Lua module runs as written, but what its annotations claim is
             -- what a typed caller was checked against, so a body that breaks its own
@@ -100,9 +106,30 @@ function runtime.install(
         end
     end
 
+    -- The VM's own implementation of a standard module, where it has one: it
+    -- replaces the checkout's LuaJIT spelling wherever that would be found.
+    local function vmOverride(name: string): string?
+        local root = envMod.compilerRoot()
+        if not root or name:sub(1, 5) ~= "nupp." or not rawget(_G, "__nupp_load_image") then
+            return nil
+        end
+        local path = root .. "/native/crates/vm/lib/" .. name:gsub("%.", "/") .. ".nupp"
+        local file = io.open(path, "rb")
+        if not file then
+            return nil
+        end
+        file:close()
+
+        return path
+    end
+
     local function loadLjppModule(name)
         if compiling then
             return
+        end
+        local override = vmOverride(name)
+        if override then
+            return loadPath(name, override)
         end
         local path = envMod.findRuntimeModulePath(env, name)
         if not path then
@@ -124,8 +151,12 @@ function runtime.install(
             return
         end
         local rel = name:gsub("%.", "/")
-        for _, pattern in ipairs({"/src/%s.nupp", "/src/%s/init.nupp"}) do
-            local path = root .. pattern:format(rel)
+        local candidates = {root .. "/src/" .. rel .. ".nupp", root .. "/src/" .. rel .. "/init.nupp"}
+        local override = vmOverride(name)
+        if override then
+            candidates = {override}
+        end
+        for _, path in ipairs(candidates) do
             local file = io.open(path, "rb")
             if file then
                 file:close()
@@ -152,8 +183,10 @@ function runtime.install(
             return result
         end
     end
-    -- package.preload remains authoritative, matching Lua's normal semantics.
-    table.insert(loaders, 2, installedLoader)
+    -- package.preload remains authoritative, matching Lua's normal semantics,
+    -- and on the VM so does the running image, which carries the VM's own
+    -- implementations of standard modules the checkout spells for LuaJIT.
+    table.insert(loaders, rawget(_G, "__nupp_load_image") and 3 or 2, installedLoader)
     loaders[#loaders + 1] = loadStandardModule
 
     local installed = true

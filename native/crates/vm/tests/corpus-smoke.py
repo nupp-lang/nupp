@@ -10,6 +10,7 @@ suite; failures remain failures, including unavailable host facilities.
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import shlex
 import hashlib
 import os
 from pathlib import Path
@@ -32,6 +33,8 @@ parser.add_argument("--engine", choices=("rust", "threaded", "jit"), default="th
 parser.add_argument("--jit-compilation", choices=("eager", "on-demand"), default="eager")
 parser.add_argument("--gc-stress", action="store_true")
 parser.add_argument("--cli-image", type=Path, help="route every compiler subprocess through this VM root CLI image")
+parser.add_argument("--cli-binary", type=Path,
+                    help="runtime for compiler subprocesses, run without collector stress (default: --binary, stressed)")
 parser.add_argument("--gc-interleave", action="store_true", help="step incremental collection on every allocation")
 args = parser.parse_args()
 assert args.jobs > 0, "jobs must be positive"
@@ -60,7 +63,19 @@ env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(r
 for key in ("EMIT_SURVEY", "EMIT_STUBS", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "JIT_EAGER_FRAMES"):
     env.pop(key, None)
 if args.cli_image:
-    env.update(PATH=os.environ.get("PATH", ""), NUPP_VM_CLI_IMAGE=str(args.cli_image.resolve()), NUPP_VM_BINARY=binary)
+    cli_binary = binary
+    if args.cli_binary:
+        # Collector stress verifies the suite's own VM. A compiler subprocess
+        # is the product CLI, not the code under test: it drops the stress
+        # settings it would otherwise inherit.
+        args.output.mkdir(parents=True, exist_ok=True)
+        wrapper = (args.output / "cli-runtime").resolve()
+        wrapper.write_text("#!/bin/sh\nunset GC_STRESS GC_INTERLEAVE GC_ORACLE GC_QUARANTINE\nexec %s \"$@\"\n"
+                           % shlex.quote(str(args.cli_binary.resolve())))
+        wrapper.chmod(0o755)
+        cli_binary = str(wrapper)
+        run.update(cliBinary=str(args.cli_binary.resolve()), cliBinarySha256=digest(args.cli_binary))
+    env.update(PATH=os.environ.get("PATH", ""), NUPP_VM_CLI_IMAGE=str(args.cli_image.resolve()), NUPP_VM_BINARY=cli_binary)
     run.update(path=env["PATH"], cliImage=str(args.cli_image.resolve()), cliImageSha256=digest(args.cli_image))
     (args.output / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 host_extras = [

@@ -70,7 +70,14 @@ function project.emit(
     return lower.emit(
         entry,
         names(extras),
-        function(name: string): string?
+        function(name: string, soft: boolean?): string?
+            if soft then
+                -- A provider chosen at run time belongs to the image only where
+                -- the VM supplies its own implementation of it.
+                local path = envMod.findRuntimeModulePath(env, name)
+                local vmLib = compilerRoot .. "/native/crates/vm/lib/"
+                return path ~= nil and path:sub(1, #vmLib) == vmLib and path or nil
+            end
             if inspection and name == entry then
                 return inspection.path
             end
@@ -88,6 +95,10 @@ function project.emit(
             elseif name == "nupp.tools.bytecodecache" then
                 return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
             end
+            -- The VM is a native host; the browser runtime is never its provider.
+            if name:find("^nupp%.runtime%.browser%.") then
+                return nil
+            end
             if name == "nupp.vm.tasks"
             or name == "nupp.simd"
             or name == "nupp.runtime.provider.nativestorage"
@@ -96,13 +107,12 @@ function project.emit(
             or name == "nupp.vm.clock"
             or name == "nupp.vm.crc"
             or name == "nupp.vm.coroutine"
-            or name == "nupp.io.files"
-            or name == "nupp.io.path"
             or name == "nupp.cli.internal.terminalhost"
             or name == "nupp.tools.build.clockhost"
             or name == "nupp.compiler.hostpid"
             or name == "nupp.compiler.nativehash"
             or name == "nupp.compiler.nativecdecl"
+            or name == "nupp.vm.files"
             or name == "nupp.digest.internal.sha256"
             then
                 return nil

@@ -40,7 +40,7 @@ type watch.Driver = {
 --- abandons the entry once its chunk returns.
 type watch.Session = {
     entryCode: string,
-    compileLoaded: function(modulePath: string, env: any): (string?, string?),
+    compileLoaded: function(modulePath: string, env: any, name: string): (string?, string?),
     loaded: function(module: string, modulePath: string, ok: boolean): nil,
     finish: function(ok: boolean): nil,
     prepare: function(): any,
@@ -197,7 +197,7 @@ function watch.open(path: string, root: string?): (watch.Session?, {any}?)
     local entryAcknowledged = false
     local driver: watch.Driver? = nil
 
-    local function compileLoaded(modulePath: string, env: any): string?, string?
+    local function compileLoaded(modulePath: string, env: any, _: string): string?, string?
         local module = require("nupp.compiler.project.env").moduleNameForPath(watchSession.inc.env, modulePath)
             or modulePath
         local built, failure = watchSession:compile(modulePath, "initial", module)

@@ -394,4 +394,28 @@ function compile.module(
     return code
 end
 
+--- Compiles a file to a VM image holding its one module, the VM's counterpart
+--- of `compile.module`. Its imports are left to the runtime loader, which
+--- compiles each the same way. Returns nil after the diagnostics that stopped it
+--- have been reported.
+function compile.image(path: string, env: table, moduleName: string?, collected: {any}?): string?
+    local result = compile.check(path, env, {moduleName = moduleName}, collected)
+    if result == nil then
+        return nil
+    end
+    local name = moduleName or "main"
+    local tree = (result as any).root as table
+
+    return require("nupp.compiler.vm.lower").emit(
+        name,
+        {},
+        function(candidate: string): string?
+            return candidate == name and path or nil
+        end,
+        function(_: string, _: string): table
+            return tree
+        end
+    )
+end
+
 export = compile
