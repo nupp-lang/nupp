@@ -593,7 +593,7 @@ end
 --- compiler started from, which the runtime answers without reading the image
 --- file again, and which is the compiler that actually lowers here even when
 --- `NUPP_VM_CLI_IMAGE` names another or nothing.
-local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?): string?
+local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?, coverage: boolean): string?
     local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
     if modules == nil or compilerRoot == nil then
         return nil
@@ -601,6 +601,10 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
     local fingerprint = require("nupp.compiler.project.fingerprint")
     local digest = fingerprint.contentDigest(true)
     local parts: {string} = {"vm-program/2", mainName, digest(embedded or ""), fingerprint.graphFingerprint(digest)}
+    -- An instrumented image is a different program; an ordinary key is unchanged.
+    if coverage then
+        parts[#parts + 1] = "coverage"
+    end
     local names: {string} = {}
     for name in pairs(modules) do
         names[#names + 1] = name
@@ -642,11 +646,38 @@ local function programPayload(
         fields[#fields + 1] = "}\n"
         embedded = table.concat(fields)
     end
+    -- A coverage build instruments each module whose sites the build recorded,
+    -- where the image lowers it from the same file, and then records the sites the
+    -- lowering numbered: those are what the image's counters are filed against.
+    local coverage: any = nil
+    const recorded: {[string]: any} = modules or {}
+    if (config as any)._coverage == true and modules ~= nil then
+        local function absolute(path: string): string
+            return fs.canonical(join(root, path))
+        end
+
+        coverage = {
+            path = function(name: string, source: string): string?
+                local record = recorded[name]
+                local manifest = record and record.coverage
+                if manifest
+                and manifest.path
+                and record.sourcePath
+                and absolute(source) == absolute(record.sourcePath)
+                then
+                    return manifest.path
+                end
+
+                return nil
+            end,
+            manifests = {},
+        }
+    end
     -- Lowering a program is the expensive half of a VM binary build -- minutes for
     -- one that carries the compiler -- and an unchanged target lowers to the same
     -- image, so the last one is kept beside the output under the key it was
     -- emitted for.
-    local key = programKey(mainName, embedded, modules)
+    local key = programKey(mainName, embedded, modules, coverage ~= nil)
     local cached = join(root, join(outDir, ".nupp-vm-program"))
     if key ~= nil and fs.readFile(cached .. ".key") == key then
         local kept = fs.readFile(cached .. ".image")
@@ -665,10 +696,16 @@ local function programPayload(
         root,
         config as table,
         mainName,
-        embedded
+        embedded,
+        coverage
     )
     if not ok then
         return nil, tostring(image)
+    end
+    if coverage ~= nil then
+        for name, manifest in pairs(coverage.manifests as {[string]: any}) do
+            recorded[name].coverage = {path = manifest.path, sites = manifest.sites}
+        end
     end
     local payload = mainName .. "\n" .. (image as string)
     if key ~= nil then

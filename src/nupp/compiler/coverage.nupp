@@ -1,0 +1,217 @@
+module nupp.compiler.coverage
+
+--[[
+The coverage sites of a checked module, independent of any backend.
+
+A coverage build counts three kinds of site: a statement a block runs, a function
+body entered, and a condition that went one way or the other. Each is numbered,
+and the numbering is what a report joins the counters a run left against the
+manifest a build recorded. Both have to come from one enumeration, or a counter
+lands on the wrong line. So the sites are a function of the checked syntax alone,
+here, and every backend that instruments a module asks for them rather than
+numbering what it happens to emit.
+]]
+
+local cst = require("nupp.compiler.syntax.cst")
+
+local coverage = {}
+
+--- One place a coverage build counts. A function site also carries the name a report
+--- shows for it and the line its declaration ends on.
+record coverage.Site
+    id: integer
+    kind: 'statement' | 'function' | 'branch'
+    line: integer
+    name: string?
+    endLine: integer?
+end
+
+--- What a build records for a module, and what its report reads: the path the hits
+--- are filed under and every site the module may report having reached.
+record coverage.Manifest
+    path: string?
+    sites: {coverage.Site}
+end
+
+--- A module's sites, and each site's number by the node it was taken at. A node can
+--- be the site of a statement and of a branch at once, so the kinds are separate.
+record coverage.Index
+    manifest: coverage.Manifest
+    statements: {[any]: integer}
+    functions: {[any]: integer}
+    branches: {[any]: integer}
+
+    --- A function's number by the block that is its body, for a backend that
+    --- counts the entry where the body begins.
+    bodies: {[any]: integer}
+end
+
+-- These are the nodes a block may execute directly. Coverage deliberately stays at
+-- statement boundaries: putting a probe in every expression is both less useful to a
+-- reader and much harder to prove preserves Lua's evaluation order.
+const STATEMENTS: {
+    [string]: boolean
+} = {
+    localStmt = true,
+    assignStmt = true,
+    compoundAssign = true,
+    callStmt = true,
+    ifStmt = true,
+    whileStmt = true,
+    fornumStmt = true,
+    forinStmt = true,
+    repeatStmt = true,
+    doStmt = true,
+    funcStmt = true,
+    returnStmt = true,
+    breakStmt = true,
+    continueStmt = true,
+    gotoStmt = true,
+    withStmt = true,
+    yieldStmt = true,
+}
+
+--- Whether a block's child is a statement coverage counts.
+function coverage.isStatement(node: any): boolean
+    if not node or cst.isToken(node) then
+        return false
+    end
+    if node.kind == "recordDecl" then
+        return node.declKind == "record" or node.declKind == "struct"
+    end
+
+    return STATEMENTS[node.kind] == true
+end
+
+-- Whether a node is erased before anything runs: a comptime function ran while
+-- compiling, and an annotation schema is compile-time model metadata.
+local function erased(node: any): boolean
+    return node.comptimeFunction ~= nil or node.comptimeTok ~= nil or node.isAnnotationDefinition == true
+end
+
+local function sourceLine(node: any): integer?
+    if not node then
+        return nil
+    end
+    if cst.isToken(node) then
+        return node.line
+    end
+    for _, child in ipairs(node) do
+        local line = sourceLine(child)
+        if line then
+            return line
+        end
+    end
+
+    return nil
+end
+
+--- Number every site of the checked module rooted at `root`, filing them under
+--- `path`. The numbering is a walk of the syntax in source order, so it depends on
+--- nothing a backend decides.
+function coverage.enumerate(root: any, path: string?): coverage.Index
+    local sites: {coverage.Site} = {}
+    local index = new coverage.Index(
+        manifest = new coverage.Manifest(path = path, sites = sites),
+        statements = {},
+        functions = {},
+        branches = {},
+        bodies = {}
+    )
+    -- What each function body is called and where its declaration ends, keyed by the
+    -- body, since a body is what a function site is taken at and a body has neither.
+    local declared: {[any]: any} = {}
+
+    local function add(kind: 'statement' | 'function' | 'branch', node: any): integer
+        local byNode = kind == "statement" and index.statements
+            or kind == "function" and index.functions
+            or index.branches
+        local known = byNode[node]
+        if known then
+            return known
+        end
+        local id = #sites + 1
+        local site = new coverage.Site(id = id, kind = kind, line = sourceLine(node) or 0)
+        local owner = kind == "function" and declared[node] or nil
+        if owner then
+            site.name = owner.name
+            site.endLine = owner.endLine
+        end
+        sites[id] = site
+        byNode[node] = id
+
+        return id
+    end
+
+    local visit: function(any): nil
+
+    local function children(node: any): nil
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit = function(node: any): nil
+        if not node or cst.isToken(node) then
+            return
+        end
+        -- What compiling already answered runs nothing: a comptime block stands for
+        -- its value and a folded expression for its constant. A folded expression
+        -- that kept a residue runs the residue instead.
+        if node.comptimeValue or node.materializedIR or node.folded or erased(node) then
+            return
+        end
+        if node.foldedExpression then
+            visit(node.foldedExpression)
+            return
+        end
+        local kind = node.kind
+        if cst.FUNCTION_DECLARATIONS[kind] and node.body and declared[node.body] == nil then
+            local last = cst.lastToken(node)
+            declared[node.body] = {name = cst.functionName(node), endLine = last and last.line or nil}
+        end
+        if kind == "block" then
+            for _, child in ipairs(node) do
+                if coverage.isStatement(child) and not erased(child) then
+                    add("statement", child)
+                end
+                visit(child)
+            end
+            return
+        elseif kind == "funcbody" then
+            for _, child in ipairs(node) do
+                if child == node.body then
+                    index.bodies[child] = add("function", node)
+                end
+                visit(child)
+            end
+            return
+        elseif kind == "ifClause" or kind == "elseifClause" then
+            -- Taken at the condition, and found by the clause as well: a backend
+            -- that rewrites the condition still holds the clause.
+            index.branches[node] = add("branch", node.cond)
+        elseif kind == "switchExpr" then
+            visit(node.selector)
+            for _, arm in ipairs(node.cases or {}) do
+                add("branch", arm)
+                add("statement", arm)
+                children(arm)
+            end
+            if node.elseCase then
+                add("statement", node.elseCase)
+                children(node.elseCase)
+            end
+            return
+        elseif kind == "orExitExpr" then
+            visit(node.operand)
+            add("branch", node)
+        end
+        children(node)
+    end
+
+    visit(root)
+
+    return index
+end
+
+export = coverage

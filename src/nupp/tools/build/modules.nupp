@@ -1011,6 +1011,11 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         end
         local startedGenerating = progress.now()
         local genDiags
+        -- Numbered before the passes rewrite the tree: a VM program lowers the
+        -- source as it was checked, and its counters are filed against the same
+        -- numbers this records.
+        local coverageIndex = config._coverage and require("nupp.compiler.coverage").enumerate(result.result.root, path)
+            or nil
         local remarks = optimize.run(result.result, {
             level = config._optLevel or 0,
             filename = path,
@@ -1036,7 +1041,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         code, genDiags, coverage, emittedEffects = gen.generate(
             result.result,
             path,
-            config._coverage and {path = path} or nil,
+            coverageIndex and {path = path, index = coverageIndex} or nil,
             hotRequest,
             ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
         )

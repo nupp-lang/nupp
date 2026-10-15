@@ -42,6 +42,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
 local predicate = require("nupp.compiler.types.predicate")
 local switchplan = require("nupp.compiler.switchplan")
+local coverageSites = require("nupp.compiler.coverage")
 local stdlib = require("nupp.compiler.stdlib")
 local native = require("nupp.compiler.native")
 local capabilities = require("nupp.compiler.capabilities")
@@ -102,29 +103,6 @@ function gen.runtimeModules(code: string): {string}
 
     return modules
 end
-
--- These are the nodes a block may execute directly. Coverage deliberately stays at
--- statement boundaries: putting a probe in every expression is both less useful to a
--- reader and much harder to prove preserves Lua's evaluation order.
-local COVERAGE_STATEMENTS = {
-    localStmt = true,
-    assignStmt = true,
-    compoundAssign = true,
-    callStmt = true,
-    ifStmt = true,
-    whileStmt = true,
-    fornumStmt = true,
-    forinStmt = true,
-    repeatStmt = true,
-    doStmt = true,
-    funcStmt = true,
-    returnStmt = true,
-    breakStmt = true,
-    continueStmt = true,
-    gotoStmt = true,
-    withStmt = true,
-    yieldStmt = true,
-}
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
 local TYPE_KINDS = {
@@ -438,7 +416,13 @@ type gen.Checked = {
 
 --- How a coverage build is asked for: `true` to instrument and name the file after
 --- `filename`, or a table naming the path the report should attribute sites to.
-type gen.CoverageRequest = {path: string?}
+--- `index` is the module's sites as `nupp.compiler.coverage` numbered them, taken
+--- before any pass rewrote the tree, so a backend lowering the unoptimized source
+--- numbers them the same; without one they are numbered here.
+type gen.CoverageRequest = {
+    path: string?,
+    index: any?
+}
 
 --- What a coverage build needs back: where the file was, and every site it may report
 --- having reached.
@@ -867,31 +851,15 @@ function gen.generate(
     local coveragePath = coverageOn
         and (type(coverage) == "table" and (coverage as gen.CoverageRequest).path or filename)
         or nil
-    local coverageSites: {any}? = nil
-    local coverageSiteCount = 0
     local coverageName
-    -- What each function body is called and where it ends, keyed by the body, since
-    -- a body is what a function probe is emitted against and a body has neither.
-    -- Built once and only under coverage, so ordinary generation does not walk it.
-    local coverageFunctions: {[any]: any}? = nil
+    -- The sites are numbered by the syntax, not by what this emitter happens to write,
+    -- so the VM lowering numbers the same module identically. A probe is written only
+    -- at a site the numbering holds. Built only under coverage, so ordinary generation
+    -- does not walk it.
+    local coverageIndex: any = nil
     if coverageOn then
-        local found: {[any]: any} = {}
-
-        local function collect(node: any): nil
-            if not node or cst.isToken(node) then
-                return
-            end
-            if cst.FUNCTION_DECLARATIONS[node.kind] and node.body then
-                local last = cst.lastToken(node)
-                found[node.body] = {name = cst.functionName(node), endLine = last and last.line or nil,}
-            end
-            for _, child in ipairs(node) do
-                collect(child)
-            end
-        end
-
-        collect(result.root)
-        coverageFunctions = found
+        coverageIndex = type(coverage) == "table" and (coverage as gen.CoverageRequest).index
+            or coverageSites.enumerate(result.root, coveragePath)
     end
     -- One table behind one upvalue: the main emitter is already close to LuaJIT's
     -- 60-upvalue ceiling when coverage is present.
@@ -2645,23 +2613,19 @@ function gen.generate(
         return "_G.__nuppCoverage"
     end
 
-    local function coverageSite(kind, node)
-        coverageSiteCount = coverageSiteCount + 1
-        local id = coverageSiteCount
-        local sites = coverageSites or {}
-        coverageSites = sites
-        local site = {id = id, kind = kind, line = sourceLine(node) or 0}
-        -- A function site is the only one a report names rather than counts, and
-        -- the only one whose span is worth more than its first line: a declaration
-        -- covers the body a reader wants folded under it.
-        local declared = kind == "function" and coverageFunctions and coverageFunctions[node] or nil
-        if declared then
-            site.name = declared.name
-            site.endLine = declared.endLine
+    -- The number of the site of `kind` taken at `node`, or nil where the numbering
+    -- has none: a node a pass made up was never a site of the source. `body` is the
+    -- function whose body block `node` is, counted where that block begins.
+    local function coverageSite(kind, node): integer?
+        if not coverageIndex or not node then
+            return nil
         end
-        sites[#sites + 1] = site
+        local byNode = kind == "statement" and coverageIndex.statements
+            or kind == "branch" and coverageIndex.branches
+            or kind == "body" and coverageIndex.bodies
+            or coverageIndex.functions
 
-        return id
+        return byNode[node]
     end
 
     local function coverageHit(kind, node)
@@ -2669,18 +2633,13 @@ function gen.generate(
             return
         end
         local id = coverageSite(kind, node)
-        e(("%s.hit(%q,%d);"):format(coverageRuntime(), coveragePath, id), sourceLine(node))
+        if id then
+            e(("%s.hit(%q,%d);"):format(coverageRuntime(), coveragePath, id), sourceLine(node))
+        end
     end
 
     local function coverageStatement(node)
-        if not node or cst.isToken(node) then
-            return false
-        end
-        if node.kind == "recordDecl" then
-            return node.declKind == "record" or node.declKind == "struct"
-        end
-
-        return COVERAGE_STATEMENTS[node.kind] == true
+        return coverageSites.isStatement(node)
     end
 
     ---------------------------------------------------------------------
@@ -2754,9 +2713,6 @@ function gen.generate(
         end
         emitDepth.fn = emitDepth.fn + 1
         beginActivation()
-        if coverageOn then
-            coverageHit("function", body)
-        end
         if body.body then
             emit(body.body)
         end
@@ -2923,9 +2879,6 @@ function gen.generate(
         e(")")
         emitDepth.fn = emitDepth.fn + 1
         emitDepth.beginActivation()
-        if coverageOn then
-            coverageHit("function", body)
-        end
         if body.varargParam then
             e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(body.varargParam.name.text))
         end
@@ -3699,9 +3652,9 @@ function gen.generate(
                 e(first and "if " or "elseif ", sourceLine(arm))
             end
             first = false
-            if coverageOn then
-                local branch = coverageSite("branch", arm)
-                e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, branch), sourceLine(arm))
+            local armBranch = coverageOn and coverageSite("branch", arm) or nil
+            if armBranch then
+                e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, armBranch), sourceLine(arm))
             end
             if arm.patternKind == "static" then
                 for index, value in ipairs(arm.values or {}) do
@@ -3720,7 +3673,7 @@ function gen.generate(
                     arm.switchRecordIdentitySafe
                 )
             end
-            if coverageOn then
+            if armBranch then
                 e(")")
             end
             e(" then ")
@@ -4590,8 +4543,11 @@ function gen.generate(
             end
         end
 
+        -- None of these paths reaches the block's own statement loop, so each counts
+        -- its statements itself.
         if block.automaticDirect and not (repeatCondition and emitDepth.switchContains(repeatCondition)) then
             for _, stat in ipairs(stats) do
+                coverageHit("statement", stat)
                 emit(stat)
             end
             emitRepeatCondition()
@@ -4613,11 +4569,13 @@ function gen.generate(
         end
         if not first then
             for _, child in ipairs(block) do
+                coverageHit("statement", child)
                 emit(child)
             end
             return
         end
         for index = 1, first - 1 do
+            coverageHit("statement", stats[index])
             emit(stats[index])
         end
         local bindings = {}
@@ -4655,6 +4613,8 @@ function gen.generate(
                             ownerCleanups = owner.cleanups,
                             automaticOwner = owner,
                             isConst = stat.isConst,
+                            -- The declaration it came from, which coverage counts.
+                            statement = stat,
                         }
                         bindings[#bindings + 1] = binding
                         group[#group + 1] = binding
@@ -4672,6 +4632,7 @@ function gen.generate(
             -- allowing an owner the generator cannot protect. Reaching this branch is
             -- therefore recovery-only; preserve the original source emission.
             for _, item in ipairs(sequence) do
+                coverageHit("statement", item.stat)
                 emit(item.stat)
             end
             return
@@ -5646,6 +5607,12 @@ function gen.generate(
                 return
             end
         end
+        if coverageOn and kind == "block" then
+            -- A function is counted where its body begins, which every way of
+            -- writing one out reaches: a method, a specialized copy and a hot slot
+            -- alike.
+            coverageHit("body", x)
+        end
         if kind == "block" and x.automaticOwners and #x.automaticOwners > 0 then
             emitChildren(x)
             return
@@ -6270,15 +6237,16 @@ function gen.generate(
                     e(";")
                 end
                 e("if ")
-                if coverageOn then
-                    e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, coverageSite("branch", clause.cond)))
+                local clauseBranch = coverageOn and coverageSite("branch", clause.cond) or nil
+                if clauseBranch then
+                    e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, clauseBranch))
                 end
                 if binding then
                     e(binding .. "~=nil")
                 else
                     emit(clause.cond)
                 end
-                if coverageOn then
+                if clauseBranch then
                     e(")")
                 end
                 e(" then ")
@@ -6322,7 +6290,12 @@ function gen.generate(
                             thenLine = child.line
                         end
                     end
-                    e(("if %s ~= nil then local %s = %s"):format(temp, clause.binding.text, temp), thenLine)
+                    local present = temp .. " ~= nil"
+                    local bound = coverageOn and coverageSite("branch", clause.cond) or nil
+                    if bound then
+                        present = ("%s.branch(%q,%d,%s)"):format(coverageRuntime(), coveragePath, bound, present)
+                    end
+                    e(("if %s then local %s = %s"):format(present, clause.binding.text, temp), thenLine)
                     if clause.body then
                         emit(clause.body)
                     end
@@ -6352,10 +6325,14 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
         end
-        if coverageOn and (kind == "ifClause" or kind == "elseifClause") then
+        local clauseSite = coverageOn
+            and (kind == "ifClause" or kind == "elseifClause")
+            and coverageSite("branch", x.cond)
+            or nil
+        if clauseSite then
             -- A branch probe wraps only the condition. It receives and returns the
             -- original value, preserving Lua truthiness while counting both outcomes.
-            local branch = coverageSite("branch", x.cond)
+            local branch = clauseSite
             for _, child in ipairs(x) do
                 if child == x.cond then
                     e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, branch), sourceLine(child))
@@ -8297,6 +8274,7 @@ function gen.generate(
                 local frame = framed and nextTemp() or nil
                 local frameParam = framed and nextTemp() or nil
                 local binding = x.bindings[1]
+                coverageHit("statement", binding.statement)
                 e("do const ", (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = ownershipMoveOf(binding.expr)
@@ -8518,6 +8496,7 @@ function gen.generate(
                     end
                     e("do")
                     for _, item in ipairs(x.automaticSequence) do
+                        coverageHit("statement", item.stat or item.declaration or item.bindings[1].statement)
                         if item.declaration then
                             local stat = item.declaration
                             local names, exprs = stat.names or {}, stat.exprs or {}
@@ -9054,9 +9033,6 @@ function gen.generate(
                     if child == x.body then
                         emitDepth.beginActivation()
                         openedActivation = true
-                        if coverageOn then
-                            coverageHit("function", x)
-                        end
                         e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(x.varargParam.name.text))
                     end
                     if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
@@ -9070,9 +9046,6 @@ function gen.generate(
                     if child == x.body then
                         emitDepth.beginActivation()
                         openedActivation = true
-                        if coverageOn then
-                            coverageHit("function", x)
-                        end
                     end
                     if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
                         pluck.skipHoistedEnd(child.line)
@@ -10350,7 +10323,7 @@ function gen.generate(
             "local %s=_G.__nuppHotReload.module(%q); "
         ):format(hotState.slotsExpr, hotState.module) .. table.concat(policies) .. code
     end
-    local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
+    local metadata = coverageOn and {path = coveragePath, sites = coverageIndex.manifest.sites as {any}} or nil
     local hotMetadata = nil
     if hotState then
         local functions = {}

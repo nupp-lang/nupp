@@ -4,10 +4,48 @@ module nupp.compiler.vm.lower
 --- is supplied by the caller, so the same lowering runs on LuaJIT and the VM.
 local lower = {}
 
+--- What a coverage build asks of the lowering: `path` names the file a module's
+--- hits are filed under, or nil for a module left uninstrumented, and `manifests`
+--- receives each instrumented module's sites by module name.
+type lower.CoverageRequest = {
+    path: function(name: string, source: string): string?,
+    manifests: {[string]: any}
+}
+
+--- The module an instrumented image carries for its counters: the recorder the Lua
+--- generator writes into each instrumented file, installed once into
+--- `_G.__nuppCoverage` and shared by every module and image in the process.
+const COVERAGE_RUNTIME = "nupp.runtime.coveragecounter"
+
+const COVERAGE_RUNTIME_SOURCE = [[
+local c = _G.__nuppCoverage
+if not c then
+    c = {hits = {}}
+    function c.hit(p, i)
+        local f = c.hits[p] or {}
+        c.hits[p] = f
+        local k = tostring(i)
+        f[k] = (f[k] or 0) + 1
+    end
+    function c.branch(p, i, v)
+        local f = c.hits[p] or {}
+        c.hits[p] = f
+        local k = tostring(i) .. (v and ":true" or ":false")
+        f[k] = (f[k] or 0) + 1
+        return v
+    end
+    _G.__nuppCoverage = c
+end
+return c
+]]
+
 --- Emit the module graph rooted at `entryName`, including explicitly named
 --- dynamic dependencies. `resolve` returns a source path or nil for a host
 --- module; `check` returns the checked syntax tree for that path. Each call
 --- owns its shapes, functions, capture analysis and output buffers.
+---
+--- `coverage` instruments the modules it names with the sites
+--- `nupp.compiler.coverage` numbers. Without it nothing about the image changes.
 function lower.emit(
     entryName: string,
     extras: {string},
@@ -15,7 +53,8 @@ function lower.emit(
     check: function(name: string, path: string): table,
     environment: boolean?,
     listing: table?,
-    layoutTarget: string?
+    layoutTarget: string?,
+    coverage: lower.CoverageRequest?
 ): string
     local out = {}
     local assignedNames = {}
@@ -507,6 +546,44 @@ function lower.emit(
         self:op("SetField", self.spillReg, self:const("str", key), src)
     end
 
+    -- Coverage ---------------------------------------------------------------------
+    -- The sites of the module being lowered, when it is instrumented. A probe is a
+    -- call through `_G.__nuppCoverage`, as the Lua generator writes it, in registers
+    -- no later instruction reads.
+    local covered = nil
+
+    local function probe(f, method, id, value)
+        local mark = f.nregs
+        local globals, recorder = f:reg(), f:reg()
+        f:op("Require", globals, f:const("str", "_G"))
+        f:op("GetField", recorder, globals, f:const("str", "__nuppCoverage"))
+        local callee, base = f:reg(), f:reg()
+        local path, site = f:reg(), f:reg()
+        f:op("GetField", callee, recorder, f:const("str", method))
+        f:op("K", path, f:const("str", covered.manifest.path))
+        f:op("K", site, f:const("num", id))
+        if value then
+            f:op("Move", f:reg(), value)
+        end
+        f:op("CallDyn", callee, base, value and 3 or 2)
+        f.nregs = mark
+    end
+
+    local function coverStatement(f, node)
+        local id = covered and covered.statements[node]
+        if id then
+            f.curLine = nodeLine(node) or f.curLine
+            probe(f, "hit", id)
+        end
+    end
+
+    local function coverBranch(f, node, value)
+        local id = covered and covered.branches[node]
+        if id then
+            probe(f, "branch", id, value)
+        end
+    end
+
     -- The function id a name is bound to, when it names a `local function` the
     -- module never assigns to: the call can then name its callee.
     -- The scope entry a name resolves to, through the enclosing functions.
@@ -854,7 +931,14 @@ function lower.emit(
 
     -- Emits a condition and the branch taken when it is false: a typed
     -- comparison branches on its integer register, anything else on its value.
-    local function condBranch(f, node)
+    local function condBranch(f, node, site)
+        if covered and site and covered.branches[site] then
+            -- Counted on the value Lua truthiness reads, as the generator's probe
+            -- counts it, so a typed comparison is not tested in its register.
+            local v = exprAs(f, node, "v")
+            coverBranch(f, site, v)
+            return f:op("JmpIfNot", v, 0), "JmpIfNot", v
+        end
         local r, c = expr(f, node, nil, "cond")
         if c == "b" then
             return f:op("JmpIfIZero", r, 0), "JmpIfIZero", r
@@ -2392,8 +2476,10 @@ function lower.emit(
                 else
                     emitIs(f, {type = arm.type, expr = selector}, matched)
                 end
+                coverBranch(f, arm, matched)
                 local nextArm = f:op("JmpIfNot", matched, 0)
                 f:push()
+                coverStatement(f, arm)
 
                 local function bind(name, value)
                     local reg, cell = f:declare(name, "v")
@@ -2423,6 +2509,7 @@ function lower.emit(
             end
             if node.elseCase then
                 local arm = node.elseCase
+                coverStatement(f, arm)
                 exprAs(f, arm.expr or {kind = "doExpr", body = arm.body}, "v", dst)
             end
             for _, at in ipairs(exits) do
@@ -3632,6 +3719,7 @@ function lower.emit(
                     local absent, present = f:reg(), f:reg()
                     f:op("Nil", absent)
                     f:op("Ne", present, value, absent)
+                    coverBranch(f, clause, present)
                     local branch = f:op("JmpIfNot", present, 0)
                     f:push()
                     local reg, cell = f:declare(tokText(clause.binding), "v")
@@ -3642,7 +3730,7 @@ function lower.emit(
                     exits[#exits + 1] = f:op("Jmp", 0)
                     f:patch(branch, "JmpIfNot", present, f:offset(branch, f:here()))
                 else
-                    local branch, bop, c = condBranch(f, clause.cond)
+                    local branch, bop, c = condBranch(f, clause.cond, clause)
                     f.nregs = math.max(mark, f.declTop or 0)
                     block(f, clause.body)
                     exits[#exits + 1] = f:op("Jmp", 0)
@@ -3671,6 +3759,7 @@ function lower.emit(
             loopBegin(f)
             f:push()
             for _, s in ipairs(node.body.stats or {}) do
+                coverStatement(f, s)
                 stmtReclaim(f, s)
             end
             local c = exprAs(f, node.cond, "v")
@@ -4196,6 +4285,7 @@ function lower.emit(
         f.labelScopes[#f.labelScopes + 1] = scope
         f:push()
         for _, s in ipairs(stats) do
+            coverStatement(f, s)
             stmtReclaim(f, s)
         end
         if (f.cleanupDepth or 0) > depth then
@@ -4633,6 +4723,11 @@ function lower.emit(
                 slots[#slots + 1] = {depth = depth, field = capture.type.cleanups[i].field}
             end
         end
+        local entered = covered and covered.functions[funcbody]
+        if entered then
+            f.curLine = nodeLine(funcbody) or f.curLine
+            probe(f, "hit", entered)
+        end
         -- EMIT_SURVEY=1 keeps going past a construct the emitter lacks: the body
         -- becomes a stub and the failure is tallied, so one run over a module
         -- graph lists everything it would need.
@@ -4749,9 +4844,21 @@ function lower.emit(
             io.stderr:write("module ", name, " stubbed\n")
             return
         end
-        local tree = check(name, path)
-        assert(tree, "check failed for " .. path)
+        local runtime = coverage and name == COVERAGE_RUNTIME
+        local tree: table = runtime
+            and require("nupp.compiler.syntax.parser").parse(COVERAGE_RUNTIME_SOURCE, "=(coverage)").root as table
+            or check(name, path)
+        assert(tree, "check failed for " .. tostring(path))
         local rootNode = tree.root or tree
+        -- Numbered before the metadata expansion adds statements of its own, which
+        -- were never the source's.
+        local moduleCoverage = nil
+        local request = not runtime and coverage or nil
+        local reportPath = request and request.path(name, path) or nil
+        if request and reportPath then
+            moduleCoverage = require("nupp.compiler.coverage").enumerate(rootNode, reportPath)
+            request.manifests[name] = moduleCoverage.manifest
+        end
         require("nupp.compiler.vm.metadata").expand(rootNode)
         -- Lua's string and table call forms are single arguments too. Keep the
         -- parser's nodes so source positions and checked identities survive.
@@ -4766,8 +4873,11 @@ function lower.emit(
         end)
         local stats = rootNode.blocks[1].stats
         local deps = requiresOf(rootNode)
-        for _, dep in ipairs(declaredDynamically(path)) do
+        for _, dep in ipairs(runtime and {} or declaredDynamically(path)) do
             deps[#deps + 1] = dep
+        end
+        if moduleCoverage then
+            compileModule(COVERAGE_RUNTIME, nil)
         end
         for _, entry in ipairs(deps) do
             local dep = type(entry) == "table" and entry.name or entry
@@ -4779,6 +4889,7 @@ function lower.emit(
             end
         end
         currentModule = name
+        covered = moduleCoverage
         nativePlans = require("nupp.compiler.vm.native").plans(rootNode)
         for _, s in ipairs(stats) do
             if s.kind == "recordDecl" or s.kind == "cdefStruct" then
@@ -4866,6 +4977,12 @@ function lower.emit(
                 end
             end
         end
+        if covered then
+            -- The counters exist before the first probe can run.
+            local counters = chunk:reg()
+            chunk:op("Require", counters, chunk:const("str", COVERAGE_RUNTIME))
+            chunk.nregs = chunk.nregs - 1
+        end
         if os.getenv("EMIT_SURVEY") then
             local ok, err = pcall(block, chunk, rootNode.blocks[1]);
             if not ok then
@@ -4894,6 +5011,7 @@ function lower.emit(
         end
         modules[name] = chunk
         moduleOrder[#moduleOrder + 1] = name
+        covered = nil
     end
 
     for _, name in ipairs(extras) do
@@ -5011,7 +5129,7 @@ function lower.emit(
     -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
     -- and error positions. A chunk's own name (`=name` or `@path`) is kept.
     for _, name in ipairs(moduleOrder) do
-        local p = modulePath(name)
+        local p = coverage and name == COVERAGE_RUNTIME and "=(coverage)" or modulePath(name)
         if p and p:sub(1, 1) ~= "/" and p:sub(1, 1) ~= "=" and p:sub(1, 1) ~= "@" then
             p = (os.getenv("PWD") or ".") .. "/" .. p
         end

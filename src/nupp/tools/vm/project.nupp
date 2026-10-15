@@ -103,7 +103,8 @@ local function emitProject(
     hostBootstrap: boolean?,
     inspection: table?,
     carried: {[string]: string}?,
-    reached: {[string]: boolean}?
+    reached: {[string]: boolean}?,
+    coverage: lower.CoverageRequest?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -185,7 +186,8 @@ local function emitProject(
         end,
         nil,
         inspection and inspection.functions or nil,
-        env.layoutTarget
+        env.layoutTarget,
+        coverage
     )
 end
 
@@ -252,9 +254,16 @@ const NATIVE_OPS = {
 --- The image of a program: `entry` and every module it reaches under the
 --- project's manifest `config`, and the runtime facilities that image needs
 --- linked, sorted. `embedded` is the source of the program's `nupp.embedded`
---- resource table, when it carries resources.
+--- resource table, when it carries resources. `coverage` instruments the modules
+--- it names and collects their sites.
 --- @raises string when a source cannot be read, checked or lowered.
-function project.program(root: string, config: table, entry: string, embedded: string?): (string, {string})
+function project.program(
+    root: string,
+    config: table,
+    entry: string,
+    embedded: string?,
+    coverage: lower.CoverageRequest?
+): (string, {string})
     local reached: {[string]: boolean} = {}
     local image = emitProject(
         root,
@@ -264,7 +273,8 @@ function project.program(root: string, config: table, entry: string, embedded: s
         nil,
         nil,
         embedded and {["nupp.embedded"] = embedded} or nil,
-        reached
+        reached,
+        coverage
     )
     -- A function with vector instructions runs only compiled (`native_simd`'s
     -- `required`), so a program holding one is linked with the code generator,

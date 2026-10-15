@@ -348,11 +348,17 @@ end
 --- An image an earlier process compiled from the same inputs is answered from
 --- `nupp.compiler.vm.imagecache` instead, which is what keeps a program that
 --- requires a large standard module from checking it again in every run.
+---
+--- `NUPP_COVERAGE=1` instruments the module, filing its hits under `path`, as it
+--- does a compile to Lua. Such an image is never kept: the cache's key does not
+--- distinguish it from an ordinary one.
 function compile.image(path: string, env: table, moduleName: string?, collected: {any}?): string?
     local source = fs.readFile(path)
-    local cached = source and require("nupp.compiler.vm.imagecache").open(env, path, moduleName, source, {
-        "nupp.tools.cli.compile"
-    }) or nil
+    local covering = os.getenv("NUPP_COVERAGE") == "1"
+    local cached = source
+        and not covering
+        and require("nupp.compiler.vm.imagecache").open(env, path, moduleName, source, {"nupp.tools.cli.compile"})
+        or nil
     if cached then
         local image = cached.lookup()
         if image then
@@ -389,7 +395,13 @@ function compile.image(path: string, env: table, moduleName: string?, collected:
         end,
         nil,
         nil,
-        (env as any).layoutTarget or require("nupp.compiler.targetlayout").hostKey()
+        (env as any).layoutTarget or require("nupp.compiler.targetlayout").hostKey(),
+        covering and {
+            path = function(candidate: string, _: string): string?
+                return candidate == name and path or nil
+            end,
+            manifests = {},
+        } or nil
     )
     if cached and #(diagnostics as {any}) == before then
         cached.store(image)
