@@ -220,7 +220,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
     opts.compilerServices = opts.compilerServices or hostServices()
     local env = envMod.new(rootDir, opts)
-    local traceInspection = opts.traceInspection == true
+    local functionInspection = opts.functionInspection == true
     local q = query.new()
     local activeModules = {}
 
@@ -774,7 +774,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         local diags, moduleType, exports = check.check(result, path, qenv, {
             moduleName = checkedModuleName(path),
             strict = fileStrict,
-            traceInspection = traceInspection,
+            functionInspection = functionInspection,
             generatedSource = self:get("generatedSource", path),
             initialExports = seeded,
         })

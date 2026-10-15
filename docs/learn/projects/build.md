@@ -464,28 +464,24 @@ tree has moved past is refused rather than patched against the wrong baseline.
 ### Target capability profiles
 
 A target profile says what a destination admits, as distinct from what its
-pointers are: whether it has a dynamic loader, a tracing JIT, working FFI
-callbacks, a VM that resolves default-namespace symbols out of the process
+pointers are: whether it has a dynamic loader, working FFI callbacks, a VM that resolves default-namespace symbols out of the process
 image, and a toolchain that produces static AOT archives. Every publicly
 modeled triple has a built-in profile and answers yes to all of them, except
-`wasm32-unknown-emscripten`, which has no tracing JIT and no native archive.
+`wasm32-unknown-emscripten`, which has no native archive.
 
 The profile is what static linkage is checked against. A build that selects
 `aotLinkage = "static"` for a target whose profile does not produce static
 archives, or whose VM does not resolve symbols out of the process image, is
 refused with that reason rather than producing an archive nothing can use.
 
-Three source constructs are refused the same way, as
-[NUPP2904](../../reference/diagnostics.md). `@jit` asserts that a tracing contract
-exists, so a target with no trace compiler rejects it instead of quietly
-rereading it as advice. A `cdef ... from "name"` asks the platform to load a
+Two source constructs are refused the same way, as
+[NUPP2904](../../reference/diagnostics.md). A `cdef ... from "name"` asks the platform to load a
 library, so a target with no loader rejects it; the same C is reachable through
 the default namespace, which is what a static link puts there. An `ffi.cast` to
 a function type asks the VM for a callback trampoline, so a target that
 allocates none rejects it before the `@unsafe` question. `@unsafe` says the
 author accepts what a callback costs rather than that the destination can make
-one, and unlike the `jit-callback` lint beside it this cannot be waved away with
-`@allow`. A target nothing describes refuses nothing.
+one. A target nothing describes refuses nothing.
 
 A vendor describes a private target in its compiler pack, so nothing about a
 confidential platform has to reach the public distribution catalog. `pack.json`
@@ -497,7 +493,6 @@ takes an optional `profile`:
   "os": "linux",
   "capabilities": {
     "dynamicLoader": false,
-    "tracingJit": false,
     "ffiCallbacks": false,
     "staticSymbolResolver": true,
     "staticAot": true

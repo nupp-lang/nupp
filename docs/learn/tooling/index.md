@@ -21,8 +21,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | --- | --- | --- |
 | `check` | Type-check the project | [cli.md](../../reference/cli.md) |
 | `build` | Build configured Lua, native, Wasm, or packaged artifacts | [build.md](../projects/build.md) |
-| `run` | Compile and run; profile behind a flag | [profiling.md](../performance/profiling.md) |
-| `bc --check` | Find deterministic LuaJIT recorder blockers | [jit-trace-checking.md](../performance/jit-trace-checking.md) |
+| `run` | Compile and run | [cli.md](../../reference/cli.md#run) |
 | `test` | Build, then run the bundled or configured suite | [testing.md](../projects/testing.md) |
 | `fmt` | Format; fixed style | [fmt.md](formatter.md) |
 | `doc` | Generate an API site from the parse | [doc.md](documentation.md) |
@@ -108,7 +107,6 @@ nupp lsp references --json --include-declaration FILE LINE COLUMN
 nupp lsp symbols --json [--file FILE] [PATTERN]
 nupp lsp rename FILE LINE COLUMN NEW_NAME    # previews; --write applies
 nupp lsp actions --json --only quickfix FILE LINE COLUMN
-nupp lsp trace-check --json FILE LINE COLUMN
 ```
 
 Positions are 1-based byte line and column numbers, matching the compiler's
@@ -154,24 +152,6 @@ Builds are incremental across processes. A source edit rechecks and regenerates
 that module; dependents are only invalidated when its exported interface
 changes. See [build system](../projects/build.md) for the manifest, targets,
 caching, and native dependencies.
-
-## Profiling
-
-```bash
-nupp run --profile app.nupp      # where the time went   -> profile.out
-nupp run --jit-aborts app.nupp   # what the JIT refused  -> jit-aborts.csv
-```
-
-The second answers a question a sampling profiler structurally cannot: whether
-the hot code was compiled at all.
-
-::: seealso
-- [jit-trace-checking.md](../performance/jit-trace-checking.md) for every static and
-  runtime reason a trace aborts, with its repair
-- [profiling.md](../performance/profiling.md) for both measurement channels and for
-  zones
-- [performance.md](../performance/index.md) for `-O` levels and remarks
-:::
 
 ## Hot reload
 

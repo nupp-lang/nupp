@@ -41,7 +41,6 @@ carries the same entries:
 | --- | --- |
 | **Nupp: Inspect Compiled Output** | A pick of what is available here |
 | **Nupp: Open Generated Lua** | The Lua this file erases to |
-| **Nupp: Open Bytecode** | The folded listing `nupp bc` prints |
 | **Nupp: Compare Generated Artifacts** | Two levels of one artifact, in a diff |
 
 Artifacts open beside the source as ordinary read-only editors under the
@@ -51,9 +50,7 @@ file, so an unsaved edit is what you are reading.
 
 Selecting in either view reveals the matching line in the other. For generated
 Lua that is the line itself, because the emitter never changes a file's line
-count; for a bytecode listing it is whichever line the server's mapping names,
-and a line standing for compiler-owned work -- the runtime preamble -- reveals
-nothing rather than pointing somewhere arbitrary.
+count.
 
 Scrolling either pane carries the other with it, matched line to line through
 the same mapping rather than by pixel offset -- the two panes rarely have the
@@ -67,11 +64,6 @@ which left it sitting a row above the source at the same line, because the
 source pinned a header the artifact did not. It reuses the server's folding
 ranges for the source, which generated Lua being line-for-line with it makes
 exact.
-
-The bytecode view does not repeat the source, because the source is in the pane
-beside it. Row N is what line N compiled to, and it opens folded so that a line
-compiling to several instructions still occupies one row and the two panes stay
-in step. Expanding a row shows the rest of that line's instructions.
 
 One lens per function rather than one per artifact kind is deliberate. Most
 kinds do not apply to most functions, and a row of six buttons over every

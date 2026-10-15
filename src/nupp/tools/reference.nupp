@@ -24,7 +24,6 @@ construct cannot quietly stop working the way this says it does.
 
 local lints = require("nupp.compiler.lints")
 local explain = require("nupp.tools.explain")
-local trace = require("nupp.profile.trace")
 
 local reference = {}
 
@@ -1657,7 +1656,7 @@ return m
 
     new reference.Section(
         title = "C interop",
-        codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2602", "NUPP2619", "NUPP2707"},
+        codes = {"NUPP2203", "NUPP2101", "NUPP2602", "NUPP2619"},
         body = [=[
 `cdef` declares C functions, structs, unions, and integer bitfields.
 `from "lib"` uses `ffi.load`; omitting it uses the default namespace.
@@ -1687,11 +1686,6 @@ module-qualified C typedef, emits target-specific layout fingerprints and static
 assertions, and publishes selected typed `cdef function` prototypes. Ordinary
 structs cross this boundary through pointers or arrays rather than by value.
 Generating a header invokes no C compiler.
-
-C callback positions survive aliases. Passing Lua to one reports `jit-callback`
-and a variadic C call reports `jit-boundary`; disable the cold function with
-`jit.off`. `@jit` makes avoiding both boundaries a checked contract
-(`NUPP2707`).
 
 Reconstructing a raw pointer is confined to `@unsafe` statements or expressions.
 ]=],
@@ -1931,9 +1925,6 @@ tooling: uses report the suppressible `deprecated` lint, editors strike it
 through and show the migration detail, and generated documentation retains the
 annotation. It changes no runtime behavior.
 
-`@jit` enforces traceability: a variadic FFI call or a Lua callback passed into
-C must live in a function disabled with `jit.off`, or it reports `NUPP2707`.
-
 ### Ahead-of-time compilation
 
 `@aot` reserves a required whole-function ahead-of-time compilation contract on
@@ -1947,10 +1938,9 @@ and the struct layouts are compared against the object's own before the module
 finishes loading.
 
 A closure, interpolated string, vararg, `goto`, dynamic call, or unsafe
-operation inside one reports `NUPP2903` at the construct. Stacking it with
-`@jit` promises one body to two compilers and reports `NUPP2901`, and a
-constructor, qualified declaration or inline requirement is not a replaceable
-local function declaration, so annotating one reports `NUPP2902`.
+operation inside one reports `NUPP2903` at the construct. A constructor,
+qualified declaration or inline requirement is not a replaceable local function
+declaration, so annotating one reports `NUPP2902`.
 
 What lowering itself refuses is `NUPP2905` through `NUPP2908`: a `number` used
 as a branch condition, a call no intrinsic admits, a lane past the tier's
@@ -2929,29 +2919,6 @@ local function codeRows(): {string}
     return out
 end
 
---- Static trace reasons belong in the performance skill, but their wording belongs to
---- the registry used by the checker and profiler. Generate the table so a new reason
---- cannot leave an old agent playbook behind.
-local function traceReasonRows(): {string}
-    local out = {"| Reason | Class | Meaning | Repair |", "| --- | --- | --- | --- |",}
-    for _, reason in ipairs(trace.records()) do
-        if reason.explanation then
-            out[
-                #out + 1
-            ] = (
-                "| `%s` | %s | %s | %s |"
-            ):format(
-                reason.id,
-                reason.class,
-                reason.explanation,
-                reason.repair or "Inspect runtime evidence before changing code"
-            )
-        end
-    end
-
-    return out
-end
-
 --- Generated tables belong to the language chapter as hand-written syntax
 --- sections do, but their source of truth remains the compiler registries.
 local function languageSections(): {reference.Section}
@@ -3037,96 +3004,34 @@ repeat after an edit, and point back to authored source:
 
 ```bash
 nupp check --json
-nupp lsp trace-check --json src/system.nupp LINE COLUMN
-nupp bc --check --json src/system.nupp
+nupp build --json --remarks-out
 ```
 
-`check` enforces ordinary diagnostics and every written `@jit` contract.
-`lsp trace-check` inspects the smallest function enclosing a 1-based byte
-position without changing source. `bc --check` examines the exact generated
-artifact at the selected optimization level; it exits 1 only for a must-reach
-unconditional blocker, while may-reach blockers and risks remain visible in
-JSON.
+`check` reports ordinary diagnostics, and `timing` says where the compile went.
+`--remarks-out` writes the optimizer's account of what it did and declined to do,
+with the allocation sites it left standing. Read `help`, `notes`, `related`, and
+whole machine-applicable fixes before editing. Use `--schema` before automating
+against any JSON output.
 
-Read `help`, `notes`, `related`, call paths, and whole machine-applicable fixes
-before editing. Use `--schema` before automating against any JSON output. A
-clean static result means no cataloged blocker in that scope for that trace
-profile. It does not prove the code runs, becomes hot, or is fast.
+A remark explains where to experiment. It does not prove the code runs, becomes
+hot, or is fast.
 ]=]
     ),
     new reference.Section(
-        title = "Keep hot paths recordable",
-        codes = {"NUPP2502", "NUPP2505", "NUPP2514", "NUPP2515", "NUPP2707"},
-        body = [=[
-Put `@jit` on important subsystem boundaries whose checked call graph is meant
-to avoid known recorder cliffs. Do not blanket-annotate every helper: the
-annotation is an absence-of-cataloged-blockers contract, not a request to make
-a function hot or a promise that LuaJIT compiles it.
-
-The common repair is structural. Declare one function outside a repeated loop
-and pass varying values as arguments; do not replace a capture with shared
-mutable state. Keep intentionally cold calls outside an `@jit` path. Use
-`jit.off(function)` only when the interpreter transition is the intended
-boundary. Resolve dynamic call targets when a transported contract is needed.
-
-`nupp explain REASON` gives the current explanation and a specific repair when
-one is known. Stable reason IDs, rather than raw LuaJIT strings, are the API.
-]=]
-        .. "\n\n"
-        .. table.concat(
-            traceReasonRows(),
-            "\n"
-        )
-    ),
-    new reference.Section(
-        title = "Find hot interpreted work",
+        title = "Measure with benchmarks",
         codes = {},
         body = [=[
-After static blockers are handled, sample a representative workload:
+`nupp.bench` measures code from inside an ordinary program, and `nupp bench`
+discovers those programs and runs each case in its own process:
 
 ```bash
-nupp run --profile app.nupp
-nupp run --profile --profile-interval-ms 2 --profile-out frame.out app.nupp
+nupp bench --forks 5
+nupp bench --baseline build/bench-baseline.json
 ```
 
-The collapsed-stack output opens in speedscope.app, FlameGraph, or inferno.
-Read the leaf suffix before guessing: `_[N]` is native, `_[I]` interpreted,
-`_[C]` C, `_[G]` garbage collection, and `_[J]` the JIT compiler. Prioritize
-hot `_[I]` frames. A shorter native stack can be normal because LuaJIT inlines
-compiled calls.
-
-Every process Nupp starts raises LuaJIT's capacity limits before its first trace:
-20,000 live traces, 1,000 side traces per root, and one 16 MB machine-code area.
-Reaching a limit flushes every trace, so `[TRACE flush]` in the middle of a
-`-jv` log means the program is outgrowing them; the one at startup is where they
-are applied. `NUPP_JIT_DEFAULT=1` restores LuaJIT's own limits for comparison.
-
-Use `nupp.profile.zone` around phases such as `frame/physics` rather than around
-each loop iteration. Recognized `zone.push` and discarded `zone.pop` statements
-lower inline. Zones are optional attribution: trace checking and abort
-collection do not require them.
-]=]
-    ),
-    new reference.Section(
-        title = "Explain trace aborts",
-        codes = {},
-        body = [=[
-Collect recorder events only around the interesting workload:
-
-```bash
-nupp run --jit-aborts app.nupp
-nupp run --jit-aborts=jit-aborts.json --json app.nupp
-```
-
-Correlate sites that are both sampled interpreted and observed aborting, while
-preserving those as separate measurements. A `blocker` is an operation the
-selected recorder refuses; a `risk` depends on runtime state or limits; a
-`stop` is ordinary trace formation and is not a problem. An unknown raw event
-stays visible as `jit/runtime-unknown`; never invent a repair for it.
-
-Sampling and trace hooks have real cost and are process-wide. Stop each session
-after its question is answered. Ordinary check, build, and run attach no hook
-and allocate no report state.
+Every fork of a case counts the same work, so their scores compare. A baseline
+gates the deterministic counters -- allocation sites the optimizer left -- and
+reports durations against a margin rather than failing on them.
 ]=]
     ),
     new reference.Section(
@@ -3134,13 +3039,12 @@ and allocate no report state.
         codes = {},
         body = [=[
 Use a workload that represents the application, warm it consistently, and
-compare the same trace profile and optimization level. Check JIT-on and JIT-off
-answers before and after. Preserve error order, effects, ownership, stack
-traces, and source attribution.
+compare the same target and optimization level. Check answers before and after.
+Preserve error order, effects, ownership, stack traces, and source attribution.
 
-Do not rewrite code merely to silence a warning. Removing an abort does not
-show that the replacement is faster, and profiling one input does not establish
-a static rule. Keep a benchmark for every optimization that survives review.
+Do not rewrite code merely to silence a warning. Profiling one input does not
+establish a static rule. Keep a benchmark for every optimization that survives
+review.
 ]=]
     ),
 }
@@ -3163,8 +3067,8 @@ reference.chapters = {
     new reference.Chapter(
         name = "performance",
         title = "Performance",
-        summary = "Nupp trace checking, sampling, abort analysis, zones, and benchmark workflow.",
-        skillDescription = "Optimize and profile Nupp with deterministic LuaJIT trace checks, sampling, trace-abort reports, zones, and benchmarks. Use for slow code, hot loops, JIT compilation or recorder behavior, profiler output, performance regressions, and performance-sensitive Nupp generation.",
+        summary = "Nupp compiler evidence, benchmarks, and the optimization workflow.",
+        skillDescription = "Optimize Nupp with compiler diagnostics, optimizer remarks, and benchmarks. Use for slow code, hot loops, performance regressions, and performance-sensitive Nupp generation.",
         sections = PERFORMANCE_SECTIONS
     ),
 }
@@ -3521,9 +3425,8 @@ function reference.skill(chapter: reference.Chapter?): string
         out[#out + 1] = "  for LuaJIT. Load before editing any .nupp file, or when"
         out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
         out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
-        out[#out + 1] = "  check/explain/lsp, test coverage, trace-checking, and profiling"
-        out[#out + 1] = "  commands"
-        out[#out + 1] = "  and their JSON contracts."
+        out[#out + 1] = "  check/explain/lsp, test coverage, and benchmark commands and"
+        out[#out + 1] = "  their JSON contracts."
     end
     out[#out + 1] = "---"
     out[#out + 1] = ""

@@ -275,25 +275,6 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
     testAssert.equal(api.count(), 2, "rejection neither migrates nor cleans the cell")
 end
 
-function M.commitFlushesJitAfterPublishing()
-    local before = "local function value(): integer return 1 end\nreturn value"
-    local retained = initial(before, "jit-flush")
-    local patch = generate(before:gsub("return 1", "return 2"), "patch", "jit-flush")
-    local prepared, reason = hot.stage(patch, hot.generation())
-    assert(prepared, reason)
-    local original = jit.flush
-    local flushes = 0
-    jit.flush = function()
-        flushes = flushes + 1
-    end
-    local ok, generation, commitError = pcall(hot.commit, prepared)
-    jit.flush = original
-    assert(ok, generation)
-    testAssert.equal(generation, 2, commitError)
-    testAssert.equal(flushes, 1, "commit flushes stale JIT traces exactly once")
-    testAssert.equal(retained(), 2, "the flushed generation was published")
-end
-
 function M.rejectedCaptureChangeLeavesOldGenerationRunning()
     local before = table.concat(
         {"local value: integer = 3", "local function read(): integer", "   return value", "end", "return read",},

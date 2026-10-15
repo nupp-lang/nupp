@@ -167,135 +167,6 @@ function M.inspectCarriesTheAutomaticCleanupBoundary()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
-   local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["hot.nupp"] = table.concat({
-         "local function hot(values: {integer}): integer",
-         "   local total = 0",
-         "   for i = 1, #values do",
-         "      local add = function(): integer return values[i] end",
-         "      total = total + add()",
-         "   end",
-         "   return total",
-         "end",
-         "return hot({1, 2, 3})",
-         "",
-      }, "\n"),
-   })
-   local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json hot.nupp 5 7"))
-   assert(checked.functionName == "hot", "the enclosing function is selected")
-   assert(checked.contract == "inspection", "manual inspection does not add @jit")
-   assert(checked.addContract and checked.addContract.newText:find("@jit", 1, true),
-      "the result offers an explicit contract edit without applying it")
-   local reasons = {}
-   for _, finding in ipairs(checked.findings) do reasons[finding.reason] = finding end
-   assert(reasons["jit/loop-function-construction"],
-      "the source blocker uses the shared reason identity")
-   assert(checked.traceProfile.id and checked.reasonCatalog.version == 1,
-      "profile and catalog identities travel with the answer")
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- `@jit` decorates a declaration. A function expression has no statement of its own
--- to carry it, and the offer used to splice the whole line prefix in front of it:
--- `local f = @jit\nlocal f = function`.
-function M.traceCheckOffersNoContractForAFunctionExpression()
-   local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["expr.nupp"] = table.concat({
-         "local hot = function(values: {integer}): integer",
-         "   local total = 0",
-         "   for i = 1, #values do",
-         "      local add = function(): integer return values[i] end",
-         "      total = total + add()",
-         "   end",
-         "   return total",
-         "end",
-         "return hot({1, 2, 3})",
-         "",
-      }, "\n"),
-   })
-   local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json expr.nupp 5 7"))
-   assert(checked.findings and #checked.findings > 0, "the expression is inspected")
-   assert(checked.addContract == nil or checked.addContract == json.null,
-      "no contract edit is offered for a function expression: "
-      .. tostring(checked.addContract and checked.addContract.newText))
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.traceCheckIncludesARepairableNoncapturingClosure()
-   local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["hot.nupp"] = table.concat({
-         "local function hot(values: {integer}): nil",
-         "   for _, value in ipairs(values) do",
-         "      register(function(): integer return 1 end)",
-         "   end",
-         "end",
-         "return hot",
-         "",
-      }, "\n"),
-   })
-   local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json hot.nupp 2 4"))
-   local found
-   for _, finding in ipairs(checked.findings) do
-      if finding.reason == "jit/loop-function-construction" then found = finding end
-   end
-   assert(found and found.class == "blocker",
-      "manual inspection agrees with bytecode and @jit for every FNEW: "
-      .. json.encode(checked))
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.traceCheckFollowsAnExactImportedCallee()
-   local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}}\n',
-      ["lib.nupp"] = table.concat({
-         "local lib = {}",
-         "function lib.bad(values: {integer}): integer",
-         "   local total = 0",
-         "   for i = 1, #values do",
-         "      local add = function(): integer return values[i] end",
-         "      total = total + add()",
-         "   end",
-         "   return total",
-         "end",
-         "return lib",
-         "",
-      }, "\n"),
-      ["main.nupp"] = table.concat({
-         "local lib = require('lib')",
-         "@jit",
-         "local function hot(values: {integer}): integer",
-         "   return lib.bad(values)",
-         "end",
-         "return hot({1, 2, 3})",
-         "",
-      }, "\n"),
-   })
-   local checked = json.decode(captureJson(dir,
-      "lsp trace-check --json main.nupp 4 8"))
-   local found
-   for _, finding in ipairs(checked.findings) do
-      if finding.reason == "jit/loop-function-construction" then found = finding end
-   end
-   assert(found, "the exported callee transports its trace summary")
-   assert(#found.callPath >= 2 and found.callPath[1] == "hot",
-      "the imported call path starts at the inspected function")
-   local diagnostics = json.decode(captureJson(dir, "check --json main.nupp"))
-   local contractError
-   for _, diagnostic in ipairs(diagnostics.diagnostics or {}) do
-      if diagnostic.code == "NUPP2707" then contractError = diagnostic end
-   end
-   assert(contractError and contractError.message:find("jit/loop-function-construction", 1, true),
-      "@jit enforces the transported reason without running either module")
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
 function M.renamePreviewsThenWritesEverySemanticReference()
    local dir = project()
    local preview = json.decode(captureJson(dir,
@@ -479,7 +350,7 @@ function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
    for _, entry in ipairs(decoded.artifacts) do
       kinds[entry.kind] = entry
    end
-   assert(kinds.lua and kinds.bytecode, "both kinds are listed")
+   assert(kinds.lua, "the generated Lua is listed")
    assert(kinds.lua.scope == "module", "generated Lua is a whole-file artifact")
    assert(decoded["function"].name == "scale", "the enclosing function is named")
    assert(decoded["function"].range.start.line == 1, "and positioned in source coordinates")
@@ -512,36 +383,6 @@ function M.artifactPrintsGeneratedLuaLineForLine()
       source = source + 1
    end
    assert(generated == source, "the lowering did not change the line count")
-end
-
-function M.artifactPrintsABytecodeListingLaidOutAgainstTheSource()
-   local dir = tempProject(ARTIFACT_PROJECT)
-   local decoded = json.decode(captureJson(dir, "lsp artifact --kind bytecode --json sample.nupp"))
-   os.execute("rm -rf '" .. dir .. "'")
-   assert(decoded.available, "the file compiles")
-   assert(decoded.mapping.kind == "lines-collapsible", "a listing carries its correspondence")
-   contains(decoded.text, "instructions of runtime preamble", "the preamble is named apart")
-   assert(not decoded.text:find("local total = 0", 1, true),
-      "the listing does not repeat the source it is laid against")
-   local lines = {}
-   for line in (decoded.text .. "\n"):gmatch("(.-)\n") do
-      lines[#lines + 1] = line
-   end
-   -- Folding the indented runs leaves one row per source line.
-   local visibleAt, visible = {}, 0
-   for index, line in ipairs(lines) do
-      if not line:match("^%s%s") then
-         visible = visible + 1
-      end
-      visibleAt[index] = visible
-   end
-   for _, entry in ipairs(decoded.mapping.entries) do
-      if entry.role == "exact" then
-         assert(visibleAt[entry.generatedLine] == entry.sourceLine,
-            ("folded row %d should be source line %d"):format(
-               visibleAt[entry.generatedLine], entry.sourceLine))
-      end
-   end
 end
 
 function M.artifactSaysWhyItCouldNotResolveOne()

@@ -139,11 +139,6 @@ local MODULES: {[string]: {
     ["nupp.mem.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
-    -- Reaches the recorder through nupp.profile, so it is available exactly where that
-    -- is.
     ["nupp.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = facility("host", "runtime.crypto"),
     ["nupp.simd"] = {kind = "common"},

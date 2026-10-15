@@ -487,8 +487,7 @@ The bundled runner reads `NUPP_COVERAGE_BUILD` and writes the coverage shard
 automatically. A runner that does not follow that protocol leaves
 `nupp test --coverage` reporting incomplete data rather than treating it as zero
 coverage. Coverage probes add runtime work by design, so time a run with
-ordinary `nupp test` instead. See [profiling.md](../performance/profiling.md) for where that
-time went.
+ordinary `nupp test` instead.
 
 ### Reading an existing report
 
@@ -557,8 +556,7 @@ runs](#parallel-runs) for what it does with them.
 
 No. It builds a separate instrumented artifact under `build/coverage`, and the
 probes cost runtime, so it answers what ran rather than how fast. Run
-`nupp test` for the ordinary run, and see [profiling.md](../performance/profiling.md) for
-timing one.
+`nupp test` for the ordinary run, and time that one.
 
 ::: seealso
 - [cli.md](../../reference/cli.md#test) for every option `nupp test`,

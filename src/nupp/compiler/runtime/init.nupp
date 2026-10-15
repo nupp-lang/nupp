@@ -25,7 +25,6 @@ function runtime.install(
     compile: function(path: string, env: envMod.Env, name: string): (string?, string?),
     loaded: function(name: string, path: string, ok: boolean)?,
     checkPlain: function(path: string, env: envMod.Env): boolean?,
-    preparing: (function(active: boolean): nil)?,
     loadCompiled: (function(code: string, path: string): (any, string?))?
 ): function(): nil
     local loaders = package.loaders
@@ -187,21 +186,7 @@ function runtime.install(
         return ("\n\tno standard library source for module '%s'"):format(name)
     end
 
-    -- Profiling excludes resolution and loading as well as compilation. The
-    -- returned chunk runs after this wrapper has restored the measured window.
     local installedLoader = loadLjppModule
-    if preparing then
-        installedLoader = function(name)
-            preparing(true)
-            local ok, result = pcall(loadLjppModule, name)
-            preparing(false)
-            if not ok then
-                error(result, 0)
-            end
-
-            return result
-        end
-    end
     -- package.preload remains authoritative, matching Lua's normal semantics,
     -- and on the VM so does the running image, which carries the VM's own
     -- implementations of standard modules the checkout spells for LuaJIT.

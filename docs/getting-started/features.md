@@ -58,9 +58,6 @@ print(pending.name)
 
 - [Performance](../learn/performance/index.md) explains optimization levels, remarks,
   observable guarantees, and the eight named optimization passes.
-- [JIT trace checking](../learn/performance/jit-trace-checking.md) and
-  [profiling](../learn/performance/profiling.md) distinguish code that did not record
-  from code that recorded and ran slowly.
 - [Ahead-of-time compilation](../learn/performance/ahead-of-time/index.md) covers CPU kernels,
   SIMD, Lua-value construction, native artifacts, and Wasm side modules.
 - [SIMD programming](../learn/performance/ahead-of-time/simd-programming.md)

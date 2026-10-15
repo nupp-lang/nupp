@@ -8,7 +8,6 @@ const { LanguageClient } = require("vscode-languageclient/node");
 
 const clients = new Map();
 let nextClientId = 1;
-let traceDiagnostics;
 
 // Generated artifacts open as read-only documents under their own scheme. The
 // source they came from travels in the query string, because a virtual document
@@ -35,85 +34,6 @@ function originOf(uri) {
   }
   const source = new URLSearchParams(uri.query).get("source");
   return source ? vscode.Uri.parse(source) : uri;
-}
-
-function asRange(range) {
-  return new vscode.Range(
-    range.start.line,
-    range.start.character,
-    range.end.line,
-    range.end.character
-  );
-}
-
-async function checkFunctionForTraceBlockers(target) {
-  const editor = vscode.window.activeTextEditor;
-  const document = target && target.uri
-    ? await vscode.workspace.openTextDocument(target.uri)
-    : editor && editor.document;
-  const position = target && target.position
-    ? target.position
-    : editor && editor.selection.active;
-  if (!document || document.languageId !== "nupp" || !position) {
-    void vscode.window.showInformationMessage("Open a Nupp function to check it for JIT trace blockers.");
-    return;
-  }
-  const running = clientForDocument(document);
-  if (!running) {
-    void vscode.window.showErrorMessage("No Nupp language server is running for this file.");
-    return;
-  }
-  const uri = document.uri;
-  traceDiagnostics.delete(uri);
-  let result;
-  try {
-    result = await running.client.sendRequest("nupp/traceCheck", {
-      textDocument: { uri: uri.toString() },
-      position
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`JIT trace check failed: ${detail}`);
-    return;
-  }
-  if (!result) {
-    void vscode.window.showInformationMessage("No checked Nupp function contains the cursor.");
-    return;
-  }
-  const diagnostics = (result.findings || []).map((finding) => {
-    const severity = finding.class === "blocker"
-      ? vscode.DiagnosticSeverity.Error
-      : finding.class === "risk"
-        ? vscode.DiagnosticSeverity.Warning
-        : vscode.DiagnosticSeverity.Information;
-    const path = finding.callPath && finding.callPath.length > 1
-      ? ` via ${finding.callPath.join(" → ")}`
-      : "";
-    const diagnostic = new vscode.Diagnostic(
-      finding.range ? asRange(finding.range) : asRange(result.range),
-      `${finding.reason}${path}: ${finding.message || finding.class}`,
-      severity
-    );
-    diagnostic.code = finding.reason;
-    diagnostic.source = "Nupp JIT Check";
-    return diagnostic;
-  });
-  traceDiagnostics.set(uri, diagnostics);
-  let summary;
-  if (diagnostics.length === 0) {
-    summary = `${result.name}: no catalogued unconditional trace blockers or conditional risks.`;
-  } else {
-    summary = `${result.name}: ${diagnostics.length} JIT trace finding${diagnostics.length === 1 ? "" : "s"}.`;
-  }
-  const add = result.addContract ? "Add @jit contract" : undefined;
-  const choice = add
-    ? await vscode.window.showInformationMessage(summary, add)
-    : await vscode.window.showInformationMessage(summary);
-  if (choice === add) {
-    const edit = new vscode.WorkspaceEdit();
-    edit.insert(uri, asRange(result.addContract.range).start, result.addContract.newText);
-    await vscode.workspace.applyEdit(edit);
-  }
 }
 
 async function migrateAnnotatedLua(target) {
@@ -182,7 +102,7 @@ async function migrateAnnotatedLua(target) {
   await vscode.window.showTextDocument(migrated);
 }
 
-const ARTIFACT_LABELS = { lua: "Generated Lua", bytecode: "Bytecode" };
+const ARTIFACT_LABELS = { lua: "Generated Lua" };
 
 // A generated document's URI. The path decides the tab title and, for Lua, the
 // extension VS Code picks a highlighter from; the query carries everything the
@@ -287,9 +207,9 @@ async function openArtifact(sourceUri, kind, optLevel, options) {
 // Which generated line stands for a source line, and the other way round.
 //
 // `line-identity` is the Lua emitter's guarantee that it never changes the line
-// count, so the answer is the line itself. A bytecode listing is a rendering and
-// carries entries; a source line usually produced several, and the first of them
-// is what a reader wants revealed.
+// count, so the answer is the line itself. A mapping that carries entries may
+// give a source line several generated lines, and the first of them is what a
+// reader wants revealed.
 function generatedLineFor(artifact, sourceLine) {
   if (!artifact || !artifact.mapping) {
     return undefined;
@@ -1039,18 +959,15 @@ function registerCommands(context, commands) {
 }
 
 async function activate(context) {
-  traceDiagnostics = vscode.languages.createDiagnosticCollection("nupp-jit-check");
   generatedEvents = new vscode.EventEmitter();
 
   // Commands first, and before anything that can fail. A command is what the
   // palette and every code lens reach for, and none of them needs a language
   // server to have started, so none of them should be lost when one does not.
   registerCommands(context, [
-    ["nupp.checkFunctionForJitTraceBlockers", checkFunctionForTraceBlockers],
     ["nupp.migrateAnnotatedLua", migrateAnnotatedLua],
     ["nupp.inspectCompiledFunction", inspectCompiledFunction],
     ["nupp.openGeneratedLua", (target) => openGeneratedArtifact("lua", target)],
-    ["nupp.openBytecode", (target) => openGeneratedArtifact("bytecode", target)],
     ["nupp.compareGeneratedArtifacts", compareGeneratedArtifacts],
     ["nupp.restartLanguageServer", async () => {
       await restartClients(context);
@@ -1079,7 +996,6 @@ async function activate(context) {
   }
 
   context.subscriptions.push(
-    traceDiagnostics,
     generatedEvents,
     // Generated Lua is emitted at column zero, so the indentation the editor
     // would otherwise derive folding from is not there, and a pane with no
@@ -1090,10 +1006,6 @@ async function activate(context) {
     // for line with its source, so its own folding ranges are the artifact's.
     // With them the artifact pane pins the same headers as the source and the
     // panes sit level.
-    //
-    // Only for `lua`: the bytecode listing folds by indentation, which is what
-    // collapses a line's extra instructions, and a provider here would take that
-    // over.
     vscode.languages.registerFoldingRangeProvider(
       { scheme: GENERATED_SCHEME, language: "lua" },
       {
@@ -1168,12 +1080,6 @@ async function activate(context) {
       },
       { providedCodeActionKinds: [vscode.CodeActionKind.RefactorRewrite] }
     ),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      traceDiagnostics.delete(event.document.uri);
-    }),
-    vscode.workspace.onDidCloseTextDocument((document) => {
-      traceDiagnostics.delete(document.uri);
-    }),
     vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
       await Promise.allSettled(event.removed.map(stopClient));
       await Promise.all(event.added.map((folder) => startClient(context, folder)));

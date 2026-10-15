@@ -995,7 +995,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
     local ok, err = pcall(function()
         local env = envMod.new(dir, {cache = false})
         testAssert.equal(checked["ffi"], nil, "building an environment does not check ffi")
-        testAssert.equal(checked["nupp.profile.zone"], nil, "nor the standard library")
+        testAssert.equal(checked["nupp.events"], nil, "nor the standard library")
 
         -- Asking is what loads it, and asking twice does not check it twice.
         assert(env.bundled["ffi"], "ffi is still there when wanted")
@@ -1403,7 +1403,7 @@ function M.importedInliningObservesBodiesOnlyDuringOptimization()
     write(dep, provider)
     write(
         main,
-        "local D = require('dep')\n@jit\nlocal function work(value: number): number return D.scale(value) end\nreturn work"
+        "local D = require('dep')\nlocal function work(value: number): number return D.scale(value) end\nreturn work"
     )
     local ok, err = pcall(function()
         local inc = incremental.new(dir, {cache = false})

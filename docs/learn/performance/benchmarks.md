@@ -113,8 +113,7 @@ local kept = bench.keep({y = 2})
 
 In statement position on a local holding the module, it is generated as that
 store rather than a call. A call per iteration is exactly the cost a sink must
-not add. Bind the result and you get an ordinary call instead. The same terms
-apply to the [profiler zone intrinsics](profiling.md#zones).
+not add. Bind the result and you get an ordinary call instead.
 
 ## Comparing implementations
 
@@ -459,12 +458,9 @@ sets another.
 
 ## Run gates
 
-Duration verdicts never change the exit status. Two deterministic properties
-gate because they are identical on every run of one binary:
-
-- **allocation sites** the optimizer left standing, counted per file;
-- **trace abort site identities**, including severity, reason, location and
-  zone.
+Duration verdicts never change the exit status. One deterministic property
+gates because it is identical on every run of one binary: the **allocation
+sites** the optimizer left standing, counted per file.
 
 ```bash
 nupp bench --baseline build/bench-baseline.json           # compare
@@ -473,7 +469,6 @@ nupp bench --baseline build/bench-baseline.json --accept  # replace
 
 ```text
 allocations rose from 3 to 5 in src/parser.nupp
-sum.floats.index:size=100: new trace abort site: ...
 ```
 
 Durations, the calibrated `n`, allocated bytes, retained-heap delta, and the
@@ -487,18 +482,6 @@ schema 3 record kept them in seconds under `Sec` names, so it still reads for
 the deterministic gate while every duration verdict against it is inconclusive.
 Any other schema is refused, naming the one it holds and the ones this version
 reads, and `--accept` replaces it.
-
-Replication makes the abort gate stricter, not noisier. Whether a loop aborts is
-timing-dependent, so forks legitimately disagree; only a site present in
-**every** fork can gate:
-
-```text
-nupp: flaky abort site: peg-kernels.capture-list.lpeg: NYI:return-to-lower-frame
-      in 3/12 forks; reported, not gated
-```
-
-If either record could not open a trace recorder, the abort comparison is
-reported as uncollected. Missing observations are not treated as an empty set.
 
 Allocation sites and remarks are the compiler's account of its own output, so
 every fork of one binary must agree. Disagreement is a defect, not a
@@ -523,30 +506,11 @@ nothing about whether LuaJIT went on to sink it. This catches that optimizer
 regressing, which is narrow and real, and is not a count of allocations
 performed.
 
-Baselines are keyed by optimization level and `-Zno-opt` set, and abort sites
-additionally by the recorder's `traceProfile` identity. The compiler digest is
+Baselines are keyed by optimization level and `-Zno-opt` set. The compiler digest is
 recorded and never keys anything: an optimizer change that moves an allocation
 site is exactly the regression this exists to catch, and keying by the digest
 would discard it as uncomparable the moment it appeared.
 :::
-
-## Profiling benchmark time
-
-```bash
-nupp bench --case '^floats$' --profile build/bench-profiles
-```
-
-```text
-# Profile: build/bench-profiles/001-sum.floats.ipairs:size=100.collapsed
-```
-
-One collapsed-stack file per benchmark, sampled in a separate pass after timing
-so the sampler cannot change the score, and resumed only around each `run`
-callback. Drop one on [speedscope.app](https://speedscope.app).
-
-See [profiling.md](profiling.md#profiling-a-benchmark) for reading the result,
-and for the other question a slow benchmark usually needs answered: whether it
-ran compiled at all.
 
 ## Machine-readable output
 
@@ -560,10 +524,10 @@ nupp bench --history build/bench-history.ndjson --label before-parser-rewrite
 keeps **every fork whole** rather than reducing it to a summary:
 
 ```
-benchmarks[].forks[].measurement    each process's ordered samples, trend,
-                                    outlier count and abort sites
-benchmarks[].summary                fork summaries, the interval or why it was
-                                    withheld, the unanimous abort sites
+benchmarks[].forks[].measurement    each process's ordered samples, trend and
+                                    outlier count
+benchmarks[].summary                fork summaries, and the interval or why it
+                                    was withheld
 benchmarks[].summary.intervalWithheld   below-minimum-forks | trend-warning
 root.forks, root.seed               replication and the permutation order
 root.machineKey                     what durations may be compared across
@@ -587,8 +551,5 @@ game's frame or a server's request path with its real asset load and trace
 population.
 
 ::: seealso
-- [profiling.md](profiling.md) for where the time went, and whether it compiled
-- [jit-trace-checking.md](jit-trace-checking.md) for finding recorder blockers
-  without running anything
 - [index.md](index.md) for the optimizer whose account a record carries
 :::

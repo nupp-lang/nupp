@@ -903,8 +903,7 @@ end
 ---
 --- The token is built inside the loop because the token *is* the identity: two helpers
 --- need two objects, and a function built once outside would be one key for all of
---- them. So this loop is one LuaJIT cannot record (`jit-loop-closure`), which is
---- accepted here -- it runs once per file, over the helpers that file declared.
+--- them.
 local function installComptimeFunctions(state, env, helpers)
     for name, supplied in pairs(helpers or {}) do
         local node = supplied.node or supplied

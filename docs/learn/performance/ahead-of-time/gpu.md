@@ -238,10 +238,9 @@ workgroup width. `nupp build --remarks-out` also records `GPU-DISPATCH` at the
 authored declaration, including that same digest.
 
 For native operation costs, use `nupp run --gpu-costs costs.jsonl PROGRAM`.
-It composes with `--profile` so host samples and device events can be inspected
-together. `nupp bench --gpu-costs DIRECTORY` allocates a separate JSONL file for
+`nupp bench --gpu-costs DIRECTORY` allocates a separate JSONL file for
 every case, fork and comparison candidate; the benchmark JSON names each file.
-The [profiling guide](../profiling.md#native-gpu-costs) explains the events
+[Native GPU costs](#native-gpu-costs) explains the events
 and device timestamp availability. Cost recording adds overhead, so collect
 an instrumented account separately from uninstrumented CPU/GPU comparisons.
 
@@ -249,6 +248,62 @@ GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU
 provider selected by the built target. Browser availability is checked by the
 host before dispatch.
+
+## Native GPU costs
+
+Use a caller-named JSONL file to collect native GPU costs:
+
+```bash
+nupp run --gpu-costs frame-costs.jsonl src/main.nupp
+nupp bench --gpu-costs build/gpu-costs
+```
+
+`run` selects one file. `bench` creates a unique run directory with separate
+files for each case, variant, fork, and comparison executable. Native hosts can
+set `NUPP_GPU_COSTS` to a unique path before starting the process. The runtime
+helper `nupp.runtime.provider.nativegpu.costsOutput(path)` selects an output;
+passing `nil` restores the environment default, which is truncated only the
+first time the process opens it and appended to when restored. `sequence` runs
+on across every output a process writes. A failed write never fails the GPU
+work it describes: the next call that can fail cleanly reports it, and
+`costsOutput` reports it while still switching to the new output.
+
+Each line is a JSON object with `schemaVersion: 1`, `processId`, `sequence`,
+`context`, `target: "gpu"`, and `operation`. Records distinguish adapter/device
+setup, pipeline creation, buffer allocation, upload, dispatch, synchronization,
+readback, host copies, and cleanup. `hostMs` measures elapsed host API time.
+`adapterDevice` splits that setup into `adapterMs` and `deviceMs`; pipeline
+records carry `phase: "setup"`, and dispatches distinguish `first-use` from
+`steady-state`.
+
+When the adapter supports timestamp queries, `kernelExecution.gpuMs` measures
+the compute pass on the device. Join it to `dispatch` by `context` and `dispatch`.
+Queries are resolved at synchronization after the measured work completes,
+preserving asynchronous dispatch and attributing counters to the current work.
+Unsupported adapters report `gpuTiming: "unavailable"` and `gpuMs: null`;
+equal or reversed device counters do the same, with `gpuTimingReason` explaining
+the invalid interval. Records retain `gpuTicksBegin` and `gpuTicksEnd` as decimal
+strings and `gpuTickPeriodNs` without losing integer precision. Host submission
+time is never substituted for device time. Timestamp readback
+reports its own `instrumentationHostMs`. Collection adds query resources and
+JSON output work, so compare variants with the same instrumentation settings.
+Host and GPU times can overlap and must not simply be summed.
+
+A dispatch includes authored kernel `metadata` (`sourceFile`, `sourceLine`,
+`artifactId`, parameter names), work-item and workgroup dimensions, binding
+reuse, and read/write buffer versions. `kernelIdentity` and `bindBuffer` records
+also connect kernel storage slots to buffer handles. This join identifies an
+upload that occurred before its first binding. Buffer layout metadata retains
+format, element width, shape, strides, offset, and count. Typed spans preserve
+their bytes without format conversion, recorded explicitly as `conversion`.
+
+Uploads advance a buffer version; each dispatch advances every writable buffer
+once. Downloads retain the version captured when their copy was queued, even
+if a later upload or dispatch changes the resident buffer before readback.
+`downloadQueue` reports byte count and fresh staging allocation;
+`downloadMapCopy` reports the staging-to-host copy, and `downloadHostCopy` the
+copy into the caller's span. These records expose the existing two-copy path
+and synchronization costs before any residency optimization is attempted.
 
 ::: seealso
 - [annotations.md](../../../reference/annotations.md#built-in-annotations)

@@ -27,9 +27,7 @@ Infer harmless defaults from the request and repository. Ask only when a missing
 Establish what is expensive and which layer owns it.
 
 - Use `./bin/nupp check --json` or `./bin/nupp build --json` for compiler diagnostics, materialization facts, and timing.
-- Use `./bin/nupp bc --check FILE` for hot LuaJIT loops. Treat trace-hostile bytecode as a concrete blocker, not a timing guess.
-- Use `./bin/nupp run --jit-aborts=PATH --json FILE` when runtime trace aborts matter.
-- Use `./bin/nupp run --profile --profile-out PATH FILE` or `./bin/nupp bench --profile DIR` to locate hot stacks.
+- Use `./bin/nupp bc FILE` under the VM-hosted compiler to read the VM bytecode a file lowers to.
 - Use `--remarks` while investigating optimizer decisions. Use `--remarks-out` when a machine-readable account is needed; it currently writes `build/remarks.json`.
 - Use `./bin/nupp aot --emit ir|llvm|asm --function NAME FILE` to inspect an AOT function. Use `wgsl` or `spirv` for the corresponding GPU route.
 
@@ -44,7 +42,7 @@ For source changes, use a task-specific worktree and preserve the baseline. Chan
 Apply gates from cheapest to most expensive:
 
 1. Check correctness and buildability.
-2. Inspect deterministic evidence: allocations, materializations, trace aborts, optimizer remarks, emitted IR, C, or assembly.
+2. Inspect deterministic evidence: allocations, materializations, optimizer remarks, emitted IR, C, or assembly.
 3. Reject candidates that worsen a hard ceiling or fail to affect the intended mechanism.
 4. Run a quick measurement only if it helps size or debug the experiment.
 5. Pay for the full duration verdict only for surviving candidates.

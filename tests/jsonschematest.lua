@@ -400,7 +400,6 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
         "lsp references nosuch.nupp 1 1",
         "lsp rename nosuch.nupp 1 1 other",
         "lsp actions nosuch.nupp 1 1",
-        "lsp trace-check nosuch.nupp 1 1",
         "lsp artifacts nosuch.nupp 1 1",
         "lsp artifact --kind lua nosuch.nupp",
         "lsp symbols --file nosuch.nupp",
@@ -502,8 +501,7 @@ function M.everySchemaRequiresOk()
         end
         assert(found, name .. " --schema does not require ok")
     end
-    -- `run` is the exception: the program owns stdout, and its `--json` is the trace
-    -- report it writes to a file.
+    -- `run` is the exception: the program owns stdout.
     for _, name in ipairs(cli.names()) do
         if name ~= "help" and name ~= "lsp" and name ~= "run" then
             local help = capture(nil, "help " .. name)
@@ -513,32 +511,11 @@ function M.everySchemaRequiresOk()
         end
     end
     for _, operation in ipairs({
-        "inspect", "definition", "implementation", "references", "symbols", "rename", "actions", "trace-check",
+        "inspect", "definition", "implementation", "references", "symbols", "rename", "actions",
         "artifacts", "artifact",
     }) do
         requiresOk(json.decode(capture(nil, "lsp " .. operation .. " --schema")), "lsp " .. operation)
     end
-end
-
-function M.aRunReportsItsTraceAbortsInTheSharedShapes()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["loop.lua"] = "local t = 0\nfor i = 1, 200 do local f = function() return i end t = t + f() end\nreturn t\n",
-    })
-    local out, code = statusOf(dir, "run --jit-aborts=aborts.json --json loop.lua")
-    assert(code == 0, out)
-    local handle = assert(io.open(dir .. "/aborts.json", "rb"))
-    local text = handle:read("*a")
-    handle:close()
-    local decoded = json.decode(text)
-    local valid, err = validate(decoded, json.decode(capture(dir, "run --schema")))
-    assert(valid, "the trace report matches run's --schema: " .. tostring(err) .. "\n" .. text)
-    assert(decoded.durationMs and decoded.durationSec == nil, "the duration is in milliseconds")
-    for _, site in ipairs(decoded.sites) do
-        assert(site.severity == nil and site.class and type(site.blacklisted) == "boolean", "one severity vocabulary")
-        assert(type(site.location) == "table" and site.location.file, "a location is a file and a range")
-    end
-    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.reportEncodingSortsKeysWithoutChangingValues()
@@ -602,7 +579,7 @@ function M.everySchemaDescribesWhatItRequires()
             end
         end
     end
-    local lspOperations = {"inspect", "definition", "references", "symbols", "rename", "actions", "trace-check"}
+    local lspOperations = {"inspect", "definition", "references", "symbols", "rename", "actions"}
     for _, operation in ipairs(lspOperations) do
         local text = capture(nil, "lsp " .. operation .. " --schema")
         requiredAreDescribed(json.decode(text), "lsp " .. operation)

@@ -245,9 +245,6 @@ record state.Checker
     --- bound, returned, or reported by the construct that took it.
     markTemporaryConsumed: function(node: any): nil
 
-    --- FFI trace hazards reported after the file has seen its `jit.off` calls.
-    jitHazards: {any}
-
     --- Nonzero while checking an inline closure passed to a scoped callback slot.
     scopedCaptureDepth: integer
 
@@ -260,10 +257,6 @@ record state.Checker
 
     --- Whether an analyzed cleanup body has reached out of its own scope.
     captureWatches: {any}
-
-    --- Whether a function written inside a loop had to be written there. See
-    --- nupp.compiler.check.loopclosure.
-    loops: any
 
     --- Whether a function that raises on purpose said so. See
     --- nupp.compiler.check.undocumentedraise.

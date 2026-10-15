@@ -7696,20 +7696,20 @@ var require_codeConverter = __commonJS({
       function asPositionsSync(values) {
         return values.map(asPosition);
       }
-      function asRange2(value) {
+      function asRange(value) {
         if (value === void 0 || value === null) {
           return value;
         }
         return { start: asPosition(value.start), end: asPosition(value.end) };
       }
       function asRanges(values) {
-        return values.map(asRange2);
+        return values.map(asRange);
       }
       function asLocation(value) {
         if (value === void 0 || value === null) {
           return value;
         }
-        return proto.Location.create(asUri(value.uri), asRange2(value.range));
+        return proto.Location.create(asUri(value.uri), asRange(value.range));
       }
       function asDiagnosticSeverity(value) {
         switch (value) {
@@ -7765,7 +7765,7 @@ var require_codeConverter = __commonJS({
         return { value: value.value, target: asUri(value.target) };
       }
       function asDiagnostic(item) {
-        const result = proto.Diagnostic.create(asRange2(item.range), item.message);
+        const result = proto.Diagnostic.create(asRange(item.range), item.message);
         const protocolDiagnostic = item instanceof protocolDiagnostic_1.ProtocolDiagnostic ? item : void 0;
         if (protocolDiagnostic !== void 0 && protocolDiagnostic.data !== void 0) {
           result.data = protocolDiagnostic.data;
@@ -7944,13 +7944,13 @@ var require_codeConverter = __commonJS({
       }
       function asCompletionTextEdit(newText, range) {
         if (InsertReplaceRange.is(range)) {
-          return proto.InsertReplaceEdit.create(newText, asRange2(range.inserting), asRange2(range.replacing));
+          return proto.InsertReplaceEdit.create(newText, asRange(range.inserting), asRange(range.replacing));
         } else {
-          return { newText, range: asRange2(range) };
+          return { newText, range: asRange(range) };
         }
       }
       function asTextEdit(edit) {
-        return { range: asRange2(edit.range), newText: edit.newText };
+        return { range: asRange(edit.range), newText: edit.newText };
       }
       function asTextEdits(edits) {
         if (edits === void 0 || edits === null) {
@@ -8072,7 +8072,7 @@ var require_codeConverter = __commonJS({
         return item.value;
       }
       function asInlineValueContext(context) {
-        return proto.InlineValueContext.create(context.frameId, asRange2(context.stoppedLocation));
+        return proto.InlineValueContext.create(context.frameId, asRange(context.stoppedLocation));
       }
       function asInlineCompletionParams(document, position, context) {
         return {
@@ -8099,7 +8099,7 @@ var require_codeConverter = __commonJS({
         if (info === void 0 || info === null) {
           return void 0;
         }
-        return { range: asRange2(info.range), text: info.text };
+        return { range: asRange(info.range), text: info.text };
       }
       function asCommand(item) {
         const result = proto.Command.create(item.title, item.command);
@@ -8112,7 +8112,7 @@ var require_codeConverter = __commonJS({
         return result;
       }
       function asCodeLens(item) {
-        const result = proto.CodeLens.create(asRange2(item.range));
+        const result = proto.CodeLens.create(asRange(item.range));
         if (item.command) {
           result.command = asCommand(item.command);
         }
@@ -8147,7 +8147,7 @@ var require_codeConverter = __commonJS({
         };
       }
       function asDocumentLink(item) {
-        const result = proto.DocumentLink.create(asRange2(item.range));
+        const result = proto.DocumentLink.create(asRange(item.range));
         if (item.target) {
           result.target = asUri(item.target);
         }
@@ -8170,8 +8170,8 @@ var require_codeConverter = __commonJS({
           name: value.name,
           kind: asSymbolKind(value.kind),
           uri: asUri(value.uri),
-          range: asRange2(value.range),
-          selectionRange: asRange2(value.selectionRange)
+          range: asRange(value.range),
+          selectionRange: asRange(value.selectionRange)
         };
         if (value.detail !== void 0 && value.detail.length > 0) {
           result.detail = value.detail;
@@ -8189,8 +8189,8 @@ var require_codeConverter = __commonJS({
           name: value.name,
           kind: asSymbolKind(value.kind),
           uri: asUri(value.uri),
-          range: asRange2(value.range),
-          selectionRange: asRange2(value.selectionRange)
+          range: asRange(value.range),
+          selectionRange: asRange(value.selectionRange)
         };
         if (value.detail !== void 0 && value.detail.length > 0) {
           result.detail = value.detail;
@@ -8279,7 +8279,7 @@ var require_codeConverter = __commonJS({
         asCompletionParams,
         asSignatureHelpParams,
         asWorkerPosition,
-        asRange: asRange2,
+        asRange,
         asRanges,
         asPosition,
         asPositions,
@@ -8423,7 +8423,7 @@ var require_protocolConverter = __commonJS({
       }
       function asDiagnostic(diagnostic) {
         const message = typeof diagnostic.message === "string" ? diagnostic.message : diagnostic.message.kind === "plaintext" ? diagnostic.message.value : "Received a markup diagnostic message but the client does not support it.";
-        const result = new protocolDiagnostic_1.ProtocolDiagnostic(asRange2(diagnostic.range), message, asDiagnosticSeverity(diagnostic.severity), diagnostic.data);
+        const result = new protocolDiagnostic_1.ProtocolDiagnostic(asRange(diagnostic.range), message, asDiagnosticSeverity(diagnostic.severity), diagnostic.data);
         if (diagnostic.code !== void 0) {
           if (typeof diagnostic.code === "string" || typeof diagnostic.code === "number") {
             if (ls.CodeDescription.is(diagnostic.codeDescription)) {
@@ -8488,7 +8488,7 @@ var require_protocolConverter = __commonJS({
       function asPosition(value) {
         return value ? new code.Position(value.line, value.character) : void 0;
       }
-      function asRange2(value) {
+      function asRange(value) {
         return value ? new code.Range(value.start.line, value.start.character, value.end.line, value.end.character) : void 0;
       }
       async function asRanges(items, token) {
@@ -8576,7 +8576,7 @@ var require_protocolConverter = __commonJS({
         if (!hover) {
           return void 0;
         }
-        return new code.Hover(asHoverContent(hover.contents), asRange2(hover.range));
+        return new code.Hover(asHoverContent(hover.contents), asRange(hover.range));
       }
       async function asCompletionResult(value, allCommitCharacters, token) {
         if (!value) {
@@ -8595,7 +8595,7 @@ var require_protocolConverter = __commonJS({
       function getCompletionItemDefaults(list, allCommitCharacters) {
         const rangeDefaults = list.itemDefaults?.editRange;
         const commitCharacters = list.itemDefaults?.commitCharacters ?? allCommitCharacters;
-        return ls.Range.is(rangeDefaults) ? { defaultRange: asRange2(rangeDefaults), commitCharacters } : rangeDefaults !== void 0 ? { defaultRange: { inserting: asRange2(rangeDefaults.insert), replacing: asRange2(rangeDefaults.replace) }, commitCharacters } : { defaultRange: void 0, commitCharacters };
+        return ls.Range.is(rangeDefaults) ? { defaultRange: asRange(rangeDefaults), commitCharacters } : rangeDefaults !== void 0 ? { defaultRange: { inserting: asRange(rangeDefaults.insert), replacing: asRange(rangeDefaults.replace) }, commitCharacters } : { defaultRange: void 0, commitCharacters };
       }
       function asCompletionItemKind(value) {
         if (ls.CompletionItemKind.Text <= value && value <= ls.CompletionItemKind.TypeParameter) {
@@ -8756,16 +8756,16 @@ var require_protocolConverter = __commonJS({
       }
       function getCompletionRangeAndText(value) {
         if (ls.InsertReplaceEdit.is(value)) {
-          return [{ inserting: asRange2(value.insert), replacing: asRange2(value.replace) }, value.newText];
+          return [{ inserting: asRange(value.insert), replacing: asRange(value.replace) }, value.newText];
         } else {
-          return [asRange2(value.range), value.newText];
+          return [asRange(value.range), value.newText];
         }
       }
       function asTextEdit(edit) {
         if (!edit) {
           return void 0;
         }
-        return new code.TextEdit(asRange2(edit.range), edit.newText);
+        return new code.TextEdit(asRange(edit.range), edit.newText);
       }
       async function asTextEdits(items, token) {
         if (!items) {
@@ -8834,7 +8834,7 @@ var require_protocolConverter = __commonJS({
         return result;
       }
       function asLocation(item) {
-        return item ? new code.Location(_uriConverter(item.uri), asRange2(item.range)) : void 0;
+        return item ? new code.Location(_uriConverter(item.uri), asRange(item.range)) : void 0;
       }
       async function asDeclarationResult(item, token) {
         if (!item) {
@@ -8854,10 +8854,10 @@ var require_protocolConverter = __commonJS({
         }
         const result = {
           targetUri: _uriConverter(item.targetUri),
-          targetRange: asRange2(item.targetRange),
+          targetRange: asRange(item.targetRange),
           // See issue: https://github.com/Microsoft/vscode/issues/58649
-          originSelectionRange: asRange2(item.originSelectionRange),
-          targetSelectionRange: asRange2(item.targetSelectionRange)
+          originSelectionRange: asRange(item.originSelectionRange),
+          targetSelectionRange: asRange(item.targetSelectionRange)
         };
         if (!result.targetSelectionRange) {
           throw new Error(`targetSelectionRange must not be undefined or null`);
@@ -8897,7 +8897,7 @@ var require_protocolConverter = __commonJS({
         return async.map(values, asDocumentHighlight, token);
       }
       function asDocumentHighlight(item) {
-        const result = new code.DocumentHighlight(asRange2(item.range));
+        const result = new code.DocumentHighlight(asRange(item.range));
         if (Is2.number(item.kind)) {
           result.kind = asDocumentHighlightKind(item.kind);
         }
@@ -8950,7 +8950,7 @@ var require_protocolConverter = __commonJS({
       function asSymbolInformation(item) {
         const data = item.data;
         const location = item.location;
-        const result = location.range === void 0 || data !== void 0 ? new protocolWorkspaceSymbol_1.default(item.name, asSymbolKind(item.kind), item.containerName ?? "", location.range === void 0 ? _uriConverter(location.uri) : new code.Location(_uriConverter(item.location.uri), asRange2(location.range)), data) : new code.SymbolInformation(item.name, asSymbolKind(item.kind), item.containerName ?? "", new code.Location(_uriConverter(item.location.uri), asRange2(location.range)));
+        const result = location.range === void 0 || data !== void 0 ? new protocolWorkspaceSymbol_1.default(item.name, asSymbolKind(item.kind), item.containerName ?? "", location.range === void 0 ? _uriConverter(location.uri) : new code.Location(_uriConverter(item.location.uri), asRange(location.range)), data) : new code.SymbolInformation(item.name, asSymbolKind(item.kind), item.containerName ?? "", new code.Location(_uriConverter(item.location.uri), asRange(location.range)));
         fillTags(result, item);
         return result;
       }
@@ -8961,7 +8961,7 @@ var require_protocolConverter = __commonJS({
         return async.map(values, asDocumentSymbol, token);
       }
       function asDocumentSymbol(value) {
-        const result = new code.DocumentSymbol(value.name, value.detail || "", asSymbolKind(value.kind), asRange2(value.range), asRange2(value.selectionRange));
+        const result = new code.DocumentSymbol(value.name, value.detail || "", asSymbolKind(value.kind), asRange(value.range), asRange(value.selectionRange));
         fillTags(result, value);
         if (value.children !== void 0 && value.children.length > 0) {
           const children = [];
@@ -9077,7 +9077,7 @@ var require_protocolConverter = __commonJS({
         if (!item) {
           return void 0;
         }
-        const result = new protocolCodeLens_1.default(asRange2(item.range));
+        const result = new protocolCodeLens_1.default(asRange(item.range));
         if (item.command) {
           result.command = asCommand(item.command);
         }
@@ -9126,11 +9126,11 @@ var require_protocolConverter = __commonJS({
               const edits = [];
               for (const edit of change.edits) {
                 if (ls.AnnotatedTextEdit.is(edit)) {
-                  edits.push([new code.TextEdit(asRange2(edit.range), edit.newText), asMetadata(edit.annotationId)]);
+                  edits.push([new code.TextEdit(asRange(edit.range), edit.newText), asMetadata(edit.annotationId)]);
                 } else if (ls.SnippetTextEdit.is(edit)) {
-                  edits.push([new code.SnippetTextEdit(asRange2(edit.range), new code.SnippetString(edit.snippet.value)), asMetadata(edit.annotationId)]);
+                  edits.push([new code.SnippetTextEdit(asRange(edit.range), new code.SnippetString(edit.snippet.value)), asMetadata(edit.annotationId)]);
                 } else {
-                  edits.push([new code.TextEdit(asRange2(edit.range), edit.newText), void 0]);
+                  edits.push([new code.TextEdit(asRange(edit.range), edit.newText), void 0]);
                 }
               }
               result.set(uri, edits);
@@ -9154,7 +9154,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         return { label: annotation.label, needsConfirmation: !!annotation.needsConfirmation, description: annotation.description };
       }
       function asDocumentLink(item) {
-        const range = asRange2(item.range);
+        const range = asRange(item.range);
         const target = item.target ? asUri(item.target) : void 0;
         const link = new protocolDocumentLink_1.default(range, target);
         if (item.tooltip !== void 0) {
@@ -9175,7 +9175,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         return new code.Color(color.red, color.green, color.blue, color.alpha);
       }
       function asColorInformation(ci) {
-        return new code.ColorInformation(asRange2(ci.range), asColor(ci.color));
+        return new code.ColorInformation(asRange(ci.range), asColor(ci.color));
       }
       async function asColorInformations(colorInformation, token) {
         if (!colorInformation) {
@@ -9220,7 +9220,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         return async.map(foldingRanges, asFoldingRange, token);
       }
       function asSelectionRange(selectionRange) {
-        return new code.SelectionRange(asRange2(selectionRange.range), selectionRange.parent ? asSelectionRange(selectionRange.parent) : void 0);
+        return new code.SelectionRange(asRange(selectionRange.range), selectionRange.parent ? asSelectionRange(selectionRange.parent) : void 0);
       }
       async function asSelectionRanges(selectionRanges, token) {
         if (!Array.isArray(selectionRanges)) {
@@ -9230,11 +9230,11 @@ ${JSON.stringify(change, void 0, 4)}`);
       }
       function asInlineValue(inlineValue) {
         if (ls.InlineValueText.is(inlineValue)) {
-          return new code.InlineValueText(asRange2(inlineValue.range), inlineValue.text);
+          return new code.InlineValueText(asRange(inlineValue.range), inlineValue.text);
         } else if (ls.InlineValueVariableLookup.is(inlineValue)) {
-          return new code.InlineValueVariableLookup(asRange2(inlineValue.range), inlineValue.variableName, inlineValue.caseSensitiveLookup);
+          return new code.InlineValueVariableLookup(asRange(inlineValue.range), inlineValue.variableName, inlineValue.caseSensitiveLookup);
         } else {
-          return new code.InlineValueEvaluatableExpression(asRange2(inlineValue.range), inlineValue.expression);
+          return new code.InlineValueEvaluatableExpression(asRange(inlineValue.range), inlineValue.expression);
         }
       }
       async function asInlineValues(inlineValues, token) {
@@ -9295,7 +9295,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         if (item === null) {
           return void 0;
         }
-        const result = new protocolCallHierarchyItem_1.default(asSymbolKind(item.kind), item.name, item.detail || "", asUri(item.uri), asRange2(item.range), asRange2(item.selectionRange), item.data);
+        const result = new protocolCallHierarchyItem_1.default(asSymbolKind(item.kind), item.name, item.detail || "", asUri(item.uri), asRange(item.range), asRange(item.selectionRange), item.data);
         if (item.tags !== void 0) {
           result.tags = asSymbolTags(item.tags);
         }
@@ -9359,7 +9359,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         if (item === null) {
           return void 0;
         }
-        const result = new protocolTypeHierarchyItem_1.default(asSymbolKind(item.kind), item.name, item.detail || "", asUri(item.uri), asRange2(item.range), asRange2(item.selectionRange), item.data);
+        const result = new protocolTypeHierarchyItem_1.default(asSymbolKind(item.kind), item.name, item.detail || "", asUri(item.uri), asRange(item.range), asRange(item.selectionRange), item.data);
         if (item.tags !== void 0) {
           result.tags = asSymbolTags(item.tags);
         }
@@ -9409,7 +9409,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         if (item.command) {
           command = asCommand(item.command);
         }
-        const inlineCompletionItem = new code.InlineCompletionItem(insertText, asRange2(item.range), command);
+        const inlineCompletionItem = new code.InlineCompletionItem(insertText, asRange(item.range), command);
         if (item.filterText) {
           inlineCompletionItem.filterText = item.filterText;
         }
@@ -9420,7 +9420,7 @@ ${JSON.stringify(change, void 0, 4)}`);
         asDocumentSelector,
         asDiagnostics,
         asDiagnostic,
-        asRange: asRange2,
+        asRange,
         asRanges,
         asPosition,
         asDiagnosticSeverity,
@@ -22824,7 +22824,6 @@ var vscode = require("vscode");
 var { LanguageClient } = require_main3();
 var clients = /* @__PURE__ */ new Map();
 var nextClientId = 1;
-var traceDiagnostics;
 var GENERATED_SCHEME = "nupp-generated";
 var generated = /* @__PURE__ */ new Map();
 var generatedEvents;
@@ -22841,71 +22840,6 @@ function originOf(uri) {
   }
   const source = new URLSearchParams(uri.query).get("source");
   return source ? vscode.Uri.parse(source) : uri;
-}
-function asRange(range) {
-  return new vscode.Range(
-    range.start.line,
-    range.start.character,
-    range.end.line,
-    range.end.character
-  );
-}
-async function checkFunctionForTraceBlockers(target) {
-  const editor = vscode.window.activeTextEditor;
-  const document = target && target.uri ? await vscode.workspace.openTextDocument(target.uri) : editor && editor.document;
-  const position = target && target.position ? target.position : editor && editor.selection.active;
-  if (!document || document.languageId !== "nupp" || !position) {
-    void vscode.window.showInformationMessage("Open a Nupp function to check it for JIT trace blockers.");
-    return;
-  }
-  const running = clientForDocument(document);
-  if (!running) {
-    void vscode.window.showErrorMessage("No Nupp language server is running for this file.");
-    return;
-  }
-  const uri = document.uri;
-  traceDiagnostics.delete(uri);
-  let result;
-  try {
-    result = await running.client.sendRequest("nupp/traceCheck", {
-      textDocument: { uri: uri.toString() },
-      position
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`JIT trace check failed: ${detail}`);
-    return;
-  }
-  if (!result) {
-    void vscode.window.showInformationMessage("No checked Nupp function contains the cursor.");
-    return;
-  }
-  const diagnostics = (result.findings || []).map((finding) => {
-    const severity = finding.class === "blocker" ? vscode.DiagnosticSeverity.Error : finding.class === "risk" ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Information;
-    const path2 = finding.callPath && finding.callPath.length > 1 ? ` via ${finding.callPath.join(" \u2192 ")}` : "";
-    const diagnostic = new vscode.Diagnostic(
-      finding.range ? asRange(finding.range) : asRange(result.range),
-      `${finding.reason}${path2}: ${finding.message || finding.class}`,
-      severity
-    );
-    diagnostic.code = finding.reason;
-    diagnostic.source = "Nupp JIT Check";
-    return diagnostic;
-  });
-  traceDiagnostics.set(uri, diagnostics);
-  let summary;
-  if (diagnostics.length === 0) {
-    summary = `${result.name}: no catalogued unconditional trace blockers or conditional risks.`;
-  } else {
-    summary = `${result.name}: ${diagnostics.length} JIT trace finding${diagnostics.length === 1 ? "" : "s"}.`;
-  }
-  const add = result.addContract ? "Add @jit contract" : void 0;
-  const choice = add ? await vscode.window.showInformationMessage(summary, add) : await vscode.window.showInformationMessage(summary);
-  if (choice === add) {
-    const edit = new vscode.WorkspaceEdit();
-    edit.insert(uri, asRange(result.addContract.range).start, result.addContract.newText);
-    await vscode.workspace.applyEdit(edit);
-  }
 }
 async function migrateAnnotatedLua(target) {
   const editor = vscode.window.activeTextEditor;
@@ -22965,7 +22899,7 @@ async function migrateAnnotatedLua(target) {
   const migrated = await vscode.workspace.openTextDocument(destination);
   await vscode.window.showTextDocument(migrated);
 }
-var ARTIFACT_LABELS = { lua: "Generated Lua", bytecode: "Bytecode" };
+var ARTIFACT_LABELS = { lua: "Generated Lua" };
 function generatedUri(sourceUri, kind, optLevel) {
   const base = path.basename(sourceUri.fsPath);
   const suffix = kind === "lua" ? ".lua" : ".bc";
@@ -23676,14 +23610,11 @@ function registerCommands(context, commands) {
   }
 }
 async function activate(context) {
-  traceDiagnostics = vscode.languages.createDiagnosticCollection("nupp-jit-check");
   generatedEvents = new vscode.EventEmitter();
   registerCommands(context, [
-    ["nupp.checkFunctionForJitTraceBlockers", checkFunctionForTraceBlockers],
     ["nupp.migrateAnnotatedLua", migrateAnnotatedLua],
     ["nupp.inspectCompiledFunction", inspectCompiledFunction],
     ["nupp.openGeneratedLua", (target) => openGeneratedArtifact("lua", target)],
-    ["nupp.openBytecode", (target) => openGeneratedArtifact("bytecode", target)],
     ["nupp.compareGeneratedArtifacts", compareGeneratedArtifacts],
     ["nupp.restartLanguageServer", async () => {
       await restartClients(context);
@@ -23708,7 +23639,6 @@ async function activate(context) {
     }
   }
   context.subscriptions.push(
-    traceDiagnostics,
     generatedEvents,
     // Generated Lua is emitted at column zero, so the indentation the editor
     // would otherwise derive folding from is not there, and a pane with no
@@ -23719,10 +23649,6 @@ async function activate(context) {
     // for line with its source, so its own folding ranges are the artifact's.
     // With them the artifact pane pins the same headers as the source and the
     // panes sit level.
-    //
-    // Only for `lua`: the bytecode listing folds by indentation, which is what
-    // collapses a line's extra instructions, and a provider here would take that
-    // over.
     vscode.languages.registerFoldingRangeProvider(
       { scheme: GENERATED_SCHEME, language: "lua" },
       {
@@ -23795,12 +23721,6 @@ async function activate(context) {
       },
       { providedCodeActionKinds: [vscode.CodeActionKind.RefactorRewrite] }
     ),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      traceDiagnostics.delete(event.document.uri);
-    }),
-    vscode.workspace.onDidCloseTextDocument((document) => {
-      traceDiagnostics.delete(document.uri);
-    }),
     vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
       await Promise.allSettled(event.removed.map(stopClient));
       await Promise.all(event.added.map((folder) => startClient(context, folder)));

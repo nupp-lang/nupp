@@ -360,7 +360,6 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local working = workspace()
     local history = working .. "/history.jsonl"
     local stdout = working .. "/stdout.txt"
-    local profiles = working .. "/profiles"
     local fixture = HERE .. "/fixtures/bench_suite.nupp"
     local simpleFixture = HERE .. "/fixtures/bench_protocol.nupp"
 
@@ -421,15 +420,18 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     )
     testAssert.equal(selection.benchmarks[1].file, fixture, "and the listing says which file declares it")
 
-    local profiled = os.execute(
+    local single = os.execute(
         inWorkspace(
             working,
-            (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
-            ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
+            ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q > %q"):format(
+                NUPP,
+                simpleFixture,
+                "^protocol$",
+                stdout
+            )
         )
     )
-    testAssert.equal(profiled, 0, "the measured-window sampling pass exits successfully")
+    testAssert.equal(single, 0, "a single selected case runs successfully")
     local human = read(stdout)
     local resultAt = human:find("# Result: protocol", 1, true)
     local tableAt = human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units")
@@ -438,14 +440,6 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         resultAt ~= nil and tableAt ~= nil and resultAt < tableAt,
         "a completed score streams before the final table"
     )
-    local profilePath = human:match("# Profile: ([^\r\n]+)")
-    assert(profilePath ~= nil, "the sampling pass names its collapsed-stack file")
-    local collapsed = read(profilePath)
-    assert(
-        collapsed == "" or collapsed:find("^bench_protocol%.nupp:") ~= nil,
-        "collected stacks are trimmed to the benchmark program"
-    )
-    assert(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
 
     os.execute(("rm -rf %q"):format(working))
 end

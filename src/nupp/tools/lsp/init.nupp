@@ -50,9 +50,6 @@ local semantic = require("nupp.tools.lsp.semantic")
 local artifactsMod = require("nupp.tools.lsp.artifacts")
 local transportMod = require("nupp.tools.lsp.transport")
 
--- The declarations `@jit` can decorate: the ones the pragma checker attaches a
--- contract to.
-local CONTRACT_TARGETS = {localFuncStmt = true, funcStmt = true, inlineMethod = true, constructorDecl = true}
 local enclosingChain = tree.enclosingChain
 local functionSignature = tree.functionSignature
 local lineHunks = text.lineHunks
@@ -322,7 +319,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                     others[#others + 1] = other.root
                 end
             end
-            local inc = incremental.new(entry.root, {folders = others, traceInspection = true})
+            local inc = incremental.new(entry.root, {folders = others, functionInspection = true})
             inc.env.host = host
             -- A declaration file a type dependency carries that the importer could not
             -- take. The build reports these as warnings against the file; an editor
@@ -1031,73 +1028,6 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             -- be read under different configuration in two windows, and a caller
             -- comparing two answers has to be able to see which is which.
             root = s.currentRoot,
-        })
-    end
-
-    -- One-shot trace eligibility for the smallest checked function containing the
-    -- cursor. This reads the document overlay already checked by the language server;
-    -- it neither adds @jit nor compiles or executes a temporary program.
-    handlers["nupp/traceCheck"] = function(id, params)
-        local _, doc = documentAt(params)
-        local position = params and params.position
-        local offset = doc and position and offsetAtPosition(doc.text, position) or nil
-        local analysis = doc and doc.result and doc.result.traceAnalysis or nil
-        if not offset or not analysis then
-            respond(id, json.NULL)
-            return
-        end
-        local selected, foundFrom, foundTo = tree.functionAt(analysis.functions, offset)
-        if not selected then
-            respond(id, json.NULL)
-            return
-        end
-        -- A selected function has bounds: it was found by holding the cursor inside
-        -- them. Naming them here is what lets the rest of this read as offsets.
-        local selectedFrom, selectedTo = foundFrom as integer, foundTo as integer
-        local findings = wire.array({})
-        for _, finding in ipairs(selected.traceFindings or {}) do
-            local from, to = tree.nodeBounds(finding.at or finding.callAt)
-            local range = nil
-            if from and to then
-                range = spanRange(doc.text, from, to as integer)
-            end
-            findings[
-                #findings + 1
-            ] = {
-                reason = finding.reason,
-                class = finding.class,
-                message = finding.message,
-                help = finding.help,
-                callPath = wire.array(finding.callPath or {}),
-                range = range,
-            }
-        end
-        local profile = analysis.profile
-        -- `@jit` decorates a function declaration, so only one of those is offered
-        -- the contract: a function expression has no statement of its own to put it
-        -- on. The pragma goes on its own line over a declaration that starts its
-        -- line, at the same indent, and in front of one that does not.
-        local addContract = nil
-        local declared = selected.node and CONTRACT_TARGETS[selected.node.kind]
-        if declared and not (selected.body and selected.body.jitRequired) then
-            local lineStart = selectedFrom
-            while lineStart > 1 and doc.text:sub(lineStart - 1, lineStart - 1) ~= "\n" do
-                lineStart = lineStart - 1
-            end
-            local before = doc.text:sub(lineStart, selectedFrom - 1)
-            addContract = {
-                range = spanRange(doc.text, selectedFrom, selectedFrom),
-                newText = before:match("^%s*$") and "@jit\n" .. before or "@jit ",
-            }
-        end
-        respond(id, {
-            name = selected.traceName,
-            range = spanRange(doc.text, selectedFrom, selectedTo),
-            findings = findings,
-            traceProfile = profile,
-            reasonCatalog = analysis.reasonCatalog,
-            contract = selected.body and selected.body.jitRequired and "@jit" or "inspection",
-            addContract = addContract,
         })
     end
 

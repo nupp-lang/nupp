@@ -131,12 +131,6 @@ interface cst.Hints
     --- The ownership audit consumes this after checking.
     unsafeOwnershipOperation: string?
 
-    --- Static JIT-boundary contracts attached while checking function bodies.
-    jitDefinition: any
-
-    jitDisabled: boolean?
-    jitRequired: boolean?
-
     --- `@aot` asks for this body to compile ahead of time rather than leaving it to
     --- LuaJIT. Checking records it; the AOT subset pass consumes it.
     aotRequired: boolean?
@@ -288,12 +282,6 @@ interface cst.Hints
 
     --- The same rewrite plan when the formatting belongs inside a logging guard.
     logFormatIntrinsic: any
-
-    --- "push" or "pop" when the call is on a name statically known to hold the module
-    --- `nupp.profile.zone` returns and carries the right arity. Lowering additionally
-    --- needs statement position, so a `pop` whose popped name is kept stays an ordinary
-    --- call.
-    zoneIntrinsic: string?
 
     --- True when the call is `keep` on a name statically known to hold the module
     --- `nupp.bench` returns, with a positional argument. Lowering additionally needs

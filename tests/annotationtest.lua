@@ -374,20 +374,19 @@ function M.definitionTargetsAreValidated()
 end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
-    testAssert.equal(diagsOf("@jit local function f() end"), "")
     testAssert.equal(diagsOf("@comptime const function f() end"), "")
     testAssert.equal(diagsOf("@comptime const function f() end"), "")
 end
 
 function M.attachmentTargetsAreChecked()
-    testAssert.equal(diagsOf("@jit local x = 1"), "NUPP2112")
+    testAssert.equal(diagsOf("@aot local x = 1"), "NUPP2112")
     -- Named functions are a valid attachment target because exported helpers use
     -- `function M.f()`. A bare global is rejected by the comptime declaration rule.
     testAssert.equal(diagsOf("@comptime function f() end"), "NUPP2411")
 end
 
 function M.argumentContractsAreChecked()
-    testAssert.equal(diagsOf("@jit(on) local function f() end"), "NUPP2112")
+    testAssert.equal(diagsOf("@noraise(on) do end"), "NUPP2112")
     -- a name that is neither a lint nor a code names no lint to allow
     testAssert.equal(diagsOf("@allow(not_a_lint) local x = 1"), "NUPP2108")
 end
@@ -482,72 +481,7 @@ function M.deprecatedAnnotationsEmitNoRuntimeBehavior()
 end
 
 function M.stackedAnnotationsUseTheUnderlyingStatementAsTheirTarget()
-    testAssert.equal(diagsOf("@allow @jit local function f() end"), "")
-end
-
-function M.jitChecksSemanticCFunctionBoundaries()
-    local callback = table.concat(
-        {
-            "local type Visitor = function(int32)",
-            "cdef function each(fn: Visitor, n: int32)",
-            "local function visit(value: int32) print(value) end",
-            "local function run(): nil each(visit, 1) end",
-            "return run",
-        },
-        "\n"
-    )
-    testAssert.equal(diagsOf(callback), "NUPP2502")
-
-    local allowedCallback = callback:gsub("local function run%(%)", '@allow("jit-callback")\nlocal function run()')
-    testAssert.equal(diagsOf(allowedCallback), "")
-
-    local disabled = table.concat(
-        {
-            "cdef function each(fn: function(int32), n: int32)",
-            "local function visit(value: int32) print(value) end",
-            "jit.off(visit)",
-            "local function run(): nil each(visit, 1) end",
-            "return run",
-        },
-        "\n"
-    )
-    testAssert.equal(diagsOf(disabled), "")
-
-    local coldBoundary = table.concat(
-        {
-            "cdef function each(fn: function(int32), n: int32)",
-            "local function visit(value: int32) print(value) end",
-            "local function run(): nil each(visit, 1) end",
-            "jit.off(run)",
-            "return run",
-        },
-        "\n"
-    )
-    testAssert.equal(diagsOf(coldBoundary), "")
-
-    local variadic = table.concat(
-        {
-            "cdef function printf(format: cstring, ...): int32",
-            "local function run(): nil printf('%d', 1) end",
-            "return run",
-        },
-        "\n"
-    )
-    testAssert.equal(diagsOf(variadic), "NUPP2514")
-
-    local required = table.concat(
-        {
-            "cdef function printf(format: cstring, ...): int32",
-            "@jit",
-            "local function run(): nil printf('%d', 1) end",
-            "return run",
-        },
-        "\n"
-    )
-    testAssert.equal(diagsOf(required), "NUPP2707")
-
-    local requiredAllowed = required:gsub("@jit", '@allow("jit-boundary")\n@jit')
-    testAssert.equal(diagsOf(requiredAllowed), "NUPP2707")
+    testAssert.equal(diagsOf("@allow @aot local function f() end"), "")
 end
 
 function M.annotationRecordsDefineTypedMetadata()

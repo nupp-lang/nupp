@@ -28,12 +28,10 @@
   "activationEvents": [
     "onLanguage:nupp",
     "onLanguage:lua",
-    "onCommand:nupp.checkFunctionForJitTraceBlockers",
     "onCommand:nupp.migrateAnnotatedLua",
     "onCommand:nupp.restartLanguageServer",
     "onCommand:nupp.inspectCompiledFunction",
     "onCommand:nupp.openGeneratedLua",
-    "onCommand:nupp.openBytecode",
     "onCommand:nupp.compareGeneratedArtifacts"
   ],
   "files": [
@@ -50,11 +48,6 @@
   ],
   "contributes": {
     "commands": [
-      {
-        "command": "nupp.checkFunctionForJitTraceBlockers",
-        "title": "Nupp: Check Function for JIT Trace Blockers",
-        "category": "Nupp"
-      },
       {
         "command": "nupp.restartLanguageServer",
         "title": "Nupp: Restart Language Server",
@@ -76,11 +69,6 @@
         "category": "Nupp"
       },
       {
-        "command": "nupp.openBytecode",
-        "title": "Nupp: Open Bytecode",
-        "category": "Nupp"
-      },
-      {
         "command": "nupp.compareGeneratedArtifacts",
         "title": "Nupp: Compare Generated Artifacts",
         "category": "Nupp"
@@ -88,11 +76,6 @@
     ],
     "menus": {
       "editor/context": [
-        {
-          "command": "nupp.checkFunctionForJitTraceBlockers",
-          "when": "editorLangId == nupp",
-          "group": "navigation@20"
-        },
         {
           "command": "nupp.migrateAnnotatedLua",
           "when": "editorLangId == lua && resourceExtname == .lua",
@@ -111,11 +94,6 @@
         "editor.rulers": [
           120
         ]
-      },
-      "[nupp-bytecode]": {
-        "editor.lineNumbers": "off",
-        "editor.wordWrap": "off",
-        "editor.renderWhitespace": "none"
       }
     },
     "languages": [
@@ -140,12 +118,6 @@
         "aliases": [
           "Nupp PEG",
           "nupp-peg"
-        ]
-      },
-      {
-        "id": "nupp-bytecode",
-        "aliases": [
-          "Nupp Bytecode"
         ]
       }
     ],

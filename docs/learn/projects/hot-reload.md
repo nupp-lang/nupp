@@ -103,7 +103,7 @@ slot.
 
 A syntax or type error rejects the candidate and leaves the last good generation
 running. A compatible multi-function patch is staged completely before any slot
-changes, and commit flushes LuaJIT traces.
+changes.
 
 Before staging, Nupp rechecks every loaded module through the incremental
 semantic dependency graph, so a changed global declaration, imported module
@@ -290,7 +290,6 @@ so declare the function and pass the name, as
 [Named callbacks](#named-callbacks) shows.
 
 ::: seealso
-- [profiling.md](../performance/profiling.md) for finding where a running program spends time
 - [build.md](build.md) for the ordinary optimized build that ships
 - [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
   session tracks

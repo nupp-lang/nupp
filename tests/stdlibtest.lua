@@ -3037,46 +3037,6 @@ function M.stringBufferPointersBecomeCheckedSpans()
     )
 end
 
-function M.profileSessionProtocolPreservesItsReportType()
-    assertClean(
-        table.concat(
-            {
-                "local profile = require('nupp.profile')",
-                "local function finish<S is profile.Session>(borrows session: S): S.Report",
-                "   return session:stop()",
-                "end",
-                "with sampling = profile.sample() do",
-                "   local sample: profile.SampleReport = finish(sampling)",
-                "end",
-                "with tracing = profile.trace() do",
-                "   local trace: profile.TraceReport = finish(tracing)",
-                "end",
-            },
-            "\n"
-        )
-    )
-
-    testAssert.equal(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local profile = require('nupp.profile')",
-                        "local function finish<S is profile.Session>(borrows session: S): S.Report",
-                        "   return session:stop()",
-                        "end",
-                        "with sampling = profile.sample() do",
-                        "   local wrong: profile.TraceReport = finish(sampling)",
-                        "end",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2001:6"
-    )
-end
-
 function M.moduleRequireTyped()
     assertClean(
         table.concat(

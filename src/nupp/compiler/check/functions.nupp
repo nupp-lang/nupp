@@ -1138,12 +1138,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.constructorFieldStack[#c.constructorFieldStack + 1] = body.constructorOwner
             and {owner = body.constructorOwner, assigned = {}}
             or false
-        -- Started here rather than with the scope: the parameters are bound by now, so
-        -- the body reading one of them resolves inside the watch and is not a capture.
-        local loopClosure = c.loops.begin(c.functionDepth - 1)
-        -- Judged before the flag is cleared, so that being the value of a `return` is
-        -- what excuses this function, not what its own body happens to do.
-        local wasReturning = c.loops.setReturning(false)
         body.partitionResults = nil
         body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
@@ -1202,8 +1196,6 @@ function functions.install(c: state.Checker): state.StatHandlers
             table.insert(body.body.stats, 1, captureStat)
             table.insert(body.body, 1, captureStat)
         end
-        c.loops.setReturning(wasReturning)
-        c.loops.finish(loopClosure, body)
         -- A generic input pack may contain affine slots. Its body therefore has to
         -- transfer that complete sequence exactly once: directly to the matching result
         -- pack, or as the expanding argument of a callable accepting the same symbolic
@@ -1706,7 +1698,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         -- bind the name before checking for recursion; refine after
         c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
-        body.jitDefinition = nameTok.definition
         if stat.comptimeFunction then
             local entry = c.scope.vars[nameTok.text]
             if entry and entry.definition then
@@ -1732,7 +1723,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.bindVar(nameTok.text, boundType)
         local functionEntry = c.scope.vars[nameTok.text]
         if functionEntry then
-            functionEntry.jitTarget = functionEntry.definition
             functionEntry.mutatesParams = checkedBody.mutatesParams
             functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths
             functionEntry.mutatesSelfPaths = checkedBody.mutatesSelfPaths
@@ -1831,7 +1821,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local earlyMemberDefinition = memberTok and c.definition(memberTok, fname.method and "method" or "function")
             or nil
-        body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
         local diagnosticsBefore = #c.diags
         local priorOwner, priorMember, priorMethod = c.definingOwner, c.definingMember, c.definingMethod
         c.definingOwner, c.definingMember, c.definingMethod = owner, member, fname.method ~= nil

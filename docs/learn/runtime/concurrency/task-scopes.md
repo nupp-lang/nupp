@@ -42,8 +42,7 @@ const thumbnail = scope:fork(bytes, jobs.thumbnail)    -- on a worker lane
 ```
 
 A module function with arguments builds nothing per call, which is what a loop
-that spawns many children wants; the `jit-loop-closure` lint says so where a
-per-iteration closure is written instead. A bare body is the zero-argument case.
+that spawns many children wants. A bare body is the zero-argument case.
 Arguments to `spawn` are plain values: an owner or a borrow cannot be tracked
 through the table the child unpacks them from. Arguments to `fork` are copied
 into another Lua state, and the callable must be sendable, a module function or a

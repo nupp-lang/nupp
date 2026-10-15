@@ -143,13 +143,8 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp explain CODE [--json]` describes a diagnostic code: the rule, a
   program that reports it, and the same program corrected. Every diagnostic
   carries a `docs` anchor pointing at the same reference.
-- `./bin/nupp bc [--check] FILE` prints the bytecode a file compiles to, beside
-  the source line each instruction came from. `--check` marks work LuaJIT cannot
-  record inside a loop and exits 1 for it: a loop that builds a function aborts
-  trace recording and is blacklisted, so it runs interpreted however hot it
-  gets, and nothing else reports that because the answers do not change. It
-  reads bytecode rather than timing anything, so it needs no quiet machine and
-  answers the same every run.
+- `./bin/nupp bc FILE` prints the VM bytecode a file compiles to, beside the
+  source line each instruction came from. It needs the VM-hosted compiler.
 - `./bin/nupp lsp inspect --json FILE LINE COLUMN` describes the symbol at a
   position.
 - `./bin/nupp lsp definition --json FILE LINE COLUMN` finds its definition.
@@ -161,10 +156,9 @@ whenever output is not a terminal, so piped output never carries escapes.
   Add `--write` only when the requested change should be applied.
 - `./bin/nupp lsp artifacts --json FILE LINE COLUMN` lists what the file
   compiles to and names the function at the position.
-- `./bin/nupp lsp artifact --kind lua|bytecode [-O0|-O1|-O2] FILE` prints one of
-  them. Generated Lua is line-identical to its source, so line N of the output
-  is line N of the input; a bytecode listing carries its own mapping under
-  `--json`.
+- `./bin/nupp lsp artifact --kind lua [-O0|-O1|-O2] FILE` prints the generated
+  Lua. It is line-identical to its source, so line N of the output is line N of
+  the input.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` to narrow the results.
 

@@ -421,7 +421,6 @@ built by another release is refused by exact version rather than adapted.
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |
 | Bench record | 4 | an older record is an inconclusive baseline | `src/nupp/bench/init.nupp` `SCHEMA` |
 | Optimizer remarks | 1 | read by consumers | `src/nupp/tools/cli/compile.nupp` `schema` |
-| Trace reason catalog | 1 | read by consumers | `src/nupp/profile/trace.nupp` `CATALOG_VERSION` |
 | GPU cost records | 1 | read by consumers | `native/crates/gpu/src/costs.rs` `schemaVersion` |
 
 To bump one, change the constant and this row together; a test holds the two to

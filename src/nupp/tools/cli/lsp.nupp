@@ -268,35 +268,6 @@ local OPERATION_SCHEMAS: {
         },
         required = {"actions"},
     },
-    [
-        "trace-check"
-    ] = {
-        type = "object",
-        properties = {
-            functionName = {type = "string"},
-            contract = {type = "string"},
-            range = reportMod.RANGE,
-            findings = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        reason = {type = "string"},
-                        class = {type = "string"},
-                        message = {type = "string"},
-                        help = {type = "string"},
-                        callPath = {type = "array", items = {type = "string"}},
-                        range = reportMod.RANGE,
-                    },
-                    required = {"reason", "class"},
-                },
-            },
-            traceProfile = {type = "object"},
-            reasonCatalog = {type = "object"},
-            addContract = {type = "object", properties = {range = reportMod.RANGE, newText = {type = "string"}},},
-        },
-        required = {"findings"},
-    },
     artifacts = {
         type = "object",
         description = "What could be resolved here, without resolving any of it.",
@@ -306,7 +277,7 @@ local OPERATION_SCHEMAS: {
                 items = {
                     type = "object",
                     properties = {
-                        kind = {type = "string", enum = {"lua", "bytecode"}},
+                        kind = {type = "string", enum = {"lua"}},
                         label = {type = "string"},
                         languageId = {type = "string"},
                         scope = {
@@ -1055,60 +1026,6 @@ local function runActions(client, opts)
     return true
 end
 
-local function runTraceCheck(client, opts)
-    local path, _, position, err = target(client, opts)
-    if not path then
-        return nil, err
-    end
-    local result, requestErr = client.request("nupp/traceCheck", positionParams(path, position))
-    if requestErr then
-        return nil, requestErr
-    end
-    local value = {findings = jsonArray({})}
-    if result and result ~= json.NULL then
-        value.functionName = result.name
-        value.contract = result.contract
-        value.range = result.range and rangeValue(client, path, result.range) or nil
-        value.traceProfile = result.traceProfile
-        value.reasonCatalog = result.reasonCatalog
-        value.addContract = result.addContract
-            and {range = rangeValue(client, path, result.addContract.range), newText = result.addContract.newText,}
-            or nil
-        for _, finding in ipairs(result.findings or {}) do
-            value.findings[
-                #value.findings + 1
-            ] = {
-                reason = finding.reason,
-                class = finding.class,
-                message = finding.message,
-                help = finding.help,
-                callPath = jsonArray(finding.callPath or {}),
-                range = finding.range and rangeValue(client, path, finding.range) or nil,
-            }
-        end
-    end
-    if opts.format == "json" then
-        jsonOutput(value)
-    elseif not value.functionName then
-        io.write("No checked function at that position\n")
-    elseif #value.findings == 0 then
-        io.write(value.functionName .. ": no cataloged trace blockers or risks\n")
-    else
-        io.write(
-            ("%s: %d trace finding%s\n"):format(value.functionName, #value.findings, #value.findings == 1 and "" or "s")
-        )
-        for _, finding in ipairs(value.findings) do
-            local pathText = #finding.callPath > 1 and " via " .. table.concat(finding.callPath, " -> ") or ""
-            io.write(("  %s %s%s: %s\n"):format(finding.class, finding.reason, pathText, finding.message or ""))
-            if finding.help then
-                io.write("    help: " .. finding.help .. "\n")
-            end
-        end
-    end
-
-    return true
-end
-
 local function runArtifacts(client, opts)
     local path, _, position, err = target(client, opts)
     if not path then
@@ -1159,7 +1076,7 @@ local function runArtifact(client, opts)
         return nil, usage("expected FILE")
     end
     if not opts.kind then
-        return nil, usage("--kind names the artifact to resolve: lua or bytecode")
+        return nil, usage("--kind names the artifact to resolve: lua")
     end
     local path = resolvePath(opts.root, opts.positional[1])
     local _, readErr = client.open(path)
@@ -1204,7 +1121,6 @@ local OPERATIONS = {
     symbols = runSymbols,
     rename = runRename,
     actions = runActions,
-    ["trace-check"] = runTraceCheck,
     artifacts = runArtifacts,
     artifact = runArtifact,
 }
@@ -1266,7 +1182,7 @@ end
 --- `nupp lsp serve [root]` runs the language server over stdio. Semantic
 --- operations are `nupp lsp inspect`, `nupp lsp definition`,
 --- `nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
---- `nupp lsp rename`, `nupp lsp actions`, and `nupp lsp trace-check`.
+--- `nupp lsp rename`, and `nupp lsp actions`.
 --- Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 ---
 --- Operation-only options: references only: `--include-declaration`;
@@ -1576,43 +1492,6 @@ local record Actions
     end
 end
 
---- Check the function at a position for LuaJIT trace blockers.
----
---- Examples:
----
----     nupp lsp trace-check src/main.nupp 12 8
----     nupp lsp trace-check --json src/main.nupp 12 8
-@cli("trace-check")
-@derive(cliModule.Command)
-local record TraceCheck
-    --- Project root.
-    @cli(value = "DIR")
-    root: string?
-
-    --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
-    format: string?
-
-    --- Print the JSON Schema of JSON output and exit.
-    schema: boolean = false
-
-    --- Source file.
-    @cli(positional = "FILE")
-    file: string
-
-    --- One-based source line.
-    @cli(positional = "LINE")
-    line: string
-
-    --- One-based byte column.
-    @cli(positional = "COLUMN")
-    column: string
-
-    function run(self): integer
-        return typedOperation("trace-check", self, {self.file, self.line, self.column})
-    end
-end
-
 --- List the compiled artifacts available at a position.
 ---
 --- Examples:
@@ -1655,7 +1534,7 @@ end
 --- Examples:
 ---
 ---     nupp lsp artifact --kind lua -O2 src/main.nupp
----     nupp lsp artifact --kind bytecode --json src/main.nupp
+---     nupp lsp artifact --kind lua --json src/main.nupp
 @cli("artifact")
 @derive(cliModule.Command)
 local record Artifact
@@ -1668,7 +1547,7 @@ local record Artifact
     format: string?
 
     --- Which artifact to resolve.
-    @cli(value = "KIND", choices = {"lua", "bytecode"})
+    @cli(value = "KIND", choices = {"lua"})
     kind: string
 
     --- Optimization level to resolve the artifact at.
@@ -1695,19 +1574,7 @@ local record Artifact
 end
 
 function Lsp.subcommands(): {cliModule.CommandType}
-    return {
-        Serve,
-        Inspect,
-        Definition,
-        Implementation,
-        References,
-        Symbols,
-        Rename,
-        Actions,
-        TraceCheck,
-        Artifacts,
-        Artifact,
-    }
+    return {Serve, Inspect, Definition, Implementation, References, Symbols, Rename, Actions, Artifacts, Artifact,}
 end
 
 function Inspect.reportSchema(): any
@@ -1736,10 +1603,6 @@ end
 
 function Actions.reportSchema(): any
     return OPERATION_SCHEMAS.actions
-end
-
-function TraceCheck.reportSchema(): any
-    return OPERATION_SCHEMAS["trace-check"]
 end
 
 function Artifacts.reportSchema(): any

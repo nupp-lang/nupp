@@ -57,25 +57,11 @@ lints.all = {
         summary = "a pointer taken from a Lua string"
     ),
     new lints.Lint(
-        name = "jit-callback",
-        code = "NUPP2502",
-        category = "suspicious",
-        level = "warning",
-        summary = "a C callback left on the JIT"
-    ),
-    new lints.Lint(
         name = "customary-operator",
         code = "NUPP2504",
         category = "style",
         level = "warning",
         summary = "a customary operator where Lua has a word"
-    ),
-    new lints.Lint(
-        name = "loop-invariant-closure",
-        code = "NUPP2505",
-        category = "suspicious",
-        level = "warning",
-        summary = "a loop builds the same function every iteration"
     ),
     new lints.Lint(
         name = "undocumented-raise",
@@ -141,20 +127,6 @@ lints.all = {
         summary = "use of an API marked deprecated"
     ),
     new lints.Lint(
-        name = "jit-boundary",
-        code = "NUPP2514",
-        category = "suspicious",
-        level = "warning",
-        summary = "an FFI boundary cannot safely run on a compiled trace"
-    ),
-    new lints.Lint(
-        name = "jit-loop-closure",
-        code = "NUPP2515",
-        category = "performance",
-        level = "off",
-        summary = "a loop builds a function and so never compiles"
-    ),
-    new lints.Lint(
         name = "private-export-type",
         code = "NUPP2516",
         category = "suspicious",
@@ -204,12 +176,6 @@ local LEVELS: {[string]: boolean} = {off = true, note = true, warning = true, er
 -- fire on every small record of numbers, most of which are not hot, and a lint that is
 -- usually noise trains its reader to silence the category before ever meeting the case
 -- it was written for. `nupp lints` is where these are discovered.
---
--- `jit-loop-closure` does know its loop, and still belongs here: what it cannot know is
--- whether that loop is hot, and the code it reports is correct with no mechanical fix.
--- It has teeth where the source asked for them, since a function annotated `@jit`
--- promised that it compiles and reports the same hazard as an error whatever level this
--- lint is at.
 --
 -- Migration lints report spellings that remain correct while a replacement is being
 -- adopted. Migration tooling opts in to find them without adding noise to every build.

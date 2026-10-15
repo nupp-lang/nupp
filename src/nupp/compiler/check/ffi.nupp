@@ -209,8 +209,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     -- Ahead of the `unsafe` question, because `unsafe` says the
                     -- author accepts the cost of a callback rather than that the
                     -- destination can allocate one. A port with no executable
-                    -- pages has no trampoline to hand out, and the `jit-callback`
-                    -- lint below is suppressible where this must not be.
+                    -- pages has no trampoline to hand out.
                     local profile = c.env and c.env.targetProfile or nil
                     if profile ~= nil and not (profile as any).ffiCallbacks then
                         c.diag(
@@ -228,17 +227,6 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                             "creating an FFI callback requires @unsafe on the cast and " .. "an explicit retained owner"
                         )
                     else
-                        -- Inside `unsafe` the callback is permitted, and what is left
-                        -- to say is what it costs: LuaJIT registers the Lua function as
-                        -- a C callback for the life of the process, and a trace cannot
-                        -- compile through the boundary.
-                        c.diag(
-                            "jit-callback",
-                            node,
-                            "a Lua function cast to a C callback stays " .. "registered and cannot be compiled through",
-                            nil,
-                            {help = "keep the callback off hot paths, " .. "or call C with a plain pointer instead"}
-                        )
                         node.unsafeOwnershipOperation = "FFI callback creation"
                     end
                 end

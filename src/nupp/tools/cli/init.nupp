@@ -129,70 +129,6 @@ local function warnStaleDeclarations(): nil
 end
 
 --- Runs a command line and returns the process exit status.
--- Commands that keep LuaJIT's own thresholds. Every command, these included, runs with
--- the raised capacity limits `nupp.tools.main` applies first: those are not about the
--- program's shape (`nupp.tools.jitlimits`).
---
--- `lsp serve` is resident: its traces amortize across every edit of a session, so
--- refusing side traces would give up what it spends the first file paying for. `run`
--- and `task` execute a program that is not this one, and nothing here knows its shape.
-const JIT_DEFAULT_COMMANDS = {bench = true, run = true, task = true}
-
--- The rest of `lsp` is not resident. `nupp lsp inspect` and its siblings check the
--- file's whole dependency closure once and exit, which is a compiler run by any
--- measure: left on the defaults, a one-shot inspect of `env.nupp` spent twice the CPU
--- a check of the same closure does (29 s against 15 s), half of it in the kernel
--- reprotecting machine code for side traces nobody ran twice.
-local function residentCommand(argv: {string}): boolean
-    local name = argv[1]
-    if JIT_DEFAULT_COMMANDS[name] then
-        return true
-    end
-
-    local operation = argv[2]
-
-    return name == "lsp" and (operation == nil or operation == "serve" or operation:sub(1, 1) == "-")
-end
-
--- Everything else is a compiler run: it walks a large program roughly once and exits.
---
--- LuaJIT compiles a side trace for every guard that fails often enough, and a compiler
--- is branches -- node kinds, token kinds, type tags -- so the tail of that distribution
--- never ends. Half of a cold self-build was the trace compiler rather than compiled
--- code, and raising the exit threshold is what stops it chasing the tail:
---
---     default                    16.1s
---     hotexit=200                 9.0s
---     hotexit=200, hotloop=1000   9.1s
---
--- Both curves turn back up past their peak -- `hotexit=1000` gives back most of the
--- win -- because eventually the refused traces are ones that would have paid. Re-run
--- `bench/jit-thresholds.lua` on a quiet machine before moving these.
---
--- `NUPP_JIT_DEFAULT` turns it off, along with the capacity limits, and `NUPP_JIT_TUNE`
--- replaces it with a comma-separated flag list, which is how `bench/jit-thresholds.lua`
--- compares settings without rebuilding the compiler between them.
-local function tuneJitFor(argv: {string})
-    if not jit or residentCommand(argv) or os.getenv("NUPP_JIT_DEFAULT") then
-        return
-    end
-    local override = os.getenv("NUPP_JIT_TUNE")
-    -- A LuaJIT built without the JIT, or a future one that renames a flag, is not a
-    -- reason to refuse to run.
-    if not override then
-        pcall(jit.opt.start, "hotexit=200", "hotloop=1000")
-
-        return
-    end
-    local flags: {string} = {}
-    for flag in override:gmatch("[^,]+") do
-        flags[#flags + 1] = flag
-    end
-    pcall(function()
-        jit.opt.start(unpack(flags))
-    end)
-end
-
 function cli.main(argv: {string}): integer
     local name = argv[1]
     -- The flag spelling of a command, rather than a second answer beside it: everything
@@ -228,10 +164,6 @@ function cli.main(argv: {string}): integer
 
         return worker.main(rest)
     elseif name == "__parallel-check-service" then
-        -- This is a one-shot compiler lane even though its internal command name is
-        -- not `check`. Keep the same trace thresholds as the coordinator; the default
-        -- side-trace policy spends more CPU compiling branches than checking source.
-        tuneJitFor({"check"})
         local service = require("nupp.tools.build.parallelcheckservice") as {main: function(): integer}
 
         return service.main()
@@ -244,7 +176,6 @@ function cli.main(argv: {string}): integer
     if schemaStatus ~= nil then
         return schemaStatus
     end
-    tuneJitFor(argv)
     local status = application():main(argv)
     warnStaleDeclarations()
 

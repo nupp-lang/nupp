@@ -72,8 +72,7 @@ is something to say:
 - `help`: a concrete repair direction, in one sentence.
 - `related`: labeled secondary ranges, including ranges in other files.
 - `fixes`: titled edit sets a tool can apply without reading the prose.
-- `notes`: context that points at no source, such as the trace classification a
-  [JIT trace check](../learn/performance/jit-trace-checking.md) attaches to its finding.
+- `notes`: context that points at no source.
 - `lint`: the lint name, when the code names one.
 - `docs`: the reference section covering the code, always as a documentation
   path and an anchor: the prose section that owns the rule, or the code's own
@@ -157,8 +156,8 @@ that page:
 | Area | Page | Codes |
 | --- | --- | --- |
 | Affine types | [affine-types.md](../learn/runtime/ownership/affine-types.md) | `NUPP2606` |
-| Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2901`, `NUPP2902`, `NUPP2903`, `NUPP2905` through `NUPP2911` |
-| Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
+| Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2902`, `NUPP2903`, `NUPP2905` through `NUPP2911` |
+| Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |
 | Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
@@ -174,9 +173,8 @@ that page:
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |
 | Interfaces | [interfaces.md](../learn/language/types/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
 | Intersections and overloads | [intersections.md](../learn/language/types/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
-| Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2518` |
+| Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2504`, `NUPP2506` through `NUPP2513`, `NUPP2516` through `NUPP2518` |
 | Logging | [](nupp.log) | `NUPP2006` |
-| LuaJIT trace checking | [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707`, `NUPP2904` |
 | Math | [](nupp.math) | `NUPP2011`, `NUPP2012` |
 | Metamethods | [metamethods.md](../learn/language/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
 | Modules | [modules.md](../learn/language/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
@@ -254,8 +252,8 @@ validates real output against it, so the two cannot drift.
 | `test` | totals and a record per test, with file and line |
 | `version` | the compiler's version and the interpreter under it |
 
-`nupp run` is the exception. Its `--json` writes the `--jit-aborts` record as
-JSON instead of CSV, because the program's own output is the run's output.
+`nupp run` is the exception: it has no `--json`, because the program's own
+output is the run's output.
 
 Every command holds its `--json` to one contract, whichever way it ends:
 

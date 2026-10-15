@@ -1,4 +1,5 @@
-require("nupp.tools.jitlimits").apply()
+jit.opt.start("maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384")
+jit.flush()
 local aborts = {}
 jit.attach(
     function(event, trace, func, pc, reason)
@@ -81,7 +82,7 @@ end
 collectgarbage("collect")
 report.retainedKiB = collectgarbage("count")
 report.jitAborts, report.jitVersion = aborts, jit.version
-report.jitFlags = require("nupp.tools.jitlimits").FLAGS
+report.jitFlags = {"maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384"}
 local ok, util = pcall(require, "jit.util")
 if ok then
     local traces, machine = 0, 0

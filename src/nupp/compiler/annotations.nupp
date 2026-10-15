@@ -439,13 +439,6 @@ local BUILTINS = {
         docsPath = "docs/reference/annotations.md#syntax",
     },
     {
-        name = "jit",
-        arguments = "none",
-        targets = {"function"},
-        doc = "An absence-of-known-blockers contract for the selected LuaJIT trace profile; a call path to a catalogued recorder blocker reports NUPP2707.",
-        docsPath = "docs/reference/annotations.md#jit",
-    },
-    {
         name = "aot",
         arguments = "typed",
         targets = {"function"},

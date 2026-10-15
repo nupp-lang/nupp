@@ -4,14 +4,12 @@ module nupp.tools.bytecodelisting
 The human listing `nupp bc` prints, and where each of its lines came from.
 
 The listing is a rendering rather than a lowering: one source line appears once
-as an echo and then again as however many instructions it produced, and the
-generated runtime preamble collapses into a single summary line. So unlike
+as an echo and then again as however many instructions it produced. So unlike
 generated Lua -- which `nupp.compiler.lua.gen` holds to the source's own line
 numbering -- a bytecode listing needs its correspondence written down, and this
 module is the one place that writes it.
 
-`bc` renders to stdout and an editor renders into a read-only document. Both
-ask for the same bytes, so both ask here.
+`bc` renders to stdout, and asks here for the bytes.
 ]]
 
 local listing = {}
@@ -21,9 +19,8 @@ local listing = {}
 ---
 --- `exact` is an instruction, at the source line it was lowered from. `source`
 --- is the echoed source line itself. `derived` is a line about a span rather
---- than a point -- a function header. `synthetic` is the compiler's own, which
---- the preamble summary is the only instance of.
-type listing.Role = 'exact' | 'source' | 'derived' | 'synthetic'
+--- than a point -- a function header.
+type listing.Role = 'exact' | 'source' | 'derived'
 
 --- A listing line, and the source line it speaks for. Lines the listing writes
 --- for shape alone -- the blank between functions -- have no entry.
@@ -49,38 +46,21 @@ type listing.Mapping = {
 type listing.Palette = {
     source: function(integer, string, integer): string,
     gutter: function(string): string,
-    instruction: function(string): string,
-    note: function(string, boolean): string,
-    header: function(string): string
+    instruction: function(string): string
 }
 
---- What the renderer needs beyond the analysis and the source.
----
---- `boundaryFunction` and `boundaryPc` name the instrumentation `bc` compiles in
---- to find where generated preamble stops and authored code starts; without them
---- nothing is folded, which is what `--prologue` asks for. `check` adds the
---- trace verdict against the instructions carrying one. `palette` colours the
---- result for a terminal; without it nothing is coloured.
+--- What the renderer needs beyond the analysis and the source: `palette` colours
+--- the result for a terminal, and without it nothing is coloured.
 type listing.Options = {
-    check: boolean?,
-    boundaryFunction: any?,
-    boundaryPc: integer?,
     palette: listing.Palette?,
     width: integer?
 }
-
---- The instrumentation literal a compile is asked to plant so that a listing can
---- tell generated preamble from authored code. Nothing but a listing asks for it,
---- and a build never carries it.
-listing.BOUNDARY = "__nupp_bc_preamble_boundary_v1__"
 
 local function asis(text: string): string
     return text
 end
 
--- LuaJIT marks a hint it had to cut with a trailing `~`, so a listing that has
--- to cut a source line marks it the same way rather than introducing a second
--- spelling of the same fact.
+-- A source line the listing had to cut ends in `~`.
 listing.TRUNCATED = "~"
 
 local function fit(text: string, column: integer): string
@@ -99,32 +79,7 @@ local PLAIN: listing.Palette = {
     end,
     gutter = asis,
     instruction = asis,
-    note = function(text: string, _: boolean): string
-        return text
-    end,
-    header = asis,
 }
-
---- Where the generated preamble stops, as the planted marker reports it.
----
---- A declared module puts its preamble inside the loader's protected wrapper and a
---- legacy module leaves it at depth zero, so the marker names its own function as
---- well as its own instruction.
----
---- @param functions the analysis' functions
---- @return the function holding the marker and the marker's pc, or nothing
---- @raises never
-function listing.boundary(functions: {any}): (any?, integer?)
-    for _, fn in ipairs(functions) do
-        for _, ins in ipairs(fn.instructions) do
-            if ins.text:find(listing.BOUNDARY, 1, true) then
-                return fn, ins.pc
-            end
-        end
-    end
-
-    return nil, nil
-end
 
 -- Printed between the line number and the file, and between the file and what
 -- it compiled to.
@@ -163,96 +118,27 @@ local function earlier(left: any, right: any): boolean
     return (left.ins.pc or 0) < (right.ins.pc or 0)
 end
 
---- Every instruction sorted into the source line it came from, with the ones
---- that came from no line of the file kept aside.
----
---- The preamble is the runtime the compiler generates ahead of what was written,
---- and the functions that preamble built are preamble too: without that second
---- part the runtime's own helpers arrive as ordinary nested functions on line 1,
---- above everything the reader wrote.
+--- Buckets the instructions by the source line they were lowered from.
 ---
 --- @param functions the analysis' functions, outermost first
---- @param boundaryFunction the function holding the preamble marker, if any
---- @param boundaryPc the marker's pc, if any
---- @return instructions by source line, the preamble's, and how many functions it built
+--- @return instructions by source line
 --- @raises never
-function listing.group(
-    functions: {any},
-    boundaryFunction: any?,
-    boundaryPc: integer?
-): {[integer]: {any}}, {any}, integer
-    local generatedSlots: {[integer]: boolean} = {}
-    if boundaryFunction ~= nil and boundaryPc ~= nil then
-        for _, ins in ipairs(boundaryFunction.instructions) do
-            if ins.pc < (boundaryPc as integer) and ins.op == "FNEW" then
-                local slot = tonumber(ins.text:match("FNEW%s+%d+%s+(%d+)"))
-                if slot then
-                    generatedSlots[math.floor(slot)] = true
-                end
-            end
-        end
-    end
-
-    -- A constant slot belongs to one parent function. Nested authored functions
-    -- start numbering their own constants from zero again, so a slot number from
-    -- the boundary function cannot identify a function by itself. The bytecode
-    -- analysis is in preorder; mark only matching direct children of the boundary
-    -- and the descendants those generated children built.
-    local hidden: {[any]: boolean} = {}
-    local boundaryIndex, boundaryDepth = nil, 0
-    for index, fn in ipairs(functions) do
-        if fn == boundaryFunction then
-            boundaryIndex = index
-            boundaryDepth = math.floor(tonumber(fn.depth) or 0)
-            break
-        end
-    end
-    if boundaryIndex ~= nil then
-        local hidingBranch = false
-        for index = (boundaryIndex as integer) + 1, #functions do
-            local fn = functions[index]
-            local depth = math.floor(tonumber(fn.depth) or 0)
-            if depth <= boundaryDepth then
-                break
-            elseif depth == boundaryDepth + 1 then
-                local slot = math.floor(tonumber(fn.slot) or -1)
-                hidingBranch = generatedSlots[slot] == true
-            end
-            if hidingBranch then
-                hidden[fn] = true
-            end
-        end
-    end
-
+function listing.group(functions: {any}): {[integer]: {any}}
     local byLine: {[integer]: {any}} = {}
-    local preamble: {any} = {}
-    local built: integer = 0
     local order = 0
     for _, fn in ipairs(functions) do
         order = order + 1
-        local generated = hidden[fn] == true
-        if generated then
-            built = built + 1
-        end
         for _, ins in ipairs(fn.instructions) do
-            local isBoundary = fn == boundaryFunction and boundaryPc ~= nil and ins.pc == boundaryPc
-            local isPreamble = fn == boundaryFunction and boundaryPc ~= nil and ins.pc < (boundaryPc as integer)
-            if isBoundary then
-                -- Structural instrumentation for this listing, not an instruction.
-            elseif isPreamble or generated then
-                preamble[#preamble + 1] = ins
-            else
-                local at = math.floor(tonumber(ins.line) or 0)
-                if at >= 1 then
-                    local bucket = byLine[at] or {}
-                    bucket[#bucket + 1] = {ins = ins, order = order}
-                    byLine[at] = bucket
-                end
+            local at = math.floor(tonumber(ins.line) or 0)
+            if at >= 1 then
+                local bucket = byLine[at] or {}
+                bucket[#bucket + 1] = {ins = ins, order = order}
+                byLine[at] = bucket
             end
         end
     end
 
-    return byLine, preamble, built
+    return byLine
 end
 
 --- Renders an analysed chunk, and says where every line of it came from.
@@ -284,7 +170,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
     local settings = opts or {}
     local palette = settings.palette or PLAIN
     local sourceLines = split(source)
-    local byLine, preamble, built = listing.group(functions, settings.boundaryFunction, settings.boundaryPc)
+    local byLine = listing.group(functions)
 
     local out: {string} = {}
     local mappings: {listing.Mapping} = {}
@@ -309,10 +195,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         last = last - 1
     end
 
-    -- What the two halves need, before deciding what they get. The verdicts
-    -- `--check` appends are left out of the instruction measurement: they are
-    -- sentences, and sizing a column so a sentence fits would leave the source
-    -- nothing.
+    -- What the two halves need, before deciding what they get.
     local width = require("nupp.tools.fmt.displaywidth").displayWidth
     local numbers = math.max(#tostring(last), 3)
     local widest, widestCode = 0, 0
@@ -332,8 +215,8 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
     -- identify at all.
     --
     -- What the instructions reserve is capped, because one long line of them
-    -- should not narrow the whole file: LuaJIT prints a hint as wide as the
-    -- constant it names, and a single long string would otherwise leave every
+    -- should not narrow the whole file: a hint is as wide as the constant it
+    -- names, and a single long string would otherwise leave every
     -- source line beside it truncated. Past the cap an instruction overruns the
     -- row it is on instead, which costs that row and no other.
     local reserve = math.min(widestCode, CODE_RESERVE)
@@ -350,28 +233,11 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         if ins == nil then
             return ""
         end
-        -- LuaJIT pads an instruction out to its own column widths, and the last
-        -- of those columns is often empty. Trailing space is invisible until it
-        -- is selected, copied or diffed.
-        local text = palette.instruction((ins.text:gsub("%s+$", "")))
-        if ins.traceReason and settings.check then
-            if ins.unrecordable then
-                local note = "  <-- this loop never compiles: " .. ins.unrecordable
-                text = text .. palette.note(note .. (" [%s, must-reach]"):format(ins.traceReason), true)
-            else
-                text = text .. palette.note(
-                    (
-                        "  <-- %s: %s [may-reach]"
-                    ):format(
-                        ins.traceClass == "risk" and "recording risk" or "this path aborts recording",
-                        ins.traceReason
-                    ),
-                    false
-                )
-            end
-        end
+        -- An instruction is padded out to its column widths, and the last of
+        -- those columns is often empty. Trailing space is invisible until it is
+        -- selected, copied or diffed.
 
-        return text
+        return palette.instruction((ins.text:gsub("%s+$", "")))
     end
 
     --- A row: a line of the file on the left, an instruction on the right.
@@ -404,106 +270,6 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         write(row(at, sourceLines[at], bucket[1] and bucket[1].ins or nil), at, "source")
         for index = 2, #bucket do
             write(row(nil, nil, bucket[index].ins), at, "exact")
-        end
-    end
-
-    -- The preamble is generated code attributed to line 1 because it has nowhere
-    -- else to go. It goes after the file instead of on that line, where it would
-    -- bury whatever the reader wrote there under the runtime.
-    if #preamble > 0 then
-        local summary = ("-- %d instructions of runtime preamble"):format(#preamble)
-        if built > 0 then
-            summary = summary .. (", in %d function%s"):format(built, built == 1 and "" or "s")
-        end
-        write("")
-        write(palette.header(summary), 1, "synthetic")
-    end
-
-    return table.concat(out, "\n") .. "\n", mappings
-end
-
---- The same instructions, laid out against the source rather than beside it.
----
---- `render` echoes each source line because a terminal has nothing else to show
---- it against. An editor does: the source is in the pane next to this one, so
---- repeating it wastes half the width and puts the reader's eye in two places.
----
---- Here the document *is* the source's shape. Line N holds what line N of the
---- file compiled to, and a line that compiled to nothing is blank. A line that
---- compiled to several instructions keeps the first on its own row and indents
---- the rest beneath it, which is a folding region: collapsed, every source line
---- occupies exactly one row again and the two panes scroll together.
----
---- The generated preamble is one such region on line 1, so the runtime never
---- costs the reader more than a row until they ask for it.
----
---- @param functions the analysis' functions, outermost first
---- @param source the `.nupp` source the chunk was compiled from
---- @param opts folding and verdict settings
---- @return the listing, and one mapping per line that stands for source
---- @raises never
-function listing.aligned(functions: {any}, source: string, opts: listing.Options?): string, {listing.Mapping}
-    local settings = opts or {}
-    local sourceLines = split(source)
-    local byLine, preamble = listing.group(functions, settings.boundaryFunction, settings.boundaryPc)
-
-    local out: {string} = {}
-    local mappings: {listing.Mapping} = {}
-
-    local function write(text: string, from: integer?, role: listing.Role?): nil
-        out[#out + 1] = text
-        if from ~= nil and role ~= nil and from >= 1 then
-            mappings[#mappings + 1] = {generatedLine = #out, sourceLine = from, role = role}
-        end
-    end
-
-    local function textOf(ins: any): string
-        local text = ins.text
-        if ins.traceReason and settings.check then
-            if ins.unrecordable then
-                text = text .. "   <-- this loop never compiles: " .. ins.unrecordable
-                text = text .. (" [%s, must-reach]"):format(ins.traceReason)
-            else
-                text = text .. (
-                    "   <-- %s: %s [may-reach]"
-                ):format(ins.traceClass == "risk" and "recording risk" or "this path aborts recording", ins.traceReason)
-            end
-        end
-
-        return text
-    end
-
-    local last = #sourceLines
-    for at in pairs(byLine) do
-        if at > last then
-            last = at
-        end
-    end
-
-    for at = 1, last do
-        local bucket = byLine[at] or {}
-        table.sort(bucket, earlier)
-        if #bucket == 0 then
-            write("")
-        elseif #bucket == 1 then
-            write(textOf(bucket[1].ins), at, "exact")
-        else
-            write(textOf(bucket[1].ins) .. ("   -- +%d more"):format(#bucket - 1), at, "exact")
-            for index = 2, #bucket do
-                write("  " .. textOf(bucket[index].ins), at, "exact")
-            end
-        end
-    end
-
-    -- The preamble goes after the file rather than on line 1. It is generated
-    -- code attributed to line 1 because it has nowhere else to go, and putting
-    -- it there would either bury whatever the reader wrote on that line or push
-    -- every following line out of step with the source.
-    if #preamble > 0 then
-        write("")
-        write(("-- %d instructions of runtime preamble"):format(#preamble), 1, "synthetic")
-        for _, ins in ipairs(preamble) do
-            write("  " .. textOf(ins), 1, "synthetic")
         end
     end
 

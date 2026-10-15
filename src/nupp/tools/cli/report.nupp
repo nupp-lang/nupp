@@ -344,8 +344,6 @@ function report.diagnosticValues(diagnostics: {any}): {any}
             code = e.code,
             status = e.status,
             hotness = e.hotness,
-            hotnessSamples = e.hotnessSamples,
-            hotnessRange = e.hotnessRange,
             lint = e.lint,
             -- Derived from the code rather than carried on every diagnostic: one code
             -- always means one section, so storing it at each of the hundreds of places
@@ -453,13 +451,7 @@ report.DIAGNOSTIC = {
         },
         message = {type = "string"},
         status = {type = "string", enum = {"fired", "declined", "unavailable"}},
-        hotness = {type = "string", enum = {"unknown", "sampled"}},
-        hotnessSamples = {type = "integer"},
-        hotnessRange = {
-            type = "object",
-            properties = {startLine = {type = "integer"}, endLine = {type = "integer"}},
-            required = {"startLine", "endLine"}
-        },
+        hotness = {type = "string", enum = {"unknown"}},
         range = {
             type = "object",
             description = "Where the diagnostic is. Absent for one about something "

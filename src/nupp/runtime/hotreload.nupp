@@ -443,7 +443,6 @@ function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
     end
     prepared.committed = true
     state.generation = prepared.generation
-    jit.flush()
 
     return state.generation
 end

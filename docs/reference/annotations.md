@@ -336,7 +336,6 @@ any of their names.
 | `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
-| `@jit` | none | function |
 | `@aot` | `target = "cpu"` or `target = "gpu"` | function |
 
 ### `@allow`
@@ -471,35 +470,6 @@ initializer is a long string; other names remain available to tools that
 understand them. See [editors.md](../learn/tooling/editors.md#visual-studio-code) for
 what the extension provides.
 
-### `@jit`
-
-`@jit` is an absence-of-known-blockers contract for the selected LuaJIT trace
-profile:
-
-```nupp
-@jit
-local function total(values: {number}): number
-    local sum = 0
-    for _, value in ipairs(values) do
-        sum = sum + value
-    end
-    return sum
-end
-```
-
-The visible body and statically resolved checked callees must avoid catalogued
-recorder blockers; a call path to one reports `NUPP2707`. Variadic FFI and
-callback boundaries remain conservative contract errors, and `jit.off(function)`
-is an explicit boundary, so it is also an error when reached from an `@jit`
-body.
-
-The annotation does not promise that the function runs, becomes hot, receives
-stable runtime types, or stays compiled for every input. Compile-time-only
-helpers use the `@comptime` annotation. See
-[jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for
-every current blocker, risk, expected stop, warning, call-path error, bytecode
-verdict, editor query, and runtime reason.
-
 ### `@aot`
 
 `@aot` reserves a required whole-function ahead-of-time compilation contract
@@ -522,9 +492,9 @@ checked calls into those modules. See
 [wasm-aot.md](../learn/performance/ahead-of-time/wasm.md) for that host and its limits.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
-operation inside the body reports `NUPP2903` at the construct. Stacking it with
-`@jit` reports `NUPP2901`, and annotating a constructor or inline requirement
-reports `NUPP2902`, since neither is a whole function to compile.
+operation inside the body reports `NUPP2903` at the construct, and annotating a
+constructor or inline requirement reports `NUPP2902`, since neither is a whole
+function to compile.
 
 What lowering refuses about an admitted construct, such as a `number` used as a
 branch condition or a call no intrinsic admits, reports `NUPP2905` through

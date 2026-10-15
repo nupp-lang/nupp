@@ -226,18 +226,6 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
     testAssert.equal(#grew, 1, "a third allocation in the same file is a regression")
 end
 
-function M.uncollectedTraceAbortsNeverLookComparable()
-    local bench = require("nupp.bench")
-    local profile = {optLevel = 1, disabled = ""}
-    local recorder = {id = "test-recorder"}
-    local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = nil}},}
-    local baseline = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = {}}},}
-    local failures, uncompared = bench.compare(current, baseline)
-    testAssert.equal(#failures, 0, "missing observations are not regressions")
-    testAssert.equal(#uncompared, 1, "missing observations are reported as incomparable")
-    assert(uncompared[1]:find("not collected", 1, true) ~= nil, "the missing observation is named")
-end
-
 function M.duplicateBenchmarkNamesAreRejected()
     local bench = require("nupp.bench")
     bench.case("duplicate-name", function()
@@ -770,13 +758,11 @@ end
 ----------------------------------------------------------------------------
 
 -- A run's forks are separate processes of one binary, so they must agree about what the
--- compiler emitted and may disagree about what the recorder saw. Merging has to hold
--- both of those, because collapsing them would either gate on a timing-dependent abort
--- or hide a compiler that stopped being deterministic.
-function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
+-- compiler emitted. Merging must not hide a compiler that stopped being deterministic.
+function M.forksMustAgreeOnCompilerOutput()
     local runner = require("nupp.tools.benchrunner")
 
-    local function fork(sites, aborts, allocated)
+    local function fork(sites, allocated)
         return {
             allocationSites = sites,
             remarks = {},
@@ -786,7 +772,6 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
                     kind = "suite",
                     medianMs = 0.001,
                     allocatedKb = allocated,
-                    abortSites = aborts,
                     samplesMs = {1.0},
                 },
             },
@@ -795,30 +780,19 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
 
     local stable = {{file = "a.nupp", kind = "table", line = 1, col = 1}}
 
-    -- A site every fork saw is the recorder reporting something reproducible.
     local merged, notes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {"warn|reason|a.nupp:1|"}, 1.0),
-        fork(stable, {"warn|reason|a.nupp:1|"}, 3.0),
-        fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
+        fork(stable, 1.0),
+        fork(stable, 3.0),
+        fork(stable, 2.0),
     })
-    testAssert.equal(#merged.summary.abortSites, 1, "a site every fork saw survives to the gated set")
     testAssert.equal(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
     testAssert.equal(#notes, 0, "and needs no note")
-
-    -- A site only one fork saw is reported and kept out of the gated set, because trace
-    -- formation is timing-dependent and one observation is not a regression.
-    local partial, partialNotes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
-        fork(stable, {}, 1.0),
-    })
-    testAssert.equal(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
-    assert(table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil, "but it is reported rather than dropped")
 
     -- Allocation sites are the compiler's account of its own output. Forks of one
     -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
     local drifted, driftNotes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {}, 1.0),
-        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, {}, 1.0),
+        fork(stable, 1.0),
+        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, 1.0),
     })
     assert(
         table.concat(driftNotes, "\n"):find("nondeterministic compiler output") ~= nil,
@@ -837,7 +811,7 @@ function M.identicalForksReportNoDisagreement()
         return {
             allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
             remarks = {{code = "OPT-1", file = "a.nupp", message = "m", range = {start = {line = 1}}}},
-            cases = {{name = "x", kind = "suite", medianMs = 0.001, abortSites = {}, samplesMs = {1.0}}},
+            cases = {{name = "x", kind = "suite", medianMs = 0.001, samplesMs = {1.0}}},
         }
     end
 
@@ -855,7 +829,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
             allocationSites = {},
             remarks = {},
             cases = {
-                {name = "x", kind = "suite", medianMs = median, abortSites = {}, samplesMs = {median}, trend = trend,},
+                {name = "x", kind = "suite", medianMs = median, samplesMs = {median}, trend = trend,},
             },
         }
     end
@@ -989,7 +963,6 @@ function M.mergeReportsAScatteredBenchmark()
                     name = "x",
                     kind = "suite",
                     medianMs = 0.00008,
-                    abortSites = {},
                     samplesMs = samples,
                     concentration = 0.09,
                 },

@@ -1091,9 +1091,7 @@ bodies are unavailable.
 
 ### Rejected rewrites
 
-Define a function outside the loop when every iteration can reuse it.
-[`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
-suggests eligible cases:
+Define a function outside the loop when every iteration can reuse it:
 
 ```nupp:fragment
 local isClick = |event| -> event.kind == "click"
@@ -1102,10 +1100,9 @@ for _, item in ipairs(items) do
 end
 ```
 
-Suppress intentional cases with `@allow("loop-invariant-closure")`. Closures
-that depend on the iteration still block tracing;
-[`jit-loop-closure`](jit-trace-checking.md#configurable-source-lint) reports
-them when enabled or inside `@jit` functions.
+The compiler does not hoist such a function itself: caching it would cost a
+stored slot, a branch on every evaluation, and the guarantee that two closures
+from one place are two objects.
 
 <a id="benchmark-details"></a>
 
@@ -1171,14 +1168,7 @@ with source locations. Add `--remarks-for src/work.nupp` to select one source,
 and `--remarks-out` to write `build/remarks.json` (`--remarks-out=PATH` names
 another file). Each machine-readable remark
 has `status` (`fired`, `declined`, or `unavailable`). Static decisions carry
-`hotness: "unknown"`. With `run --profile --remarks-out`, Lua leaf samples are
-joined to each decision's source range: `hotness: "sampled"`, `hotnessSamples`,
-and `hotnessRange` identify the measured count and its scope. `--remarks` prints
-the count after a profiled run. Zero means no sample landed there, not proof
-that it never ran. Native AOT decisions stay unknown because the Lua sampler
-cannot attribute C work. Files with no Lua source samples also stay unknown.
-The artifact's `sampling` preserves the source samples,
-interval, and attributed/unattributed totals. `-O0` reports that optimization is
+`hotness: "unknown"`. `-O0` reports that optimization is
 unavailable instead of silently producing no decisions. Explicit-file builds
 write beneath `build/` by default; `-o DIR` changes that directory.
 
@@ -1188,8 +1178,6 @@ codes are stable; `-Z` flags are debugging interfaces.
 
 ::: seealso
 - [Benchmarks](benchmarks.md): measure changes and set regression gates.
-- [Profiling](profiling.md): find where time goes.
-- [Trace checking](jit-trace-checking.md): identify recorder blockers in bytecode.
 - [Ahead-of-time compilation](ahead-of-time/index.md): compile numeric loops to native code.
 :::
 

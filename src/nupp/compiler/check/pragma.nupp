@@ -402,30 +402,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
-        elseif written == "jit" then
-            if valid and targetBody then
-                if targetBody.aotRequired then
-                    c.diag("NUPP2901", annotationName, "@jit and @aot name different compilers for one body")
-                end
-                -- `@jit` asserts that a tracing contract exists. A target with
-                -- no trace compiler cannot meet it, and rereading the promise
-                -- as advice would let a program claim a property of its
-                -- destination that the destination does not have.
-                local profile = c.env and c.env.targetProfile or nil
-                if profile ~= nil and not (profile as any).tracingJit then
-                    c.diag(
-                        "NUPP2904",
-                        annotationName,
-                        "@jit needs a tracing JIT, and " .. tostring((profile as any).target) .. " has none"
-                    )
-                end
-                targetBody.jitRequired = true
-            end
-            if stat.stat then
-                c.checkStat(stat.stat)
-            end
-            return
-
         elseif written == "aot" then
             -- `@aot` is a whole-function compilation contract, so it needs a visible
             -- body it alone owns. A constructor and an inline interface requirement
@@ -453,9 +429,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 -- generated wrapper can replace.
                 c.diag("NUPP2902", annotationName, "@aot currently requires a local function declaration")
             elseif valid and targetBody then
-                if targetBody.jitRequired then
-                    c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
-                end
                 targetBody.aotRequired = true
                 local values = (stat as any).annotationValues
                 local target = values and values.target

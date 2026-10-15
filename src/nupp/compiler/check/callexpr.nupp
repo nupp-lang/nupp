@@ -212,47 +212,10 @@ local function debugFormatPlan(format: string): any
     return nil
 end
 
--- Which zone-stack operation `push` or `pop` names, when the receiver is a plain
--- identifier statically known to hold the module `require("nupp.profile.zone")`
--- returns, or nil for anything else.
---
--- A local's own type is read rather than re-inferred, so a receiver more elaborate than
--- a name, whether a field, a call, or an interface a future session could swap in, is
--- one this does not chase and stays an ordinary call. Marking the node rather than
--- answering the call's type is the same deliberateness as logIntrinsic above: the call
--- still goes on to be checked like any other.
-local function zoneIntrinsic(c, callee): string?
-    if not callee or callee.kind ~= "dotIndex" or not callee.name then
-        return nil
-    end
-    local name = callee.name.text
-    if RECEIVER_INTRINSICS[name] ~= "nupp.profile.zone" then
-        return nil
-    end
-    local base = callee.obj
-    if not base or base.kind ~= "name" or not base.token then
-        return nil
-    end
-    local baseType = c.lookupVar(base.token.text)
-    if not baseType then
-        return nil
-    end
-    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, RECEIVER_INTRINSICS[name])
-    if not zoneType then
-        return nil
-    end
-    local owner = rawType(baseType)
-    if owner.tag == "nominal" then
-        owner = owner.origin or owner
-    end
-
-    return owner == zoneType and name or nil
-end
-
 -- Whether a call is `keep` on a receiver statically known to hold the module
--- `nupp.bench` returns. Recognized on the same terms as zoneIntrinsic above, and for
--- the same reason: the sink exists to make a measured value escape, and a call in the
--- measured loop is the cost it must not add.
+-- `nupp.bench` returns. Only a plain identifier whose own type is that module counts: a
+-- receiver more elaborate than a name stays an ordinary call. The sink exists to make a
+-- measured value escape, and a call in the measured loop is the cost it must not add.
 local function keepIntrinsic(c, callee): boolean
     if not callee or callee.kind ~= "dotIndex" or not callee.name then
         return false
@@ -805,33 +768,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
             return T.any
         end
-        -- Resolve the standard-library binding rather than trusting the spelling, so a
-        -- project table called `jit` changes nothing. With no argument LuaJIT disables
-        -- the containing function; with one it disables that named function value.
-        if baseName == "jit" and memberName == "off" and not argStr and not argTable then
-            local globalJit = c.env and c.env.globals and c.env.globals.jit or nil
-            local resolvedJit = c.lookupEntry("jit")
-            if globalJit and resolvedJit == globalJit then
-                local subject = argExprs[1]
-                if not subject then
-                    local body = c.functionBodies[#c.functionBodies]
-                    if body then
-                        body.jitDisabled = true
-                    end
-                elseif subject.kind == "name" and subject.token then
-                    local entry = c.lookupEntry(subject.token.text)
-                    local definition = entry and (entry.jitTarget or entry.definition) or nil
-                    if definition then
-                        definition.jitDisabled = true
-                    end
-                elseif subject.kind == "funcExpr" or subject.kind == "shortfn" then
-                    local body = subject.body or subject
-                    body.jitDisabled = true
-                elseif subject.kind == "dotIndex" and subject.name and subject.name.definition then
-                    subject.name.definition.jitDisabled = true
-                end
-            end
-        end
         local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
         local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then
@@ -940,18 +876,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
-            end
-        end
-        -- push always carries exactly one name and pop none, so the arity check
-        -- doubles as the arg-count contract the ordinary call below still enforces.
-        local zoneOp = zoneIntrinsic(c, callee)
-        if zoneOp and not argTable and not argStr then
-            if positionalOnly(argExprs) then
-                if zoneOp == "push" and #argExprs == 1 then
-                    node.zoneIntrinsic = "push"
-                elseif zoneOp == "pop" and #argExprs == 0 then
-                    node.zoneIntrinsic = "pop"
-                end
             end
         end
         -- One positional argument and nothing else: the sink stores exactly the value

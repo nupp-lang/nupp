@@ -213,9 +213,9 @@ function M.contextualOpsNeedSameLine()
 end
 
 function M.pragmas()
-    local s = firstStat("@jit local function hot() end")
+    local s = firstStat("@aot local function hot() end")
     testAssert.equal(s.kind, "pragmaStmt")
-    testAssert.equal(s.name.text, "jit")
+    testAssert.equal(s.name.text, "aot")
     testAssert.equal(s.stat.kind, "localFuncStmt")
     clean("@nojit function m.f(cb: function(): nil) end")
 end
@@ -241,7 +241,7 @@ function M.formattingTypedCode()
     )
     testAssert.equal(fmt1("local f:function():... string"), "local f: function(): ...string\n")
     testAssert.equal(fmt1("local x : S * ? = nil"), "local x: S*? = nil\n")
-    testAssert.equal(fmt1("@jit local function h() end"), "@jit\nlocal function h()\nend\n")
+    testAssert.equal(fmt1("@aot local function h() end"), "@aot\nlocal function h()\nend\n")
     testAssert.equal(fmt1("local record P\nx: number\nend"), "local record P\n    x: number\nend\n")
     testAssert.equal(
         fmt1(

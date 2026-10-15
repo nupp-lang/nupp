@@ -655,35 +655,4 @@ end
     testAssert.equal(found, 1, "invalid mappings remain conservative")
 end
 
-function M.importedSemanticEffectsDoNotHideTraceFindings()
-    withProject(
-        [[
-local D = require("dep")
-@jit
-local function hot(items: {integer}): nil D.helper(items) end
-return hot
-]],
-        function(inc, dep, main)
-            inc.changeDocument(
-                dep,
-                [[
-local M = {}
-function M.helper(items: {integer}): nil
-    for _, item in ipairs(items) do
-        register(function(): integer return item end)
-    end
-end
-return M
-]]
-            )
-            local found = false
-            for _, diag in ipairs(inc.checkFile(main).diags) do
-                found = found
-                or diag.code == "NUPP2707" and diag.msg:find("jit/loop-function-construction", 1, true) ~= nil
-            end
-            assert(found, "an imported effect summary does not replace its trace summary")
-        end
-    )
-end
-
 return M

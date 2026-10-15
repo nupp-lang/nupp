@@ -212,7 +212,6 @@ end
 -- merely reach the codes it is carried by.
 function M.everyDocsPointerLeadsToASection()
    local reference = require("nupp.tools.reference")
-   local trace = require("nupp.profile.trace")
    local root = HERE .. "/.."
    local pointers = {}
    for _, code in ipairs(explain.codes()) do
@@ -220,9 +219,6 @@ function M.everyDocsPointerLeadsToASection()
    end
    for _, code in ipairs({"NUPP0001", "NUPP1005", "NUPP2617", "NUPP3004"}) do
       pointers[#pointers + 1] = {code, explain.lookup(code).docs}
-   end
-   for _, reason in ipairs(trace.records()) do
-      pointers[#pointers + 1] = {reason.id, explain.reasonDocs(reason.id, reason.class)}
    end
    for _, lint in ipairs(require("nupp.compiler.lints").all) do
       pointers[#pointers + 1] = {lint.code, explain.lookup(lint.code).docs}
@@ -367,19 +363,6 @@ function M.jsonAndSchemaOutputAreByteStable()
       local second = output(arguments)
       assert(first == second, arguments .. " changes bytes between processes")
    end
-end
-
-function M.traceReasonsResolveThroughTheCommand()
-   local pipe = assert(io.popen(
-      ("'%s' explain jit/loop-function-construction --json 2>/dev/null"):format(NUPP)))
-   local out = pipe:read("*a")
-   pipe:close()
-   local decoded = json.decode(out)
-   assert(decoded.code == "jit/loop-function-construction", out)
-   assert(decoded.class == "blocker", "the reason class is public")
-   assert(decoded.repair and decoded.repair ~= "", "known reasons carry their repair")
-   assert(decoded.reasonCatalog.id == "nupp-trace-reasons-v1",
-      "the answer names its versioned registry")
 end
 
 return M

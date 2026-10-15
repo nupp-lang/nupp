@@ -37,7 +37,7 @@ record compile.Diagnostic
     code: string
 end
 
---- The codes a refusal carries. The checker's `@aot` rules are NUPP2901 to NUPP2904;
+--- The codes a refusal carries. The checker's `@aot` rules are NUPP2902 to NUPP2904;
 --- these are what lowering itself refuses.
 compile.REFUSED_BODY = "NUPP2905"
 

@@ -196,7 +196,7 @@ return direct, cast, constructed
     testAssert.equal(countLines(code), countLines(source), "record returns keep source lines")
     local direct, cast, constructed = assert(loadstring(code))()
     local util = require("jit.util")
-    local trace = require("nupp.profile.trace")
+    local names = require("jit.vmdef").bcnames
     for _, fn in ipairs({direct, cast, constructed}) do
         testAssert.equal(fn(37).value, 37)
         local pc = 1
@@ -205,7 +205,8 @@ return direct, cast, constructed
             if not instruction then
                 break
             end
-            local opcode = trace.opcodeName(instruction % 256)
+            local index = instruction % 256
+            local opcode = names:sub(index * 6 + 1, index * 6 + 6):gsub("%s+$", "")
             assert(opcode ~= "CALLT" and opcode ~= "CALLMT", "a new return retains its frame: " .. opcode)
             pc = pc + 1
         end
@@ -638,7 +639,7 @@ function M.erasure()
     testAssert.equal(run("local type E = 'a' | 'b'\nreturn 'ok'"), "ok")
     testAssert.equal(run("local type Id = uint32\nlocal i = 9\nreturn i + 0"), 9)
     testAssert.equal(run("local function f<T>(x: T): T return x end\nreturn f('generic')"), "generic")
-    testAssert.equal(run("@jit local function hot(): number return 5 end\nreturn hot()"), 5)
+    testAssert.equal(run("local function hot(): number return 5 end\nreturn hot()"), 5)
 end
 
 function M.nestedRecordsAndInlineMethodsRun()

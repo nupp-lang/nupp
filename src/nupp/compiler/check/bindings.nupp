@@ -153,7 +153,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         end
                         boundEntry.annotationNode = entry.type
                         boundEntry.patternFieldDefinition = definition
-                        boundEntry.jitTarget = definition
                         c.fixedWidth.setBinding(boundEntry, entry, nil)
                         if boundEntry.definition then
                             c.nativeOnly.alias(
@@ -379,16 +378,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 boundEntry.annotationNode = stat.types and stat.types[j] or nil
                 c.fixedWidth.setBinding(boundEntry, initNode, fixedResultIndex)
-            end
-            if boundEntry and initNode and (initNode.kind == "funcExpr" or initNode.kind == "shortfn") then
-                local functionBody = initNode.body or initNode
-                functionBody.jitDefinition = boundEntry.definition
-                boundEntry.jitTarget = boundEntry.definition
-            elseif boundEntry and initNode and initNode.kind == "name" and initNode.token then
-                local sourceEntry = c.lookupEntry(initNode.token.text)
-                if sourceEntry then
-                    boundEntry.jitTarget = sourceEntry.jitTarget or sourceEntry.definition
-                end
             end
             if boundEntry and boundEntry.automaticOwner then
                 local automatic = boundEntry.automaticOwner

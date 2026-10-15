@@ -4808,9 +4808,7 @@ end
 
 function M.callbackPointersRequireUnsafe()
     testAssert.equal(codes("local cb = ffi.cast<voidptr>(function() end)"), "NUPP2604")
-    -- Inside `unsafe` the cast is permitted, and what is left to say is the cost:
-    -- the callback stays registered and a trace cannot compile through it. That
-    -- is advice, so it is a lint and a project may wave it away.
+    -- Inside `unsafe` the cast is permitted.
     local permitted = table.concat(
         {
             "@unsafe do",
@@ -4821,8 +4819,7 @@ function M.callbackPointersRequireUnsafe()
         },
         "\n"
     )
-    testAssert.equal(codes(permitted), "NUPP2502")
-    assertClean('@allow("jit-callback")\n' .. permitted)
+    assertClean(permitted)
 end
 
 function M.rawPointerAccessRequiresUnsafe()
@@ -5872,29 +5869,6 @@ function M.aTaskScopeTakesItsTimeoutInMilliseconds()
         "local tasks = require('nupp.tasks')\nlocal scope = tasks.open(deadline = 5)\nnupp.drop(scope)"
     )
     assert(refused:find("NUPP2125", 1, true) == 1, "the old name is not an argument: " .. refused)
-end
-
--- A profiling session is a Closeable, so a `with` holds it and ends it with the block,
--- and a helper bounded by `profile.Session` still names the session's report.
-function M.aProfileSessionIsHeldByAWith()
-    assertClean(
-        table.concat(
-            {
-                "local profile = require('nupp.profile')",
-                "local function finish<S is profile.Session>(borrows session: S): S.Report",
-                "   return session:stop()",
-                "end",
-                "with sampling = profile.sample() do",
-                "   local report: profile.SampleReport = finish(sampling)",
-                "   print(report.samples)",
-                "end",
-                "with tracing = profile.trace() do",
-                "   print(tracing)",
-                "end",
-            },
-            "\n"
-        )
-    )
 end
 
 -- `gather` takes the same two contracts `race` does: a borrowed family runs and is

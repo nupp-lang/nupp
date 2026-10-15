@@ -52,11 +52,6 @@ record targetProfile.Profile
     --- load a shared-linkage AOT library.
     dynamicLoader: boolean
 
-    --- Whether the VM has a trace compiler. `@jit` is an assertion that a
-    --- tracing contract exists, so a target without one refuses it rather than
-    --- quietly rereading it as advice.
-    tracingJit: boolean
-
     --- Whether the VM can allocate an FFI callback trampoline. A port with no
     --- executable pages must reject one rather than allocate something that
     --- faults on first call.
@@ -126,7 +121,6 @@ local function builtin(target: string): targetProfile.Profile?
             layoutModel = target,
             os = system,
             dynamicLoader = true,
-            tracingJit = false,
             ffiCallbacks = true,
             staticSymbolResolver = false,
             staticAot = false,
@@ -142,7 +136,6 @@ local function builtin(target: string): targetProfile.Profile?
         layoutModel = target,
         os = system,
         dynamicLoader = true,
-        tracingJit = true,
         ffiCallbacks = true,
         staticSymbolResolver = true,
         staticAot = true,
@@ -223,10 +216,6 @@ function targetProfile.fromDescriptor(target: string, value: any, origin: string
     if loader == nil then
         return nil, loaderErr
     end
-    local jit, jitErr = capability(read.tracingJit, "tracingJit", label)
-    if jit == nil then
-        return nil, jitErr
-    end
     local callbacks, callbackErr = capability(read.ffiCallbacks, "ffiCallbacks", label)
     if callbacks == nil then
         return nil, callbackErr
@@ -262,7 +251,6 @@ function targetProfile.fromDescriptor(target: string, value: any, origin: string
         layoutModel = model as string,
         os = system as string,
         dynamicLoader = loader as boolean,
-        tracingJit = jit as boolean,
         ffiCallbacks = callbacks as boolean,
         staticSymbolResolver = resolver as boolean,
         staticAot = staticAot as boolean,

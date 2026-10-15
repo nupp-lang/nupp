@@ -536,9 +536,7 @@ cdef function use_context(borrows value: context*?)
 
 For a bridged callable, add the mode to its private generated `cdef function`,
 and the logical local alias receives that checked function type. Keep an owned
-callback pinned for as long as C may call it. The [JIT callback
-hazard](#jit-sensitive-c-boundaries) reaches through a nullable callback field,
-parameter, result, array, or pointer nesting as well.
+callback pinned for as long as C may call it.
 
 ### Bridge and import limits
 
@@ -831,20 +829,6 @@ relationships, and the external C definition all retain the ordinary struct
 type. An ordinary struct does not cross this boundary by value. `export-c` is
 the only publisher: there is no annotation, no user-selected C tag, and no
 parallel header generator.
-
-## JIT-sensitive C boundaries
-
-C-derived callback positions are tracked semantically through declarations and
-aliases. Passing a Lua function into one reports `jit-callback`, and a variadic
-C call reports `jit-boundary`. Disable the callback or the containing cold
-function with `jit.off` when the boundary is intentional. Annotating a function
-with `@jit` turns either hazard into a non-suppressible contract error.
-
-A third hazard is not about C at all: LuaJIT cannot record the bytecode that
-builds a function, so a loop containing one never compiles. `@jit` reports that
-as the same contract error, and `jit.off` on the enclosing function silences it
-the same way. Outside `@jit` it is `jit-loop-closure`, off until a project asks
-for it. See [lints.md](../../../reference/lints.md) for enabling it.
 
 ## Build native dependencies reproducibly
 

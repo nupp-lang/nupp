@@ -167,7 +167,7 @@ One binary provides the project tools:
 
 - `nupp check` type-checks the project.
 - `nupp build` compiles to Lua, incrementally.
-- `nupp run` compiles and runs, with a profiler behind a flag.
+- `nupp run` compiles and runs.
 - `nupp fmt` applies fixed rules with width and method-parentheses controls.
 - `nupp doc` generates an API site from the parse tree.
 - `nupp lsp serve` serves hover, rename, and code actions.
@@ -175,12 +175,7 @@ One binary provides the project tools:
 - `nupp explain` describes a diagnostic code, with worked examples.
 - `nupp import-c` turns a C header into typed declarations.
 
-The profiler is the part people are most surprised to find in a compiler. `nupp
-run --profile` writes collapsed-stack text that speedscope reads, and `nupp run
---jit-aborts` reports every place LuaJIT declined to compile something. The
-second is the question a sampling profiler structurally cannot answer, and on
-LuaJIT it is usually the one that matters. See [tooling](../learn/tooling/index.md) for the
-guided version of that list.
+See [tooling](../learn/tooling/index.md) for the guided version of that list.
 
 ## Limits
 

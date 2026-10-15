@@ -37,7 +37,6 @@ function M.realWorldLuaStaysClean()
       ['else-if'] = 'off',
       ['unused-binding'] = 'off',
       ['discarded-result'] = 'off',
-      ['loop-invariant-closure'] = 'off',
    }
    local checked = 0
    for _, path in ipairs(CORPUS) do

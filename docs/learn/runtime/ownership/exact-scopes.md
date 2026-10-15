@@ -127,9 +127,7 @@ shared rather than rebuilt on each execution. Outward `return`, loop control,
 This is a control-flow cost, not a storage-layout or copy-back cost.
 
 For data-oriented code, put `with` around the hot loop rather than inside it.
-The loop then continues to access SoA columns directly, and
-[`nupp bc --check`](../../performance/jit-trace-checking.md) reports whether anything in
-it blocks a LuaJIT trace.
+The loop then continues to access SoA columns directly.
 
 ## FAQ
 

@@ -1,4 +1,5 @@
-require("nupp.tools.jitlimits").apply()
+jit.opt.start("maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384")
+jit.flush()
 local native = os.getenv("NUPP_SERDE_NATIVE_BUILD")
 if native then
     package.preload["nupp.codec.json.internal.decoder.fused"] = function()

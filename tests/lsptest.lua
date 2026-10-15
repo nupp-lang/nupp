@@ -5136,7 +5136,7 @@ function M.artifactKindsAreAdvertisedAsExperimentalCapabilities()
     for _, kind in ipairs(capabilities.experimental.nuppArtifacts) do
         kinds[kind] = true
     end
-    assert(kinds.lua and kinds.bytecode, "both artifact kinds are advertised")
+    assert(kinds.lua, "the generated Lua artifact is advertised")
 end
 
 -- A lens runs a command belonging to the client. Offering one to a client that
@@ -5201,7 +5201,7 @@ function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
     for _, entry in ipairs(result.artifacts) do
         kinds[entry.kind] = entry
     end
-    assert(kinds.lua and kinds.bytecode, "both kinds are offered")
+    assert(kinds.lua, "the generated Lua is offered")
     test.equal(kinds.lua.languageId, "lua")
     test.equal(kinds.lua.scope, "module")
     test.equal(result["function"].name, "scale")
@@ -5216,7 +5216,7 @@ function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
         position = positionOf(ARTIFACT_SOURCE, "return scale")
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    assert(#result.artifacts == 2, "the file's artifacts are still offered")
+    assert(#result.artifacts == 1, "the file's artifact is still offered")
     test.equal(result["function"], nil)
 end
 
@@ -5261,73 +5261,6 @@ function M.artifactsLowerTheBufferRatherThanTheFileOnDisk()
     assert(result.available, "the buffer lowers")
     assertContains(result.text, "inBuffer", "the buffer's text is what was lowered")
     assert(not result.text:find("onDisk", 1, true), "the file on disk is not what was lowered")
-end
-
-function M.bytecodeArtifactMapsItsLinesBackToSource()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "listing.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "bytecode"})
-    os.execute("rm -rf '" .. projectDir .. "'")
-    assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
-    test.equal(result.mapping.kind, "lines-collapsible")
-    assert(#result.mapping.entries > 0, "a listing carries entries")
-    local roles = {}
-    for _, entry in ipairs(result.mapping.entries) do
-        roles[entry.role] = true
-        assert(entry.sourceLine >= 1, "every entry names a source line")
-    end
-    assert(roles.exact, "instructions map exactly")
-    assert(roles.synthetic, "the runtime preamble is marked synthetic")
-    for _, entry in ipairs(result.mapping.entries) do
-        if entry.role == "synthetic" then
-            test.equal(entry.sourceLine, 1)
-        end
-    end
-    assertContains(result.text, "instructions of runtime preamble", "the preamble is named")
-    -- The source is in the pane next to this one, so it is not repeated here.
-    assert(not result.text:find("local total = 0", 1, true), "the listing does not echo the source")
-end
-
--- The whole point of the layout: fold the rows a multi-instruction line needed
--- and what is left is one row per source line, in step with the file. Checked
--- rather than described -- count the rows a fold leaves and the nth of them has
--- to be about source line n.
-function M.foldingTheListingLeavesOneRowPerSourceLine()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local source = ARTIFACT_SOURCE:gsub(
-        "return scale\n",
-        "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
-    )
-    local result = artifactSession(projectDir, "folded.nupp", source, "nupp/artifact", {kind = "bytecode"})
-    os.execute("rm -rf '" .. projectDir .. "'")
-    assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
-    local lines = {}
-    for line in (result.text .. "\n"):gmatch("(.-)\n") do
-        lines[#lines + 1] = line
-    end
-    -- A continuation row is indented; every other row is one a fold leaves.
-    local visibleAt, visible = {}, 0
-    for index, line in ipairs(lines) do
-        if not line:match("^%s%s") then
-            visible = visible + 1
-        end
-        visibleAt[index] = visible
-    end
-    local checked = 0
-    for _, entry in ipairs(result.mapping.entries) do
-        if entry.role == "exact" then
-            checked = checked + 1
-            test.equal(
-                visibleAt[entry.generatedLine],
-                entry.sourceLine,
-                "folded row " .. tostring(
-                    visibleAt[entry.generatedLine]
-                ) .. " should be source line " .. tostring(entry.sourceLine)
-            )
-        end
-    end
-    assert(checked > 5, "the listing maps several instructions")
 end
 
 -- A file that checks can still fail to lower, and a client that has to guess
@@ -5663,65 +5596,6 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
     assert(result and result.ok, "migration request failed")
     assert(result.destinationUri:match("legacy%.nupp$"))
     assertContains(result.text, "local function keep(value: integer): integer", "unsaved Lua text was planned")
-end
-
--- `nupp/traceCheck` answers for the smallest checked function around the cursor with
--- the findings a `@jit` contract would report there, and offers the edit that adds the
--- contract. The retired `$/nupp/` spelling is an unknown method.
-function M.traceCheckReportsTheFunctionAtTheCursor()
-    local root = scratchRoot()
-    local uri = fileUri(root .. "/trace.nupp")
-    local source = table.concat(
-        {
-            "local function hot(n: integer): integer",
-            "    local total = 0",
-            "    for i = 1, n do",
-            "        local step = function(): integer return i end",
-            "        total = total + step()",
-            "    end",
-            "    return total",
-            "end",
-            "return hot",
-        },
-        "\n"
-    ) .. "\n"
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-            },
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "nupp/traceCheck",
-                params = {textDocument = {uri = uri}, position = {line = 1, character = 8}}
-            },
-            {
-                jsonrpc = "2.0",
-                id = 11,
-                method = "$/nupp/traceCheck",
-                params = {textDocument = {uri = uri}, position = {line = 1, character = 8}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        root
-    )
-    local result = responseWithId(out, 10).result
-    assert(type(result) == "table", "the function at the cursor is checked")
-    test.equal(result.name, "hot", "the enclosing declaration is selected")
-    test.equal(result.contract, "inspection", "an uncontracted function is inspected")
-    local construction = false
-    for _, finding in ipairs(result.findings) do
-        construction = construction or finding.reason == "jit/loop-function-construction"
-    end
-    assert(construction, "the loop that builds a function is a finding")
-    assertContains(result.addContract and result.addContract.newText or "", "@jit", "the contract edit is offered")
-    local retired = responseWithId(out, 11)
-    assert(retired.error and retired.error.code == -32601, "the $/ spelling is no longer answered")
 end
 
 -- A long-bracket comment documents its declaration like a `---` run does, and

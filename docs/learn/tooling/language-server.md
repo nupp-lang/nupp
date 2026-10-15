@@ -182,7 +182,7 @@ offers one fix per candidate module rather than guessing between them.
 
 ## Custom requests
 
-Beyond the protocol, the server answers five requests of its own. Each is named
+Beyond the protocol, the server answers four requests of its own. Each is named
 `nupp/<method>`, the `<tool>/<method>` convention rust-analyzer uses, rather
 than under the `$/` prefix LSP reserves for messages a peer may drop, and each
 has a command-line twin that runs the same handler:
@@ -190,20 +190,9 @@ has a command-line twin that runs the same handler:
 | Request | Command-line form | What it returns |
 | --- | --- | --- |
 | `nupp/inspect` | `nupp lsp inspect` | The symbol at a position, and which project answered |
-| `nupp/traceCheck` | `nupp lsp trace-check` | The trace blockers and risks in the function at a position |
 | `nupp/artifacts` | `nupp lsp artifacts` | What the buffer compiles to, without compiling it |
 | `nupp/artifact` | `nupp lsp artifact` | One compiled artifact of the buffer |
 | `nupp/migrate` | `nupp migrate --dry-run` | The plan for migrating an annotated Lua buffer to Nupp |
-
-`nupp/traceCheck` takes a document and a position. It selects the smallest
-checked function containing the position and returns its `name`, `range`, the
-`findings` a `@jit` contract would report there -- each a stable `reason`, its
-`class`, a `message`, a `help` and the `callPath` a blocker was reached through
--- the `traceProfile` and `reasonCatalog` they were judged against, and
-`contract`, which is `@jit` when the function already carries one and
-`inspection` otherwise. For a declaration without the contract, `addContract` is
-the edit that adds it. A position in no checked function returns `null`. It
-reads the checked overlay and runs nothing.
 
 `nupp/migrate` takes a document, its current `text`, and an optional `dialect`
 (`auto`, `luacats`, `emmy` or `luadoc`). The text travels with the request, so a
@@ -244,46 +233,11 @@ for without asking for it.
 | Kind | Language | Mapping |
 | --- | --- | --- |
 | `lua` | `lua` | `line-identity` |
-| `bytecode` | `nupp-bytecode` | `lines-collapsible` |
 
 Generated Lua carries no table of mappings, because it does not need one: the
 emitter holds the lowering to the source's own line numbering, which is what
 makes a stack trace correct with no sourcemap, and `line-identity` says exactly
 that. Generated line N is source line N, for every N.
-
-A bytecode listing is a rendering rather than a lowering, so it carries one
-entry per line that stands for source.
-
-It is laid out *against* the file rather than beside it. The editor already has
-the source in the next pane, so the listing does not repeat it: row N holds what
-line N compiled to, and a line that compiled to nothing is blank. Bytecode order
-is not source order -- a chunk builds each function with an `FNEW` attributed to
-the line the function ends on and assigns it on the line it starts on -- so
-instructions are gathered by the line they came from rather than left in the
-order the interpreter will meet them. Program counters are printed, so execution
-order is still there to be read.
-
-A source line that compiled to several instructions keeps the first on its own
-row and indents the rest beneath it, which is a folding region. Collapsed, every
-source line is one row again and the two panes scroll together; that is what
-`lines-collapsible` names, and a client opening one should fold it. The
-generated preamble is not part of that shape at all -- it is attributed to line
-1 only because it has nowhere else to go -- so it follows the file rather than
-displacing it.
-
-`nupp bc` keeps the older layout, which echoes each source line above the
-instructions it produced and nests a function's body under the line that
-declares it. A terminal has no second pane to lay anything against.
-
-| Role | What that line is |
-| --- | --- |
-| `exact` | One instruction, at the line it was lowered from |
-| `source` | The echoed source line |
-| `derived` | A line about a span rather than a point: a function header |
-| `synthetic` | The compiler's own: the folded runtime preamble |
-
-Lines with no entry stand for nothing anyone wrote. A client synchronizing a
-cursor reveals nothing for those rather than guessing.
 
 An artifact that could not be produced returns `available: false` with an
 `unavailable` reason and detail, rather than with an empty document. A file that
@@ -307,9 +261,8 @@ nupp lsp references  --json [--include-declaration] FILE LINE COLUMN
 nupp lsp symbols     --json [--file FILE] [PATTERN]
 nupp lsp rename            FILE LINE COLUMN NEW_NAME
 nupp lsp actions     --json [--only quickfix] FILE LINE COLUMN
-nupp lsp trace-check --json FILE LINE COLUMN
 nupp lsp artifacts   --json FILE LINE COLUMN
-nupp lsp artifact    --json --kind lua|bytecode [-O0|-O1|-O2] FILE
+nupp lsp artifact    --json --kind lua [-O0|-O1|-O2] FILE
 ```
 
 Every operation takes `--root DIR` (default `.`), the format group, and
@@ -324,16 +277,11 @@ would change what the program means: one already bound where the declaration or
 a use stands, so that a use would resolve to a different declaration afterwards,
 or a member name the module already declares.
 
-`trace-check` selects the smallest enclosing checked function and returns the
-same normalized blocker and risk identities used by `@jit`, including resolved
-callee paths. It reads the language server's unsaved document overlay, runs no
-program, and does not add an annotation or persist a contract.
-
 `artifact` prints the artifact itself, so `nupp lsp artifact --kind lua FILE`
 pipes generated Lua like any other command, and `--json` adds the mapping and
 the metadata beside it. An artifact that could not be produced is a failure with
-the reason on stderr. Both read the same overlay `trace-check` does, so an
-editor and a terminal answer for the same bytes.
+the reason on stderr. It reads the language server's unsaved document overlay,
+so an editor and a terminal answer for the same bytes.
 
 ## Agent workflow
 
@@ -356,7 +304,4 @@ operations only where a diagnostic does not say enough:
   each operation
 - [diagnostics.md](../../reference/diagnostics.md) for the codes an editor shows
   and what each one means
-- [jit-trace-checking.md](../performance/jit-trace-checking.md) for what `trace-check` reports
-- [cli.md](../../reference/cli.md#bc) for `nupp bc`, which renders the same
-  listing the `bytecode` artifact carries
 :::

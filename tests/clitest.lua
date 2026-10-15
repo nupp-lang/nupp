@@ -823,8 +823,6 @@ function M.schemaStopsAtTheProgramBoundary()
 
     local output, ok = captureAt(dir, "run main.nupp --schema")
     assert(ok and output == "--schema\n", "a program argument named --schema is preserved: " .. output)
-    local schema, status = captureStatusAt(dir, "run --schema main.nupp")
-    assert(status == 0 and schema:find('"type"', 1, true), "the compiler-side option still prints its schema")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -935,7 +933,7 @@ for _, name in ipairs({"aot", "lsp", "bc", "ast"}) do
    require("nupp.tools.cli." .. name)
 end
 for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
-      "nupp.tools.tracebytecode", "nupp.compiler.syntax.lexer",
+      "nupp.compiler.syntax.lexer",
       "nupp.compiler.check", "nupp.compiler.syntax.parser"}) do
    if package.loaded[heavy] then print("loaded " .. heavy) end
 end
@@ -1249,122 +1247,6 @@ function M.ownershipAuditReportsFilesItCannotAnalyze()
     assert(missingCode ~= 0, "unreadable input fails the audit")
     assert(missing:find("cannot read absent.nupp", 1, true), "the read failure is reported: " .. missing)
     os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Half of a cold self-build is the trace compiler, so a compiler run raises LuaJIT's
--- side-trace threshold. A resident or program-running command must not: `lsp` amortizes
--- its traces across a session, and `run` and `task` execute somebody else's program.
-local function flagsAppliedBy(command, env, operation)
-    local applied = {}
-    local realStart, realGetenv, realWrite = jit.opt.start, os.getenv, io.write
-    jit.opt.start = function(...)
-        applied[#applied + 1] = table.concat({...}, ",")
-    end
-    os.getenv = function(name)
-        return (env or {})[name] or realGetenv(name)
-    end
-    io.write = function()
-    end
-    pcall(cli.main, operation and {command, operation, "--help"} or {command, "--help"})
-    jit.opt.start, os.getenv, io.write = realStart, realGetenv, realWrite
-
-    return table.concat(applied, " ")
-end
-
-local function assertFlags(command, want, env, label, operation)
-    local got = flagsAppliedBy(command, env, operation)
-    assert(got == want, ("%s: %s\n  want: %q\n  got:  %q"):format(command, label or "wrong jit flags", want, got))
-end
-
-function M.compilerRunsRaiseTheSideTraceThreshold()
-    assertFlags("build", "hotexit=200,hotloop=1000")
-    assertFlags("check", "hotexit=200,hotloop=1000")
-end
-
--- A one-shot language operation checks a dependency closure once and exits. On
--- the defaults, `lsp inspect` of env.nupp cost twice the CPU a check of it did.
-function M.oneShotLanguageOperationsAreCompilerRuns()
-    for _, operation in ipairs({"inspect", "definition", "references", "symbols", "rename"}) do
-        assertFlags("lsp", "hotexit=200,hotloop=1000", nil, "a one-shot operation", operation)
-    end
-    assertFlags("lsp", "", nil, "the server is resident", "serve")
-end
-
-function M.residentAndProgramRunningCommandsKeepTheDefaults()
-    assertFlags("lsp", "", nil, "resident: its traces amortize across a session")
-    assertFlags("run", "", nil, "runs a program this says nothing about")
-    assertFlags("task", "", nil, "likewise")
-end
-
-function M.theTuningIsOverridable()
-    assertFlags("build", "", {NUPP_JIT_DEFAULT = "1"}, "NUPP_JIT_DEFAULT compares the two")
-    assertFlags(
-        "build",
-        "hotexit=60,hotloop=100",
-        {NUPP_JIT_TUNE = "hotexit=60,hotloop=100"},
-        "NUPP_JIT_TUNE is how a sweep moves them"
-    )
-end
-
--- Reaching a capacity limit flushes every trace whatever the program is, so the entry
--- raises them for every command and the native host for every state it makes: one
--- list, written twice, because the host sets it before any Lua runs.
-local jitlimits = require("nupp.tools.jitlimits")
-
-local function limitsApplied(env)
-    local applied = {}
-    local realStart, realFlush, realGetenv = jit.opt.start, jit.flush, os.getenv
-    jit.opt.start = function(...)
-        applied[#applied + 1] = table.concat({...}, ",")
-    end
-    jit.flush = function()
-        applied[#applied + 1] = "flush"
-    end
-    os.getenv = function(name)
-        if name == "NUPP_JIT_DEFAULT" or name == "NUPP_JIT_LIMITS" then
-            return (env or {})[name]
-        end
-        return realGetenv(name)
-    end
-    local ok, result = pcall(jitlimits.apply)
-    jit.opt.start, jit.flush, os.getenv = realStart, realFlush, realGetenv
-    assert(ok, tostring(result))
-
-    return result, table.concat(applied, " ")
-end
-
-function M.theEntryRaisesLuaJITsCapacityLimits()
-    local applied, calls = limitsApplied()
-    assert(applied, "the limits apply")
-    local want = table.concat(jitlimits.FLAGS, ",") .. " flush"
-    assert(
-        calls == want,
-        ("the limits, then a flush so the area is made at the new size\n  want: %q\n  got:  %q"):format(want, calls)
-    )
-
-    local kept, none = limitsApplied({NUPP_JIT_DEFAULT = "1"})
-    assert(not kept and none == "", "NUPP_JIT_DEFAULT keeps LuaJIT's own limits: " .. none)
-
-    local swept, sweep = limitsApplied({NUPP_JIT_LIMITS = "maxtrace=4000,sizemcode=1024"})
-    assert(
-        swept and sweep == "maxtrace=4000,sizemcode=1024 flush",
-        "NUPP_JIT_LIMITS is how a sweep moves them: " .. sweep
-    )
-    local empty, nothing = limitsApplied({NUPP_JIT_LIMITS = ""})
-    assert(not empty and nothing == "", "an empty NUPP_JIT_LIMITS applies none: " .. nothing)
-end
-
-function M.theNativeHostRaisesTheSameLimits()
-    local shim = assert(io.open(HERE .. "/../native/crates/host/c/lua_shim.c", "rb"))
-    local text = shim:read("*a")
-    shim:close()
-    local list = assert(text:match("jit_limits%[%] = {(.-)}"), "the host carries a limit list")
-    local flags = {}
-    for flag in list:gmatch('"([^"]+)"') do
-        flags[#flags + 1] = flag
-    end
-    local want, got = table.concat(jitlimits.FLAGS, ","), table.concat(flags, ",")
-    assert(got == want, ("the host and the entry raise the same limits\n  want: %q\n  got:  %q"):format(want, got))
 end
 
 -- The cli module's header example, checked from a directory outside the repository.

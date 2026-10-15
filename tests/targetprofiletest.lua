@@ -30,7 +30,6 @@ end
 local function capabilities(overrides)
     local stated = {
         dynamicLoader = true,
-        tracingJit = true,
         ffiCallbacks = true,
         staticSymbolResolver = true,
         staticAot = true,
@@ -63,7 +62,7 @@ end
 
 function M.hostedTargetsAdmitEverythingAndNameTheirLinker()
     local darwin = assert(profiles.resolve("aarch64-apple-darwin"))
-    assert(darwin.dynamicLoader and darwin.tracingJit and darwin.ffiCallbacks)
+    assert(darwin.dynamicLoader and darwin.ffiCallbacks)
     assert(darwin.staticSymbolResolver and darwin.staticAot)
     testAssert.equal(darwin.os, "darwin", "the triple classifies its os")
     testAssert.equal(darwin.forceLoad[1], "-Wl,-force_load,<archive>", "Darwin retains an archive by forcing it in")
@@ -77,11 +76,10 @@ function M.hostedTargetsAdmitEverythingAndNameTheirLinker()
     testAssert.equal(windows.export[1], "-Wl,--export-all-symbols", "Windows exports nothing by default")
 end
 
-function M.wasmHasNoTracingJitAndNoArchiveToLink()
+function M.wasmHasNoArchiveToLink()
     local wasm = assert(profiles.resolve("wasm32-unknown-emscripten"))
     assert(wasm.dynamicLoader, "Emscripten loads side modules")
-    assert(not wasm.tracingJit, "there is no trace compiler to promise")
-    assert(not wasm.staticAot, "and no native archive for a host to link")
+    assert(not wasm.staticAot, "there is no native archive for a host to link")
     assert(not wasm.staticSymbolResolver, "nor a process image to resolve out of")
 end
 
@@ -96,7 +94,6 @@ function M.aDescriptorAdmitsAPrivateTripleThroughAModelledLayout()
         "aarch64-vendor-console",
         descriptor({
             dynamicLoader = false,
-            tracingJit = false,
             ffiCallbacks = false
         }),
         "pack.json"
@@ -104,17 +101,17 @@ function M.aDescriptorAdmitsAPrivateTripleThroughAModelledLayout()
     assert(profile, err)
     testAssert.equal(profile.target, "aarch64-vendor-console", "the profile is the private target's")
     testAssert.equal(profile.layoutModel, "x86_64-unknown-linux-gnu", "its layout is referenced rather than invented")
-    assert(not profile.dynamicLoader and not profile.tracingJit)
+    assert(not profile.dynamicLoader)
     assert(profile.staticAot, "which is the point of describing it")
     testAssert.equal(profile.origin, "pack.json", "a diagnostic can say where this came from")
 end
 
 function M.aDescriptorMustStateEveryCapability()
     local stated = descriptor()
-    stated.capabilities.tracingJit = nil
+    stated.capabilities.ffiCallbacks = nil
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", stated, "pack.json")
     testAssert.equal(profile, nil, "an omitted capability is one nobody verified")
-    assert(err:find("boolean tracingJit", 1, true), err)
+    assert(err:find("boolean ffiCallbacks", 1, true), err)
 end
 
 function M.aDescriptorMustReferenceAModelledLayout()
@@ -217,21 +214,6 @@ local function codesFor(source, target)
     end
 
     return table.concat(out, " ")
-end
-
-local JIT_SOURCE = [[
-@jit
-local function hot(scale: number): number
-    return scale * 2.0
-end
-
-return {hot = hot}
-]]
-
-function M.jitIsRefusedOnATargetWithNoTraceCompiler()
-    testAssert.equal(codesFor(JIT_SOURCE, "wasm32-unknown-emscripten"), "NUPP2904", "@jit asserts a contract Wasm cannot meet")
-    testAssert.equal(codesFor(JIT_SOURCE, "x86_64-unknown-linux-gnu"), "", "and is ordinary everywhere a trace compiler exists")
-    testAssert.equal(codesFor(JIT_SOURCE, nil), "", "a target nothing describes refuses nothing")
 end
 
 local LIBRARY_SOURCE = [[

@@ -901,7 +901,7 @@ return M
         (
             [=[
 local M = {}
-if false then require("nupp.profile") end
+if false then require("nupp.workers") end
 function M.runsBeforeNuppWorkersStart()
     local started = io.open(%q, "rb")
     assert(started == nil, "the Nupp lane started before the isolated lane finished")

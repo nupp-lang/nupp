@@ -2302,7 +2302,6 @@ local PROCESS_ISOLATED = {
     projectlinktest = true,
     spipackagetest = true,
     spitest = true,
-    profiletest = true,
     runnertest = true,
     -- These execute generated ownership cleanups. Their providers are registered
     -- in process-global runtime tables, so a reused worker state is not their
@@ -2321,8 +2320,6 @@ local PROCESS_ISOLATED = {
 local processCalls = {
     'require("nupp.io.process")',
     "require('nupp.io.process')",
-    'require("nupp.profile")',
-    "require('nupp.profile')",
     'require("nupp.workers")',
     "require('nupp.workers')",
     -- Reaching into the loader is process-shaped whether or not a process is

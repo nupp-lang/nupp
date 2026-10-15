@@ -8,35 +8,22 @@ formatting, and code actions. The extension watches `.nupp` files in each worksp
 by Git, generators, or another editor invalidate the language server's
 incremental graph as well as changes made in an open VS Code document.
 
-Run **Nupp: Check Function for JIT Trace Blockers** from the command palette,
-editor context menu, or lightbulb to inspect the smallest function containing
-the cursor.
-The command follows statically resolved checked callees exactly as `@jit` does
-and marks blocker and risk sites in a temporary **Nupp JIT Check** diagnostic
-collection. It uses unsaved editor text, runs no program, changes no source, and
-clears its findings on the next edit or check.
-
 ## Inspecting compiled output
 
 Every checked function carries an **Inspect** code lens, and the same entries
-are in the command palette: **Nupp: Open Generated Lua**, **Nupp: Open
-Bytecode**, and **Nupp: Compare Generated Artifacts**. Artifacts open beside the
+are in the command palette: **Nupp: Open Generated Lua** and **Nupp: Compare
+Generated Artifacts**. Artifacts open beside the
 source as ordinary read-only editors, so search, folding and diff keep working
 on them, and they are made from the buffer rather than the file on disk.
 
 Selecting in either view reveals the matching line in the other. Generated Lua
 is line-identical to its source, because the emitter never changes a file's line
-count; a bytecode listing carries its own mapping, and a line standing for
-compiler-owned work reveals nothing rather than pointing somewhere arbitrary.
+count.
 
 Scrolling either pane carries the other with it, matched line to line through
 the mapping. `nupp.syncArtifactScrolling` turns it off. The generated Lua view
 folds where its source folds, reusing the server's folding ranges, so it pins
 the same sticky headers and the panes sit level.
-
-The bytecode view does not repeat the source, since the source is beside it. Row
-N is what line N compiled to, and it opens folded, so a line compiling to several
-instructions still takes one row and the panes stay in step.
 
 One lens per function rather than one per artifact kind is deliberate: most
 kinds do not apply to most functions.

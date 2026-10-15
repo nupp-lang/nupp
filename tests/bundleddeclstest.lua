@@ -44,8 +44,6 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "nupp.events",
-    "nupp.profile.zone",
-    "nupp.profile",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as

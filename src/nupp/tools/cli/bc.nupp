@@ -3,21 +3,13 @@ module nupp.tools.cli.bc
 --[[
 `nupp bc`: the bytecode a file compiles to, beside the source that made it.
 
-`luajit -bl` already lists bytecode, but of the generated Lua, which is not what
-anyone wrote. Generated line numbers are source line numbers here -- the reason
-the whole runtime prologue is crammed onto line 1 -- so the listing can be shown
-against the real source with nothing in between.
-
-That answers a question a typed language on LuaJIT gets asked: what did the
+The listing is of the VM image the file lowers to, shown against the source that
+made it. That answers a question a typed language gets asked: what did the
 annotations cost? Usually nothing, and the instructions say so more convincingly
 than a benchmark does, on any machine, with no warm-up.
 
-`--check` answers a second one. LuaJIT has no recording for the bytecode that
-builds a function, so a loop containing one aborts recording, is blacklisted
-after enough attempts, and then never compiles. Nothing observes it: the results
-stay right, no test fails, and the loop simply runs interpreted forever. Reading
-the bytecode finds it without running anything, which is what makes it usable as
-a gate -- no quiet machine, no threshold, and the same answer every time.
+Only the VM-hosted compiler can answer it: the image is what that compiler
+produces, so a LuaJIT-hosted run says so and stops.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("bc")
@@ -32,7 +24,7 @@ local REPORT_SCHEMA = {
         ok = report.OK,
         diagnostics = report.DIAGNOSTICS,
         file = {type = "string"},
-        backend = {type = "string", enum = {"luajit", "vm"}},
+        backend = {type = "string", enum = {"vm"}},
         optLevel = {type = "integer"},
         functions = {
             type = "array",
@@ -52,14 +44,6 @@ local REPORT_SCHEMA = {
                                 text = {type = "string"},
                                 line = {type = "integer"},
                                 inLoop = {type = "boolean"},
-                                unrecordable = {
-                                    type = "string",
-                                    description = "Why a loop holding this cannot be "
-                                    .. "compiled. Absent when it can.",
-                                },
-                                traceReason = {type = "string"},
-                                traceClass = {type = "string", enum = {"blocker", "risk", "stop"}},
-                                traceReachability = {type = "string", enum = {"must", "may"}},
                             },
                             required = {"pc", "op", "text"},
                         },
@@ -68,18 +52,8 @@ local REPORT_SCHEMA = {
                 required = {"what", "instructions"},
             },
         },
-        unrecordable = {
-            type = "integer",
-            description = "How many instructions sit in a loop that therefore never compiles.",
-        },
-        blockers = {type = "integer"},
-        mustBlockers = {type = "integer"},
-        risks = {type = "integer"},
-        bytecodeFingerprint = {type = "string"},
-        traceProfile = {type = "object"},
-        reasonCatalog = {type = "object"},
     },
-    required = {"ok", "file", "diagnostics", "functions", "unrecordable"},
+    required = {"ok", "file", "diagnostics", "functions"},
 }
 
 --- How many columns the listing may use.
@@ -121,12 +95,6 @@ local function palette(source: string): listing.Palette
         instruction = function(text: string): string
             return paint.bytecode(text, colors)
         end,
-        note = function(text: string, must: boolean): string
-            return paint.paint(colors, must and "error" or "warning", text)
-        end,
-        header = function(text: string): string
-            return paint.paint(colors, "comment", text)
-        end,
     }
 end
 
@@ -156,152 +124,34 @@ local function run(options: any): integer
         return 1
     end
 
-    if rawget(_G, "__nupp_load_image") then
-        local source, problem = require("nupp.compiler.fs").readFile(path)
-        if not source then
-            report.fileFailure(path, problem, "check that the path exists and is readable", collected)
-            return fail()
-        end
-        if (require("nupp.tools.cli.compile").settings(options).optLevel or 0) ~= 0 then
-            return fail(report.TOOL_FAILED, "VM bytecode inspection does not use Lua optimization levels")
-        end
-        local ok, functions = pcall(require("nupp.tools.vm.project").inspect, ".", path)
-        if not ok then
-            return fail(report.TOOL_FAILED, tostring(functions))
-        end
-        if asJson then
-            io.write(
-                report.encode({
-                    ok = true,
-                    file = path,
-                    backend = "vm",
-                    optLevel = 0,
-                    diagnostics = {},
-                    functions = functions,
-                    unrecordable = 0
-                }) .. "\n"
-            )
-        else
-            io.write((listing.render(functions, source, {width = width(options), palette = palette(source)})))
-        end
-        return 0
-    end
-
-    local ok = pcall(require, "jit.util")
-    local okBc = pcall(require, "jit.bc")
-    if not ok or not okBc then
-        return fail(report.TOOL_FAILED, "bytecode needs LuaJIT's jit.util and jit.bc")
-    end
-
-    local fs = require("nupp.compiler.fs")
-    local source, readErr = fs.readFile(path)
+    local source, problem = require("nupp.compiler.fs").readFile(path)
     if not source then
-        report.fileFailure(path, readErr, "check that the path exists and is readable", collected)
+        report.fileFailure(path, problem, "check that the path exists and is readable", collected)
         return fail()
     end
-
-    local compile = require("nupp.tools.cli.compile")
-    local env = require("nupp.compiler.project.env").new(".")
-    local settings = compile.settings(options)
-    settings.diagnostics = collected
-    local folding = (options.format or "text") == "text" and not options.prologue
-    local boundary = folding and listing.BOUNDARY or nil
-    settings.bytecodeBoundary = boundary
-    local code, compileErr = compile.module(path, env, settings)
-    if not code then
-        -- What stopped it has been said, as diagnostics in the document or as text.
-        return collected and fail() or fail(nil, tostring(compileErr))
+    if not rawget(_G, "__nupp_load_image") then
+        return fail(report.TOOL_FAILED, "bytecode inspection needs the VM-hosted compiler")
     end
-    local chunk, loadErr = loadstring(code, "@" .. path)
-    if not chunk then
-        return fail("NUPP3005", "generated code did not load: " .. tostring(loadErr))
+    if (require("nupp.tools.cli.compile").settings(options).optLevel or 0) ~= 0 then
+        return fail(report.TOOL_FAILED, "VM bytecode inspection does not use Lua optimization levels")
     end
-
-    local analysis = require("nupp.tools.tracebytecode").analyze(chunk)
-    local functions = analysis.functions
-
-    local boundaryPc: integer? = nil
-    local boundaryFunction: any? = nil
-    if boundary ~= nil then
-        boundaryFunction, boundaryPc = listing.boundary(functions)
-        if boundaryPc == nil then
-            return fail(report.TOOL_FAILED, "generated bytecode has no preamble boundary marker")
-        end
+    local ok, functions = pcall(require("nupp.tools.vm.project").inspect, ".", path)
+    if not ok then
+        return fail(report.TOOL_FAILED, tostring(functions))
     end
-
-    local unrecordable = 0
-    for _, fn in ipairs(functions) do
-        for _, ins in ipairs(fn.instructions) do
-            if ins.unrecordable then
-                unrecordable = unrecordable + 1
-            end
-        end
-    end
-
-    -- `--check` fails on an instruction that stops its loop compiling, and under
-    -- `--json` each one is a diagnostic, so `ok` false says why.
-    local blocked = options.check and analysis.mustBlockers > 0
-    if collected and blocked then
-        local trace = require("nupp.profile.trace")
-        for _, fn in ipairs(functions) do
-            for _, ins in ipairs(fn.instructions) do
-                if ins.traceReachability == "must" then
-                    local reason = trace.reason(ins.traceReason or "")
-                    collected[
-                        #collected + 1
-                    ] = {
-                        filename = path,
-                        line = ins.line,
-                        code = reason and reason.lint or "NUPP2515",
-                        msg = tostring(ins.unrecordable or ins.traceReason),
-                        help = reason and reason.repair,
-                    }
-                end
-            end
-        end
-    end
-
     if asJson then
-        -- Every count below is an integer this pass produced, so a NaN reaching the
-        -- encoder is a fault worth failing on rather than a token to write out.
         io.write(
             report.encode({
-                ok = not blocked,
-                diagnostics = report.diagnosticValues(collected or {}),
+                ok = true,
                 file = path,
-                optLevel = settings.optLevel or 0,
-                functions = functions,
-                unrecordable = unrecordable,
-                blockers = analysis.blockers,
-                mustBlockers = analysis.mustBlockers,
-                risks = analysis.risks,
-                bytecodeFingerprint = analysis.bytecodeFingerprint,
-                traceProfile = analysis.profile,
-                reasonCatalog = analysis.reasonCatalog,
+                backend = "vm",
+                optLevel = 0,
+                diagnostics = {},
+                functions = functions
             }) .. "\n"
         )
     else
-        io.write(
-            (listing.render(functions, source, {
-                check = options.check and true or false,
-                boundaryFunction = boundaryFunction,
-                boundaryPc = boundaryPc,
-                palette = palette(source),
-                width = width(options),
-            }))
-        )
-    end
-
-    if blocked then
-        if asJson then
-            return 1
-        end
-        io.stderr:write(
-            (
-                "nupp: %d instruction%s in a loop that cannot compile\n"
-            ):format(analysis.mustBlockers, analysis.mustBlockers == 1 and "" or "s")
-        )
-        return 1
+        io.write((listing.render(functions, source, {width = width(options), palette = palette(source)})))
     end
 
     return 0
@@ -309,13 +159,11 @@ end
 
 --- Show the bytecode a Nupp file compiles to.
 ---
---- Source lines are shown beside their instructions. `--check` identifies
---- operations which prevent a containing loop from being recorded by LuaJIT.
+--- Source lines are shown beside their instructions.
 ---
 --- Examples:
 ---
 ---     nupp bc src/main.nupp
----     nupp bc --check src/hot-loop.nupp
 ---     nupp bc --json src/main.nupp
 @cli("bc")
 @derive(cliModule.Command)
@@ -334,12 +182,6 @@ local record Bytecode
         value = "LEVEL"
     )
     optLevel: string?
-
-    --- Report bytecode a loop cannot compile.
-    check: boolean = false
-
-    --- Include the generated runtime preamble.
-    prologue: boolean = false
 
     --- Columns the listing may use. Defaults to the terminal's width.
     @cli(value = "COLUMNS")

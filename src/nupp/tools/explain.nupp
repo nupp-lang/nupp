@@ -1466,20 +1466,6 @@ local ENTRIES: {any} = {
 ENTRIES[
     #ENTRIES + 1
 ] = {
-    code = "NUPP2707",
-    summary = "A function required to compile crosses an unsupported JIT boundary",
-    rule = "`@jit` promises that a function contains no variadic FFI call and "
-    .. "does not pass a Lua callback into C. Move the boundary into a function "
-    .. "disabled with `jit.off`, or remove `@jit` when tracing is not required.",
-    wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n",
-    right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n",
-    related = {"NUPP2502", "NUPP2514"},
-    docs = "docs/learn/runtime/c-interop/index.md#jit-sensitive-c-boundaries",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
     code = "NUPP2710",
     summary = "A non-allocating region can reach allocation",
     rule = "A `@noalloc` region may only call operations whose visible bodies or "
@@ -1508,31 +1494,10 @@ ENTRIES[
 }
 
 ENTRIES[#ENTRIES + 1] = {
-    code = "NUPP2515",
-    summary = "A loop builds a function and so never compiles",
-    -- No worked example: the lint is off until a project asks for it, and an example
-    -- that reported nothing would read as one the compiler had stopped reporting.
-    rule = "LuaJIT has no recording for the bytecode that builds a function, so a "
-    .. "loop containing one aborts trace recording, is blacklisted after enough "
-    .. "attempts, and then runs interpreted however hot it gets. A function that "
-    .. "reads nothing from the iteration is `loop-invariant-closure` and lifts out "
-    .. "unchanged; this is the other one, which reads the iteration and cannot. The "
-    .. "way out where there is one is to declare a function above the loop that takes "
-    .. "what varies as arguments, so the loop calls one rather than builds one.\n\n"
-    .. "Nothing about the program's answers changes either way, which is why this is "
-    .. "off until a project asks for it. `@jit` is where it is not optional: that "
-    .. "annotation promises the function compiles, so the same hazard inside one is "
-    .. "reported as NUPP2707, and `jit.off` on the enclosing function silences it. "
-    .. "`nupp bc --check` finds the same loops in any file without running it.",
-    related = {"NUPP2505", "NUPP2707"},
-    docs = "docs/reference/lints.md#jit-loop-closure",
-}
-
-ENTRIES[#ENTRIES + 1] = {
     code = "NUPP2518",
     summary = "A closed no-input function repeats work that comptime can erase",
-    -- No worked example, for the reason NUPP2515 has none: the lint is off until a
-    -- project enables it, so an example would report nothing here.
+    -- No worked example: the lint is off until a project enables it, so an example
+    -- would report nothing here.
     rule = "A function with no parameters and no runtime captures that does "
     .. "deterministic construction and iteration repeats the same work every time "
     .. "it is called. When the bounded comptime evaluator proves that work reduces to "
@@ -1545,21 +1510,6 @@ ENTRIES[#ENTRIES + 1] = {
     .. "project enables the performance category or the lint by name.",
     related = {"NUPP2410", "NUPP2411"},
     docs = "docs/reference/lints.md#prefer-comptime",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
-    code = "NUPP2901",
-    summary = "One function is promised to two compilers",
-    rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves "
-    .. "that body for ahead-of-time compilation. Stacking them asks two compilers "
-    .. "for the same code, so one of the two has to go: keep `@aot` when the function "
-    .. "should compile ahead of time, and `@jit` when it should trace.",
-    wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
-    right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
-    related = {"NUPP2707", "NUPP2902"},
-    docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
 
 ENTRIES[
@@ -1579,7 +1529,7 @@ ENTRIES[
     right = "@aot\nlocal function scaled(x: number): number\n    return x * 2.0\nend\n\n"
     .. "local record Point\n    x: number\n    constructor(self, x: number)\n"
     .. "        self.x = scaled(x)\n    end\nend\n",
-    related = {"NUPP2901", "NUPP2903"},
+    related = {"NUPP2903"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
 
@@ -1599,7 +1549,7 @@ ENTRIES[
     .. "    return double(scale)\nend\n",
     right = "local function double(x: number): number\n    return x * 2.0\nend\n\n"
     .. "@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n",
-    related = {"NUPP2901", "NUPP2902"},
+    related = {"NUPP2902"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
 
@@ -1608,18 +1558,16 @@ ENTRIES[
 ] = {
     code = "NUPP2904",
     summary = "A construct needs a capability the selected target does not have",
-    rule = "A target profile states what a destination admits: a dynamic loader, a "
-    .. "tracing JIT, FFI callbacks, and a way to resolve a default-namespace symbol "
-    .. "out of a static archive. `@jit` on a target with no trace compiler asserts a "
-    .. "contract nothing there can meet, and a `cdef ... from \"name\"` on a target "
-    .. "with no loader asks the platform to load something it cannot; both are "
-    .. "refused where they are written rather than on the device. Reach the same C "
-    .. "through the default namespace, which a static link puts in the process image, "
-    .. "and drop `@jit` where nothing traces. Which target is selected is what decides "
+    rule = "A target profile states what a destination admits: a dynamic loader, "
+    .. "FFI callbacks, and a way to resolve a default-namespace symbol out of a static "
+    .. "archive. A `cdef ... from \"name\"` on a target with no loader asks the "
+    .. "platform to load something it cannot, so it is refused where it is written "
+    .. "rather than on the device. Reach the same C through the default namespace, "
+    .. "which a static link puts in the process image. Which target is selected is what decides "
     .. "this, so no isolated file exhibits it on its own: a target is described by the "
     .. "built-in profile for its triple or by a verified descriptor in a compiler "
     .. "pack, and a target nothing describes refuses nothing.",
-    related = {"NUPP2707", "NUPP2901"},
+    related = {},
     docs = "docs/learn/projects/build.md#target-capability-profiles",
 }
 
@@ -1970,8 +1918,8 @@ ENTRIES[
     code = "NUPP2112",
     summary = "An annotation is applied where its definition forbids it, or with arguments outside its declared shape",
     rule = "A definition's `targets` set is the complete list of constructs an application may decorate, and its argument policy (none, names, effects, warnings, typed) is the complete shape its arguments may take. An application outside either is refused rather than silently accepted.",
-    wrong = "@jit\nlocal x = 1\n\nreturn x\n",
-    right = "@jit\nlocal function f(): nil\nend\n\nreturn f\n",
+    wrong = "@aot\nlocal x = 1\n\nreturn x\n",
+    right = "@aot\nlocal function f(): nil\nend\n\nreturn f\n",
     related = {"NUPP2111", "NUPP2115"},
     docs = "docs/reference/annotations.md#attachment-targets",
 }
@@ -1981,7 +1929,7 @@ ENTRIES[#ENTRIES + 1] = {
     summary = "A reserved built-in annotation is applied before its behavior is implemented",
     -- No worked example: no shipped built-in currently carries a reservation, so
     -- nothing in the language reaches this code today.
-    rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation, as `@jit` itself once was.",
+    rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation.",
     related = {"NUPP2111", "NUPP2112"},
     docs = "docs/reference/diagnostics.md#nupp2113",
 }
@@ -2358,30 +2306,6 @@ ENTRIES[
     docs = "docs/reference/lints.md#string-pointer",
 }
 
-ENTRIES[
-    #ENTRIES + 1
-] = {
-    code = "NUPP2502",
-    summary = "A Lua function is cast to a C callback",
-    rule = "The `jit-callback` lint reports a cast of a Lua function to a C-derived callback type. The cast requires `@unsafe` permission and an explicit retained owner, but LuaJIT registers the function as a permanent C callback once it happens, and no trace can compile through that call boundary for as long as it stays registered. Call `jit.off` on the registering function when the callback is intentional, or pass a plain pointer instead. Default level is `warning`, and a project may reconfigure or suppress it like any other lint.",
-    wrong = "@unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n",
-    right = "@unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n",
-    related = {"NUPP2604", "NUPP2603"},
-    docs = "docs/reference/lints.md#jit-callback",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
-    code = "NUPP2505",
-    summary = "A loop builds the same non-capturing function on every iteration",
-    rule = "The `loop-invariant-closure` lint reports a function literal built inside a loop body that reads nothing from the iteration, so every built copy is the same function and building one afresh each time buys nothing. LuaJIT has no recorder for the bytecode that builds a function, so a loop containing one aborts trace recording every time it is tried and is eventually blacklisted, running interpreted from then on however hot it gets. Declare the function once above the loop and pass its name. Default level is `warning`; the sibling `jit-loop-closure` reports the case where the function does read the iteration and cannot be lifted.",
-    wrong = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, function(): boolean\n            return true\n        end)\n    end\nend\n\nreturn run\n",
-    right = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function alwaysTrue(): boolean\n    return true\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, alwaysTrue)\n    end\nend\n\nreturn run\n",
-    related = {"NUPP2515", "NUPP2707"},
-    docs = "docs/reference/lints.md#loop-invariant-closure",
-}
-
 ENTRIES[#ENTRIES + 1] = {
     code = "NUPP2509",
     summary = "A record's fields would all fit in C memory",
@@ -2402,18 +2326,6 @@ ENTRIES[
     right = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    elseif fallback then\n        print(\"fallback\")\n    end\nend\n\nreturn classify\n",
     related = {"NUPP2107"},
     docs = "docs/reference/lints.md#else-if",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
-    code = "NUPP2514",
-    summary = "A variadic FFI call is reachable from a compiled trace",
-    rule = "The `jit-boundary` lint reports a call to a `cdef` function declared with a `...` variadic tail from code LuaJIT may try to compile: a variadic C call cannot safely execute on a trace. Move the call into a helper disabled with `jit.off`, so the interpreter always runs it, rather than leaving the boundary reachable from hot code. Default level is `warning`; inside an `@jit` function the same boundary is instead the non-suppressible `NUPP2707` contract error.",
-    wrong = "cdef function printf(format: cstring, ...): int32\n\nlocal function report(value: int32): nil\n    printf(\"%d\", value)\nend\n\nreturn report\n",
-    right = "cdef function printf(format: cstring, ...): int32\n\nlocal function coldReport(value: int32): nil\n    printf(\"%d\", value)\nend\njit.off(coldReport)\n\nlocal function report(value: int32): nil\n    coldReport(value)\nend\n\nreturn report\n",
-    related = {"NUPP2707", "NUPP2502"},
-    docs = "docs/reference/lints.md#jit-boundary",
 }
 
 ENTRIES[
@@ -2484,7 +2396,7 @@ ENTRIES[
     rule = "A declared borrow names where its value comes from, and the value has to be provably derived from there, sharing the provenance chain rather than merely equalling or coincidentally matching. The same code reports each place that promise is checked: a field declared `T borrows (source)` constructed from a different root than the sibling passed as `source`; a result declared `T borrows (param)` returned from something that cannot be traced to that parameter; a call whose borrowed result has no rooted argument to borrow from; and a C output declared borrowed without a named lifetime source. Derive the value from the root the declaration names, or name the root it is derived from.",
     wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n",
     right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n",
-    related = {"NUPP2602", "NUPP2203", "NUPP2707"},
+    related = {"NUPP2602", "NUPP2203"},
     docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning",
 }
 
@@ -2601,20 +2513,6 @@ function explain.anchor(code: string?): string?
     local family = familyFor(code)
 
     return family and family.docs or nil
-end
-
---- Where the documentation covers a LuaJIT trace reason: the part of the reason
---- catalog that lists it, by whether it is an expected stop, something only a run
---- observes, or something the checker attributes from source.
----
---- @param id the stable reason, such as `jit/dynamic-call`
---- @param class its class: `blocker`, `risk`, or `stop`
-function explain.reasonDocs(id: string, class: string?): string
-    local part = class == "stop" and "expected-stops"
-        or id:match("^jit/runtime%-") and "runtime-risks-and-blockers"
-        or "statically-attributable-reasons"
-
-    return "docs/learn/performance/jit-trace-checking.md#" .. part
 end
 
 --- Everything known about a code, or nil when it belongs to no family.

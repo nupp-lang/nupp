@@ -238,8 +238,9 @@ static void capture_error(lua_State *state, ProtectedCall *call, int status) {
 
 /* LuaJIT's capacity limits, raised before the state traces anything, because
  * the size of the machine-code area is fixed when the first trace allocates it.
- * This is nupp.tools.jitlimits.FLAGS, which says why each is raised; clitest
- * holds the two lists to one account. NUPP_JIT_DEFAULT keeps LuaJIT's own. */
+ * Running out of trace numbers or machine code flushes every trace, and on
+ * arm64 macOS a second machine-code area lands out of branch range, so one
+ * large area is reserved up front. NUPP_JIT_DEFAULT keeps LuaJIT's own. */
 static const char *const jit_limits[] = {
     "maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384",
 };

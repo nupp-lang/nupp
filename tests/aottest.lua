@@ -778,38 +778,6 @@ return {double = double}
     )
 end
 
-function M.jitAndAotAreMutuallyExclusive()
-    -- Two compilers for one body is not a preference to resolve, so it is refused
-    -- whichever order the two are written in.
-    reports(
-        [[
-@jit
-@aot
-local function hot(scale: number): number
-    return scale * 2.0
-end
-
-return {hot = hot}
-]],
-        "NUPP2901",
-        "@jit then @aot"
-    )
-
-    reports(
-        [[
-@aot
-@jit
-local function hot(scale: number): number
-    return scale * 2.0
-end
-
-return {hot = hot}
-]],
-        "NUPP2901",
-        "@aot then @jit"
-    )
-end
-
 function M.aotIsRefusedOnARecordMember()
     -- A member's annotations never reach the pragma handler, so this is the case
     -- that regresses silently if the refusal lives in only one place.

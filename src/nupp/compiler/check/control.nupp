@@ -1033,10 +1033,8 @@ function control.install(c: state.Checker): state.StatHandlers
                 contextual.expectedResult = expected
             end
         end
-        local wasReturning = c.loops.setReturning(true)
         local returnedPack = constructor and T.pack({}) or c.inferListPack(stat.exprs)
         local ts = returnedPack.head
-        c.loops.setReturning(wasReturning)
         local observed = c.observedReturnStack[#c.observedReturnStack]
         if observed and not annotatedPack then
             observed[#observed + 1] = returnedPack
@@ -1737,9 +1735,7 @@ function control.install(c: state.Checker): state.StatHandlers
             local frame = openLoop(stat, ownershipBefore)
             c.pushScope()
             applyFacts(facts.t)
-            c.loops.push(stat.body)
             c.checkBlock(stat.body, true)
-            c.loops.pop()
             c.popScope()
             closeLoop(frame)
             unassignedRestore(unassignedBefore)
@@ -1761,9 +1757,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.facts.forgetWritten(stat.body)
         local frame = openLoop(stat, ownershipBefore)
         c.pushScope()
-        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
-        c.loops.pop()
         closeLoop(frame)
         local falls = not alwaysExits(stat.body)
         -- The condition runs after the body and after every `continue`, so what any
@@ -1849,7 +1843,6 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         local frame = openLoop(stat, ownershipBefore)
-        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         closeLoop(frame)
         if witness and stat.body and var.definition then
@@ -1883,7 +1876,6 @@ function control.install(c: state.Checker): state.StatHandlers
 
             markRangeAccess(stat.body)
         end
-        c.loops.pop()
         c.popScope()
         unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
@@ -2219,9 +2211,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         local frame = openLoop(stat, ownershipBefore)
-        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
-        c.loops.pop()
         closeLoop(frame)
         c.popScope()
         unassignedRestore(unassignedBefore)

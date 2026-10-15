@@ -88,33 +88,12 @@ local lintFixtures = {
          "local text = 'a' .. 'b'",
          "return ffi.cast<cstring>(text)"),
    },
-   NUPP2502 = {
-      reports = source(
-         "cdef function each(fn: function(int32), n: int32)",
-         "local function visit(value: int32) print(value) end",
-         "local function run() each(visit, 1) end",
-         "return run"),
-      quiet = source(
-         "cdef function each(fn: function(int32), n: int32)",
-         "local function visit(value: int32) print(value) end",
-         "jit.off(visit)",
-         "local function run() each(visit, 1) end",
-         "return run"),
-   },
+
    NUPP2504 = {
       reports = "local value = true\nreturn !value",
       quiet = "local value = true\nreturn not value",
    },
-   NUPP2505 = {
-      reports = source(
-         "for i = 1, 10 do",
-         "   register(function() return 1 end)",
-         "end"),
-      quiet = source(
-         "for i = 1, 10 do",
-         "   register(function() return i end)",
-         "end"),
-   },
+
    NUPP2506 = {
       reports = source(
          "--- Loads a value.",
@@ -209,28 +188,8 @@ local lintFixtures = {
          "@deprecated local function legacy(): integer return 1 end",
          "return 1"),
    },
-   NUPP2514 = {
-      reports = source(
-         "cdef function printf(format: cstring, ...): int32",
-         "local function run() printf('%d', 1) end",
-         "return run"),
-      quiet = source(
-         "cdef function printf(format: cstring, ...): int32",
-         "local function run() printf('%d', 1) end",
-         "jit.off(run)",
-         "return run"),
-   },
-   NUPP2515 = {
-      reports = source(
-         "for _, item in ipairs(items) do",
-         "   register(function() return item.id end)",
-         "end"),
-      quiet = source(
-         "for _, item in ipairs(items) do",
-         "   register(function() return item.id end)",
-         "   break",
-         "end"),
-   },
+
+
    NUPP2516 = {
       reports = source(
          "module fixture",
@@ -489,7 +448,7 @@ function M.itReachesNestedStatements()
 end
 
 function M.aCodeThatNeverFiresIsHarmless()
-   testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2502)\n" .. CHAIN), "NUPP2107")
+   testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2501)\n" .. CHAIN), "NUPP2107")
 end
 
 function M.quotedCodesWork()

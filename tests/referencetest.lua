@@ -9,7 +9,6 @@ local testAssert = require("nupp.test")
 local reference = require("nupp.tools.reference")
 local explain = require("nupp.tools.explain")
 local lints = require("nupp.compiler.lints")
-local trace = require("nupp.profile.trace")
 local project = require("nupp.tools.build.project")
 local json = require("testjson")
 
@@ -169,25 +168,8 @@ function M.chaptersAreDiscoverableAndFocused()
 
     local performanceMarkdown = reference.chapterMarkdown(performance)
     assert(performanceMarkdown:find("# Nupp Performance reference", 1, true), "titles performance output")
-    assert(
-        performanceMarkdown:find("nupp lsp trace-check --json", 1, true),
-        "puts deterministic inspection before profiling"
-    )
-    assert(performanceMarkdown:find("nupp run --profile", 1, true), "teaches sampling")
-    assert(performanceMarkdown:find("nupp run --jit-aborts", 1, true), "teaches abort collection")
-    assert(
-        performanceMarkdown:find("jit/loop-function-construction", 1, true),
-        "takes static reasons from the shared catalog"
-    )
-    for _, reason in ipairs(trace.records()) do
-        if reason.explanation then
-            assert(performanceMarkdown:find(reason.id, 1, true), "performance skill names " .. reason.id)
-            assert(
-                performanceMarkdown:find(reason.explanation, 1, true),
-                "performance skill shares the explanation for " .. reason.id
-            )
-        end
-    end
+    assert(performanceMarkdown:find("nupp check --json", 1, true), "puts deterministic inspection first")
+    assert(performanceMarkdown:find("nupp bench", 1, true), "teaches benchmarks")
     local performanceSkill = reference.skill(performance)
     assert(performanceSkill:find("name: nupp-performance", 1, true), "names focused performance skill")
     assert(performanceSkill:find("performance regressions", 1, true), "describes the requests that load it")

@@ -538,13 +538,11 @@ species and target tiers.
 ```text [nupp bc --help]
 Show the bytecode a Nupp file compiles to.
 
-Source lines are shown beside their instructions. `--check` identifies
-operations which prevent a containing loop from being recorded by LuaJIT.
+Source lines are shown beside their instructions.
 
 Examples:
 
     nupp bc src/main.nupp
-    nupp bc --check src/hot-loop.nupp
     nupp bc --json src/main.nupp
 
 Usage:
@@ -557,8 +555,6 @@ Options:
   --format FORMAT, --json, --text
                    Select the report representation.
   -O0, -O1, -O2    Optimization level, matching run and build (default -O0).
-  --check          Report bytecode a loop cannot compile.
-  --prologue       Include the generated runtime preamble.
   --width COLUMNS  Columns the listing may use. Defaults to the terminal's
                    width.
   --schema         Print the JSON Schema of JSON output and exit.
@@ -567,30 +563,12 @@ Options:
   --no-color       Never color output
 ```
 
-Generated Lua keeps source line numbers one to one, so the listing shows the
-file that was written rather than the file that was generated. The file runs
-down the left and what each line compiled to runs down the right:
-
-```text [nupp bc greet.nupp]
-  1 | local function greet(name: string): string | 0000  FUNCF    3
-  2 |     return "Hello, " .. name               | 0001  KSTR     1   0      ; "Hello, "
-    |                                            | 0002  MOV      2   0
-    |                                            | 0003  CAT      1   1   2
-    |                                            | 0004  RET1     1   2
-  3 | end                                        | 0046  FNEW     4  16      ; greet.nupp:1
-  4 |
-  5 | return {greet = greet}                     | 0047  TDUP     5  17
-    |                                            | 0048  TSETS    4   5  18  ; "greet"
-    |                                            | 0049  UCLO     0 => 0050
-    |                                            | 0050  RET1     5   2
-
--- 65 instructions of runtime preamble, in 1 function
-```
-
-A line that compiled to several instructions keeps the first beside it and the
-rest on the rows below. A line that compiled to nothing -- line 4 above, and
-every comment and type annotation -- is a row with nothing beside it, which is
-the answer to what the annotations cost.
+The listing is of the VM image the file lowers to, so it needs the VM-hosted
+compiler; a LuaJIT-hosted `nupp` says so and stops. The file runs down the left
+and what each line compiled to runs down the right. A line that compiled to
+several instructions keeps the first beside it and the rest on the rows below.
+A line that compiled to nothing -- a comment, a type annotation -- is a row with
+nothing beside it, which is the answer to what the annotations cost.
 
 The row is divided by what each half needs: the file gets the width of its
 longest line where the terminal has room for it, and the source is what gets
@@ -599,40 +577,12 @@ recognize where an instruction cut short is not. [`--width`](#bc) overrides the
 width, and redirected output uses a fixed one so the same command produces the
 same bytes on any machine.
 
-The generated runtime preamble is folded into the count at the end rather than
-shown against line 1, where it would bury whatever the file has on that line
-under a runtime nobody wrote. `--prologue` shows it.
-
 A terminal gets the listing colored. The left half carries the colors this
 documentation uses; the right half is muted, because a listing is mostly
 bytecode and coloring all of it leaves the source nothing to stand out against.
-The `;` hint keeps its color, since that is where an instruction names something
-from the source -- the global it looked up, the string it loaded.
-
 The escapes go inside lines and never change how many there are, so a listing
 stripped of them is the listing a pipe gets -- which is what redirected output
 is, as everywhere else, unless [`--color`](#universal-options) says otherwise.
-
-Building a function is the usual thing `--check` finds. LuaJIT has no recording
-for it, so the loop holding one aborts recording, is blacklisted after enough
-attempts, and then runs interpreted however hot it gets. Nothing else reports
-that, because the program's results do not change.
-
-It reads further than the two source lints, which see what was written rather
-than what was generated:
-[`loop-invariant-closure`](lints.md#loop-invariant-closure) reports a function
-that could be lifted out of its loop unchanged, and
-[`jit-loop-closure`](lints.md#jit-loop-closure), off until a project asks for
-it, reports one that reads the iteration and so cannot be. Neither says
-anything about a closure the compiler's own lowerings put in a loop, which is
-what this reads.
-
-::: seealso
-- [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for reading a
-  `--check` report and acting on it
-- [performance.md](../learn/performance/index.md) for where bytecode checking sits
-  among the other measurements
-:::
 
 ### `check`
 
@@ -1131,12 +1081,6 @@ Options:
   --timeout-ms INTEGER  Child deadline in milliseconds.
   --gpu-costs DIR       Write GPU JSONL cost records per case and fork in a
                         unique run directory.
-  --profile DIR         Write one collapsed-stack profile per case under this
-                        directory.
-  --profile-interval-ms INTEGER
-                        Sampling interval in milliseconds.
-  --profile-zone PREFIX
-                        Keep profile samples under this zone subtree.
   --baseline PATH       Compare deterministic counters with this baseline.
   --accept              Replace the named baseline after a complete run.
   --history PATH        Append the complete record as one NDJSON line.
@@ -1200,10 +1144,6 @@ else-if                         style        warning  a conditional chain writte
 erased-projection               suspicious   warning  an associated type was erased because inference did not reach its head
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
 exit-suffix-binding             suspicious   warning  a binding list takes more than one value from an exit suffix
-jit-boundary                    suspicious   warning  an FFI boundary cannot safely run on a compiled trace
-jit-callback                    suspicious   warning  a C callback left on the JIT
-jit-loop-closure                performance  off      a loop builds a function and so never compiles
-loop-invariant-closure          suspicious   warning  a loop builds the same function every iteration
 missing-require                 correctness  error    a project module is used without being required
 positional-record-construction  style        warning  a record built by field order rather than by naming its fields
 prefer-comptime                 performance  off      a closed no-input function repeats work that comptime can erase
@@ -1835,18 +1775,14 @@ this verifies.
 Compile and run a Nupp or Lua program.
 
 The program path divides compiler options from arguments passed to the
-loaded chunk. Profiling and trace-abort reports cover the program only.
-Use `--` before a program path beginning with a dash. `--profile` writes
-collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
-tracing. `--watch` is development-only, uses `-O0`, and applies valid
-changed-body patches at cooperative poll boundaries.
+loaded chunk. Use `--` before a program path beginning with a dash.
+`--watch` is development-only, uses `-O0`, and applies valid changed-body
+patches at cooperative poll boundaries.
 
 Examples:
 
     nupp run src/main.nupp
     nupp run src/main.nupp first second
-    nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
-    nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 
 Usage:
   nupp run [options] FILE [ARG...]
@@ -1865,16 +1801,8 @@ Options:
   -Zno-opt=CODE         Turn off one optimizer pass by stable code.
   --watch               Keep named function identities patchable at poll
                         points.
-  --profile             Sample the program.
-  --profile-interval-ms MS
-                        Sampling interval in milliseconds.
-  --profile-out PATH    File which receives profiling samples.
   --gpu-costs PATH      Write GPU operation costs and device timestamps to this
                         JSONL file.
-  --jit-aborts[=PATH]   Record JIT aborts, optionally naming an attached output
-                        path.
-  --json                Write JIT aborts as JSON rather than CSV.
-  --schema              Print the JSON Schema of JSON output and exit.
   -h, --help            Show this help
   --color[=WHEN]        When to color output: always, never, or auto
   --no-color            Never color output
@@ -1890,25 +1818,10 @@ else is loaded as Lua directly.
 Hello, world
 ```
 
-#### Profiling a run
-
-`--jit-aborts` and `--remarks-out` take an attached value or none, never the
-next argument, so a program name after either is still the program.
-`--profile` takes no value; `--profile-interval-ms` sets how often it samples,
-as it does for `bench`:
-
-```bash
-nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
-nupp run --jit-aborts src/main.nupp
-```
-
-The defaults are 10 ms, `profile.out`, and `jit-aborts.csv`. With `--json` the
-abort default becomes `jit-aborts.json`, and every site carries both the raw VM
-detail and its stable normalized reason identity.
+`--remarks-out` takes an attached value or none, never the next argument, so a
+program name after it is still the program.
 
 ::: seealso
-- [profiling.md](../learn/performance/profiling.md) for reading a collapsed-stack profile
-  and an abort report
 - [performance.md](../learn/performance/index.md) for what to measure before
   changing anything
 - [hot-reload.md](../learn/projects/hot-reload.md) for `--watch` and the poll points a
@@ -2131,7 +2044,7 @@ Language-server and semantic source operations.
 `nupp lsp serve [root]` runs the language server over stdio. Semantic
 operations are `nupp lsp inspect`, `nupp lsp definition`,
 `nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
-`nupp lsp rename`, `nupp lsp actions`, and `nupp lsp trace-check`.
+`nupp lsp rename`, and `nupp lsp actions`.
 Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 
 Operation-only options: references only: `--include-declaration`;
@@ -2160,7 +2073,6 @@ Commands:
   symbols         Search workspace or document symbols.
   rename          Rename a symbol and every semantic reference to it.
   actions         List code actions available at a position.
-  trace-check     Check the function at a position for LuaJIT trace blockers.
   artifacts       List the compiled artifacts available at a position.
   artifact        Print what a file compiles to.
 
@@ -2245,14 +2157,6 @@ the kind, the name, and where it was declared:
 function greet src/greet.nupp:2:16
 ```
 
-`trace-check` asks the same question for one function that
-[`bc --check`](#bc) asks for a file, reporting the LuaJIT trace blockers and
-risks the reason catalog knows about it:
-
-```bash
-nupp lsp trace-check --json src/greet.nupp 2 16
-```
-
 `nupp help lsp` shows a merged option list; each of `--include-declaration`,
 `--file`, `--only` and `--write` belongs to exactly one operation. Every
 operation prints its own schema for `--schema`.
@@ -2261,8 +2165,6 @@ operation prints its own schema for `--schema`.
 - [lsp.md](../learn/tooling/language-server.md) for what the resident server supports
 - [editors.md](../learn/tooling/editors.md) for wiring it into an editor
 - [diagnostics.md](diagnostics.md) for the codes a quickfix answers
-- [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for what
-  `trace-check` reports
 :::
 
 ### `version`

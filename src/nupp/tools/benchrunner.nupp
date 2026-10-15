@@ -71,10 +71,7 @@ type runner.Options = {
     label: string?,
     timeoutMs: integer?,
     list: boolean?,
-    profileDir: string?,
     gpuCostsDir: string?,
-    profileIntervalMs: integer?,
-    profileZone: string?,
 
     --- Processes to run each benchmark in. One by default, which reports a score and a
     --- within-process spread and no interval.
@@ -205,10 +202,6 @@ local function slug(name: string): string
     local answer = name:gsub("[^%w%-_.]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
 
     return answer ~= "" and answer or "benchmark"
-end
-
-local function profilePath(directory: string, index: integer, name: string): string
-    return ("%s/%03d-%s.collapsed"):format(directory:gsub("/+$", ""), index, slug(name))
 end
 
 local function nuppRun(
@@ -608,9 +601,6 @@ local function runCase(
     name: string,
     n: integer?,
     timeoutMs: integer,
-    sampleOut: string?,
-    sampleIntervalMs: integer,
-    sampleZone: string?,
     gpuCostsOut: string?
 ): (any?, string?)
     os.remove(RECORD_OUT)
@@ -619,18 +609,6 @@ local function runCase(
     if n then
         extra[#extra + 1] = "--n"
         extra[#extra + 1] = tostring(n)
-    end
-    if sampleOut then
-        extra[#extra + 1] = "--sample-out"
-        extra[#extra + 1] = sampleOut
-        extra[#extra + 1] = "--sample-root"
-        extra[#extra + 1] = path:match("([^/\\]+)$") or path
-        extra[#extra + 1] = "--sample-interval-ms"
-        extra[#extra + 1] = tostring(sampleIntervalMs)
-        if sampleZone then
-            extra[#extra + 1] = "--sample-zone"
-            extra[#extra + 1] = sampleZone
-        end
     end
     local ok, runProblem = nuppRun(executable, path, extra, timeoutMs, gpuCostsOut)
     local text = readFile(RECORD_OUT)
@@ -817,51 +795,6 @@ local function sameList(left: {string}, right: {string}): boolean
     return true
 end
 
---- Abort sites present in every fork, and those present in some but not all.
----
---- Whether a loop aborts is timing-dependent, so forks legitimately disagree. Gating
---- on the unanimous set means a site has to survive every process before it fails a
---- run, which is strictly harder to trip by accident than the single observation the
---- gate used to rest on. The rest are reported, because a site that appears in three
---- forks of fourteen is worth seeing and is not worth failing on.
-local function mergeAbortSites(forks: {any}): ({string}?, {any})
-    local seen: {[string]: integer} = {}
-    local order: {string} = {}
-    local observed: integer = 0
-    for _, fork in ipairs(forks) do
-        local measurement = onlyMeasurement(fork)
-        local sites = measurement and measurement.abortSites
-        if sites then
-            observed = (observed + 1) as integer
-            for _, site in ipairs(sites) do
-                local count = seen[site]
-                if count == nil then
-                    count = 0
-                    order[#order + 1] = site
-                end
-                seen[site] = (count + 1) as integer
-            end
-        end
-    end
-    if observed == 0 then
-        -- Nobody looked, which is not the same as nothing aborted.
-        return nil, {}
-    end
-    local unanimous: {string} = {}
-    local flaky: {any} = {}
-    for _, site in ipairs(order) do
-        local count = seen[site]
-        if count == observed then
-            unanimous[#unanimous + 1] = site
-        else
-            flaky[#flaky + 1] = {site = site, forks = count, of = observed,}
-        end
-    end
-    table.sort(unanimous)
-
-    return unanimous, flaky
-end
-
 --- Builds a merged record for a benchmark from its forks.
 ---
 --- The forks themselves are kept beside the summary rather than reduced to it. A
@@ -901,22 +834,12 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         end
     end
 
-    local unanimousAborts, flaky = mergeAbortSites(forks)
-    for _, entry in ipairs(flaky) do
-        notes[
-            #notes + 1
-        ] = (
-            "%s: flaky abort site: %s in %d/%d forks; reported, not gated"
-        ):format(name, entry.site, entry.forks, entry.of)
-    end
-
     local merged: {[string]: any} = {}
     for key, value in pairs(firstMeasurement or {}) do
         merged[key] = value
     end
     merged.forkCount = #summaries
     merged.forkSummariesMs = summaries
-    merged.abortSites = unanimousAborts
 
     -- A process showing a monotone trend has not settled, so its median describes a
     -- moving target. Withholding the interval is the only honest rendering of that;
@@ -1038,7 +961,6 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         executionProfile = first.executionProfile,
         remarks = first.remarks,
         allocationSites = first.allocationSites,
-        traceProfile = first.traceProfile,
         compiler = first.compiler,
     }, notes
 end
@@ -1051,7 +973,6 @@ local function comparableRecord(entry: any): any
         executionProfile = entry.executionProfile,
         remarks = entry.remarks,
         allocationSites = entry.allocationSites,
-        traceProfile = entry.traceProfile,
         compiler = entry.compiler,
     }
 end
@@ -1116,22 +1037,8 @@ end
 --- is conclusive the other way -- a record made on another architecture is certainly
 --- not comparable -- but agreement here is not what licenses a duration comparison.
 --- `machineKey` is.
-local function hostProfile(merged: {any}): any
-    local luajitRevision: string? = nil
-    for _, entry in ipairs(merged) do
-        local profile = entry.traceProfile
-        if profile and profile.luajitRevision then
-            luajitRevision = profile.luajitRevision
-            break
-        end
-    end
-
-    return {
-        platform = system.platform,
-        architecture = system.architecture,
-        pointerBits = system.pointerBits,
-        luajitRevision = luajitRevision,
-    }
+local function hostProfile(): any
+    return {platform = system.platform, architecture = system.architecture, pointerBits = system.pointerBits,}
 end
 
 --- A stable identity for this machine, created once and cached.
@@ -1378,10 +1285,7 @@ function runner.run(options: runner.Options): integer
     local historyPath = options.history
     local label = options.label
     local timeoutMs = options.timeoutMs or DEFAULT_TIMEOUT_MS
-    local profileDir = options.profileDir
     local gpuCostsDirectory: string? = nil
-    local profileIntervalMs = options.profileIntervalMs or 1
-    local profileZone = options.profileZone
     local pilot = options.pilot == true
     local forks = pilot and PILOT_FORKS or (options.forks or 1)
     local margin = options.margin
@@ -1393,11 +1297,6 @@ function runner.run(options: runner.Options): integer
     end
     if forks < 1 or forks ~= math.floor(forks) then
         io.stderr:write("nupp: --forks needs a positive whole number\n")
-
-        return 2
-    end
-    if profileIntervalMs < 1 or profileIntervalMs ~= math.floor(profileIntervalMs) then
-        io.stderr:write("nupp: profile interval must be a positive whole number of milliseconds\n")
 
         return 2
     end
@@ -1416,17 +1315,6 @@ function runner.run(options: runner.Options): integer
         io.stderr:write("nupp: " .. message .. "\n")
 
         return 1
-    end
-
-    if profileDir then
-        local made, madeProblem = files.createDirectory(profileDir)
-        if not made then
-            return refuse(
-                "NUPP0001",
-                "cannot create profile directory " .. profileDir .. ": " .. tostring(madeProblem),
-                profileDir
-            )
-        end
     end
 
     if listOnly then
@@ -1565,10 +1453,6 @@ function runner.run(options: runner.Options): integer
             shuffler:shuffle(order)
         end
         for _, entry in ipairs(order) do
-            local sampleOut: string? = nil
-            if profileDir and round == 1 then
-                sampleOut = profilePath(profileDir, #entry.records + 1, entry.name)
-            end
             if not asJson and not pilot then
                 if forks > 1 then
                     io.stdout:write(("# Benchmark: %s (%s) fork %d/%d\n"):format(entry.name, entry.path, round, forks))
@@ -1595,9 +1479,6 @@ function runner.run(options: runner.Options): integer
                 entry.name,
                 entry.iterations,
                 timeoutMs,
-                sampleOut,
-                profileIntervalMs,
-                profileZone,
                 gpuCostStem ~= nil and gpuCostStem .. "-candidate.jsonl" or nil
             )
             local wallSec = (time.now() - started) / 1000.0
@@ -1626,9 +1507,6 @@ function runner.run(options: runner.Options): integer
                 end
                 if not asJson and not pilot then
                     io.stdout:write(progressLine(record, entry.name, wallSec))
-                    if sampleOut then
-                        io.stdout:write("# Profile: ", sampleOut, "\n")
-                    end
                     io.stdout:flush()
                 end
             end
@@ -1642,9 +1520,6 @@ function runner.run(options: runner.Options): integer
                     entry.name,
                     entry.iterations,
                     timeoutMs,
-                    nil,
-                    profileIntervalMs,
-                    profileZone,
                     gpuCostStem ~= nil and gpuCostStem .. "-against.jsonl" or nil
                 )
                 if otherFailure then
@@ -1698,7 +1573,7 @@ function runner.run(options: runner.Options): integer
         forks = forks,
         seed = seed,
         margin = margin,
-        hostProfile = hostProfile(merged),
+        hostProfile = hostProfile(),
         machineKey = machineKey(),
         comparison = against and "interleaved" or (baselinePath and "observational" or nil),
         benchmarks = merged,

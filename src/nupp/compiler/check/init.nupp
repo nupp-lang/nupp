@@ -20,8 +20,6 @@ Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is th
 reference for their shape and their families.
 ]]
 const {type Target} = require("nupp.compiler.analysis")
-const {type Target as Target2} = require("nupp.compiler.tracesource")
-const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -30,7 +28,6 @@ local lints = require("nupp.compiler.lints")
 local fixits = require("nupp.compiler.check.fixits")
 local annotate = require("nupp.compiler.check.annotate")
 local ownership = require("nupp.compiler.check.ownership")
-local loopclosure = require("nupp.compiler.check.loopclosure")
 local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
@@ -40,7 +37,6 @@ local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
 local analysis = require("nupp.compiler.analysis")
-local traceSource = require("nupp.compiler.tracesource")
 local narrow = require("nupp.compiler.check.narrow")
 local fixedWidthCheck = require("nupp.compiler.check.fixedwidth")
 local calls = require("nupp.compiler.check.calls")
@@ -747,37 +743,6 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         return nil
     end
 
-    local function localTrace(value)
-        if not value or cst.isToken(value) then
-            return nil
-        end
-        local body = value.kind == "funcbody" and value
-            or (value.kind == "funcExpr" or value.kind == "shortfn") and value.body
-            or nil
-        if value.kind == "name" and value.token and queries then
-            local known = queries.known(value.token)
-            body = known and known.body or nil
-        end
-        local findings = body and body.traceSummary and body.traceSummary.findings or nil
-        if not findings then
-            return nil
-        end
-        local stableFindings = {}
-        for _, finding in ipairs(findings) do
-            stableFindings[
-                #stableFindings + 1
-            ] = {
-                reason = finding.reason,
-                class = finding.class,
-                message = finding.message,
-                help = finding.help,
-                callPath = finding.callPath,
-            }
-        end
-
-        return stableFindings
-    end
-
     local function imported(value)
         local exact = value and not cst.isToken(value) and value.exactCallExport or nil
         if not exact
@@ -812,8 +777,7 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         end
         local summary, callableEffects, callableRelations = localSummary(value)
         local source = not summary and imported(value) or nil
-        local traceFindings = localTrace(value) or source and source.traceFindings
-        if summary or source or traceFindings then
+        if summary or source then
             local noAllocate, noRaise
             if source then
                 noAllocate, noRaise = source.noAllocate, source.noRaise
@@ -834,10 +798,6 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 viewBody = source and source.viewBody or localFact(value, "viewBody"),
                 inlineBody = source and source.inlineBody or localFact(value, "inlineBody"),
                 inlineEligibility = source and source.inlineEligibility or localFact(value, "inlineEligibility"),
-                traceFindings = traceFindings,
-                traceProfileId = source and source.traceProfileId or traceSource.profile().id,
-                reasonCatalogId = source and source.reasonCatalogId or traceSource.CATALOG_ID,
-                reasonCatalogVersion = source and source.reasonCatalogVersion or traceSource.CATALOG_VERSION,
             }
         end
     end
@@ -1162,7 +1122,6 @@ function checkMod.check(
             functionDepth = 0,
             functionBodies = {},
             temporaryOwners = {},
-            jitHazards = {},
             scopedCaptureDepth = 0,
             closureCaptureStack = {},
             captureWatches = {},
@@ -1234,10 +1193,6 @@ function checkMod.check(
     -- came from and hands over what it consumes. See nupp.compiler.check.ownership.
     local own = ownership.install(c)
     c.own = own
-    -- Whether a function written inside a loop had to be written there is its own
-    -- question, asked at the three places a function body is checked. See
-    -- nupp.compiler.check.loopclosure.
-    c.loops = loopclosure.install(c)
     c.raises = undocumentedraise.install(c)
     -- Two judgements that need the whole file: whether anything read a binding, and
     -- whether a discarded call had a reason to be made. Both register candidates as the
@@ -3652,17 +3607,15 @@ function checkMod.check(
     -- cleanup body is visible and proven non-raising by the same effect summaries
     -- used elsewhere. Everything less certain keeps the shared protected lowering.
     local effectQueries = analysis.queries(analysisFacts)
-    local needsTrace = opts and opts.traceInspection or #c.jitHazards > 0
-    if not needsTrace then
-        for _, info in ipairs(analysisFacts.functions or {}) do
-            if info.body and info.body.jitRequired then
-                needsTrace = true
-                break
-            end
+    -- An editor offers per-function inspection, so it asks for the functions the
+    -- analysis found, each with the name it is shown under.
+    if opts and opts.functionInspection then
+        local inspected: {any} = analysisFacts.functions or {}
+        for _, info in ipairs(inspected) do
+            info.inspectName = cst.functionName(info.node) or "<function>"
         end
-    end
-    if needsTrace and effectQueries then
-        traceSource.run(result as Target2, c as Checker2, analysisFacts, effectQueries)
+        local target: any = result
+        target.inspectedFunctions = inspected
     end
 
     local function cleanupNonRaising(cleanup): boolean

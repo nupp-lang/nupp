@@ -418,7 +418,7 @@ for i = 1, 2 do
 end
 return seen
 ]],
-            {lints = {["unused-binding"] = "off", ["discarded-result"] = "off", ["loop-invariant-closure"] = "off"}}
+            {lints = {["unused-binding"] = "off", ["discarded-result"] = "off"}}
         )
         local seen = assert(loadstring(code))()
         assert(#seen == 2)

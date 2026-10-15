@@ -31,7 +31,6 @@ merge.
 ]]
 
 local json = require("nupp.codec.json")
-local profile = require("nupp.profile")
 local statistics = require("nupp.bench.internal.statistics")
 local time = require("nupp.time")
 
@@ -245,23 +244,6 @@ record bench.Measurement
 
     overBudget: integer?
 
-    --- Abort site identities seen while measuring, each
-    --- `severity|reason|location|zone`. Identities rather than counts: a count is
-    --- partly a function of how much work ran, and a loop that started aborting is the
-    --- finding at any count.
-    ---
-    --- Nil when no session could be opened, which is not the same as an empty set: one
-    --- says nothing aborted and the other says nobody looked.
-    abortSites: {string}?
-
-    --- Abort events and blacklistings behind those sites. Recorded, never gated.
-    totalAborts: integer?
-
-    blacklisted: integer?
-
-    --- Collapsed-stack profile written for this measured window, when requested.
-    profilePath: string?
-
     --- Quantiles of this measurement's own samples, in milliseconds.
     ---
     --- The table shows `[p25, p99]` beside the score, which is a range rather than a
@@ -348,7 +330,6 @@ record bench.Measurement
 end
 
 local measurements: {bench.Measurement} = {}
-local traceProfileSeen: any = nil
 
 local type Job = {
     name: string,
@@ -388,13 +369,6 @@ local options = {
 
     --- Iterations selected by the set runner from this case's merged baseline.
     iterations = nil as integer?,
-
-    --- Internal handoff from `nupp bench`; callers choose the directory on the
-    --- command and the runner gives every isolated child its own file.
-    sampleOut = nil as string?,
-    sampleIntervalMs = 1,
-    sampleZone = nil as string?,
-    sampleRoot = nil as string?,
 }
 
 local function readOptions(): nil
@@ -446,30 +420,6 @@ local function readOptions(): nil
                 error("nupp: --n needs a positive whole number", 0)
             end
             options.iterations = math.floor(given)
-        elseif name == "sample-out" then
-            options.sampleOut = value or argv[index + 1]
-            if not value then
-                index = (index + 1) as integer
-            end
-        elseif name == "sample-interval-ms" then
-            local given = tonumber(value or argv[index + 1])
-            if not value then
-                index = (index + 1) as integer
-            end
-            if not given or given < 1 or given ~= math.floor(given) then
-                error("nupp: --sample-interval-ms needs a positive whole number", 0)
-            end
-            options.sampleIntervalMs = math.floor(given)
-        elseif name == "sample-zone" then
-            options.sampleZone = value or argv[index + 1]
-            if not value then
-                index = (index + 1) as integer
-            end
-        elseif name == "sample-root" then
-            options.sampleRoot = value or argv[index + 1]
-            if not value then
-                index = (index + 1) as integer
-            end
         end
         index = (index + 1) as integer
     end
@@ -635,25 +585,6 @@ local function calibrate(name: string, body: function(bench.Case): nil, fixed: i
     return n
 end
 
-local function abortIdentities(report: any): ({string}, integer, integer)
-    local sites: {string} = {}
-    for _, site in ipairs(report.sites) do
-        sites[
-            #sites + 1
-        ] = (
-            "%s|%s|%s|%s"
-        ):format(
-            tostring(site.severity),
-            tostring(site.reason),
-            tostring(site.location or ""),
-            tostring(site.zone or "")
-        )
-    end
-    table.sort(sites)
-
-    return sites, report.totalAborts, report.blacklisted
-end
-
 --- Says a case's name under `--list-cases`, as it is declared.
 ---
 --- Printed here rather than collected and printed by `report`, because a listing run
@@ -674,38 +605,6 @@ local function announce(listing: any): nil
         return
     end
     io.stdout:write(listing.name, "\n")
-end
-
---- Opens a trace session, or returns nil when one is already open.
----
---- `nupp run --jit-aborts` opens a process-wide session before the program starts, and
---- there is at most one at a time, so a case that insisted on its own would fail under
---- the flag most likely to be set while investigating one. Answering nil instead costs
---- the abort half of that case's record, which is then reported as uncollected rather
---- than as an empty set -- an empty set and an uncollected one gate very differently.
-local function openTrace(): any?
-    local ok, session = pcall(profile.trace)
-    if not ok then
-        return nil
-    end
-
-    -- The harness stops every session it opens, on each case's own schedule.
-
-    return @unsafe nupp.release(session)
-end
-
---- Opens the optional sampler paused. Setup, teardown and harness bookkeeping stay
---- outside the collapsed stacks; measured bodies resume it explicitly.
-local function openSample(): any?
-    if not options.sampleOut then
-        return nil
-    end
-    local argv = _G.arg as {string}?
-    local root = options.sampleRoot or (argv and argv[0] and argv[0]:match("([^/\\]+)$") or nil)
-    local session = profile.sample({intervalMs = options.sampleIntervalMs, zone = options.sampleZone, root = root,})
-    session:pause()
-
-    return @unsafe nupp.release(session)
 end
 
 --- Announces work before it starts, so calibration or an application-owned frame
@@ -743,11 +642,6 @@ end
 local function measureCase(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
     announceRun(name)
 
-    -- Opened before calibration, not after it. A loop that aborts and is blacklisted
-    -- while being calibrated has already been demoted to the interpreter by the time a
-    -- later session opens, so a session opened after calibration reports nothing and
-    -- the one finding that mattered is the one that got away.
-    local session = openTrace()
     local n = calibrate(name, body, fixedN or options.iterations or baselineIterations(name))
     local subject = new bench.Case(name = name, n = n)
     body(subject)
@@ -768,24 +662,6 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
     collectgarbage("collect")
     local retained = math.max(0.0, collectgarbage("count") - before)
 
-    local sites: {string}? = nil
-    local total: integer? = nil
-    local blacklisted: integer? = nil
-    if session then
-        local aborts = session:stop()
-        traceProfileSeen = aborts.traceProfile
-        sites, total, blacklisted = abortIdentities(aborts)
-    end
-    local sampling = openSample()
-    if sampling then
-        collectgarbage("collect")
-        for _ = 1, ROUNDS do
-            sampling:resume()
-            body(subject)
-            sampling:pause()
-        end
-        sampling:stop(options.sampleOut)
-    end
     -- Retained in execution order, not just summarized. The runner's interval is built
     -- from one summary per process, but a reader wanting to see what a process actually
     -- did -- or a later warmup classifier wanting to run over it -- needs the series
@@ -815,11 +691,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,
         allocatedKb = allocated / ROUNDS,
-        retainedKb = retained,
-        abortSites = sites,
-        totalAborts = total,
-        blacklisted = blacklisted,
-        profilePath = options.sampleOut
+        retainedKb = retained
     )
 end
 
@@ -920,18 +792,10 @@ local function suiteName(suite: string, caseName: string, variant: string, param
     return name
 end
 
-local function callVariant(
-    variant: bench.Variant,
-    invocation: bench.Invocation,
-    iterations: integer,
-    session: any?
-): number
+local function callVariant(variant: bench.Variant, invocation: bench.Invocation, iterations: integer): number
     local state: any = nil
     if variant.setup then
         state = variant.setup(invocation)
-    end
-    if session then
-        session:resume()
     end
     local started = time.now()
     local result: any = nil
@@ -939,9 +803,6 @@ local function callVariant(
         result = variant.run(state, invocation)
     end
     local elapsed = time.now() - started
-    if session then
-        session:pause()
-    end
     bench.keep(result)
     if variant.teardown then
         variant.teardown(state, invocation)
@@ -993,16 +854,11 @@ local function measureSuite(
 
     announceRun(name)
     collectgarbage("collect")
-    local session = openTrace()
-    if session then
-        session:pause()
-    end
     for _ = 1, warmups do
         callVariant(
             variant,
             new bench.Invocation(name = case.name, data = case.data, parameters = parameters),
-            iterations,
-            session
+            iterations
         )
     end
 
@@ -1014,7 +870,7 @@ local function measureSuite(
         if #samples >= maxSamples or time.now() - wallStarted >= maxDuration then
             break
         end
-        local elapsed = callVariant(variant, invocation, iterations, session)
+        local elapsed = callVariant(variant, invocation, iterations)
         measured = measured + elapsed
         samples[#samples + 1] = elapsed / (iterations * operations)
     end
@@ -1064,22 +920,6 @@ local function measureSuite(
     collectgarbage("collect")
     local retained = math.max(0.0, collectgarbage("count") - before)
 
-    local sites: {string}? = nil
-    local totalAborts: integer? = nil
-    local blacklisted: integer? = nil
-    if session then
-        local aborts = session:stop()
-        traceProfileSeen = aborts.traceProfile
-        sites, totalAborts, blacklisted = abortIdentities(aborts)
-    end
-    local sampling = openSample()
-    if sampling then
-        collectgarbage("collect")
-        for _ = 1, #samples do
-            callVariant(variant, invocation, iterations, sampling)
-        end
-        sampling:stop(options.sampleOut)
-    end
     local minimum, mean, stdev, p50, p90, p99 = sampleStatistics(samples)
     -- Tested in execution order, before anything sorts the series. This process only:
     -- pooling two processes' samples manufactures a step at the join that belongs to
@@ -1123,11 +963,7 @@ local function measureSuite(
         parameters = parameters,
         baselineVariant = suite.baselineVariant or suite.variants[1].name,
         allocatedKb = allocated / (iterations * operations),
-        retainedKb = retained,
-        abortSites = sites,
-        totalAborts = totalAborts,
-        blacklisted = blacklisted,
-        profilePath = options.sampleOut
+        retainedKb = retained
     )
 end
 
@@ -1200,8 +1036,6 @@ record bench.FrameSession
     wanted: integer
     samples: {number}
     started: number
-    session: any
-    sampling: any
     done: boolean
 end
 
@@ -1240,8 +1074,6 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
             wanted = count or 0,
             samples = {},
             started = 0.0,
-            session = nil,
-            sampling = nil,
             done = true
         )
     end
@@ -1255,8 +1087,6 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
         wanted = count or 0,
         samples = {},
         started = 0.0,
-        session = openTrace(),
-        sampling = openSample(),
         done = false
     )
 end
@@ -1276,9 +1106,6 @@ end
 
 --- Marks the start of a frame.
 function bench.FrameSession:begin(): nil
-    if self.sampling then
-        self.sampling:resume()
-    end
     self.started = time.now()
 end
 
@@ -1289,9 +1116,6 @@ end
 --- blows its budget anyway, and missing the budget is the whole measurement.
 function bench.FrameSession:finish(): nil
     local finished = time.now()
-    if self.sampling then
-        self.sampling:pause()
-    end
     self.samples[#self.samples + 1] = finished - self.started
 end
 
@@ -1310,17 +1134,6 @@ function bench.FrameSession:report(): nil
         return
     end
     self.done = true
-    local sites: {string}? = nil
-    local total: integer? = nil
-    local blacklisted: integer? = nil
-    if self.session then
-        local aborts = self.session:stop()
-        traceProfileSeen = aborts.traceProfile
-        sites, total, blacklisted = abortIdentities(aborts)
-    end
-    if self.sampling then
-        self.sampling:stop(options.sampleOut)
-    end
     local sorted: {number} = {}
     for index = 1, #self.samples do
         sorted[index] = self.samples[index]
@@ -1344,11 +1157,7 @@ function bench.FrameSession:report(): nil
         p99Ms = quantile(sorted, 0.99),
         p999Ms = quantile(sorted, 0.999),
         frames = #sorted,
-        overBudget = over,
-        abortSites = sites,
-        totalAborts = total,
-        blacklisted = blacklisted,
-        profilePath = options.sampleOut
+        overBudget = over
     )
     bench.report()
 end
@@ -1400,7 +1209,6 @@ local function buildRecord(): any
         executionProfile = remarks and remarks.executionProfile or nil,
         remarks = remarks and remarks.remarks or nil,
         allocationSites = remarks and remarks.allocationSites or nil,
-        traceProfile = traceProfileSeen,
         compiler = remarks and remarks.compiler or nil,
     }
 end
@@ -1419,21 +1227,6 @@ local function sameExecution(left: any, right: any): boolean
     end
 
     return (left.disabled or "") == (right.disabled or "")
-end
-
---- Whether two trace profiles describe the same recorder.
----
---- Whether a loop aborts is a property of the architecture, operating system, recorder
---- features and LuaJIT revision that watched it, so abort sites are keyed by all of
---- them. `profile.TraceProfile.id` is already the composite of exactly those, so this
---- compares that rather than reassembling the parts -- and in particular rather than
---- comparing the feature list, which is a table and would compare by identity.
-local function sameRecorder(left: any, right: any): boolean
-    if left == nil or right == nil then
-        return false
-    end
-
-    return left.id == right.id
 end
 
 --- The identities of the allocations the optimizer left standing, as the build
@@ -1513,7 +1306,7 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
         previous[entry.name] = entry
     end
     -- Static counters are properties of the compiler's output, so they compare across
-    -- hosts unchanged and are not keyed by the recorder below.
+    -- hosts unchanged.
     local currentAllocations = allocationCounts(record)
     local previousAllocations = allocationCounts(baseline)
     local allocationKeys: {string} = {}
@@ -1539,20 +1332,9 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
     for _, entry in ipairs(listDifference(previousRemarks, currentRemarks)) do
         uncompared[#uncompared + 1] = "remark went away: " .. entry
     end
-    local recorderMatches = sameRecorder(record.traceProfile, baseline.traceProfile)
     for _, entry in ipairs(record.cases or {}) do
-        local was = previous[entry.name]
-        if not was then
+        if not previous[entry.name] then
             uncompared[#uncompared + 1] = entry.name .. ": no baseline"
-        elseif not recorderMatches then
-            uncompared[#uncompared + 1] = entry.name .. ": trace profile differs, abort sites not compared"
-        elseif entry.abortSites == nil or was.abortSites == nil then
-            uncompared[#uncompared + 1] = entry.name .. ": trace aborts were not collected"
-        else
-            local added = listDifference(entry.abortSites or {}, was.abortSites or {})
-            for _, site in ipairs(added) do
-                failures[#failures + 1] = entry.name .. ": new trace abort site: " .. site
-            end
         end
     end
 
@@ -2013,8 +1795,7 @@ end
 ---
 --- Raising is how a status reaches the shell: a chunk's return value is discarded and
 --- a run that did not raise exits zero. `os.exit` would also produce one and would
---- discard the run's own profile and trace-abort reports, which are written after the
---- chunk returns.
+--- skip what `nupp run` writes after the chunk returns, such as `--remarks-out`.
 ---
 --- @raises string when a gated counter moved, or the record cannot be written
 function bench.report(): nil

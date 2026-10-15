@@ -45,12 +45,4 @@ function M.ordinaryTecsShapedSourceAgreesWithTheJitOnAndOff()
    assert(tonumber(compiledFlags) == 8, "the checked slice updates its last element")
 end
 
-function M.representativeLoopsAndThePointerWrapperRemainTraceable()
-   local command = "cd '" .. ROOT .. "' && ./bin/nupp bc --check "
-   assert(os.execute(command .. "tests/fixtures/native_foundations.nupp >/dev/null 2>&1") == 0,
-      "numeric, span, and effect-region loops pass bytecode inspection")
-   assert(os.execute(command .. "tests/fixtures/export_c_wrapper.nupp >/dev/null 2>&1") == 0,
-      "the typed ordinary-struct pointer wrapper passes bytecode inspection")
-end
-
 return M

@@ -46,9 +46,7 @@ Every lint has a name and a stable code.
 | `missing-require` | `NUPP2120` | correctness | error |
 | `exhaustiveness` | `NUPP2107` | correctness | warning |
 | `string-pointer` | `NUPP2501` | suspicious | warning |
-| `jit-callback` | `NUPP2502` | suspicious | warning |
 | `customary-operator` | `NUPP2504` | style | warning |
-| `loop-invariant-closure` | `NUPP2505` | suspicious | warning |
 | `undocumented-raise` | `NUPP2506` | suspicious | warning |
 | `unused-binding` | `NUPP2507` | suspicious | warning |
 | `discarded-result` | `NUPP2508` | suspicious | warning |
@@ -57,8 +55,6 @@ Every lint has a name and a stable code.
 | `erased-projection` | `NUPP2511` | suspicious | warning |
 | `positional-record-construction` | `NUPP2512` | style | warning |
 | `deprecated` | `NUPP2513` | suspicious | warning |
-| `jit-boundary` | `NUPP2514` | suspicious | warning |
-| `jit-loop-closure` | `NUPP2515` | performance | off |
 | `private-export-type` | `NUPP2516` | suspicious | warning |
 | `exit-suffix-binding` | `NUPP2517` | suspicious | warning |
 | `prefer-comptime` | `NUPP2518` | performance | off |
@@ -140,53 +136,6 @@ src/string-pointer.nupp:1:17: warning: NUPP2501 string-pointer: a pointer taken 
 See [c-interop.md](../learn/runtime/c-interop/index.md) for the lifetimes a C boundary
 gives a Lua value.
 
-### `jit-callback`
-
-A Lua function reaching a C-derived callback parameter or an explicit unsafe
-cast creates a C callback. The callback remains registered and prevents
-compilation through that call path. Use `jit.off(callback)` when intentional.
-
-::: code-group
-```nupp [src/jit-callback.nupp]
-@unsafe do
-    local callback = function()
-    end
-    local pointer = ffi.cast<voidptr>(callback)
-    local handle = nupp.pin(pointer, callback)
-end
-```
-
-```text [nupp check output]
-src/jit-callback.nupp:3:21: warning: NUPP2502 jit-callback: a Lua function cast to a C callback stays registered and cannot be compiled through
- 3 |     local pointer = ffi.cast<voidptr>(callback)
-   |                     ^~~
-help: keep the callback off hot paths, or call C with a plain pointer instead
-```
-:::
-
-### `jit-boundary`
-
-A variadic C call cannot safely execute on a compiled LuaJIT trace. Move it to
-a cold helper and call `jit.off(helper)`. Inside an `@jit` function the same
-boundary is the non-suppressible `NUPP2707` contract error.
-
-::: code-group
-```nupp [src/jit-boundary.nupp]
-cdef function printf(format: cstring, ...): int32
-
-local function report(value: int32): nil
-    printf("%d", value)
-end
-```
-
-```text [nupp check output]
-src/jit-boundary.nupp:4:5: warning: NUPP2514 jit-boundary: a variadic FFI call cannot safely execute on a compiled trace
- 4 |     printf("%d", value)
-   |     ^~~~~~
-help: move the call into a function disabled with jit.off, or remove @jit from this function
-```
-:::
-
 ### `customary-operator`
 
 C-style operators work, but the lint prefers Lua's words.
@@ -260,76 +209,6 @@ help: write new Point(field = value, ...) to name the fields
 A struct is exempt. It is its C layout, the ctype takes its values in that
 layout's order, and naming them is an error rather than a preference. See
 [records.md](../learn/language/types/records-and-structs.md#structs) for the difference.
-
-### `loop-invariant-closure`
-
-A loop should not build the same non-capturing function on every iteration.
-
-::: code-group
-```nupp:fragment [src/loop-invariant-closure.nupp]
-for _, item in ipairs(items) do
-    register(item, function(event)
-        return event.kind == "click"
-    end)
-end
-```
-
-```text [nupp check output]
-src/loop-invariant-closure.nupp:2:28: warning: NUPP2505 loop-invariant-closure: this function is built once per iteration but does not use the iteration, so every one of them is the same function, and building one is what keeps the loop from compiling
- 2 |     register(item, function(event) return event.kind == "click" end)
-   |                            ^
-help: declare it once above the loop and pass the name
-```
-:::
-
-The wasted allocation is the smaller half. LuaJIT has no recording for the
-bytecode that builds a function, so a loop containing one aborts recording every
-time it is tried, and after enough attempts the loop is blacklisted and never
-compiled again. The cost is the whole enclosing loop running interpreted,
-however hot it gets and whatever else is in it.
-
-That is why this reads a function *built* in a loop rather than one that
-outlives it. It reports only what it can prove pointless: a function reading
-nothing from the iteration, which therefore lifts out with no change in meaning.
-One that does read the iteration costs the same trace and cannot be lifted, so
-it is [`jit-loop-closure`](#jit-loop-closure) below rather than this.
-
-### `jit-loop-closure`
-
-The other half of the pair, for a function that reads the iteration.
-
-::: code-group
-```nupp:fragment [src/jit-loop-closure.nupp]
-for _, item in ipairs(items) do
-    register(item, function(event)
-        return event.kind == item.kind
-    end)
-end
-```
-
-```text [nupp check output]
-src/jit-loop-closure.nupp:2:28: note: NUPP2515 jit-loop-closure: this function is built once per iteration and reads the iteration, so it cannot be declared above the loop, and LuaJIT does not record building a function, so this loop never compiles
- 2 |     register(item, function(event)
-   |                            ^
-help: hand what varies to a function declared outside the loop, so the loop calls one rather than builds one
-```
-:::
-
-There is nothing to lift and no mechanical edit to suggest, so this is off until
-a project asks for it. The way out, where there is one, is to change what varies
-rather than where the function sits: declare one function above the loop that
-takes the varying part as an argument, so the loop calls it instead of building
-one. Where the closure really has to be built per iteration, the loop runs
-interpreted, and the choice belongs to whoever wrote it.
-
-Two things report it without being asked. Inside an `@jit` function it is the
-non-suppressible `NUPP2707`, because that annotation promised the absence of
-catalogued recorder blockers; `jit.off` on the enclosing function silences it,
-since a function taken off the JIT has no trace to lose. And `nupp bc --check`
-reads the bytecode of any file and reports the same loops, together with the
-ones the compiler's own lowerings could introduce. See [Function construction in
-a loop](../learn/performance/jit-trace-checking.md#function-construction-in-a-loop) for the
-bytecode this rests on.
 
 ### `undocumented-raise`
 

@@ -1747,10 +1747,6 @@ function expr.install(c: state.Checker): nil
                 end
                 local rets
                 local retPack
-                -- A short function does not count itself into functionDepth, so the
-                -- loop it might sit in was seen at the depth still current here.
-                local loopClosure = c.loops.begin(c.functionDepth)
-                local wasReturning = c.loops.setReturning(false)
                 if node.expr then
                     local savedYields = c.blockYieldStack
                     c.blockYieldStack = {}
@@ -1789,8 +1785,6 @@ function expr.install(c: state.Checker): nil
                     retPack = T.pack({}, {kind = "unknown", type = T.any})
                     node.fixedWidthCallableUntrusted = true
                 end
-                c.loops.setReturning(wasReturning)
-                c.loops.finish(loopClosure, node)
                 c.popScope()
                 c.unsafeDepth = savedUnsafe
 
