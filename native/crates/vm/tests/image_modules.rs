@@ -23,7 +23,7 @@ fn image(functions: &[F], shapes: &[&str]) -> String {
     let mut text = String::new();
     for (i, shape) in shapes.iter().enumerate() { text.push_str(&format!("shape {i} {}\n", resolve(shape))); }
     for (i, f) in functions.iter().enumerate() {
-        text.push_str(&format!("function {} {i} {}\nsource {}\n", f.name, f.header, f.module));
+        text.push_str(&format!("function {} {i} {}\nsource {}\n", f.name.replace("$self", &i.to_string()), f.header, f.module));
         for line in f.body.lines().map(str::trim).filter(|l| !l.is_empty()) {
             text.push_str(&resolve(line));
             text.push('\n');
@@ -61,6 +61,8 @@ fn fixture(extra_in_a: bool, b_constant: &'static str) -> String {
         fs.push(F { module: "a", name: "helper", header: "0 4 1 :v", body: "RetNil" });
     }
     fs.push(F { module: "b", name: "b.value", header: "0 4 1 :v", body: Box::leak(format!("const 0 num {b_constant}\nK 1 0\nRet 1").into_boxed_str()) });
+    // An anonymous function is named after its own image-wide id.
+    fs.push(F { module: "b", name: "b.fn$self", header: "0 4 1 :v", body: "RetNil" });
     fs.push(chunk("b", "NewTableN 1 0 0\nRet 1"));
     fs.push(F { module: "c", name: "c.method", header: "1 4 1 v:v", body: "RetNil" });
     fs.push(chunk("c", "NewTableN 1 0 0\nRet 1"));

@@ -143,9 +143,15 @@ pub fn analyze(it: &Interp, text: &str) -> Option<Vec<ImageModule>> {
         let module = f.module;
         let out = code.entry(module).or_default();
         let deps = edges.entry(module).or_default();
-        // The header without the function's image-wide id.
+        // The header without the function's image-wide id, which an anonymous
+        // function's name (`parent.fn<id>`) also carries.
         let header: Vec<&str> = f.header.split_whitespace().collect();
-        out.push_str(&header.iter().enumerate().filter(|(i, _)| *i != 2).map(|(_, p)| *p).collect::<Vec<_>>().join(" "));
+        let name = header.get(1).map(|name| name.split('.').map(|segment| match segment.strip_prefix("fn") {
+            Some(id) if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) => format!("fn[{}]", fname(id)),
+            _ => segment.to_string(),
+        }).collect::<Vec<_>>().join(".")).unwrap_or_default();
+        out.push_str(&name);
+        for part in header.iter().skip(3) { out.push(' '); out.push_str(part); }
         out.push('\n');
         for line in &f.body {
             let word = line.split(' ').next().unwrap_or("");
