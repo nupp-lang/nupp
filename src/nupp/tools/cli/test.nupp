@@ -143,6 +143,13 @@ local REPORT_SCHEMA = {
                         description = "beforeAll and afterAll. beforeEach and afterEach are counted with the case they ran for."
                     },
                     casesMs = {type = "number"},
+                    engine = {
+                        type = "string",
+                        enum = {"vm", "luajit"},
+                        description = "The engine the suite runs on. The VM runner reports a suite it "
+                        .. "leaves to LuaJIT -- one the corpus classification marks port-required, "
+                        .. "retired or harness -- as `luajit`, with a not-executed case, unless it was named."
+                    },
                     tests = {type = "integer"},
                     slowestCase = {type = "string"},
                     slowestCaseMs = {type = "number"},

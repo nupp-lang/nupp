@@ -37,6 +37,30 @@ if modulesRoot and modulesRoot ~= "" then
     package.path = modulesRoot .. "/?.lua;" .. modulesRoot .. "/?/init.lua;" .. package.path
 end
 
+-- Which engine runs the suites this process loads: the VM when the runner is a
+-- VM program, LuaJIT otherwise. Every suite record says so.
+local engine = rawget(_G, "__nupp_load_image") and "vm" or "luajit"
+
+-- On the VM a suite's `require` of a project or standard module the runner image
+-- does not carry compiles that module from source into an image of its own,
+-- which shares every module already loaded rather than lowering copies. LuaJIT
+-- finds the compiled copies a build left on `package.path` instead.
+local vmModules = nil
+local function installVmModules()
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if not loadImage or vmModules then
+        return
+    end
+    local compile = require("nupp.tools.cli.compile")
+    vmModules = require("nupp.compiler.project.env").new(".")
+    require("nupp.compiler.runtime").install(vmModules, function(modulePath, e, name)
+        local image = compile.image(modulePath, e, name)
+        return image, image == nil and "type errors" or nil
+    end, nil, nil, function(image)
+        return loadImage(image)
+    end)
+end
+
 package.preload.testjson = package.preload.testjson or function()
     local native = require("nupp.codec.json")
 
@@ -1241,10 +1265,68 @@ table.sort(suites, function(a, b)
     return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
 
+-- What the VM runner leaves to LuaJIT: the suites the corpus classification
+-- marks `port-required` (they still drive the Lua generator, `ffi`, `jit` or a
+-- LuaJIT host), `retired` (they test machinery the VM deletes) or `harness`
+-- (this runner's own suite, which drives it as a LuaJIT program). A run that
+-- names one explicitly runs it here anyway; a selection by group, lane or
+-- default reports each as not executed, so the gap stays in the totals rather
+-- than out of sight. `tests/run` is the LuaJIT runner that still executes them.
+local deferredSuites = {}
+if engine == "vm" and not wanted and not queueDir then
+    local classified = {}
+    local file = io.open(dir .. "/../native/crates/vm/tests/corpus-classification.json", "rb")
+    if file then
+        local text = file:read("*a")
+        file:close()
+        local ok, decoded = pcall(function()
+            return testJson.decode(text)
+        end)
+        for _, row in ipairs(ok and type(decoded) == "table" and decoded.suites or {}) do
+            if row.class == "port-required" or row.class == "retired" or row.class == "harness" then
+                classified[row.suite] = row.class
+            end
+        end
+    end
+    local kept = {}
+    for _, info in ipairs(suites) do
+        if classified[info.name] then
+            deferredSuites[#deferredSuites + 1] = {name = info.name, class = classified[info.name]}
+        else
+            kept[#kept + 1] = info
+        end
+    end
+    suites = kept
+end
+
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.name .. "." .. suite.extension
+    installVmModules()
     if suite.extension == "lua" then
         return dofile(path)
+    end
+
+    -- On the VM a Nupp suite is lowered to an image by the VM's own lowering,
+    -- never to generated Lua, and requires what it needs through the loader
+    -- every VM suite shares.
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if loadImage then
+        installVmModules()
+        local collected = {}
+        local image = require("nupp.tools.cli.compile").image(path, vmModules, suite.name, collected)
+        if not image then
+            local reasons = {}
+            for _, diagnostic in ipairs(collected) do
+                reasons[#reasons + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg or diagnostic.message)
+            end
+            error("cannot compile Nupp test suite " .. path .. ": " .. table.concat(reasons, "; "), 0)
+        end
+        local chunk, loadErr = loadImage(image)
+        if not chunk then
+            error("cannot load Nupp test suite " .. path .. ": " .. tostring(loadErr), 0)
+        end
+
+        return chunk(), nil
     end
 
     -- A Nupp suite is an ordinary module after compilation. Keep its runtime
@@ -3150,6 +3232,7 @@ local function runSuite(suiteInfo, slices)
         tests = #cases,
         slowestCase = slowestCase,
         slowestCaseMs = slowestCase and slowestCaseMs or nil,
+        engine = engine,
     }
 end
 
@@ -3492,6 +3575,30 @@ end
 -- there rather than written in place of it.
 if #shard == 0 and not queueDir then
     rememberTimings(suiteRecords, results)
+end
+
+-- After the timings, so a suite that did not run does not record costing nothing.
+for _, deferred in ipairs(deferredSuites) do
+    total = total + 1
+    notExecutedCount = notExecutedCount + 1
+    mark("N")
+    results[
+        #results + 1
+    ] = {
+        id = deferred.name .. "/*",
+        suite = deferred.name,
+        name = "*",
+        durationMs = 0,
+        status = "not-executed",
+        notExecuted = {
+            reason = deferred.class == "retired"
+                and "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+                or deferred.class .. ": runs on LuaJIT (tests/run) until it is ported to the VM",
+        },
+    }
+    suiteRecords[
+        #suiteRecords + 1
+    ] = {suite = deferred.name, durationMs = 0, loadMs = 0, hooksMs = 0, casesMs = 0, tests = 0, engine = "luajit",}
 end
 
 -- Coverage-generated modules share one small global counter table.  The runner owns

@@ -234,9 +234,17 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
 
     -- What a lane does between suites: every compiler module is loaded afresh,
     -- except the one that owns type identity.
+    -- On the VM the trivia arena is the table provider the host installed, and a
+    -- fresh copy of the module would reach for the `ffi` one, which the VM has
+    -- not got; it keeps its provider the way `types` keeps identity.
+    local vm = rawget(_G, "__nupp_load_image") ~= nil
     local function unloadAllButTypes()
         for name in pairs(package.loaded) do
-            if type(name) == "string" and name:match("^nupp%.") and name ~= "nupp.compiler.types" then
+            if type(name) == "string"
+                and name:match("^nupp%.")
+                and name ~= "nupp.compiler.types"
+                and not (vm and name:match("^nupp%.compiler%.syntax%.triviaarena"))
+            then
                 package.loaded[name] = nil
             end
         end
@@ -333,14 +341,16 @@ print("shared ids: " .. shared)
     )
     file:close()
 
+    -- The script runs where the suite does: on the VM that is `nupp run`, whose
+    -- image carries the compiler the script requires; on LuaJIT it is the
+    -- interpreter over the suite's own module path.
     local function run(extra)
-        local pipe = assert(
-            io.popen(
-                (
-                    "NUPP_COMPILER_ROOT='%s' LUA_PATH='%s' luajit '%s' '%s' '%s' %d 2>&1"
-                ):format(ROOT, package.path, script, dir, store, extra)
-            )
-        )
+        local command = rawget(_G, "__nupp_load_image")
+            and ("'%s/bin/nupp' run '%s' '%s' '%s' %d 2>&1"):format(ROOT, script, dir, store, extra)
+            or (
+                "NUPP_COMPILER_ROOT='%s' LUA_PATH='%s' luajit '%s' '%s' '%s' %d 2>&1"
+            ):format(ROOT, package.path, script, dir, store, extra)
+        local pipe = assert(io.popen(command))
         local out = pipe:read("*a")
         pipe:close()
 
