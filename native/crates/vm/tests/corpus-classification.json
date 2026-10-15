@@ -249,9 +249,9 @@
     },
     {
       "suite": "bctest",
-      "class": "portable",
-      "facilities": "getinfo,spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "benchprojectstest",
@@ -339,9 +339,9 @@
     },
     {
       "suite": "bytecodelistingtest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "cabitest",
@@ -603,9 +603,9 @@
     },
     {
       "suite": "fleettest",
-      "class": "portable",
-      "facilities": "spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "fmtclitest",
@@ -795,9 +795,9 @@
     },
     {
       "suite": "loopclosuretest",
-      "class": "port-required",
-      "facilities": "jit",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "loweringinvarianttest",
@@ -819,9 +819,9 @@
     },
     {
       "suite": "lua51compattest",
-      "class": "port-required",
-      "facilities": "load,env,jit,string.buffer,debug-hooks,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "materializeirtest",
@@ -1035,9 +1035,9 @@
     },
     {
       "suite": "profiletest",
-      "class": "port-required",
-      "facilities": "load,jit,getinfo,spawn",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "projectlinktest",
@@ -1185,15 +1185,15 @@
     },
     {
       "suite": "simdequivalencedrivertest",
-      "class": "port-required",
-      "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdequivalencetest",
-      "class": "port-required",
-      "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdfixedlanestest",
@@ -1203,9 +1203,9 @@
     },
     {
       "suite": "simdfleetequivalencetest",
-      "class": "port-required",
-      "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdlanetest",
@@ -1215,33 +1215,33 @@
     },
     {
       "suite": "simdmapinventorytest",
-      "class": "port-required",
-      "facilities": "aot",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdmatrixreporttest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdnativealgorithmdifferentialtest",
-      "class": "port-required",
-      "facilities": "jit",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdobligationtest",
-      "class": "port-required",
-      "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdpackbudgettest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdprimitivedifferentialtest",
@@ -1251,9 +1251,9 @@
     },
     {
       "suite": "simdreducerdifferentialtest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdreducertest",
@@ -1263,27 +1263,27 @@
     },
     {
       "suite": "simdruntimeboundarytest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdwasmalgorithmdifferentialtest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdwasmbrowsersmoketest",
-      "class": "portable",
-      "facilities": "spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "simdwasmtimeconformancetest",
-      "class": "portable",
-      "facilities": "spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "soatest",
@@ -1521,9 +1521,9 @@
     },
     {
       "suite": "zoneintrinsictest",
-      "class": "port-required",
-      "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
       "suite": "shellsyntaxtest",
