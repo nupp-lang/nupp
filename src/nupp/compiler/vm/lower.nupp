@@ -2709,6 +2709,34 @@ function lower.emit(
                     f:op("SetSlot", dst, slot, v, shape.id)
                 end
             end
+            -- A function member the construction leaves out is what the
+            -- declaration's table holds under that name, which on LuaJIT the
+            -- instance reaches through `__index`: `function R.f` defines it.
+            local nominal = tyTag(node.inferredType) == "nominal" and node.inferredType or nil
+            local declaration = call.obj or call.vmStructWitness
+            if nominal and declaration and not shape.physical then
+                local given = {}
+                for _, field in ipairs(fields) do
+                    given[field.name] = true
+                end
+                local missing = {}
+                for _, slot in ipairs(shape.slots) do
+                    local member = nominal.byname and nominal.byname[slot.name]
+                    if not given[slot.name] and tyTag(member) == "func" then
+                        missing[#missing + 1] = slot.name
+                    end
+                end
+                if #missing > 0 then
+                    f.nregs = math.max(fieldMark, f.declTop or 0)
+                    f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
+                    local owner = exprAs(f, declaration, "v")
+                    local v = f:reg()
+                    for _, member in ipairs(missing) do
+                        f:op("GetField", v, owner, f:const("str", member))
+                        f:op("SetSlot", dst, shape.slotIndex[member], v, shape.id)
+                    end
+                end
+            end
         elseif k == "tableExpr" then
             local items, named = 0, 0
             for _, field in ipairs(node.fields) do
@@ -3004,7 +3032,8 @@ function lower.emit(
         elseif stat.kind == "cdefFunc" then
             names[1] = stat.name and tokText(stat.name)
         elseif stat.kind == "cdefStruct"
-            or stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct")
+            or stat.kind == "recordDecl"
+            and (stat.declKind == "record" or stat.declKind == "struct" or stat.declKind == "interface")
         then
             names[1] = stat.name and tokText(stat.name)
         end
@@ -3895,7 +3924,21 @@ function lower.emit(
                     f:op("NewTableN", r, 0, 0)
                 end
             end
-            if not shape then
+            -- An interface is erased unless it implements something: its default
+            -- bodies, and what it passes on, live on its own table, the one
+            -- place a declaration in another module can reach them.
+            local implements = false
+            if not shape and node.declKind == "interface" then
+                local nominal = node.resolvedType
+                implements = nominal and nominal.staticByname and next(nominal.staticByname) ~= nil or false
+                for _, entry in ipairs(node.entries or {}) do
+                    implements = implements or entry.kind == "inlineMethod"
+                end
+                for _, super in ipairs(node.supertypes or {}) do
+                    implements = implements or super.interfaceName ~= nil
+                end
+            end
+            if not shape and not implements then
                 return
             end
             f:push()
@@ -3911,6 +3954,22 @@ function lower.emit(
                 f:op("SetField", parent, f:const("str", tokText(node.name)), identity)
             else
                 identity = exprAs(f, {kind = "name", token = node.name}, "v")
+            end
+            if not shape then
+                for _, entry in ipairs(node.entries) do
+                    if entry.kind == "inlineMethod" then
+                        local member = entry.overloadMember or tokText(entry.name)
+                        local c = f:reg()
+                        emitClosure(f, entry.body, c, tokText(node.name) .. ":" .. member, inlineImplicitSelf(entry))
+                        f:op("SetField", identity, f:const("str", member), c)
+                    end
+                end
+                f.declTop = math.max(f.declTop or 0, identity + 1)
+                for _, generated in ipairs(node.vmMetadata or {}) do
+                    stmtReclaim(f, generated)
+                end
+                f:pop()
+                return
             end
             f:op("SetField", identity, f:const("str", "__index"), identity)
             if not shape.physical then
@@ -3944,6 +4003,14 @@ function lower.emit(
             f.declTop = math.max(f.declTop or 0, identity + 1)
             for _, generated in ipairs(node.vmMetadata or {}) do
                 stmtReclaim(f, generated)
+            end
+            -- A default the declaration takes from an interface is a method of
+            -- its instances, as one written in its body is.
+            for _, taken in ipairs(node.inheritedDefaultNames or {}) do
+                local method = f:reg()
+                local member = taken.member or taken.name
+                f:op("GetField", method, identity, f:const("str", member))
+                f:op("SetMethod", shape.id, f:const("str", member), method)
             end
             for _, member in ipairs(node.deriveRecipe and node.deriveRecipe.members or {}) do
                 if member.namespace == "instance" then

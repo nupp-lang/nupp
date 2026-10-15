@@ -254,6 +254,7 @@ local RESOURCES = {
     {source = "src/nupp/codec/json/aot.nupp", output = "nupp/compiler/nupp/codec/json/aot.nupp",},
     {source = "src/nupp/serde/init.nupp", output = "nupp/compiler/nupp/serde/init.nupp"},
     {source = "src/nupp/serde/internal/accessors.nupp", output = "nupp/compiler/nupp/serde/internal/accessors.nupp"},
+    {source = "src/nupp/serde/internal/carrier.nupp", output = "nupp/compiler/nupp/serde/internal/carrier.nupp"},
     {source = "src/nupp/serde/internal/context.nupp", output = "nupp/compiler/nupp/serde/internal/context.nupp"},
     {source = "src/nupp/serde/debug.nupp", output = "nupp/compiler/nupp/serde/debug.nupp"},
     {

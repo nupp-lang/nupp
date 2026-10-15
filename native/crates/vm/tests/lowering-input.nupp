@@ -88,6 +88,22 @@ function api.run(): number
     local counted = {pair?.()}
     assert(#counted == 2)
 
+    -- A record's metatable is its declaration, and a function member its
+    -- construction leaves out is the one the declaration's table holds.
+    local record Counter
+        start: number
+        bump: function(self: Counter, by: number): number
+    end
+
+    function Counter.bump(self: Counter, by: number): number
+        return self.start + by
+    end
+
+    local counter = new Counter(start = 4)
+    local erased: any = counter
+    assert(getmetatable(erased) == Counter and getmetatable({}) == nil)
+    assert(erased.bump(counter, 2) == 6 and counter:bump(1) == 5)
+
     -- Non-UTF-8 literals stay distinct constants, and tostring keeps bytes.
     assert(("\128"):byte() == 128 and ("\255"):byte() == 255)
     assert(tostring("\128") == "\128" and #tostring("\255") == 1)

@@ -8,6 +8,7 @@ local json = require("nupp.codec.json")
 local numbers = require("nupp.serde.internal.numbers")
 local timestamps = require("nupp.serde.internal.timestamps")
 local lowering = require("nupp.serde.internal.json.lower")
+local carrier = require("nupp.serde.internal.carrier")
 
 export interface View
     --- Returns the adapter for a type where it sits, or nil to keep the
@@ -77,19 +78,6 @@ export record Options
     @readonly view: View?
 end
 local cacheKey: table = {}
-local wideRuntime: any
-
-local function wide(): any
-    if wideRuntime == nil then
-        local ok, runtime = pcall(_G.require, "ffi")
-        if not ok then
-            error("declaration binding: this target has no exact 64-bit carrier", 2)
-        end
-        wideRuntime = runtime
-    end
-
-    return wideRuntime
-end
 
 local record Member is core.Member
     @readonly annotations: const{nupp.reflect.Annotation} = {}
@@ -116,7 +104,7 @@ local record Scalar is core.Adapter<unknown, Member>
 
     function describe(self, direction: core.Direction): core.Description<Member>
         if self.description.kind == "integer" and self.description.width == 64 then
-            wide()
+            carrier.require64()
         end
         return self.description
     end
@@ -140,8 +128,7 @@ local record Scalar is core.Adapter<unknown, Member>
         elseif kind == "integer" then
             local decimal: string
             if self.description.width == 64 then
-                -- tostring on the exact carrier includes LuaJIT's width suffix.
-                decimal = tostring(value):gsub("[Uu]?[Ll][Ll]$", "")
+                decimal = carrier.format(value)
             else
                 decimal = ("%.0f"):format((value as number) + 0)
             end
@@ -183,19 +170,7 @@ local record Scalar is core.Adapter<unknown, Member>
                 self.description.signed == true
             ).decimal
             if self.description.width == 64 then
-                local runtime: any = wide()
-                local magnitude: any = runtime.new("uint64_t", 0)
-                local negative = decimal:sub(1, 1) == "-"
-                for position = negative and 2 or 1, #decimal do
-                    magnitude = magnitude * 10 + (assert(decimal:byte(position)) - 48)
-                end
-                if self.description.signed then
-                    if negative then
-                        return runtime.cast("int64_t", 0 - magnitude)
-                    end
-                    return runtime.cast("int64_t", magnitude)
-                end
-                return magnitude
+                return carrier.parse(decimal, self.description.signed == true)
             end
             return tonumber(decimal)
         elseif kind == "null" then

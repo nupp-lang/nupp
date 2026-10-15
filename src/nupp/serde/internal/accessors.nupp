@@ -3,6 +3,8 @@ module nupp.serde.internal.accessors
 -- Neutral declaration operations. Protocols choose their own member handles;
 -- these handles identify only readable storage and constructor parameters.
 
+const carrier = require("nupp.serde.internal.carrier")
+
 local cacheKey: table = {}
 local create: function<T is nupp.Copyable>(target: Type<T>, info: nupp.reflect.Info, index: integer): Access<T>
 
@@ -46,8 +48,7 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
         local limit = 2 ^ (width - (signed and 1 or 0))
         return value >= (signed and -limit or 0) and value < limit
     elseif kind == "int64" or kind == "uint64" then
-        local ffi: any = _G.require("ffi")
-        return ffi.istype(kind == "int64" and "int64_t" or "uint64_t", value)
+        return carrier.isInteger(kind, value)
     elseif kind == "literal" then
         return value == node.value
     elseif kind == "const" then
@@ -55,8 +56,7 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
     elseif kind == "record" then
         return type(value) == "table" and getmetatable(value) == witness(info, index)
     elseif kind == "struct" then
-        local ffi: any = _G.require("ffi")
-        return ffi.istype(witness(info, index), value)
+        return carrier.isStruct(witness(info, index), value)
     elseif kind == "union" then
         for _, member in ipairs(node.members) do
             if checkValue(info, member, value, path, seen) then

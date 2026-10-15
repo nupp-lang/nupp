@@ -1,0 +1,72 @@
+@!internal
+module nupp.serde.internal.carrier
+
+--[[The exact carriers of 64-bit integers and native structs.
+
+Declarations reach these values dynamically, through a descriptor rather than a
+static type. On LuaJIT both are FFI cdata; the VM spells this module with its own
+boxed integers and storage values.
+]]
+
+local ffiRuntime: any
+
+--- The FFI, or a refusal naming the missing carrier.
+--- @raises string when this target has no exact 64-bit carrier
+local function ffi(): any
+    if ffiRuntime == nil then
+        local ok, runtime = pcall(_G.require, "ffi")
+        if not ok then
+            error("declaration binding: this target has no exact 64-bit carrier", 3)
+        end
+        ffiRuntime = runtime
+    end
+
+    return ffiRuntime
+end
+
+--- Refuses a 64-bit declaration on a target without an exact carrier.
+--- @raises string when this target has no exact 64-bit carrier
+export function require64(): nil
+    ffi()
+end
+
+--- Whether a value is held by the exact carrier of a 64-bit integer kind.
+--- @param kind `int64` or `uint64`
+--- @param value the value
+export function isInteger(kind: string, value: any): boolean
+    return ffi().istype(kind == "int64" and "int64_t" or "uint64_t", value)
+end
+
+--- Whether a value is a native value of a struct declaration.
+--- @param witness the struct's declaration
+--- @param value the value
+export function isStruct(witness: any, value: any): boolean
+    return ffi().istype(witness, value)
+end
+
+--- Reads a decimal integer into its exact 64-bit carrier.
+--- @param decimal the digits, with a leading `-` when negative
+--- @param signed whether the carrier is `int64`
+export function parse(decimal: string, signed: boolean): any
+    local runtime = ffi()
+    local magnitude: any = runtime.new("uint64_t", 0)
+    local negative = decimal:sub(1, 1) == "-"
+    for position = negative and 2 or 1, #decimal do
+        magnitude = magnitude * 10 + (assert(decimal:byte(position)) - 48)
+    end
+    if signed then
+        if negative then
+            return runtime.cast("int64_t", 0 - magnitude)
+        end
+        return runtime.cast("int64_t", magnitude)
+    end
+
+    return magnitude
+end
+
+--- Writes an exact 64-bit integer as decimal digits.
+--- @param value the integer
+export function format(borrows value: unknown): string
+    -- tostring on the exact carrier includes LuaJIT's width suffix.
+    return (tostring(value):gsub("[Uu]?[Ll][Ll]$", ""))
+end

@@ -384,6 +384,30 @@ function metadata.declaration(declaration, identity)
     local recipe = declaration.deriveRecipe
     local nominal = declaration.resolvedType
     constructors(declaration, identity, statements)
+    if declaration.declKind == "struct" then
+        -- A struct's declaration is callable, as a LuaJIT ctype is: `T(...)`
+        -- initializes a native value of it.
+        local construct = body({"self"}, {
+            node("returnStmt", {
+                exprs = {
+                    call(
+                        node("bracketIndex", {
+                            obj = name("self"),
+                            expr = data("\0nupp:structType")
+                        }),
+                        {node("vararg")}
+                    )
+                }
+            })
+        })
+        construct.params[#construct.params + 1] = {vararg = true}
+        statements[#statements + 1] = invoke(name("setmetatable"), {
+            identity,
+            node("tableExpr", {
+                fields = {node("fieldBracket", {key = data("__call"), value = node("funcExpr", {body = construct})})}
+            })
+        })
+    end
     local reflect = field(field(name("_G"), "nupp"), "__reflect")
     -- Derived members read the reflection runtime (Debug renders through
     -- `nupp.reflect.runtime`); on LuaJIT an earlier chunk has always installed
@@ -400,6 +424,14 @@ function metadata.declaration(declaration, identity)
             data(reflection.describe(nominal, nominal.runtimePath or nominal.name)),
             data(reflection.runtimeReferences(nominal))
         })
+    end
+    -- Defaults the declaration takes from the interfaces it implements, read
+    -- from the table each interface keeps them on.
+    for _, taken in ipairs(declaration.inheritedDefaultNames or {}) do
+        local member = taken.member or taken.name
+        statements[
+            #statements + 1
+        ] = assign(field(identity, member), field(path(taken.from), taken.fromMember or member))
     end
     if not recipe then
         return statements

@@ -52,6 +52,7 @@ local MODULES: {[string]: {
     ["nupp.codec.json"] = facility("runtime", "native.json"),
     ["nupp.serde"] = {kind = "common"},
     ["nupp.serde.internal.accessors"] = {kind = "common"},
+    ["nupp.serde.internal.carrier"] = {kind = "common"},
     ["nupp.serde.internal.context"] = {kind = "common"},
     ["nupp.serde.debug"] = {kind = "common"},
     ["nupp.serde.internal.declaration"] = {kind = "common"},
