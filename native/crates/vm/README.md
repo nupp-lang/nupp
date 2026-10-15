@@ -2226,3 +2226,43 @@ artifacts and LuaJIT's FFI prelude arena, and move with the tools lane;
 `examplestest` and `serdecontracttest` time out on compile cost under
 collector stress, the serde contracts recompiling the serde modules from
 source in every child process.
+
+## Runtime-compiled modules are kept (2026-10-15)
+
+`nupp run` on the VM compiles every module the root image does not carry --
+the standard library's own modules among them -- from source, in every
+process. The serde contracts spent four minutes per program on that.
+`compile.image` now keeps each image in `nupp.compiler.vm.imagecache`, one
+sealed `nupp.compiler.project.store` value per module under
+`<cache>/vm-images`, where the cache is `NUPP_CACHE_DIR` or the environment's
+own build cache: the compiler checkout's for standard and VM-library modules,
+so every project using that checkout shares them.
+
+- **Key**: the module's bytes, path and load name, and what about its
+  environment is not a file -- roots, type roots, the manifest's value and
+  text, the layout target, `PWD` and `EMIT_STUBS`, which lowering reads.
+- **Stamp**: the checker and lowering code and the carried declarations.
+- **Recorded and compared on the way back in**: every module the environment
+  had loaded when the check finished, by resolved path and bytes; every name
+  the carried modules were asked for and what it resolves to; and the project
+  index's inputs (`envMod.projectDigest`), which a check consults whenever it
+  asks whether a module is internal. The VM library and its declarations are
+  covered by these: the library is a root of the environment its overrides
+  are checked in, and a declaration they reach is a loaded module.
+- A check that reported anything, or read a file no module load accounts for
+  (a C header, a derive provider input), is not kept.
+
+The stamp exposed an older bug. Image chunk names are source paths, so
+`nupp.compiler.project.fingerprint` took itself for a bundle and hashed "the
+bundle" -- its own source file. Every VM store (headers, check results, build
+state, prelude) was stamped with that one file, and an image rebuilt from an
+edited checker went on believing what the old one stored. The runtime now
+answers `__nupp_image_identity()`, the cache digest of the image it started
+from, and that is the compiler's fingerprint on the VM; a runtime without it
+gets a per-process stamp, so every store misses rather than lies. The program
+image key (`nupp.tools.build.package`) names the compiler the same way rather
+than rereading the file `NUPP_VM_CLI_IMAGE` names.
+
+`bench/serde-spike/contracts/structure.nupp` on the linked CLI: 237 s cold,
+1.2 s warm. Images are byte-identical whether a module is compiled after its
+dependencies were checked or alone among cache hits.
