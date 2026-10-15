@@ -79,7 +79,12 @@ function chunks.install(): boolean
     rawset(_G, "loadfile", function(path: string, mode: string?, env: table?): (any, string?)
         local file, problem = io.open(path, "rb")
         if not file then
-            return nil, problem
+            -- Worded as Lua's, which callers search for to tell a missing file
+            -- from a broken one: `cannot open <path>: <reason>`.
+            local reason = tostring(problem)
+                :gsub("^" .. path:gsub("%p", "%%%0") .. ": ", "")
+                :gsub(" %(os error %d+%)$", "")
+            return nil, "cannot open " .. path .. ": " .. reason
         end
         local source = file:read("*a")
         file:close()
