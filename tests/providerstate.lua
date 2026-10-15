@@ -40,8 +40,12 @@ local function vmModule(name)
         end
     end
     result.root.vmModuleExports = result.moduleExports
-    local image = require("nupp.compiler.vm.lower").emit(name, {}, function(candidate)
-        return candidate == name and path or nil
+    -- Under a name of its own: an image registers the modules it declares, and an
+    -- instance registered as the module itself would answer the process's own
+    -- later `require` of it.
+    local instanceName = "providerstate:" .. name
+    local image = require("nupp.compiler.vm.lower").emit(instanceName, {}, function(candidate)
+        return candidate == instanceName and path or nil
     end, function()
         return result.root
     end, true)

@@ -21,8 +21,7 @@ local function files(main, descriptor)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", outDir = "out",
-            output = "out/app.lua", entries = {"main"}
+            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
         }}]],
         ["nupp/spi.json"] = descriptor or [[{"example.api.Codec":["example.first","example.second"]}]],
         [
@@ -46,7 +45,7 @@ end
 local function run(dir)
     local produced = {}
     assert(project.build(dir, {produced = produced}) == 0, "SPI fixture did not build")
-    local status, output = process.capture({"luajit", dir .. "/out/app.lua"})
+    local status, output = process.capture({dir .. "/out/binary"})
     assert(status == 0, output)
 
     -- Printed lines use CRLF on Windows; the provider results are the same.
@@ -258,7 +257,7 @@ for candidate in spi.load(Codec) do print(candidate.encode("x")) end]]
     sources["src/example/second.nupp"] = sources["src/example/second.nupp"] .. '\nerror("broken provider")'
     fixture(sources, function(dir)
         assert(project.build(dir) == 0)
-        local status, output = process.capture({"luajit", dir .. "/out/app.lua"})
+        local status, output = process.capture({dir .. "/out/binary"})
         assert(status ~= 0 and output:find("broken provider", 1, true), output)
     end)
 end
