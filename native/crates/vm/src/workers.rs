@@ -95,6 +95,10 @@ impl Worker {
                         crate::image::load(&mut vm, &s)?;
                     }
                     CodeEvent::Globals => vm.install_globals(),
+                    CodeEvent::Patch { text, retired, added } => {
+                        crate::hotpatch::replay(&mut vm, &text, &retired)?;
+                        vm.code_events.push(CodeEvent::Patch { text, retired, added });
+                    }
                 }
             }
             vm.enable_scheduler()?;

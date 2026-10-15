@@ -9,16 +9,48 @@ pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
     // Everything interned while loading is rooted by a handle scope until the
     // functions and shapes that hold it are registered (4.7).
     let scope = it.open_scope();
-    let r = load_in(it, text);
+    let r = parse(it, text, None).map(|parsed| install(it, parsed));
     it.close_scope(scope);
     if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Image(text.to_owned())); }
     r
 }
-fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
+
+/// An image read and verified but not yet part of the VM: its functions refer
+/// to each other as `base + index`, where `base` is where they would land.
+pub(crate) struct Parsed {
+    pub base: u32,
+    pub entry: u32,
+    pub funcs: Vec<Function>,
+    pub shape_ids: Vec<u32>,
+    pending_methods: Vec<(u32, String, u32)>,
+    /// Each `module` line: name, the index of its chunk, and its source path.
+    pub modules: Vec<(String, u32, Option<String>)>,
+}
+
+/// Publishes a parsed image: modules, functions, and shape methods.
+fn install(it: &mut Interp, parsed: Parsed) -> u32 {
+    let Parsed { base, entry, funcs, shape_ids, pending_methods, modules } = parsed;
+    for (name, chunk, path) in &modules {
+        it.modules.insert(name.clone(), base + chunk);
+        if let Some(p) = path { it.module_paths.insert(name.clone(), p.clone()); }
+    }
+    crate::hotpatch::record(it, base, &funcs, &shape_ids, &modules);
+    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
+    for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
+    // A method an image installs may replace one compiled code resolved.
+    it.heap.proto_epoch += 1;
+    entry
+}
+
+/// Reads an image without changing the VM's code. Interned constants are on
+/// the caller's handle scope. `patch` holds the shapes the running module was
+/// loaded with: a patch may name only those layouts, and never adds a shape.
+pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Result<Parsed, String> {
     let mut entry = 0u32;
     let mut shape_ids: Vec<u32> = Vec::new();
     let mut pending_methods: Vec<(u32, String, u32)> = Vec::new();
     let mut funcs: Vec<Function> = Vec::new();
+    let mut modules: Vec<(String, u32, Option<String>)> = Vec::new();
     let base = it.funcs.len() as u32;
     let mut cur: Option<Function> = None;
     for (ln, raw) in text.lines().enumerate() {
@@ -40,6 +72,15 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                     // the layout is the names, in order.
                     it.heap.shapes[id as usize].names == names
                 });
+                if let Some(old) = patch {
+                    // A patch runs against records the running code already
+                    // made: a layout it names must be one of theirs.
+                    let same = |id: u32| it.heap.shapes[id as usize].names == names && it.heap.shapes[id as usize].name == parts[2];
+                    let id = existing.or_else(|| old.get(shape_ids.len()).copied().filter(|&id| same(id)))
+                        .ok_or_else(|| format!("record layout changed or added: {}", parts[2]))?;
+                    shape_ids.push(id);
+                    continue;
+                }
                 let id = existing.unwrap_or_else(|| it.heap.shape(parts[2], &names, &types));
                 if let (None, Some(key)) = (existing, identity) { it.heap.shape_identities.insert(key, id); }
                 shape_ids.push(id);
@@ -121,12 +162,12 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 f.jump_tables.push((def, offs));
             }
             "module" => {
-                it.modules.insert(parts[1].to_string(), base + parts[2].parse::<u32>().unwrap());
+                let chunk = parts.get(2).and_then(|s| s.parse::<u32>().ok()).ok_or(format!("line {ln}: module chunk"))?;
                 if let Some(p) = parts.get(3) {
-                    it.module_paths.insert(parts[1].to_string(), p.to_string());
                     let path: std::sync::Arc<str> = (*p).into();
                     for f in funcs.iter_mut().filter(|f| f.module == parts[1]) { f.path = Some(path.clone()); }
                 }
+                modules.push((parts[1].to_string(), chunk, parts.get(3).map(|p| p.to_string())));
             }
             "source" => { let f = cur.as_mut().ok_or(format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
             // The declaration of a module a native extension provides.
@@ -229,13 +270,12 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
             }
         }
     }
-    let total = it.funcs.len() + funcs.len();
-    for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
-    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
-    for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
-    // A method an image installs may replace one compiled code resolved.
-    it.heap.proto_epoch += 1;
-    Ok(entry)
+    // A patch is verified once its function references name their targets.
+    if patch.is_none() {
+        let total = it.funcs.len() + funcs.len();
+        for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
+    }
+    Ok(Parsed { base, entry, funcs, shape_ids, pending_methods, modules })
 }
 
 fn split(line: &str) -> Vec<&str> {

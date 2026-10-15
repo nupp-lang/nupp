@@ -92,6 +92,7 @@ pub const NAMES: &[&str] = &[
     "nregex.escape", "nregex.findAll",
     // Markdown (`crate::nmarkdown`).
     "nmarkdown.render",
+    "vm.hotPatch",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -612,6 +613,7 @@ enum Special {
     VmLoadimage,
     VmImageidentity,
     VmImagemodules,
+    VmHotpatch,
     Tail,
 }
 static SPECIAL: std::sync::OnceLock<Vec<Special>> = std::sync::OnceLock::new();
@@ -665,6 +667,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name == "vm.imageModules" { return Special::VmImagemodules; }
+    if name == "vm.hotPatch" { return Special::VmHotpatch; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name.starts_with("nregex.") || name.starts_with("nmarkdown.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
@@ -922,6 +925,23 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // Per module of that same image: the digest of its lowered code and
             // what it reaches, so a stamp can name only the code an answer came from.
             return outs![crate::image_modules::tables(it)];
+        }
+        Special::VmHotpatch => {
+            // (patch text, validate only?) -> report table, or nil and why.
+            let bytes = bytes_of(it, arg(args, 0));
+            let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("patch is not UTF-8"));
+            let commit = !arg(args, 1).truthy();
+            return match crate::hotpatch::apply(it, text, commit) {
+                Ok(report) => {
+                    let t = it.new_table(); let root = it.register(t);
+                    for (name, n) in [("changed", report.changed as u64), ("moved", report.moved as u64), ("added", report.added as u64), ("retained", report.retained as u64), ("generation", report.generation)] {
+                        let k = it.intern(name); it.set_index(t, k, Value::num(n as f64));
+                    }
+                    it.release(root);
+                    outs![t]
+                }
+                Err(reason) => { let v = it.heap_new_string(&reason); outs![Value::NIL, v] }
+            };
         }
         Special::UuidUuid4 => {
             let name = NAMES[id as usize];

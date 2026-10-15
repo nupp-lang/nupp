@@ -32,6 +32,10 @@ const ITEMS: usize = 4_000_000;
 pub(crate) enum CodeEvent {
     Image(String),
     Globals,
+    /// A committed hot patch (`hotpatch`): its text, the ids whose old bodies
+    /// running frames kept (moved to new ids in this order), and how many
+    /// functions it added before those.
+    Patch { text: String, retired: Vec<u32>, added: u32 },
 }
 pub(crate) struct Execution(Rc<Cell<usize>>);
 impl Execution {
@@ -371,6 +375,13 @@ fn code_digest(vm: &Interp) -> Result<[u8; 32]> {
                 h.update(s);
             }
             CodeEvent::Globals => h.update([1]),
+            CodeEvent::Patch { text, retired, added } => {
+                h.update([2]);
+                h.update((text.len() as u64).to_le_bytes());
+                h.update(text);
+                h.update(added.to_le_bytes());
+                for fid in retired { h.update(fid.to_le_bytes()); }
+            }
         }
     }
     for f in &vm.funcs {
@@ -1727,6 +1738,7 @@ pub fn save_vm(
                 .filter(|l| l.trim_start().starts_with("function "))
                 .count(),
             CodeEvent::Globals => 2,
+            CodeEvent::Patch { retired, added, .. } => *added as usize + retired.len(),
         })
         .sum();
     if recorded != vm.funcs.len() {
@@ -1742,6 +1754,13 @@ pub fn save_vm(
                 w.text(s)?
             }
             CodeEvent::Globals => w.byte(1),
+            CodeEvent::Patch { text, retired, added } => {
+                w.byte(2);
+                w.text(text)?;
+                w.u32(*added as usize)?;
+                w.u32(retired.len())?;
+                for &fid in retired { w.u32(fid as usize)?; }
+            }
         }
     }
     let mut roots = Vec::new();
@@ -2120,6 +2139,16 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
                 .map_err(|_| "malformed checkpoint code image")??;
             }
             1 => vm.install_globals(),
+            2 => {
+                let text = r.text()?;
+                let added = r.u32()? as u32;
+                let n = r.count()?;
+                let mut retired = Vec::with_capacity(n);
+                for _ in 0..n { retired.push(r.u32()? as u32); }
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::hotpatch::replay(&mut vm, &text, &retired)))
+                    .map_err(|_| "malformed checkpoint code patch")??;
+                vm.code_events.push(CodeEvent::Patch { text, retired, added });
+            }
             _ => return Err("unknown code recipe".into()),
         }
     }

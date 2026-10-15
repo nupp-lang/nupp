@@ -85,6 +85,7 @@ mod stdio;
 pub mod verify;
 pub mod image;
 pub mod image_modules;
+pub mod hotpatch;
 pub mod payload;
 pub mod host;
 pub mod declaration;

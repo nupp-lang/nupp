@@ -403,7 +403,10 @@ impl<M: Module> Compiler<M> {
         if frame { sig.params.extend([AbiParam::new(types::I64), AbiParam::new(types::I64)]); } else { for &c in &classes { sig.params.push(AbiParam::new(if c == b'f' { types::F64 } else { types::I64 })); } }
         sig.returns.push(AbiParam::new(if ret_f { types::F64 } else { types::I64 }));
         let object = self.runtime_data.is_some();
-        let name = if object { format!("nupp_aot_{fid}") } else { format!("{}#{fid}{}{suffix}", f.name, if frame { ".frame" } else { "" }) };
+        // A hot patch compiles a new body at an id compiled before, so a JIT
+        // symbol also carries a serial.
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let name = if object { format!("nupp_aot_{fid}") } else { format!("{}#{fid}{}{suffix}.{}", f.name, if frame { ".frame" } else { "" }, SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) };
         let id = self.module.declare_function(&name, if object { Linkage::Export } else { Linkage::Local }, &sig).unwrap();
         // Direct callers link the generic version; a specialized one is
         // reached through the entry table, which it can be removed from.
