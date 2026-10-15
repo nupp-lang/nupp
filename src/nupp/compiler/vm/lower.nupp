@@ -196,8 +196,8 @@ function lower.emit(
 
     local function declareShape(node)
         -- An interface has no runtime identity: no shape, erased casts, field access by
-        -- name.
-        if node.declKind == "interface" then
+        -- name. Nor does an annotation schema, which exists only for the checker.
+        if node.declKind == "interface" or node.isAnnotationDefinition then
             return nil
         end
         local name = tokText(node.name)
@@ -1288,6 +1288,95 @@ function lower.emit(
             local offset = extraSelf and 1 or 0
             while f.nregs < base + #lowered + offset + 1 do
                 f:reg()
+            end
+            -- A pluck from a dotted path binds each prefix of that path once, in
+            -- parameter order, after any argument it must stay behind; each plucked
+            -- field is then read where its parameter sits, as the Lua backend did.
+            local lastDotted = 0
+            for index, argument in ipairs(lowered) do
+                if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
+                    lastDotted = index
+                end
+            end
+            if lastDotted > 0 then
+                local paths, early = {}, {}
+
+                local function pathChain(node)
+                    if node.kind == "name" then
+                        return {node}
+                    elseif node.kind == "dotIndex" and node.name then
+                        local chain = pathChain(node.obj)
+                        if chain then
+                            chain[#chain + 1] = node
+                        end
+                        return chain
+                    end
+
+                    return nil
+                end
+
+                local function bindPath(source)
+                    local chain = pathChain(source)
+                    if not chain then
+                        return nil
+                    end
+                    local key = tokText(chain[1].token)
+                    local register = paths[key]
+                    if not register then
+                        register = f:reg()
+                        exprAs(f, chain[1], "v", register)
+                        paths[key] = register
+                    end
+                    for index = 2, #chain do
+                        local node = chain[index]
+                        key = key .. "\0" .. tokText(node.name)
+                        local next = paths[key]
+                        if not next then
+                            next = f:reg()
+                            exprAs(
+                                f,
+                                {
+                                    kind = "dotIndex",
+                                    obj = {kind = "vmRegister", reg = register, inferredType = node.obj.inferredType},
+                                    name = node.name,
+                                    overloadMember = node.overloadMember,
+                                },
+                                "v",
+                                next
+                            )
+                            paths[key] = next
+                        end
+                        register = next
+                    end
+
+                    return register
+                end
+
+                local bases = {}
+                for index, argument in ipairs(lowered) do
+                    if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
+                        bases[argument] = bindPath(argument.source) or exprAs(f, argument.source, "v")
+                    elseif argument.generatedKind == "expr" and index < lastDotted then
+                        early[argument] = exprAs(f, argument.expr, "v")
+                    end
+                end
+                if extraSelf then
+                    f:op("Move", base + 1, extraSelf)
+                end
+                for i, argument in ipairs(lowered) do
+                    local target = base + offset + i
+                    if argument.generatedKind == "nil" then
+                        f:op("Nil", target)
+                    elseif argument.generatedKind == "field" then
+                        local source = bases[argument] or exprAs(f, argument.source, "v")
+                        f:op("GetField", target, source, f:const("str", argument.name))
+                    elseif early[argument] then
+                        f:op("Move", target, early[argument])
+                    else
+                        exprAs(f, argument.expr, "v", target)
+                    end
+                end
+                return base, #lowered + offset
             end
             -- Evaluate in source order, then arrange the checker's parameter map.
             local evaluated = {}
@@ -3308,7 +3397,32 @@ function lower.emit(
         return names
     end
 
-    local function assignTo(f, target, valueReg)
+    -- An assignment evaluates its targets' tables and keys left to right before
+    -- any value, as Lua does: `t()[k()] = v()` calls t, k, then v.
+    local function prepareTarget(f, target)
+        -- A struct-of-arrays row is addressed through its view and index,
+        -- which the store evaluates.
+        if soaField(target) or target.kind == "bracketIndex" and target.soaRow then
+            return nil
+        end
+        if target.kind == "dotIndex" then
+            return {o = exprAs(f, target.obj, "v")}
+        elseif target.kind == "bracketIndex"
+            and not (target.indexedAccess and target.indexedAccess.adapter == "span")
+        then
+            local o = exprAs(f, target.obj, "v")
+            if isIntegerish(target.expr) then
+                return {o = o, i = exprAs(f, target.expr, "i"), class = "i"}
+            elseif isNumeric(target.expr.inferredType) then
+                return {o = o, i = exprAs(f, target.expr, "f"), class = "f"}
+            end
+            return {o = o, i = exprAs(f, target.expr, "v"), class = "v"}
+        end
+
+        return nil
+    end
+
+    local function assignTo(f, target, valueReg, prepared)
         if target.kind == "name" then
             local r, c, cell, spill = f:lookup(tokText(target.token))
             if spill then
@@ -3339,7 +3453,7 @@ function lower.emit(
             soaAccess(f, "setField", view, {index, ordinal}, valueReg)
         elseif target.kind == "dotIndex" then
             local shape = shapeOf(target.obj.inferredType)
-            local o = exprAs(f, target.obj, "v")
+            local o = prepared and prepared.o or exprAs(f, target.obj, "v")
             local fname = tokText(target.name)
             local field = physicalField(shape, fname)
             if field then
@@ -3365,6 +3479,11 @@ function lower.emit(
                 soaAccess(f, "set", target.obj, {target.expr}, valueReg)
                 return
             end
+            if prepared then
+                local op = prepared.class == "i" and "SetIdxI" or prepared.class == "f" and "SetIdxF" or "SetIdx"
+                f:op(op, prepared.o, prepared.i, valueReg)
+                return
+            end
             local o = exprAs(f, target.obj, "v")
             if isIntegerish(target.expr) then
                 local i = exprAs(f, target.expr, "i");
@@ -3382,7 +3501,16 @@ function lower.emit(
     end
 
     local function loopBegin(f)
-        f.breaks[#f.breaks + 1] = {cleanupDepth = f.cleanupDepth or 0}
+        f.breaks[#f.breaks + 1] = {cleanupDepth = f.cleanupDepth or 0, continues = {}}
+    end
+
+    -- Where `continue` lands: the loop's own next-round step, after the body.
+    local function loopContinue(f)
+        local list = f.breaks[#f.breaks]
+        for _, at in ipairs(list.continues) do
+            f:patch(at, "Jmp", f:offset(at, f:here()))
+        end
+        list.continues = {}
     end
 
     local function loopEnd(f)
@@ -3511,6 +3639,34 @@ function lower.emit(
 
     stmt = function(f, node)
         local k = node.kind
+        if k == "localStmt" and node.pattern then
+            -- `local {x, y as v} = source`: the source is read once, then each
+            -- selected field in order. A `type` selection binds nothing at run time.
+            local names, types, exprs = {}, {}, {}
+            local hold = nil
+            for _, entry in ipairs(node.pattern) do
+                if not entry.typeOnly then
+                    if not hold then
+                        hold = f:reg()
+                        exprAs(f, node.patternSource, "v", hold)
+                    end
+                    local index = #names + 1
+                    names[index] = entry.alias or entry.sourceName
+                    types[index] = entry.type
+                    exprs[
+                        index
+                    ] = {
+                        kind = "dotIndex",
+                        obj = {kind = "vmRegister", reg = hold, inferredType = node.patternSource.inferredType},
+                        name = entry.sourceName,
+                    }
+                end
+            end
+            if #names > 0 then
+                stmt(f, {kind = "localStmt", names = names, types = types, exprs = exprs, isConst = node.isConst})
+            end
+            return
+        end
         if k == "localStmt" then
             local names = node.names
             local declared = {}
@@ -3613,14 +3769,19 @@ function lower.emit(
                         return
                     end
                 end
+                local prepared = prepareTarget(f, target)
                 local v = exprAs(f, exprs[1], "v")
-                assignTo(f, target, v)
+                assignTo(f, target, v, prepared)
                 return
+            end
+            local prepared = {}
+            for i, target in ipairs(targets) do
+                prepared[i] = prepareTarget(f, target) or false
             end
             local base = f.nregs
             exprsInto(f, exprs, #targets, base)
             for i, target in ipairs(targets) do
-                assignTo(f, target, base + i - 1)
+                assignTo(f, target, base + i - 1, prepared[i] or nil)
             end
         elseif k == "gotoStmt" then
             local name = tokText(node.name)
@@ -3818,6 +3979,7 @@ function lower.emit(
             f.nregs = math.max(mark, f.declTop or 0)
             loopBegin(f)
             block(f, node.body)
+            loopContinue(f)
             local back = f:op("Jmp", 0);
             f:patch(back, "Jmp", f:offset(back, top))
             f:patch(branch, bop, c, f:offset(branch, f:here()))
@@ -3826,11 +3988,19 @@ function lower.emit(
             local top = f:here()
             loopBegin(f)
             f:push()
+            local depth = f.cleanupDepth or 0
             for _, s in ipairs(node.body.stats or {}) do
                 coverStatement(f, s)
                 stmtReclaim(f, s)
             end
+            loopContinue(f)
+            -- The condition still sees the body's owners; they close after it,
+            -- on the way out and on the way round alike.
             local c = exprAs(f, node.cond, "v")
+            if (f.cleanupDepth or 0) > depth then
+                f:op("Unwind", depth)
+                f.cleanupDepth = depth
+            end
             f:pop()
             local back = f:op("JmpIfNot", c, 0);
             f:patch(back, "JmpIfNot", c, f:offset(back, top))
@@ -3912,6 +4082,7 @@ function lower.emit(
             if varCell then
                 f:pop()
             end
+            loopContinue(f)
             f:op("FAdd", var, var, step)
             local back = f:op("Jmp", 0);
             f:patch(back, "Jmp", f:offset(back, top))
@@ -3961,6 +4132,7 @@ function lower.emit(
                 end
                 block(f, node.body)
                 f:pop()
+                loopContinue(f)
                 local back = f:op("Jmp", 0)
                 f:patch(back, "Jmp", f:offset(back, top))
                 f:patch(exit, "JmpIfIZero", valid, f:offset(exit, f:here()))
@@ -4004,11 +4176,18 @@ function lower.emit(
             end
             block(f, node.body)
             f:pop()
+            loopContinue(f)
             local back = f:op("Jmp", 0);
             f:patch(back, "Jmp", f:offset(back, top))
             f:patch(exit, "JmpIf", ended, f:offset(exit, f:here()))
             loopEnd(f)
             f:pop()
+        elseif k == "continueStmt" then
+            local loop = assert(f.breaks[#f.breaks], "continue outside a loop")
+            if (f.cleanupDepth or 0) > loop.cleanupDepth then
+                f:op("Unwind", loop.cleanupDepth)
+            end
+            loop.continues[#loop.continues + 1] = f:op("Jmp", 0)
         elseif k == "breakStmt" then
             if (f.cleanupDepth or 0) > f.breaks[#f.breaks].cleanupDepth then
                 f:op("Unwind", f.breaks[#f.breaks].cleanupDepth)
@@ -4118,6 +4297,10 @@ function lower.emit(
             if spill then
                 f:storeSpill(spill, destination)
             end
+        elseif k == "recordDecl" and node.isAnnotationDefinition then
+            -- Annotation schemas are compile-time model metadata, even when written
+            -- with `record` or `struct`: no runtime value, shape or layout.
+            return
         elseif k == "recordDecl" or k == "cdefStruct" then
             local shape = declareShape(node)
             -- The record's name is also a value: the table its static members live on
@@ -4522,6 +4705,9 @@ function lower.emit(
         local scope = chain[#chain]
         noteCleanups(st, chain, here)
         if k == "localStmt" then
+            if st.patternSource then
+                analyzeExpr(st.patternSource, chain, here, seen)
+            end
             for _, e in ipairs(st.exprs or {}) do
                 analyzeExpr(e, chain, here, seen)
             end
