@@ -1237,6 +1237,23 @@ function lower.emit(
             exprAs(f, node.expr, "v", value)
             f:op("CallDyn", callee, base, 1)
             f:op("Move", dst, base)
+        elseif t.wherePredicate then
+            -- A `where` refinement is the declaration's own answer to `is`, and the
+            -- only one an interface has. The checker renders it as a Lua test of one
+            -- subject; the subject is evaluated once and bound for it.
+            local test = node.vmWhereTest
+            if not test then
+                local text = require("nupp.compiler.types.predicate").test(t.wherePredicate, "__nuppIsSubject")
+                local parsed = require("nupp.compiler.syntax.parser").parse("return " .. text, "=where")
+                assert(#parsed.errors == 0, "refinement test does not parse: " .. text)
+                test = (parsed.root.blocks[1].stats[1] as any).exprs[1]
+                node.vmWhereTest = test
+            end
+            f:push()
+            local subject = f:declare("__nuppIsSubject", "v")
+            exprAs(f, node.expr, "v", subject)
+            exprAs(f, test, "v", dst)
+            f:pop()
         elseif targetShape then
             local value = exprAs(f, node.expr, "v")
             shapeTest(f, targetShape, value, dst)
@@ -2486,6 +2503,19 @@ function lower.emit(
             local a = exprAs(f, node.operand, "i");
             local d = f:freg();
             f:op("INot", d, a);
+            -- A narrow unsigned complement stays in its width, as the binary
+            -- operators' results do.
+            local ty = node.inferredType
+            while type(ty) == "table" and ty.tag == "literal" and ty.base do
+                ty = ty.base
+            end
+            local masks = {uint8 = 0xFF, uint16 = 0xFFFF, uint32 = 0xFFFFFFFF}
+            local mask = type(ty) == "table" and masks[ty.tag]
+            if mask then
+                local m = f:freg()
+                f:op("IK", m, mask)
+                f:op("IAnd", d, d, m)
+            end
             return d, "i"
         end
         if numeric and k == "unop" and tokText(node.op) == "-" then
@@ -2725,6 +2755,36 @@ function lower.emit(
                 value = body:sub(1, 1) == "\n" and body:sub(2) or body
             end
             f:op("K", dst, f:const("str", value))
+        elseif k == "orExitExpr" then
+            -- `e or return`, `e or break`, `e or continue`: the operand runs once into
+            -- fixed registers, its first value decides, and that value is the
+            -- expression's. `or return` returns the whole pack through an ordinary
+            -- return, so it discharges what it leaves as a written one would.
+            local width = node.exitKind == "return" and math.max(node.orExitWidth or 1, 1) or 1
+            local base = f.nregs
+            while f.nregs < base + width + 8 do
+                f:reg()
+            end
+            if width > 1 and multiCall(node.operand) then
+                emitCall(f, node.operand, base, width)
+            else
+                exprAs(f, node.operand, "v", base)
+                for index = 2, width do
+                    f:op("Nil", base + index - 1)
+                end
+            end
+            local proceed = f:op("JmpIf", base, 0)
+            if node.exitKind == "return" then
+                local values = {}
+                for index = 1, width do
+                    values[index] = {kind = "vmRegister", reg = base + index - 1}
+                end
+                stmt(f, {kind = "returnStmt", exprs = values})
+            else
+                stmt(f, {kind = node.exitKind == "break" and "breakStmt" or "continueStmt"})
+            end
+            f:patch(proceed, "JmpIf", base, f:offset(proceed, f:here()))
+            f:op("Move", dst, base)
         elseif k == "istring" then
             -- `text ${value} text`: each literal piece as written, each value
             -- through the `tostring` builtin (never a local of that name), joined
@@ -4484,6 +4544,10 @@ function lower.emit(
             f:op(cell and "NewCell" or "Move", destination, value)
             if spill then
                 f:storeSpill(spill, destination)
+            end
+            -- A C function named as a terminal is found where its declaration put it.
+            if node.name.cleanupRegistrations then
+                registerCleanups(f, node.name.cleanupRegistrations, value)
             end
         elseif k == "recordDecl" and node.isAnnotationDefinition then
             -- Annotation schemas are compile-time model metadata, even when written
