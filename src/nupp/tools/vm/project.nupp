@@ -374,7 +374,11 @@ function project.program(
     for name, record in pairs(modules or {}) do
         local path = type(record) == "table" and (record as any).sourcePath or nil
         local own = type(path) == "string"
-            and ((path as string):sub(1, #prefix) == prefix or (path as string):sub(1, 1) ~= "/")
+            and (
+                (record as any).rock == true
+                or (path as string):sub(1, #prefix) == prefix
+                or (path as string):sub(1, 1) ~= "/"
+            )
         if own and name ~= entry then
             names[#names + 1] = name
             sources[name] = path as string

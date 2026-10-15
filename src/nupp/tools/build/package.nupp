@@ -637,6 +637,27 @@ local function programPayload(
     if not resources then
         return nil, resourceErr
     end
+    -- The rock modules the target names ride along as a bundle's do, so the
+    -- same `require` resolves in a stamped binary. A project module of one
+    -- name stays the one the program runs.
+    local rocks = deps.rockModules(root, config, target)
+    if #rocks > 0 then
+        local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
+        local carried: {[string]: any} = {}
+        for name, record in pairs(modules or {}) do
+            carried[name] = record
+        end
+        for _, rock in ipairs(rocks) do
+            if carried[rock.name] == nil then
+                local text, readErr = fs.readFile(rock.path)
+                if text == nil then
+                    return nil, readErr
+                end
+                carried[rock.name] = {sourcePath = rock.path, sourceHash = digest(text as string), rock = true}
+            end
+        end
+        modules = carried
+    end
     local embedded: string? = nil
     if #resources > 0 then
         local fields = {"return {\n"}
