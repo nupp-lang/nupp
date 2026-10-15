@@ -12,6 +12,9 @@ use std::{
     rc::Rc,
 };
 
+/// The caller word's flag for a protected record that carries xpcall's handler.
+const XPCALL_RECORD: usize = 1 << 31;
+
 pub type Result<T> = std::result::Result<T, String>;
 const MAGIC: &[u8; 8] = b"NUPPSAV1";
 // Plain compiler data uses a sparse schema catalog with original identity hints.
@@ -1773,9 +1776,20 @@ pub fn save_vm(
             }
             w.u32(t.protected.len())?;
             for h in &t.protected {
+                // An xpcall record marks its caller word and adds the
+                // handler; a pcall record is as it always was.
                 w.u32(h.frame)?;
-                w.u32(h.caller)?;
-                w.u32(h.result)?;
+                if h.caller >= XPCALL_RECORD {
+                    return Err("protected frame out of range".into());
+                }
+                if h.handler == Value::NIL {
+                    w.u32(h.caller)?;
+                    w.u32(h.result)?;
+                } else {
+                    w.u32(h.caller | XPCALL_RECORD)?;
+                    w.u32(h.result)?;
+                    w.u32(root(&mut roots, h.handler))?;
+                }
             }
         }
         match t.state {
@@ -2157,10 +2171,19 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
         }
         if regions {
             for _ in 0..r.count()? {
+                let frame = r.u32()?;
+                let caller = r.u32()?;
+                let result = r.u32()?;
+                let handler = if caller & XPCALL_RECORD != 0 {
+                    Value(r.u32()? as u64)
+                } else {
+                    Value::NIL
+                };
                 protected.push(crate::interp::Protected {
-                    frame: r.u32()?,
-                    caller: r.u32()?,
-                    result: r.u32()?,
+                    frame,
+                    caller: caller & !XPCALL_RECORD,
+                    result,
+                    handler,
                 });
             }
         }
@@ -2282,6 +2305,11 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
                 return Err("invalid protected result".into());
             }
             previous = Some(h.frame);
+        }
+        for h in &mut t.protected {
+            if h.handler != Value::NIL {
+                h.handler = get_root(&roots, h.handler.0 as usize)?;
+            }
         }
         let mut previous = 0;
         for c in &mut t.cleanups {

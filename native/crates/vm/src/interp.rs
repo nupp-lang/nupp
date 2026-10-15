@@ -326,8 +326,12 @@ pub enum State { Runnable, Parked(u64), Done }
 #[derive(Clone, Copy)]
 pub struct Cleanup { pub frame: usize, pub value: Value, pub callback: Value }
 
+/// A protected call that spans frames: `frame` is the callee's (or the
+/// caller's, while it waits on a host request), `result` the caller register
+/// that takes the status and then the results. `handler` is xpcall's message
+/// handler, nil for pcall; it is rooted here while the call runs.
 #[derive(Clone, Copy)]
-pub struct Protected { pub frame: usize, pub caller: usize, pub result: usize }
+pub struct Protected { pub frame: usize, pub caller: usize, pub result: usize, pub handler: Value }
 
 pub struct Task {
     /// Every frame's header and windows, in call order.
@@ -506,6 +510,7 @@ impl Roots for TaskRoots<'_> {
         for t in self.tasks {
             f(t.error);
             for c in &t.cleanups { f(c.value); f(c.callback); }
+            for h in &t.protected { f(h.handler); }
             // Each frame's value window, walked from the top frame down the
             // caller chain; the other windows hold no references.
             let mut s = t.cur;
@@ -1724,6 +1729,7 @@ impl Interp {
                     if self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) {
                         let value = self.error_value(e);
                         let handler = self.tasks[tid].protected.pop();
+                        let value = match handler { Some(h) => { let root = self.register(value); let handled = self.handled_error(h.handler, value); self.release(root); handled } None => value };
                         let keep = handler.map(|h| self.tasks[tid].cleanups.iter().take_while(|c| c.frame < h.frame).count()).unwrap_or(0);
                         let pc = (self.tasks[tid].stack[self.tasks[tid].cur()] >> 32) as usize;
                         self.begin_unwind(tid, keep, pc, "raise", value, handler);
@@ -1732,6 +1738,8 @@ impl Interp {
                     if let Some(handler) = self.tasks[tid].protected.pop() {
                         let value = self.error_value(e);
                         let root = self.register(value);
+                        let value = self.handled_error(handler.handler, value);
+                        self.registered[root] = value;
                         let keep = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < handler.frame).count();
                         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.unwind_cleanups(tid, keep)));
                         let t = &mut self.tasks[tid]; t.cur = handler.caller;
@@ -1881,23 +1889,7 @@ impl Interp {
                     Op::CallMethod(k, b, nargs) => match { self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::PCall(b, nargs) => {
                         if self.frame_mode {
-                            let caller = self.tasks[tid].cur;
-                            let scope = self.open_scope();
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.op_call_dyn(tid, &win, pc, b + 1, b + 1, nargs)));
-                            self.close_scope(scope);
-                            match result {
-                                Ok(Flow::Reenter) => { let frame = self.tasks[tid].cur; self.tasks[tid].protected.push(Protected { frame, caller, result: base + b as usize }); return Step::Reenter; }
-                                Ok(Flow::Return(o)) => {
-                                    // A host builtin resumes after this instruction. Task
-                                    // waits retry it instead and need no continuation.
-                                    if (self.tasks[tid].stack[caller] >> 32) as usize == pc {
-                                        self.tasks[tid].protected.push(Protected { frame: caller, caller, result: base + b as usize });
-                                    }
-                                    return Step::Return(o);
-                                }
-                                Ok(Flow::Next) => { self.protected_results(r!(b + 1)); r!(b) = Value::TRUE; }
-                                Err(e) => { let value = self.error_value(e); self.deliver(regs, b as usize, &[Value::FALSE, value]); }
-                            }
+                            match self.frame_pcall(tid, &win, pc, b, nargs, Value::NIL) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) }
                         } else { self.op_pcall(tid, &win, b, nargs); }
                     }
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
@@ -2134,6 +2126,12 @@ impl Interp {
             }
         }
         if let Some(id) = callee.as_builtin() {
+            // `pcall` and `xpcall` reached as values (a Lua chunk's globals,
+            // a local alias) protect the same way the PCall opcode does, so a
+            // task can suspend inside them.
+            if self.frame_mode && (id == crate::builtins::PCALL || id == crate::builtins::XPCALL) {
+                if let Some(flow) = self.dynamic_pcall(tid, w, pc, id, b, nargs) { return flow; }
+            }
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) {
                 match crate::task_api::call(self, tid, crate::builtins::NAMES[id as usize], args.as_slice()) {
@@ -2217,6 +2215,93 @@ impl Interp {
         self.push_frame(tid, ch.fid(), base + b as usize, nargs, pc);
         let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
         Flow::Reenter
+    }
+    /// A protected call the frame driver can suspend inside: the callee is
+    /// called with `b + 1` as its window, and a callee that pushes a frame or
+    /// parks leaves a `Protected` record that its return, its completion or
+    /// a raise settles. The status lands at `b` and the results after it.
+    #[inline(never)]
+    fn frame_pcall(&mut self, tid: usize, w: &Win, pc: usize, b: u8, nargs: u8, handler: Value) -> Flow {
+        // A protected call of pcall itself nests on the builtin: two records
+        // over one callee frame could not be settled in order.
+        let callee = unsafe { *w.regs.add(b as usize + 1) };
+        if callee.as_builtin().is_some_and(|id| id == crate::builtins::PCALL || id == crate::builtins::XPCALL) {
+            if handler == Value::NIL { self.op_pcall(tid, w, b, nargs); return Flow::Next; }
+            return self.nested_xpcall(tid, w, b, nargs, handler);
+        }
+        let caller = self.tasks[tid].cur;
+        let result = w.base + b as usize;
+        let scope = self.open_scope();
+        self.handles.push(handler);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.op_call_dyn(tid, w, pc, b + 1, b + 1, nargs)));
+        self.close_scope(scope);
+        match outcome {
+            Ok(Flow::Reenter) => { let frame = self.tasks[tid].cur; self.tasks[tid].protected.push(Protected { frame, caller, result, handler }); Flow::Reenter }
+            Ok(Flow::Return(o)) => {
+                // A host builtin resumes after this instruction. Task waits
+                // retry it instead and need no continuation.
+                if (self.tasks[tid].stack[caller] >> 32) as usize == pc {
+                    self.tasks[tid].protected.push(Protected { frame: caller, caller, result, handler });
+                }
+                Flow::Return(o)
+            }
+            Ok(Flow::Next) => {
+                let first = unsafe { *w.regs.add(b as usize + 1) };
+                self.protected_results(first);
+                unsafe { *w.regs.add(b as usize) = Value::TRUE; }
+                Flow::Next
+            }
+            Err(e) => {
+                let value = self.error_value(e);
+                let value = self.handled_error(handler, value);
+                self.deliver(w.regs, b as usize, &[Value::FALSE, value]);
+                Flow::Next
+            }
+        }
+    }
+    /// A dynamic call of the `pcall` or `xpcall` builtin under the frame
+    /// driver, rearranged into the PCall layout: the protected function at
+    /// `b + 1` and its arguments after it. xpcall's handler moves into the
+    /// protected record and its arguments shift down over it, which only
+    /// fixed arguments allow. None leaves the call to the builtin.
+    fn dynamic_pcall(&mut self, tid: usize, w: &Win, pc: usize, id: u32, b: u8, nargs: u8) -> Option<Flow> {
+        if id == crate::builtins::PCALL {
+            let fixed = nargs & 63;
+            if fixed == 0 { return None; }
+            return Some(self.frame_pcall(tid, w, pc, b, nargs - 1, Value::NIL));
+        }
+        if nargs >= 64 || nargs < 2 { return None; }
+        let handler = unsafe { *w.regs.add(b as usize + 2) };
+        for i in 2..nargs as usize { unsafe { *w.regs.add(b as usize + i) = *w.regs.add(b as usize + i + 1); } }
+        Some(self.frame_pcall(tid, w, pc, b, nargs - 2, handler))
+    }
+    /// `xpcall(pcall, handler, ...)` and the like, run as the builtin runs
+    /// them: nested, so it cannot suspend.
+    fn nested_xpcall(&mut self, tid: usize, w: &Win, b: u8, nargs: u8, handler: Value) -> Flow {
+        let callee = unsafe { *w.regs.add(b as usize + 1) };
+        let args = self.call_args(tid, w.base + b as usize + 2, nargs);
+        let scope = self.open_scope();
+        self.handles.push(handler);
+        self.handles.push(callee);
+        self.handles.extend_from_slice(args.as_slice());
+        let mut values = self.pcall_values(callee, args.as_slice());
+        if !values[0].truthy() { let value = values[1]; values = vec![Value::FALSE, self.handled_error(handler, value)]; }
+        self.close_scope(scope);
+        self.deliver(w.regs, b as usize, &values);
+        Flow::Next
+    }
+    /// xpcall's message handler applied to a raised value, at the raise and
+    /// before any unwinding; nil is pcall's absent handler. A handler that
+    /// raises answers Lua's "error in error handling".
+    pub(crate) fn handled_error(&mut self, handler: Value, value: Value) -> Value {
+        if handler == Value::NIL { return value; }
+        let scope = self.open_scope();
+        self.handles.push(value);
+        self.handles.push(handler);
+        let handled = self.pcall_values(handler, &[value]);
+        let result = if handled[0].truthy() { handled.get(1).copied().unwrap_or(Value::NIL) } else { self.intern("error in error handling") };
+        self.close_scope(scope);
+        result
     }
     #[inline(never)]
     fn op_pcall(&mut self, tid: usize, w: &Win, b: u8, nargs: u8) {

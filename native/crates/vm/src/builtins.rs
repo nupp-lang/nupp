@@ -177,8 +177,25 @@ const N_33: u32 = 33; // rawget
 const N_34: u32 = 34; // rawset
 const N_35: u32 = 35; // setmetatable
 const N_36: u32 = 36; // getmetatable
+pub(crate) const PCALL: u32 = N_21;
 const N_37: u32 = 37; // unpack
 
+/// A builtin's id at compile time, for names past the numbered constants.
+pub(crate) const fn const_id(name: &str) -> u32 {
+    let mut i = 0;
+    while i < NAMES.len() {
+        let (a, b) = (NAMES[i].as_bytes(), name.as_bytes());
+        if a.len() == b.len() {
+            let mut j = 0;
+            while j < a.len() && a[j] == b[j] { j += 1; }
+            if j == a.len() { return i as u32; }
+        }
+        i += 1;
+    }
+    panic!("no such builtin")
+}
+pub(crate) const XPCALL: u32 = const_id("xpcall");
+pub(crate) const STRING_FORMAT: u32 = const_id("string.format");
 pub fn id_of(name: &str) -> Option<u32> { NAMES.iter().position(|n| *n == name).map(|i| i as u32) }
 
 /// An error raised by `error`: the value travels as the panic payload.
