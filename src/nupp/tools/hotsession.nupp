@@ -474,7 +474,8 @@ local function cDeclarationChange(old, current)
     local nextDeclarations = current.cDeclarations or {}
     local oldUses = old.cUses or {}
     local nextUses = current.cUses or oldUses
-    local identities: {boolean} = {}
+    -- Identities are strings: a C aggregate's name, or a library and symbol.
+    local identities: {[string]: boolean} = {}
     for identity in pairs(oldDeclarations) do
         identities[identity] = true
     end
@@ -487,7 +488,7 @@ local function cDeclarationChange(old, current)
             return declaration, "new-use"
         end
     end
-    local ordered: {integer} = {}
+    local ordered: {string} = {}
     for identity in pairs(identities) do
         ordered[#ordered + 1] = identity
     end
@@ -1144,16 +1145,23 @@ function Session:prepare(paths)
             -- The runtime's map: each new function's position in the running list.
             local map: {string} = {}
             local changed = 0
+            -- A declaration added or removed is named before the top level it changes.
+            for _, fn in ipairs(nextManifest.functions) do
+                if fn.declaration and not fn.chunk and not oldByKey[fn.key] then
+                    return refuse("reloadable declaration was added: " .. fn.name, "reloadable-declaration", fn.name)
+                end
+            end
+            for _, old in ipairs(live.functions or {}) do
+                if old.declaration and not old.chunk and not nextByKey[old.key] then
+                    return refuse("reloadable declaration changed: " .. old.name, "reloadable-declaration", old.name)
+                end
+            end
             for index, fn in ipairs(nextManifest.functions) do
                 local old = oldByKey[fn.key]
                 map[index] = old and tostring(old.index) or "-"
                 if not old then
-                    if fn.declaration then
-                        return refuse(
-                            "reloadable declaration was added: " .. fn.name,
-                            "reloadable-declaration",
-                            fn.name
-                        )
+                    if fn.chunk then
+                        return refuse("top-level structure changed in " .. module, "source-structure", module)
                     end
                 elseif fn.chunk ~= old.chunk or old.chunk and fn.implementation ~= old.implementation then
                     return refuse("top-level structure changed in " .. module, "source-structure", module)
@@ -1163,11 +1171,6 @@ function Session:prepare(paths)
                     return refuse("captured bindings changed: " .. fn.name, "capture-set", fn.name)
                 elseif fn.implementation ~= old.implementation then
                     changed = changed + 1
-                end
-            end
-            for _, old in ipairs(live.functions or {}) do
-                if old.declaration and not nextByKey[old.key] then
-                    return refuse("reloadable declaration changed: " .. old.name, "reloadable-declaration", old.name)
                 end
             end
             if changed > 0 then

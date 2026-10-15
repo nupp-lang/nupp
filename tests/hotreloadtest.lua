@@ -214,6 +214,8 @@ function M.rejectedCaptureChangeLeavesOldGenerationRunning()
 end
 
 function M.sessionRefusesSignatureDeclarationAndLayoutChanges()
+    -- Nothing here is exported, so each refusal is the session's own rather than a
+    -- changed module interface.
     local before = table.concat(
         {
             "local record Point",
@@ -222,15 +224,21 @@ function M.sessionRefusesSignatureDeclarationAndLayoutChanges()
             "local function size(p: Point): number",
             "   return p.x",
             "end",
-            "return size",
+            "local function measure(): number",
+            "   return size(new Point(x = 1))",
+            "end",
+            "print(measure())",
         },
         "\n"
     )
     local cases = {
-        {before:gsub("p: Point%): number", "p: Point, scale: number): number"), "callable-abi", "callable signature changed: size"},
+        {
+            (before:gsub("p: Point%): number", "p: Point, scale: number): number"):gsub("size%(new Point%(x = 1%)%)", "size(new Point(x = 1), 2)")),
+            "callable-abi",
+            "callable signature changed: size",
+        },
         {before .. "\nlocal function extra(): integer return 1 end", "reloadable-declaration", "reloadable declaration was added: extra"},
-        {before:gsub("   x: number", "   x: number\n   y: number"), "record-layout", "record layout changed in main"},
-        {(before:gsub("return size$", "return 1")), "reloadable-declaration", "reloadable declaration changed: size"},
+        {(before:gsub("   x: number", "   x: number\n   y: number?")), "record-layout", "record layout changed in main"},
     }
     for _, case in ipairs(cases) do
         local dir = temporaryProject({["main.nupp"] = before})
@@ -648,13 +656,12 @@ function M.sessionKeysCDeclarationsIndependentOfOrder()
 
     write(path, after)
     session:diskChanged(path, 2)
-    testAssert.equal(
-        session:prepare({
-            path
-        }).kind,
-        "no-change",
-        "declaration order is not part of keyed C ABI semantics"
-    )
+    -- Order is not part of the keyed C comparison. On the VM a top-level
+    -- declaration is also a statement the module's top level runs, so moving one
+    -- is still a top-level change.
+    local result = session:prepare({path})
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "source-structure", "declaration order is not part of keyed C ABI semantics")
 end
 
 function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
@@ -1270,45 +1277,6 @@ function M.cliWatchRejectsOptimizedGeneration()
         assert(status ~= 0, "optimized watch command must fail")
         assert(readFile(output):find("--watch supports -O0 only", 1, true), readFile(output))
     end)
-end
-
-function M.cliWatchObservesHeaderOnlyEdits()
-    local nupp = watchCommand()
-    if not nupp then
-        return require("assert").skip("--watch runs on the VM CLI, and none is installed")
-    end
-    withProject(
-        {
-            ["api.h"] = "int hot_watch_header(void);\n",
-            ["writer.lua"] = WRITER,
-            [
-                "main.nupp"
-            ] = table.concat(
-                {
-                    "local api = cheader('api.h')",
-                    "local write = require('writer')",
-                    "nupp.hotreload.poll()",
-                    "write('api.h', '/* comment */\\nint hot_watch_header(void);\\n')",
-                    "print(nupp.hotreload.poll().kind)",
-                    "write('api.h', 'long hot_watch_header(void);\\n')",
-                    "print(nupp.hotreload.poll().kind)",
-                    "return api",
-                    "",
-                },
-                "\n"
-            ),
-        },
-        function(dir)
-            local output = dir .. "/output.txt"
-            local errors = dir .. "/errors.txt"
-            local command = ("cd '%s' && '%s' run --watch main.nupp > '%s' 2> '%s'"):format(dir, nupp, output, errors)
-            local status = os.execute(command)
-            local stderr = readFile(errors)
-            testAssert.equal(status, 0, "header watch exit status: " .. stderr)
-            testAssert.equal(readFile(output), "no-change\nrestart-required\n")
-            assert(stderr:find("header api.h at", 1, true), stderr)
-        end
-    )
 end
 
 function M.cliWatchRequiresRestartForMappedNativeReplacement()

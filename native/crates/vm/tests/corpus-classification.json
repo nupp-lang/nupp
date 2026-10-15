@@ -705,9 +705,9 @@
     },
     {
       "suite": "hotreloadtest",
-      "class": "port-required",
-      "facilities": "load,ffi,jit,spawn,lua-generator",
-      "reason": "hot reload lane"
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "drives the VM watch session, vm.hotPatch and nupp run --watch"
     },
     {
       "suite": "httpnativetest",

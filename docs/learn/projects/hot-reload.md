@@ -115,7 +115,8 @@ string. The comparison covers checked layout, callable ABI, library, and Nupp
 ownership contracts, and a generation records the declarations installed by
 module initialization alongside those used by each retained function.
 
-Reordering equivalent declarations therefore produces `no-change`. Changing a
+Reordering equivalent declarations is therefore not a C change, though moving
+one at a module's top level is still a top-level change. Changing a
 retained declaration, removing it, or making a replacement body use a
 declaration the running module never installed requires restart. A raw or
 indirect FFI operation that cannot be assigned a complete identity retains the

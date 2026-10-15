@@ -76,7 +76,7 @@ local guarantees = {
          {"cheadertest", "preprocessorProvenanceIncludesNestedHeaders"},
          {"hotreloadtest", "sessionObservesHeaderSemanticsAndIgnoresComments"},
          {"hotreloadtest", "sessionTracksPreprocessedHeaderClosure"},
-         {"hotreloadtest", "cliWatchObservesHeaderOnlyEdits"},
+         {"hotreloadtest", "headerDependencyClosureGrowsAndShrinksAfterNoChange"},
       },
    },
    {
