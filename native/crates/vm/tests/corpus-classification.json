@@ -1509,9 +1509,9 @@
     },
     {
       "suite": "workerstartuptest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "tests LuaJIT's nupp.workers.native C module; the VM's workers are scope:fork"
     },
     {
       "suite": "worktreetest",
