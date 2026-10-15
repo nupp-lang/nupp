@@ -2,14 +2,17 @@ local system = require("nupp.system")
 local random = require("nupp.random")
 local uuid = require("nupp.util")
 local providerstate = require("providerstate")
-local ffi = require("ffi")
+local targetLayout = require("nupp.compiler.targetlayout")
 local M = {}
 
 function M.systemReportsExecutingAbiWithoutWorkers()
     assert(type(system.platform) == "string" and #system.platform > 0)
     assert(type(system.architecture) == "string" and #system.architecture > 0)
-    assert(system.pointerBits == ffi.sizeof("void *") * 8)
-    assert(system.endianness == (ffi.abi("le") and "little" or "big"))
+    -- The host's modeled target: every one is little-endian, and the i686 and
+    -- wasm32 ones are the 32-bit targets.
+    local key = assert(targetLayout.hostKey(), "the host is a modeled target")
+    assert(system.pointerBits == ((key:match("^i686") or key:match("^wasm32")) and 32 or 64))
+    assert(system.endianness == "little")
     local count = system.availableParallelism()
     assert(type(count) == "number" and count >= 1 and count == math.floor(count))
 end

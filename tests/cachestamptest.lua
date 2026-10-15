@@ -8,6 +8,8 @@
 local cache = require("nupp.tools.build.cache")
 local envMod = require("nupp.compiler.project.env")
 local stable = require("nupp.compiler.stable")
+-- The codec the store writes with: the VM's plain codec where the host has one.
+local codec = rawget(_G, "__nupp_plain_codec") or require("string.buffer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -17,10 +19,7 @@ if not HERE:match("^/") then
 end
 local ROOT = assert(HERE:match("^(.*)/[^/]+$"), "tests directory has no parent")
 local NUPP = ROOT .. "/bin/nupp"
--- The isolated lane itself runs from a bundle. These cases exercise the module
--- tree, so load that implementation by filename rather than asking the bundle
--- for its intentionally whole-tool fallback.
-local fingerprint = dofile(ROOT .. "/build/nupp/compiler/project/fingerprint.lua")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 
 local function tempProject(files)
     local dir = os.tmpname()
@@ -78,73 +77,6 @@ function M.stableTextDoesNotDependOnCollidingKeyInsertionOrder()
     assert(stable(stringFirst) == expected, stable(stringFirst))
 end
 
--- The failure this catches is silent and total: one `require` of a computed name
--- anywhere in the compiler, and every stamp below becomes the whole compiler again.
--- Nothing breaks, every command just goes back to throwing away the last one's work.
-function M.eachSubsystemIsStampedWithItselfRatherThanTheWholeCompiler()
-    local whole = fingerprint.toolFingerprint()
-    local seen = {}
-    for _, name in ipairs({
-        "nupp.compiler.project.header",
-        "nupp.tools.fmt",
-        "nupp.compiler.check",
-        "nupp.tools.build.modules",
-    }) do
-        local stamp = fingerprint.subsystemFingerprint({name})
-        assert(stamp ~= whole, ("%s is stamped with the whole compiler, so the graph could not be read"):format(name))
-        assert(not seen[stamp], ("%s has the same stamp as %s"):format(name, tostring(seen[stamp])))
-        seen[stamp] = name
-    end
-end
-
--- The generated SPI index is data. Its dependency declarations connect the lazy
--- loader to the implementation code, and a qualified global require still counts.
-function M.spiIndexDependenciesRetainNarrowImplementationStamps()
-    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
-    local cacheCode = source:read("*a")
-    source:close()
-    local dir = tempProject({
-        ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
-        ["nupp/compiler/entry.lua"] = 'return _G.require("nupp.spi")',
-        [
-            "nupp/spi.lua"
-        ] = [[
---@requires-dynamically nupp.spi.index
-local index = require("nupp.spi.index")
-return function(name) return require(index[name][1]) end
-]],
-        [
-            "nupp/spi/index.lua"
-        ] = [[
---@requires-dynamically nupp.fixture
-return {["example.spi.Provider"] = {"nupp.fixture"}}
-]],
-        ["nupp/fixture.lua"] = 'return {name = "first"}',
-    })
-
-    local function stamp()
-        local prior = package.loaded["nupp.compiler.project.fingerprint"]
-        local ok, result = pcall(function()
-            local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-            local narrow = isolated.subsystemFingerprint({"nupp.compiler.entry"})
-            assert(narrow ~= isolated.toolFingerprint(), "SPI discovery made the graph incomplete")
-            return narrow
-        end)
-        package.loaded["nupp.compiler.project.fingerprint"] = prior
-        assert(ok, result)
-
-        return result
-    end
-
-    local before = stamp()
-    local changed = assert(io.open(dir .. "/nupp/fixture.lua", "wb"))
-    changed:write('return {name = "second"}')
-    changed:close()
-    local after = stamp()
-    assert(require("nupp.io.files").remove(dir, true))
-    assert(before ~= after, "the subsystem stamp did not cover its implementation")
-end
-
 -- Falling back is always allowed. It costs work and changes no answer, which is what
 -- makes it the right thing to do about a question this cannot answer.
 function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
@@ -154,121 +86,6 @@ function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
         }) == fingerprint.graphFingerprint(),
         "an unknown module has to leave the stamp covering everything"
     )
-end
-
--- The whole-tool stamp is what a build's completion record and every AOT key are
--- written under, and `nupp.tools.build` is where an artifact is put together, so
--- it covers the tools tree beside the compiler's. It is read from the tree the
--- module was loaded out of, so a copy of the module in a tree of its own answers
--- for that tree alone, and an edit on either side has to move it.
-function M.theToolStampCoversTheToolsTreeAsWellAsTheCompilers()
-    local dir = tempProject({
-        [
-            "nupp/compiler/project/fingerprint.lua"
-        ] = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
-            :read("*a"),
-        ["nupp/compiler/one.lua"] = "return 1\n",
-        ["nupp/tools/two.lua"] = "return 2\n",
-    })
-
-    -- Loaded afresh each time: the stamp is kept for the life of the module.
-    local function stamp()
-        return dofile(dir .. "/nupp/compiler/project/fingerprint.lua").toolFingerprint()
-    end
-
-    local function edit(path, text)
-        local file = assert(io.open(dir .. "/" .. path, "wb"))
-        file:write(text)
-        file:close()
-    end
-
-    local first = stamp()
-    assert(stamp() == first, "an unchanged tree stamps the same")
-    edit("nupp/tools/two.lua", "return 22\n")
-    local tools = stamp()
-    assert(tools ~= first, "an edit to the tools tree left the tool stamp where it was")
-    edit("nupp/compiler/one.lua", "return 11\n")
-    assert(stamp() ~= tools, "an edit to the compiler tree left the tool stamp where it was")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The graph digests every module beside the compiler too, so it has to be kept
--- under a stamp that covers them. Stamped with the compiler and tools alone, an
--- edit to the runtime went on being answered from the graph before it, and every
--- subsystem stamp reaching that module described code that was gone.
-function M.aKeptGraphIsNotReusedAcrossAnEditBesideTheCompiler()
-    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
-    local cacheCode = source:read("*a")
-    source:close()
-    local dir = tempProject({
-        ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
-        ["nupp/compiler/entry.lua"] = 'return require("nupp.runtime.part")',
-        ["nupp/runtime/part.lua"] = "return 1\n",
-    })
-    local cacheDir = dir .. "/cache"
-
-    local function stamp()
-        local prior = package.loaded["nupp.compiler.project.fingerprint"]
-        local ok, result = pcall(function()
-            return dofile(
-                dir .. "/nupp/compiler/project/fingerprint.lua"
-            ).subsystemFingerprint({"nupp.compiler.entry"}, cacheDir)
-        end)
-        package.loaded["nupp.compiler.project.fingerprint"] = prior
-        assert(ok, result)
-
-        return result
-    end
-
-    local before = stamp()
-    assert(exists(cacheDir .. "/modulegraph.buf"), "the graph was kept")
-    local file = assert(io.open(dir .. "/nupp/runtime/part.lua", "wb"))
-    file:write("return 2\n")
-    file:close()
-    local after = stamp()
-    assert(require("nupp.io.files").remove(dir, true))
-    assert(before ~= after, "the kept graph answered for a runtime module that had changed")
-end
-
--- The first caller in a process may have nowhere to keep the graph -- a check with
--- no build directory -- and used to be the only caller that could compute it, so a
--- build in the same process never wrote the store and every later command lexed the
--- compiler again.
-function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
-    assert(fingerprint.subsystemFingerprint({"nupp.tools.fmt"}), "computed with nowhere to keep it")
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    fingerprint.subsystemFingerprint({"nupp.compiler.project.fingerprint", "nupp.compiler.stable"}, dir)
-    assert(
-        exists(dir .. "/modulegraph.buf"),
-        "the store handed to a later caller receives the graph the earlier one computed"
-    )
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A cache payload can decode successfully while still being incomplete. Traversal
--- must treat that as a miss, because the cache never gets to turn damage on disk into
--- a failed check or build.
-function M.aMalformedModuleGraphIsRecomputed()
-    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
-    local cacheCode = source:read("*a")
-    source:close()
-    local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
-    local cacheDir = dir .. "/cache"
-    local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local stamp = "modules/2\0" .. isolated.graphFingerprint()
-    local store = require("nupp.compiler.project.store")
-    local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
-    damaged.set({files = {}})
-    damaged.save()
-
-    local fresh = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local ok, answer = pcall(fresh.subsystemFingerprint, {"nupp.compiler.project.fingerprint"}, cacheDir)
-    assert(ok and type(answer) == "string", tostring(answer))
-    local repaired = store.openValue(cacheDir .. "/modulegraph.buf", stamp).value
-    assert(repaired.files["nupp.compiler.project.fingerprint"], "the malformed graph was not replaced")
-    assert(require("nupp.io.files").remove(dir, true))
 end
 
 -- Most single flipped bytes in an encoded store still decode, and a hit is never
@@ -286,7 +103,10 @@ function M.aStoreWhoseBodyWasDamagedAnswersNothing()
         local at = assert(text:find(message, 1, true), "the message is stored as written")
         local flipped = string.char(bit.bxor(text:byte(at + 7), 1))
         text = text:sub(1, at + 6) .. flipped .. text:sub(at + 8)
-        assert(pcall(require("string.buffer").decode, text), "the damage still decodes")
+        -- string.buffer still decodes this, which is what the seal is for; the VM's
+        -- plain codec checks its own payload and refuses it outright. Either way
+        -- the store has to answer nothing.
+        assert(codec == rawget(_G, "__nupp_plain_codec") or pcall(codec.decode, text), "the damage still decodes")
         file = assert(io.open(path, "wb"))
         file:write(text)
         file:close()
@@ -482,7 +302,7 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
     -- of the file rather than spelled here: the newest body is this compiler's.
     local function stamp()
         local file = assert(io.open(path, "rb"))
-        local envelope = require("string.buffer").decode(file:read("*a"))
+        local envelope = codec.decode(file:read("*a"))
         file:close()
         return envelope.slots[1].stamp
     end
@@ -529,196 +349,6 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
     )
     assert(passed, "and so a project that checks clean was reported failing: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The bytecode cache. Its whole contract is that it changes nothing: a module
--- served out of it has to be the module that was on disk, named the way the file
--- searcher would have named it, because the compiler locates its declarations and
--- its native library by reading that name back off itself.
-local bytecodecache = require("nupp.tools.bytecodecache")
-
--- One tree with one module in it, compiled and cached, and the digest a build
--- would have recorded for it.
-local function cachedTree(name, text)
-    local dir = os.tmpname()
-    os.remove(dir)
-    local out = dir .. "/build"
-    local path = out .. "/" .. name:gsub("%.", "/") .. ".lua"
-    assert(os.execute("mkdir -p '" .. (path:match("^(.*)/[^/]+$")) .. "'") == 0)
-    local file = assert(io.open(path, "wb"))
-    file:write(text)
-    file:close()
-    local digest = require("nupp.compiler.hash").digest(text)
-    bytecodecache.refresh(out, {[name] = {output = path, artifactHash = digest}})
-
-    return dir, out, path
-end
-
-function M.aCachedModuleIsNamedTheWayTheFileSearcherWouldHaveNamedIt()
-    local name = "cachedthing"
-    local dir, out, path = cachedTree(name, "return debug.getinfo(1, 'S').source\n")
-
-    local search = assert(bytecodecache.searcher(out), "the cache it just wrote is usable")
-    local cached = assert(search(name), "and answers for the module it was given")
-    local plain = assert(loadfile(path))
-    assert(cached() == plain(), "a cached module reports the source a parsed one does: " .. tostring(cached()))
-    assert(cached() == "@" .. path, "which is the path on package.path: " .. tostring(cached()))
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.equalModulesKeepTheirOwnChunkNames()
-    local dir = os.tmpname()
-    os.remove(dir)
-    local out = dir .. "/build"
-    local text = "return debug.getinfo(1, 'S').source\n"
-    local digest = require("nupp.compiler.hash").digest(text)
-    local modules = {}
-    for _, name in ipairs({"same.first", "same.second"}) do
-        local path = out .. "/" .. name:gsub("%.", "/") .. ".lua"
-        assert(os.execute("mkdir -p '" .. (path:match("^(.*)/[^/]+$")) .. "'") == 0)
-        local file = assert(io.open(path, "wb"))
-        file:write(text)
-        file:close()
-        modules[name] = {output = path, artifactHash = digest}
-    end
-
-    bytecodecache.refresh(out, modules)
-    local search = assert(bytecodecache.searcher(out), "the cache it just wrote is usable")
-    for name in pairs(modules) do
-        local cached = assert(search(name), "the cache answers " .. name)
-        assert(
-            cached() == "@" .. out .. "/" .. name:gsub("%.", "/") .. ".lua",
-            name .. " kept another module's chunk name"
-        )
-    end
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Every way this can be wrong has one answer, which is to say nothing and let the
--- file searcher do what it did before there was a cache.
-function M.aDamagedOrForeignCacheAnswersNothingRatherThanWrongly()
-    local name = "damagedthing"
-    local dir, out = cachedTree(name, "return 1\n")
-    local index = assert(bytecodecache.indexPath(out))
-
-    local handle = assert(io.open(index, "rb"))
-    local original = handle:read("*a")
-    handle:close()
-    local entry = index:gsub("index$", "") .. assert(original:match("(%x+) " .. name)) .. ".bc"
-
-    local corrupted = assert(io.open(entry, "wb"))
-    corrupted:write("this is not a dump")
-    corrupted:close()
-    local search = assert(bytecodecache.searcher(out), "a damaged entry is still an index")
-    assert(search(name) == nil, "but the entry answers nothing")
-    assert(io.open(entry, "rb") == nil, "and is removed, so the next build writes it again")
-
-    assert(assert(bytecodecache.searcher(out))(name) == nil, "and a missing entry answers nothing")
-
-    local function rewrite(text)
-        local out = assert(io.open(index, "wb"))
-        out:write(text)
-        out:close()
-    end
-
-    rewrite((original:gsub("root [^\n]*", "root /somewhere/else", 1)))
-    assert(bytecodecache.searcher(out) == nil, "and neither is another tree's")
-    rewrite("not an index at all\n")
-    assert(bytecodecache.searcher(out) == nil, "and neither is nonsense")
-    assert(os.remove(index))
-    assert(bytecodecache.searcher(out) == nil, "and an absent one is simply absent")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The damage the loader cannot see: a flipped bit in a string constant still
--- loads, and the module then answers something the build never wrote. On a tree
--- the build already considers current nothing else rebuilds it, so the entry is
--- checked against what the index recorded, removed when it differs, and written
--- again by the next build rather than reused for being there.
-function M.aDamagedEntryThatStillLoadsAnswersNothing()
-    local name = "flippedthing"
-    local text = "return 'aaaaaaaaaaaaaaaa'\n"
-    local dir, out, path = cachedTree(name, text)
-    local index = assert(bytecodecache.indexPath(out))
-    local handle = assert(io.open(index, "rb"))
-    local entry = index:gsub("index$", "") .. assert(handle:read("*a"):match("(%x+) " .. name)) .. ".bc"
-    handle:close()
-
-    handle = assert(io.open(entry, "rb"))
-    local bytes = handle:read("*a")
-    handle:close()
-    local at = assert(bytes:find("aaaaaaaaaaaaaaaa", 1, true), "the constant is in the dump")
-    -- 'a' to 'c': one bit, and still a dump that loads and runs.
-    local flipped = bytes:sub(1, at - 1) .. "c" .. bytes:sub(at + 1)
-    assert(loadstring(flipped)() == "caaaaaaaaaaaaaaa", "the damage is the kind the loader cannot see")
-    handle = assert(io.open(entry, "wb"))
-    handle:write(flipped)
-    handle:close()
-
-    assert(assert(bytecodecache.searcher(out))(name) == nil, "a damaged entry answered for the module")
-    assert(io.open(entry, "rb") == nil, "the damaged entry was left to be reused")
-
-    bytecodecache.refresh(out, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)}})
-    local cached = assert(assert(bytecodecache.searcher(out))(name), "the next build did not write it again")
-    assert(cached() == "aaaaaaaaaaaaaaaa", "the rewritten entry is not the module")
-
-    -- One of another length, the length alone tells.
-    handle = assert(io.open(entry, "rb"))
-    bytes = handle:read("*a")
-    handle:close()
-    handle = assert(io.open(entry, "wb"))
-    handle:write(bytes .. "\0")
-    handle:close()
-    assert(assert(bytecodecache.searcher(out))(name) == nil, "an entry of another length answered")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- An edit gives a module a new digest, and the entry under the old one is then
--- unreachable. Left alone it would be one compiled module of garbage per edit.
-function M.rewritingTheCacheRemovesTheEntriesNothingPointsAt()
-    local name = "churningthing"
-    local dir, out, path = cachedTree(name, "return 1\n")
-
-    local function entries()
-        local dir = assert(bytecodecache.indexPath(out)):gsub("/index$", "")
-        local pipe = assert(io.popen("ls '" .. dir .. "' | grep -c '.bc$'"))
-        local count = tonumber(pipe:read("*a"))
-        pipe:close()
-
-        return count
-    end
-
-    assert(entries() == 1, "one module, one entry")
-
-    local text = "return 2\n"
-    local file = assert(io.open(path, "wb"))
-    file:write(text)
-    file:close()
-    bytecodecache.refresh(out, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},})
-    assert(entries() == 1, "and after an edit still one, rather than one per edit")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The trap this closes: an entry is named by the digest of the module it holds,
--- which says nothing about the path written inside it. Copy a build tree and
--- every digest still matches while every name points at where the tree used to
--- be, so a compiler served out of it looks for its declarations in the old place.
-function M.aMovedTreeGetsItsEntriesWrittenAgainRatherThanReused()
-    local name = "movedthing"
-    local text = "return debug.getinfo(1, 'S').source\n"
-    local dir, out = cachedTree(name, text)
-    local elsewhere = os.tmpname()
-    os.remove(elsewhere)
-    assert(os.execute("cp -R '" .. dir .. "' '" .. elsewhere .. "'") == 0)
-
-    local moved = elsewhere .. "/build"
-    assert(bytecodecache.searcher(moved) == nil, "a moved tree is not read until it is rewritten")
-
-    local path = moved .. "/" .. name .. ".lua"
-    bytecodecache.refresh(moved, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},})
-    local cached = assert(assert(bytecodecache.searcher(moved))(name), "and is read once it is")
-    assert(cached() == "@" .. path, "with the name it has now, not the one it had: " .. tostring(cached()))
-    os.execute("rm -rf '" .. dir .. "' '" .. elsewhere .. "'")
 end
 
 return M

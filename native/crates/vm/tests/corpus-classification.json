@@ -681,21 +681,21 @@
     },
     {
       "suite": "hostbinarytest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "jit,getinfo,spawn",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "tests LuaJIT host binaries stamped from native/crates/host; VM program binaries are the runtime with an appended image, and the file goes with native/crates/host"
     },
     {
       "suite": "hostchanneltest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "jit,getinfo,spawn",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "tests the LuaJIT host channel between an embedder and a LuaJIT guest (native/crates/host); the file goes with native/crates/host"
     },
     {
       "suite": "hostembeddingtest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "ffi,jit,getinfo,spawn",
-      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "tests the LuaJIT embedding SDK (native/crates/host) from C; the VM embeds through its own runtime, and the file goes with native/crates/host and its CI gate"
     },
     {
       "suite": "hotreloadguaranteetest",
@@ -1023,9 +1023,9 @@
     },
     {
       "suite": "processprovidertest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "tested the LuaJIT native process provider's mapping of its C ABI statuses through ffi; the VM's provider (native/crates/vm/lib) calls the runtime's process builtins, covered by process_host.rs"
     },
     {
       "suite": "processtest",

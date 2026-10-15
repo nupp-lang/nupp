@@ -1,6 +1,55 @@
 -- Independent module instances for lifecycle fixtures. Each facade retains one
 -- provider.
+--
+-- An instance runs a module's body again with its own `require`, so each one
+-- holds its own provider state. On the VM the module's Nupp source is lowered
+-- once with its globals read from an environment, which is what that `require`
+-- lives in; under LuaJIT the compiled Lua a build left is loaded with one.
 local M = {}
+
+local loadImage = rawget(_G, "__nupp_load_image")
+local images = {}
+local checkEnv = nil
+
+local function vmModule(name)
+    local compiled = images[name]
+    if compiled then
+        return compiled
+    end
+    local envMod = require("nupp.compiler.project.env")
+    local root = envMod.compilerRoot() or "."
+    if not checkEnv then
+        -- The VM's own implementation of a module comes first, as the image
+        -- builder and the runtime loader resolve it.
+        checkEnv = envMod.new(root)
+        table.insert(checkEnv.roots, 1, root .. "/native/crates/vm/lib")
+        table.insert(checkEnv.roots, 1, root .. "/native/crates/vm/decls")
+    end
+    local path = envMod.findRuntimeModulePath(checkEnv, name)
+    if not path then
+        error("no Nupp source for " .. name)
+    end
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    local result = require("nupp.compiler.syntax.parser").parse(source, path)
+    assert(#result.errors == 0, "syntax errors in " .. path)
+    for _, diagnostic in ipairs(require("nupp.compiler.check").check(result, path, checkEnv, {moduleName = name})) do
+        if diagnostic.severity == "error" or not diagnostic.severity then
+            error(("%s: %s %s"):format(path, tostring(diagnostic.code), tostring(diagnostic.msg)))
+        end
+    end
+    result.root.vmModuleExports = result.moduleExports
+    local image = require("nupp.compiler.vm.lower").emit(name, {}, function(candidate)
+        return candidate == name and path or nil
+    end, function()
+        return result.root
+    end, true)
+    compiled = assert(loadImage(image))
+    images[name] = compiled
+
+    return compiled
+end
 
 local function filename(name)
     local module = name:gsub("%.", "/")
@@ -39,9 +88,14 @@ local function instance(owned, replacements, preloads, globals)
         if not owned[name] then
             return require(name)
         end
-        local chunk = assert(loadfile(filename(name)))
-        setfenv(chunk, environment)
-        local value = chunk()
+        local value
+        if loadImage then
+            value = vmModule(name)({value = environment})
+        else
+            local chunk = assert(loadfile(filename(name)))
+            setfenv(chunk, environment)
+            value = chunk()
+        end
         loaded[name] = value == nil and true or value
 
         return loaded[name]
